@@ -28,6 +28,13 @@ public protocol WritingMode: Sendable {
         tokens: [Token]
     )
 
+    /// Attributes to use for the NSTextView's `typingAttributes` so the caret
+    /// on empty lines uses the right font, color, and paragraph style.
+    func bodyTypingAttributes(
+        theme: Theme,
+        typography: TypographySettings
+    ) -> [NSAttributedString.Key: Any]
+
     /// If the user's typed replacement should auto-transform (em dash, etc.),
     /// return the substitution; otherwise nil.
     func smartTypographyTransform(

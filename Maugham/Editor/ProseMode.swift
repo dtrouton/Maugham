@@ -49,27 +49,13 @@ public struct ProseMode: WritingMode {
     ) {
         let resolved = theme.resolved(systemAppearanceIsDark: false)
         let palette = resolved.palette
-        let baseFont = NSFont(
-            name: typography.fontFamily,
-            size: CGFloat(typography.fontSize)
-        ) ?? NSFont.systemFont(ofSize: CGFloat(typography.fontSize))
-
-        let paragraph = NSMutableParagraphStyle()
-        // Use lineSpacing rather than lineHeightMultiple so the NSTextView
-        // insertion point (which tracks line-box height) stays at glyph height.
-        paragraph.lineSpacing =
-            max(0, baseFont.pointSize * CGFloat(typography.lineHeightMultiplier - 1.0))
-        paragraph.paragraphSpacing =
-            baseFont.pointSize * CGFloat(typography.paragraphSpacingMultiplier)
+        let baseFont = baseFont(for: typography)
+        let bodyAttrs = bodyAttributes(palette: palette, baseFont: baseFont,
+                                       typography: typography)
 
         storage.beginEditing()
         let fullRange = NSRange(location: 0, length: storage.length)
-        // Reset to body defaults
-        storage.setAttributes([
-            .font: baseFont,
-            .foregroundColor: palette.bodyText,
-            .paragraphStyle: paragraph,
-        ], range: fullRange)
+        storage.setAttributes(bodyAttrs, range: fullRange)
 
         for token in tokens {
             guard NSMaxRange(token.range) <= storage.length else { continue }
@@ -78,6 +64,41 @@ public struct ProseMode: WritingMode {
             storage.addAttributes(attrs, range: token.range)
         }
         storage.endEditing()
+    }
+
+    public func bodyTypingAttributes(
+        theme: Theme,
+        typography: TypographySettings
+    ) -> [NSAttributedString.Key: Any] {
+        let resolved = theme.resolved(systemAppearanceIsDark: false)
+        return bodyAttributes(
+            palette: resolved.palette,
+            baseFont: baseFont(for: typography),
+            typography: typography)
+    }
+
+    private func baseFont(for typography: TypographySettings) -> NSFont {
+        NSFont(name: typography.fontFamily, size: CGFloat(typography.fontSize))
+            ?? NSFont.systemFont(ofSize: CGFloat(typography.fontSize))
+    }
+
+    private func bodyAttributes(
+        palette: ThemePalette,
+        baseFont: NSFont,
+        typography: TypographySettings
+    ) -> [NSAttributedString.Key: Any] {
+        let paragraph = NSMutableParagraphStyle()
+        // Use lineSpacing rather than lineHeightMultiple so the NSTextView
+        // insertion point (which tracks line-box height) stays at glyph height.
+        paragraph.lineSpacing =
+            max(0, baseFont.pointSize * CGFloat(typography.lineHeightMultiplier - 1.0))
+        paragraph.paragraphSpacing =
+            baseFont.pointSize * CGFloat(typography.paragraphSpacingMultiplier)
+        return [
+            .font: baseFont,
+            .foregroundColor: palette.bodyText,
+            .paragraphStyle: paragraph,
+        ]
     }
 
     private func attributes(

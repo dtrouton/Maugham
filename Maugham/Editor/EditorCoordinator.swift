@@ -73,6 +73,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             theme: theme,
             typography: typography,
             tokens: tokens)
+        // Sync typing attributes so the caret on empty lines matches the
+        // body font/paragraph style instead of the system default.
+        textView.typingAttributes = mode.bodyTypingAttributes(
+            theme: theme, typography: typography)
     }
 
     // MARK: - NSTextViewDelegate
@@ -90,11 +94,16 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             replacement: replacementString,
             settings: typography
         ) {
-            // Em dash: special-case — also delete the preceding "-"
+            // The transform returns just the substitute glyph; the coordinator
+            // is responsible for consuming the preceding ASCII run that the
+            // substitute replaces. Em dash eats one "-"; ellipsis eats two ".".
             var range = affectedCharRange
             if substitute == "—" && range.location > 0 {
                 range = NSRange(location: range.location - 1,
                                 length: range.length + 1)
+            } else if substitute == "…" && range.location > 1 {
+                range = NSRange(location: range.location - 2,
+                                length: range.length + 2)
             }
             textView.insertText(substitute, replacementRange: range)
             return false
