@@ -1,6 +1,12 @@
 import SwiftUI
 import AppKit
 
+enum ProjectActiveSheet: Identifiable {
+    case projectSettings
+    case claudeDesktop
+    var id: Int { hashValue }
+}
+
 struct ProjectWindow: View {
     @State private var store: ProjectStore?
     @State private var loadError: String?
@@ -9,45 +15,64 @@ struct ProjectWindow: View {
     @State private var metrics: EditorMetrics =
         EditorMetrics(wordCount: 0, characterCount: 0, readingMinutes: 0)
     @State private var showingSaveFlash: Bool = false
-    @Environment(UserPreferences.self) private var themeManager
+    @State private var selectedItemId: String?
+    @State private var activeSheet: ProjectActiveSheet?
+    @State private var showInspector: Bool = true
+    @Environment(UserPreferences.self) private var userPreferences
 
     let url: URL
 
     var body: some View {
         Group {
             if let store {
-                ZStack(alignment: .bottomTrailing) {
-                    EditorSurface(
-                        text: Binding(
-                            get: { store.manuscriptText },
-                            set: { newValue in
-                                store.manuscriptText = newValue
-                                metrics = ProseMode().metrics(newValue)
-                                Task { try? await store.save() }
+                NavigationSplitView {
+                    BinderView(store: store, selectedItemId: $selectedItemId)
+                        .navigationSplitViewColumnWidth(min: 200, ideal: 240)
+                } content: {
+                    ZStack(alignment: .bottomTrailing) {
+                        EditorHost(store: store, selectedItemId: selectedItemId)
+                            .onChange(of: store.manifest.structure) { _, _ in
+                                refreshMetricsForSelection()
                             }
-                        ),
-                        theme: themeManager.theme,
-                        typography: themeManager.typography,
-                        mode: ProseMode(),
-                        typewriterScroll: themeManager.typewriterScroll,
-                        sentenceFocus: themeManager.sentenceFocus,
-                        paragraphFocus: themeManager.paragraphFocus
-                    )
-                    if themeManager.goalIndicatorsVisible {
-                        GoalIndicatorView(metrics: metrics)
+                            .onChange(of: selectedItemId) { _, _ in
+                                refreshMetricsForSelection()
+                            }
+                        if userPreferences.goalIndicatorsVisible {
+                            GoalIndicatorView(metrics: metrics)
+                        }
+                    }
+                    .navigationSplitViewColumnWidth(min: 480, ideal: 720)
+                } detail: {
+                    if showInspector && store.manifest.type != .collection {
+                        InspectorView(
+                            store: store,
+                            selectedItemId: selectedItemId,
+                            metrics: metrics,
+                            onOpenProjectSettings: { activeSheet = .projectSettings }
+                        )
+                        .navigationSplitViewColumnWidth(min: 240, ideal: 280)
                     }
                 }
                 .overlay(alignment: .top) {
                     SaveFlashOverlay(isShowing: $showingSaveFlash)
                 }
                 .navigationTitle(store.manifest.title)
+                .sheet(item: $activeSheet) { sheet in
+                    switch sheet {
+                    case .projectSettings:
+                        ProjectSettingsSheet(store: store)
+                    case .claudeDesktop:
+                        HelpClaudeDesktopSheet(
+                            projectURL: store.url,
+                            projectTitle: store.manifest.title)
+                    }
+                }
             } else if let loadError {
                 VStack(spacing: 12) {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.largeTitle)
                         .foregroundStyle(.secondary)
-                    Text("Couldn't open project")
-                        .font(.headline)
+                    Text("Couldn't open project").font(.headline)
                     Text(loadError)
                         .font(.callout)
                         .foregroundStyle(.secondary)
@@ -55,10 +80,11 @@ struct ProjectWindow: View {
                 }
                 .padding(48)
             } else {
-                ProgressView("Loading…").frame(maxWidth: .infinity, maxHeight: .infinity)
+                ProgressView("Loading…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .frame(minWidth: 720, minHeight: 480)
+        .frame(minWidth: 980, minHeight: 540)
         .background(WindowAccessor(window: $window))
         .task(id: url) { await load() }
         .onReceive(NotificationCenter.default.publisher(for: .maughamToggleNoChrome)) { _ in
@@ -71,9 +97,41 @@ struct ProjectWindow: View {
         .onReceive(NotificationCenter.default.publisher(for: .maughamDummySave)) { _ in
             showSaveFlash()
         }
-        .onChange(of: isNoChromeOn) { _, _ in
-            applyNoChrome()
+        .onReceive(NotificationCenter.default.publisher(for: .maughamShowProjectSettings)) { _ in
+            activeSheet = .projectSettings
         }
+        .onReceive(NotificationCenter.default.publisher(for: .maughamShowClaudeDesktopHelp)) { _ in
+            activeSheet = .claudeDesktop
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .maughamToggleInspector)) { _ in
+            showInspector.toggle()
+        }
+        .onChange(of: isNoChromeOn) { _, _ in applyNoChrome() }
+    }
+
+    // MARK: - Helpers
+
+    private func refreshMetricsForSelection() {
+        guard let store, let id = selectedItemId,
+              let item = findItem(id: id, in: store.manifest.structure),
+              item.type == .document, let path = item.path else {
+            metrics = EditorMetrics(wordCount: 0, characterCount: 0, readingMinutes: 0)
+            return
+        }
+        let url = store.url.appendingPathComponent(path)
+        if let data = try? Data(contentsOf: url),
+           let text = String(data: data, encoding: .utf8) {
+            metrics = WritingModeFactory.mode(for: path).metrics(text)
+        }
+    }
+
+    private func findItem(id: String, in items: [StructureItem]) -> StructureItem? {
+        for item in items {
+            if item.id == id { return item }
+            if let children = item.children,
+               let n = findItem(id: id, in: children) { return n }
+        }
+        return nil
     }
 
     private func applyNoChrome() {
@@ -108,9 +166,11 @@ struct ProjectWindow: View {
     private func load() async {
         do {
             store = try await ProjectStore.load(from: url)
-            if let store {
-                metrics = ProseMode().metrics(store.manuscriptText)
+            // Auto-select the first document for usability
+            if let first = firstDocument(in: store?.manifest.structure ?? []) {
+                selectedItemId = first.id
             }
+            refreshMetricsForSelection()
             loadError = nil
         } catch ProjectStoreError.manifestNotFound {
             loadError = "No project.maugham.json was found in this folder."
@@ -122,24 +182,27 @@ struct ProjectWindow: View {
             loadError = error.localizedDescription
         }
     }
+
+    private func firstDocument(in items: [StructureItem]) -> StructureItem? {
+        for item in items {
+            if item.type == .document { return item }
+            if let children = item.children,
+               let nested = firstDocument(in: children) { return nested }
+        }
+        return nil
+    }
 }
 
 private struct WindowAccessor: NSViewRepresentable {
     @Binding var window: NSWindow?
-
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
-        DispatchQueue.main.async {
-            self.window = view.window
-        }
+        DispatchQueue.main.async { self.window = view.window }
         return view
     }
-
     func updateNSView(_ nsView: NSView, context: Context) {
         DispatchQueue.main.async {
-            if self.window == nil {
-                self.window = nsView.window
-            }
+            if self.window == nil { self.window = nsView.window }
         }
     }
 }
