@@ -64,4 +64,50 @@ final class ProjectStoreTests: XCTestCase {
         let store = try await ProjectStore.load(from: url)
         XCTAssertEqual(store.manuscriptText, "")
     }
+
+    func test_save_writesManuscriptToDisk() async throws {
+        let url = try await ProjectFactory.createShortStoryProject(
+            named: "Savable", in: temp.url)
+        let store = try await ProjectStore.load(from: url)
+        store.manuscriptText = "First sentence."
+        try await store.save()
+
+        let storyText = try String(contentsOf: url.appendingPathComponent("story.md"),
+                                   encoding: .utf8)
+        XCTAssertEqual(storyText, "First sentence.")
+    }
+
+    func test_save_updatesManifestModifiedDate() async throws {
+        let url = try await ProjectFactory.createShortStoryProject(
+            named: "Mod", in: temp.url)
+        let store = try await ProjectStore.load(from: url)
+        let originalModified = store.manifest.modified
+
+        // Ensure a measurable delta even on fast machines
+        try await Task.sleep(for: .milliseconds(20))
+
+        store.manuscriptText = "x"
+        try await store.save()
+
+        XCTAssertGreaterThan(store.manifest.modified, originalModified)
+
+        // And the manifest on disk reflects it
+        let data = try Data(contentsOf: url.appendingPathComponent("project.maugham.json"))
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let onDisk = try decoder.decode(ProjectManifest.self, from: data)
+        XCTAssertEqual(onDisk.modified, store.manifest.modified)
+    }
+
+    func test_save_isAtomicForManifest() async throws {
+        // We can't easily test atomicity directly, but we can verify the .tmp
+        // file doesn't get left behind on a successful save.
+        let url = try await ProjectFactory.createShortStoryProject(
+            named: "Atomic", in: temp.url)
+        let store = try await ProjectStore.load(from: url)
+        try await store.save()
+
+        let tmpURL = url.appendingPathComponent("project.maugham.json.tmp")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: tmpURL.path))
+    }
 }

@@ -68,4 +68,40 @@ public final class ProjectStore {
             throw ProjectStoreError.manuscriptUnreadable(error.localizedDescription)
         }
     }
+
+    /// Persist the current manuscript text and an updated `modified` timestamp.
+    /// Manifest write is atomic via temp-file + rename. Manuscript write is
+    /// non-atomic in 1a; NSFileCoordinator integration arrives in milestone 1e.
+    public func save() async throws {
+        // Write manuscript first; if it fails we don't bump the manifest.
+        guard let docPath = manifest.structure.first(where: { $0.type == .document })?.path else {
+            throw ProjectStoreError.structureMissing
+        }
+        let manuscriptURL = url.appendingPathComponent(docPath)
+        do {
+            try manuscriptText.write(to: manuscriptURL, atomically: true, encoding: .utf8)
+        } catch {
+            throw ProjectStoreError.manuscriptUnwritable(error.localizedDescription)
+        }
+
+        // Bump modified and write manifest atomically.
+        // Round to whole seconds so the in-memory value matches what ISO-8601
+        // (second precision) will round-trip back from disk.
+        manifest.modified = Date(timeIntervalSinceReferenceDate:
+            (Date().timeIntervalSinceReferenceDate).rounded())
+        let manifestURL = url.appendingPathComponent(Self.manifestFilename)
+        let tmpURL = url.appendingPathComponent(Self.manifestFilename + ".tmp")
+
+        do {
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(manifest)
+            try data.write(to: tmpURL)
+            _ = try FileManager.default.replaceItemAt(manifestURL, withItemAt: tmpURL)
+        } catch {
+            try? FileManager.default.removeItem(at: tmpURL)
+            throw ProjectStoreError.manifestUnwritable(error.localizedDescription)
+        }
+    }
 }
