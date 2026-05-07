@@ -380,6 +380,24 @@ public final class ProjectStore {
         }
     }
 
+    /// Update an item's inspector fields. `nil` arguments mean "leave unchanged";
+    /// to explicitly clear a field, pass an empty string.
+    public func updateInspector(
+        id: String,
+        synopsis: String?,
+        status: String?
+    ) async throws {
+        guard findItem(id: id, in: manifest.structure) != nil else {
+            throw ProjectStoreError.structureMissing
+        }
+        mutateItem(id: id) { item in
+            if let synopsis { item.synopsis = synopsis }
+            if let status { item.status = status }
+        }
+        manifest.modified = Date()
+        try await saveManifest()
+    }
+
     /// Persist the current manuscript text and an updated `modified` timestamp.
     /// Manifest write is atomic via temp-file + rename. Manuscript write is
     /// non-atomic in 1a; NSFileCoordinator integration arrives in milestone 1e.

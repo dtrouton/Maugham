@@ -237,4 +237,49 @@ final class ProjectStoreMutationTests: XCTestCase {
             // ok
         }
     }
+
+    // MARK: - updateInspector
+
+    func test_updateInspector_setsSynopsisAndStatus() async throws {
+        let url = try await ProjectFactory.createShortStoryProject(
+            named: "Insp", in: temp.url)
+        let store = try await ProjectStore.load(from: url)
+        let rootItem = store.manifest.structure[0]
+
+        try await store.updateInspector(
+            id: rootItem.id,
+            synopsis: "Larry returns from the war.",
+            status: "revising")
+
+        let updated = store.manifest.structure[0]
+        XCTAssertEqual(updated.synopsis, "Larry returns from the war.")
+        XCTAssertEqual(updated.status, "revising")
+    }
+
+    func test_updateInspector_partial_keepsOtherField() async throws {
+        let url = try await ProjectFactory.createShortStoryProject(
+            named: "Insp", in: temp.url)
+        let store = try await ProjectStore.load(from: url)
+        let rootId = store.manifest.structure[0].id
+        try await store.updateInspector(
+            id: rootId, synopsis: "First", status: "draft")
+        try await store.updateInspector(
+            id: rootId, synopsis: nil, status: "final")
+
+        let updated = store.manifest.structure[0]
+        // synopsis: nil means "leave unchanged"
+        XCTAssertEqual(updated.synopsis, "First")
+        XCTAssertEqual(updated.status, "final")
+    }
+
+    func test_updateInspector_invalidId_throws() async throws {
+        let url = try await ProjectFactory.createShortStoryProject(
+            named: "Insp", in: temp.url)
+        let store = try await ProjectStore.load(from: url)
+        do {
+            try await store.updateInspector(
+                id: "nope", synopsis: "x", status: "x")
+            XCTFail("expected throw")
+        } catch ProjectStoreError.structureMissing {}
+    }
 }
