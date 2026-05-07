@@ -38,6 +38,13 @@ struct MaughamApp: App {
                 }
                 .keyboardShortcut("f", modifiers: [.command, .shift])
             }
+            CommandGroup(after: .saveItem) {
+                Button("Save") {
+                    NotificationCenter.default.post(
+                        name: .maughamDummySave, object: nil)
+                }
+                .keyboardShortcut("s", modifiers: .command)
+            }
         }
 
         WindowGroup(id: "project", for: URL.self) { $url in

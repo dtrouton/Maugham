@@ -8,6 +8,7 @@ struct ProjectWindow: View {
     @State private var window: NSWindow?
     @State private var metrics: EditorMetrics =
         EditorMetrics(wordCount: 0, characterCount: 0, readingMinutes: 0)
+    @State private var showingSaveFlash: Bool = false
     @Environment(ThemeManager.self) private var themeManager
 
     let url: URL
@@ -32,6 +33,9 @@ struct ProjectWindow: View {
                         sentenceFocus: themeManager.sentenceFocus,
                         paragraphFocus: themeManager.paragraphFocus
                     )
+                    .overlay(alignment: .top) {
+                        SaveFlashOverlay(isShowing: $showingSaveFlash)
+                    }
                     if themeManager.goalIndicatorsVisible {
                         GoalIndicatorView(metrics: metrics)
                     }
@@ -64,6 +68,9 @@ struct ProjectWindow: View {
         .onReceive(NotificationCenter.default.publisher(for: .maughamToggleFullScreen)) { _ in
             toggleFullScreen()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .maughamDummySave)) { _ in
+            showSaveFlash()
+        }
         .onChange(of: isNoChromeOn) { _, _ in
             applyNoChrome()
         }
@@ -86,6 +93,15 @@ struct ProjectWindow: View {
             applyNoChrome()
         }
         window.toggleFullScreen(nil)
+    }
+
+    @MainActor
+    private func showSaveFlash() {
+        showingSaveFlash = true
+        Task {
+            try? await Task.sleep(for: .milliseconds(1200))
+            await MainActor.run { showingSaveFlash = false }
+        }
     }
 
     @MainActor
