@@ -29,11 +29,6 @@ struct NewProjectSheet: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                if selectedType != .shortStory {
-                    Text("\(label(for: selectedType)) projects arrive in milestone 1d. Pick Short Story for now.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
 
                 HStack {
                     Text("Save in:")
@@ -66,7 +61,6 @@ struct NewProjectSheet: View {
     private var isFormValid: Bool {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && parentURL != nil
-            && selectedType == .shortStory
     }
 
     private func label(for type: ProjectType) -> String {
@@ -81,9 +75,9 @@ struct NewProjectSheet: View {
     private func help(for type: ProjectType) -> String {
         switch type {
         case .shortStory: return "A single-document prose project."
-        case .novel: return "A multi-file novel with binder. Available in milestone 1d."
-        case .screenplay: return "A Fountain-format screenplay. Available in milestone 1d."
-        case .collection: return "A collection of stories. Available in milestone 1d."
+        case .novel: return "A multi-file novel with a hierarchical binder."
+        case .screenplay: return "A Fountain-format screenplay (no parser yet — plain monospace)."
+        case .collection: return "A collection placeholder; depth arrives in Phase 2."
         }
     }
 
@@ -109,8 +103,21 @@ struct NewProjectSheet: View {
         errorMessage = nil
         defer { isCreating = false }
         do {
-            let url = try await ProjectFactory.createShortStoryProject(
-                named: name, in: parent)
+            let url: URL
+            switch selectedType {
+            case .shortStory:
+                url = try await ProjectFactory.createShortStoryProject(
+                    named: name, in: parent)
+            case .novel:
+                url = try await ProjectFactory.createNovelProject(
+                    named: name, in: parent)
+            case .screenplay:
+                url = try await ProjectFactory.createScreenplayProject(
+                    named: name, in: parent)
+            case .collection:
+                url = try await ProjectFactory.createCollectionProject(
+                    named: name, in: parent)
+            }
             onCreated(url)
             dismiss()
         } catch ProjectFactoryError.projectAlreadyExists(let existing) {
