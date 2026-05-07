@@ -32,8 +32,9 @@ final class DocumentStoreConflictDocumentTests: XCTestCase {
             to: url.appendingPathComponent(path),
             atomically: true, encoding: .utf8)
 
-        // Wait for the presenter callback to fire.
-        try await Task.sleep(for: .milliseconds(500))
+        // Wait for NSFilePresenter callback + Case A silent reload to update
+        // lastWrittenText. Timeout is 2s — well above typical fire times.
+        try await store.waitForLastWrittenText({ $0 == "external version" })
 
         XCTAssertNil(store.pendingConflict)
         XCTAssertEqual(store.lastWrittenText, "external version")
@@ -76,7 +77,8 @@ final class DocumentStoreConflictDocumentTests: XCTestCase {
         // Our own coordinated save, scheduled and flushed
         store.scheduleSave(for: path, text: "our own change")
         try await store.flushPendingSave()
-        try await Task.sleep(for: .milliseconds(300))
+        // Generous wait to let any presenter callback fire if it would.
+        try await Task.sleep(for: .seconds(1))
 
         XCTAssertNil(store.pendingConflict)
         XCTAssertEqual(store.lastWrittenText, "our own change")

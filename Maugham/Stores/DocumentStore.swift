@@ -1,6 +1,5 @@
 import Foundation
 import AppKit
-import Darwin
 
 @MainActor
 @Observable
@@ -41,12 +40,22 @@ public final class DocumentStore {
         }
     }
 
-    private var saveScheduler: DebounceScheduler<SavePayload>!
+    /// Polling helper for tests: wait until predicate(lastWrittenText) is true.
+    public func waitForLastWrittenText(
+        _ predicate: @escaping (String) -> Bool,
+        timeout: Duration = .seconds(2)
+    ) async throws {
+        let start = Date()
+        while !predicate(lastWrittenText) {
+            if Date().timeIntervalSince(start) > Double(timeout.components.seconds) {
+                struct Timeout: Error {}
+                throw Timeout()
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+    }
 
-    /// DispatchSource watching the open document for fast external-change
-    /// detection (complements NSFilePresenter, which can be slow in tests).
-    private var documentFileSource: DispatchSourceFileSystemObject?
-    private var documentFileDescriptor: Int32 = -1
+    private var saveScheduler: DebounceScheduler<SavePayload>!
 
     private struct SavePayload: Sendable {
         let path: String
@@ -82,7 +91,6 @@ public final class DocumentStore {
     public func close() async {
         try? await flushPendingSave()
         await uiStateScheduler.flush()
-        stopDocumentFileSource()
         if let presenter {
             NSFileCoordinator.removeFilePresenter(presenter)
             self.presenter = nil
@@ -116,40 +124,7 @@ public final class DocumentStore {
                 try? await self?.performSave(path: payload.path, text: payload.text)
             }
         }
-        // Set up a fast DispatchSource watcher for external changes.
-        startDocumentFileSource(for: path, url: url)
         return text
-    }
-
-    // MARK: - Fast file-change watcher (DispatchSource)
-
-    private func startDocumentFileSource(for path: String, url: URL) {
-        stopDocumentFileSource()
-        let filePath = url.path(percentEncoded: false)
-        let fd = Darwin.open(filePath, O_EVTONLY)
-        guard fd >= 0 else { return }
-        documentFileDescriptor = fd
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: DispatchSource.FileSystemEvent([.write, .rename, .delete, .extend]),
-            queue: .global(qos: .userInitiated))
-        source.setEventHandler { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self, let p = self.openDocumentPath, p == path else { return }
-                self.handleOpenDocumentChanged(path: p)
-            }
-        }
-        source.setCancelHandler { [fd] in Darwin.close(fd) }
-        source.resume()
-        documentFileSource = source
-    }
-
-    private func stopDocumentFileSource() {
-        if let src = documentFileSource {
-            src.cancel()
-            documentFileSource = nil
-            documentFileDescriptor = -1
-        }
     }
 
     public func scheduleSave(for path: String, text: String) {
