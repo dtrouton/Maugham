@@ -185,4 +185,56 @@ final class ProjectStoreMutationTests: XCTestCase {
             // ok
         }
     }
+
+    // MARK: - deleteStructureItem
+
+    func test_deleteDocument_recyclesFileAndRemovesEntry() async throws {
+        let url = try await ProjectFactory.createShortStoryProject(
+            named: "Del", in: temp.url)
+        let store = try await ProjectStore.load(from: url)
+        let item = try await store.addStructureItem(
+            parentId: nil, title: "Doomed",
+            kind: .document(extension: "md"))
+        let path = item.path!
+        let fullURL = url.appendingPathComponent(path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fullURL.path))
+
+        try await store.deleteStructureItem(id: item.id)
+
+        // Manifest entry gone
+        XCTAssertFalse(store.manifest.structure
+            .contains { $0.id == item.id })
+        // File no longer at original path (it's in Trash)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fullURL.path))
+    }
+
+    func test_deleteGroup_recyclesFolderRecursively() async throws {
+        let url = try await ProjectFactory.createShortStoryProject(
+            named: "Del", in: temp.url)
+        let store = try await ProjectStore.load(from: url)
+        let group = try await store.addStructureItem(
+            parentId: nil, title: "Doomed Act", kind: .group)
+        _ = try await store.addStructureItem(
+            parentId: group.id, title: "Inside",
+            kind: .document(extension: "md"))
+
+        try await store.deleteStructureItem(id: group.id)
+
+        XCTAssertFalse(store.manifest.structure
+            .contains { $0.id == group.id })
+        let groupURL = url.appendingPathComponent(group.path!)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: groupURL.path))
+    }
+
+    func test_delete_withInvalidId_throws() async throws {
+        let url = try await ProjectFactory.createShortStoryProject(
+            named: "Del", in: temp.url)
+        let store = try await ProjectStore.load(from: url)
+        do {
+            try await store.deleteStructureItem(id: "nope")
+            XCTFail("expected throw")
+        } catch ProjectStoreError.structureMissing {
+            // ok
+        }
+    }
 }

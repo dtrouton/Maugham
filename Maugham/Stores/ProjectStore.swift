@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftUI
 
@@ -323,6 +324,59 @@ public final class ProjectStore {
                                   oldPrefix: oldPrefix, newPrefix: newPrefix)
                 children[i].children = nested
             }
+        }
+    }
+
+    /// Move the item's file or folder to the system Trash and remove its
+    /// manifest entry. For groups, the entire folder (including all children)
+    /// is recycled in one atomic system call.
+    public func deleteStructureItem(id: String) async throws {
+        guard let item = findItem(id: id, in: manifest.structure),
+              let path = item.path else {
+            throw ProjectStoreError.structureMissing
+        }
+
+        let fullURL = url.appendingPathComponent(path)
+        if FileManager.default.fileExists(atPath: fullURL.path) {
+            do {
+                try await recycleURLs([fullURL])
+            } catch {
+                throw ProjectStoreError.fileSystemError(error.localizedDescription)
+            }
+        }
+
+        removeFromStructure(id: id)
+        manifest.modified = Date()
+        try await saveManifest()
+    }
+
+    /// Wrap NSWorkspace.recycle's callback API in async/await.
+    private func recycleURLs(_ urls: [URL]) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            NSWorkspace.shared.recycle(urls) { _, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: ())
+                }
+            }
+        }
+    }
+
+    private func removeFromStructure(id: String) {
+        var newStructure = manifest.structure
+        Self.applyRemoval(id: id, in: &newStructure)
+        manifest.structure = newStructure
+    }
+
+    private static func applyRemoval(
+        id: String, in items: inout [StructureItem]
+    ) {
+        items.removeAll(where: { $0.id == id })
+        for i in items.indices where items[i].children != nil {
+            var children = items[i].children!
+            applyRemoval(id: id, in: &children)
+            items[i].children = children
         }
     }
 
