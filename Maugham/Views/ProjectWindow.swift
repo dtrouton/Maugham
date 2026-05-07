@@ -3,19 +3,25 @@ import SwiftUI
 struct ProjectWindow: View {
     @State private var store: ProjectStore?
     @State private var loadError: String?
+    @State private var themeManager = ThemeManager()
 
     let url: URL
 
     var body: some View {
         Group {
             if let store {
-                PlaceholderEditor(text: Binding(
-                    get: { store.manuscriptText },
-                    set: { newValue in
-                        store.manuscriptText = newValue
-                        Task { try? await store.save() }
-                    }
-                ))
+                EditorSurface(
+                    text: Binding(
+                        get: { store.manuscriptText },
+                        set: { newValue in
+                            store.manuscriptText = newValue
+                            Task { try? await store.save() }
+                        }
+                    ),
+                    theme: themeManager.theme,
+                    typography: themeManager.typography,
+                    mode: ProseMode()
+                )
                 .navigationTitle(store.manifest.title)
             } else if let loadError {
                 VStack(spacing: 12) {
