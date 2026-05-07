@@ -2,14 +2,15 @@ import SwiftUI
 import Foundation
 
 /// Hosts the EditorSurface for a single selected document.
-/// Picks the WritingMode by file extension. Reads the file on appear and
-/// writes back on edit. When `selectedItemId` is nil, shows a placeholder.
+/// Picks the WritingMode by file extension. Routes reads/writes through
+/// the project's DocumentStore. The 750ms autosave debounce lives in
+/// DocumentStore; EditorHost just calls scheduleSave on each keystroke.
 struct EditorHost: View {
     @Bindable var store: ProjectStore
+    @Bindable var documentStore: DocumentStore
     let selectedItemId: String?
-    /// Called whenever the document text changes (typing, paste, etc.).
-    /// Lets the host (ProjectWindow) recompute live metrics for the inspector
-    /// and goal indicator without re-reading from disk.
+    /// Called whenever the document text changes. ProjectWindow uses this
+    /// to recompute live metrics for the inspector and goal indicator.
     var onTextChange: ((String) -> Void)? = nil
     @Environment(UserPreferences.self) private var userPreferences
 
@@ -24,7 +25,9 @@ struct EditorHost: View {
                         get: { documentText },
                         set: { newValue in
                             documentText = newValue
-                            saveDocument(path: path, text: newValue)
+                            documentStore.currentDocumentText = newValue
+                            documentStore.scheduleSave(
+                                for: path, text: newValue)
                             onTextChange?(newValue)
                         }
                     ),
@@ -37,15 +40,28 @@ struct EditorHost: View {
                     sentenceFocus: userPreferences.sentenceFocus,
                     paragraphFocus: userPreferences.paragraphFocus
                 )
-                .id(path)  // Force re-creation when switching documents
+                .id(path)
             } else if currentItem?.type == .group {
                 placeholder("Select a document inside this group to edit.")
             } else {
                 placeholder("Select a document.")
             }
         }
-        .onChange(of: selectedItemId) { _, _ in loadDocumentIfNeeded() }
-        .task { loadDocumentIfNeeded() }
+        .onChange(of: selectedItemId) { _, _ in
+            Task { await loadDocumentIfNeeded() }
+        }
+        .onChange(of: documentStore.lastWrittenText) { _, newValue in
+            // External "Use cloud" resolution updates lastWrittenText to the
+            // external content; rebind the editor to match.
+            if let item = currentItem,
+               item.id == loadedItemId,
+               documentText != newValue {
+                documentText = newValue
+                documentStore.currentDocumentText = newValue
+                onTextChange?(newValue)
+            }
+        }
+        .task { await loadDocumentIfNeeded() }
     }
 
     private var currentItem: StructureItem? {
@@ -53,25 +69,22 @@ struct EditorHost: View {
         return findItem(id: id, in: store.manifest.structure)
     }
 
-    private func loadDocumentIfNeeded() {
+    private func loadDocumentIfNeeded() async {
         guard let item = currentItem,
               item.type == .document,
               let path = item.path,
               loadedItemId != item.id else { return }
-        let url = store.url.appendingPathComponent(path)
-        if let data = try? Data(contentsOf: url),
-           let text = String(data: data, encoding: .utf8) {
+        do {
+            let text = try await documentStore.openDocument(at: path)
             documentText = text
-        } else {
+            documentStore.currentDocumentText = text
+            loadedItemId = item.id
+            onTextChange?(documentText)
+        } catch {
             documentText = ""
+            documentStore.currentDocumentText = ""
+            loadedItemId = item.id
         }
-        loadedItemId = item.id
-        onTextChange?(documentText)
-    }
-
-    private func saveDocument(path: String, text: String) {
-        let url = store.url.appendingPathComponent(path)
-        try? text.data(using: .utf8)?.write(to: url, options: [.atomic])
     }
 
     private func placeholder(_ message: String) -> some View {
