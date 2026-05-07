@@ -251,7 +251,7 @@ public final class ProjectStore {
             let dedupedSlug = Self.dedupeSlug(
                 base: baseSlug, ext: nil, isFolder: true,
                 siblings: siblingNames)
-            newFilename = dedupedSlug
+            newFilename = "\(nn)-\(dedupedSlug)"
         }
 
         let newPath = parentPath.isEmpty ? newFilename : "\(parentPath)/\(newFilename)"

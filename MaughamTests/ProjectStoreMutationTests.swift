@@ -152,19 +152,20 @@ final class ProjectStoreMutationTests: XCTestCase {
 
         try await store.renameStructureItem(id: group.id, newTitle: "Prologue")
 
-        // Group folder moved
+        // Group folder moved; NN prefix preserved.
         let renamedGroup = store.manifest.structure
             .first(where: { $0.id == group.id })!
         XCTAssertEqual(renamedGroup.title, "Prologue")
-        XCTAssertTrue(renamedGroup.path!.contains("prologue"))
+        XCTAssertTrue(renamedGroup.path!.contains("01-prologue"),
+                      "group path \(renamedGroup.path!) should contain '01-prologue' (NN preserved)")
+        XCTAssertFalse(renamedGroup.path!.contains("act-one"),
+                       "group path \(renamedGroup.path!) should not still contain old slug")
 
-        // Scene's path updated to follow group's new path. NN of group is the
-        // same it was at creation (depends on what NN got assigned — it's
-        // currently the only group at root, so 01).
+        // Scene's path updated to follow group's new path.
         let updatedScene = renamedGroup.children!
             .first(where: { $0.id == scene.id })!
-        XCTAssertTrue(updatedScene.path!.contains("/prologue/"),
-                      "scene path \(updatedScene.path!) should contain new group folder name")
+        XCTAssertTrue(updatedScene.path!.contains("/01-prologue/"),
+                      "scene path \(updatedScene.path!) should contain new group folder '01-prologue'")
 
         // Scene file still exists at the new path
         let sceneURL = url.appendingPathComponent(updatedScene.path!)
