@@ -215,6 +215,117 @@ public final class ProjectStore {
         }
     }
 
+    /// Rename an item: updates manifest title and moves the file or folder
+    /// to a new slug while preserving the NN prefix. For groups, recursively
+    /// updates child paths.
+    public func renameStructureItem(
+        id: String, newTitle: String
+    ) async throws {
+        guard let item = findItem(id: id, in: manifest.structure),
+              let oldPath = item.path else {
+            throw ProjectStoreError.structureMissing
+        }
+
+        // Compute new slug. NN prefix is preserved by extracting it from the old path.
+        let oldFilename = (oldPath as NSString).lastPathComponent
+        let nn = String(oldFilename.prefix(2))
+
+        let parentPath = (oldPath as NSString).deletingLastPathComponent
+        let parentURL = url.appendingPathComponent(parentPath, isDirectory: true)
+
+        let fm = FileManager.default
+        let siblingNames = ((try? fm.contentsOfDirectory(atPath: parentURL.path)) ?? [])
+            .filter { $0 != oldFilename }  // exclude self
+
+        let newFilename: String
+        switch item.type {
+        case .document:
+            let ext = (oldFilename as NSString).pathExtension
+            let baseSlug = Slugifier.slug(from: newTitle)
+            let dedupedSlug = Self.dedupeSlug(
+                base: baseSlug, ext: ext, isFolder: false,
+                siblings: siblingNames)
+            newFilename = "\(nn)-\(dedupedSlug).\(ext)"
+        case .group:
+            let baseSlug = Slugifier.slug(from: newTitle)
+            let dedupedSlug = Self.dedupeSlug(
+                base: baseSlug, ext: nil, isFolder: true,
+                siblings: siblingNames)
+            newFilename = dedupedSlug
+        }
+
+        let newPath = parentPath.isEmpty ? newFilename : "\(parentPath)/\(newFilename)"
+        let newURL = url.appendingPathComponent(newPath)
+
+        // Move on disk
+        do {
+            try fm.moveItem(at: url.appendingPathComponent(oldPath), to: newURL)
+        } catch {
+            throw ProjectStoreError.fileSystemError(error.localizedDescription)
+        }
+
+        // Update manifest: title and path on the item, plus recursive child
+        // path updates for groups (their relative locations within the group
+        // are unchanged, but the absolute prefix changes).
+        mutateItem(id: id) { mutable in
+            mutable.title = newTitle
+            mutable.path = newPath
+            if mutable.type == .group, var children = mutable.children {
+                Self.rewriteChildPaths(
+                    in: &children, oldPrefix: oldPath, newPrefix: newPath)
+                mutable.children = children
+            }
+        }
+        manifest.modified = Date()
+        try await saveManifest()
+    }
+
+    /// Static slug-deduper used by rename (since we already know NN).
+    /// Mirrors FileNaming's collision logic but without computing a new NN.
+    private static func dedupeSlug(
+        base: String, ext: String?, isFolder: Bool, siblings: [String]
+    ) -> String {
+        let regex = try? NSRegularExpression(pattern: #"^\d{2}-(.+?)(\.[^.]+)?$"#)
+        var existing = Set<String>()
+        for name in siblings {
+            let r = NSRange(name.startIndex..., in: name)
+            guard let regex,
+                  let m = regex.firstMatch(in: name, range: r),
+                  let slugRange = Range(m.range(at: 1), in: name) else { continue }
+            let extPart = m.range(at: 2).location != NSNotFound
+                ? Range(m.range(at: 2), in: name).map { String(name[$0]) }
+                : nil
+            if isFolder {
+                if extPart == nil { existing.insert(String(name[slugRange])) }
+            } else if let ext, extPart == ".\(ext)" {
+                existing.insert(String(name[slugRange]))
+            }
+        }
+        if !existing.contains(base) { return base }
+        var n = 2
+        while existing.contains("\(base)-\(n)") { n += 1 }
+        return "\(base)-\(n)"
+    }
+
+    /// Rewrites the path prefix of every child item recursively.
+    private static func rewriteChildPaths(
+        in children: inout [StructureItem],
+        oldPrefix: String,
+        newPrefix: String
+    ) {
+        for i in children.indices {
+            if let p = children[i].path, p.hasPrefix(oldPrefix + "/") {
+                children[i].path = newPrefix + p.dropFirst(oldPrefix.count)
+            }
+            if children[i].children != nil {
+                var nested = children[i].children!
+                rewriteChildPaths(in: &nested,
+                                  oldPrefix: oldPrefix, newPrefix: newPrefix)
+                children[i].children = nested
+            }
+        }
+    }
+
     /// Persist the current manuscript text and an updated `modified` timestamp.
     /// Manifest write is atomic via temp-file + rename. Manuscript write is
     /// non-atomic in 1a; NSFileCoordinator integration arrives in milestone 1e.

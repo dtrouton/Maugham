@@ -107,4 +107,81 @@ final class ProjectStoreMutationTests: XCTestCase {
         XCTAssertTrue(reloaded.manifest.structure
             .contains { $0.title == "Chapter 2" })
     }
+
+    // MARK: - renameStructureItem
+
+    func test_renameDocument_movesFileAndUpdatesManifest() async throws {
+        let url = try await ProjectFactory.createShortStoryProject(
+            named: "Mut", in: temp.url)
+        let store = try await ProjectStore.load(from: url)
+        let item = try await store.addStructureItem(
+            parentId: nil, title: "Chapter 2",
+            kind: .document(extension: "md"))
+        let oldPath = item.path!
+        let oldFullURL = url.appendingPathComponent(oldPath)
+
+        try await store.renameStructureItem(id: item.id, newTitle: "The Funeral")
+
+        // Manifest title updated
+        let updated = store.manifest.structure
+            .first(where: { $0.id == item.id })!
+        XCTAssertEqual(updated.title, "The Funeral")
+
+        // Path's slug updated, NN preserved
+        let newPath = updated.path!
+        XCTAssertTrue(newPath.contains("the-funeral"),
+                      "newPath \(newPath) should contain 'the-funeral'")
+        XCTAssertTrue(newPath.hasPrefix("manuscript/01-"),
+                      "newPath \(newPath) should preserve NN prefix '01-'")
+
+        // File at old path gone, new path exists
+        XCTAssertFalse(FileManager.default.fileExists(atPath: oldFullURL.path))
+        let newFullURL = url.appendingPathComponent(newPath)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: newFullURL.path))
+    }
+
+    func test_renameGroup_movesFolderAndKeepsChildren() async throws {
+        let url = try await ProjectFactory.createShortStoryProject(
+            named: "Mut", in: temp.url)
+        let store = try await ProjectStore.load(from: url)
+        let group = try await store.addStructureItem(
+            parentId: nil, title: "Act One", kind: .group)
+        let scene = try await store.addStructureItem(
+            parentId: group.id, title: "Opening",
+            kind: .document(extension: "md"))
+
+        try await store.renameStructureItem(id: group.id, newTitle: "Prologue")
+
+        // Group folder moved
+        let renamedGroup = store.manifest.structure
+            .first(where: { $0.id == group.id })!
+        XCTAssertEqual(renamedGroup.title, "Prologue")
+        XCTAssertTrue(renamedGroup.path!.contains("prologue"))
+
+        // Scene's path updated to follow group's new path. NN of group is the
+        // same it was at creation (depends on what NN got assigned — it's
+        // currently the only group at root, so 01).
+        let updatedScene = renamedGroup.children!
+            .first(where: { $0.id == scene.id })!
+        XCTAssertTrue(updatedScene.path!.contains("/prologue/"),
+                      "scene path \(updatedScene.path!) should contain new group folder name")
+
+        // Scene file still exists at the new path
+        let sceneURL = url.appendingPathComponent(updatedScene.path!)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sceneURL.path))
+    }
+
+    func test_rename_withInvalidId_throws() async throws {
+        let url = try await ProjectFactory.createShortStoryProject(
+            named: "Mut", in: temp.url)
+        let store = try await ProjectStore.load(from: url)
+
+        do {
+            try await store.renameStructureItem(
+                id: "nope", newTitle: "X")
+            XCTFail("expected throw")
+        } catch ProjectStoreError.structureMissing {
+            // ok
+        }
+    }
 }
