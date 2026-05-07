@@ -123,6 +123,13 @@ struct ProjectWindow: View {
         .onReceive(NotificationCenter.default.publisher(for: .maughamToggleInspector)) { _ in
             showInspector.toggle()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .maughamAppWillTerminate)) { _ in
+            // Best-effort flush. Task is fire-and-forget; NSApplication may
+            // give us only ~100ms before terminating us.
+            if let ds = documentStore {
+                Task { await ds.close() }
+            }
+        }
         .onChange(of: isNoChromeOn) { _, newValue in
             applyNoChrome()
             documentStore?.updateUIState { $0.isNoChromeOn = newValue }

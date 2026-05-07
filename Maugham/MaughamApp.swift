@@ -6,6 +6,19 @@ struct MaughamApp: App {
     @State private var userPreferences = UserPreferences()
     @State private var recents = RecentsStore()
 
+    init() {
+        // Best-effort: post a notification on app termination so any open
+        // ProjectWindow can synchronously flush its DocumentStore. This is
+        // belt-and-suspenders alongside .onDisappear.
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: nil, queue: nil
+        ) { _ in
+            NotificationCenter.default.post(
+                name: .maughamAppWillTerminate, object: nil)
+        }
+    }
+
     var body: some Scene {
         Window("Maugham — Welcome", id: "welcome") {
             WelcomeHost()

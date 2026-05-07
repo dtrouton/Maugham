@@ -9,4 +9,5 @@ extension Notification.Name {
     public static let maughamShowProjectSettings = Notification.Name("maugham.showProjectSettings")
     public static let maughamShowClaudeDesktopHelp = Notification.Name("maugham.showClaudeDesktopHelp")
     public static let maughamToggleInspector = Notification.Name("maugham.toggleInspector")
+    public static let maughamAppWillTerminate = Notification.Name("maugham.appWillTerminate")
 }
