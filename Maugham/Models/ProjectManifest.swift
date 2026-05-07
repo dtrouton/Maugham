@@ -2,9 +2,9 @@ import Foundation
 
 /// The root of a `project.maugham.json` manifest file.
 ///
-/// Schema is versioned via `schemaVersion`. Phase 1a is at version 1.
-/// Future versions add fields rather than rename them; older Maugham
-/// builds tolerate unknown fields rather than corrupting them.
+/// Schema is versioned via `schemaVersion`. Phase 1a was at version 1; 1d
+/// adds an optional `typography` override field while keeping schema 1
+/// (older Maugham tolerates unknown fields rather than corrupting them).
 public struct ProjectManifest: Codable, Equatable, Sendable {
     public static let currentSchemaVersion = 1
 
@@ -18,6 +18,10 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     public var research: [ResearchItem]
     public var targets: ProjectTargets?
 
+    /// Per-project typography override. When non-nil, takes precedence over
+    /// the user-level UserPreferences.typography.
+    public var typography: TypographySettings?
+
     public init(
         schemaVersion: Int = ProjectManifest.currentSchemaVersion,
         type: ProjectType,
@@ -27,7 +31,8 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         modified: Date,
         structure: [StructureItem],
         research: [ResearchItem],
-        targets: ProjectTargets? = nil
+        targets: ProjectTargets? = nil,
+        typography: TypographySettings? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.type = type
@@ -38,5 +43,6 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         self.structure = structure
         self.research = research
         self.targets = targets
+        self.typography = typography
     }
 }

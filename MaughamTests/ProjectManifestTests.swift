@@ -90,4 +90,57 @@ final class ProjectManifestTests: XCTestCase {
     func test_schemaVersion1_isStable() {
         XCTAssertEqual(ProjectManifest.currentSchemaVersion, 1)
     }
+
+    func test_codable_roundTrips_withTypographyOverride() throws {
+        let typography = TypographySettings(
+            fontFamily: "New York",
+            fontSize: 19,
+            lineHeightMultiplier: 1.6,
+            pageWidthCharacters: 80,
+            paragraphSpacingMultiplier: 0.8,
+            smartQuotes: false,
+            emDashAutoReplace: false,
+            ellipsisAutoReplace: false
+        )
+        let manifest = ProjectManifest(
+            type: .novel,
+            title: "Test",
+            author: "",
+            created: Date(),
+            modified: Date(),
+            structure: [],
+            research: [],
+            typography: typography
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(manifest)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(ProjectManifest.self, from: data)
+
+        XCTAssertEqual(decoded.typography?.fontFamily, "New York")
+        XCTAssertEqual(decoded.typography?.fontSize, 19)
+    }
+
+    func test_codable_omitsTypography_whenNil() throws {
+        let manifest = ProjectManifest(
+            type: .shortStory,
+            title: "Test",
+            author: "",
+            created: Date(),
+            modified: Date(),
+            structure: [],
+            research: [],
+            typography: nil
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(manifest)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(ProjectManifest.self, from: data)
+        XCTAssertNil(decoded.typography)
+    }
 }
