@@ -78,4 +78,65 @@ final class ProjectFactoryTests: XCTestCase {
             // ok
         }
     }
+
+    func test_createNovel_seedsManifestAndChapter1() async throws {
+        let temp = try TempDirectory()
+        let url = try await ProjectFactory.createNovelProject(
+            named: "Razor", in: temp.url)
+
+        let manifestURL = url.appendingPathComponent("project.maugham.json")
+        let data = try Data(contentsOf: manifestURL)
+        let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
+        let manifest = try dec.decode(ProjectManifest.self, from: data)
+
+        XCTAssertEqual(manifest.type, .novel)
+        XCTAssertEqual(manifest.structure.count, 1)
+        XCTAssertEqual(manifest.structure[0].title, "Chapter 1")
+        XCTAssertEqual(manifest.structure[0].type, .document)
+
+        let chapterURL = url.appendingPathComponent(manifest.structure[0].path!)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: chapterURL.path))
+    }
+
+    func test_createScreenplay_seedsManifestAndScene1Fountain() async throws {
+        let temp = try TempDirectory()
+        let url = try await ProjectFactory.createScreenplayProject(
+            named: "TheTrip", in: temp.url)
+
+        let manifestURL = url.appendingPathComponent("project.maugham.json")
+        let data = try Data(contentsOf: manifestURL)
+        let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
+        let manifest = try dec.decode(ProjectManifest.self, from: data)
+
+        XCTAssertEqual(manifest.type, .screenplay)
+        XCTAssertEqual(manifest.structure.count, 1)
+        XCTAssertEqual(manifest.structure[0].title, "Scene 1")
+        XCTAssertTrue(manifest.structure[0].path?.hasSuffix(".fountain") ?? false,
+                      "scene path \(manifest.structure[0].path ?? "(nil)") should end .fountain")
+
+        let sceneURL = url.appendingPathComponent(manifest.structure[0].path!)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sceneURL.path))
+    }
+
+    func test_createCollection_seedsEmptyManifest() async throws {
+        let temp = try TempDirectory()
+        let url = try await ProjectFactory.createCollectionProject(
+            named: "MyShorts", in: temp.url)
+
+        let manifestURL = url.appendingPathComponent("project.maugham.json")
+        let data = try Data(contentsOf: manifestURL)
+        let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
+        let manifest = try dec.decode(ProjectManifest.self, from: data)
+
+        XCTAssertEqual(manifest.type, .collection)
+        XCTAssertTrue(manifest.structure.isEmpty)
+
+        // Collection has research and notes folders but no manuscript
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: url.appendingPathComponent("research").path))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: url.appendingPathComponent("notes").path))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: url.appendingPathComponent("manuscript").path))
+    }
 }
