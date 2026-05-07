@@ -35,6 +35,10 @@ struct MaughamApp: App {
             }
         }
         .windowResizability(.contentMinSize)
+
+        Settings {
+            SettingsView()
+        }
     }
 }
 
