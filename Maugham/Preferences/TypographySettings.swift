@@ -53,4 +53,21 @@ public struct TypographySettings: Codable, Equatable, Sendable {
         CuratedFont(displayName: "New York", fontName: "New York"),
         CuratedFont(displayName: "Charter", fontName: "Charter"),
     ]
+
+    public static let screenplayDefaults = TypographySettings(
+        fontFamily: "JetBrains Mono",
+        fontSize: 13,
+        lineHeightMultiplier: 1.5,
+        pageWidthCharacters: 60,
+        paragraphSpacingMultiplier: 0.6,
+        smartQuotes: false,
+        emDashAutoReplace: false,
+        ellipsisAutoReplace: false
+    )
+
+    public static let curatedScreenplayFonts: [CuratedFont] = [
+        CuratedFont(displayName: "JetBrains Mono", fontName: "JetBrains Mono"),
+        CuratedFont(displayName: "Menlo", fontName: "Menlo"),
+        CuratedFont(displayName: "SF Mono", fontName: "SF Mono"),
+    ]
 }

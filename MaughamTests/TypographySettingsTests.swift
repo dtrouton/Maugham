@@ -36,4 +36,20 @@ final class TypographySettingsTests: XCTestCase {
         XCTAssertTrue(names.contains("New York"))
         XCTAssertTrue(names.contains("Charter"))
     }
+
+    func test_screenplayDefaults_areMonospaceWith60ColWidth() {
+        let s = TypographySettings.screenplayDefaults
+        XCTAssertEqual(s.fontFamily, "JetBrains Mono")
+        XCTAssertEqual(s.fontSize, 13)
+        XCTAssertEqual(s.pageWidthCharacters, 60)
+        XCTAssertFalse(s.smartQuotes)
+        XCTAssertFalse(s.emDashAutoReplace)
+        XCTAssertFalse(s.ellipsisAutoReplace)
+    }
+
+    func test_curatedScreenplayFonts_includesMonospace() {
+        let names = TypographySettings.curatedScreenplayFonts.map(\.fontName)
+        XCTAssertTrue(names.contains("JetBrains Mono"))
+        XCTAssertTrue(names.contains("Menlo"))
+    }
 }
