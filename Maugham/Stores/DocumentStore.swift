@@ -55,6 +55,57 @@ public final class DocumentStore {
         }
     }
 
+    public func resolveConflictKeepMine() async throws {
+        guard let conflict = pendingConflict else { return }
+        // 1. Preserve external version
+        try writeConflictBackup(
+            for: conflict.path,
+            text: conflict.externalText,
+            kind: "cloud")
+        // 2. Write local version through coordinator
+        try await performSave(path: conflict.path, text: conflict.localText)
+        // 3. Clear conflict
+        pendingConflict = nil
+    }
+
+    public func resolveConflictUseCloud() async throws {
+        guard let conflict = pendingConflict else { return }
+        // 1. Preserve local version
+        try writeConflictBackup(
+            for: conflict.path,
+            text: conflict.localText,
+            kind: "local")
+        // 2. The disk already has externalText. Update lastWrittenText so
+        //    subsequent presenter callbacks classify correctly.
+        lastWrittenText = conflict.externalText
+        currentDocumentText = conflict.externalText
+        // 3. Clear conflict
+        pendingConflict = nil
+    }
+
+    /// Write a backup copy of one side of a conflict to .maugham/conflicts/.
+    /// Filename: `<stem>-<kind>-<ISO8601>.<ext>`.
+    private func writeConflictBackup(
+        for path: String, text: String, kind: String
+    ) throws {
+        let conflictsDir = projectURL.appendingPathComponent(".maugham/conflicts")
+        try FileManager.default.createDirectory(
+            at: conflictsDir, withIntermediateDirectories: true)
+
+        let filename = (path as NSString).lastPathComponent
+        let stem = (filename as NSString).deletingPathExtension
+        let ext = (filename as NSString).pathExtension
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let stamp = formatter.string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        let backupName = ext.isEmpty
+            ? "\(stem)-\(kind)-\(stamp)"
+            : "\(stem)-\(kind)-\(stamp).\(ext)"
+        let backupURL = conflictsDir.appendingPathComponent(backupName)
+        try text.data(using: .utf8)?.write(to: backupURL, options: [.atomic])
+    }
+
     private var saveScheduler: DebounceScheduler<SavePayload>!
 
     private struct SavePayload: Sendable {
