@@ -69,9 +69,26 @@ Once running on milestone-1c:
 
 If all eight pass, milestone 1c is healthy.
 
+## Phase 1d smoke test
+
+Once running on milestone-1d:
+
+1. New Project → Novel → name it "Smoke Novel". Three-pane window opens with Chapter 1 in the binder.
+2. Right-click Chapter 1 → New Document. Renames inline to "Chapter 2".
+3. Right-click Chapter 1 → New Group. Renames inline to "Act One".
+4. Right-click Act One → New Document. Renames inline to "Scene 1". Verify file path in Finder includes `03-act-one/01-scene-1.md`.
+5. Type prose in Chapter 2; word count in inspector and goal indicator update live.
+6. Inspector Status = Revising. Binder dot for Chapter 2 turns orange.
+7. ⌘⇧, → Customize for this project → font size 22 → Done. Reopen project. Typography persists.
+8. File → Open Recent → Smoke Novel. Re-opens.
+9. Help → Set up Claude Desktop. Copy snippet. Paste anywhere — JSON contains the project path.
+10. Right-click Chapter 2 → Delete. Disappears from binder; appears in Finder Trash.
+
+If all ten pass, milestone 1d is healthy.
+
 ## Tests
 
     ./gen.sh
     xcodebuild -project Maugham.xcodeproj -scheme Maugham test CODE_SIGNING_ALLOWED=NO
 
-Expect 90 tests passing — 33 from milestone 1a (project model, factory, store, recents), 44 from milestone 1b (Token, Theme, TypographySettings, ThemeManager, MarkdownTokenizer, SmartTypography, ProseMode), and 13 from milestone 1c (extended ThemeManager focus prefs + FocusFinder).
+Expect 143 tests passing — 33 from milestone 1a (project model, factory, store, recents), 44 from 1b (Token, Theme, TypographySettings, UserPreferences, MarkdownTokenizer, SmartTypography, ProseMode), 13 from 1c (UserPreferences focus prefs + FocusFinder), and 53 from 1d (Slugifier, FileNaming, ProjectStore mutations, project typography, factories for Novel/Screenplay/Collection, ScreenplayMode, WritingModeFactory).
