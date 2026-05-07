@@ -53,6 +53,9 @@ struct ProjectWindow: View {
             isNoChromeOn.toggle()
             applyNoChrome()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .maughamToggleFullScreen)) { _ in
+            toggleFullScreen()
+        }
         .onChange(of: isNoChromeOn) { _, _ in
             applyNoChrome()
         }
@@ -65,6 +68,16 @@ struct ProjectWindow: View {
         window.standardWindowButton(.closeButton)?.isHidden = isNoChromeOn
         window.standardWindowButton(.miniaturizeButton)?.isHidden = isNoChromeOn
         window.standardWindowButton(.zoomButton)?.isHidden = isNoChromeOn
+    }
+
+    private func toggleFullScreen() {
+        guard let window else { return }
+        let wasFullScreen = window.styleMask.contains(.fullScreen)
+        if !wasFullScreen && !isNoChromeOn {
+            isNoChromeOn = true
+            applyNoChrome()
+        }
+        window.toggleFullScreen(nil)
     }
 
     @MainActor
