@@ -7,6 +7,10 @@ import Foundation
 struct EditorHost: View {
     @Bindable var store: ProjectStore
     let selectedItemId: String?
+    /// Called whenever the document text changes (typing, paste, etc.).
+    /// Lets the host (ProjectWindow) recompute live metrics for the inspector
+    /// and goal indicator without re-reading from disk.
+    var onTextChange: ((String) -> Void)? = nil
     @Environment(UserPreferences.self) private var userPreferences
 
     @State private var documentText: String = ""
@@ -21,6 +25,7 @@ struct EditorHost: View {
                         set: { newValue in
                             documentText = newValue
                             saveDocument(path: path, text: newValue)
+                            onTextChange?(newValue)
                         }
                     ),
                     theme: userPreferences.theme,
@@ -61,6 +66,7 @@ struct EditorHost: View {
             documentText = ""
         }
         loadedItemId = item.id
+        onTextChange?(documentText)
     }
 
     private func saveDocument(path: String, text: String) {

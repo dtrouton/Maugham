@@ -30,13 +30,15 @@ struct ProjectWindow: View {
                         .navigationSplitViewColumnWidth(min: 200, ideal: 240)
                 } content: {
                     ZStack(alignment: .bottomTrailing) {
-                        EditorHost(store: store, selectedItemId: selectedItemId)
-                            .onChange(of: store.manifest.structure) { _, _ in
-                                refreshMetricsForSelection()
-                            }
-                            .onChange(of: selectedItemId) { _, _ in
-                                refreshMetricsForSelection()
-                            }
+                        EditorHost(
+                            store: store,
+                            selectedItemId: selectedItemId,
+                            onTextChange: { text in updateMetrics(for: text) }
+                        )
+                        .onChange(of: selectedItemId) { _, _ in
+                            // Selection change reloads document inside EditorHost
+                            // which fires onTextChange — no manual refresh needed.
+                        }
                         if userPreferences.goalIndicatorsVisible {
                             GoalIndicatorView(metrics: metrics)
                         }
@@ -111,18 +113,17 @@ struct ProjectWindow: View {
 
     // MARK: - Helpers
 
-    private func refreshMetricsForSelection() {
+    /// Recompute metrics from live editor text. Called by EditorHost on every
+    /// keystroke, paste, and document load — so the inspector and goal
+    /// indicator stay in sync without re-reading from disk.
+    private func updateMetrics(for text: String) {
         guard let store, let id = selectedItemId,
               let item = findItem(id: id, in: store.manifest.structure),
               item.type == .document, let path = item.path else {
             metrics = EditorMetrics(wordCount: 0, characterCount: 0, readingMinutes: 0)
             return
         }
-        let url = store.url.appendingPathComponent(path)
-        if let data = try? Data(contentsOf: url),
-           let text = String(data: data, encoding: .utf8) {
-            metrics = WritingModeFactory.mode(for: path).metrics(text)
-        }
+        metrics = WritingModeFactory.mode(for: path).metrics(text)
     }
 
     private func findItem(id: String, in items: [StructureItem]) -> StructureItem? {
@@ -166,11 +167,12 @@ struct ProjectWindow: View {
     private func load() async {
         do {
             store = try await ProjectStore.load(from: url)
-            // Auto-select the first document for usability
+            // Auto-select the first document for usability. EditorHost will
+            // load the document and call back via onTextChange so metrics
+            // populate automatically.
             if let first = firstDocument(in: store?.manifest.structure ?? []) {
                 selectedItemId = first.id
             }
-            refreshMetricsForSelection()
             loadError = nil
         } catch ProjectStoreError.manifestNotFound {
             loadError = "No project.maugham.json was found in this folder."

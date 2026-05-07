@@ -3,11 +3,13 @@ import AppKit
 
 @main
 struct MaughamApp: App {
-    @State private var themeManager = UserPreferences()
+    @State private var userPreferences = UserPreferences()
+    @State private var recents = RecentsStore()
 
     var body: some Scene {
         Window("Maugham — Welcome", id: "welcome") {
             WelcomeHost()
+                .environment(recents)
         }
         .windowResizability(.contentSize)
         .commands {
@@ -21,7 +23,7 @@ struct MaughamApp: App {
                 }
                 .keyboardShortcut("o", modifiers: .command)
                 Menu("Open Recent") {
-                    OpenRecentSubmenu()
+                    OpenRecentSubmenu(recents: recents)
                 }
                 Divider()
                 Button("Save") {
@@ -29,15 +31,18 @@ struct MaughamApp: App {
                         name: .maughamDummySave, object: nil)
                 }
                 .keyboardShortcut("s", modifiers: .command)
-            }
-            CommandGroup(after: .appInfo) {
+                Divider()
                 Button("Project Settings…") {
                     NotificationCenter.default.post(
                         name: .maughamShowProjectSettings, object: nil)
                 }
-                .keyboardShortcut(",", modifiers: [.command, .option])
+                .keyboardShortcut(",", modifiers: [.command, .shift])
             }
-            CommandMenu("View") {
+            // Augment the existing View menu (which AppKit auto-creates when
+            // NavigationSplitView is in use) rather than creating a second one
+            // via CommandMenu("View").
+            CommandGroup(after: .toolbar) {
+                Divider()
                 Button("Toggle Focus Mode") {
                     NotificationCenter.default.post(
                         name: .maughamToggleNoChrome, object: nil)
@@ -66,7 +71,8 @@ struct MaughamApp: App {
             if let url {
                 ProjectWindow(url: url)
                     .navigationTitle(url.lastPathComponent)
-                    .environment(themeManager)
+                    .environment(userPreferences)
+                    .environment(recents)
             } else {
                 Text("No project URL").foregroundStyle(.secondary)
             }
@@ -75,14 +81,14 @@ struct MaughamApp: App {
 
         Settings {
             SettingsView()
-                .environment(themeManager)
+                .environment(userPreferences)
         }
     }
 }
 
 private struct WelcomeHost: View {
     @Environment(\.openWindow) private var openWindow
-    @State private var recents = RecentsStore()
+    @Environment(RecentsStore.self) private var recents
     @State private var showingNewProject = false
 
     var body: some View {
@@ -130,7 +136,7 @@ private struct WelcomeHost: View {
 }
 
 private struct OpenRecentSubmenu: View {
-    @State private var recents = RecentsStore()
+    @Bindable var recents: RecentsStore
 
     var body: some View {
         Group {

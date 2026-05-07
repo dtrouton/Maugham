@@ -41,7 +41,7 @@ public struct ScreenplayMode: WritingMode {
         typography: TypographySettings,
         tokens: [Token]
     ) {
-        let resolved = theme.resolved(systemAppearanceIsDark: false)
+        let resolved = theme.resolved(systemAppearanceIsDark: Self.systemIsDark())
         let palette = resolved.palette
         let font = baseFont(for: typography)
         let attrs = bodyAttributes(palette: palette, baseFont: font,
@@ -56,7 +56,7 @@ public struct ScreenplayMode: WritingMode {
         theme: Theme,
         typography: TypographySettings
     ) -> [NSAttributedString.Key: Any] {
-        let resolved = theme.resolved(systemAppearanceIsDark: false)
+        let resolved = theme.resolved(systemAppearanceIsDark: Self.systemIsDark())
         return bodyAttributes(palette: resolved.palette,
                               baseFont: baseFont(for: typography),
                               typography: typography)
@@ -69,6 +69,10 @@ public struct ScreenplayMode: WritingMode {
             .size(withAttributes: [.font: font]).width
         let avgCharWidth = sampleWidth / CGFloat(sample.count)
         return avgCharWidth * CGFloat(typography.pageWidthCharacters)
+    }
+
+    private static func systemIsDark() -> Bool {
+        NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     }
 
     private func baseFont(for typography: TypographySettings) -> NSFont {
