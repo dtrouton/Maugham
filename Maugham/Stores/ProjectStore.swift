@@ -1,6 +1,11 @@
 import Foundation
 import SwiftUI
 
+public enum StructureItemKind: Equatable, Sendable {
+    case document(extension: String)  // "md" or "fountain"
+    case group
+}
+
 public enum ProjectStoreError: Error, Equatable {
     case manifestNotFound
     case manifestUnreadable(String)
@@ -8,6 +13,8 @@ public enum ProjectStoreError: Error, Equatable {
     case manuscriptUnwritable(String)
     case manifestUnwritable(String)
     case structureMissing
+    case parentNotFound(String)
+    case fileSystemError(String)
 }
 
 /// Manages an open Maugham project: its manifest plus its manuscript text.
@@ -69,6 +76,145 @@ public final class ProjectStore {
         }
     }
 
+    private static func newId(prefix: String) -> String {
+        let suffix = UUID().uuidString.prefix(8).lowercased()
+        return "\(prefix)-\(suffix)"
+    }
+
+    /// Add a new document or group beneath a parent (or at root if `parentId` is nil).
+    /// Creates the file/folder on disk and saves the manifest atomically.
+    public func addStructureItem(
+        parentId: String?,
+        title: String,
+        kind: StructureItemKind
+    ) async throws -> StructureItem {
+        // 1. Resolve parent path for the new item
+        let parentPath: String
+        if let parentId {
+            guard let parent = findItem(id: parentId, in: manifest.structure),
+                  parent.type == .group else {
+                throw ProjectStoreError.parentNotFound(parentId)
+            }
+            parentPath = parent.path ?? ""
+        } else {
+            parentPath = "manuscript"
+        }
+
+        // 2. Make sure the parent folder exists on disk
+        let parentURL = url.appendingPathComponent(parentPath, isDirectory: true)
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: parentURL.path) {
+            try fm.createDirectory(at: parentURL, withIntermediateDirectories: true)
+        }
+
+        // 3. Compute filename based on existing siblings
+        let siblingNames = (try? fm.contentsOfDirectory(atPath: parentURL.path)) ?? []
+        let filename: String
+        switch kind {
+        case .document(let ext):
+            filename = FileNaming.nextDocumentFilename(
+                title: title, extension: ext, siblingFilenames: siblingNames)
+        case .group:
+            filename = FileNaming.nextGroupFolderName(
+                title: title, siblingFilenames: siblingNames)
+        }
+        let newURL = parentURL.appendingPathComponent(filename)
+        let relativePath = "\(parentPath)/\(filename)"
+
+        // 4. Create file or folder on disk
+        do {
+            switch kind {
+            case .document:
+                try Data().write(to: newURL)
+            case .group:
+                try fm.createDirectory(at: newURL, withIntermediateDirectories: false)
+            }
+        } catch {
+            throw ProjectStoreError.fileSystemError(error.localizedDescription)
+        }
+
+        // 5. Build the new StructureItem
+        let item = StructureItem(
+            id: Self.newId(prefix: kind.idPrefix),
+            title: title,
+            type: kind.itemType,
+            path: relativePath,
+            children: kind.itemType == .group ? [] : nil)
+
+        // 6. Mutate manifest: append to parent's children or to root structure
+        if let parentId {
+            mutateItem(id: parentId) { parent in
+                var children = parent.children ?? []
+                children.append(item)
+                parent.children = children
+            }
+        } else {
+            manifest.structure.append(item)
+        }
+        manifest.modified = Date()
+        try await saveManifest()
+        return item
+    }
+
+    // MARK: - Tree helpers
+
+    private func findItem(
+        id: String, in items: [StructureItem]
+    ) -> StructureItem? {
+        for item in items {
+            if item.id == id { return item }
+            if let children = item.children,
+               let nested = findItem(id: id, in: children) {
+                return nested
+            }
+        }
+        return nil
+    }
+
+    /// Mutate the item with the given id in place. The closure receives an
+    /// inout reference and can change any field.
+    private func mutateItem(
+        id: String,
+        transform: (inout StructureItem) -> Void
+    ) {
+        var newStructure = manifest.structure
+        Self.applyMutation(id: id, in: &newStructure, transform: transform)
+        manifest.structure = newStructure
+    }
+
+    private static func applyMutation(
+        id: String,
+        in items: inout [StructureItem],
+        transform: (inout StructureItem) -> Void
+    ) {
+        for i in items.indices {
+            if items[i].id == id {
+                transform(&items[i])
+                return
+            }
+            if items[i].children != nil {
+                var children = items[i].children!
+                applyMutation(id: id, in: &children, transform: transform)
+                items[i].children = children
+            }
+        }
+    }
+
+    private func saveManifest() async throws {
+        let manifestURL = url.appendingPathComponent("project.maugham.json")
+        let tmpURL = manifestURL.appendingPathExtension("tmp")
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        do {
+            let data = try encoder.encode(manifest)
+            try data.write(to: tmpURL, options: [.atomic])
+            _ = try FileManager.default.replaceItemAt(manifestURL, withItemAt: tmpURL)
+        } catch {
+            throw ProjectStoreError.manifestUnwritable(error.localizedDescription)
+        }
+    }
+
     /// Persist the current manuscript text and an updated `modified` timestamp.
     /// Manifest write is atomic via temp-file + rename. Manuscript write is
     /// non-atomic in 1a; NSFileCoordinator integration arrives in milestone 1e.
@@ -102,6 +248,23 @@ public final class ProjectStore {
         } catch {
             try? FileManager.default.removeItem(at: tmpURL)
             throw ProjectStoreError.manifestUnwritable(error.localizedDescription)
+        }
+    }
+}
+
+private extension StructureItemKind {
+    var itemType: StructureItem.ItemType {
+        switch self {
+        case .document: return .document
+        case .group: return .group
+        }
+    }
+
+    var idPrefix: String {
+        switch self {
+        case .document(let ext) where ext == "fountain": return "scene"
+        case .document: return "doc"
+        case .group: return "grp"
         }
     }
 }
