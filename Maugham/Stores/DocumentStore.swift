@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import Darwin
 
 @MainActor
 @Observable
@@ -16,7 +17,36 @@ public final class DocumentStore {
     public private(set) var openDocumentPath: String?
     public private(set) var lastWrittenText: String = ""
 
+    /// Set when an external change is detected while the user has unsaved
+    /// edits. Cleared on resolution.
+    public private(set) var pendingConflict: ConflictState?
+
+    /// Used by EditorHost to know what the editor's currently-displayed text
+    /// is, so the conflict-detection pass can compare local vs disk vs
+    /// last-written. Set by EditorHost on every keystroke.
+    public var currentDocumentText: String = ""
+
+    /// Polling helper for tests: wait until predicate(pendingConflict) is true.
+    public func waitForConflictState(
+        _ predicate: @escaping (ConflictState?) -> Bool,
+        timeout: Duration = .seconds(2)
+    ) async throws {
+        let start = Date()
+        while !predicate(pendingConflict) {
+            if Date().timeIntervalSince(start) > Double(timeout.components.seconds) {
+                struct Timeout: Error {}
+                throw Timeout()
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+    }
+
     private var saveScheduler: DebounceScheduler<SavePayload>!
+
+    /// DispatchSource watching the open document for fast external-change
+    /// detection (complements NSFilePresenter, which can be slow in tests).
+    private var documentFileSource: DispatchSourceFileSystemObject?
+    private var documentFileDescriptor: Int32 = -1
 
     private struct SavePayload: Sendable {
         let path: String
@@ -52,6 +82,7 @@ public final class DocumentStore {
     public func close() async {
         try? await flushPendingSave()
         await uiStateScheduler.flush()
+        stopDocumentFileSource()
         if let presenter {
             NSFileCoordinator.removeFilePresenter(presenter)
             self.presenter = nil
@@ -85,7 +116,40 @@ public final class DocumentStore {
                 try? await self?.performSave(path: payload.path, text: payload.text)
             }
         }
+        // Set up a fast DispatchSource watcher for external changes.
+        startDocumentFileSource(for: path, url: url)
         return text
+    }
+
+    // MARK: - Fast file-change watcher (DispatchSource)
+
+    private func startDocumentFileSource(for path: String, url: URL) {
+        stopDocumentFileSource()
+        let filePath = url.path(percentEncoded: false)
+        let fd = Darwin.open(filePath, O_EVTONLY)
+        guard fd >= 0 else { return }
+        documentFileDescriptor = fd
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: DispatchSource.FileSystemEvent([.write, .rename, .delete, .extend]),
+            queue: .global(qos: .userInitiated))
+        source.setEventHandler { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, let p = self.openDocumentPath, p == path else { return }
+                self.handleOpenDocumentChanged(path: p)
+            }
+        }
+        source.setCancelHandler { [fd] in Darwin.close(fd) }
+        source.resume()
+        documentFileSource = source
+    }
+
+    private func stopDocumentFileSource() {
+        if let src = documentFileSource {
+            src.cancel()
+            documentFileSource = nil
+            documentFileDescriptor = -1
+        }
     }
 
     public func scheduleSave(for path: String, text: String) {
@@ -175,14 +239,55 @@ public final class DocumentStore {
     }
 }
 
-// MARK: - ProjectFolderPresenterDelegate (skeleton)
-
 extension DocumentStore: ProjectFolderPresenterDelegate {
+
     public func presenterDidChangeSubitem(at url: URL) {
-        // Filled in by Task 9
+        // Compute the relative path from projectURL.
+        let project = projectURL.standardizedFileURL.path
+        let changed = url.standardizedFileURL.path
+        guard changed.hasPrefix(project + "/") else { return }
+        let relativePath = String(changed.dropFirst(project.count + 1))
+
+        if relativePath == "project.maugham.json" {
+            handleManifestChanged()
+        } else if relativePath == openDocumentPath {
+            handleOpenDocumentChanged(path: relativePath)
+        }
     }
 
     public func presenterDidObserveDirectoryChange() {
-        // Filled in by Task 9
+        // Phase 1e doesn't react to directory-level changes; the per-file
+        // callbacks handle our cases. Phase 2+ may use this for binder
+        // refresh on external file additions.
     }
+
+    // MARK: - Document conflict handling
+
+    private func handleOpenDocumentChanged(path: String) {
+        let url = projectURL.appendingPathComponent(path)
+        guard let data = try? Data(contentsOf: url),
+              let diskText = String(data: data, encoding: .utf8) else { return }
+
+        // Disk text equals our last write → echo from our own coordinated save.
+        if diskText == lastWrittenText { return }
+
+        // Disk text differs. Are there pending local edits?
+        if currentDocumentText == lastWrittenText {
+            // Case A: silent reload. No banner.
+            lastWrittenText = diskText
+            currentDocumentText = diskText
+        } else {
+            // Case B: conflict. Capture both versions, surface to UI.
+            pendingConflict = ConflictState(
+                path: path,
+                localText: currentDocumentText,
+                externalText: diskText,
+                externalModifiedAt: (try? FileManager.default
+                    .attributesOfItem(atPath: url.path)[.modificationDate]
+                    as? Date) ?? Date())
+        }
+    }
+
+    // Manifest handler stub — Task 11 fills in.
+    private func handleManifestChanged() { }
 }
