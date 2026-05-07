@@ -106,6 +106,8 @@ public final class DocumentStore {
         try text.data(using: .utf8)?.write(to: backupURL, options: [.atomic])
     }
 
+    private var lastObservedManifestModified: Date?
+
     private var saveScheduler: DebounceScheduler<SavePayload>!
 
     private struct SavePayload: Sendable {
@@ -129,6 +131,17 @@ public final class DocumentStore {
             delay: .milliseconds(500)
         ) { [weak store] state in
             await store?.persistUIState(state)
+        }
+
+        // Seed lastObservedManifestModified so the first presenter callback
+        // doesn't trigger a spurious archive of an unchanged manifest.
+        let manifestURL = url.appendingPathComponent("project.maugham.json")
+        if let data = try? Data(contentsOf: manifestURL) {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            if let m = try? decoder.decode(ProjectManifest.self, from: data) {
+                store.lastObservedManifestModified = m.modified
+            }
         }
 
         let presenter = ProjectFolderPresenter(
@@ -314,6 +327,33 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
         }
     }
 
-    // Manifest handler stub — Task 11 fills in.
-    private func handleManifestChanged() { }
+    private func handleManifestChanged() {
+        let manifestURL = projectURL.appendingPathComponent("project.maugham.json")
+        guard let data = try? Data(contentsOf: manifestURL) else { return }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let diskManifest = try? decoder.decode(
+            ProjectManifest.self, from: data) else { return }
+
+        // Per master spec: "Last-writer-wins by `modified` timestamp; the loser
+        // is preserved as `.maugham/conflicts/manifest-<timestamp>.json`."
+        // We archive the disk version when it's newer than what we last saw.
+        if let last = lastObservedManifestModified, diskManifest.modified > last {
+            archiveManifestForConflict(data: data)
+        }
+        lastObservedManifestModified = diskManifest.modified
+    }
+
+    private func archiveManifestForConflict(data: Data) {
+        let conflictsDir = projectURL.appendingPathComponent(".maugham/conflicts")
+        try? FileManager.default.createDirectory(
+            at: conflictsDir, withIntermediateDirectories: true)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let stamp = formatter.string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        let backupURL = conflictsDir
+            .appendingPathComponent("manifest-\(stamp).json")
+        try? data.write(to: backupURL, options: [.atomic])
+    }
 }
