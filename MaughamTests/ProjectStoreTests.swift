@@ -83,8 +83,9 @@ final class ProjectStoreTests: XCTestCase {
         let store = try await ProjectStore.load(from: url)
         let originalModified = store.manifest.modified
 
-        // Ensure a measurable delta even on fast machines
-        try await Task.sleep(for: .milliseconds(20))
+        // ISO8601 round-trip truncates to second resolution, so we must wait
+        // long enough to guarantee a different whole second on disk.
+        try await Task.sleep(for: .milliseconds(1100))
 
         store.manuscriptText = "x"
         try await store.save()
