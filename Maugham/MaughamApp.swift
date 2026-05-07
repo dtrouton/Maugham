@@ -26,6 +26,18 @@ struct MaughamApp: App {
                 }
                 .keyboardShortcut("o", modifiers: .command)
             }
+            CommandMenu("View") {
+                Button("Toggle Focus Mode") {
+                    NotificationCenter.default.post(
+                        name: .maughamToggleNoChrome, object: nil)
+                }
+                .keyboardShortcut("\\", modifiers: .command)
+                Button("Toggle Full-Screen Focus") {
+                    NotificationCenter.default.post(
+                        name: .maughamToggleFullScreen, object: nil)
+                }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
+            }
         }
 
         WindowGroup(id: "project", for: URL.self) { $url in

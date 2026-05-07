@@ -1,8 +1,11 @@
 import SwiftUI
+import AppKit
 
 struct ProjectWindow: View {
     @State private var store: ProjectStore?
     @State private var loadError: String?
+    @State private var isNoChromeOn: Bool = false
+    @State private var window: NSWindow?
     @Environment(ThemeManager.self) private var themeManager
 
     let url: URL
@@ -44,7 +47,24 @@ struct ProjectWindow: View {
             }
         }
         .frame(minWidth: 720, minHeight: 480)
+        .background(WindowAccessor(window: $window))
         .task(id: url) { await load() }
+        .onReceive(NotificationCenter.default.publisher(for: .maughamToggleNoChrome)) { _ in
+            isNoChromeOn.toggle()
+            applyNoChrome()
+        }
+        .onChange(of: isNoChromeOn) { _, _ in
+            applyNoChrome()
+        }
+    }
+
+    private func applyNoChrome() {
+        guard let window else { return }
+        window.titlebarAppearsTransparent = isNoChromeOn
+        window.titleVisibility = isNoChromeOn ? .hidden : .visible
+        window.standardWindowButton(.closeButton)?.isHidden = isNoChromeOn
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = isNoChromeOn
+        window.standardWindowButton(.zoomButton)?.isHidden = isNoChromeOn
     }
 
     @MainActor
@@ -60,6 +80,35 @@ struct ProjectWindow: View {
             loadError = "Manuscript file couldn't be read: \(msg)"
         } catch {
             loadError = error.localizedDescription
+        }
+    }
+}
+
+extension Notification.Name {
+    static let maughamToggleNoChrome =
+        Notification.Name("maugham.toggleNoChrome")
+    static let maughamToggleFullScreen =
+        Notification.Name("maugham.toggleFullScreen")
+    static let maughamDummySave =
+        Notification.Name("maugham.dummySave")
+}
+
+private struct WindowAccessor: NSViewRepresentable {
+    @Binding var window: NSWindow?
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            self.window = view.window
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            if self.window == nil {
+                self.window = nsView.window
+            }
         }
     }
 }
