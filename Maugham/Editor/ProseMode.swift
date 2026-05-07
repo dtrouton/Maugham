@@ -78,15 +78,18 @@ public struct ProseMode: WritingMode {
     }
 
     /// Width of the body text column, in points, given the configured page
-    /// width (in characters) and current font. Uses an "M" glyph as the
-    /// per-character width estimate.
+    /// width (in characters) and current font. Uses an English pangram to
+    /// measure the *average* character width — M-width overestimates by ~2×
+    /// for body text and produces uncomfortably wide columns.
     public func textColumnWidth(
         typography: TypographySettings
     ) -> CGFloat {
         let font = baseFont(for: typography)
-        let em = ("M" as NSString)
+        let sample = "the quick brown fox jumps over the lazy dog"
+        let sampleWidth = (sample as NSString)
             .size(withAttributes: [.font: font]).width
-        return em * CGFloat(typography.pageWidthCharacters)
+        let avgCharWidth = sampleWidth / CGFloat(sample.count)
+        return avgCharWidth * CGFloat(typography.pageWidthCharacters)
     }
 
     private func baseFont(for typography: TypographySettings) -> NSFont {

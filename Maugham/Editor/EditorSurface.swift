@@ -22,7 +22,10 @@ struct EditorSurface: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSScrollView {
+        let columnWidth = mode.textColumnWidth(typography: typography)
+
         let textView = MaughamTextView()
+        textView.columnWidth = columnWidth
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.isEditable = true
@@ -36,20 +39,18 @@ struct EditorSurface: NSViewRepresentable {
         textView.isContinuousSpellCheckingEnabled = true
         textView.delegate = context.coordinator
         textView.string = text
+        // Let the text view fill the scroll view's width; centering happens
+        // via textContainerInset, recomputed on every resize.
+        textView.autoresizingMask = [.width]
         textView.textContainerInset = NSSize(width: 0, height: 24)
 
-        // Constrain text container to a fixed column width so long lines wrap
-        // at pageWidthCharacters even when the window is wide.
         if let container = textView.textContainer {
-            let columnWidth = mode.textColumnWidth(typography: typography)
             container.widthTracksTextView = false
             container.size = NSSize(width: columnWidth,
                                     height: .greatestFiniteMagnitude)
-            textView.frame = NSRect(x: 0, y: 0,
-                                    width: columnWidth, height: 0)
         }
 
-        let scrollView = CenteringScrollView()
+        let scrollView = NSScrollView()
         scrollView.documentView = textView
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
@@ -61,7 +62,7 @@ struct EditorSurface: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        guard let textView = scrollView.documentView as? NSTextView else { return }
+        guard let textView = scrollView.documentView as? MaughamTextView else { return }
         if textView.string != text {
             context.coordinator.applyExternalText(text)
         }
@@ -70,12 +71,11 @@ struct EditorSurface: NSViewRepresentable {
             context.coordinator.applyAppearance(
                 theme: theme, typography: typography)
 
+            let columnWidth = mode.textColumnWidth(typography: typography)
+            textView.columnWidth = columnWidth
             if let container = textView.textContainer {
-                let columnWidth = mode.textColumnWidth(typography: typography)
                 container.size = NSSize(width: columnWidth,
                                         height: .greatestFiniteMagnitude)
-                textView.frame.size.width = columnWidth
-                scrollView.needsLayout = true
             }
         }
         if context.coordinator.typewriterScroll != typewriterScroll {
@@ -89,27 +89,33 @@ struct EditorSurface: NSViewRepresentable {
     }
 }
 
-/// NSTextView subclass that lets us tweak first-responder-only behaviors
-/// without subclassing the more invasive parts.
+/// NSTextView subclass that fills the scroll view's width and uses
+/// `textContainerInset` to center the column. The container itself is fixed
+/// at `columnWidth`; the inset on each side absorbs the gutters and updates
+/// whenever the text view resizes (which happens automatically when the
+/// scroll view's clip view changes size due to `autoresizingMask = [.width]`).
 private final class MaughamTextView: NSTextView {
+    var columnWidth: CGFloat = 0 {
+        didSet { updateColumnInset() }
+    }
+
     override var acceptsFirstResponder: Bool { true }
     override func becomeFirstResponder() -> Bool {
         super.becomeFirstResponder()
     }
-}
 
-/// NSScrollView subclass that horizontally centers its document view inside
-/// the visible area whenever the document is narrower than the clip view.
-private final class CenteringScrollView: NSScrollView {
-    override func tile() {
-        super.tile()
-        guard let documentView else { return }
-        let clipBounds = contentView.bounds
-        let docFrame = documentView.frame
-        if docFrame.size.width < clipBounds.width {
-            var origin = documentView.frame.origin
-            origin.x = (clipBounds.width - docFrame.size.width) / 2
-            documentView.frame.origin = origin
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        updateColumnInset()
+    }
+
+    private func updateColumnInset() {
+        guard columnWidth > 0, bounds.width > 0 else { return }
+        let horizontal = max(0, (bounds.width - columnWidth) / 2)
+        if abs(textContainerInset.width - horizontal) > 0.5 {
+            textContainerInset = NSSize(
+                width: horizontal,
+                height: textContainerInset.height)
         }
     }
 }

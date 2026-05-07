@@ -25,6 +25,12 @@ struct MaughamApp: App {
                     NotificationCenter.default.post(name: .maughamOpenProject, object: nil)
                 }
                 .keyboardShortcut("o", modifiers: .command)
+                Divider()
+                Button("Save") {
+                    NotificationCenter.default.post(
+                        name: .maughamDummySave, object: nil)
+                }
+                .keyboardShortcut("s", modifiers: .command)
             }
             CommandMenu("View") {
                 Button("Toggle Focus Mode") {
@@ -37,13 +43,6 @@ struct MaughamApp: App {
                         name: .maughamToggleFullScreen, object: nil)
                 }
                 .keyboardShortcut("f", modifiers: [.command, .shift])
-            }
-            CommandGroup(after: .saveItem) {
-                Button("Save") {
-                    NotificationCenter.default.post(
-                        name: .maughamDummySave, object: nil)
-                }
-                .keyboardShortcut("s", modifiers: .command)
             }
         }
 

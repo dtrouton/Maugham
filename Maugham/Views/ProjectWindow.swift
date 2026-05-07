@@ -33,12 +33,12 @@ struct ProjectWindow: View {
                         sentenceFocus: themeManager.sentenceFocus,
                         paragraphFocus: themeManager.paragraphFocus
                     )
-                    .overlay(alignment: .top) {
-                        SaveFlashOverlay(isShowing: $showingSaveFlash)
-                    }
                     if themeManager.goalIndicatorsVisible {
                         GoalIndicatorView(metrics: metrics)
                     }
+                }
+                .overlay(alignment: .top) {
+                    SaveFlashOverlay(isShowing: $showingSaveFlash)
                 }
                 .navigationTitle(store.manifest.title)
             } else if let loadError {
