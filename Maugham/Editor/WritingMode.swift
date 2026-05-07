@@ -46,4 +46,7 @@ public protocol WritingMode: Sendable {
 
     /// Compute metrics for the manuscript.
     func metrics(_ text: String) -> EditorMetrics
+
+    /// Body text column width in points, given the configured page width.
+    func textColumnWidth(typography: TypographySettings) -> CGFloat
 }

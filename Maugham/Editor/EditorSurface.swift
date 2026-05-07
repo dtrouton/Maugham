@@ -30,9 +30,20 @@ struct EditorSurface: NSViewRepresentable {
         textView.isContinuousSpellCheckingEnabled = true
         textView.delegate = context.coordinator
         textView.string = text
-        textView.textContainerInset = NSSize(width: 24, height: 24)
+        textView.textContainerInset = NSSize(width: 0, height: 24)
 
-        let scrollView = NSScrollView()
+        // Constrain text container to a fixed column width so long lines wrap
+        // at pageWidthCharacters even when the window is wide.
+        if let container = textView.textContainer {
+            let columnWidth = mode.textColumnWidth(typography: typography)
+            container.widthTracksTextView = false
+            container.size = NSSize(width: columnWidth,
+                                    height: .greatestFiniteMagnitude)
+            textView.frame = NSRect(x: 0, y: 0,
+                                    width: columnWidth, height: 0)
+        }
+
+        let scrollView = CenteringScrollView()
         scrollView.documentView = textView
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
@@ -52,6 +63,14 @@ struct EditorSurface: NSViewRepresentable {
             || context.coordinator.typography != typography {
             context.coordinator.applyAppearance(
                 theme: theme, typography: typography)
+
+            if let container = textView.textContainer {
+                let columnWidth = mode.textColumnWidth(typography: typography)
+                container.size = NSSize(width: columnWidth,
+                                        height: .greatestFiniteMagnitude)
+                textView.frame.size.width = columnWidth
+                scrollView.needsLayout = true
+            }
         }
     }
 }
@@ -62,5 +81,21 @@ private final class MaughamTextView: NSTextView {
     override var acceptsFirstResponder: Bool { true }
     override func becomeFirstResponder() -> Bool {
         super.becomeFirstResponder()
+    }
+}
+
+/// NSScrollView subclass that horizontally centers its document view inside
+/// the visible area whenever the document is narrower than the clip view.
+private final class CenteringScrollView: NSScrollView {
+    override func tile() {
+        super.tile()
+        guard let documentView else { return }
+        let clipBounds = contentView.bounds
+        let docFrame = documentView.frame
+        if docFrame.size.width < clipBounds.width {
+            var origin = documentView.frame.origin
+            origin.x = (clipBounds.width - docFrame.size.width) / 2
+            documentView.frame.origin = origin
+        }
     }
 }

@@ -77,6 +77,18 @@ public struct ProseMode: WritingMode {
             typography: typography)
     }
 
+    /// Width of the body text column, in points, given the configured page
+    /// width (in characters) and current font. Uses an "M" glyph as the
+    /// per-character width estimate.
+    public func textColumnWidth(
+        typography: TypographySettings
+    ) -> CGFloat {
+        let font = baseFont(for: typography)
+        let em = ("M" as NSString)
+            .size(withAttributes: [.font: font]).width
+        return em * CGFloat(typography.pageWidthCharacters)
+    }
+
     private func baseFont(for typography: TypographySettings) -> NSFont {
         NSFont(name: typography.fontFamily, size: CGFloat(typography.fontSize))
             ?? NSFont.systemFont(ofSize: CGFloat(typography.fontSize))
