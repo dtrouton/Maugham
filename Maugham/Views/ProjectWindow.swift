@@ -20,7 +20,8 @@ struct ProjectWindow: View {
                     ),
                     theme: themeManager.theme,
                     typography: themeManager.typography,
-                    mode: ProseMode()
+                    mode: ProseMode(),
+                    typewriterScroll: themeManager.typewriterScroll
                 )
                 .navigationTitle(store.manifest.title)
             } else if let loadError {

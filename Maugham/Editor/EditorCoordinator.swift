@@ -11,6 +11,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     private let mode: any WritingMode
     private(set) var theme: Theme
     private(set) var typography: TypographySettings
+    private(set) var typewriterScroll: Bool
 
     private var isApplyingExternalUpdate = false
     weak var textView: NSTextView?
@@ -18,11 +19,13 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     init(text: Binding<String>,
          mode: any WritingMode,
          theme: Theme,
-         typography: TypographySettings) {
+         typography: TypographySettings,
+         typewriterScroll: Bool) {
         self.binding = text
         self.mode = mode
         self.theme = theme
         self.typography = typography
+        self.typewriterScroll = typewriterScroll
     }
 
     /// Set the text view from outside (called by EditorSurface.makeNSView).
@@ -47,6 +50,13 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         )
         textView.setSelectedRange(clamped)
         retokenizeAndStyle()
+    }
+
+    /// Typewriter scroll setting changed — update and apply immediately.
+    func applyTypewriterScroll(_ enabled: Bool) {
+        self.typewriterScroll = enabled
+        guard enabled, let textView else { return }
+        scrollSelectionToVerticalCenter(in: textView)
     }
 
     /// Theme/typography changed — re-style without re-text.
@@ -117,5 +127,31 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // Update binding then restyle
         binding.wrappedValue = textView.string
         retokenizeAndStyle()
+        if typewriterScroll {
+            scrollSelectionToVerticalCenter(in: textView)
+        }
+    }
+
+    func textViewDidChangeSelection(_ notification: Notification) {
+        guard let textView = notification.object as? NSTextView,
+              !isApplyingExternalUpdate else { return }
+        if typewriterScroll {
+            scrollSelectionToVerticalCenter(in: textView)
+        }
+    }
+
+    private func scrollSelectionToVerticalCenter(in textView: NSTextView) {
+        guard let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer else { return }
+        let glyphRange = layoutManager.glyphRange(
+            forCharacterRange: textView.selectedRange(),
+            actualCharacterRange: nil)
+        let lineRect = layoutManager.boundingRect(
+            forGlyphRange: glyphRange, in: textContainer)
+        guard let scrollView = textView.enclosingScrollView else { return }
+        let visible = scrollView.contentView.documentVisibleRect
+        let targetY = lineRect.midY - visible.height / 2
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: targetY))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 }

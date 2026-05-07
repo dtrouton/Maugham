@@ -8,11 +8,13 @@ struct EditorSurface: NSViewRepresentable {
     let theme: Theme
     let typography: TypographySettings
     let mode: any WritingMode
+    let typewriterScroll: Bool
 
     func makeCoordinator() -> EditorCoordinator {
         EditorCoordinator(
             text: $text, mode: mode,
-            theme: theme, typography: typography)
+            theme: theme, typography: typography,
+            typewriterScroll: typewriterScroll)
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -71,6 +73,9 @@ struct EditorSurface: NSViewRepresentable {
                 textView.frame.size.width = columnWidth
                 scrollView.needsLayout = true
             }
+        }
+        if context.coordinator.typewriterScroll != typewriterScroll {
+            context.coordinator.applyTypewriterScroll(typewriterScroll)
         }
     }
 }
