@@ -124,15 +124,6 @@ struct ProjectWindow: View {
     }
 }
 
-extension Notification.Name {
-    static let maughamToggleNoChrome =
-        Notification.Name("maugham.toggleNoChrome")
-    static let maughamToggleFullScreen =
-        Notification.Name("maugham.toggleFullScreen")
-    static let maughamDummySave =
-        Notification.Name("maugham.dummySave")
-}
-
 private struct WindowAccessor: NSViewRepresentable {
     @Binding var window: NSWindow?
 

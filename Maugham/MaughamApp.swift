@@ -1,11 +1,6 @@
 import SwiftUI
 import AppKit
 
-extension Notification.Name {
-    static let maughamNewProject = Notification.Name("maugham.newProject")
-    static let maughamOpenProject = Notification.Name("maugham.openProject")
-}
-
 @main
 struct MaughamApp: App {
     @State private var themeManager = ThemeManager()
