@@ -6,6 +6,8 @@ struct ProjectWindow: View {
     @State private var loadError: String?
     @State private var isNoChromeOn: Bool = false
     @State private var window: NSWindow?
+    @State private var metrics: EditorMetrics =
+        EditorMetrics(wordCount: 0, characterCount: 0, readingMinutes: 0)
     @Environment(ThemeManager.self) private var themeManager
 
     let url: URL
@@ -13,21 +15,27 @@ struct ProjectWindow: View {
     var body: some View {
         Group {
             if let store {
-                EditorSurface(
-                    text: Binding(
-                        get: { store.manuscriptText },
-                        set: { newValue in
-                            store.manuscriptText = newValue
-                            Task { try? await store.save() }
-                        }
-                    ),
-                    theme: themeManager.theme,
-                    typography: themeManager.typography,
-                    mode: ProseMode(),
-                    typewriterScroll: themeManager.typewriterScroll,
-                    sentenceFocus: themeManager.sentenceFocus,
-                    paragraphFocus: themeManager.paragraphFocus
-                )
+                ZStack(alignment: .bottomTrailing) {
+                    EditorSurface(
+                        text: Binding(
+                            get: { store.manuscriptText },
+                            set: { newValue in
+                                store.manuscriptText = newValue
+                                metrics = ProseMode().metrics(newValue)
+                                Task { try? await store.save() }
+                            }
+                        ),
+                        theme: themeManager.theme,
+                        typography: themeManager.typography,
+                        mode: ProseMode(),
+                        typewriterScroll: themeManager.typewriterScroll,
+                        sentenceFocus: themeManager.sentenceFocus,
+                        paragraphFocus: themeManager.paragraphFocus
+                    )
+                    if themeManager.goalIndicatorsVisible {
+                        GoalIndicatorView(metrics: metrics)
+                    }
+                }
                 .navigationTitle(store.manifest.title)
             } else if let loadError {
                 VStack(spacing: 12) {
@@ -84,6 +92,9 @@ struct ProjectWindow: View {
     private func load() async {
         do {
             store = try await ProjectStore.load(from: url)
+            if let store {
+                metrics = ProseMode().metrics(store.manuscriptText)
+            }
             loadError = nil
         } catch ProjectStoreError.manifestNotFound {
             loadError = "No project.maugham.json was found in this folder."
