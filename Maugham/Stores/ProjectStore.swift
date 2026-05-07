@@ -433,6 +433,23 @@ public final class ProjectStore {
             throw ProjectStoreError.manifestUnwritable(error.localizedDescription)
         }
     }
+
+    /// Set or clear the per-project typography override.
+    /// Pass `nil` to clear (fall back to user-level defaults).
+    public func setProjectTypography(_ override: TypographySettings?) async throws {
+        manifest.typography = override
+        manifest.modified = Date()
+        try await saveManifest()
+    }
+
+    /// Resolve the effective typography for an editor: prefer the
+    /// project-level override, otherwise fall back to the user default.
+    public static func effectiveTypography(
+        override: TypographySettings?,
+        userDefault: TypographySettings
+    ) -> TypographySettings {
+        override ?? userDefault
+    }
 }
 
 private extension StructureItemKind {
