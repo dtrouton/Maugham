@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ThemeSettingsTab: View {
-    @Bindable var themeManager: ThemeManager
+    @Bindable var themeManager: UserPreferences
 
     var body: some View {
         Form {

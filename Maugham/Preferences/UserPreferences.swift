@@ -1,15 +1,13 @@
 import Foundation
 import SwiftUI
 
-/// Reads / writes user-level theme + typography + focus preferences via
-/// UserDefaults. Observable so SwiftUI views update automatically.
-///
-/// NOTE: name is becoming a misnomer as it now also manages focus prefs.
-/// Rename to `WritingPreferences` is deferred to milestone 1d when more
-/// prefs accumulate.
+/// Reads / writes user-level preferences (theme, typography, focus prefs,
+/// goal indicators) via UserDefaults. Observable so SwiftUI views update
+/// automatically. Renamed from ThemeManager in 1d as the surface grew
+/// beyond just theme management.
 @MainActor
 @Observable
-public final class ThemeManager {
+public final class UserPreferences {
     private static let themeKey = "maugham.theme"
     private static let typographyKey = "maugham.typography"
     private static let typewriterKey = "maugham.typewriterScroll"

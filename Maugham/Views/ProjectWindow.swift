@@ -9,7 +9,7 @@ struct ProjectWindow: View {
     @State private var metrics: EditorMetrics =
         EditorMetrics(wordCount: 0, characterCount: 0, readingMinutes: 0)
     @State private var showingSaveFlash: Bool = false
-    @Environment(ThemeManager.self) private var themeManager
+    @Environment(UserPreferences.self) private var themeManager
 
     let url: URL
 

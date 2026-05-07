@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @Environment(ThemeManager.self) private var themeManager
+    @Environment(UserPreferences.self) private var themeManager
 
     var body: some View {
         TabView {

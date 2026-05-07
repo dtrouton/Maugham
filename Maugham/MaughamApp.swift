@@ -3,7 +3,7 @@ import AppKit
 
 @main
 struct MaughamApp: App {
-    @State private var themeManager = ThemeManager()
+    @State private var themeManager = UserPreferences()
 
     var body: some Scene {
         Window("Maugham — Welcome", id: "welcome") {
