@@ -3,7 +3,7 @@ import SwiftUI
 struct ProjectWindow: View {
     @State private var store: ProjectStore?
     @State private var loadError: String?
-    @State private var themeManager = ThemeManager()
+    @Environment(ThemeManager.self) private var themeManager
 
     let url: URL
 

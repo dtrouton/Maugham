@@ -8,6 +8,8 @@ extension Notification.Name {
 
 @main
 struct MaughamApp: App {
+    @State private var themeManager = ThemeManager()
+
     var body: some Scene {
         Window("Maugham — Welcome", id: "welcome") {
             WelcomeHost()
@@ -30,6 +32,7 @@ struct MaughamApp: App {
             if let url {
                 ProjectWindow(url: url)
                     .navigationTitle(url.lastPathComponent)
+                    .environment(themeManager)
             } else {
                 Text("No project URL").foregroundStyle(.secondary)
             }
@@ -38,6 +41,7 @@ struct MaughamApp: App {
 
         Settings {
             SettingsView()
+                .environment(themeManager)
         }
     }
 }

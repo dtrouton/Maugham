@@ -55,7 +55,10 @@ public struct ProseMode: WritingMode {
         ) ?? NSFont.systemFont(ofSize: CGFloat(typography.fontSize))
 
         let paragraph = NSMutableParagraphStyle()
-        paragraph.lineHeightMultiple = CGFloat(typography.lineHeightMultiplier)
+        // Use lineSpacing rather than lineHeightMultiple so the NSTextView
+        // insertion point (which tracks line-box height) stays at glyph height.
+        paragraph.lineSpacing =
+            max(0, baseFont.pointSize * CGFloat(typography.lineHeightMultiplier - 1.0))
         paragraph.paragraphSpacing =
             baseFont.pointSize * CGFloat(typography.paragraphSpacingMultiplier)
 
