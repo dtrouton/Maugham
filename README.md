@@ -40,9 +40,23 @@ To verify a fresh build, walk through these seven steps:
 
 If all seven pass, milestone 1a is healthy.
 
+## Phase 1b smoke test
+
+Once running on milestone-1b:
+
+1. Open Maugham, open a Short Story project from Recents.
+2. Editor uses Iowan Old Style 17pt with calm syntax highlighting.
+3. Type `**bold**` — asterisks dim, "bold" renders bold.
+4. ⌘, → Theme → Sepia. Background turns paper-yellow.
+5. Type `--` and `...` — see them transform to `—` and `…`.
+6. ⌘, → Editor → drag size slider. Editor reflows live.
+7. Quit and relaunch. Settings persist.
+
+If all seven pass, milestone 1b is healthy.
+
 ## Tests
 
     ./gen.sh
     xcodebuild -project Maugham.xcodeproj -scheme Maugham test CODE_SIGNING_ALLOWED=NO
 
-Expect 33 tests passing across `ProjectTypeTests`, `StructureItemTests`, `ResearchItemTests`, `ProjectManifestTests`, `ProjectFactoryTests`, `ProjectStoreTests`, and `RecentsStoreTests`.
+Expect 77 tests passing — 33 from milestone 1a (project model, factory, store, recents) plus 44 new tests for milestone 1b (Token, Theme, TypographySettings, ThemeManager, MarkdownTokenizer, SmartTypography, ProseMode).
