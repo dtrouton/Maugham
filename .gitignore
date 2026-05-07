@@ -6,6 +6,9 @@ DerivedData/
 *.xcuserstate
 *.xcscheme
 
+# Info.plist is owned by xcodegen — populated from project.yml on each generate
+Maugham/Info.plist
+
 # Build artifacts
 build/
 *.app
