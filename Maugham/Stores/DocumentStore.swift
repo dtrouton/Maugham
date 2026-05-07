@@ -13,6 +13,16 @@ public final class DocumentStore {
     private var presenter: ProjectFolderPresenter?
     private var uiStateScheduler: DebounceScheduler<UIState>!
 
+    public private(set) var openDocumentPath: String?
+    public private(set) var lastWrittenText: String = ""
+
+    private var saveScheduler: DebounceScheduler<SavePayload>!
+
+    private struct SavePayload: Sendable {
+        let path: String
+        let text: String
+    }
+
     private init(projectURL: URL, uiState: UIState) {
         self.projectURL = projectURL
         self.uiState = uiState
@@ -40,6 +50,7 @@ public final class DocumentStore {
     }
 
     public func close() async {
+        try? await flushPendingSave()
         await uiStateScheduler.flush()
         if let presenter {
             NSFileCoordinator.removeFilePresenter(presenter)
@@ -54,6 +65,57 @@ public final class DocumentStore {
         guard draft != uiState else { return }
         uiState = draft
         uiStateScheduler.schedule(draft)
+    }
+
+    /// Bind to a new document. Reads from disk, sets lastWrittenText, flushes
+    /// any pending save for the previously-open document.
+    public func openDocument(at path: String) async throws -> String {
+        if openDocumentPath != nil {
+            try? await flushPendingSave()
+        }
+        let url = projectURL.appendingPathComponent(path)
+        let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        openDocumentPath = path
+        lastWrittenText = text
+        // Lazy-init save scheduler on first openDocument.
+        if saveScheduler == nil {
+            saveScheduler = DebounceScheduler<SavePayload>(
+                delay: .milliseconds(750)
+            ) { [weak self] payload in
+                try? await self?.performSave(path: payload.path, text: payload.text)
+            }
+        }
+        return text
+    }
+
+    public func scheduleSave(for path: String, text: String) {
+        guard saveScheduler != nil else { return }
+        saveScheduler.schedule(SavePayload(path: path, text: text))
+    }
+
+    public func flushPendingSave() async throws {
+        guard let saveScheduler else { return }
+        await saveScheduler.flush()
+    }
+
+    private func performSave(path: String, text: String) async throws {
+        let url = projectURL.appendingPathComponent(path)
+        let coordinator = NSFileCoordinator(filePresenter: presenter)
+        var coordError: NSError?
+        var saveError: Error?
+        coordinator.coordinate(
+            writingItemAt: url, options: .forReplacing, error: &coordError
+        ) { writeURL in
+            do {
+                try text.data(using: .utf8)?
+                    .write(to: writeURL, options: [.atomic])
+                self.lastWrittenText = text
+            } catch {
+                saveError = error
+            }
+        }
+        if let coordError { throw coordError }
+        if let saveError { throw saveError }
     }
 
     private func persistUIState(_ state: UIState) async {
