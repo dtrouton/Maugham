@@ -44,4 +44,35 @@ final class ThemeManagerTests: XCTestCase {
         let m = ThemeManager(defaults: defaults)
         XCTAssertEqual(m.typography, .defaults)
     }
+
+    func test_freshManager_focusPrefsHaveExpectedDefaults() {
+        XCTAssertFalse(manager.typewriterScroll)
+        XCTAssertFalse(manager.sentenceFocus)
+        XCTAssertFalse(manager.paragraphFocus)
+        XCTAssertTrue(manager.goalIndicatorsVisible)
+    }
+
+    func test_typewriterScrollMutation_persists() {
+        manager.typewriterScroll = true
+        let other = ThemeManager(defaults: defaults)
+        XCTAssertTrue(other.typewriterScroll)
+    }
+
+    func test_sentenceFocusMutation_persists() {
+        manager.sentenceFocus = true
+        let other = ThemeManager(defaults: defaults)
+        XCTAssertTrue(other.sentenceFocus)
+    }
+
+    func test_paragraphFocusMutation_persists() {
+        manager.paragraphFocus = true
+        let other = ThemeManager(defaults: defaults)
+        XCTAssertTrue(other.paragraphFocus)
+    }
+
+    func test_goalIndicatorsMutation_persists() {
+        manager.goalIndicatorsVisible = false
+        let other = ThemeManager(defaults: defaults)
+        XCTAssertFalse(other.goalIndicatorsVisible)
+    }
 }
