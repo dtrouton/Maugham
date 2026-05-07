@@ -27,6 +27,13 @@ public final class ProjectStore {
     public private(set) var manifest: ProjectManifest
     public var manuscriptText: String
 
+    /// Optional reference to the DocumentStore that owns this project's
+    /// coordinated I/O. Set by ProjectWindow at open time. When non-nil,
+    /// manifest saves route through DocumentStore.writeManifest. When nil
+    /// (e.g., during initial load before DocumentStore exists), saves use
+    /// the legacy direct atomic-write path.
+    public weak var documentStore: DocumentStore?
+
     private static let manifestFilename = "project.maugham.json"
 
     private init(url: URL, manifest: ProjectManifest, manuscriptText: String) {
@@ -202,13 +209,30 @@ public final class ProjectStore {
     }
 
     private func saveManifest() async throws {
-        let manifestURL = url.appendingPathComponent("project.maugham.json")
-        let tmpURL = manifestURL.appendingPathExtension("tmp")
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data: Data
         do {
-            let data = try encoder.encode(manifest)
+            data = try encoder.encode(manifest)
+        } catch {
+            throw ProjectStoreError.manifestUnwritable(error.localizedDescription)
+        }
+
+        if let documentStore {
+            // Route through DocumentStore for coordinated write.
+            do {
+                try await documentStore.writeManifest(data)
+            } catch {
+                throw ProjectStoreError.manifestUnwritable(error.localizedDescription)
+            }
+            return
+        }
+
+        // Legacy direct path used during initial load before DocumentStore exists.
+        let manifestURL = url.appendingPathComponent("project.maugham.json")
+        let tmpURL = manifestURL.appendingPathExtension("tmp")
+        do {
             try data.write(to: tmpURL, options: [.atomic])
             _ = try FileManager.default.replaceItemAt(manifestURL, withItemAt: tmpURL)
         } catch {

@@ -118,6 +118,49 @@ public final class DocumentStore {
         if let saveError { throw saveError }
     }
 
+    /// Coordinated atomic manifest write. Uses the same coordinator as
+    /// document writes so external watchers see the change cleanly.
+    public func writeManifest(_ data: Data) async throws {
+        let manifestURL = projectURL.appendingPathComponent("project.maugham.json")
+        let coordinator = NSFileCoordinator(filePresenter: presenter)
+        var coordError: NSError?
+        var writeError: Error?
+        coordinator.coordinate(
+            writingItemAt: manifestURL, options: .forReplacing, error: &coordError
+        ) { writeURL in
+            do {
+                let tmpURL = writeURL.appendingPathExtension("tmp")
+                try data.write(to: tmpURL, options: [.atomic])
+                _ = try FileManager.default.replaceItemAt(writeURL, withItemAt: tmpURL)
+            } catch {
+                writeError = error
+            }
+        }
+        if let coordError { throw coordError }
+        if let writeError { throw writeError }
+    }
+
+    /// Coordinated read for callers outside ProjectStore.
+    public func readManifest() async throws -> Data {
+        let manifestURL = projectURL.appendingPathComponent("project.maugham.json")
+        let coordinator = NSFileCoordinator(filePresenter: presenter)
+        var coordError: NSError?
+        var data: Data?
+        var readError: Error?
+        coordinator.coordinate(
+            readingItemAt: manifestURL, options: [], error: &coordError
+        ) { readURL in
+            do {
+                data = try Data(contentsOf: readURL)
+            } catch {
+                readError = error
+            }
+        }
+        if let coordError { throw coordError }
+        if let readError { throw readError }
+        return data ?? Data()
+    }
+
     private func persistUIState(_ state: UIState) async {
         let dotDir = projectURL.appendingPathComponent(".maugham")
         let url = dotDir.appendingPathComponent("ui-state.json")
