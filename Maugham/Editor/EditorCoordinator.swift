@@ -12,6 +12,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     private(set) var theme: Theme
     private(set) var typography: TypographySettings
     private(set) var typewriterScroll: Bool
+    private(set) var sentenceFocus: Bool
+    private(set) var paragraphFocus: Bool
 
     private var isApplyingExternalUpdate = false
     weak var textView: NSTextView?
@@ -20,12 +22,16 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
          mode: any WritingMode,
          theme: Theme,
          typography: TypographySettings,
-         typewriterScroll: Bool) {
+         typewriterScroll: Bool,
+         sentenceFocus: Bool,
+         paragraphFocus: Bool) {
         self.binding = text
         self.mode = mode
         self.theme = theme
         self.typography = typography
         self.typewriterScroll = typewriterScroll
+        self.sentenceFocus = sentenceFocus
+        self.paragraphFocus = paragraphFocus
     }
 
     /// Set the text view from outside (called by EditorSurface.makeNSView).
@@ -59,6 +65,15 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         scrollSelectionToVerticalCenter(in: textView)
     }
 
+    /// Focus mode settings changed — update and re-dim immediately.
+    func applyFocusPrefs(sentence: Bool, paragraph: Bool) {
+        self.sentenceFocus = sentence
+        self.paragraphFocus = paragraph
+        guard let textView else { return }
+        retokenizeAndStyle()
+        applyFocusDim(in: textView)
+    }
+
     /// Theme/typography changed — re-style without re-text.
     func applyAppearance(theme: Theme, typography: TypographySettings) {
         self.theme = theme
@@ -87,6 +102,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // body font/paragraph style instead of the system default.
         textView.typingAttributes = mode.bodyTypingAttributes(
             theme: theme, typography: typography)
+        applyFocusDim(in: textView)
     }
 
     // MARK: - NSTextViewDelegate
@@ -138,6 +154,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         if typewriterScroll {
             scrollSelectionToVerticalCenter(in: textView)
         }
+        applyFocusDim(in: textView)
     }
 
     private func scrollSelectionToVerticalCenter(in textView: NSTextView) {
@@ -153,5 +170,44 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         let targetY = lineRect.midY - visible.height / 2
         scrollView.contentView.scroll(to: NSPoint(x: 0, y: targetY))
         scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
+
+    private func applyFocusDim(in textView: NSTextView) {
+        guard let storage = textView.textStorage else { return }
+        let useSentence = sentenceFocus
+        let useParagraph = paragraphFocus && !sentenceFocus
+        guard useSentence || useParagraph else { return }
+
+        let cursor = textView.selectedRange().location
+        let activeRange = useSentence
+            ? FocusFinder.sentenceRange(in: textView.string, cursor: cursor)
+            : FocusFinder.paragraphRange(in: textView.string, cursor: cursor)
+
+        let fullRange = NSRange(location: 0, length: storage.length)
+        guard fullRange.length > 0 else { return }
+
+        storage.beginEditing()
+        if activeRange.location > 0 {
+            dim(storage,
+                in: NSRange(location: 0, length: activeRange.location))
+        }
+        let afterStart = NSMaxRange(activeRange)
+        if afterStart < fullRange.length {
+            dim(storage,
+                in: NSRange(location: afterStart,
+                            length: fullRange.length - afterStart))
+        }
+        storage.endEditing()
+    }
+
+    private func dim(_ storage: NSTextStorage, in range: NSRange) {
+        storage.enumerateAttribute(
+            .foregroundColor, in: range, options: []
+        ) { value, subrange, _ in
+            guard let color = value as? NSColor else { return }
+            let dimmed = color.withAlphaComponent(0.4)
+            storage.addAttribute(.foregroundColor,
+                                  value: dimmed, range: subrange)
+        }
     }
 }

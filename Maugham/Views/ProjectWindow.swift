@@ -21,7 +21,9 @@ struct ProjectWindow: View {
                     theme: themeManager.theme,
                     typography: themeManager.typography,
                     mode: ProseMode(),
-                    typewriterScroll: themeManager.typewriterScroll
+                    typewriterScroll: themeManager.typewriterScroll,
+                    sentenceFocus: themeManager.sentenceFocus,
+                    paragraphFocus: themeManager.paragraphFocus
                 )
                 .navigationTitle(store.manifest.title)
             } else if let loadError {

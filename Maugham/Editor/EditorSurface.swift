@@ -9,12 +9,16 @@ struct EditorSurface: NSViewRepresentable {
     let typography: TypographySettings
     let mode: any WritingMode
     let typewriterScroll: Bool
+    let sentenceFocus: Bool
+    let paragraphFocus: Bool
 
     func makeCoordinator() -> EditorCoordinator {
         EditorCoordinator(
             text: $text, mode: mode,
             theme: theme, typography: typography,
-            typewriterScroll: typewriterScroll)
+            typewriterScroll: typewriterScroll,
+            sentenceFocus: sentenceFocus,
+            paragraphFocus: paragraphFocus)
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -76,6 +80,11 @@ struct EditorSurface: NSViewRepresentable {
         }
         if context.coordinator.typewriterScroll != typewriterScroll {
             context.coordinator.applyTypewriterScroll(typewriterScroll)
+        }
+        if context.coordinator.sentenceFocus != sentenceFocus
+            || context.coordinator.paragraphFocus != paragraphFocus {
+            context.coordinator.applyFocusPrefs(
+                sentence: sentenceFocus, paragraph: paragraphFocus)
         }
     }
 }
