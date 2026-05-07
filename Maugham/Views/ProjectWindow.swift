@@ -9,6 +9,7 @@ enum ProjectActiveSheet: Identifiable {
 
 struct ProjectWindow: View {
     @State private var store: ProjectStore?
+    @State private var documentStore: DocumentStore?
     @State private var loadError: String?
     @State private var isNoChromeOn: Bool = false
     @State private var window: NSWindow?
@@ -24,7 +25,7 @@ struct ProjectWindow: View {
 
     var body: some View {
         Group {
-            if let store {
+            if let store, let documentStore {
                 NavigationSplitView {
                     BinderView(store: store, selectedItemId: $selectedItemId)
                         .navigationSplitViewColumnWidth(min: 200, ideal: 240)
@@ -32,15 +33,25 @@ struct ProjectWindow: View {
                     ZStack(alignment: .bottomTrailing) {
                         EditorHost(
                             store: store,
+                            documentStore: documentStore,
                             selectedItemId: selectedItemId,
                             onTextChange: { text in updateMetrics(for: text) }
                         )
-                        .onChange(of: selectedItemId) { _, _ in
-                            // Selection change reloads document inside EditorHost
-                            // which fires onTextChange — no manual refresh needed.
-                        }
                         if userPreferences.goalIndicatorsVisible {
                             GoalIndicatorView(metrics: metrics)
+                        }
+                    }
+                    .safeAreaInset(edge: .top) {
+                        if let conflict = documentStore.pendingConflict {
+                            ConflictBanner(
+                                conflict: conflict,
+                                onKeepMine: {
+                                    Task { try? await documentStore.resolveConflictKeepMine() }
+                                },
+                                onUseCloud: {
+                                    Task { try? await documentStore.resolveConflictUseCloud() }
+                                }
+                            )
                         }
                     }
                     .navigationSplitViewColumnWidth(min: 480, ideal: 720)
@@ -89,6 +100,7 @@ struct ProjectWindow: View {
         .frame(minWidth: 980, minHeight: 540)
         .background(WindowAccessor(window: $window))
         .task(id: url) { await load() }
+        .onDisappear { Task { await documentStore?.close() } }
         .onReceive(NotificationCenter.default.publisher(for: .maughamToggleNoChrome)) { _ in
             isNoChromeOn.toggle()
             applyNoChrome()
@@ -97,7 +109,10 @@ struct ProjectWindow: View {
             toggleFullScreen()
         }
         .onReceive(NotificationCenter.default.publisher(for: .maughamDummySave)) { _ in
-            showSaveFlash()
+            Task {
+                try? await documentStore?.flushPendingSave()
+                showSaveFlash()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .maughamShowProjectSettings)) { _ in
             activeSheet = .projectSettings
@@ -108,14 +123,17 @@ struct ProjectWindow: View {
         .onReceive(NotificationCenter.default.publisher(for: .maughamToggleInspector)) { _ in
             showInspector.toggle()
         }
-        .onChange(of: isNoChromeOn) { _, _ in applyNoChrome() }
+        .onChange(of: isNoChromeOn) { _, newValue in
+            applyNoChrome()
+            documentStore?.updateUIState { $0.isNoChromeOn = newValue }
+        }
+        .onChange(of: selectedItemId) { _, newValue in
+            documentStore?.updateUIState { $0.selectedItemId = newValue }
+        }
     }
 
     // MARK: - Helpers
 
-    /// Recompute metrics from live editor text. Called by EditorHost on every
-    /// keystroke, paste, and document load — so the inspector and goal
-    /// indicator stay in sync without re-reading from disk.
     private func updateMetrics(for text: String) {
         guard let store, let id = selectedItemId,
               let item = findItem(id: id, in: store.manifest.structure),
@@ -166,13 +184,26 @@ struct ProjectWindow: View {
     @MainActor
     private func load() async {
         do {
-            store = try await ProjectStore.load(from: url)
-            // Auto-select the first document for usability. EditorHost will
-            // load the document and call back via onTextChange so metrics
-            // populate automatically.
-            if let first = firstDocument(in: store?.manifest.structure ?? []) {
-                selectedItemId = first.id
+            let s = try await ProjectStore.load(from: url)
+            let ds = try await DocumentStore.open(url: url)
+            s.documentStore = ds
+            self.store = s
+            self.documentStore = ds
+
+            // Seed UI state from disk (or defaults). Validate selectedItemId
+            // against current structure — if the saved selection refers to a
+            // deleted item, fall back to first document.
+            let savedSelection = ds.uiState.selectedItemId
+            let isValid = savedSelection != nil
+                ? findItem(id: savedSelection!, in: s.manifest.structure) != nil
+                : false
+            if isValid {
+                self.selectedItemId = savedSelection
+            } else if let first = firstDocument(in: s.manifest.structure) {
+                self.selectedItemId = first.id
             }
+            self.isNoChromeOn = ds.uiState.isNoChromeOn
+            applyNoChrome()
             loadError = nil
         } catch ProjectStoreError.manifestNotFound {
             loadError = "No project.maugham.json was found in this folder."
