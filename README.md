@@ -54,9 +54,24 @@ Once running on milestone-1b:
 
 If all seven pass, milestone 1b is healthy.
 
+## Phase 1c smoke test
+
+Once running on milestone-1c:
+
+1. Open a project from Recents. Editor sits in a centered ~70-char column with theme-colored gutters; resizing the window grows or shrinks the gutters.
+2. Settings (⌘,) → Editor → Focus → enable Typewriter scrolling. Active line stays at the vertical center as you type.
+3. Enable Sentence focus. Only the current sentence is full color; the rest dims.
+4. Switch to Paragraph focus. The current paragraph is full color; siblings dim.
+5. ⌘\\ hides the title bar; press again to restore.
+6. ⌘⇧F enters full-screen with no-chrome already on; ⌘⇧F again exits.
+7. Toggle "Show goal indicators" — the bottom-right capsule (word count + reading time) appears or disappears.
+8. ⌘S flashes "Saved" briefly at the top of the editor (autosave is real; this is just the muscle-memory reflex).
+
+If all eight pass, milestone 1c is healthy.
+
 ## Tests
 
     ./gen.sh
     xcodebuild -project Maugham.xcodeproj -scheme Maugham test CODE_SIGNING_ALLOWED=NO
 
-Expect 77 tests passing — 33 from milestone 1a (project model, factory, store, recents) plus 44 new tests for milestone 1b (Token, Theme, TypographySettings, ThemeManager, MarkdownTokenizer, SmartTypography, ProseMode).
+Expect 90 tests passing — 33 from milestone 1a (project model, factory, store, recents), 44 from milestone 1b (Token, Theme, TypographySettings, ThemeManager, MarkdownTokenizer, SmartTypography, ProseMode), and 13 from milestone 1c (extended ThemeManager focus prefs + FocusFinder).
