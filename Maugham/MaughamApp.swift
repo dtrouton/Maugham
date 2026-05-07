@@ -20,12 +20,22 @@ struct MaughamApp: App {
                     NotificationCenter.default.post(name: .maughamOpenProject, object: nil)
                 }
                 .keyboardShortcut("o", modifiers: .command)
+                Menu("Open Recent") {
+                    OpenRecentSubmenu()
+                }
                 Divider()
                 Button("Save") {
                     NotificationCenter.default.post(
                         name: .maughamDummySave, object: nil)
                 }
                 .keyboardShortcut("s", modifiers: .command)
+            }
+            CommandGroup(after: .appInfo) {
+                Button("Project Settings…") {
+                    NotificationCenter.default.post(
+                        name: .maughamShowProjectSettings, object: nil)
+                }
+                .keyboardShortcut(",", modifiers: [.command, .option])
             }
             CommandMenu("View") {
                 Button("Toggle Focus Mode") {
@@ -38,6 +48,17 @@ struct MaughamApp: App {
                         name: .maughamToggleFullScreen, object: nil)
                 }
                 .keyboardShortcut("f", modifiers: [.command, .shift])
+                Button("Toggle Inspector") {
+                    NotificationCenter.default.post(
+                        name: .maughamToggleInspector, object: nil)
+                }
+                .keyboardShortcut("i", modifiers: [.command, .option])
+            }
+            CommandGroup(replacing: .help) {
+                Button("Set up Claude Desktop…") {
+                    NotificationCenter.default.post(
+                        name: .maughamShowClaudeDesktopHelp, object: nil)
+                }
             }
         }
 
@@ -78,8 +99,12 @@ private struct WelcomeHost: View {
         .onReceive(NotificationCenter.default.publisher(for: .maughamNewProject)) { _ in
             showingNewProject = true
         }
-        .onReceive(NotificationCenter.default.publisher(for: .maughamOpenProject)) { _ in
-            openViaPanel()
+        .onReceive(NotificationCenter.default.publisher(for: .maughamOpenProject)) { notification in
+            if let url = notification.userInfo?["url"] as? URL {
+                open(url)
+            } else {
+                openViaPanel()
+            }
         }
     }
 
@@ -100,6 +125,32 @@ private struct WelcomeHost: View {
         panel.message = "Choose a Maugham project folder."
         if panel.runModal() == .OK, let url = panel.url {
             open(url)
+        }
+    }
+}
+
+private struct OpenRecentSubmenu: View {
+    @State private var recents = RecentsStore()
+
+    var body: some View {
+        Group {
+            if recents.recents.isEmpty {
+                Text("(No recent projects)")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(recents.recents, id: \.path) { url in
+                    Button(url.lastPathComponent) {
+                        NotificationCenter.default.post(
+                            name: .maughamOpenProject,
+                            object: nil,
+                            userInfo: ["url": url])
+                    }
+                }
+                Divider()
+                Button("Clear Recent Projects") {
+                    for url in recents.recents { recents.remove(url) }
+                }
+            }
         }
     }
 }

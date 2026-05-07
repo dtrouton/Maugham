@@ -6,4 +6,7 @@ extension Notification.Name {
     public static let maughamToggleNoChrome = Notification.Name("maugham.toggleNoChrome")
     public static let maughamToggleFullScreen = Notification.Name("maugham.toggleFullScreen")
     public static let maughamDummySave = Notification.Name("maugham.dummySave")
+    public static let maughamShowProjectSettings = Notification.Name("maugham.showProjectSettings")
+    public static let maughamShowClaudeDesktopHelp = Notification.Name("maugham.showClaudeDesktopHelp")
+    public static let maughamToggleInspector = Notification.Name("maugham.toggleInspector")
 }
