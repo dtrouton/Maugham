@@ -627,6 +627,87 @@ public final class ProjectStore {
         return "\(prefix)-\(suffix)"
     }
 
+    /// Compact NN sequence gaps within a parent's children (or root if nil).
+    /// Idempotent: running on an already-contiguous group is a no-op.
+    public func tidyFilenames(parentId: String?) async throws {
+        guard let documentStore else {
+            throw ProjectStoreError.fileSystemError("DocumentStore not available")
+        }
+
+        let siblings = childrenOf(parentId: parentId)
+        let parentPath: String
+        if let parentId {
+            parentPath = findItem(id: parentId, in: manifest.structure)?.path
+                ?? "manuscript"
+        } else {
+            parentPath = "manuscript"
+        }
+
+        var renameSteps: [RenamePlan.Step] = []
+        var newSiblings: [StructureItem] = []
+        for (i, sibling) in siblings.enumerated() {
+            let newNN = String(format: "%02d", i + 1)
+            guard let oldP = sibling.path else {
+                newSiblings.append(sibling)
+                continue
+            }
+            let oldFilename = (oldP as NSString).lastPathComponent
+            let stem = String(oldFilename.dropFirst(3))
+            let newFilename: String
+            switch sibling.type {
+            case .document:
+                newFilename = "\(newNN)-\(stem)"
+            case .group:
+                newFilename = "\(newNN)-\(stem)"
+            }
+            let newPath = "\(parentPath)/\(newFilename)"
+            if oldP != newPath {
+                renameSteps.append(.init(
+                    oldRelativePath: oldP, newRelativePath: newPath))
+            }
+            var updated = sibling
+            updated.path = newPath
+            if updated.type == .group, var children = updated.children {
+                Self.rewriteChildPaths(
+                    in: &children,
+                    oldPrefix: oldP,
+                    newPrefix: newPath)
+                updated.children = children
+            }
+            newSiblings.append(updated)
+        }
+
+        let plan = try RenamePlan(steps: renameSteps)
+        try await documentStore.executeRenamePlan(plan)
+        replaceChildren(parentId: parentId, with: newSiblings)
+        manifest.modified = Date()
+        try await saveManifest()
+    }
+
+    /// Walk the structure tree post-order, calling tidyFilenames at every
+    /// group level. Single batched manifest save at the end.
+    public func tidyAllFilenames() async throws {
+        var groupIds: [String?] = []
+        Self.collectGroupIds(in: manifest.structure, into: &groupIds)
+        groupIds.append(nil)  // root last
+
+        for parentId in groupIds {
+            try await tidyFilenames(parentId: parentId)
+        }
+    }
+
+    private static func collectGroupIds(
+        in items: [StructureItem],
+        into result: inout [String?]
+    ) {
+        for item in items where item.type == .group {
+            if let children = item.children {
+                collectGroupIds(in: children, into: &result)
+            }
+            result.append(item.id)
+        }
+    }
+
     /// Move the item's file or folder to the system Trash and remove its
     /// manifest entry. For groups, the entire folder (including all children)
     /// is recycled in one atomic system call.
