@@ -168,6 +168,24 @@ struct ProjectWindow: View {
         .onReceive(NotificationCenter.default.publisher(for: .maughamTidyAllFilenames)) { _ in
             showingTidyAllConfirmation = true
         }
+        .onReceive(NotificationCenter.default.publisher(
+            for: .maughamAddResearchFile)) { _ in
+            Task {
+                let panel = NSOpenPanel()
+                panel.allowsMultipleSelection = true
+                panel.canChooseDirectories = true
+                panel.canChooseFiles = true
+                guard panel.runModal() == .OK else { return }
+                if let store {
+                    do {
+                        _ = try await store.importResearchFiles(
+                            panel.urls, toParentId: nil)
+                    } catch {
+                        // Non-fatal; user sees nothing happen
+                    }
+                }
+            }
+        }
         .alert("Renumber every chapter and scene?",
                isPresented: $showingTidyAllConfirmation
         ) {

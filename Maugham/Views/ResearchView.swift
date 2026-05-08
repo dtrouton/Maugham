@@ -47,6 +47,9 @@ struct ResearchView: View {
             Task { await runImport(urls, toParentId: nil) }
             return true
         }
+        .onPasteCommand(of: ["public.image", "public.text", "public.url"]) { items in
+            Task { await handlePaste(items: items) }
+        }
     }
 
     @ViewBuilder
@@ -199,6 +202,82 @@ struct ResearchView: View {
     private func delete(id: String) async {
         do {
             try await store.deleteResearchItem(id: id)
+        } catch {
+            pendingError = error.localizedDescription
+        }
+    }
+
+    // MARK: - Paste handling
+
+    private func handlePaste(items: [NSItemProvider]) async {
+        for provider in items {
+            if provider.hasItemConformingToTypeIdentifier("public.url") {
+                if let urlObject = try? await provider
+                    .loadItem(forTypeIdentifier: "public.url"),
+                   let urlData = urlObject as? URL {
+                    await addLink(
+                        parentId: nil,
+                        title: urlData.host ?? urlData.absoluteString,
+                        url: urlData.absoluteString)
+                    continue
+                }
+            }
+            if provider.canLoadObject(ofClass: NSImage.self) {
+                _ = await loadAndImportImage(provider: provider)
+                continue
+            }
+            if provider.hasItemConformingToTypeIdentifier("public.text") {
+                if let textObject = try? await provider
+                    .loadItem(forTypeIdentifier: "public.text"),
+                   let text = (textObject as? Data)
+                       .flatMap({ String(data: $0, encoding: .utf8) })
+                       ?? (textObject as? String) {
+                    await pasteText(text)
+                }
+            }
+        }
+    }
+
+    private func loadAndImportImage(provider: NSItemProvider) async -> ResearchItem? {
+        return await withCheckedContinuation { (cont: CheckedContinuation<ResearchItem?, Never>) in
+            _ = provider.loadObject(ofClass: NSImage.self) { obj, _ in
+                guard let img = obj as? NSImage,
+                      let data = img.tiffRepresentation,
+                      let bmp = NSBitmapImageRep(data: data),
+                      let pngData = bmp.representation(using: .png, properties: [:]) else {
+                    cont.resume(returning: nil); return
+                }
+                let iso = ISO8601DateFormatter().string(from: Date())
+                    .replacingOccurrences(of: ":", with: "-")
+                let tmpURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("pasted-\(iso).png")
+                do {
+                    try pngData.write(to: tmpURL)
+                    Task { @MainActor in
+                        do {
+                            let asset = try await store.addResearchAsset(
+                                parentId: nil, fromURL: tmpURL)
+                            cont.resume(returning: asset)
+                        } catch {
+                            pendingError = error.localizedDescription
+                            cont.resume(returning: nil)
+                        }
+                    }
+                } catch {
+                    cont.resume(returning: nil)
+                }
+            }
+        }
+    }
+
+    private func pasteText(_ text: String) async {
+        let iso = ISO8601DateFormatter().string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        let tmpURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pasted-\(iso).md")
+        do {
+            try text.write(to: tmpURL, atomically: true, encoding: .utf8)
+            _ = try await store.addResearchAsset(parentId: nil, fromURL: tmpURL)
         } catch {
             pendingError = error.localizedDescription
         }

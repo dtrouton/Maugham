@@ -49,6 +49,10 @@ struct MaughamApp: App {
                     NotificationCenter.default.post(
                         name: .maughamTidyAllFilenames, object: nil)
                 }
+                Button("Add Research File…") {
+                    NotificationCenter.default.post(
+                        name: .maughamAddResearchFile, object: nil)
+                }
                 Divider()
                 Button("Project Settings…") {
                     NotificationCenter.default.post(
