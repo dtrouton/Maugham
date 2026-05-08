@@ -37,75 +37,9 @@ struct ProjectWindow: View {
                         selectedResearchId: $selectedResearchId)
                         .navigationSplitViewColumnWidth(min: 200, ideal: 240)
                 } content: {
-                    ZStack(alignment: .bottomTrailing) {
-                        Group {
-                            switch binderSegment {
-                            case .manuscript:
-                                EditorHost(
-                                    store: store,
-                                    documentStore: documentStore,
-                                    selectedItemId: selectedItemId,
-                                    onTextChange: { text in updateMetrics(for: text) }
-                                )
-                            case .research:
-                                if let id = selectedResearchId,
-                                   let item = findResearchItem(
-                                       id: id, in: store.manifest.research) {
-                                    ResearchPreview(
-                                        projectURL: store.url,
-                                        item: item)
-                                } else {
-                                    ContentUnavailableView(
-                                        "Select an item to preview",
-                                        systemImage: "doc.text.magnifyingglass")
-                                }
-                            }
-                        }
-                        if userPreferences.goalIndicatorsVisible
-                           && binderSegment == .manuscript {
-                            GoalIndicatorView(metrics: metrics)
-                        }
-                    }
-                    .safeAreaInset(edge: .top) {
-                        if let conflict = documentStore.pendingConflict {
-                            ConflictBanner(
-                                conflict: conflict,
-                                onKeepMine: {
-                                    Task { try? await documentStore.resolveConflictKeepMine() }
-                                },
-                                onUseCloud: {
-                                    Task { try? await documentStore.resolveConflictUseCloud() }
-                                }
-                            )
-                        }
-                    }
-                    .navigationSplitViewColumnWidth(min: 480, ideal: 720)
+                    contentColumn(store: store, documentStore: documentStore)
                 } detail: {
-                    if showInspector && store.manifest.type != .collection {
-                        Group {
-                            switch binderSegment {
-                            case .manuscript:
-                                InspectorView(
-                                    store: store,
-                                    selectedItemId: selectedItemId,
-                                    metrics: metrics,
-                                    onOpenProjectSettings: { activeSheet = .projectSettings }
-                                )
-                            case .research:
-                                if let id = selectedResearchId,
-                                   let item = findResearchItem(
-                                       id: id, in: store.manifest.research) {
-                                    InspectorResearchPanel(
-                                        store: store, item: item)
-                                } else {
-                                    ContentUnavailableView(
-                                        "Select an item",
-                                        systemImage: "info.circle")
-                                }
-                            }
-                        }
-                        .navigationSplitViewColumnWidth(min: 240, ideal: 280)
-                    }
+                    detailColumn(store: store)
                 }
                 .overlay(alignment: .top) {
                     SaveFlashOverlay(isShowing: $showingSaveFlash)
@@ -218,6 +152,97 @@ struct ProjectWindow: View {
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("Filenames in every group will be renumbered to fix gaps. This change is visible to other apps that read this folder.")
+        }
+    }
+
+    // MARK: - Column builders
+
+    @ViewBuilder
+    private func contentColumn(
+        store: ProjectStore, documentStore: DocumentStore
+    ) -> some View {
+        ZStack(alignment: .bottomTrailing) {
+            editorPane(store: store, documentStore: documentStore)
+            if userPreferences.goalIndicatorsVisible
+               && binderSegment == .manuscript {
+                GoalIndicatorView(metrics: metrics)
+            }
+        }
+        .safeAreaInset(edge: .top) {
+            conflictBanner(documentStore: documentStore)
+        }
+        .navigationSplitViewColumnWidth(min: 480, ideal: 720)
+    }
+
+    @ViewBuilder
+    private func editorPane(
+        store: ProjectStore, documentStore: DocumentStore
+    ) -> some View {
+        switch binderSegment {
+        case .manuscript:
+            EditorHost(
+                store: store,
+                documentStore: documentStore,
+                selectedItemId: selectedItemId,
+                onTextChange: { text in updateMetrics(for: text) }
+            )
+        case .research:
+            if let id = selectedResearchId,
+               let item = findResearchItem(
+                    id: id, in: store.manifest.research) {
+                ResearchPreview(projectURL: store.url, item: item)
+            } else {
+                ContentUnavailableView(
+                    "Select an item to preview",
+                    systemImage: "doc.text.magnifyingglass")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func conflictBanner(documentStore: DocumentStore) -> some View {
+        if let conflict = documentStore.pendingConflict {
+            ConflictBanner(
+                conflict: conflict,
+                onKeepMine: {
+                    Task { try? await documentStore.resolveConflictKeepMine() }
+                },
+                onUseCloud: {
+                    Task { try? await documentStore.resolveConflictUseCloud() }
+                },
+                onShowDiff: nil
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func detailColumn(store: ProjectStore) -> some View {
+        if showInspector && store.manifest.type != .collection {
+            inspectorPane(store: store)
+                .navigationSplitViewColumnWidth(min: 240, ideal: 280)
+        }
+    }
+
+    @ViewBuilder
+    private func inspectorPane(store: ProjectStore) -> some View {
+        switch binderSegment {
+        case .manuscript:
+            InspectorView(
+                store: store,
+                selectedItemId: selectedItemId,
+                metrics: metrics,
+                onOpenProjectSettings: { activeSheet = .projectSettings }
+            )
+        case .research:
+            if let id = selectedResearchId,
+               let item = findResearchItem(
+                    id: id, in: store.manifest.research) {
+                InspectorResearchPanel(store: store, item: item)
+            } else {
+                ContentUnavailableView(
+                    "Select an item",
+                    systemImage: "info.circle")
+            }
         }
     }
 

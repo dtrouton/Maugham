@@ -4,6 +4,8 @@ struct ConflictBanner: View {
     let conflict: ConflictState
     let onKeepMine: () -> Void
     let onUseCloud: () -> Void
+    /// nil = hide the Show diff button (e.g. for manifest conflicts).
+    let onShowDiff: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -24,10 +26,10 @@ struct ConflictBanner: View {
                     .buttonStyle(.borderedProminent)
                 Button("Use cloud", action: onUseCloud)
                     .buttonStyle(.bordered)
-                Button("Show diff") { /* Phase 2 */ }
-                    .buttonStyle(.bordered)
-                    .disabled(true)
-                    .help("Available in Phase 2")
+                if let onShowDiff {
+                    Button("Show diff", action: onShowDiff)
+                        .buttonStyle(.bordered)
+                }
             }
         }
         .padding(.horizontal, 16)
