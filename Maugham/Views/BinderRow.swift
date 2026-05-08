@@ -11,6 +11,7 @@ struct BinderRow: View {
     let onDrop: (_ draggedId: String, _ position: DropIntent.Position) -> Void
 
     @State private var draftTitle: String = ""
+    @FocusState private var isRenameFieldFocused: Bool
 
     var body: some View {
         // .draggable on the container intercepts pointer/keyboard input on
@@ -22,7 +23,17 @@ struct BinderRow: View {
                 statusDot
                 TextField("", text: $draftTitle, onCommit: commitRename)
                     .textFieldStyle(.plain)
-                    .onAppear { draftTitle = item.title }
+                    .focused($isRenameFieldFocused)
+                    .onAppear {
+                        draftTitle = item.title
+                        // Defer to the next runloop tick — SwiftUI hasn't
+                        // installed the field in the responder chain yet
+                        // when .onAppear fires, so focus assigned now is
+                        // dropped. Same pattern as the 1e cursor-restore fix.
+                        DispatchQueue.main.async {
+                            isRenameFieldFocused = true
+                        }
+                    }
                     .onExitCommand { renamingItemId = nil }
                 Spacer()
             }
