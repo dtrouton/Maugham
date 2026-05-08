@@ -103,9 +103,24 @@ Once running on milestone-1e:
 
 If all ten pass, milestone 1e is healthy.
 
+## Phase 2a smoke test
+
+Once running on milestone-2a:
+
+1. Open a Novel. Drag chapter 3 to position 1. Filenames renumber 01/02/03 and the editor binding stays valid.
+2. Drag a chapter from Act One to Act Two. File moves between folders; binder updates.
+3. Drag a group into another group. Folder physically moves; descendants follow.
+4. Right-click a chapter → Duplicate. "Copy of <title>" appears as next sibling, in inline rename mode.
+5. Right-click a group → Duplicate. Group + all descendants deep-copied with fresh ids.
+6. Delete chapters in a group leaving NN gaps. Right-click → Tidy Filenames → confirm. Remaining chapters renumber contiguously.
+7. File → Tidy All Filenames → confirm. Every group's NN sequence compacts.
+8. Force-quit mid-reorder, reopen. `.maugham/scratch/` stragglers are logged in console; project loads without crashing.
+
+If all eight pass, milestone 2a is healthy.
+
 ## Tests
 
     ./gen.sh
     xcodebuild -project Maugham.xcodeproj -scheme Maugham test CODE_SIGNING_ALLOWED=NO
 
-Expect 173 tests passing — 33 from 1a (project model, factory, store, recents), 44 from 1b (Token, Theme, TypographySettings, UserPreferences, MarkdownTokenizer, SmartTypography, ProseMode), 13 from 1c (UserPreferences focus prefs + FocusFinder), 53 from 1d (Slugifier, FileNaming, ProjectStore mutations, project typography, factories, ScreenplayMode, WritingModeFactory), and 30 from 1e (UIState, ConflictState, DebounceScheduler, plus 15 integration tests against real NSFileCoordinator + NSFilePresenter for DocumentStore lifecycle, save, document conflict, conflict resolution, manifest conflict).
+Expect 199 tests passing — 33 from 1a (project model, factory, store, recents), 44 from 1b (Token, Theme, TypographySettings, UserPreferences, MarkdownTokenizer, SmartTypography, ProseMode), 13 from 1c (UserPreferences focus prefs + FocusFinder), 53 from 1d (Slugifier, FileNaming, ProjectStore mutations, project typography, factories, ScreenplayMode, WritingModeFactory), 30 from 1e (UIState, ConflictState, DebounceScheduler, plus 15 integration tests against real NSFileCoordinator + NSFilePresenter for DocumentStore lifecycle, save, document conflict, conflict resolution, manifest conflict), and 26 from 2a (8 RenamePlan, 5 DropIntent, 5 reorder integration, 4 duplicate integration, 4 tidy integration).
