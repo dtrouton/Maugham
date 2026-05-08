@@ -197,4 +197,56 @@ final class ProjectStoreResearchTests: XCTestCase {
         XCTAssertEqual(updated.url, "https://example.org")
         await ds.close()
     }
+
+    func test_importResearchFiles_multipleFiles_atRoot() async throws {
+        let (_, store, ds) = try await makeNovel()
+        let f1 = temp.url.appendingPathComponent("a.jpg")
+        let f2 = temp.url.appendingPathComponent("b.pdf")
+        try Data([0xFF, 0xD8, 0xFF]).write(to: f1)
+        try Data([0x25, 0x50, 0x44, 0x46]).write(to: f2)
+
+        let imported = try await store.importResearchFiles(
+            [f1, f2], toParentId: nil)
+
+        XCTAssertEqual(imported.count, 2)
+        XCTAssertEqual(store.manifest.research.count, 2)
+        XCTAssertEqual(imported[0].kind, .image)
+        XCTAssertEqual(imported[1].kind, .pdf)
+        await ds.close()
+    }
+
+    func test_importResearchFiles_folder_importsRecursively() async throws {
+        let (_, store, ds) = try await makeNovel()
+        let extDir = temp.url.appendingPathComponent("photos")
+        try FileManager.default.createDirectory(
+            at: extDir, withIntermediateDirectories: true)
+        try Data([0xFF, 0xD8, 0xFF]).write(
+            to: extDir.appendingPathComponent("one.jpg"))
+        try Data([0xFF, 0xD8, 0xFF]).write(
+            to: extDir.appendingPathComponent("two.jpg"))
+
+        let imported = try await store.importResearchFiles(
+            [extDir], toParentId: nil)
+
+        XCTAssertEqual(imported.count, 1)
+        let group = imported[0]
+        XCTAssertEqual(group.type, .group)
+        XCTAssertEqual(group.children?.count, 2)
+        await ds.close()
+    }
+
+    func test_importResearchFiles_skipsUnknownExtensions() async throws {
+        let (_, store, ds) = try await makeNovel()
+        let f1 = temp.url.appendingPathComponent("a.jpg")
+        let f2 = temp.url.appendingPathComponent("b.exe")
+        try Data([0xFF, 0xD8, 0xFF]).write(to: f1)
+        try Data([0]).write(to: f2)
+
+        let imported = try await store.importResearchFiles(
+            [f1, f2], toParentId: nil)
+
+        XCTAssertEqual(imported.count, 1)
+        XCTAssertEqual(imported[0].kind, .image)
+        await ds.close()
+    }
 }

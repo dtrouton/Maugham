@@ -1283,6 +1283,72 @@ public final class ProjectStore {
         try await saveManifest()
     }
 
+    /// Import a list of file URLs (and/or folders) into the research tree
+    /// under `toParentId` (nil = root). Folders import as groups containing
+    /// recursively-imported children. Files with unknown extensions are
+    /// skipped. Caps total imports at 1000 items per call.
+    public func importResearchFiles(
+        _ urls: [URL], toParentId: String?
+    ) async throws -> [ResearchItem] {
+        var imported: [ResearchItem] = []
+        var counter = 0
+        let cap = 1000
+        for fileURL in urls {
+            if counter >= cap { break }
+            var isDir: ObjCBool = false
+            guard FileManager.default.fileExists(
+                atPath: fileURL.path, isDirectory: &isDir) else {
+                continue
+            }
+            if isDir.boolValue {
+                if let group = try await importResearchFolder(
+                    fileURL, intoParentId: toParentId, counter: &counter, cap: cap) {
+                    imported.append(group)
+                }
+            } else {
+                guard ResearchKindInference.kind(forFilename: fileURL.lastPathComponent) != nil else {
+                    continue
+                }
+                let asset = try await addResearchAsset(
+                    parentId: toParentId, fromURL: fileURL)
+                imported.append(asset)
+                counter += 1
+            }
+        }
+        return imported
+    }
+
+    private func importResearchFolder(
+        _ folderURL: URL,
+        intoParentId: String?,
+        counter: inout Int,
+        cap: Int
+    ) async throws -> ResearchItem? {
+        let folderName = folderURL.lastPathComponent
+        let group = try await addResearchItem(
+            parentId: intoParentId, title: folderName, kind: nil)
+        let entries = (try? FileManager.default
+            .contentsOfDirectory(at: folderURL, includingPropertiesForKeys: nil))
+            ?? []
+        for entry in entries {
+            if counter >= cap { break }
+            var isDir: ObjCBool = false
+            guard FileManager.default.fileExists(
+                atPath: entry.path, isDirectory: &isDir) else { continue }
+            if isDir.boolValue {
+                _ = try await importResearchFolder(
+                    entry, intoParentId: group.id, counter: &counter, cap: cap)
+            } else {
+                guard ResearchKindInference.kind(forFilename: entry.lastPathComponent) != nil
+                else { continue }
+                _ = try await addResearchAsset(parentId: group.id, fromURL: entry)
+                counter += 1
+            }
+        }
+        // Re-read the group from manifest to capture inserted children.
+        return findResearchItem(id: group.id, in: manifest.research)
+    }
+
     /// Update inline fields on a research item (title, caption, tags, url).
     /// nil arguments leave the corresponding field unchanged. Pass an
     /// explicit empty string / empty array to clear a field.
