@@ -532,6 +532,101 @@ public final class ProjectStore {
         }
     }
 
+    /// Duplicate a structure item. For a document, copies the file and
+    /// produces a sibling with title "Copy of <original>". For a group,
+    /// recursively copies the folder and all descendants with fresh ids.
+    public func duplicateStructureItem(
+        id: String
+    ) async throws -> StructureItem {
+        guard let source = findItem(id: id, in: manifest.structure),
+              let sourcePath = source.path else {
+            throw ProjectStoreError.structureMissing
+        }
+        guard let documentStore else {
+            throw ProjectStoreError.fileSystemError("DocumentStore not available")
+        }
+
+        let parentId = findParentId(of: id, in: manifest.structure, parent: nil)
+        let parentPath: String
+        if let parentId {
+            parentPath = findItem(id: parentId, in: manifest.structure)?.path
+                ?? "manuscript"
+        } else {
+            parentPath = "manuscript"
+        }
+        let newTitle = "Copy of " + source.title
+
+        let parentURL = url.appendingPathComponent(parentPath, isDirectory: true)
+        let siblingNames = (try? FileManager.default
+            .contentsOfDirectory(atPath: parentURL.path)) ?? []
+        let newFilename: String
+        switch source.type {
+        case .document:
+            let ext = (sourcePath as NSString).pathExtension
+            newFilename = FileNaming.nextDocumentFilename(
+                title: newTitle, extension: ext, siblingFilenames: siblingNames)
+        case .group:
+            newFilename = FileNaming.nextGroupFolderName(
+                title: newTitle, siblingFilenames: siblingNames)
+        }
+        let newPath = "\(parentPath)/\(newFilename)"
+        let sourceFullURL = url.appendingPathComponent(sourcePath)
+        let newFullURL = url.appendingPathComponent(newPath)
+
+        try await documentStore.executeCopy(from: sourceFullURL, to: newFullURL)
+
+        let copy = duplicatedItemTree(
+            from: source,
+            newTitle: newTitle,
+            newPath: newPath,
+            newPrefixForChildren: newPath)
+
+        let sourceIndex = currentIndex(of: id, parentId: parentId)
+        var siblings = childrenOf(parentId: parentId)
+        siblings.insert(copy, at: sourceIndex + 1)
+        replaceChildren(parentId: parentId, with: siblings)
+
+        manifest.modified = Date()
+        try await saveManifest()
+        return copy
+    }
+
+    /// Recursively rebuild a StructureItem tree with fresh ids and rewritten
+    /// paths. The top-level copy gets `newTitle` and `newPath`; descendants
+    /// keep their titles and have their paths rewritten via `newPrefixForChildren`.
+    private func duplicatedItemTree(
+        from source: StructureItem,
+        newTitle: String,
+        newPath: String,
+        newPrefixForChildren: String
+    ) -> StructureItem {
+        var copy = source
+        copy.id = Self.newDuplicateId(prefix: source.type == .group ? "grp" : "doc")
+        copy.title = newTitle
+        copy.path = newPath
+        if let children = source.children {
+            var copiedChildren: [StructureItem] = []
+            for child in children {
+                guard let childPath = child.path else { continue }
+                let childRelativeFromOldParent = childPath.dropFirst(
+                    (source.path?.count ?? 0) + 1)
+                let childNewPath = "\(newPrefixForChildren)/\(childRelativeFromOldParent)"
+                copiedChildren.append(duplicatedItemTree(
+                    from: child,
+                    newTitle: child.title,
+                    newPath: childNewPath,
+                    newPrefixForChildren: childNewPath))
+            }
+            copy.children = copiedChildren
+        }
+        return copy
+    }
+
+    private static func newDuplicateId(prefix: String) -> String {
+        let suffix = UUID().uuidString.prefix(8).lowercased()
+        return "\(prefix)-\(suffix)"
+    }
+
     /// Move the item's file or folder to the system Trash and remove its
     /// manifest entry. For groups, the entire folder (including all children)
     /// is recycled in one atomic system call.
