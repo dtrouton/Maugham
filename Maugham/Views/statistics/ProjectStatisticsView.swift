@@ -14,9 +14,31 @@ struct ProjectStatisticsView: View {
                     deadline: store.manifest.targets?.deadline)
                 DailyHeatmapSection(
                     dailyCounts: dailyCounts)
-                // Chapters, Sessions sections appended in T17-T18
+                WordsByChapterSection(
+                    chapters: chapterRows,
+                    onSelectChapter: onSelectChapter)
             }
             .padding(24)
+        }
+    }
+
+    private var chapterRows: [WordsByChapterSection.ChapterRow] {
+        store.manifest.structure.map { item in
+            WordsByChapterSection.ChapterRow(
+                id: item.id,
+                title: item.title,
+                wordCount: aggregateWordCount(for: item),
+                wordTarget: item.wordTarget)
+        }
+    }
+
+    private func aggregateWordCount(for item: StructureItem) -> Int {
+        if item.type == .document {
+            return store.cachedWordCount(for: item.id) ?? 0
+        } else {
+            return (item.children ?? [])
+                .map { aggregateWordCount(for: $0) }
+                .reduce(0, +)
         }
     }
 
