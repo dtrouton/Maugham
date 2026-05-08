@@ -35,6 +35,23 @@ public final class ProjectStore {
     /// the legacy direct atomic-write path.
     public weak var documentStore: DocumentStore?
 
+    /// Per-document cached word counts. Refreshed by EditorHost on text
+    /// change. Aggregate sum is used by SessionTracker for project-wide
+    /// net delta calculation.
+    private var wordCountCache: [String: Int] = [:]
+
+    public var projectWordCount: Int {
+        wordCountCache.values.reduce(0, +)
+    }
+
+    public func recordWordCount(forDocumentId id: String, wordCount: Int) {
+        wordCountCache[id] = wordCount
+    }
+
+    public func cachedWordCount(for id: String) -> Int? {
+        wordCountCache[id]
+    }
+
     private static let manifestFilename = "project.maugham.json"
 
     private init(url: URL, manifest: ProjectManifest, manuscriptText: String) {
@@ -762,11 +779,15 @@ public final class ProjectStore {
     }
 
     /// Update an item's inspector fields. `nil` arguments mean "leave unchanged";
-    /// to explicitly clear a field, pass an empty string.
+    /// to explicitly clear a field, pass an empty string for synopsis/status,
+    /// an empty array for tags/links, or `0` for wordTarget.
     public func updateInspector(
         id: String,
-        synopsis: String?,
-        status: String?
+        synopsis: String? = nil,
+        status: String? = nil,
+        tags: [String]? = nil,
+        wordTarget: Int? = nil,
+        links: [String]? = nil
     ) async throws {
         guard findItem(id: id, in: manifest.structure) != nil else {
             throw ProjectStoreError.structureMissing
@@ -774,6 +795,12 @@ public final class ProjectStore {
         mutateItem(id: id) { item in
             if let synopsis { item.synopsis = synopsis }
             if let status { item.status = status }
+            if let tags { item.tags = tags.isEmpty ? nil : tags }
+            if let wordTarget {
+                // Treat 0 as "clear the target."
+                item.wordTarget = wordTarget == 0 ? nil : wordTarget
+            }
+            if let links { item.links = links.isEmpty ? nil : links }
         }
         manifest.modified = Date()
         try await saveManifest()
@@ -1387,5 +1414,37 @@ private extension StructureItemKind {
         case .document: return "doc"
         case .group: return "grp"
         }
+    }
+}
+
+// MARK: - WikiLinkProject
+
+extension ProjectStore: WikiLinkProject {
+    /// Resolve a [[wiki-link]] title to the id of the first manuscript document
+    /// whose title matches case-insensitively (after trimming). Used by the
+    /// editor's wiki-link click handler to navigate.
+    public func resolveDocumentId(forTitle title: String) -> String? {
+        let normalized = title
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !normalized.isEmpty else { return nil }
+        return Self.findFirstByTitle(normalized, in: manifest.structure)
+    }
+
+    private static func findFirstByTitle(
+        _ normalized: String, in items: [StructureItem]
+    ) -> String? {
+        for item in items {
+            if item.type == .document,
+               item.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                   .lowercased() == normalized {
+                return item.id
+            }
+            if let children = item.children,
+               let nested = findFirstByTitle(normalized, in: children) {
+                return nested
+            }
+        }
+        return nil
     }
 }
