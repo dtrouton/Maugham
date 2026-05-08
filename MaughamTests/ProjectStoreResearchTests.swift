@@ -77,4 +77,61 @@ final class ProjectStoreResearchTests: XCTestCase {
         }
         await ds.close()
     }
+
+    func test_moveResearchItem_siblingReorder_isManifestOnly() async throws {
+        let (url, store, ds) = try await makeNovel()
+        let g1 = try await store.addResearchItem(parentId: nil, title: "First", kind: nil)
+        let g2 = try await store.addResearchItem(parentId: nil, title: "Second", kind: nil)
+        let g1PathBefore = g1.path!
+        let g2PathBefore = g2.path!
+
+        try await store.moveResearchItem(id: g2.id, toParentId: nil, atIndex: 0)
+
+        XCTAssertEqual(store.manifest.research[0].id, g2.id)
+        XCTAssertEqual(store.manifest.research[1].id, g1.id)
+        // Paths unchanged on disk.
+        XCTAssertEqual(store.manifest.research[0].path, g2PathBefore)
+        XCTAssertEqual(store.manifest.research[1].path, g1PathBefore)
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: url.appendingPathComponent(g2PathBefore).path))
+        await ds.close()
+    }
+
+    func test_moveResearchItem_crossGroup_movesFile() async throws {
+        let (url, store, ds) = try await makeNovel()
+        let target = try await store.addResearchItem(
+            parentId: nil, title: "Locations", kind: nil)
+        let source = try await store.addResearchItem(
+            parentId: nil, title: "Characters", kind: nil)
+        let externalImage = temp.url.appendingPathComponent("face.jpg")
+        try Data([0xFF, 0xD8, 0xFF]).write(to: externalImage)
+        let asset = try await store.addResearchAsset(
+            parentId: source.id, fromURL: externalImage)
+
+        try await store.moveResearchItem(
+            id: asset.id, toParentId: target.id, atIndex: 0)
+
+        let updatedTarget = store.manifest.research
+            .first(where: { $0.id == target.id })!
+        XCTAssertEqual(updatedTarget.children?.first?.id, asset.id)
+        let movedPath = updatedTarget.children!.first!.path!
+        XCTAssertTrue(movedPath.contains("research/locations/"))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: url.appendingPathComponent(movedPath).path))
+        await ds.close()
+    }
+
+    func test_moveResearchItem_groupIntoOwnDescendant_throws() async throws {
+        let (_, store, ds) = try await makeNovel()
+        let outer = try await store.addResearchItem(
+            parentId: nil, title: "Outer", kind: nil)
+        let inner = try await store.addResearchItem(
+            parentId: outer.id, title: "Inner", kind: nil)
+        do {
+            try await store.moveResearchItem(
+                id: outer.id, toParentId: inner.id, atIndex: 0)
+            XCTFail("expected throw")
+        } catch ProjectStoreError.cycle {}
+        await ds.close()
+    }
 }

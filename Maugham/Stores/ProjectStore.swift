@@ -1039,6 +1039,176 @@ public final class ProjectStore {
     ) -> TypographySettings {
         override ?? userDefault
     }
+
+    /// Move a research item. Sibling reorder is manifest-only; cross-group
+    /// drag physically moves the file (asset) or folder (group) on disk and
+    /// rewrites descendant paths.
+    public func moveResearchItem(
+        id: String, toParentId: String?, atIndex destIndex: Int
+    ) async throws {
+        guard let item = findResearchItem(id: id, in: manifest.research) else {
+            throw ProjectStoreError.structureMissing
+        }
+        let oldParentId = findResearchParentId(of: id, in: manifest.research, parent: nil)
+
+        // Cycle check for groups.
+        if item.type == .group, let toParentId, toParentId == id {
+            throw ProjectStoreError.cycle
+        }
+        if item.type == .group, let toParentId,
+           Self.researchContains(id: toParentId, in: item.children ?? []) {
+            throw ProjectStoreError.cycle
+        }
+        // Validate destination parent if non-nil.
+        if let toParentId,
+           let parent = findResearchItem(id: toParentId, in: manifest.research),
+           parent.type != .group {
+            throw ProjectStoreError.parentNotFound(toParentId)
+        }
+
+        // No-op detection.
+        let oldIndex = currentResearchIndex(of: id, parentId: oldParentId)
+        if oldParentId == toParentId, oldIndex == destIndex { return }
+
+        // Same-parent reorder → manifest-only.
+        if oldParentId == toParentId {
+            var siblings = childrenOfResearch(parentId: toParentId)
+            guard let from = siblings.firstIndex(where: { $0.id == id }) else {
+                throw ProjectStoreError.structureMissing
+            }
+            let moved = siblings.remove(at: from)
+            let clamped = max(0, min(destIndex, siblings.count))
+            siblings.insert(moved, at: clamped)
+            replaceResearchChildren(parentId: toParentId, with: siblings)
+            manifest.modified = Date()
+            try await saveManifest()
+            return
+        }
+
+        // Cross-group: physical move required.
+        guard let documentStore else {
+            throw ProjectStoreError.fileSystemError("DocumentStore not available")
+        }
+        let updatedItem: ResearchItem
+        if let oldPath = item.path {
+            let leaf = (oldPath as NSString).lastPathComponent
+            let newParentPath = researchParentPath(parentId: toParentId)
+            let parentURL = url.appendingPathComponent(newParentPath, isDirectory: true)
+            try? FileManager.default.createDirectory(
+                at: parentURL, withIntermediateDirectories: true)
+            let existing = (try? FileManager.default
+                .contentsOfDirectory(atPath: parentURL.path)) ?? []
+            let dedupedLeaf = Self.researchDedupedFilename(leaf, existing: existing)
+            let newPath = "\(newParentPath)/\(dedupedLeaf)"
+            let plan = try RenamePlan(steps: [
+                .init(oldRelativePath: oldPath, newRelativePath: newPath)
+            ])
+            try await documentStore.executeRenamePlan(plan)
+
+            var copy = item
+            copy.path = newPath
+            if let children = copy.children {
+                copy.children = Self.researchRewriteChildPaths(
+                    children, oldPrefix: oldPath, newPrefix: newPath)
+            }
+            updatedItem = copy
+        } else {
+            // Link asset — no path. Just relocate in the manifest.
+            updatedItem = item
+        }
+
+        // Remove from old parent, insert into new parent at clamped index.
+        removeResearchItem(id: id)
+        var destSiblings = childrenOfResearch(parentId: toParentId)
+        let clamped = max(0, min(destIndex, destSiblings.count))
+        destSiblings.insert(updatedItem, at: clamped)
+        replaceResearchChildren(parentId: toParentId, with: destSiblings)
+
+        manifest.modified = Date()
+        try await saveManifest()
+    }
+
+    private func findResearchParentId(
+        of childId: String, in items: [ResearchItem], parent: String?
+    ) -> String? {
+        for item in items {
+            if item.id == childId { return parent }
+            if let children = item.children,
+               let nested = findResearchParentId(
+                    of: childId, in: children, parent: item.id) {
+                return nested
+            }
+        }
+        return nil
+    }
+
+    private func currentResearchIndex(of id: String, parentId: String?) -> Int {
+        let siblings = childrenOfResearch(parentId: parentId)
+        return siblings.firstIndex(where: { $0.id == id }) ?? 0
+    }
+
+    private func childrenOfResearch(parentId: String?) -> [ResearchItem] {
+        if let parentId {
+            return findResearchItem(id: parentId, in: manifest.research)?.children ?? []
+        }
+        return manifest.research
+    }
+
+    private func replaceResearchChildren(
+        parentId: String?, with newChildren: [ResearchItem]
+    ) {
+        if let parentId {
+            mutateResearchItem(id: parentId) { parent in
+                parent.children = newChildren
+            }
+        } else {
+            manifest.research = newChildren
+        }
+    }
+
+    private func removeResearchItem(id: String) {
+        manifest.research = Self.applyResearchRemoval(
+            id: id, in: manifest.research)
+    }
+
+    private static func applyResearchRemoval(
+        id: String, in items: [ResearchItem]
+    ) -> [ResearchItem] {
+        items.compactMap { item in
+            if item.id == id { return nil }
+            var copy = item
+            if let children = copy.children {
+                copy.children = applyResearchRemoval(id: id, in: children)
+            }
+            return copy
+        }
+    }
+
+    private static func researchContains(id: String, in items: [ResearchItem]) -> Bool {
+        for it in items {
+            if it.id == id { return true }
+            if let children = it.children, researchContains(id: id, in: children) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func researchRewriteChildPaths(
+        _ items: [ResearchItem], oldPrefix: String, newPrefix: String
+    ) -> [ResearchItem] {
+        items.map { item in
+            var copy = item
+            if let p = copy.path, p.hasPrefix(oldPrefix + "/") {
+                copy.path = newPrefix + "/" + p.dropFirst(oldPrefix.count + 1)
+            }
+            if let children = copy.children {
+                copy.children = researchRewriteChildPaths(
+                    children, oldPrefix: oldPrefix, newPrefix: newPrefix)
+            }
+            return copy
+        }
+    }
 }
 
 private extension StructureItemKind {
