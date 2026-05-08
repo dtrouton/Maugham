@@ -86,9 +86,26 @@ Once running on milestone-1d:
 
 If all ten pass, milestone 1d is healthy.
 
+## Phase 1e smoke test
+
+Once running on milestone-1e:
+
+1. Open a project, type a sentence, wait ~1s; in Finder verify the file's modified date updated. Autosave is invisible.
+2. ⌘S while typing → "Saved" flash appears, file's modified date updates to now.
+3. Type, close window before 750ms elapses, reopen; sentence persisted.
+4. Edit a manuscript file via Terminal while Maugham is open. Banner: "Outside change detected".
+5. Click **Keep mine**. Disk has your version; cloud version archived under `.maugham/conflicts/`.
+6. Repeat with **Use cloud**. Disk has cloud version; your version archived under `.maugham/conflicts/`.
+7. Edit `project.maugham.json` in TextEdit. Maugham reloads silently; previous manifest archived.
+8. Switch documents, close, reopen. Same document selected. Toggle no-chrome, close, reopen. State restored.
+9. In a long chapter, leave cursor near the end. Switch chapters. Switch back. Cursor restored to where you left it; editor scrolls to make it visible; no extra click needed to start typing.
+10. Paste a multi-line block at the end of a chapter. Cursor lands at end of pasted text; view stays scrolled with the cursor.
+
+If all ten pass, milestone 1e is healthy.
+
 ## Tests
 
     ./gen.sh
     xcodebuild -project Maugham.xcodeproj -scheme Maugham test CODE_SIGNING_ALLOWED=NO
 
-Expect 143 tests passing — 33 from milestone 1a (project model, factory, store, recents), 44 from 1b (Token, Theme, TypographySettings, UserPreferences, MarkdownTokenizer, SmartTypography, ProseMode), 13 from 1c (UserPreferences focus prefs + FocusFinder), and 53 from 1d (Slugifier, FileNaming, ProjectStore mutations, project typography, factories for Novel/Screenplay/Collection, ScreenplayMode, WritingModeFactory).
+Expect 173 tests passing — 33 from 1a (project model, factory, store, recents), 44 from 1b (Token, Theme, TypographySettings, UserPreferences, MarkdownTokenizer, SmartTypography, ProseMode), 13 from 1c (UserPreferences focus prefs + FocusFinder), 53 from 1d (Slugifier, FileNaming, ProjectStore mutations, project typography, factories, ScreenplayMode, WritingModeFactory), and 30 from 1e (UIState, ConflictState, DebounceScheduler, plus 15 integration tests against real NSFileCoordinator + NSFilePresenter for DocumentStore lifecycle, save, document conflict, conflict resolution, manifest conflict).
