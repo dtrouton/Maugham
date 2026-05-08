@@ -23,6 +23,7 @@ struct ProjectWindow: View {
     @State private var showInspector: Bool = true
     @State private var showingTidyAllConfirmation: Bool = false
     @State private var showingDiffSheet: Bool = false
+    @State private var sessionLog: SessionLog = .empty
     @Environment(UserPreferences.self) private var userPreferences
 
     let url: URL
@@ -136,43 +137,77 @@ struct ProjectWindow: View {
         .onChange(of: binderSegment) { _, newValue in
             documentStore?.updateUIState { $0.binderSegment = newValue }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .maughamTidyAllFilenames)) { _ in
-            showingTidyAllConfirmation = true
-        }
-        .onReceive(NotificationCenter.default.publisher(
-            for: .maughamAddResearchFile)) { _ in
-            Task {
-                let panel = NSOpenPanel()
-                panel.allowsMultipleSelection = true
-                panel.canChooseDirectories = true
-                panel.canChooseFiles = true
-                guard panel.runModal() == .OK else { return }
-                if let store {
-                    do {
-                        _ = try await store.importResearchFiles(
-                            panel.urls, toParentId: nil)
-                    } catch {
-                        // Non-fatal; user sees nothing happen
+        .modifier(SessionAndNavigationModifier(
+            documentStore: documentStore,
+            store: store,
+            sessionLog: $sessionLog,
+            selectedItemId: $selectedItemId,
+            binderSegment: $binderSegment,
+            showingTidyAllConfirmation: $showingTidyAllConfirmation))
+    }
+
+    private struct SessionAndNavigationModifier: ViewModifier {
+        let documentStore: DocumentStore?
+        let store: ProjectStore?
+        @Binding var sessionLog: SessionLog
+        @Binding var selectedItemId: String?
+        @Binding var binderSegment: BinderSegment
+        @Binding var showingTidyAllConfirmation: Bool
+
+        func body(content: Content) -> some View {
+            content
+                .onReceive(NotificationCenter.default.publisher(
+                    for: .maughamTidyAllFilenames)) { _ in
+                    showingTidyAllConfirmation = true
+                }
+                .onReceive(NotificationCenter.default.publisher(
+                    for: .maughamSessionLogChanged)) { _ in
+                    Task {
+                        sessionLog = (try? await documentStore?.loadSessionLog()) ?? .empty
                     }
                 }
-            }
-        }
-        .alert("Renumber every chapter and scene?",
-               isPresented: $showingTidyAllConfirmation
-        ) {
-            Button("Renumber", role: .destructive) {
-                Task {
-                    do {
-                        try await store?.tidyAllFilenames()
-                    } catch {
-                        // Best-effort; surfacing project-wide tidy errors is
-                        // a future enhancement.
+                .onReceive(NotificationCenter.default.publisher(
+                    for: .maughamNavigateToDocument)) { note in
+                    if let id = note.userInfo?["id"] as? String {
+                        binderSegment = .manuscript
+                        selectedItemId = id
                     }
                 }
-            }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("Filenames in every group will be renumbered to fix gaps. This change is visible to other apps that read this folder.")
+                .onReceive(NotificationCenter.default.publisher(
+                    for: .maughamAddResearchFile)) { _ in
+                    Task {
+                        let panel = NSOpenPanel()
+                        panel.allowsMultipleSelection = true
+                        panel.canChooseDirectories = true
+                        panel.canChooseFiles = true
+                        guard panel.runModal() == .OK else { return }
+                        if let store {
+                            do {
+                                _ = try await store.importResearchFiles(
+                                    panel.urls, toParentId: nil)
+                            } catch {
+                                // Non-fatal; user sees nothing happen
+                            }
+                        }
+                    }
+                }
+                .alert("Renumber every chapter and scene?",
+                       isPresented: $showingTidyAllConfirmation
+                ) {
+                    Button("Renumber", role: .destructive) {
+                        Task {
+                            do {
+                                try await store?.tidyAllFilenames()
+                            } catch {
+                                // Best-effort; surfacing project-wide tidy errors
+                                // is a future enhancement.
+                            }
+                        }
+                    }
+                    Button("Cancel", role: .cancel) { }
+                } message: {
+                    Text("Filenames in every group will be renumbered to fix gaps. This change is visible to other apps that read this folder.")
+                }
         }
     }
 
@@ -187,7 +222,7 @@ struct ProjectWindow: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             if userPreferences.goalIndicatorsVisible
                && binderSegment == .manuscript {
-                GoalIndicatorView(metrics: metrics)
+                GoalIndicatorView(state: goalIndicatorState)
             }
         }
         .safeAreaInset(edge: .top) {
@@ -206,7 +241,13 @@ struct ProjectWindow: View {
                 store: store,
                 documentStore: documentStore,
                 selectedItemId: selectedItemId,
-                onTextChange: { text in updateMetrics(for: text) }
+                onTextChange: { text in updateMetrics(for: text) },
+                wikiLinkResolver: { title in
+                    store.resolveDocumentId(forTitle: title) != nil
+                },
+                wikiLinkClickResolver: { title in
+                    store.resolveDocumentId(forTitle: title)
+                }
             )
         case .research:
             if let id = selectedResearchId,
@@ -291,6 +332,20 @@ struct ProjectWindow: View {
         return nil
     }
 
+    private var goalIndicatorState: GoalIndicatorState {
+        guard let store else { return .empty }
+        let currentDoc = selectedItemId.flatMap {
+            findItem(id: $0, in: store.manifest.structure)
+        }
+        return GoalIndicatorState(
+            docWordCount: metrics.wordCount,
+            docWordTarget: currentDoc?.wordTarget,
+            projectWordCount: store.projectWordCount,
+            projectWordTarget: store.manifest.targets?.totalWords,
+            wordsToday: sessionLog.wordsToday(),
+            readingMinutes: metrics.readingMinutes)
+    }
+
     private func findResearchItem(
         id: String, in items: [ResearchItem]
     ) -> ResearchItem? {
@@ -346,6 +401,7 @@ struct ProjectWindow: View {
             s.documentStore = ds
             self.store = s
             self.documentStore = ds
+            self.sessionLog = (try? await ds.loadSessionLog()) ?? .empty
 
             // Seed UI state from disk (or defaults). Validate selectedItemId
             // against current structure — if the saved selection refers to a

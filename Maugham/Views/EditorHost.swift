@@ -12,6 +12,8 @@ struct EditorHost: View {
     /// Called whenever the document text changes. ProjectWindow uses this
     /// to recompute live metrics for the inspector and goal indicator.
     var onTextChange: ((String) -> Void)? = nil
+    var wikiLinkResolver: ((String) -> Bool)? = nil
+    var wikiLinkClickResolver: ((String) -> String?)? = nil
     @Environment(UserPreferences.self) private var userPreferences
 
     @State private var documentText: String = ""
@@ -57,7 +59,9 @@ struct EditorHost: View {
                     initialCursorLocation: documentStore.cursor(for: path),
                     onCursorChanged: { position in
                         documentStore.setCursor(position, for: path)
-                    }
+                    },
+                    wikiLinkResolver: wikiLinkResolver,
+                    wikiLinkClickResolver: wikiLinkClickResolver
                 )
                 .id(path)
             } else if currentItem?.type == .group {
