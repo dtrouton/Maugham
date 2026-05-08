@@ -8,14 +8,13 @@ struct ProjectStatisticsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
-                Text("Statistics")
-                    .font(.title)
-                    .padding(.top, 24)
-                Text("Sections will appear here in subsequent tasks.")
-                    .foregroundStyle(.secondary)
-                Spacer()
+                ProjectTotalSection(
+                    totalWords: store.projectWordCount,
+                    target: store.manifest.targets?.totalWords,
+                    deadline: store.manifest.targets?.deadline)
+                // Heatmap, Chapters, Sessions sections appended in T16-T18
             }
-            .padding(.horizontal, 24)
+            .padding(24)
         }
     }
 }
