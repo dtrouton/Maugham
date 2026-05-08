@@ -41,9 +41,16 @@ struct DailyHeatmapSection: View {
     private func cellFor(weeksAgo: Int, weekday: Int) -> some View {
         let date = dateFor(weeksAgo: weeksAgo, weekday: weekday)
         let count = dailyCounts[date] ?? 0
-        return RoundedRectangle(cornerRadius: 2)
-            .fill(colorForCount(count))
+        // Color.clear with explicit frame + a background shape holds its
+        // frame rigidly inside the VStack/HStack. Plain
+        // `RoundedRectangle().fill().frame()` can flex despite the explicit
+        // width/height — the fill returns an inherently-flexible view, so
+        // the cells end up stretched horizontally and squashed vertically.
+        return Color.clear
             .frame(width: 16, height: 16)
+            .background(
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(colorForCount(count)))
             .help(tooltip(for: date, count: count))
     }
 
@@ -86,9 +93,11 @@ struct DailyHeatmapSection: View {
         HStack(spacing: 4) {
             Text("Less").font(.caption).foregroundStyle(.tertiary)
             ForEach(0..<5, id: \.self) { i in
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.accentColor.opacity(opacities[i]))
+                Color.clear
                     .frame(width: 12, height: 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(Color.accentColor.opacity(opacities[i])))
             }
             Text("More").font(.caption).foregroundStyle(.tertiary)
         }
