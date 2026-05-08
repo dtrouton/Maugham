@@ -16,6 +16,22 @@ public final class DocumentStore {
     public private(set) var openDocumentPath: String?
     public private(set) var lastWrittenText: String = ""
 
+    /// Per-document cursor positions kept in-memory for the lifetime of this
+    /// DocumentStore. Restored when the user revisits a document; lost on
+    /// project window close. Persistence to .maugham/ui-state.json can come
+    /// in a later milestone.
+    private var cursorPositions: [String: Int] = [:]
+
+    /// Read the saved cursor location for a document path.
+    public func cursor(for path: String) -> Int? {
+        cursorPositions[path]
+    }
+
+    /// Save a cursor location for a document path.
+    public func setCursor(_ position: Int, for path: String) {
+        cursorPositions[path] = position
+    }
+
     /// Set when an external change is detected while the user has unsaved
     /// edits. Cleared on resolution.
     public private(set) var pendingConflict: ConflictState?

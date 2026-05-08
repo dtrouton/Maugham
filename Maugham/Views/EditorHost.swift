@@ -19,7 +19,13 @@ struct EditorHost: View {
 
     var body: some View {
         Group {
-            if let item = currentItem, item.type == .document, let path = item.path {
+            if let item = currentItem, item.type == .document, let path = item.path,
+               loadedItemId == item.id {
+                // Only render the editor surface AFTER the document text has
+                // been loaded (loadedItemId == item.id). Otherwise, on chapter
+                // switch, the surface would briefly be created with the old
+                // chapter's text and the cursor restoration would clamp
+                // against the wrong content length.
                 EditorSurface(
                     text: Binding(
                         get: { documentText },
@@ -38,11 +44,17 @@ struct EditorHost: View {
                     mode: WritingModeFactory.mode(for: path),
                     typewriterScroll: userPreferences.typewriterScroll,
                     sentenceFocus: userPreferences.sentenceFocus,
-                    paragraphFocus: userPreferences.paragraphFocus
+                    paragraphFocus: userPreferences.paragraphFocus,
+                    initialCursorLocation: documentStore.cursor(for: path),
+                    onCursorChanged: { position in
+                        documentStore.setCursor(position, for: path)
+                    }
                 )
                 .id(path)
             } else if currentItem?.type == .group {
                 placeholder("Select a document inside this group to edit.")
+            } else if currentItem?.type == .document {
+                placeholder("Loading…")
             } else {
                 placeholder("Select a document.")
             }

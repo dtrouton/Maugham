@@ -11,14 +11,21 @@ struct EditorSurface: NSViewRepresentable {
     let typewriterScroll: Bool
     let sentenceFocus: Bool
     let paragraphFocus: Bool
+    /// Cursor location to restore on first attach (nil = leave at 0).
+    var initialCursorLocation: Int? = nil
+    /// Fired on every selection change with the new caret location.
+    var onCursorChanged: ((Int) -> Void)? = nil
 
     func makeCoordinator() -> EditorCoordinator {
-        EditorCoordinator(
+        let coordinator = EditorCoordinator(
             text: $text, mode: mode,
             theme: theme, typography: typography,
             typewriterScroll: typewriterScroll,
             sentenceFocus: sentenceFocus,
             paragraphFocus: paragraphFocus)
+        coordinator.initialCursorLocation = initialCursorLocation
+        coordinator.onCursorChanged = onCursorChanged
+        return coordinator
     }
 
     func makeNSView(context: Context) -> NSScrollView {

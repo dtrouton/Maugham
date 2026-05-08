@@ -18,6 +18,14 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     private var isApplyingExternalUpdate = false
     weak var textView: NSTextView?
 
+    /// Cursor location to restore after the next attach. Set by EditorSurface
+    /// when the user revisits a previously-open document.
+    var initialCursorLocation: Int?
+
+    /// Fired on every selection change with the new caret location, so the
+    /// host can persist per-document cursor positions.
+    var onCursorChanged: ((Int) -> Void)?
+
     init(text: Binding<String>,
          mode: any WritingMode,
          theme: Theme,
@@ -39,6 +47,20 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         self.textView = textView
         applyAppearance(theme: theme, typography: typography)
         retokenizeAndStyle()
+        if let location = initialCursorLocation {
+            let length = (textView.string as NSString).length
+            let clamped = max(0, min(location, length))
+            let range = NSRange(location: clamped, length: 0)
+            textView.setSelectedRange(range)
+            // Defer scroll + first-responder acquisition until the textView
+            // is actually in a window (it's not yet during attach).
+            DispatchQueue.main.async { [weak textView] in
+                guard let textView else { return }
+                textView.scrollRangeToVisible(range)
+                textView.window?.makeFirstResponder(textView)
+            }
+            initialCursorLocation = nil
+        }
     }
 
     /// External (binding-side) update — replace text without disturbing user.
@@ -140,9 +162,28 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     func textDidChange(_ notification: Notification) {
         guard let textView = notification.object as? NSTextView,
               !isApplyingExternalUpdate else { return }
-        // Update binding then restyle
+        // Capture the post-edit cursor position. retokenizeAndStyle mutates
+        // storage attributes which can jostle NSTextView's selection (most
+        // visibly after paste of a multi-char string). We restore the
+        // captured range both synchronously (in case the move is in
+        // retokenizeAndStyle) and on the next runloop tick (in case it's an
+        // async layout-pass effect from storage.endEditing).
+        let postEditSelection = textView.selectedRange()
         binding.wrappedValue = textView.string
         retokenizeAndStyle()
+        if textView.selectedRange() != postEditSelection {
+            textView.setSelectedRange(postEditSelection)
+            textView.scrollRangeToVisible(postEditSelection)
+        }
+        DispatchQueue.main.async { [weak textView, postEditSelection] in
+            guard let textView else { return }
+            if textView.selectedRange() != postEditSelection {
+                textView.setSelectedRange(postEditSelection)
+                // Also scroll back to the cursor: a large paste reflows the
+                // layout and can drift the scroll to the top of the document.
+                textView.scrollRangeToVisible(postEditSelection)
+            }
+        }
         if typewriterScroll {
             scrollSelectionToVerticalCenter(in: textView)
         }
@@ -155,6 +196,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             scrollSelectionToVerticalCenter(in: textView)
         }
         applyFocusDim(in: textView)
+        onCursorChanged?(textView.selectedRange().location)
     }
 
     private func scrollSelectionToVerticalCenter(in textView: NSTextView) {
