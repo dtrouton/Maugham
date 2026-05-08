@@ -38,13 +38,31 @@ struct ProjectWindow: View {
                         .navigationSplitViewColumnWidth(min: 200, ideal: 240)
                 } content: {
                     ZStack(alignment: .bottomTrailing) {
-                        EditorHost(
-                            store: store,
-                            documentStore: documentStore,
-                            selectedItemId: selectedItemId,
-                            onTextChange: { text in updateMetrics(for: text) }
-                        )
-                        if userPreferences.goalIndicatorsVisible {
+                        Group {
+                            switch binderSegment {
+                            case .manuscript:
+                                EditorHost(
+                                    store: store,
+                                    documentStore: documentStore,
+                                    selectedItemId: selectedItemId,
+                                    onTextChange: { text in updateMetrics(for: text) }
+                                )
+                            case .research:
+                                if let id = selectedResearchId,
+                                   let item = findResearchItem(
+                                       id: id, in: store.manifest.research) {
+                                    ResearchPreview(
+                                        projectURL: store.url,
+                                        item: item)
+                                } else {
+                                    ContentUnavailableView(
+                                        "Select an item to preview",
+                                        systemImage: "doc.text.magnifyingglass")
+                                }
+                            }
+                        }
+                        if userPreferences.goalIndicatorsVisible
+                           && binderSegment == .manuscript {
                             GoalIndicatorView(metrics: metrics)
                         }
                     }
@@ -186,6 +204,19 @@ struct ProjectWindow: View {
             if item.id == id { return item }
             if let children = item.children,
                let n = findItem(id: id, in: children) { return n }
+        }
+        return nil
+    }
+
+    private func findResearchItem(
+        id: String, in items: [ResearchItem]
+    ) -> ResearchItem? {
+        for item in items {
+            if item.id == id { return item }
+            if let children = item.children,
+               let nested = findResearchItem(id: id, in: children) {
+                return nested
+            }
         }
         return nil
     }
