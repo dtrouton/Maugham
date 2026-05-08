@@ -184,6 +184,7 @@ struct ProjectWindow: View {
     ) -> some View {
         ZStack(alignment: .bottomTrailing) {
             editorPane(store: store, documentStore: documentStore)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             if userPreferences.goalIndicatorsVisible
                && binderSegment == .manuscript {
                 GoalIndicatorView(metrics: metrics)
