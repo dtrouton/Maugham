@@ -135,9 +135,24 @@ Once running on milestone-2b:
 
 If all ten pass, milestone 2b is healthy.
 
+## Phase 2c smoke test
+
+Once running on milestone-2c:
+
+1. Open a Novel. Inspector shows Tags / Word target / Links / Linked from sections under Synopsis.
+2. Type tags, set Word target via Stepper. Goal indicator updates with target progress + today's words.
+3. Add a Link to another doc via the + popover. Open that doc; backlink appears in its Linked from section.
+4. Type `[[Chapter 2]]` in a body. Renders blue + underlined; click navigates to that chapter.
+5. Type ~200 words. Idle 30 min (or temporarily lower `DocumentStore.sessionIdleThreshold` to 30s to test). A session lands in `.maugham/sessions.json`.
+6. File → Show Project Statistics. Window opens.
+7. Project total shows correctly. Heatmap stretches to pane width with per-month labels (Feb / Mar / Apr / May).
+8. Click a chapter bar — project window comes forward with that chapter selected.
+
+If all eight pass, milestone 2c is healthy.
+
 ## Tests
 
     ./gen.sh
     xcodebuild -project Maugham.xcodeproj -scheme Maugham test CODE_SIGNING_ALLOWED=NO
 
-Expect 233 tests passing — 33 from 1a (project model, factory, store, recents), 44 from 1b (Token, Theme, TypographySettings, UserPreferences, MarkdownTokenizer, SmartTypography, ProseMode), 13 from 1c (UserPreferences focus prefs + FocusFinder), 53 from 1d (Slugifier, FileNaming, ProjectStore mutations, project typography, factories, ScreenplayMode, WritingModeFactory), 30 from 1e (UIState, ConflictState, DebounceScheduler, plus 15 integration tests against real NSFileCoordinator + NSFilePresenter for DocumentStore lifecycle, save, document conflict, conflict resolution, manifest conflict), 26 from 2a (8 RenamePlan, 5 DropIntent, 5 reorder integration, 4 duplicate integration, 4 tidy integration), and 34 from 2b (10 LineDiff, 6 ResearchKindInference, 4 UIState migration, 14 ProjectStoreResearch integration).
+Expect 265 tests passing — 33 from 1a (project model, factory, store, recents), 44 from 1b (Token, Theme, TypographySettings, UserPreferences, MarkdownTokenizer, SmartTypography, ProseMode), 13 from 1c (UserPreferences focus prefs + FocusFinder), 53 from 1d (Slugifier, FileNaming, ProjectStore mutations, project typography, factories, ScreenplayMode, WritingModeFactory), 30 from 1e (UIState, ConflictState, DebounceScheduler, plus 15 integration tests against real NSFileCoordinator + NSFilePresenter for DocumentStore lifecycle, save, document conflict, conflict resolution, manifest conflict), 26 from 2a (8 RenamePlan, 5 DropIntent, 5 reorder integration, 4 duplicate integration, 4 tidy integration), 34 from 2b (10 LineDiff, 6 ResearchKindInference, 4 UIState migration, 14 ProjectStoreResearch integration), and 32 from 2c (2 StructureItem Codable, 8 SessionLog, 7 SessionTracker, 7 WikiLinkTokenizer, 5 ProjectStoreInspector, 3 DocumentStoreSession).
