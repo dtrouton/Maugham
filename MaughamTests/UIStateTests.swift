@@ -5,10 +5,11 @@ final class UIStateTests: XCTestCase {
 
     func test_empty_hasExpectedDefaults() {
         let s = UIState.empty
-        XCTAssertEqual(s.schemaVersion, 1)
+        XCTAssertEqual(s.schemaVersion, UIState.currentSchemaVersion)
         XCTAssertNil(s.selectedItemId)
         XCTAssertFalse(s.isNoChromeOn)
         XCTAssertEqual(s.scrollLine, 0)
+        XCTAssertEqual(s.binderSegment, .manuscript)
     }
 
     func test_codable_roundTrip() throws {
@@ -48,8 +49,11 @@ final class UIStateTests: XCTestCase {
     func test_loadOrEmpty_loadsValidFile() throws {
         let temp = try TempDirectory()
         let url = temp.url.appendingPathComponent("ui-state.json")
-        let s = UIState(schemaVersion: 1, selectedItemId: "doc-x",
-                        isNoChromeOn: true, scrollLine: 12)
+        let s = UIState(
+            schemaVersion: UIState.currentSchemaVersion,
+            selectedItemId: "doc-x",
+            isNoChromeOn: true,
+            scrollLine: 12)
         try JSONEncoder().encode(s).write(to: url)
         XCTAssertEqual(UIState.loadOrEmpty(from: url), s)
     }
