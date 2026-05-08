@@ -243,7 +243,7 @@ struct ProjectWindow: View {
     private func detailColumn(store: ProjectStore) -> some View {
         if showInspector && store.manifest.type != .collection {
             inspectorPane(store: store)
-                .navigationSplitViewColumnWidth(min: 240, ideal: 280)
+                .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 360)
         }
     }
 
