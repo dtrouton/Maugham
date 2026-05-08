@@ -12,9 +12,18 @@ struct ProjectStatisticsView: View {
                     totalWords: store.projectWordCount,
                     target: store.manifest.targets?.totalWords,
                     deadline: store.manifest.targets?.deadline)
-                // Heatmap, Chapters, Sessions sections appended in T16-T18
+                DailyHeatmapSection(
+                    dailyCounts: dailyCounts)
+                // Chapters, Sessions sections appended in T17-T18
             }
             .padding(24)
         }
+    }
+
+    private var dailyCounts: [Date: Int] {
+        let cal = Calendar.current
+        let now = Date()
+        let lower = cal.date(byAdding: .day, value: -91, to: now) ?? now
+        return sessionLog.wordsByDay(in: lower...now)
     }
 }
