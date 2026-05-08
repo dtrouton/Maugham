@@ -11,18 +11,53 @@ struct DailyHeatmapSection: View {
         VStack(alignment: .leading, spacing: 8) {
             sectionHeader("Daily writing — last 13 weeks")
             heatmapGrid
+            monthLabelsRow
             HStack {
-                Text(monthLabel(forWeeksAgo: weeks))
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
                 Spacer()
                 legend
                 Spacer()
-                Text(monthLabel(forWeeksAgo: 0))
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
             }
         }
+    }
+
+    /// Labels positioned absolutely below the grid at each month transition,
+    /// so a 13-week span shows one label per calendar month rather than only
+    /// the two endpoints. GitHub-style.
+    private var monthLabelsRow: some View {
+        let cellPlusGap: CGFloat = 19  // 16pt cell + 3pt gap
+        return ZStack(alignment: .topLeading) {
+            // Reserve height so the section's intrinsic size includes this row.
+            Color.clear.frame(height: 14)
+            ForEach(monthTransitions, id: \.weeksAgo) { item in
+                Text(item.label)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .offset(x: CGFloat(weeks - 1 - item.weeksAgo) * cellPlusGap)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private struct MonthTransition: Hashable {
+        let weeksAgo: Int
+        let label: String
+    }
+
+    private var monthTransitions: [MonthTransition] {
+        var lastMonth: String? = nil
+        var out: [MonthTransition] = []
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM"
+        for weeksAgo in stride(from: weeks - 1, through: 0, by: -1) {
+            let date = dateFor(weeksAgo: weeksAgo, weekday: 0)
+            let month = formatter.string(from: date)
+            if month != lastMonth {
+                out.append(MonthTransition(
+                    weeksAgo: weeksAgo, label: month))
+                lastMonth = month
+            }
+        }
+        return out
     }
 
     private var heatmapGrid: some View {
@@ -80,13 +115,6 @@ struct DailyHeatmapSection: View {
         let dateStr = formatter.string(from: date)
         let countStr: String = count.formatted(.number)
         return dateStr + " · " + countStr + " words"
-    }
-
-    private func monthLabel(forWeeksAgo weeksAgo: Int) -> String {
-        let date = dateFor(weeksAgo: weeksAgo, weekday: 0)
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM"
-        return formatter.string(from: date)
     }
 
     private var legend: some View {
