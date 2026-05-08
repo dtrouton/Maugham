@@ -4,6 +4,11 @@ struct BinderRow: View {
     let item: StructureItem
     @Binding var renamingItemId: String?
     let onRename: (String, String) -> Void  // (id, newTitle)
+    /// Called when a drop completes on this row. The closure receives the
+    /// dragged item id and the vertical position within this row (top/middle/
+    /// bottom). Caller (BinderView) translates that to a DropIntent and
+    /// invokes the appropriate ProjectStore mutator.
+    let onDrop: (_ draggedId: String, _ position: DropIntent.Position) -> Void
 
     @State private var draftTitle: String = ""
 
@@ -23,6 +28,21 @@ struct BinderRow: View {
             Spacer()
         }
         .contentShape(Rectangle())
+        .draggable(item.id) {
+            Text(item.title)
+                .padding(6)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 4))
+        }
+        .dropDestination(for: String.self) { ids, location in
+            guard let droppedId = ids.first else { return false }
+            let rowHeight: CGFloat = 22
+            let position: DropIntent.Position
+            if location.y < rowHeight / 3 { position = .top }
+            else if location.y > (rowHeight * 2 / 3) { position = .bottom }
+            else { position = .middle }
+            onDrop(droppedId, position)
+            return true
+        }
     }
 
     @ViewBuilder
