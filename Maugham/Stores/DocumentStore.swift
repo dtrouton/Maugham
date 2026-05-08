@@ -289,6 +289,66 @@ public final class DocumentStore {
         return data ?? Data()
     }
 
+    /// Read sessions.json from disk via NSFileCoordinator. Returns
+    /// `.empty` if the file doesn't exist or doesn't decode.
+    public func loadSessionLog() async throws -> SessionLog {
+        let logURL = projectURL.appendingPathComponent(".maugham/sessions.json")
+        let coordinator = NSFileCoordinator(filePresenter: presenter)
+        var coordError: NSError?
+        var loaded: SessionLog = .empty
+        coordinator.coordinate(
+            readingItemAt: logURL, options: [], error: &coordError
+        ) { url in
+            guard let data = try? Data(contentsOf: url),
+                  let log = try? {
+                      let decoder = JSONDecoder()
+                      decoder.dateDecodingStrategy = .iso8601
+                      return try decoder.decode(SessionLog.self, from: data)
+                  }(),
+                  log.schemaVersion <= SessionLog.currentSchemaVersion else {
+                loaded = .empty
+                return
+            }
+            loaded = log
+        }
+        if let coordError { throw coordError }
+        return loaded
+    }
+
+    /// Append an event by reading the existing log, merging the new event,
+    /// and writing back. Coordinated through NSFileCoordinator. Safe under
+    /// iCloud divergence — append-only logs union-merge correctly.
+    public func appendSessionEvent(_ event: SessionEvent) async throws {
+        let scratchDir = projectURL.appendingPathComponent(".maugham")
+        try FileManager.default.createDirectory(
+            at: scratchDir, withIntermediateDirectories: true)
+
+        let existing = try await loadSessionLog()
+        let next = SessionLog.merged(
+            existing,
+            SessionLog(events: [event]))
+
+        let logURL = projectURL.appendingPathComponent(".maugham/sessions.json")
+        let coordinator = NSFileCoordinator(filePresenter: presenter)
+        var coordError: NSError?
+        var writeError: Error?
+        coordinator.coordinate(
+            writingItemAt: logURL, options: .forReplacing, error: &coordError
+        ) { url in
+            do {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                encoder.dateEncodingStrategy = .iso8601
+                let data = try encoder.encode(next)
+                try data.write(to: url, options: .atomic)
+            } catch {
+                writeError = error
+            }
+        }
+        if let coordError { throw coordError }
+        if let writeError { throw writeError }
+    }
+
     /// Execute a RenamePlan. Phase 1 moves colliding items to scratch; Phase 2
     /// moves scratch items to final destinations and direct items to their
     /// final destinations. Coordinated through NSFileCoordinator.
