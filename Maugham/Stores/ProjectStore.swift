@@ -16,6 +16,7 @@ public enum ProjectStoreError: Error, Equatable {
     case structureMissing
     case parentNotFound(String)
     case fileSystemError(String)
+    case cycle
 }
 
 /// Manages an open Maugham project: its manifest plus its manuscript text.
@@ -162,6 +163,186 @@ public final class ProjectStore {
         manifest.modified = Date()
         try await saveManifest()
         return item
+    }
+
+    /// Move an item to a new position. `toParentId` of nil means root. The
+    /// destination index is into the children array of the new parent (or
+    /// root structure if nil). Filename NN values renumber to keep contiguous
+    /// 01, 02, 03 ordering within the destination parent.
+    public func moveStructureItem(
+        id: String, toParentId: String?, atIndex destIndex: Int
+    ) async throws {
+        guard let item = findItem(id: id, in: manifest.structure),
+              let oldPath = item.path else {
+            throw ProjectStoreError.structureMissing
+        }
+        let oldParentId = findParentId(of: id, in: manifest.structure, parent: nil)
+        let oldIndex = currentIndex(of: id, parentId: oldParentId)
+
+        if let toParentId, item.type == .group {
+            if Self.isDescendant(
+                ancestorId: id,
+                candidateId: toParentId,
+                in: manifest.structure)
+            {
+                throw ProjectStoreError.cycle
+            }
+            if toParentId == id {
+                throw ProjectStoreError.cycle
+            }
+        }
+
+        if let toParentId {
+            guard let parent = findItem(id: toParentId, in: manifest.structure),
+                  parent.type == .group else {
+                throw ProjectStoreError.parentNotFound(toParentId)
+            }
+            _ = parent
+        }
+
+        if oldParentId == toParentId, oldIndex == destIndex {
+            return
+        }
+
+        var destSiblings = childrenOf(parentId: toParentId)
+        destSiblings.removeAll(where: { $0.id == id })
+        let clampedIndex = max(0, min(destIndex, destSiblings.count))
+        destSiblings.insert(item, at: clampedIndex)
+
+        let destParentPath: String
+        if let toParentId {
+            destParentPath = findItem(id: toParentId, in: manifest.structure)?.path ?? "manuscript"
+        } else {
+            destParentPath = "manuscript"
+        }
+
+        var renameSteps: [RenamePlan.Step] = []
+        var newDestSiblings: [StructureItem] = []
+        for (i, sibling) in destSiblings.enumerated() {
+            let newNN = String(format: "%02d", i + 1)
+            let originalFilename = (sibling.path as NSString?)?.lastPathComponent ?? ""
+            let slug: String
+            let ext: String
+            switch sibling.type {
+            case .document:
+                let stem = (originalFilename as NSString).deletingPathExtension
+                slug = String(stem.dropFirst(3))  // drop "NN-"
+                ext = (originalFilename as NSString).pathExtension
+            case .group:
+                slug = String(originalFilename.dropFirst(3))  // drop "NN-"
+                ext = ""
+            }
+            let newFilename: String
+            if sibling.type == .document {
+                newFilename = "\(newNN)-\(slug).\(ext)"
+            } else {
+                newFilename = "\(newNN)-\(slug)"
+            }
+            let newPath = "\(destParentPath)/\(newFilename)"
+            if sibling.path != newPath, let oldP = sibling.path {
+                renameSteps.append(.init(
+                    oldRelativePath: oldP,
+                    newRelativePath: newPath))
+            }
+            var updated = sibling
+            updated.path = newPath
+            if updated.type == .group, var children = updated.children {
+                Self.rewriteChildPaths(
+                    in: &children,
+                    oldPrefix: sibling.path ?? "",
+                    newPrefix: newPath)
+                updated.children = children
+            }
+            newDestSiblings.append(updated)
+        }
+
+        let plan = try RenamePlan(steps: renameSteps)
+        guard let documentStore else {
+            throw ProjectStoreError.fileSystemError("DocumentStore not available")
+        }
+        try await documentStore.executeRenamePlan(plan)
+
+        removeFromStructure(id: id)
+        replaceChildren(parentId: toParentId, with: newDestSiblings)
+        manifest.modified = Date()
+        try await saveManifest()
+        _ = oldPath
+    }
+
+    // MARK: - Reorder helpers
+
+    private func findParentId(
+        of childId: String,
+        in items: [StructureItem],
+        parent: String?
+    ) -> String? {
+        for item in items {
+            if item.id == childId { return parent }
+            if let children = item.children,
+               let nested = findParentId(of: childId, in: children, parent: item.id) {
+                return nested
+            }
+        }
+        return nil
+    }
+
+    private func currentIndex(of id: String, parentId: String?) -> Int {
+        let siblings = childrenOf(parentId: parentId)
+        return siblings.firstIndex(where: { $0.id == id }) ?? 0
+    }
+
+    private func childrenOf(parentId: String?) -> [StructureItem] {
+        if let parentId {
+            return findItem(id: parentId, in: manifest.structure)?.children ?? []
+        }
+        return manifest.structure
+    }
+
+    private static func isDescendant(
+        ancestorId: String,
+        candidateId: String,
+        in items: [StructureItem]
+    ) -> Bool {
+        guard let ancestor = findItemStatic(id: ancestorId, in: items) else { return false }
+        return Self.containsId(candidateId, in: ancestor.children ?? [])
+    }
+
+    private static func findItemStatic(
+        id: String, in items: [StructureItem]
+    ) -> StructureItem? {
+        for item in items {
+            if item.id == id { return item }
+            if let children = item.children,
+               let nested = findItemStatic(id: id, in: children) {
+                return nested
+            }
+        }
+        return nil
+    }
+
+    private static func containsId(
+        _ id: String, in items: [StructureItem]
+    ) -> Bool {
+        for item in items {
+            if item.id == id { return true }
+            if let children = item.children, containsId(id, in: children) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func replaceChildren(
+        parentId: String?,
+        with newChildren: [StructureItem]
+    ) {
+        if let parentId {
+            mutateItem(id: parentId) { parent in
+                parent.children = newChildren
+            }
+        } else {
+            manifest.structure = newChildren
+        }
     }
 
     // MARK: - Tree helpers
