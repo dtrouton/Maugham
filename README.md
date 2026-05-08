@@ -118,9 +118,26 @@ Once running on milestone-2a:
 
 If all eight pass, milestone 2a is healthy.
 
+## Phase 2b smoke test
+
+Once running on milestone-2b:
+
+1. Open a Novel. Click `Research` segment at the top of the binder. Empty state shows in the editor pane.
+2. Drag a JPEG from Finder into the research pane. Image renders inline at fit-to-pane.
+3. Drag a PDF in. Click; PDFKit scrolls.
+4. Right-click → New Group "Locations". Drag the PDF into the group. File physically moves; preview still works.
+5. Right-click → Add Link… title "Maugham Wiki" + URL. WKWebView loads.
+6. Paste an image (⌘V). New `pasted-…png` appears.
+7. Click `Manuscript`. Binder restores; manuscript editor reopens with per-segment selection.
+8. Click `Research`. Per-segment selection restored.
+9. Edit a manuscript chapter externally so a conflict fires. Banner appears with Show diff. Click; side-by-side diff sheet opens. Click `Keep mine` on the left to dismiss; mine wins.
+10. Repeat conflict; click `Use cloud` on the right. Cloud version persists; mine archived under `.maugham/conflicts/`.
+
+If all ten pass, milestone 2b is healthy.
+
 ## Tests
 
     ./gen.sh
     xcodebuild -project Maugham.xcodeproj -scheme Maugham test CODE_SIGNING_ALLOWED=NO
 
-Expect 199 tests passing — 33 from 1a (project model, factory, store, recents), 44 from 1b (Token, Theme, TypographySettings, UserPreferences, MarkdownTokenizer, SmartTypography, ProseMode), 13 from 1c (UserPreferences focus prefs + FocusFinder), 53 from 1d (Slugifier, FileNaming, ProjectStore mutations, project typography, factories, ScreenplayMode, WritingModeFactory), 30 from 1e (UIState, ConflictState, DebounceScheduler, plus 15 integration tests against real NSFileCoordinator + NSFilePresenter for DocumentStore lifecycle, save, document conflict, conflict resolution, manifest conflict), and 26 from 2a (8 RenamePlan, 5 DropIntent, 5 reorder integration, 4 duplicate integration, 4 tidy integration).
+Expect 233 tests passing — 33 from 1a (project model, factory, store, recents), 44 from 1b (Token, Theme, TypographySettings, UserPreferences, MarkdownTokenizer, SmartTypography, ProseMode), 13 from 1c (UserPreferences focus prefs + FocusFinder), 53 from 1d (Slugifier, FileNaming, ProjectStore mutations, project typography, factories, ScreenplayMode, WritingModeFactory), 30 from 1e (UIState, ConflictState, DebounceScheduler, plus 15 integration tests against real NSFileCoordinator + NSFilePresenter for DocumentStore lifecycle, save, document conflict, conflict resolution, manifest conflict), 26 from 2a (8 RenamePlan, 5 DropIntent, 5 reorder integration, 4 duplicate integration, 4 tidy integration), and 34 from 2b (10 LineDiff, 6 ResearchKindInference, 4 UIState migration, 14 ProjectStoreResearch integration).
