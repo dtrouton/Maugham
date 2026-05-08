@@ -815,6 +815,214 @@ public final class ProjectStore {
         }
     }
 
+    // MARK: - Research mutators
+
+    public func addResearchItem(
+        parentId: String?,
+        title: String,
+        kind: ResearchItem.AssetKind?
+    ) async throws -> ResearchItem {
+        let now = Date()
+        let item: ResearchItem
+        if kind == nil {
+            guard let documentStore else {
+                throw ProjectStoreError.fileSystemError("DocumentStore not available")
+            }
+            let parentPath = researchParentPath(parentId: parentId)
+            let slug = Self.researchSlugify(title)
+            let folderPath = "\(parentPath)/\(slug)"
+            let folderURL = url.appendingPathComponent(folderPath, isDirectory: true)
+            try FileManager.default.createDirectory(
+                at: folderURL, withIntermediateDirectories: true)
+            _ = documentStore
+            item = ResearchItem(
+                id: Self.newId(prefix: "res-grp"),
+                title: title,
+                type: .group,
+                kind: nil,
+                path: folderPath,
+                url: nil,
+                caption: nil,
+                tags: nil,
+                links: nil,
+                addedAt: now,
+                children: [])
+        } else {
+            throw ProjectStoreError.fileSystemError(
+                "Use addResearchAsset or addResearchLink for non-group items")
+        }
+        appendResearchItem(item, to: parentId)
+        manifest.modified = Date()
+        try await saveManifest()
+        return item
+    }
+
+    public func addResearchAsset(
+        parentId: String?,
+        fromURL externalURL: URL
+    ) async throws -> ResearchItem {
+        guard let documentStore else {
+            throw ProjectStoreError.fileSystemError("DocumentStore not available")
+        }
+        let filename = externalURL.lastPathComponent
+        guard let kind = ResearchKindInference.kind(forFilename: filename) else {
+            throw ProjectStoreError.fileSystemError(
+                "Unsupported research file type: \(filename)")
+        }
+
+        let parentPath = researchParentPath(parentId: parentId)
+        let stem = (filename as NSString).deletingPathExtension
+        let ext = (filename as NSString).pathExtension.lowercased()
+        let slug = Self.researchSlugify(stem)
+        var targetFilename = "\(slug).\(ext)"
+        let parentURL = url.appendingPathComponent(parentPath, isDirectory: true)
+        try? FileManager.default.createDirectory(
+            at: parentURL, withIntermediateDirectories: true)
+        let existing = (try? FileManager.default
+            .contentsOfDirectory(atPath: parentURL.path)) ?? []
+        targetFilename = Self.researchDedupedFilename(targetFilename, existing: existing)
+        let relativePath = "\(parentPath)/\(targetFilename)"
+        let targetURL = url.appendingPathComponent(relativePath)
+
+        try await documentStore.executeCopy(from: externalURL, to: targetURL)
+
+        let item = ResearchItem(
+            id: Self.newId(prefix: "res-ast"),
+            title: stem,
+            type: .asset,
+            kind: kind,
+            path: relativePath,
+            url: nil,
+            caption: nil,
+            tags: nil,
+            links: nil,
+            addedAt: Date(),
+            children: nil)
+        appendResearchItem(item, to: parentId)
+        manifest.modified = Date()
+        try await saveManifest()
+        return item
+    }
+
+    public func addResearchLink(
+        parentId: String?,
+        title: String,
+        url linkURL: String
+    ) async throws -> ResearchItem {
+        let item = ResearchItem(
+            id: Self.newId(prefix: "res-lnk"),
+            title: title,
+            type: .asset,
+            kind: .link,
+            path: nil,
+            url: linkURL,
+            caption: nil,
+            tags: nil,
+            links: nil,
+            addedAt: Date(),
+            children: nil)
+        appendResearchItem(item, to: parentId)
+        manifest.modified = Date()
+        try await saveManifest()
+        return item
+    }
+
+    // MARK: - Research helpers
+
+    private func researchParentPath(parentId: String?) -> String {
+        if let parentId,
+           let parent = findResearchItem(id: parentId, in: manifest.research),
+           let parentPath = parent.path {
+            return parentPath
+        }
+        return "research"
+    }
+
+    private func appendResearchItem(_ item: ResearchItem, to parentId: String?) {
+        if let parentId {
+            mutateResearchItem(id: parentId) { parent in
+                var children = parent.children ?? []
+                children.append(item)
+                parent.children = children
+            }
+        } else {
+            manifest.research.append(item)
+        }
+    }
+
+    private func findResearchItem(
+        id: String, in items: [ResearchItem]
+    ) -> ResearchItem? {
+        for it in items {
+            if it.id == id { return it }
+            if let children = it.children,
+               let found = findResearchItem(id: id, in: children) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    private func mutateResearchItem(
+        id: String,
+        _ transform: (inout ResearchItem) -> Void
+    ) {
+        manifest.research = Self.applyResearchMutation(
+            id: id, in: manifest.research, transform: transform)
+    }
+
+    private static func applyResearchMutation(
+        id: String,
+        in items: [ResearchItem],
+        transform: (inout ResearchItem) -> Void
+    ) -> [ResearchItem] {
+        items.map { item in
+            var copy = item
+            if copy.id == id {
+                transform(&copy)
+            } else if let children = copy.children {
+                copy.children = applyResearchMutation(
+                    id: id, in: children, transform: transform)
+            }
+            return copy
+        }
+    }
+
+    private static func researchSlugify(_ s: String) -> String {
+        let lower = s.lowercased()
+        var out = ""
+        var lastDash = false
+        for ch in lower {
+            if ch.isLetter || ch.isNumber {
+                out.append(ch)
+                lastDash = false
+            } else if ch == "-" || ch == "_" || ch.isWhitespace {
+                if !lastDash && !out.isEmpty {
+                    out.append("-")
+                    lastDash = true
+                }
+            }
+        }
+        if out.hasSuffix("-") { out.removeLast() }
+        return out.isEmpty ? "untitled" : out
+    }
+
+    private static func researchDedupedFilename(
+        _ name: String, existing: [String]
+    ) -> String {
+        let existingSet = Set(existing)
+        if !existingSet.contains(name) { return name }
+        let stem = (name as NSString).deletingPathExtension
+        let ext = (name as NSString).pathExtension
+        for n in 2...999 {
+            let candidate = ext.isEmpty
+                ? "\(stem)-\(n)"
+                : "\(stem)-\(n).\(ext)"
+            if !existingSet.contains(candidate) { return candidate }
+        }
+        return UUID().uuidString
+    }
+
     /// Set or clear the per-project typography override.
     /// Pass `nil` to clear (fall back to user-level defaults).
     public func setProjectTypography(_ override: TypographySettings?) async throws {
