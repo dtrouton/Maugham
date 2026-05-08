@@ -10,6 +10,7 @@ struct InspectorView: View {
     @State private var draftStatus: String = "draft"
     @State private var draftTags: [String] = []
     @State private var draftWordTarget: Int = 0
+    @State private var draftLinks: [String] = []
     @State private var loadedItemId: String?
     @State private var saveTask: Task<Void, Never>?
 
@@ -65,6 +66,18 @@ struct InspectorView: View {
                         }
                     }
 
+                    InspectorLinksSection(
+                        store: store,
+                        currentItemId: item.id,
+                        draftLinks: $draftLinks,
+                        onCommit: scheduleSave,
+                        onNavigate: { id in
+                            NotificationCenter.default.post(
+                                name: .maughamNavigateToDocument,
+                                object: nil,
+                                userInfo: ["id": id])
+                        })
+
                     LabeledContent("Words") {
                         Text(wordsLabel)
                             .foregroundStyle(.secondary)
@@ -108,6 +121,7 @@ struct InspectorView: View {
         draftStatus = item.status ?? "draft"
         draftTags = item.tags ?? []
         draftWordTarget = item.wordTarget ?? 0
+        draftLinks = item.links ?? []
         loadedItemId = item.id
     }
 
@@ -118,6 +132,7 @@ struct InspectorView: View {
         let status = draftStatus
         let tags = draftTags
         let wordTarget = draftWordTarget
+        let links = draftLinks
         saveTask = Task { [weak store] in
             try? await Task.sleep(for: .milliseconds(500))
             if Task.isCancelled { return }
@@ -127,7 +142,8 @@ struct InspectorView: View {
                 synopsis: synopsis,
                 status: status,
                 tags: tags,
-                wordTarget: wordTarget)
+                wordTarget: wordTarget,
+                links: links)
         }
     }
 
