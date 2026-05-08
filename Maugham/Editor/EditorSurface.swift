@@ -15,6 +15,9 @@ struct EditorSurface: NSViewRepresentable {
     var initialCursorLocation: Int? = nil
     /// Fired on every selection change with the new caret location.
     var onCursorChanged: ((Int) -> Void)? = nil
+    /// Optional resolver for wiki-link titles. When set, ProseMode underlines
+    /// `[[Title]]` tokens whose title matches a manuscript document.
+    var wikiLinkResolver: ((String) -> Bool)? = nil
 
     func makeCoordinator() -> EditorCoordinator {
         let coordinator = EditorCoordinator(
@@ -22,7 +25,8 @@ struct EditorSurface: NSViewRepresentable {
             theme: theme, typography: typography,
             typewriterScroll: typewriterScroll,
             sentenceFocus: sentenceFocus,
-            paragraphFocus: paragraphFocus)
+            paragraphFocus: paragraphFocus,
+            wikiLinkResolver: wikiLinkResolver)
         coordinator.initialCursorLocation = initialCursorLocation
         coordinator.onCursorChanged = onCursorChanged
         return coordinator

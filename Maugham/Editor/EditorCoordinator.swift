@@ -26,13 +26,18 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// host can persist per-document cursor positions.
     var onCursorChanged: ((Int) -> Void)?
 
+    /// Optional resolver for wiki-link titles. When set, ProseMode underlines
+    /// `[[Title]]` tokens whose title resolves to a manuscript document.
+    var wikiLinkResolver: ((String) -> Bool)?
+
     init(text: Binding<String>,
          mode: any WritingMode,
          theme: Theme,
          typography: TypographySettings,
          typewriterScroll: Bool,
          sentenceFocus: Bool,
-         paragraphFocus: Bool) {
+         paragraphFocus: Bool,
+         wikiLinkResolver: ((String) -> Bool)? = nil) {
         self.binding = text
         self.mode = mode
         self.theme = theme
@@ -40,6 +45,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         self.typewriterScroll = typewriterScroll
         self.sentenceFocus = sentenceFocus
         self.paragraphFocus = paragraphFocus
+        self.wikiLinkResolver = wikiLinkResolver
     }
 
     /// Set the text view from outside (called by EditorSurface.makeNSView).
@@ -115,11 +121,22 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     private func retokenizeAndStyle() {
         guard let textView, let storage = textView.textStorage else { return }
         let tokens = mode.tokenize(textView.string)
-        mode.applyTypography(
-            in: storage,
-            theme: theme,
-            typography: typography,
-            tokens: tokens)
+        // ProseMode supports an optional wiki-link resolver for `[[Title]]`
+        // styling. Other modes use the protocol's resolver-less call.
+        if let prose = mode as? ProseMode {
+            prose.applyTypography(
+                in: storage,
+                theme: theme,
+                typography: typography,
+                tokens: tokens,
+                wikiLinkResolver: wikiLinkResolver)
+        } else {
+            mode.applyTypography(
+                in: storage,
+                theme: theme,
+                typography: typography,
+                tokens: tokens)
+        }
         // Sync typing attributes so the caret on empty lines matches the
         // body font/paragraph style instead of the system default.
         textView.typingAttributes = mode.bodyTypingAttributes(

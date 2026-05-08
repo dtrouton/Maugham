@@ -41,11 +41,25 @@ public struct ProseMode: WritingMode {
         )
     }
 
+    /// Protocol witness for `WritingMode.applyTypography`. Forwards to the
+    /// resolver-aware overload with no resolver, so wiki-link tokens render
+    /// in `palette.link` color but never underlined.
     public func applyTypography(
         in storage: NSTextStorage,
         theme: Theme,
         typography: TypographySettings,
         tokens: [Token]
+    ) {
+        applyTypography(in: storage, theme: theme, typography: typography,
+                        tokens: tokens, wikiLinkResolver: nil)
+    }
+
+    public func applyTypography(
+        in storage: NSTextStorage,
+        theme: Theme,
+        typography: TypographySettings,
+        tokens: [Token],
+        wikiLinkResolver: ((String) -> Bool)?
     ) {
         let resolved = theme.resolved(systemAppearanceIsDark: Self.systemIsDark())
         let palette = resolved.palette
@@ -59,9 +73,18 @@ public struct ProseMode: WritingMode {
 
         for token in tokens {
             guard NSMaxRange(token.range) <= storage.length else { continue }
-            let attrs = attributes(
-                for: token.kind, palette: palette, baseFont: baseFont)
-            storage.addAttributes(attrs, range: token.range)
+            if case .wikiLink(let title) = token.kind {
+                var attrs: [NSAttributedString.Key: Any] = [:]
+                attrs[.foregroundColor] = palette.link
+                if wikiLinkResolver?(title) ?? false {
+                    attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue
+                }
+                storage.addAttributes(attrs, range: token.range)
+            } else {
+                let attrs = attributes(
+                    for: token.kind, palette: palette, baseFont: baseFont)
+                storage.addAttributes(attrs, range: token.range)
+            }
         }
         storage.endEditing()
     }
