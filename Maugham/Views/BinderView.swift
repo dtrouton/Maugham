@@ -5,6 +5,8 @@ struct BinderView: View {
     @Binding var selectedItemId: String?
     @State private var renamingItemId: String?
     @State private var pendingError: String?
+    @State private var pendingTidyParentId: String?
+    @State private var showingTidyConfirmation: Bool = false
 
     var body: some View {
         List(selection: $selectedItemId) {
@@ -44,6 +46,11 @@ struct BinderView: View {
             renamingItemId: $renamingItemId,
             onRename: { id, newTitle in
                 Task { await rename(id: id, to: newTitle) }
+            },
+            onDrop: { draggedId, position in
+                Task { await handleDrop(draggedId: draggedId,
+                                        position: position,
+                                        target: item) }
             }
         )
         .contextMenu {
@@ -54,9 +61,19 @@ struct BinderView: View {
                 Task { await addItem(parent: item, kind: .group) }
             }
             Divider()
+            Button("Duplicate") {
+                Task { await duplicate(id: item.id) }
+            }
             Button("Rename") { renamingItemId = item.id }
             Button("Delete", role: .destructive) {
                 Task { await deleteItem(id: item.id) }
+            }
+            if item.type == .group {
+                Divider()
+                Button("Tidy Filenames") {
+                    pendingTidyParentId = item.id
+                    showingTidyConfirmation = true
+                }
             }
         }
     }
@@ -95,6 +112,70 @@ struct BinderView: View {
         } catch {
             pendingError = error.localizedDescription
         }
+    }
+
+    private func handleDrop(
+        draggedId: String,
+        position: DropIntent.Position,
+        target: StructureItem
+    ) async {
+        guard draggedId != target.id else { return }
+        let intent = DropIntent.classify(position: position, target: target)
+        let toParentId: String?
+        let destIndex: Int
+        switch intent {
+        case .insertAbove(let targetId):
+            toParentId = findParentId(of: targetId)
+            destIndex = currentIndex(of: targetId, in: toParentId)
+        case .insertBelow(let targetId):
+            toParentId = findParentId(of: targetId)
+            destIndex = currentIndex(of: targetId, in: toParentId) + 1
+        case .insertChild(let parentId):
+            toParentId = parentId
+            destIndex = 0
+        }
+        do {
+            try await store.moveStructureItem(
+                id: draggedId, toParentId: toParentId, atIndex: destIndex)
+        } catch ProjectStoreError.cycle {
+            pendingError = "Can't move a group into one of its own descendants."
+        } catch {
+            pendingError = error.localizedDescription
+        }
+    }
+
+    private func duplicate(id: String) async {
+        do {
+            let copy = try await store.duplicateStructureItem(id: id)
+            renamingItemId = copy.id  // immediately offer rename
+            selectedItemId = copy.id
+        } catch {
+            pendingError = error.localizedDescription
+        }
+    }
+
+    private func currentIndex(of id: String, in parentId: String?) -> Int {
+        let siblings: [StructureItem]
+        if let parentId,
+           let parent = findItem(id: parentId, in: store.manifest.structure) {
+            siblings = parent.children ?? []
+        } else {
+            siblings = store.manifest.structure
+        }
+        return siblings.firstIndex(where: { $0.id == id }) ?? 0
+    }
+
+    private func findItem(
+        id: String, in items: [StructureItem]
+    ) -> StructureItem? {
+        for item in items {
+            if item.id == id { return item }
+            if let children = item.children,
+               let nested = findItem(id: id, in: children) {
+                return nested
+            }
+        }
+        return nil
     }
 
     /// Find the parent id of an item by id, or nil if at root.
