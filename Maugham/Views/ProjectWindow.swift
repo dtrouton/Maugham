@@ -82,12 +82,28 @@ struct ProjectWindow: View {
                     .navigationSplitViewColumnWidth(min: 480, ideal: 720)
                 } detail: {
                     if showInspector && store.manifest.type != .collection {
-                        InspectorView(
-                            store: store,
-                            selectedItemId: selectedItemId,
-                            metrics: metrics,
-                            onOpenProjectSettings: { activeSheet = .projectSettings }
-                        )
+                        Group {
+                            switch binderSegment {
+                            case .manuscript:
+                                InspectorView(
+                                    store: store,
+                                    selectedItemId: selectedItemId,
+                                    metrics: metrics,
+                                    onOpenProjectSettings: { activeSheet = .projectSettings }
+                                )
+                            case .research:
+                                if let id = selectedResearchId,
+                                   let item = findResearchItem(
+                                       id: id, in: store.manifest.research) {
+                                    InspectorResearchPanel(
+                                        store: store, item: item)
+                                } else {
+                                    ContentUnavailableView(
+                                        "Select an item",
+                                        systemImage: "info.circle")
+                                }
+                            }
+                        }
                         .navigationSplitViewColumnWidth(min: 240, ideal: 280)
                     }
                 }
