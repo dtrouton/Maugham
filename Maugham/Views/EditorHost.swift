@@ -34,6 +34,15 @@ struct EditorHost: View {
                             documentStore.currentDocumentText = newValue
                             documentStore.scheduleSave(
                                 for: path, text: newValue)
+                            // Update project word-count cache and idle
+                            // session tracker.
+                            let words = WritingModeFactory.mode(for: path)
+                                .metrics(newValue).wordCount
+                            store.recordWordCount(
+                                forDocumentId: item.id, wordCount: words)
+                            documentStore.recordSessionActivity(
+                                documentId: item.id,
+                                projectWordCount: store.projectWordCount)
                             onTextChange?(newValue)
                         }
                     ),

@@ -124,6 +124,18 @@ public final class DocumentStore {
 
     private var lastObservedManifestModified: Date?
 
+    /// Tracks the active writing session in-memory. Driven by
+    /// `recordSessionActivity(...)` and the idle timer below; flushed on
+    /// app quit via `flushSessionOnQuit()`.
+    private let sessionTracker = SessionTracker()
+    private var idleTimerToken: DispatchWorkItem?
+    /// Snapshot of the most recent project-wide word count seen on a
+    /// `recordSessionActivity` call. Used by `flushSessionOnQuit` so the
+    /// session's net delta is computed against the live total even when
+    /// the caller can't pass one in.
+    private var lastKnownProjectWordCount: Int = 0
+    private static let sessionIdleThreshold: TimeInterval = 30 * 60
+
     private var saveScheduler: DebounceScheduler<SavePayload>!
 
     private struct SavePayload: Sendable {
@@ -178,6 +190,9 @@ public final class DocumentStore {
     }
 
     public func close() async {
+        // Flush an in-progress session first so it lands in sessions.json
+        // before the presenter is removed and writes become uncoordinated.
+        await flushSessionOnQuit()
         try? await flushPendingSave()
         await uiStateScheduler.flush()
         if let presenter {
@@ -347,6 +362,51 @@ public final class DocumentStore {
         }
         if let coordError { throw coordError }
         if let writeError { throw writeError }
+        NotificationCenter.default.post(
+            name: .maughamSessionLogChanged, object: nil)
+    }
+
+    /// Called by EditorHost on every text change. Records activity with the
+    /// SessionTracker and (re)arms the 30-minute idle timer. When the timer
+    /// fires without further activity, the session is finalised and appended
+    /// to `.maugham/sessions.json`.
+    public func recordSessionActivity(
+        documentId: String,
+        projectWordCount: Int
+    ) {
+        lastKnownProjectWordCount = projectWordCount
+        sessionTracker.recordTextChange(
+            at: Date(), projectWordCount: projectWordCount)
+
+        idleTimerToken?.cancel()
+        let snapshotWordCount = projectWordCount
+        let token = DispatchWorkItem { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let event = self.sessionTracker.endSessionIfIdle(
+                    at: Date(),
+                    currentProjectWordCount: snapshotWordCount) {
+                    try? await self.appendSessionEvent(event)
+                }
+            }
+        }
+        idleTimerToken = token
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.sessionIdleThreshold,
+            execute: token)
+    }
+
+    /// Called from app-quit hook. Finalises any active session immediately
+    /// using the most recently observed project word count and appends it
+    /// to the log. Best-effort — quit may interrupt the write.
+    public func flushSessionOnQuit() async {
+        idleTimerToken?.cancel()
+        idleTimerToken = nil
+        if let event = sessionTracker.endSessionImmediately(
+            at: Date(),
+            currentProjectWordCount: lastKnownProjectWordCount) {
+            try? await appendSessionEvent(event)
+        }
     }
 
     /// Execute a RenamePlan. Phase 1 moves colliding items to scratch; Phase 2
