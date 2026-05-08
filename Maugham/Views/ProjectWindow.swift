@@ -22,6 +22,7 @@ struct ProjectWindow: View {
     @State private var activeSheet: ProjectActiveSheet?
     @State private var showInspector: Bool = true
     @State private var showingTidyAllConfirmation: Bool = false
+    @State private var showingDiffSheet: Bool = false
     @Environment(UserPreferences.self) private var userPreferences
 
     let url: URL
@@ -53,6 +54,26 @@ struct ProjectWindow: View {
                         HelpClaudeDesktopSheet(
                             projectURL: store.url,
                             projectTitle: store.manifest.title)
+                    }
+                }
+                .sheet(isPresented: $showingDiffSheet) {
+                    if let conflict = documentStore.pendingConflict {
+                        ConflictDiffSheet(
+                            conflict: conflict,
+                            onKeepMine: {
+                                Task {
+                                    try? await documentStore.resolveConflictKeepMine()
+                                    showingDiffSheet = false
+                                }
+                            },
+                            onUseCloud: {
+                                Task {
+                                    try? await documentStore.resolveConflictUseCloud()
+                                    showingDiffSheet = false
+                                }
+                            },
+                            onClose: { showingDiffSheet = false }
+                        )
                     }
                 }
             } else if let loadError {
@@ -210,7 +231,9 @@ struct ProjectWindow: View {
                 onUseCloud: {
                     Task { try? await documentStore.resolveConflictUseCloud() }
                 },
-                onShowDiff: nil
+                onShowDiff: isDocumentConflict(conflict) ? {
+                    showingDiffSheet = true
+                } : nil
             )
         }
     }
@@ -278,6 +301,12 @@ struct ProjectWindow: View {
             }
         }
         return nil
+    }
+
+    private func isDocumentConflict(_ conflict: ConflictState) -> Bool {
+        // Manifest conflict path is "project.maugham.json"; everything else
+        // is a document.
+        !conflict.path.hasSuffix("project.maugham.json")
     }
 
     private func applyNoChrome() {
