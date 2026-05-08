@@ -149,6 +149,15 @@ public final class DocumentStore {
             await store?.persistUIState(state)
         }
 
+        // Log scratch stragglers from a previous crashed multi-rename.
+        // 2a accepts manual cleanup; future milestone may auto-recover.
+        let scratchDir = url.appendingPathComponent(".maugham/scratch")
+        if let entries = try? FileManager.default
+            .contentsOfDirectory(atPath: scratchDir.path),
+           !entries.isEmpty {
+            print("[DocumentStore] WARNING: \(entries.count) stragglers in \(scratchDir.path) — likely from a crashed reorder/tidy. Manual inspection recommended.")
+        }
+
         // Seed lastObservedManifestModified so the first presenter callback
         // doesn't trigger a spurious archive of an unchanged manifest.
         let manifestURL = url.appendingPathComponent("project.maugham.json")
@@ -278,6 +287,89 @@ public final class DocumentStore {
         if let coordError { throw coordError }
         if let readError { throw readError }
         return data ?? Data()
+    }
+
+    /// Execute a RenamePlan. Phase 1 moves colliding items to scratch; Phase 2
+    /// moves scratch items to final destinations and direct items to their
+    /// final destinations. Coordinated through NSFileCoordinator.
+    public func executeRenamePlan(_ plan: RenamePlan) async throws {
+        guard !plan.steps.isEmpty else { return }
+
+        let scratchDir = projectURL.appendingPathComponent(".maugham/scratch")
+        try FileManager.default.createDirectory(
+            at: scratchDir, withIntermediateDirectories: true)
+
+        // Phase 1: move colliding items to scratch with unique names.
+        var scratchMap: [(scratchURL: URL, finalRelativePath: String)] = []
+        for step in plan.scratchSteps {
+            let oldURL = projectURL.appendingPathComponent(step.oldRelativePath)
+            let scratchURL = scratchDir.appendingPathComponent(UUID().uuidString)
+            try await coordinatedMove(from: oldURL, to: scratchURL)
+            scratchMap.append((scratchURL, step.newRelativePath))
+        }
+
+        // Phase 2a: direct (non-colliding) renames.
+        for step in plan.directSteps {
+            let oldURL = projectURL.appendingPathComponent(step.oldRelativePath)
+            let newURL = projectURL.appendingPathComponent(step.newRelativePath)
+            try await coordinatedMove(from: oldURL, to: newURL)
+        }
+
+        // Phase 2b: scratch items to final destinations.
+        for entry in scratchMap {
+            let finalURL = projectURL.appendingPathComponent(entry.finalRelativePath)
+            try await coordinatedMove(from: entry.scratchURL, to: finalURL)
+        }
+
+        // Phase 3: caller saves the manifest.
+
+        // Best-effort cleanup of empty scratch dir.
+        if let contents = try? FileManager.default
+            .contentsOfDirectory(atPath: scratchDir.path),
+           contents.isEmpty {
+            try? FileManager.default.removeItem(at: scratchDir)
+        }
+    }
+
+    /// Coordinated copy of a file or folder. Used by Duplicate.
+    public func executeCopy(from sourceURL: URL, to destinationURL: URL) async throws {
+        let coordinator = NSFileCoordinator(filePresenter: presenter)
+        var coordError: NSError?
+        var copyError: Error?
+        coordinator.coordinate(
+            readingItemAt: sourceURL, options: [],
+            writingItemAt: destinationURL, options: .forReplacing,
+            error: &coordError
+        ) { readURL, writeURL in
+            do {
+                try FileManager.default.copyItem(at: readURL, to: writeURL)
+            } catch {
+                copyError = error
+            }
+        }
+        if let coordError { throw coordError }
+        if let copyError { throw copyError }
+    }
+
+    /// Coordinated move of a file or folder. Wraps NSFileCoordinator's
+    /// reading + writing pair for the source/destination.
+    private func coordinatedMove(from sourceURL: URL, to destinationURL: URL) async throws {
+        let coordinator = NSFileCoordinator(filePresenter: presenter)
+        var coordError: NSError?
+        var moveError: Error?
+        coordinator.coordinate(
+            writingItemAt: sourceURL, options: .forMoving,
+            writingItemAt: destinationURL, options: .forReplacing,
+            error: &coordError
+        ) { fromURL, toURL in
+            do {
+                try FileManager.default.moveItem(at: fromURL, to: toURL)
+            } catch {
+                moveError = error
+            }
+        }
+        if let coordError { throw coordError }
+        if let moveError { throw moveError }
     }
 
     private func persistUIState(_ state: UIState) async {
