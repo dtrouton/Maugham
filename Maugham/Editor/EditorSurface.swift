@@ -70,6 +70,15 @@ struct EditorSurface: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? MaughamTextView else { return }
+        // SwiftUI's NSViewRepresentable doesn't always propagate scroll-view
+        // size changes through AppKit autoresizing the way a pure-AppKit
+        // window would. Force-track the content width here so MaughamTextView's
+        // setFrameSize override fires and recenters the column gutters on
+        // every layout pass.
+        let targetWidth = scrollView.contentSize.width
+        if targetWidth > 0, abs(textView.frame.width - targetWidth) > 0.5 {
+            textView.frame.size.width = targetWidth
+        }
         if textView.string != text {
             context.coordinator.applyExternalText(text)
         }
@@ -114,6 +123,16 @@ private final class MaughamTextView: NSTextView {
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         updateColumnInset()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // SwiftUI may set the scroll-view geometry only after the text view
+        // has already been mounted, so the initial setFrameSize sees a
+        // pre-layout width. Recompute once we're attached to a window.
+        DispatchQueue.main.async { [weak self] in
+            self?.updateColumnInset()
+        }
     }
 
     private func updateColumnInset() {
