@@ -20,44 +20,35 @@ struct DailyHeatmapSection: View {
         }
     }
 
-    /// Labels positioned absolutely below the grid at each month transition,
-    /// so a 13-week span shows one label per calendar month rather than only
-    /// the two endpoints. GitHub-style.
+    /// One label per column-slot. Most are empty; only month-transition
+    /// columns carry a label. Slot widths flex via `maxWidth: .infinity` so
+    /// the labels track the heatmap grid's columns when the pane resizes.
     private var monthLabelsRow: some View {
-        let cellPlusGap: CGFloat = 19  // 16pt cell + 3pt gap
-        return ZStack(alignment: .topLeading) {
-            // Reserve height so the section's intrinsic size includes this row.
-            Color.clear.frame(height: 14)
-            ForEach(monthTransitions, id: \.weeksAgo) { item in
-                Text(item.label)
+        HStack(alignment: .top, spacing: 3) {
+            ForEach((0..<weeks).reversed(), id: \.self) { weekIdx in
+                Text(monthLabelIfTransition(weekIdx))
                     .font(.caption)
                     .foregroundStyle(.tertiary)
-                    .offset(x: CGFloat(weeks - 1 - item.weeksAgo) * cellPlusGap)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private struct MonthTransition: Hashable {
-        let weeksAgo: Int
-        let label: String
+    private func monthLabelIfTransition(_ weeksAgo: Int) -> String {
+        if weeksAgo == weeks - 1 {
+            return monthString(forWeeksAgo: weeksAgo)
+        }
+        let prev = monthString(forWeeksAgo: weeksAgo + 1)
+        let cur = monthString(forWeeksAgo: weeksAgo)
+        return cur != prev ? cur : ""
     }
 
-    private var monthTransitions: [MonthTransition] {
-        var lastMonth: String? = nil
-        var out: [MonthTransition] = []
+    private func monthString(forWeeksAgo weeksAgo: Int) -> String {
+        let date = dateFor(weeksAgo: weeksAgo, weekday: 0)
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM"
-        for weeksAgo in stride(from: weeks - 1, through: 0, by: -1) {
-            let date = dateFor(weeksAgo: weeksAgo, weekday: 0)
-            let month = formatter.string(from: date)
-            if month != lastMonth {
-                out.append(MonthTransition(
-                    weeksAgo: weeksAgo, label: month))
-                lastMonth = month
-            }
-        }
-        return out
+        return formatter.string(from: date)
     }
 
     private var heatmapGrid: some View {
@@ -71,18 +62,18 @@ struct DailyHeatmapSection: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity)
     }
 
     private func cellFor(weeksAgo: Int, weekday: Int) -> some View {
         let date = dateFor(weeksAgo: weeksAgo, weekday: weekday)
         let count = dailyCounts[date] ?? 0
-        // Color.clear with explicit frame + a background shape holds its
-        // frame rigidly inside the VStack/HStack. Plain
-        // `RoundedRectangle().fill().frame()` can flex despite the explicit
-        // width/height — the fill returns an inherently-flexible view, so
-        // the cells end up stretched horizontally and squashed vertically.
+        // Flex width across the available pane; fixed 16pt height. Cells
+        // become wider rectangles in wider windows but the grid keeps a
+        // consistent vertical extent. Color.clear holds the frame rigidly
+        // even with maxWidth: .infinity so the cells don't collapse.
         return Color.clear
-            .frame(width: 16, height: 16)
+            .frame(maxWidth: .infinity, minHeight: 16, maxHeight: 16)
             .background(
                 RoundedRectangle(cornerRadius: 2)
                     .fill(colorForCount(count)))
