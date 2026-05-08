@@ -13,35 +13,44 @@ struct BinderRow: View {
     @State private var draftTitle: String = ""
 
     var body: some View {
-        HStack(spacing: 6) {
-            statusDot
-            if renamingItemId == item.id {
+        // .draggable on the container intercepts pointer/keyboard input on
+        // child controls, so split the rename branch into its own subtree
+        // without drag/drop modifiers. Otherwise the TextField can't take
+        // focus and Return doesn't commit.
+        if renamingItemId == item.id {
+            HStack(spacing: 6) {
+                statusDot
                 TextField("", text: $draftTitle, onCommit: commitRename)
                     .textFieldStyle(.plain)
                     .onAppear { draftTitle = item.title }
                     .onExitCommand { renamingItemId = nil }
-            } else {
+                Spacer()
+            }
+            .contentShape(Rectangle())
+        } else {
+            HStack(spacing: 6) {
+                statusDot
                 Text(item.title)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                Spacer()
             }
-            Spacer()
-        }
-        .contentShape(Rectangle())
-        .draggable(item.id) {
-            Text(item.title)
-                .padding(6)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 4))
-        }
-        .dropDestination(for: String.self) { ids, location in
-            guard let droppedId = ids.first else { return false }
-            let rowHeight: CGFloat = 22
-            let position: DropIntent.Position
-            if location.y < rowHeight / 3 { position = .top }
-            else if location.y > (rowHeight * 2 / 3) { position = .bottom }
-            else { position = .middle }
-            onDrop(droppedId, position)
-            return true
+            .contentShape(Rectangle())
+            .draggable(item.id) {
+                Text(item.title)
+                    .padding(6)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 4))
+            }
+            .dropDestination(for: String.self) { ids, location in
+                guard let droppedId = ids.first else { return false }
+                let rowHeight: CGFloat = 22
+                let position: DropIntent.Position
+                if location.y < rowHeight / 3 { position = .top }
+                else if location.y > (rowHeight * 2 / 3) { position = .bottom }
+                else { position = .middle }
+                onDrop(droppedId, position)
+                return true
+            }
         }
     }
 
