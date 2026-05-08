@@ -54,6 +54,11 @@ struct MaughamApp: App {
                         name: .maughamAddResearchFile, object: nil)
                 }
                 Divider()
+                Button("Show Project Statistics") {
+                    NotificationCenter.default.post(
+                        name: .maughamShowProjectStatistics, object: nil)
+                }
+                Divider()
                 Button("Project Settings…") {
                     NotificationCenter.default.post(
                         name: .maughamShowProjectSettings, object: nil)
@@ -100,6 +105,12 @@ struct MaughamApp: App {
             }
         }
         .windowResizability(.contentMinSize)
+
+        WindowGroup("Project Statistics", id: "project-stats", for: URL.self) { $url in
+            if let url {
+                ProjectStatisticsWindow(projectURL: url)
+            }
+        }
 
         Settings {
             SettingsView()

@@ -25,6 +25,7 @@ struct ProjectWindow: View {
     @State private var showingDiffSheet: Bool = false
     @State private var sessionLog: SessionLog = .empty
     @Environment(UserPreferences.self) private var userPreferences
+    @Environment(\.openWindow) private var openWindow
 
     let url: URL
 
@@ -126,6 +127,10 @@ struct ProjectWindow: View {
             if let ds = documentStore {
                 Task { await ds.close() }
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: .maughamShowProjectStatistics)) { _ in
+            openWindow(id: "project-stats", value: url)
         }
         .onChange(of: isNoChromeOn) { _, newValue in
             applyNoChrome()

@@ -14,4 +14,5 @@ extension Notification.Name {
     public static let maughamAddResearchFile = Notification.Name("maugham.addResearchFile")
     public static let maughamNavigateToDocument = Notification.Name("maugham.navigateToDocument")
     public static let maughamSessionLogChanged = Notification.Name("maugham.sessionLogChanged")
+    public static let maughamShowProjectStatistics = Notification.Name("maugham.showProjectStatistics")
 }
