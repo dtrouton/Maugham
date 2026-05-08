@@ -17,6 +17,8 @@ struct ProjectStatisticsView: View {
                 WordsByChapterSection(
                     chapters: chapterRows,
                     onSelectChapter: onSelectChapter)
+                RecentSessionsSection(
+                    events: sessionLog.eventsRecent(limit: 50))
             }
             .padding(24)
         }
