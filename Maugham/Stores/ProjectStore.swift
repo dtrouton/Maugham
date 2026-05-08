@@ -81,8 +81,44 @@ public final class ProjectStore {
 
         let manuscriptText = try Self.readManuscript(for: manifest, at: url)
 
-        return ProjectStore(url: url, manifest: manifest,
-                            manuscriptText: manuscriptText)
+        let store = ProjectStore(url: url, manifest: manifest,
+                                 manuscriptText: manuscriptText)
+        Self.populateWordCountCache(in: store, from: manifest, at: url)
+        return store
+    }
+
+    /// Walk every document in `manifest.structure`, read its file, and
+    /// record the word count via the WritingMode for that file's extension.
+    /// Called during `load(from:)` so consumers (goal indicator, Statistics
+    /// window, etc.) see correct totals from the start instead of zeros
+    /// until the user types into each document.
+    private static func populateWordCountCache(
+        in store: ProjectStore,
+        from manifest: ProjectManifest,
+        at projectURL: URL
+    ) {
+        for item in collectDocuments(in: manifest.structure) {
+            guard let path = item.path else { continue }
+            let fileURL = projectURL.appendingPathComponent(path)
+            guard let text = try? String(contentsOf: fileURL,
+                                         encoding: .utf8) else { continue }
+            let count = WritingModeFactory.mode(for: path)
+                .metrics(text).wordCount
+            store.recordWordCount(forDocumentId: item.id, wordCount: count)
+        }
+    }
+
+    private static func collectDocuments(
+        in items: [StructureItem]
+    ) -> [StructureItem] {
+        var out: [StructureItem] = []
+        for item in items {
+            if item.type == .document { out.append(item) }
+            if let children = item.children {
+                out.append(contentsOf: collectDocuments(in: children))
+            }
+        }
+        return out
     }
 
     private static func readManuscript(

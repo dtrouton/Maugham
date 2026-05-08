@@ -52,17 +52,21 @@ final class SessionLogTests: XCTestCase {
     }
 
     func test_wordsToday_sumsTodayEventsOnly() {
-        let now = Date()
+        // Pin "now" to noon so we have safe headroom on both sides — the
+        // older test used `Date()` and broke when the suite ran near
+        // midnight (a 1-hour-ago event would fall into yesterday).
         let cal = Calendar.current
-        let yesterday = cal.date(byAdding: .day, value: -1, to: now)!
+        let noon = cal.date(bySettingHour: 12, minute: 0, second: 0,
+                            of: Date()) ?? Date()
+        let yesterday = cal.date(byAdding: .day, value: -1, to: noon)!
         let log = SessionLog(schemaVersion: 1, events: [
             evt("yesterday", yesterday,
                 yesterday.addingTimeInterval(60), 100),
-            evt("morning", now.addingTimeInterval(-3600),
-                now.addingTimeInterval(-3500), 200),
-            evt("now", now.addingTimeInterval(-60), now, 300),
+            evt("morning", noon.addingTimeInterval(-3600),
+                noon.addingTimeInterval(-3500), 200),
+            evt("now", noon.addingTimeInterval(-60), noon, 300),
         ])
-        XCTAssertEqual(log.wordsToday(), 500)
+        XCTAssertEqual(log.wordsToday(now: noon), 500)
     }
 
     func test_wordsByDay_keysAreLocalMidnight() {
