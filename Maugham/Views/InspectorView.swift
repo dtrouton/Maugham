@@ -8,6 +8,8 @@ struct InspectorView: View {
 
     @State private var draftSynopsis: String = ""
     @State private var draftStatus: String = "draft"
+    @State private var draftTags: [String] = []
+    @State private var draftWordTarget: Int = 0
     @State private var loadedItemId: String?
     @State private var saveTask: Task<Void, Never>?
 
@@ -31,6 +33,36 @@ struct InspectorView: View {
                         TextEditor(text: $draftSynopsis)
                             .frame(minHeight: 80)
                             .onChange(of: draftSynopsis) { _, _ in scheduleSave() }
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Tags")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        InspectorTagsField(
+                            tags: $draftTags,
+                            suggestions: tagSuggestions,
+                            onCommit: scheduleSave)
+                    }
+
+                    LabeledContent("Word target") {
+                        HStack(spacing: 6) {
+                            TextField("",
+                                value: $draftWordTarget,
+                                format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 70)
+                                .onChange(of: draftWordTarget) { _, _ in scheduleSave() }
+                            Stepper("",
+                                value: $draftWordTarget,
+                                in: 0...100_000, step: 100)
+                                .labelsHidden()
+                            if draftWordTarget == 0 {
+                                Text("(no target)")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
                     }
 
                     LabeledContent("Words") {
@@ -74,6 +106,8 @@ struct InspectorView: View {
               loadedItemId != item.id else { return }
         draftSynopsis = item.synopsis ?? ""
         draftStatus = item.status ?? "draft"
+        draftTags = item.tags ?? []
+        draftWordTarget = item.wordTarget ?? 0
         loadedItemId = item.id
     }
 
@@ -82,13 +116,40 @@ struct InspectorView: View {
         let id = loadedItemId
         let synopsis = draftSynopsis
         let status = draftStatus
+        let tags = draftTags
+        let wordTarget = draftWordTarget
         saveTask = Task { [weak store] in
             try? await Task.sleep(for: .milliseconds(500))
             if Task.isCancelled { return }
             guard let store, let id else { return }
             try? await store.updateInspector(
-                id: id, synopsis: synopsis, status: status)
+                id: id,
+                synopsis: synopsis,
+                status: status,
+                tags: tags,
+                wordTarget: wordTarget)
         }
+    }
+
+    private var tagSuggestions: [String] {
+        var pool = Set<String>()
+        for item in collectAllItems(in: store.manifest.structure) {
+            for t in item.tags ?? [] { pool.insert(t) }
+        }
+        return Array(pool).sorted()
+    }
+
+    private func collectAllItems(
+        in items: [StructureItem]
+    ) -> [StructureItem] {
+        var result: [StructureItem] = []
+        for item in items {
+            result.append(item)
+            if let children = item.children {
+                result.append(contentsOf: collectAllItems(in: children))
+            }
+        }
+        return result
     }
 
     private func findItem(id: String, in items: [StructureItem]) -> StructureItem? {
