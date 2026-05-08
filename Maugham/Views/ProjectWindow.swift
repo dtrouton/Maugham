@@ -17,6 +17,8 @@ struct ProjectWindow: View {
         EditorMetrics(wordCount: 0, characterCount: 0, readingMinutes: 0)
     @State private var showingSaveFlash: Bool = false
     @State private var selectedItemId: String?
+    @State private var selectedResearchId: String?
+    @State private var binderSegment: BinderSegment = .manuscript
     @State private var activeSheet: ProjectActiveSheet?
     @State private var showInspector: Bool = true
     @State private var showingTidyAllConfirmation: Bool = false
@@ -28,7 +30,11 @@ struct ProjectWindow: View {
         Group {
             if let store, let documentStore {
                 NavigationSplitView {
-                    BinderView(store: store, selectedItemId: $selectedItemId)
+                    BinderPaneToggle(
+                        store: store,
+                        segment: $binderSegment,
+                        selectedItemId: $selectedItemId,
+                        selectedResearchId: $selectedResearchId)
                         .navigationSplitViewColumnWidth(min: 200, ideal: 240)
                 } content: {
                     ZStack(alignment: .bottomTrailing) {
@@ -138,6 +144,9 @@ struct ProjectWindow: View {
         .onChange(of: selectedItemId) { _, newValue in
             documentStore?.updateUIState { $0.selectedItemId = newValue }
         }
+        .onChange(of: binderSegment) { _, newValue in
+            documentStore?.updateUIState { $0.binderSegment = newValue }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .maughamTidyAllFilenames)) { _ in
             showingTidyAllConfirmation = true
         }
@@ -231,6 +240,7 @@ struct ProjectWindow: View {
                 self.selectedItemId = first.id
             }
             self.isNoChromeOn = ds.uiState.isNoChromeOn
+            self.binderSegment = ds.uiState.binderSegment
             applyNoChrome()
             loadError = nil
         } catch ProjectStoreError.manifestNotFound {
