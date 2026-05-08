@@ -12,4 +12,5 @@ extension Notification.Name {
     public static let maughamTidyAllFilenames = Notification.Name("maugham.tidyAllFilenames")
     public static let maughamAppWillTerminate = Notification.Name("maugham.appWillTerminate")
     public static let maughamAddResearchFile = Notification.Name("maugham.addResearchFile")
+    public static let maughamNavigateToDocument = Notification.Name("maugham.navigateToDocument")
 }

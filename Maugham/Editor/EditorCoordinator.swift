@@ -30,6 +30,14 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// `[[Title]]` tokens whose title resolves to a manuscript document.
     var wikiLinkResolver: ((String) -> Bool)?
 
+    /// Id-returning resolver used by mouseDown click routing. Returns
+    /// the doc id if the title resolves, nil otherwise.
+    var wikiLinkResolverForClick: ((String) -> String?)?
+
+    /// Most recent token list, captured each time we retokenize. Used by
+    /// click routing to look up wiki-link ranges hit-tested by mouseDown.
+    private(set) var lastTokens: [Token] = []
+
     init(text: Binding<String>,
          mode: any WritingMode,
          theme: Theme,
@@ -118,9 +126,22 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         retokenizeAndStyle()
     }
 
+    /// Returns the wiki-link title at the given character index, or nil if
+    /// the index is not inside a wiki-link range.
+    func wikiLinkTitle(atCharacterIndex index: Int) -> String? {
+        for token in lastTokens {
+            if NSLocationInRange(index, token.range),
+               case .wikiLink(let title) = token.kind {
+                return title
+            }
+        }
+        return nil
+    }
+
     private func retokenizeAndStyle() {
         guard let textView, let storage = textView.textStorage else { return }
         let tokens = mode.tokenize(textView.string)
+        self.lastTokens = tokens
         // ProseMode supports an optional wiki-link resolver for `[[Title]]`
         // styling. Other modes use the protocol's resolver-less call.
         if let prose = mode as? ProseMode {

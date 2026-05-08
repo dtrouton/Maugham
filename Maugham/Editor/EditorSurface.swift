@@ -18,6 +18,9 @@ struct EditorSurface: NSViewRepresentable {
     /// Optional resolver for wiki-link titles. When set, ProseMode underlines
     /// `[[Title]]` tokens whose title matches a manuscript document.
     var wikiLinkResolver: ((String) -> Bool)? = nil
+    /// Optional id-returning resolver used by mouseDown click routing.
+    /// Returns the doc id if the title resolves, nil otherwise.
+    var wikiLinkClickResolver: ((String) -> String?)? = nil
 
     func makeCoordinator() -> EditorCoordinator {
         let coordinator = EditorCoordinator(
@@ -29,6 +32,7 @@ struct EditorSurface: NSViewRepresentable {
             wikiLinkResolver: wikiLinkResolver)
         coordinator.initialCursorLocation = initialCursorLocation
         coordinator.onCursorChanged = onCursorChanged
+        coordinator.wikiLinkResolverForClick = wikiLinkClickResolver
         return coordinator
     }
 
@@ -69,6 +73,7 @@ struct EditorSurface: NSViewRepresentable {
         scrollView.drawsBackground = false
 
         context.coordinator.attach(to: textView)
+        textView.coordinator = context.coordinator
         return scrollView
     }
 
@@ -119,9 +124,26 @@ private final class MaughamTextView: NSTextView {
         didSet { updateColumnInset() }
     }
 
+    weak var coordinator: EditorCoordinator?
+
     override var acceptsFirstResponder: Bool { true }
     override func becomeFirstResponder() -> Bool {
         super.becomeFirstResponder()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let charIndex = characterIndexForInsertion(at: point)
+        if let title = coordinator?.wikiLinkTitle(atCharacterIndex: charIndex),
+           let resolver = coordinator?.wikiLinkResolverForClick,
+           let id = resolver(title) {
+            NotificationCenter.default.post(
+                name: .maughamNavigateToDocument,
+                object: nil,
+                userInfo: ["id": id])
+            return
+        }
+        super.mouseDown(with: event)
     }
 
     override func setFrameSize(_ newSize: NSSize) {
