@@ -45,6 +45,11 @@ struct MaughamApp: App {
                 }
                 .keyboardShortcut("s", modifiers: .command)
                 Divider()
+                Button("Tidy All Filenames") {
+                    NotificationCenter.default.post(
+                        name: .maughamTidyAllFilenames, object: nil)
+                }
+                Divider()
                 Button("Project Settings…") {
                     NotificationCenter.default.post(
                         name: .maughamShowProjectSettings, object: nil)

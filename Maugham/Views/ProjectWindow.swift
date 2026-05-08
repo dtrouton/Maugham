@@ -19,6 +19,7 @@ struct ProjectWindow: View {
     @State private var selectedItemId: String?
     @State private var activeSheet: ProjectActiveSheet?
     @State private var showInspector: Bool = true
+    @State private var showingTidyAllConfirmation: Bool = false
     @Environment(UserPreferences.self) private var userPreferences
 
     let url: URL
@@ -136,6 +137,26 @@ struct ProjectWindow: View {
         }
         .onChange(of: selectedItemId) { _, newValue in
             documentStore?.updateUIState { $0.selectedItemId = newValue }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .maughamTidyAllFilenames)) { _ in
+            showingTidyAllConfirmation = true
+        }
+        .alert("Renumber every chapter and scene?",
+               isPresented: $showingTidyAllConfirmation
+        ) {
+            Button("Renumber", role: .destructive) {
+                Task {
+                    do {
+                        try await store?.tidyAllFilenames()
+                    } catch {
+                        // Best-effort; surfacing project-wide tidy errors is
+                        // a future enhancement.
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Filenames in every group will be renumbered to fix gaps. This change is visible to other apps that read this folder.")
         }
     }
 
