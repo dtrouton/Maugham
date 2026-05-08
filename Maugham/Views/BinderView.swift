@@ -22,6 +22,24 @@ struct BinderView: View {
         } message: {
             Text(pendingError ?? "")
         }
+        .alert("Renumber filenames?",
+               isPresented: $showingTidyConfirmation,
+               presenting: pendingTidyParentId
+        ) { _ in
+            Button("Renumber", role: .destructive) {
+                if let parentId = pendingTidyParentId {
+                    Task { await runTidy(parentId: parentId) }
+                } else {
+                    Task { await runTidy(parentId: nil) }
+                }
+                pendingTidyParentId = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingTidyParentId = nil
+            }
+        } message: { _ in
+            Text("Existing files will be moved to fix gaps in numbering. This change is visible to other apps that read this folder.")
+        }
     }
 
     private func outline(items: [StructureItem]) -> some View {
@@ -149,6 +167,14 @@ struct BinderView: View {
             let copy = try await store.duplicateStructureItem(id: id)
             renamingItemId = copy.id  // immediately offer rename
             selectedItemId = copy.id
+        } catch {
+            pendingError = error.localizedDescription
+        }
+    }
+
+    private func runTidy(parentId: String?) async {
+        do {
+            try await store.tidyFilenames(parentId: parentId)
         } catch {
             pendingError = error.localizedDescription
         }
