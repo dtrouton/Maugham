@@ -1209,6 +1209,102 @@ public final class ProjectStore {
             return copy
         }
     }
+
+    /// Duplicate a research item. Asset → copy file with "Copy of <title>".
+    /// Link → new entry with same URL. Group → recursive copy with fresh ids.
+    public func duplicateResearchItem(id: String) async throws -> ResearchItem {
+        guard let source = findResearchItem(id: id, in: manifest.research) else {
+            throw ProjectStoreError.structureMissing
+        }
+        let parentId = findResearchParentId(of: id, in: manifest.research, parent: nil)
+        let newTitle = "Copy of " + source.title
+
+        var copy = source
+        copy.id = Self.newId(prefix: source.type == .group ? "res-grp" : "res-ast")
+        copy.title = newTitle
+        copy.addedAt = Date()
+        copy.children = source.children?.map { Self.researchFreshIds($0) }
+
+        if let sourcePath = source.path {
+            // File or folder — copy on disk.
+            guard let documentStore else {
+                throw ProjectStoreError.fileSystemError("DocumentStore not available")
+            }
+            let parentPath = researchParentPath(parentId: parentId)
+            let leaf = (sourcePath as NSString).lastPathComponent
+            let parentURL = url.appendingPathComponent(parentPath, isDirectory: true)
+            let existing = (try? FileManager.default
+                .contentsOfDirectory(atPath: parentURL.path)) ?? []
+            let newLeaf = Self.researchDedupedFilename(leaf, existing: existing)
+            let newPath = "\(parentPath)/\(newLeaf)"
+            try await documentStore.executeCopy(
+                from: url.appendingPathComponent(sourcePath),
+                to: url.appendingPathComponent(newPath))
+            copy.path = newPath
+            // Rewrite descendant paths if group.
+            if let children = copy.children {
+                copy.children = Self.researchRewriteChildPaths(
+                    children, oldPrefix: sourcePath, newPrefix: newPath)
+            }
+        }
+
+        // Insert as next sibling of source.
+        var siblings = childrenOfResearch(parentId: parentId)
+        let sourceIndex = siblings.firstIndex(where: { $0.id == id }) ?? siblings.count - 1
+        siblings.insert(copy, at: sourceIndex + 1)
+        replaceResearchChildren(parentId: parentId, with: siblings)
+
+        manifest.modified = Date()
+        try await saveManifest()
+        return copy
+    }
+
+    private static func researchFreshIds(_ item: ResearchItem) -> ResearchItem {
+        var copy = item
+        copy.id = Self.newId(prefix: item.type == .group ? "res-grp" : "res-ast")
+        if let children = copy.children {
+            copy.children = children.map { researchFreshIds($0) }
+        }
+        return copy
+    }
+
+    /// Delete a research item. Files moved to Trash via NSWorkspace; manifest
+    /// loses the entry.
+    public func deleteResearchItem(id: String) async throws {
+        guard let item = findResearchItem(id: id, in: manifest.research) else {
+            throw ProjectStoreError.structureMissing
+        }
+        if let path = item.path {
+            let onDisk = url.appendingPathComponent(path)
+            try await recycleURLs([onDisk])
+        }
+        removeResearchItem(id: id)
+        manifest.modified = Date()
+        try await saveManifest()
+    }
+
+    /// Update inline fields on a research item (title, caption, tags, url).
+    /// nil arguments leave the corresponding field unchanged. Pass an
+    /// explicit empty string / empty array to clear a field.
+    public func updateResearchItem(
+        id: String,
+        title: String? = nil,
+        caption: String? = nil,
+        tags: [String]? = nil,
+        url linkURL: String? = nil
+    ) async throws {
+        guard findResearchItem(id: id, in: manifest.research) != nil else {
+            throw ProjectStoreError.structureMissing
+        }
+        mutateResearchItem(id: id) { item in
+            if let title { item.title = title }
+            if let caption { item.caption = caption }
+            if let tags { item.tags = tags }
+            if let linkURL { item.url = linkURL }
+        }
+        manifest.modified = Date()
+        try await saveManifest()
+    }
 }
 
 private extension StructureItemKind {

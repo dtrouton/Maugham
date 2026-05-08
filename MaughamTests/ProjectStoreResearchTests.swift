@@ -134,4 +134,67 @@ final class ProjectStoreResearchTests: XCTestCase {
         } catch ProjectStoreError.cycle {}
         await ds.close()
     }
+
+    func test_duplicateResearchAsset_copiesFile() async throws {
+        let (url, store, ds) = try await makeNovel()
+        let externalImage = temp.url.appendingPathComponent("photo.jpg")
+        try Data([0xFF, 0xD8, 0xFF]).write(to: externalImage)
+        let original = try await store.addResearchAsset(
+            parentId: nil, fromURL: externalImage)
+
+        let copy = try await store.duplicateResearchItem(id: original.id)
+
+        XCTAssertEqual(copy.title, "Copy of photo")
+        XCTAssertNotEqual(copy.id, original.id)
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: url.appendingPathComponent(copy.path!).path))
+        await ds.close()
+    }
+
+    func test_duplicateResearchLink_copiesURL() async throws {
+        let (_, store, ds) = try await makeNovel()
+        let link = try await store.addResearchLink(
+            parentId: nil, title: "Reference", url: "https://example.com")
+        let copy = try await store.duplicateResearchItem(id: link.id)
+        XCTAssertEqual(copy.url, "https://example.com")
+        XCTAssertEqual(copy.title, "Copy of Reference")
+        await ds.close()
+    }
+
+    func test_deleteResearchAsset_removesFromManifestAndDisk() async throws {
+        let (url, store, ds) = try await makeNovel()
+        let externalImage = temp.url.appendingPathComponent("photo.jpg")
+        try Data([0xFF, 0xD8, 0xFF]).write(to: externalImage)
+        let asset = try await store.addResearchAsset(
+            parentId: nil, fromURL: externalImage)
+        let onDisk = url.appendingPathComponent(asset.path!)
+
+        try await store.deleteResearchItem(id: asset.id)
+
+        XCTAssertFalse(store.manifest.research.contains(where: { $0.id == asset.id }))
+        // Trashed (not hard-deleted) — file no longer at original path.
+        XCTAssertFalse(FileManager.default.fileExists(atPath: onDisk.path))
+        await ds.close()
+    }
+
+    func test_updateResearchItem_writesFields() async throws {
+        let (_, store, ds) = try await makeNovel()
+        let link = try await store.addResearchLink(
+            parentId: nil, title: "Original", url: "https://example.com")
+
+        try await store.updateResearchItem(
+            id: link.id,
+            title: "Renamed",
+            caption: "A useful reference",
+            tags: ["history", "novel"],
+            url: "https://example.org")
+
+        let updated = store.manifest.research
+            .first(where: { $0.id == link.id })!
+        XCTAssertEqual(updated.title, "Renamed")
+        XCTAssertEqual(updated.caption, "A useful reference")
+        XCTAssertEqual(updated.tags, ["history", "novel"])
+        XCTAssertEqual(updated.url, "https://example.org")
+        await ds.close()
+    }
 }
