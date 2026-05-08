@@ -103,6 +103,20 @@ public struct MarkdownTokenizer: Sendable {
                 ]
             }
 
+        // Wiki links: [[Title]]
+        addMatches(
+            in: nsText, fullRange: fullRange,
+            pattern: #"\[\[([^\[\]\n]+?)\]\]"#,
+            into: &tokens) { match in
+                let outer = match.range(at: 0)
+                let inner = match.range(at: 1)
+                let title = nsText
+                    .substring(with: inner)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !title.isEmpty else { return [] }
+                return [Token(range: outer, kind: .wikiLink(title: title))]
+            }
+
         // List marker: ^(\s*)([-*+]|\d+\.)\s
         addMatches(
             in: nsText, fullRange: fullRange,

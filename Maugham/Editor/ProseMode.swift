@@ -151,6 +151,12 @@ public struct ProseMode: WritingMode {
             return [.foregroundColor: palette.link,
                     .underlineStyle: NSUnderlineStyle.single.rawValue]
 
+        case .wikiLink:
+            // Real styling is added in T6 (with a resolver). Returning
+            // empty attrs keeps the exhaustive switch compiling and lets
+            // base body attributes apply for now.
+            return [:]
+
         case .listMarker, .blockquote, .horizontalRule:
             return [.foregroundColor: palette.syntaxPunctuation]
 

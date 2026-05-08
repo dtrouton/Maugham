@@ -8,6 +8,7 @@ public struct Token: Equatable, Sendable {
         case emphasis(strong: Bool)
         case code
         case link(href: String)
+        case wikiLink(title: String)
         case listMarker
         case blockquote
         case horizontalRule
