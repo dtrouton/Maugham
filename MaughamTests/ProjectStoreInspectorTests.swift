@@ -79,4 +79,31 @@ final class ProjectStoreInspectorTests: XCTestCase {
         XCTAssertEqual(store.projectWordCount, 5)
         await ds.close()
     }
+
+    func test_renameStructureItem_propagatesWikiLinkReferences() async throws {
+        let (url, store, ds) = try await makeNovel()
+        let chapter1 = store.manifest.structure[0]
+        let chapter2 = try await store.addStructureItem(
+            parentId: nil, title: "Chapter 2",
+            kind: .document(extension: "md"))
+        // Seed chapter 2 with a body that references chapter 1 by title.
+        let chapter2Body = "Margaret revisits [[Chapter 1]] and reflects."
+        try chapter2Body.write(
+            to: url.appendingPathComponent(chapter2.path!),
+            atomically: true, encoding: .utf8)
+
+        try await store.renameStructureItem(
+            id: chapter1.id, newTitle: "The Opening")
+
+        // Re-read chapter 2's body after rename: the wiki link should now
+        // reference the new title.
+        let updated = try String(
+            contentsOf: url.appendingPathComponent(
+                store.manifest.structure[1].path!),
+            encoding: .utf8)
+        XCTAssertEqual(
+            updated,
+            "Margaret revisits [[The Opening]] and reflects.")
+        await ds.close()
+    }
 }

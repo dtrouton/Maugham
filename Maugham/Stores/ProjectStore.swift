@@ -484,6 +484,7 @@ public final class ProjectStore {
               let oldPath = item.path else {
             throw ProjectStoreError.structureMissing
         }
+        let oldTitle = item.title
 
         // Compute new slug. NN prefix is preserved by extracting it from the old path.
         let oldFilename = (oldPath as NSString).lastPathComponent
@@ -537,6 +538,42 @@ public final class ProjectStore {
         }
         manifest.modified = Date()
         try await saveManifest()
+
+        // Wiki-link propagation: rewrite [[oldTitle]] occurrences in every
+        // OTHER manuscript document body. The renamed doc is excluded from
+        // the scan since its body could contain self-references in either
+        // form, and the resolver's case-insensitive title match handles
+        // those naturally on the next render.
+        if oldTitle != newTitle, item.type == .document {
+            await propagateWikiLinkRename(
+                excludeId: id, oldTitle: oldTitle, newTitle: newTitle)
+        }
+    }
+
+    /// Walk every other manuscript document; if its body references
+    /// `[[oldTitle]]`, rewrite to `[[newTitle]]` and persist via direct
+    /// disk write (these documents aren't necessarily the currently-open
+    /// one in DocumentStore, so we go straight to file).
+    private func propagateWikiLinkRename(
+        excludeId: String, oldTitle: String, newTitle: String
+    ) async {
+        for doc in Self.collectDocuments(in: manifest.structure)
+        where doc.id != excludeId {
+            guard let path = doc.path else { continue }
+            let fileURL = url.appendingPathComponent(path)
+            guard let body = try? String(contentsOf: fileURL,
+                                         encoding: .utf8) else { continue }
+            guard let rewritten = WikiLinkRewriter.rewrite(
+                body: body, oldTitle: oldTitle, newTitle: newTitle) else {
+                continue
+            }
+            try? rewritten.write(
+                to: fileURL, atomically: true, encoding: .utf8)
+            // Refresh per-doc word-count cache since the body changed.
+            let count = WritingModeFactory.mode(for: path)
+                .metrics(rewritten).wordCount
+            recordWordCount(forDocumentId: doc.id, wordCount: count)
+        }
     }
 
     /// Static slug-deduper used by rename (since we already know NN).
