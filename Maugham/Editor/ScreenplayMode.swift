@@ -65,6 +65,7 @@ public struct ScreenplayMode: WritingMode {
         let fullRange = NSRange(location: 0, length: storage.length)
         storage.setAttributes(bodyAttrs, range: fullRange)
 
+        // First pass — per-line element styling driven by tokens.
         for token in tokens {
             guard NSMaxRange(token.range) <= storage.length else { continue }
             guard case let .fountainElement(element, _) = token.kind else { continue }
@@ -75,6 +76,26 @@ public struct ScreenplayMode: WritingMode {
                 charWidth: charWidth,
                 typography: typography)
             storage.addAttributes(attrs, range: token.range)
+        }
+
+        // Second pass — inline note spans within otherwise-non-note lines.
+        // Re-parse to access inlineSpans (cheap; ~1ms on a feature script).
+        let script = parser.parse(storage.string)
+        let italic = NSFont(
+            descriptor: baseFont.fontDescriptor.withSymbolicTraits(.italic),
+            size: baseFont.pointSize) ?? baseFont
+        let dimColor = dim(palette.syntaxPunctuation, alpha: 0.4)
+        for line in script.lines where !line.inlineSpans.isEmpty {
+            // Skip lines that are entirely .note — they're already styled.
+            if line.element == .note { continue }
+            for span in line.inlineSpans {
+                guard NSMaxRange(span.range) <= storage.length else { continue }
+                if span.kind == .note {
+                    storage.addAttributes(
+                        [.font: italic, .foregroundColor: dimColor],
+                        range: span.range)
+                }
+            }
         }
         storage.endEditing()
     }
@@ -148,42 +169,84 @@ public struct ScreenplayMode: WritingMode {
     ) -> [NSAttributedString.Key: Any] {
         switch element {
         case .action:
-            return [:]   // body attrs already cover this
+            return [:]
         case .sceneHeading:
             let font = NSFont(
                 descriptor: baseFont.fontDescriptor.withSymbolicTraits(.bold),
                 size: baseFont.pointSize) ?? baseFont
             return [.font: font]
         case .character:
-            let para = paragraphStyle(
-                head: charWidth * 22,
-                tail: charWidth * 60,
-                alignment: .left,
-                typography: typography,
-                baseFont: baseFont)
-            return [.paragraphStyle: para]
+            return [.paragraphStyle: paragraphStyle(
+                head: charWidth * 22, tail: charWidth * 60,
+                alignment: .left, typography: typography, baseFont: baseFont)]
         case .dialogue:
-            let para = paragraphStyle(
-                head: charWidth * 10,
-                tail: charWidth * 45,
-                alignment: .left,
-                typography: typography,
-                baseFont: baseFont)
-            return [.paragraphStyle: para]
+            return [.paragraphStyle: paragraphStyle(
+                head: charWidth * 10, tail: charWidth * 45,
+                alignment: .left, typography: typography, baseFont: baseFont)]
         case .parenthetical:
-            let para = paragraphStyle(
-                head: charWidth * 15,
-                tail: charWidth * 35,
-                alignment: .left,
-                typography: typography,
-                baseFont: baseFont)
             let italic = NSFont(
                 descriptor: baseFont.fontDescriptor.withSymbolicTraits(.italic),
                 size: baseFont.pointSize) ?? baseFont
-            return [.paragraphStyle: para, .font: italic]
-        default:
-            return [:]   // Task 10 fills in transition/centered/etc.
+            return [
+                .paragraphStyle: paragraphStyle(
+                    head: charWidth * 15, tail: charWidth * 35,
+                    alignment: .left, typography: typography, baseFont: baseFont),
+                .font: italic]
+        case .transition:
+            let bold = NSFont(
+                descriptor: baseFont.fontDescriptor.withSymbolicTraits(.bold),
+                size: baseFont.pointSize) ?? baseFont
+            return [
+                .paragraphStyle: paragraphStyle(
+                    head: 0, tail: charWidth * 60,
+                    alignment: .right, typography: typography, baseFont: baseFont),
+                .font: bold]
+        case .centered:
+            let bold = NSFont(
+                descriptor: baseFont.fontDescriptor.withSymbolicTraits(.bold),
+                size: baseFont.pointSize) ?? baseFont
+            return [
+                .paragraphStyle: paragraphStyle(
+                    head: 0, tail: charWidth * 60,
+                    alignment: .center, typography: typography, baseFont: baseFont),
+                .font: bold]
+        case .lyric:
+            let italic = NSFont(
+                descriptor: baseFont.fontDescriptor.withSymbolicTraits(.italic),
+                size: baseFont.pointSize) ?? baseFont
+            return [.font: italic]
+        case .section:
+            let bold = NSFont(
+                descriptor: baseFont.fontDescriptor.withSymbolicTraits(.bold),
+                size: baseFont.pointSize) ?? baseFont
+            return [
+                .font: bold,
+                .underlineStyle: NSUnderlineStyle.single.rawValue]
+        case .synopsis:
+            let italic = NSFont(
+                descriptor: baseFont.fontDescriptor.withSymbolicTraits(.italic),
+                size: baseFont.pointSize) ?? baseFont
+            return [
+                .font: italic,
+                .foregroundColor: dim(palette.syntaxPunctuation, alpha: 0.6)]
+        case .boneyard, .note:
+            let italic = NSFont(
+                descriptor: baseFont.fontDescriptor.withSymbolicTraits(.italic),
+                size: baseFont.pointSize) ?? baseFont
+            return [
+                .font: italic,
+                .foregroundColor: dim(palette.syntaxPunctuation, alpha: 0.4)]
+        case .pageBreak:
+            return [
+                .paragraphStyle: paragraphStyle(
+                    head: 0, tail: charWidth * 60,
+                    alignment: .center, typography: typography, baseFont: baseFont),
+                .foregroundColor: dim(palette.syntaxPunctuation, alpha: 0.4)]
         }
+    }
+
+    private func dim(_ color: NSColor, alpha: CGFloat) -> NSColor {
+        color.withAlphaComponent(alpha)
     }
 
     private func paragraphStyle(

@@ -61,6 +61,72 @@ final class ScreenplayModeStylingTests: XCTestCase {
         XCTAssertEqual(style?.tailIndent ?? 0, charWidth * 35, accuracy: 1.0)
     }
 
+    func test_transition_isRightAligned_andBold() {
+        let storage = style("Action.\n\nSMASH CUT TO:")
+        let loc = ("Action.\n\n" as NSString).length
+        let style = paragraphStyle(at: loc, in: storage)
+        XCTAssertEqual(style?.alignment, .right)
+        let font = storage.attributes(at: loc, effectiveRange: nil)[.font] as? NSFont
+        XCTAssertTrue(font?.fontDescriptor.symbolicTraits.contains(.bold) ?? false)
+    }
+
+    func test_centered_isCenterAligned() {
+        let storage = style(">THE END<")
+        XCTAssertEqual(paragraphStyle(at: 0, in: storage)?.alignment, .center)
+    }
+
+    func test_lyric_isItalic() {
+        let storage = style("~la la la")
+        let font = storage.attributes(at: 0, effectiveRange: nil)[.font] as? NSFont
+        XCTAssertTrue(font?.fontDescriptor.symbolicTraits.contains(.italic) ?? false)
+    }
+
+    func test_section_isBoldAndUnderlined() {
+        let storage = style("# ACT ONE")
+        let attrs = storage.attributes(at: 0, effectiveRange: nil)
+        let font = attrs[.font] as? NSFont
+        XCTAssertTrue(font?.fontDescriptor.symbolicTraits.contains(.bold) ?? false)
+        XCTAssertNotNil(attrs[.underlineStyle])
+    }
+
+    func test_synopsis_isItalicAndDim() {
+        let storage = style("= beat description")
+        let attrs = storage.attributes(at: 0, effectiveRange: nil)
+        let font = attrs[.font] as? NSFont
+        XCTAssertTrue(font?.fontDescriptor.symbolicTraits.contains(.italic) ?? false)
+        XCTAssertNotNil(attrs[.foregroundColor])
+        // Synopsis color must differ from body text color.
+        let resolved = Theme.light.resolved(systemAppearanceIsDark: false)
+        let bodyColor = resolved.palette.bodyText
+        let attrColor = attrs[.foregroundColor] as? NSColor
+        XCTAssertNotEqual(attrColor, bodyColor)
+    }
+
+    func test_boneyard_isItalicAndDim() {
+        let storage = style("/* cut */")
+        let attrs = storage.attributes(at: 0, effectiveRange: nil)
+        let font = attrs[.font] as? NSFont
+        XCTAssertTrue(font?.fontDescriptor.symbolicTraits.contains(.italic) ?? false)
+    }
+
+    func test_inlineNote_subRangeRendersDim() {
+        // Inline note within an action line. The "[[ note ]]" range must
+        // get a foreground color distinct from the body.
+        let text = "Action with [[ note ]] in it."
+        let storage = NSTextStorage(string: text)
+        let tokens = mode.tokenize(text)
+        mode.applyTypography(in: storage, theme: .light,
+                             typography: .screenplayDefaults, tokens: tokens)
+        let noteStart = ("Action with " as NSString).length
+        let bodyAttrs = storage.attributes(at: 0, effectiveRange: nil)
+        let noteAttrs = storage.attributes(at: noteStart, effectiveRange: nil)
+        let bodyColor = bodyAttrs[.foregroundColor] as? NSColor
+        let noteColor = noteAttrs[.foregroundColor] as? NSColor
+        XCTAssertNotNil(bodyColor)
+        XCTAssertNotNil(noteColor)
+        XCTAssertNotEqual(bodyColor, noteColor)
+    }
+
     /// Compute monospace character width for a typography setting,
     /// matching the math in ScreenplayMode.charWidth.
     static func charWidth(typography: TypographySettings) -> CGFloat {
