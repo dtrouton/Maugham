@@ -879,6 +879,18 @@ public final class ProjectStore {
         try await saveManifest()
     }
 
+    /// Update project-level targets. Currently surfaces 3a's page target;
+    /// future expansion can add total-words / deadline editing through the
+    /// same path. Treat 0 as "clear the target" — mirrors per-document word
+    /// target convention.
+    public func updateProjectTargets(pageTarget: Int) async throws {
+        var targets = manifest.targets ?? ProjectTargets()
+        targets.pageTarget = pageTarget == 0 ? nil : pageTarget
+        manifest.targets = targets
+        manifest.modified = Date()
+        try await saveManifest()
+    }
+
     /// Persist the current manuscript text and an updated `modified` timestamp.
     /// Manifest write is atomic via temp-file + rename. Manuscript write is
     /// non-atomic in 1a; NSFileCoordinator integration arrives in milestone 1e.
