@@ -29,6 +29,47 @@ final class ElementGutterView: NSView {
         }
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let tv = associatedTextView else { return }
+        let nc = NotificationCenter.default
+        nc.removeObserver(self)
+        nc.addObserver(
+            self,
+            selector: #selector(handleTextDidChange(_:)),
+            name: NSText.didChangeNotification,
+            object: tv)
+        if let scrollView = tv.enclosingScrollView {
+            nc.addObserver(
+                self,
+                selector: #selector(handleBoundsDidChange(_:)),
+                name: NSView.boundsDidChangeNotification,
+                object: scrollView.contentView)
+            scrollView.contentView.postsBoundsChangedNotifications = true
+        }
+        nc.addObserver(
+            self,
+            selector: #selector(handleAppearanceChange(_:)),
+            name: NSWindow.didChangeBackingPropertiesNotification,
+            object: nil)
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func handleTextDidChange(_ note: Notification) {
+        needsDisplay = true
+    }
+
+    @objc private func handleBoundsDidChange(_ note: Notification) {
+        needsDisplay = true
+    }
+
+    @objc private func handleAppearanceChange(_ note: Notification) {
+        needsDisplay = true
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard let textView = associatedTextView,
