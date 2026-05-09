@@ -123,19 +123,57 @@ When the active line is empty AND has no forced-syntax marker yet, `ScreenplayCy
 
 ### 3.4 Source mutation on cycle (per Q2)
 
-`ScreenplayLineMutator.mutate(line:to:)` returns a `(text: String, cursorOffset: Int)` tuple. The caller replaces the line's text and positions the cursor.
+`ScreenplayLineMutator.mutate(line:to:neighborhood:)` returns a `(text: String, cursorOffset: Int)` tuple. The caller replaces the line's text and positions the cursor.
+
+The mutator's behavior depends on whether the target element has a **context-sensitive alternative** (an existing way to be classified as that element without a forced marker):
+
+| Element | Has context-sensitive alternative? |
+|---|---|
+| `.character` | YES — ALL UPPERCASE letters + blank line above + non-blank line below |
+| `.sceneHeading` | YES — begins with `INT.`/`EXT.`/`EST.`/`I/E.`/`INT/EXT.` (case-insensitive) + blank line above |
+| `.transition` | YES — ALL UPPERCASE ending in `TO:` + blank line above |
+| `.parenthetical` | NO — Fountain requires `(...)` wrapping |
+| `.lyric` | NO — Fountain requires leading `~` |
+| `.section` | NO — Fountain requires leading `#` |
+| `.synopsis` | NO — Fountain requires leading `= ` |
+| `.dialogue` | (no marker exists; pure context-sensitive — see §3.2 skip rule) |
+| `.action` | (default; no marker; mutator strips other markers) |
+
+For elements WITH a context-sensitive alternative, the mutator applies the forced marker **only when context doesn't already satisfy the alternative**. Source files stay clean for the common path: a writer typing `BARRY` (caps) on a blank-line-above + content-below position gets a Character cue without any `@` insertion.
+
+For elements WITHOUT an alternative, the mutator always applies the marker (because there's no other way).
+
+The mutator needs `neighborhood: LineNeighborhood` — a small struct passed by the caller — to make the context-sensitive checks. The caller (`EditorCoordinator`) computes it from `lastParsedScript.lines` adjacent to the active line.
+
+```swift
+public struct LineNeighborhood: Equatable {
+    public let prevIsBlank: Bool      // line above is blank, OR line is doc start
+    public let nextIsBlank: Bool      // line below is blank, OR line is doc end
+}
+```
+
+#### Per-element mutation
 
 | Target element | Mutation |
 |---|---|
-| `.action` | Strip leading forced-syntax marker (`@`, `.`, `>`, `~`, etc.) if present; if line is wrapped in `(...)` (i.e., was a parenthetical), strip the parens. Cursor: end of resulting text. |
-| `.sceneHeading` | If line already begins with `.` (forced) OR with `INT.`/`EXT.`/`EST.`/`I/E.`/`INT/EXT.` (case-insensitive): leave as-is. Else: prepend `.`. Cursor: end of resulting text. |
-| `.character` | If line already begins with `@`: leave as-is. Else: prepend `@`. Cursor: end of resulting text. (Always-apply rule — forced markers don't hurt; an already-uppercase `BARRY` becomes `@BARRY` after Tab cycle, which parses identically in Fountain. Source is slightly more verbose but predictable.) |
-| `.dialogue` | No marker available; line text unchanged. Skip-Dialogue rule applies if context doesn't support it (§3.2). Cursor: end of line. |
-| `.parenthetical` | If line is already `(...)`: leave alone. Else: wrap content in `(...)`. Cursor: position 1 (inside the opening paren). |
-| `.transition` | If line begins with `>`: leave as-is. Else: prepend `> `. Cursor: end of resulting text. (Same always-apply rationale as Character — an uppercase `CUT TO:` becomes `> CUT TO:`, which parses identically.) |
-| `.lyric` | Prepend `~` if not already present. Cursor: end. (Note: `.lyric` is NOT in the standard cycle order or the smart starting-point table. The mutator handles it for completeness — if a future tool path routes through `.lyric`, the mutation is well-defined. In 3b, this entry is unreachable from Tab cycling.) |
+| `.action` | Strip any leading forced marker (`@`, `.`, `>`, `~`, `#…`, `= `). If line is wrapped in `(...)`, strip the parens. Cursor: end of resulting text. |
+| `.sceneHeading` | If line already begins with `.` (forced), OR with `INT.`/`EXT.`/`EST.`/`I/E.`/`INT/EXT.` AND `neighborhood.prevIsBlank`: leave as-is. Else: prepend `.`. Cursor: end. |
+| `.character` | If line is ALL UPPERCASE letters (with optional digits/punct) AND `neighborhood.prevIsBlank` AND NOT `neighborhood.nextIsBlank`: leave as-is — context already classifies it as Character. Else if line begins with `@`: leave as-is. Else: prepend `@`. Cursor: end. |
+| `.dialogue` | No marker available; line text unchanged. Skip-Dialogue rule applies if context doesn't support it (§3.2). Cursor: end. |
+| `.parenthetical` | If line is already `(...)`: leave alone. Else: wrap content in `(...)`. Cursor: position 1 (inside the opening paren). Always applies — no context-sensitive alternative. |
+| `.transition` | If line begins with `>`: leave as-is. Else if line is ALL UPPERCASE ending in `TO:` AND `neighborhood.prevIsBlank`: leave as-is — context already classifies it as Transition. Else: prepend `> `. Cursor: end. |
+| `.lyric` | If line begins with `~`: leave as-is. Else: prepend `~`. Always applies — no alternative. (Not reachable from 3b's cycle; entry exists for completeness.) |
 
-The mutator is pure logic — given a line's current text and a target element, it returns the new text and cursor offset. Idempotent: cycling A→B→A returns to the original text (modulo case normalization for elements that were already valid).
+#### Examples (3b user flow)
+
+- Writer types `BARRY` on a fresh line (after a blank line). Tab cycle to Character: **no mutation** — line stays `BARRY`. Context already classifies it.
+- Writer types `barry` (lowercase). Tab cycle to Character: line becomes `@barry`. Marker needed because lowercase doesn't classify.
+- Writer types `Sam` (mixed case). Tab cycle to Character: line becomes `@Sam`.
+- Writer types `BARRY` mid-action-paragraph (no blank above). Tab cycle to Character: line becomes `@BARRY`. Marker needed because prev-blank fails — without `@`, the parser would call this an Action line.
+- Writer types `SMASH CUT TO:` after a blank line. Tab cycle to Transition: **no mutation** — context already classifies it.
+- Writer types `quietly`. Tab cycle to Parenthetical: line becomes `(quietly)` (always applies).
+
+The mutator is pure logic — given a line's current text, target element, and neighborhood, it returns the new text and cursor offset. Idempotent: cycling A→B→A returns to the original text. Deterministic given the same `(line, target, neighborhood)` inputs.
 
 ### 3.5 Tab on non-empty line
 
@@ -349,9 +387,10 @@ Computes:
    - Else if the line is **empty (no `lastCycleTarget`)**: target = `ScreenplayCycle.startingElement(after: prevLineElement)` (first Tab on a fresh blank line).
    - Else (non-empty line): target = `ScreenplayCycle.cycleForward(from: currentElement)`.
    - In all cases, apply skip-Dialogue rule if context doesn't support it.
-4. Apply `ScreenplayLineMutator.mutate(line:to:)` to compute new text + cursor offset.
-5. Replace the line's text via `textView.shouldChangeText(in:replacementString:)` (so undo records the change) and reposition the cursor.
-6. Update `lastCycleTarget = target`.
+4. Compute `LineNeighborhood(prevIsBlank:, nextIsBlank:)` from `lastParsedScript` (a line is "blank" if `content.isEmpty`; a line is treated as "blank" beyond the document boundaries).
+5. Apply `ScreenplayLineMutator.mutate(line:to:neighborhood:)` to compute new text + cursor offset.
+6. Replace the line's text via `textView.shouldChangeText(in:replacementString:)` (so undo records the change) and reposition the cursor.
+7. Update `lastCycleTarget = target`.
 
 **`lastCycleTarget` lifecycle.** Stored as a property on `EditorCoordinator`. Cleared (set to `nil`) when:
 - The cursor moves to a different line (subscribe to `NSTextView.didChangeSelectionNotification`; clear if `selectedRange.location` falls outside the previous active line's range).
@@ -385,14 +424,22 @@ if mode is ScreenplayMode, let script = lastParsedScript {
 - Skip-Dialogue forward: `cycleForward(from: .character, prevElement: .action) == .parenthetical` (skipping Dialogue because prev is Action, not Character)
 - Skip-Dialogue backward symmetric
 
-**`ScreenplayLineMutatorTests.swift` (~12 tests):**
-- Action: strips `@` from `@BARRY` → `BARRY`; strips `> ` from `> CUT TO:` → `CUT TO:`; strips parens from `(quietly)` → `quietly`
-- Scene heading: `INT. ROOM - DAY` → unchanged; `barbershop` → `.barbershop`
-- Character: `BARRY` → unchanged; `Sam` → `@Sam`; `@Sam` → unchanged
+**`ScreenplayLineMutatorTests.swift` (~16 tests):**
+- Action: strips `@` from `@BARRY` → `BARRY`; strips `> ` from `> CUT TO:` → `CUT TO:`; strips parens from `(quietly)` → `quietly`; strips leading `.` from `.barbershop` → `barbershop`
+- Scene heading + prevBlank: `INT. ROOM - DAY` → unchanged; `barbershop` → `.barbershop`
+- Scene heading + NOT prevBlank: `INT. ROOM - DAY` → `.INT. ROOM - DAY` (forced marker added because context fails)
+- Character + prevBlank + nextNonBlank: `BARRY` → unchanged
+- Character + NOT prevBlank: `BARRY` → `@BARRY` (marker needed because mid-paragraph)
+- Character + nextBlank (orphan): `BARRY` → `@BARRY` (marker needed because would otherwise be demoted to Action)
+- Character lowercase: `barry` → `@barry` (marker always needed for non-uppercase)
+- Character mixed case: `Sam` → `@Sam`
+- Character already forced: `@Sam` → unchanged
 - Dialogue: any text → unchanged (no marker)
-- Parenthetical: `quietly` → `(quietly)`; `(quietly)` → unchanged; cursor offset is 1 (inside opening paren) for newly wrapped
-- Transition: `CUT TO:` → unchanged; `cut to:` → `> cut to:`
-- Lyric: `la la la` → `~la la la`
+- Parenthetical: `quietly` → `(quietly)` with cursor offset 1; `(quietly)` → unchanged
+- Transition + prevBlank + ALL CAPS + ends `TO:`: `CUT TO:` → unchanged
+- Transition + NOT prevBlank: `CUT TO:` → `> CUT TO:`
+- Transition lowercase: `cut to:` → `> cut to:`
+- Lyric: `la la la` → `~la la la`; `~la la la` → unchanged
 - Round-trip: mutate→.character then mutate→.action returns original (modulo case normalization)
 - Idempotent: applying the same mutation twice = applying once
 
@@ -453,7 +500,7 @@ if mode is ScreenplayMode, let script = lastParsedScript {
 Approximate order; ~14-16 tasks. The plan will detail per-task TDD steps with full code blocks.
 
 1. `ScreenplayCycle` enum + pure-logic helpers + tests (~10 tests)
-2. `ScreenplayLineMutator` pure logic + tests (~12 tests)
+2. `LineNeighborhood` struct + `ScreenplayLineMutator` pure logic + tests (~16 tests)
 3. `EditorCoordinator.lastParsedScript` cache + plumbing
 4. `EditorCoordinator.doCommandBy` Tab/Shift-Tab dispatch (no autocomplete yet) + line-mutation + cursor positioning
 5. Verify Enter behavior is naturally correct (no special handler) via integration test
