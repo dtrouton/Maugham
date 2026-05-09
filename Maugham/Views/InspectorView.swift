@@ -10,9 +10,11 @@ struct InspectorView: View {
     @State private var draftStatus: String = "draft"
     @State private var draftTags: [String] = []
     @State private var draftWordTarget: Int = 0
+    @State private var draftPageTarget: Int = 0
     @State private var draftLinks: [String] = []
     @State private var loadedItemId: String?
     @State private var saveTask: Task<Void, Never>?
+    @State private var pageTargetSaveTask: Task<Void, Never>?
 
     var body: some View {
         Form {
@@ -65,6 +67,8 @@ struct InspectorView: View {
                             }
                         }
                     }
+
+                    pageTargetRow()
 
                     InspectorLinksSection(
                         store: store,
@@ -123,6 +127,7 @@ struct InspectorView: View {
         draftWordTarget = item.wordTarget ?? 0
         draftLinks = item.links ?? []
         loadedItemId = item.id
+        draftPageTarget = store.manifest.targets?.pageTarget ?? 0
     }
 
     private func scheduleSave() {
@@ -177,5 +182,43 @@ struct InspectorView: View {
             }
         }
         return nil
+    }
+
+    @ViewBuilder
+    private func pageTargetRow() -> some View {
+        if store.manifest.type == .screenplay {
+            LabeledContent("Page target") {
+                HStack(spacing: 6) {
+                    TextField("",
+                        value: $draftPageTarget,
+                        format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 70)
+                        .onChange(of: draftPageTarget) { _, _ in
+                            schedulePageTargetSave()
+                        }
+                    Stepper("",
+                        value: $draftPageTarget,
+                        in: 0...500, step: 5)
+                        .labelsHidden()
+                    if draftPageTarget == 0 {
+                        Text("(no target)")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
+        }
+    }
+
+    private func schedulePageTargetSave() {
+        pageTargetSaveTask?.cancel()
+        let value = draftPageTarget
+        pageTargetSaveTask = Task { [weak store] in
+            try? await Task.sleep(for: .milliseconds(500))
+            if Task.isCancelled { return }
+            guard let store else { return }
+            try? await store.updateProjectTargets(pageTarget: value)
+        }
     }
 }
