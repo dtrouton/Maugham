@@ -188,6 +188,11 @@ public struct ProseMode: WritingMode {
 
         case .plain:
             return [:]
+
+        case .fountainElement:
+            // ProseMode never produces fountain element tokens, but the
+            // exhaustive switch must handle the case.
+            return [:]
         }
     }
 }

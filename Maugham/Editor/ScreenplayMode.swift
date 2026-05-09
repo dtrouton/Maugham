@@ -1,18 +1,27 @@
 import Foundation
 import AppKit
 
-/// Plain monospace mode for .fountain files. No Fountain parser in 1d
-/// (Phase 3 will add tokenizer, auto-format, Tab/Enter cycling, etc.).
+/// Fountain mode for `.fountain` documents. Tokenizes via FountainTokenizer,
+/// applies per-element paragraph styling, and computes Final-Draft-heuristic
+/// page count. Phase 3a — single-file screenplays only.
 public struct ScreenplayMode: WritingMode {
     private static let wordsPerMinute = 200
+    private static let canonicalPageWidthChars = 60
 
-    public init() {}
+    private let parser: FountainTokenizer
+
+    public init(parser: FountainTokenizer = FountainTokenizer()) {
+        self.parser = parser
+    }
 
     public func tokenize(_ text: String) -> [Token] {
         guard !text.isEmpty else { return [] }
-        return [Token(
-            range: NSRange(location: 0, length: (text as NSString).length),
-            kind: .plain)]
+        let script = parser.parse(text)
+        return script.lines.map { line in
+            Token(
+                range: line.range,
+                kind: .fountainElement(line.element, isForced: line.isForced))
+        }
     }
 
     public func smartTypographyTransform(
@@ -21,10 +30,11 @@ public struct ScreenplayMode: WritingMode {
         replacement: String,
         settings: TypographySettings
     ) -> String? {
-        nil  // Screenplays are ASCII; never auto-curlify or em-dash.
+        nil
     }
 
     public func metrics(_ text: String) -> EditorMetrics {
+        let script = parser.parse(text)
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let words = trimmed.isEmpty
             ? 0
@@ -32,7 +42,10 @@ public struct ScreenplayMode: WritingMode {
         let chars = (text as NSString).length
         let mins = words / Self.wordsPerMinute
         return EditorMetrics(
-            wordCount: words, characterCount: chars, readingMinutes: mins)
+            wordCount: words,
+            characterCount: chars,
+            readingMinutes: mins,
+            pageCount: script.estimatedPageCount)
     }
 
     public func applyTypography(
@@ -41,10 +54,14 @@ public struct ScreenplayMode: WritingMode {
         typography: TypographySettings,
         tokens: [Token]
     ) {
+        // Real per-element styling lands in Tasks 9 and 10. For now, set
+        // a uniform monospace body so the editor renders without crashing
+        // and existing smoke tests of the screenplay project type still
+        // open `.fountain` files.
         let resolved = theme.resolved(systemAppearanceIsDark: Self.systemIsDark())
         let palette = resolved.palette
-        let font = baseFont(for: typography)
-        let attrs = bodyAttributes(palette: palette, baseFont: font,
+        let baseFont = baseFont(for: typography)
+        let attrs = bodyAttributes(palette: palette, baseFont: baseFont,
                                    typography: typography)
         storage.beginEditing()
         let fullRange = NSRange(location: 0, length: storage.length)
@@ -62,14 +79,18 @@ public struct ScreenplayMode: WritingMode {
                               typography: typography)
     }
 
+    /// Screenplay always renders at canonical 60-character width regardless of
+    /// the user's prose-oriented `pageWidthCharacters` setting.
     public func textColumnWidth(typography: TypographySettings) -> CGFloat {
         let font = baseFont(for: typography)
         let sample = "the quick brown fox jumps over the lazy dog"
         let sampleWidth = (sample as NSString)
             .size(withAttributes: [.font: font]).width
         let avgCharWidth = sampleWidth / CGFloat(sample.count)
-        return avgCharWidth * CGFloat(typography.pageWidthCharacters)
+        return avgCharWidth * CGFloat(Self.canonicalPageWidthChars)
     }
+
+    // MARK: - Helpers
 
     private static func systemIsDark() -> Bool {
         NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua

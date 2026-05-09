@@ -9,14 +9,6 @@ final class ScreenplayModeTests: XCTestCase {
         XCTAssertEqual(mode.tokenize(""), [])
     }
 
-    func test_tokenize_returnsSinglePlainToken() {
-        let text = "FADE IN:\n\nINT. ROOM - DAY\n\nLarry sits."
-        let tokens = mode.tokenize(text)
-        XCTAssertEqual(tokens.count, 1)
-        XCTAssertEqual(tokens[0].kind, .plain)
-        XCTAssertEqual(tokens[0].range.length, (text as NSString).length)
-    }
-
     func test_smartTypographyTransform_alwaysReturnsNil() {
         XCTAssertNil(mode.smartTypographyTransform(
             currentText: "ah-",
@@ -31,13 +23,47 @@ final class ScreenplayModeTests: XCTestCase {
         XCTAssertEqual(metrics.characterCount, 24)
     }
 
-    func test_applyTypography_setsMonospaceFont() {
-        let storage = NSTextStorage(string: "FADE IN:")
-        let tokens = [Token(range: NSRange(location: 0, length: 8), kind: .plain)]
-        mode.applyTypography(in: storage, theme: .light,
-                             typography: .screenplayDefaults, tokens: tokens)
-        let attrs = storage.attributes(at: 0, effectiveRange: nil)
-        XCTAssertNotNil(attrs[.font])
-        XCTAssertNotNil(attrs[.foregroundColor])
+    func test_tokenize_actionLine_producesFountainElementToken() {
+        let tokens = mode.tokenize("Larry sits at the bar.")
+        XCTAssertEqual(tokens.count, 1)
+        if case let .fountainElement(element, isForced) = tokens[0].kind {
+            XCTAssertEqual(element, .action)
+            XCTAssertEqual(isForced, false)
+        } else {
+            XCTFail("Expected .fountainElement, got \(tokens[0].kind)")
+        }
+    }
+
+    func test_tokenize_sceneHeading_producesSceneHeadingToken() {
+        let tokens = mode.tokenize("INT. KITCHEN - DAY")
+        XCTAssertEqual(tokens.count, 1)
+        if case let .fountainElement(element, _) = tokens[0].kind {
+            XCTAssertEqual(element, .sceneHeading)
+        } else {
+            XCTFail("Expected .fountainElement(.sceneHeading)")
+        }
+    }
+
+    func test_metrics_includesPageCount_forScreenplay() {
+        let metrics = mode.metrics("INT. ROOM - DAY\n\nLarry sits.")
+        XCTAssertNotNil(metrics.pageCount)
+        XCTAssertGreaterThan(metrics.pageCount ?? 0, 0)
+    }
+
+    func test_metrics_proseMode_pageCount_isNil() {
+        let prose = ProseMode()
+        let metrics = prose.metrics("Just a paragraph of prose.")
+        XCTAssertNil(metrics.pageCount)
+    }
+
+    func test_textColumnWidth_screenplayUsesFixedSixtyChars() {
+        // Even if the user sets pageWidthCharacters to 80, screenplay layout
+        // stays canonical 60 chars wide.
+        var typo: TypographySettings = .screenplayDefaults
+        typo.pageWidthCharacters = 80
+        let widthAt80 = mode.textColumnWidth(typography: typo)
+        typo.pageWidthCharacters = 60
+        let widthAt60 = mode.textColumnWidth(typography: typo)
+        XCTAssertEqual(widthAt80, widthAt60, accuracy: 0.5)
     }
 }

@@ -14,6 +14,7 @@ public struct Token: Equatable, Sendable {
         case horizontalRule
         case syntaxPunctuation
         case plain
+        case fountainElement(ScreenplayElement, isForced: Bool)
     }
 
     public let range: NSRange

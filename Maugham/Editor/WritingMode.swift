@@ -6,11 +6,18 @@ public struct EditorMetrics: Equatable, Sendable {
     public var wordCount: Int
     public var characterCount: Int
     public var readingMinutes: Int
+    public var pageCount: Double?
 
-    public init(wordCount: Int, characterCount: Int, readingMinutes: Int) {
+    public init(
+        wordCount: Int,
+        characterCount: Int,
+        readingMinutes: Int,
+        pageCount: Double? = nil
+    ) {
         self.wordCount = wordCount
         self.characterCount = characterCount
         self.readingMinutes = readingMinutes
+        self.pageCount = pageCount
     }
 }
 
