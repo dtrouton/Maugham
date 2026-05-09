@@ -1,7 +1,7 @@
 # Phase 3 Plan + Session Handoff
 
 **Date:** 2026-05-09
-**Status:** Phase 1 + 2 shipped (milestones 1a–2c tagged on `main`). 265 tests passing. This note records the Phase 3 decomposition AND the context a fresh Claude session needs to pick up the work.
+**Status:** Phase 1 + 2 shipped (milestones 1a–2c tagged on `main`) plus a 2d hot-patch. 275 tests passing. This note records the Phase 3 decomposition AND the context a fresh Claude session needs to pick up the work.
 
 **Who this is for:** A new Claude session starting Phase 3 implementation. Read this doc end-to-end before doing anything. Do not skim.
 
@@ -123,12 +123,17 @@ Listed for clarity; these are NOT in Phase 3 even if they relate to screenplay:
 - Snapshots (Phase 5)
 - Bundled MCP server / Claude integration (Phase 6)
 
-Also out of scope (Phase 2 leftovers, can wait):
-- Wiki-link rename propagation (`[[Old Title]]` doesn't update when a doc is renamed)
-- Tag rename / merge across documents
-- Search across documents
-- Notes pane (the `notes/` folder is scaffolded but invisible)
-- Drag-research-into-editor (insert markdown image link)
+### Phase 2 leftover triage (already decided)
+
+These were flagged as "out of scope" during 2c brainstorming. Re-triaged on 2026-05-09:
+
+| Item | Decision | Rationale |
+|---|---|---|
+| Wiki-link rename propagation | **Done — milestone-2d** (already shipped) | Correctness bug, not a feature. Renames rotted body-text cross-references. Hot-patched before this handoff. |
+| Search across documents | **Schedule as own milestone after Phase 3** | Foundational feature, not polish. Deserves its own brainstorm/spec/plan. Likely `milestone-4-search` or `milestone-3d` if priorities shift. |
+| Tag rename / merge across documents | **Discarded** | Cheap to add but rare in practice; writers settle vocabulary early. Re-evaluate only if a real user complains. |
+| Notes pane (`notes/` folder) | **Discarded** | Research browser already covers most use cases. Don't fragment user mental model on speculation. The `notes/` folder stays scaffolded; no UI. Re-evaluate only after sustained real-world usage surfaces a need. |
+| Drag-research-into-editor | **Discarded for now** | Without inline-image rendering in NSTextView (Phase 5+), this would just insert text the user could type manually. Group with image-attachment work in a future phase. |
 
 ---
 
@@ -150,9 +155,11 @@ milestone-2b   Surfaces: Research browser (5 inline renderers), Conflict diff sh
 milestone-2c   Metadata + Metrics: Inspector growth (tags/word target/links + [[]] wiki),
                session tracking, Project Statistics window
                *** Phase 2 complete ***
+milestone-2d   Hot-patch: wiki-link rename propagation. ProjectStore.renameStructureItem
+               now rewrites [[oldTitle]] → [[newTitle]] in every other manuscript doc body.
 ```
 
-Test count: **265 passing**. Build via `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test CODE_SIGNING_ALLOWED=NO`.
+Test count: **275 passing**. Build via `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test CODE_SIGNING_ALLOWED=NO`.
 
 ### Repo structure
 
@@ -193,6 +200,7 @@ Maugham/
 │   ├── SessionLog.swift         ← session events with conflict-merge (2c)
 │   ├── SessionTracker.swift     ← activity-bracketed session state machine (2c)
 │   ├── WikiLinkProject.swift    ← protocol; ProjectStore conforms (2c)
+│   ├── WikiLinkRewriter.swift   ← pure-logic [[oldTitle]] → [[newTitle]] (2d)
 │   ├── ProjectFactory.swift     ← creates new projects on disk
 │   ├── RecentsStore.swift       ← Recents list
 │   └── FileNaming.swift         ← NN-prefix slug helpers
