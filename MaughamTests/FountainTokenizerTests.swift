@@ -218,4 +218,50 @@ final class FountainTokenizerTests: XCTestCase {
         let script = parser.parse("=")
         XCTAssertEqual(script.lines[0].element, .action)
     }
+
+    // MARK: - Boneyard / Notes
+
+    func test_boneyardSingleLine_classifiesAsBoneyard() {
+        let script = parser.parse("/* cut */")
+        XCTAssertEqual(script.lines[0].element, .boneyard)
+    }
+
+    func test_boneyardMultiLine_allLinesClassifiedAsBoneyard() {
+        let script = parser.parse("/* cut\nthis was here\nfor pacing */\n\nResume.")
+        XCTAssertEqual(script.lines[0].element, .boneyard)
+        XCTAssertEqual(script.lines[1].element, .boneyard)
+        XCTAssertEqual(script.lines[2].element, .boneyard)
+        XCTAssertEqual(script.lines[4].element, .action)
+        XCTAssertEqual(script.lines[4].content, "Resume.")
+    }
+
+    func test_blockNoteSingleLine_classifiesAsNote() {
+        let script = parser.parse("[[ todo ]]")
+        XCTAssertEqual(script.lines[0].element, .note)
+    }
+
+    func test_blockNoteMultiLine_allLinesClassifiedAsNote() {
+        let script = parser.parse("[[ todo:\nrewrite this beat\nmaybe ]]")
+        XCTAssertEqual(script.lines[0].element, .note)
+        XCTAssertEqual(script.lines[1].element, .note)
+        XCTAssertEqual(script.lines[2].element, .note)
+    }
+
+    func test_inlineNoteWithinAction_lineStaysAction_inlineSpanRecorded() {
+        let script = parser.parse("Action with [[ note ]] inside.")
+        XCTAssertEqual(script.lines[0].element, .action)
+        XCTAssertEqual(script.lines[0].inlineSpans.count, 1)
+        XCTAssertEqual(script.lines[0].inlineSpans[0].kind, .note)
+        // The inline span covers "[[ note ]]" within the line; range
+        // location is the line's range start + 12 (length of "Action with ").
+        let span = script.lines[0].inlineSpans[0].range
+        XCTAssertEqual(span.length, 10)   // "[[ note ]]"
+    }
+
+    func test_actionAfterBoneyardClose_classifiesAsAction() {
+        // Verify state machine returns to .normal after */.
+        let script = parser.parse("/* cut */\nNot boneyard.")
+        XCTAssertEqual(script.lines[0].element, .boneyard)
+        XCTAssertEqual(script.lines[1].element, .action)
+    }
 }

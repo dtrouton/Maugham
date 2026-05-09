@@ -6,6 +6,12 @@ import Foundation
 public struct FountainTokenizer: Sendable {
     public init() {}
 
+    private enum BlockState {
+        case normal
+        case boneyard
+        case noteBlock
+    }
+
     public func parse(_ text: String) -> FountainScript {
         guard !text.isEmpty else { return .empty }
         let nsText = text as NSString
@@ -14,13 +20,43 @@ public struct FountainTokenizer: Sendable {
         var lines: [FountainLine] = []
         var prevBlank = true
         var prevElement: ScreenplayElement = .action
+        var blockState: BlockState = .normal
 
         nsText.enumerateSubstrings(in: fullRange, options: .byLines) {
             substring, _, enclosingRange, _ in
             guard let raw = substring else { return }
-            let trimmedTrailing = raw.trimmingCharacters(in: .whitespaces)
+            let trimmed = raw.trimmingCharacters(in: .whitespaces)
 
-            if trimmedTrailing.isEmpty {
+            // While inside a multi-line block, classify the line as that
+            // block kind. Exit on the closing marker.
+            switch blockState {
+            case .boneyard:
+                lines.append(FountainLine(
+                    range: enclosingRange,
+                    element: .boneyard,
+                    content: trimmed,
+                    isForced: false,
+                    sourceCase: Self.sourceCase(of: trimmed)))
+                if trimmed.contains("*/") { blockState = .normal }
+                prevBlank = false
+                prevElement = .boneyard
+                return
+            case .noteBlock:
+                lines.append(FountainLine(
+                    range: enclosingRange,
+                    element: .note,
+                    content: trimmed,
+                    isForced: false,
+                    sourceCase: Self.sourceCase(of: trimmed)))
+                if trimmed.contains("]]") { blockState = .normal }
+                prevBlank = false
+                prevElement = .note
+                return
+            case .normal:
+                break
+            }
+
+            if trimmed.isEmpty {
                 lines.append(FountainLine(
                     range: enclosingRange,
                     element: .action,
@@ -32,23 +68,63 @@ public struct FountainTokenizer: Sendable {
                 return
             }
 
+            // Boneyard open on this line — single-line if "*/" appears,
+            // otherwise enter .boneyard state.
+            if trimmed.hasPrefix("/*") {
+                let closesOnLine = trimmed.dropFirst(2).contains("*/")
+                if !closesOnLine { blockState = .boneyard }
+                lines.append(FountainLine(
+                    range: enclosingRange,
+                    element: .boneyard,
+                    content: trimmed,
+                    isForced: false,
+                    sourceCase: Self.sourceCase(of: trimmed)))
+                prevBlank = false
+                prevElement = .boneyard
+                return
+            }
+
+            // Block note open: line starts with [[ and either lacks ]] (multi-
+            // line) or is entirely [[...]] (single-line block note).
+            if trimmed.hasPrefix("[[") {
+                let closesOnLine = trimmed.contains("]]")
+                if !closesOnLine { blockState = .noteBlock }
+                lines.append(FountainLine(
+                    range: enclosingRange,
+                    element: .note,
+                    content: trimmed,
+                    isForced: false,
+                    sourceCase: Self.sourceCase(of: trimmed)))
+                prevBlank = false
+                prevElement = .note
+                return
+            }
+
             let classified = Self.classify(
-                line: trimmedTrailing,
+                line: trimmed,
                 prevBlank: prevBlank,
                 prevElement: prevElement)
+
+            // Inline note pass: locate any [[ ... ]] within the line, record
+            // sub-ranges relative to the enclosing line range.
+            let inlineSpans = Self.inlineNoteSpans(
+                in: trimmed,
+                lineRange: enclosingRange,
+                rawLine: raw,
+                nsText: nsText)
 
             lines.append(FountainLine(
                 range: enclosingRange,
                 element: classified.element,
                 content: classified.content,
                 isForced: classified.isForced,
-                sourceCase: Self.sourceCase(of: classified.content)))
+                sourceCase: Self.sourceCase(of: classified.content),
+                inlineSpans: inlineSpans))
             prevBlank = false
             prevElement = classified.element
         }
 
-        // Post-pass: a tentative Character cue must be followed by a non-blank
-        // line. If it isn't, demote it to .action.
+        // Post-pass: orphan Character cue → Action (unchanged from Task 3).
         var corrected: [FountainLine] = []
         corrected.reserveCapacity(lines.count)
         for (index, line) in lines.enumerated() {
@@ -276,5 +352,40 @@ public struct FountainTokenizer: Sendable {
         if hasUpper && hasLower { return .mixed }
         if hasUpper { return .upper }
         return .lower
+    }
+
+    private static func inlineNoteSpans(
+        in trimmed: String,
+        lineRange: NSRange,
+        rawLine: String,
+        nsText: NSString
+    ) -> [FountainInlineSpan] {
+        // We scan over the raw line (which retains leading whitespace and
+        // any trailing whitespace before newline) so positions are correct
+        // relative to lineRange.location.
+        var result: [FountainInlineSpan] = []
+        let raw = rawLine as NSString
+        let rawLength = raw.length
+        var search = NSRange(location: 0, length: rawLength)
+
+        while search.length > 0 {
+            let openRange = raw.range(of: "[[", options: [], range: search)
+            guard openRange.location != NSNotFound else { break }
+            let afterOpen = NSRange(
+                location: openRange.location + 2,
+                length: rawLength - (openRange.location + 2))
+            let closeRange = raw.range(of: "]]", options: [], range: afterOpen)
+            guard closeRange.location != NSNotFound else { break }
+            let spanStart = lineRange.location + openRange.location
+            let spanLength = (closeRange.location + 2) - openRange.location
+            result.append(FountainInlineSpan(
+                range: NSRange(location: spanStart, length: spanLength),
+                kind: .note))
+            let nextStart = closeRange.location + 2
+            search = NSRange(
+                location: nextStart,
+                length: rawLength - nextStart)
+        }
+        return result
     }
 }
