@@ -59,6 +59,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// textDidChange knows to leave lastCycleTarget alone.
     private var isApplyingTabCycle = false
 
+    private let autocompleter = CharacterAutocompleter()
+
     init(text: Binding<String>,
          mode: any WritingMode,
          theme: Theme,
@@ -227,7 +229,26 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                   doCommandBy commandSelector: Selector) -> Bool {
         guard mode is ScreenplayMode else { return false }
 
-        // Autocompleter branch lands in T7. For now, only cycle handling.
+        if autocompleter.isVisible {
+            switch commandSelector {
+            case #selector(NSResponder.moveUp(_:)):
+                autocompleter.moveSelectionUp()
+                return true
+            case #selector(NSResponder.moveDown(_:)):
+                autocompleter.moveSelectionDown()
+                return true
+            case #selector(NSResponder.insertTab(_:)),
+                 #selector(NSResponder.insertNewline(_:)):
+                autocompleter.acceptSelection(in: textView)
+                return true
+            case #selector(NSResponder.cancelOperation(_:)):
+                autocompleter.dismiss()
+                return true
+            default:
+                return false
+            }
+        }
+
         switch commandSelector {
         case #selector(NSResponder.insertTab(_:)):
             cycleElementForward(in: textView)
@@ -256,6 +277,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         let postEditSelection = textView.selectedRange()
         binding.wrappedValue = textView.string
         retokenizeAndStyle()
+        if mode is ScreenplayMode {
+            updateAutocomplete(in: textView)
+        }
         if textView.selectedRange() != postEditSelection {
             textView.setSelectedRange(postEditSelection)
             textView.scrollRangeToVisible(postEditSelection)
@@ -284,6 +308,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                 lastCycleTarget = nil
                 lastCycleTargetLineRange = nil
             }
+        }
+        if mode is ScreenplayMode {
+            updateAutocomplete(in: textView)
         }
         if typewriterScroll {
             scrollSelectionToVerticalCenter(in: textView)
@@ -454,6 +481,61 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             }
         }
         return script.lines.last
+    }
+
+    private func updateAutocomplete(in textView: NSTextView) {
+        guard mode is ScreenplayMode,
+              let script = lastParsedScript,
+              !script.characterNames.isEmpty,
+              textView.textStorage != nil else {
+            autocompleter.dismiss()
+            return
+        }
+        let cursor = textView.selectedRange().location
+        guard let activeLine = lineCovering(cursor: cursor, in: script) else {
+            autocompleter.dismiss()
+            return
+        }
+        guard activeLine.element == .character else {
+            autocompleter.dismiss()
+            return
+        }
+        // Cursor must be at end of line content.
+        let endOfLine = activeLine.range.location + (activeLine.content as NSString).length
+        guard cursor == endOfLine else {
+            autocompleter.dismiss()
+            return
+        }
+        guard !activeLine.content.isEmpty else {
+            autocompleter.dismiss()
+            return
+        }
+        // Strip @ prefix for prefix-matching.
+        let prefix = activeLine.content.hasPrefix("@")
+            ? String(activeLine.content.dropFirst())
+            : activeLine.content
+        let suggestions = CharacterAutocompleter.rankSuggestions(
+            prefix: prefix, characterNames: script.characterNames)
+        guard !suggestions.isEmpty else {
+            autocompleter.dismiss()
+            return
+        }
+        // Compute anchor rect from layout manager.
+        guard let layoutManager = textView.layoutManager,
+              let container = textView.textContainer else {
+            autocompleter.dismiss()
+            return
+        }
+        let glyphRange = layoutManager.glyphRange(
+            forCharacterRange: NSRange(location: cursor, length: 0),
+            actualCharacterRange: nil)
+        var rect = layoutManager.boundingRect(
+            forGlyphRange: glyphRange, in: container)
+        rect = rect.offsetBy(dx: textView.textContainerInset.width,
+                             dy: textView.textContainerInset.height)
+        autocompleter.show(suggestions: suggestions,
+                           anchorRect: rect,
+                           relativeTo: textView)
     }
 
     private func scrollSelectionToVerticalCenter(in textView: NSTextView) {
