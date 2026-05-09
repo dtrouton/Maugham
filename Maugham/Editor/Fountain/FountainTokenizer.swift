@@ -124,6 +124,20 @@ public struct FountainTokenizer: Sendable {
             prevElement = classified.element
         }
 
+        // Trailing empty line: if the source text ends with "\n", emit a
+        // zero-length FountainLine at the end so that a cursor at the very
+        // end of the document lands on its own line rather than on the
+        // previous line's range.
+        if nsText.length > 0 && nsText.character(at: nsText.length - 1) == UInt16(("\n" as UnicodeScalar).value) {
+            lines.append(FountainLine(
+                range: NSRange(location: nsText.length, length: 0),
+                element: .action,
+                content: "",
+                isForced: false,
+                sourceCase: .neutral,
+                inlineSpans: []))
+        }
+
         // Post-pass: orphan Character cue → Action (unchanged from Task 3).
         var corrected: [FountainLine] = []
         corrected.reserveCapacity(lines.count)

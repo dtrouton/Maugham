@@ -173,6 +173,7 @@ extension CharacterAutocompleter: NSTableViewDelegate {
     public func tableView(_ tableView: NSTableView,
                           viewFor tableColumn: NSTableColumn?,
                           row: Int) -> NSView? {
+        guard row >= 0, row < suggestions.count else { return nil }
         let cellId = NSUserInterfaceItemIdentifier("nameCell")
         let view: NSTableCellView
         if let reused = tableView.makeView(withIdentifier: cellId, owner: self) as? NSTableCellView {

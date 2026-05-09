@@ -475,8 +475,13 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
 
     private func lineCovering(cursor: Int, in script: FountainScript) -> FountainLine? {
         for line in script.lines {
-            if line.range.location <= cursor
-                && cursor <= line.range.location + line.range.length {
+            let end = line.range.location + line.range.length
+            // Match if cursor strictly inside non-zero range, OR exactly at the
+            // location of a zero-length line (trailing empty line).
+            if line.range.length > 0 && line.range.location <= cursor && cursor < end {
+                return line
+            }
+            if line.range.length == 0 && cursor == line.range.location {
                 return line
             }
         }
@@ -501,7 +506,13 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             return
         }
         // Cursor must be at end of line content.
-        let endOfLine = activeLine.range.location + (activeLine.content as NSString).length
+        // End of line in source: range covers content + trailing newline if
+        // present. Subtract 1 if the line's source text ends with newline.
+        let lineSource = (textView.string as NSString).substring(with: activeLine.range)
+        let trailingNewlineLength = lineSource.hasSuffix("\n") ? 1 : 0
+        let endOfLine = activeLine.range.location
+            + activeLine.range.length
+            - trailingNewlineLength
         guard cursor == endOfLine else {
             autocompleter.dismiss()
             return
