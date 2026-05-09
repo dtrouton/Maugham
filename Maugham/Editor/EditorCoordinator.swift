@@ -43,6 +43,22 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// the character autocompleter (3b) and the element gutter (3b).
     private(set) var lastParsedScript: FountainScript?
 
+    /// Most recent cycle target on the current blank line. Cleared when:
+    /// - cursor moves to a different line
+    /// - any non-Tab edit triggers textDidChange
+    /// - the active line gains content via the cycle's mutator
+    /// Used so that subsequent Tab presses on the same blank line cycle
+    /// from the prior target rather than re-computing startingElement.
+    private var lastCycleTarget: ScreenplayElement?
+
+    /// Active line's range at the moment lastCycleTarget was set; used to
+    /// detect cursor moves to a different line.
+    private var lastCycleTargetLineRange: NSRange?
+
+    /// Set to true while cycle(in:direction:) is mutating storage so that
+    /// textDidChange knows to leave lastCycleTarget alone.
+    private var isApplyingTabCycle = false
+
     init(text: Binding<String>,
          mode: any WritingMode,
          theme: Theme,
@@ -207,9 +223,30 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         return true
     }
 
+    func textView(_ textView: NSTextView,
+                  doCommandBy commandSelector: Selector) -> Bool {
+        guard mode is ScreenplayMode else { return false }
+
+        // Autocompleter branch lands in T7. For now, only cycle handling.
+        switch commandSelector {
+        case #selector(NSResponder.insertTab(_:)):
+            cycleElementForward(in: textView)
+            return true
+        case #selector(NSResponder.insertBacktab(_:)):
+            cycleElementBackward(in: textView)
+            return true
+        default:
+            return false
+        }
+    }
+
     func textDidChange(_ notification: Notification) {
         guard let textView = notification.object as? NSTextView,
               !isApplyingExternalUpdate else { return }
+        if !isApplyingTabCycle {
+            lastCycleTarget = nil
+            lastCycleTargetLineRange = nil
+        }
         // Capture the post-edit cursor position. retokenizeAndStyle mutates
         // storage attributes which can jostle NSTextView's selection (most
         // visibly after paste of a multi-char string). We restore the
@@ -240,11 +277,183 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     func textViewDidChangeSelection(_ notification: Notification) {
         guard let textView = notification.object as? NSTextView,
               !isApplyingExternalUpdate else { return }
+        // Clear lastCycleTarget when cursor moves to a different line.
+        if let lineRange = lastCycleTargetLineRange {
+            let cursor = textView.selectedRange().location
+            if cursor < lineRange.location || cursor > NSMaxRange(lineRange) {
+                lastCycleTarget = nil
+                lastCycleTargetLineRange = nil
+            }
+        }
         if typewriterScroll {
             scrollSelectionToVerticalCenter(in: textView)
         }
         applyFocusDim(in: textView)
         onCursorChanged?(textView.selectedRange().location)
+    }
+
+    // MARK: - Tab/Shift+Tab cycle
+
+    private func cycleElementForward(in textView: NSTextView) {
+        cycle(in: textView, direction: .forward)
+    }
+
+    private func cycleElementBackward(in textView: NSTextView) {
+        cycle(in: textView, direction: .backward)
+    }
+
+    private enum CycleDirection { case forward, backward }
+
+    private func cycle(in textView: NSTextView, direction: CycleDirection) {
+        guard let storage = textView.textStorage,
+              let script = lastParsedScript else { return }
+
+        // Empty document: no lines in script. Treat as a single blank line
+        // at position 0 with .action as the preceding context.
+        if script.lines.isEmpty {
+            let target: ScreenplayElement
+            if let cached = lastCycleTarget {
+                target = advance(from: cached, direction: direction)
+            } else {
+                target = ScreenplayCycle.startingElement(after: .action)
+            }
+            let neighborhood = LineNeighborhood(prevIsBlank: true, nextIsBlank: true)
+            let result = ScreenplayLineMutator.mutate(line: "", to: target, neighborhood: neighborhood)
+            let replaceRange = NSRange(location: 0, length: 0)
+            guard textView.shouldChangeText(in: replaceRange, replacementString: result.text) else { return }
+            isApplyingTabCycle = true
+            defer { isApplyingTabCycle = false }
+            storage.replaceCharacters(in: replaceRange, with: result.text)
+            textView.didChangeText()
+            textView.setSelectedRange(NSRange(location: result.cursorOffset, length: 0))
+            if result.text.isEmpty {
+                lastCycleTarget = target
+                lastCycleTargetLineRange = NSRange(location: 0, length: 0)
+            } else {
+                lastCycleTarget = nil
+                lastCycleTargetLineRange = nil
+            }
+            return
+        }
+
+        let cursor = textView.selectedRange().location
+        guard let activeLine = lineCovering(cursor: cursor, in: script) else { return }
+        guard let lineIndex = script.lines.firstIndex(of: activeLine) else { return }
+
+        let prevElement: ScreenplayElement = (lineIndex > 0)
+            ? script.lines[lineIndex - 1].element
+            : .action
+        let isBlank = activeLine.content.isEmpty
+
+        // Choose target.
+        let target: ScreenplayElement = chooseTarget(
+            activeLine: activeLine,
+            prevElement: prevElement,
+            isBlank: isBlank,
+            direction: direction)
+
+        // Compute neighborhood from script.
+        let prevBlank = (lineIndex <= 0)
+            || script.lines[lineIndex - 1].content.isEmpty
+        let nextBlank = (lineIndex >= script.lines.count - 1)
+            || script.lines[lineIndex + 1].content.isEmpty
+        let neighborhood = LineNeighborhood(
+            prevIsBlank: prevBlank,
+            nextIsBlank: nextBlank)
+
+        // Apply mutator. Note: activeLine.content has forced markers stripped,
+        // but the mutator works on raw source content. We need the source text
+        // of the line (without trailing newline) to pass to the mutator.
+        let nsSource = textView.string as NSString
+        let lineRangeLength = activeLine.range.length
+        // Determine if the line's range includes a trailing newline.
+        let hasTrailingNewline: Bool
+        if activeLine.range.location + lineRangeLength <= nsSource.length {
+            let lastCharRange = NSRange(
+                location: activeLine.range.location + lineRangeLength - 1,
+                length: 1)
+            if lineRangeLength > 0 {
+                let lastChar = nsSource.substring(with: lastCharRange)
+                hasTrailingNewline = (lastChar == "\n")
+            } else {
+                hasTrailingNewline = false
+            }
+        } else {
+            hasTrailingNewline = false
+        }
+        let sourceContentLength = hasTrailingNewline
+            ? lineRangeLength - 1
+            : lineRangeLength
+        let sourceContent = nsSource.substring(
+            with: NSRange(location: activeLine.range.location,
+                          length: sourceContentLength))
+
+        let result = ScreenplayLineMutator.mutate(
+            line: sourceContent,
+            to: target,
+            neighborhood: neighborhood)
+
+        // Replace only the line's content portion (not trailing newline).
+        let replaceRange = NSRange(
+            location: activeLine.range.location,
+            length: sourceContentLength)
+
+        // Swift undo + delegate notification dance.
+        guard textView.shouldChangeText(in: replaceRange, replacementString: result.text) else { return }
+        isApplyingTabCycle = true
+        defer { isApplyingTabCycle = false }
+        storage.replaceCharacters(in: replaceRange, with: result.text)
+        textView.didChangeText()
+
+        let cursorLocation = activeLine.range.location + result.cursorOffset
+        textView.setSelectedRange(NSRange(location: cursorLocation, length: 0))
+
+        // Update lastCycleTarget lifecycle.
+        let newContentLength = (result.text as NSString).length
+        let newLineRange = NSRange(
+            location: activeLine.range.location,
+            length: newContentLength)
+        if isBlank && result.text.isEmpty {
+            // Line stayed empty — preserve target for subsequent Tab.
+            lastCycleTarget = target
+            lastCycleTargetLineRange = newLineRange
+        } else {
+            lastCycleTarget = nil
+            lastCycleTargetLineRange = nil
+        }
+    }
+
+    private func chooseTarget(
+        activeLine: FountainLine,
+        prevElement: ScreenplayElement,
+        isBlank: Bool,
+        direction: CycleDirection
+    ) -> ScreenplayElement {
+        if isBlank, let cached = lastCycleTarget {
+            return advance(from: cached, direction: direction)
+        }
+        if isBlank {
+            return ScreenplayCycle.startingElement(after: prevElement)
+        }
+        return advance(from: activeLine.element, direction: direction)
+    }
+
+    private func advance(from element: ScreenplayElement,
+                         direction: CycleDirection) -> ScreenplayElement {
+        switch direction {
+        case .forward:  return ScreenplayCycle.cycleForward(from: element)
+        case .backward: return ScreenplayCycle.cycleBackward(from: element)
+        }
+    }
+
+    private func lineCovering(cursor: Int, in script: FountainScript) -> FountainLine? {
+        for line in script.lines {
+            if line.range.location <= cursor
+                && cursor <= line.range.location + line.range.length {
+                return line
+            }
+        }
+        return script.lines.last
     }
 
     private func scrollSelectionToVerticalCenter(in textView: NSTextView) {
