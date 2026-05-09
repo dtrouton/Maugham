@@ -38,6 +38,11 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// click routing to look up wiki-link ranges hit-tested by mouseDown.
     private(set) var lastTokens: [Token] = []
 
+    /// Most recent FountainScript from ScreenplayMode parsing. nil for prose
+    /// modes. Updated each time retokenizeAndStyle runs. Source for both
+    /// the character autocompleter (3b) and the element gutter (3b).
+    private(set) var lastParsedScript: FountainScript?
+
     init(text: Binding<String>,
          mode: any WritingMode,
          theme: Theme,
@@ -142,6 +147,11 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         guard let textView, let storage = textView.textStorage else { return }
         let tokens = mode.tokenize(textView.string)
         self.lastTokens = tokens
+        if mode is ScreenplayMode {
+            lastParsedScript = FountainTokenizer().parse(textView.string)
+        } else {
+            lastParsedScript = nil
+        }
         // ProseMode supports an optional wiki-link resolver for `[[Title]]`
         // styling. Other modes use the protocol's resolver-less call.
         if let prose = mode as? ProseMode {
