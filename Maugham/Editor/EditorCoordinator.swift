@@ -335,7 +335,16 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             defer { isApplyingTabCycle = false }
             storage.replaceCharacters(in: replaceRange, with: result.text)
             textView.didChangeText()
-            textView.setSelectedRange(NSRange(location: result.cursorOffset, length: 0))
+            let targetCursor = NSRange(location: result.cursorOffset, length: 0)
+            textView.setSelectedRange(targetCursor)
+            // Defensive reapply on the next runloop in case something
+            // (theme refresh, layout pass) moves the cursor.
+            DispatchQueue.main.async { [weak textView] in
+                guard let textView else { return }
+                if textView.selectedRange() != targetCursor {
+                    textView.setSelectedRange(targetCursor)
+                }
+            }
             if result.text.isEmpty {
                 lastCycleTarget = target
                 lastCycleTargetLineRange = NSRange(location: 0, length: 0)
@@ -416,7 +425,15 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         textView.didChangeText()
 
         let cursorLocation = activeLine.range.location + result.cursorOffset
-        textView.setSelectedRange(NSRange(location: cursorLocation, length: 0))
+        let targetCursor = NSRange(location: cursorLocation, length: 0)
+        textView.setSelectedRange(targetCursor)
+        // Defensive reapply on the next runloop.
+        DispatchQueue.main.async { [weak textView] in
+            guard let textView else { return }
+            if textView.selectedRange() != targetCursor {
+                textView.setSelectedRange(targetCursor)
+            }
+        }
 
         // Update lastCycleTarget lifecycle.
         let newContentLength = (result.text as NSString).length

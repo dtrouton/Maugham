@@ -98,6 +98,20 @@ public struct ScreenplayMode: WritingMode {
             }
         }
 
+        // Third pass — fade forced-syntax markers (@, ., >, ~, #, =, parens,
+        // [[ ]], /* */). The body text retains its element styling; only the
+        // syntactic marker characters get the dimmed syntaxPunctuation color.
+        // Mirrors prose mode's quiet-syntax treatment of ** asterisks.
+        for line in script.lines {
+            for markerRange in markerRanges(in: line, storage: storage) {
+                guard NSMaxRange(markerRange) <= storage.length else { continue }
+                storage.addAttribute(
+                    .foregroundColor,
+                    value: palette.syntaxPunctuation,
+                    range: markerRange)
+            }
+        }
+
         storage.endEditing()
     }
 
@@ -267,5 +281,128 @@ public struct ScreenplayMode: WritingMode {
         para.paragraphSpacing =
             baseFont.pointSize * CGFloat(typography.paragraphSpacingMultiplier)
         return para
+    }
+
+    /// Returns the NSRanges of forced-syntax marker characters in a parsed
+    /// FountainLine. Used by applyTypography's marker-fade pass.
+    private func markerRanges(
+        in line: FountainLine,
+        storage: NSTextStorage
+    ) -> [NSRange] {
+        let lineStart = line.range.location
+        let lineLength = line.range.length
+        guard lineLength > 0,
+              lineStart + lineLength <= storage.length else { return [] }
+        let lineText = (storage.string as NSString)
+            .substring(with: line.range)
+        // Strip trailing newline for prefix/suffix checks.
+        let trimmed = lineText.hasSuffix("\n")
+            ? String(lineText.dropLast())
+            : lineText
+        let trimmedLength = (trimmed as NSString).length
+
+        var ranges: [NSRange] = []
+
+        // Single-char leading markers: @, !, ., >, ~
+        if line.isForced {
+            switch line.element {
+            case .character:
+                if trimmed.hasPrefix("@") {
+                    ranges.append(NSRange(location: lineStart, length: 1))
+                }
+            case .action:
+                if trimmed.hasPrefix("!") {
+                    ranges.append(NSRange(location: lineStart, length: 1))
+                }
+            case .sceneHeading:
+                if trimmed.hasPrefix(".") && !trimmed.hasPrefix("..") {
+                    ranges.append(NSRange(location: lineStart, length: 1))
+                }
+            case .transition:
+                if trimmed.hasPrefix(">") {
+                    // > or "> ". Fade the > and the optional following space.
+                    let withSpace = trimmed.hasPrefix("> ")
+                    ranges.append(NSRange(
+                        location: lineStart,
+                        length: withSpace ? 2 : 1))
+                }
+            case .lyric:
+                if trimmed.hasPrefix("~") {
+                    ranges.append(NSRange(location: lineStart, length: 1))
+                }
+            default:
+                break
+            }
+        }
+
+        // Section: 1-6 leading # followed by a space.
+        if case .section = line.element {
+            var hashCount = 0
+            for ch in trimmed {
+                if ch == "#" { hashCount += 1 } else { break }
+            }
+            if hashCount >= 1 && hashCount <= 6
+                && trimmed.count > hashCount
+                && trimmed[trimmed.index(trimmed.startIndex, offsetBy: hashCount)] == " " {
+                ranges.append(NSRange(
+                    location: lineStart,
+                    length: hashCount + 1))
+            }
+        }
+
+        // Synopsis: leading "= ".
+        if line.element == .synopsis && trimmed.hasPrefix("= ") {
+            ranges.append(NSRange(location: lineStart, length: 2))
+        }
+
+        // Parenthetical: leading ( and trailing ).
+        if line.element == .parenthetical
+            && trimmed.hasPrefix("(") && trimmed.hasSuffix(")")
+            && trimmedLength >= 2 {
+            ranges.append(NSRange(location: lineStart, length: 1))
+            ranges.append(NSRange(
+                location: lineStart + trimmedLength - 1, length: 1))
+        }
+
+        // Centered: leading > and trailing <.
+        if line.element == .centered
+            && trimmed.hasPrefix(">") && trimmed.hasSuffix("<")
+            && trimmedLength >= 2 {
+            ranges.append(NSRange(location: lineStart, length: 1))
+            ranges.append(NSRange(
+                location: lineStart + trimmedLength - 1, length: 1))
+        }
+
+        // Boneyard: line containing /* and/or */.
+        if line.element == .boneyard {
+            let ns = trimmed as NSString
+            let openRange = ns.range(of: "/*")
+            if openRange.location != NSNotFound {
+                ranges.append(NSRange(
+                    location: lineStart + openRange.location, length: 2))
+            }
+            let closeRange = ns.range(of: "*/")
+            if closeRange.location != NSNotFound {
+                ranges.append(NSRange(
+                    location: lineStart + closeRange.location, length: 2))
+            }
+        }
+
+        // Note (block): line containing [[ and/or ]].
+        if line.element == .note {
+            let ns = trimmed as NSString
+            let openRange = ns.range(of: "[[")
+            if openRange.location != NSNotFound {
+                ranges.append(NSRange(
+                    location: lineStart + openRange.location, length: 2))
+            }
+            let closeRange = ns.range(of: "]]")
+            if closeRange.location != NSNotFound {
+                ranges.append(NSRange(
+                    location: lineStart + closeRange.location, length: 2))
+            }
+        }
+
+        return ranges
     }
 }
