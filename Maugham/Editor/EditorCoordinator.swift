@@ -279,23 +279,31 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // captured range both synchronously (in case the move is in
         // retokenizeAndStyle) and on the next runloop tick (in case it's an
         // async layout-pass effect from storage.endEditing).
+        // Skip the cursor-restore when a Tab cycle is in flight — the cycle
+        // method sets the cursor explicitly AFTER didChangeText (e.g.,
+        // inside the opening paren on Parenthetical wrap), and the restore
+        // would clobber that intent. Capture the flag now since `defer` in
+        // cycle() will reset it before the async block fires.
+        let skipCursorRestore = isApplyingTabCycle
         let postEditSelection = textView.selectedRange()
         binding.wrappedValue = textView.string
         retokenizeAndStyle()
         if mode is ScreenplayMode {
             updateAutocomplete(in: textView)
         }
-        if textView.selectedRange() != postEditSelection {
-            textView.setSelectedRange(postEditSelection)
-            textView.scrollRangeToVisible(postEditSelection)
-        }
-        DispatchQueue.main.async { [weak textView, postEditSelection] in
-            guard let textView else { return }
+        if !skipCursorRestore {
             if textView.selectedRange() != postEditSelection {
                 textView.setSelectedRange(postEditSelection)
-                // Also scroll back to the cursor: a large paste reflows the
-                // layout and can drift the scroll to the top of the document.
                 textView.scrollRangeToVisible(postEditSelection)
+            }
+            DispatchQueue.main.async { [weak textView, postEditSelection] in
+                guard let textView else { return }
+                if textView.selectedRange() != postEditSelection {
+                    textView.setSelectedRange(postEditSelection)
+                    // Also scroll back to the cursor: a large paste reflows the
+                    // layout and can drift the scroll to the top of the document.
+                    textView.scrollRangeToVisible(postEditSelection)
+                }
             }
         }
         if typewriterScroll {
