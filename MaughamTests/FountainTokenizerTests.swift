@@ -128,4 +128,40 @@ final class FountainTokenizerTests: XCTestCase {
         XCTAssertEqual(script.lines[0].content, "ALL CAPS DESCRIPTION")
         XCTAssertEqual(script.lines[0].isForced, true)
     }
+
+    // MARK: - Transition / Centered / Lyric
+
+    func test_allCapsTransition_endingInTo_classifiesAsTransition() {
+        let script = parser.parse("Action one.\n\nSMASH CUT TO:\n\nINT. NEXT - DAY")
+        XCTAssertEqual(script.lines[2].element, .transition)
+        XCTAssertEqual(script.lines[2].content, "SMASH CUT TO:")
+        XCTAssertEqual(script.lines[2].isForced, false)
+    }
+
+    func test_forcedTransitionGreater_classifiesAsTransition() {
+        let script = parser.parse("> cut to:")
+        XCTAssertEqual(script.lines[0].element, .transition)
+        XCTAssertEqual(script.lines[0].content, "cut to:")
+        XCTAssertEqual(script.lines[0].isForced, true)
+        XCTAssertEqual(script.lines[0].sourceCase, .lower)
+    }
+
+    func test_centeredAngleBrackets_classifiesAsCentered() {
+        let script = parser.parse("> THE END <")
+        XCTAssertEqual(script.lines[0].element, .centered)
+        XCTAssertEqual(script.lines[0].content, "THE END")
+    }
+
+    func test_centeredAngleBrackets_noSpaces_classifiesAsCentered() {
+        let script = parser.parse(">centered<")
+        XCTAssertEqual(script.lines[0].element, .centered)
+        XCTAssertEqual(script.lines[0].content, "centered")
+    }
+
+    func test_lyricTilde_classifiesAsLyric() {
+        let script = parser.parse("~la la la")
+        XCTAssertEqual(script.lines[0].element, .lyric)
+        XCTAssertEqual(script.lines[0].content, "la la la")
+        XCTAssertEqual(script.lines[0].isForced, true)
+    }
 }

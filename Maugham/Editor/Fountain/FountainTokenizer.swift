@@ -101,6 +101,36 @@ public struct FountainTokenizer: Sendable {
                 isForced: true)
         }
 
+        // Centered: line wrapped in >...<. Recognize before forced-transition
+        // (which is bare leading >) so >X< doesn't get classified as a
+        // transition with content "X<".
+        if line.hasPrefix(">") && line.hasSuffix("<") && line.count >= 2 {
+            let inner = line.dropFirst().dropLast()
+                .trimmingCharacters(in: .whitespaces)
+            return Classified(
+                element: .centered,
+                content: inner,
+                isForced: true)
+        }
+
+        // Forced transition: leading >.
+        if line.hasPrefix(">") {
+            let stripped = String(line.dropFirst())
+                .trimmingCharacters(in: .whitespaces)
+            return Classified(
+                element: .transition,
+                content: stripped,
+                isForced: true)
+        }
+
+        // Lyric: leading ~.
+        if line.hasPrefix("~") {
+            return Classified(
+                element: .lyric,
+                content: String(line.dropFirst()),
+                isForced: true)
+        }
+
         // Forced character.
         if line.hasPrefix("@") {
             return Classified(
@@ -114,6 +144,15 @@ public struct FountainTokenizer: Sendable {
         if prevBlank && Self.isSceneHeadingPrefix(line) {
             return Classified(
                 element: .sceneHeading,
+                content: line,
+                isForced: false)
+        }
+
+        // Context-sensitive transition: ALL-CAPS line ending in "TO:" with
+        // a blank line above.
+        if prevBlank && Self.isContextualTransition(line) {
+            return Classified(
+                element: .transition,
                 content: line,
                 isForced: false)
         }
@@ -158,6 +197,11 @@ public struct FountainTokenizer: Sendable {
             }
         }
         return hasLetter
+    }
+
+    private static func isContextualTransition(_ line: String) -> Bool {
+        guard line.uppercased().hasSuffix("TO:") else { return false }
+        return Self.isAllCapsCueCandidate(line)
     }
 
     private static let sceneHeadingPrefixes = [
