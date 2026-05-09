@@ -54,18 +54,28 @@ public struct ScreenplayMode: WritingMode {
         typography: TypographySettings,
         tokens: [Token]
     ) {
-        // Real per-element styling lands in Tasks 9 and 10. For now, set
-        // a uniform monospace body so the editor renders without crashing
-        // and existing smoke tests of the screenplay project type still
-        // open `.fountain` files.
         let resolved = theme.resolved(systemAppearanceIsDark: Self.systemIsDark())
         let palette = resolved.palette
         let baseFont = baseFont(for: typography)
-        let attrs = bodyAttributes(palette: palette, baseFont: baseFont,
-                                   typography: typography)
+        let charWidth = Self.charWidth(font: baseFont)
+        let bodyAttrs = bodyAttributes(palette: palette, baseFont: baseFont,
+                                       typography: typography)
+
         storage.beginEditing()
         let fullRange = NSRange(location: 0, length: storage.length)
-        storage.setAttributes(attrs, range: fullRange)
+        storage.setAttributes(bodyAttrs, range: fullRange)
+
+        for token in tokens {
+            guard NSMaxRange(token.range) <= storage.length else { continue }
+            guard case let .fountainElement(element, _) = token.kind else { continue }
+            let attrs = self.attributes(
+                for: element,
+                palette: palette,
+                baseFont: baseFont,
+                charWidth: charWidth,
+                typography: typography)
+            storage.addAttributes(attrs, range: token.range)
+        }
         storage.endEditing()
     }
 
@@ -111,6 +121,7 @@ public struct ScreenplayMode: WritingMode {
         typography: TypographySettings
     ) -> [NSAttributedString.Key: Any] {
         let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .left
         paragraph.lineSpacing =
             max(0, baseFont.pointSize * CGFloat(typography.lineHeightMultiplier - 1.0))
         paragraph.paragraphSpacing =
@@ -120,5 +131,77 @@ public struct ScreenplayMode: WritingMode {
             .foregroundColor: palette.bodyText,
             .paragraphStyle: paragraph,
         ]
+    }
+
+    private static func charWidth(font: NSFont) -> CGFloat {
+        let sample = "the quick brown fox jumps over the lazy dog"
+        let width = (sample as NSString).size(withAttributes: [.font: font]).width
+        return width / CGFloat(sample.count)
+    }
+
+    private func attributes(
+        for element: ScreenplayElement,
+        palette: ThemePalette,
+        baseFont: NSFont,
+        charWidth: CGFloat,
+        typography: TypographySettings
+    ) -> [NSAttributedString.Key: Any] {
+        switch element {
+        case .action:
+            return [:]   // body attrs already cover this
+        case .sceneHeading:
+            let font = NSFont(
+                descriptor: baseFont.fontDescriptor.withSymbolicTraits(.bold),
+                size: baseFont.pointSize) ?? baseFont
+            return [.font: font]
+        case .character:
+            let para = paragraphStyle(
+                head: charWidth * 22,
+                tail: charWidth * 60,
+                alignment: .left,
+                typography: typography,
+                baseFont: baseFont)
+            return [.paragraphStyle: para]
+        case .dialogue:
+            let para = paragraphStyle(
+                head: charWidth * 10,
+                tail: charWidth * 45,
+                alignment: .left,
+                typography: typography,
+                baseFont: baseFont)
+            return [.paragraphStyle: para]
+        case .parenthetical:
+            let para = paragraphStyle(
+                head: charWidth * 15,
+                tail: charWidth * 35,
+                alignment: .left,
+                typography: typography,
+                baseFont: baseFont)
+            let italic = NSFont(
+                descriptor: baseFont.fontDescriptor.withSymbolicTraits(.italic),
+                size: baseFont.pointSize) ?? baseFont
+            return [.paragraphStyle: para, .font: italic]
+        default:
+            return [:]   // Task 10 fills in transition/centered/etc.
+        }
+    }
+
+    private func paragraphStyle(
+        head: CGFloat,
+        tail: CGFloat,
+        alignment: NSTextAlignment,
+        typography: TypographySettings,
+        baseFont: NSFont
+    ) -> NSParagraphStyle {
+        let para = NSMutableParagraphStyle()
+        para.firstLineHeadIndent = head
+        para.headIndent = head
+        para.tailIndent = tail
+        para.alignment = alignment
+        para.lineSpacing = max(0,
+            baseFont.pointSize * CGFloat(typography.lineHeightMultiplier - 1.0))
+        para.paragraphSpacing =
+            baseFont.pointSize * CGFloat(typography.paragraphSpacingMultiplier)
+        return para
     }
 }
