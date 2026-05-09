@@ -421,18 +421,22 @@ Total expected new tests: ~31. Combined with existing 275, target test count aft
 
 ---
 
-## 8. Out of scope (deferred)
+## 8. Out of scope for 3a (each item scheduled to a specific milestone)
 
-Listed for clarity:
-
-- Title page block — defer; can absorb in 3b or 3c
-- Multi-file screenplay (one file per scene) — Phase 3+ in master spec, not scoped here
-- Tab/Enter element cycling — 3b
-- Character autocomplete — 3b
-- Scene navigator (slugline jump list) — 3c
-- Inline emphasis inside dialogue (`*italic*`, `**bold**` mid-line) — possible 3b/3c
-- FDX import/export, scene numbers, dual dialogue, MORE/CONT'D — Phase 4
-- Production page-fidelity simulator with margins / orphan control — Phase 4+
+| Item | Scheduled milestone | Notes |
+|---|---|---|
+| Tab/Enter element cycling | **3b** | Editing UX milestone — cycle Action → Character → Dialogue → Parenthetical → ... on Tab; Enter follows screenplay flow conventions. |
+| Character autocomplete | **3b** | Suggest names from `FountainScript.characterNames` (already populated by 3a's parser). |
+| Scene navigator (slugline jump list) | **3c** | Replaces or augments the manuscript binder for Screenplay project types. |
+| Title page block (`Title:` / `Author:` / `Credit:` etc.) | **3c** | Parsed as a metadata block at the document head; rendered styled inline; optionally mirrored in Inspector. Discrete UI feature, fits 3c's polish framing. |
+| Inline emphasis inside dialogue (`*italic*`, `**bold**` mid-line) | **3c** (or Phase 4 if 3c capacity is tight) | Extends `inlineSpans` with `.italic` / `.bold` kinds; styling pass adds character-level attributes. Smallest of the deferrals. |
+| Multi-file screenplay (one file per scene) | **new 3d** | Architectural change: binder, ProjectFactory, multi-document loader, page-count summing across files. Bigger than polish — gets its own sub-milestone. Phase 3 grows from 3 to 4 sub-milestones (3a, 3b, 3c, 3d). |
+| FDX import/export | **Phase 4** | Master spec assigns to Phase 4 (Final Draft parity). |
+| Scene numbers | **Phase 4** | Master spec assigns to Phase 4. |
+| Dual dialogue | **Phase 4** | Master spec assigns to Phase 4. |
+| MORE / CONT'D markers | **Phase 4** | Master spec assigns to Phase 4. |
+| Revisions / colored pages | **Phase 4** | Master spec assigns to Phase 4. |
+| Production page-fidelity simulator (margins, orphan control) | **Phase 4+** | Out of Phase 3 entirely. |
 
 ---
 

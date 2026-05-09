@@ -13,7 +13,7 @@
 2. Skim `docs/superpowers/specs/2026-05-07-maugham-master-design.md` Section 2 (the editor architecture) — that's the source of truth for screenplay behavior.
 3. Read `Maugham/Editor/ScreenplayMode.swift` — it's the stub you'll be replacing.
 4. Pick the first sub-milestone (3a per the recommendation below) and start the **brainstorm → spec → plan → subagent-driven execute** cycle.
-5. Tag your milestones as `milestone-3a`, `milestone-3b`, `milestone-3c` and push.
+5. Tag your milestones as `milestone-3a`, `milestone-3b`, `milestone-3c`, `milestone-3d` and push.
 
 You will need every workflow skill the previous milestones used: `superpowers:brainstorming`, `superpowers:writing-plans`, `superpowers:subagent-driven-development`. These are the user's preferred flow.
 
@@ -57,7 +57,7 @@ Six work items per master spec:
 
 ## Recommended sub-milestone decomposition
 
-Phase 3 is too big for one milestone (~30 tasks). Decompose into three:
+Phase 3 is too big for one milestone (~35 tasks). Decompose into four (originally three; expanded to four during 3a brainstorm to give multi-file screenplay its own slot):
 
 ### 3a — Fountain foundation + styling
 
@@ -89,26 +89,44 @@ Phase 3 is too big for one milestone (~30 tasks). Decompose into three:
 
 **Estimate:** ~10-12 tasks.
 
-### 3c — Scene navigator + polish
+### 3c — Scene navigator + title page + polish
 
-**Scope:** Scene-by-scene navigation overlay for screenplays. Replaces (or augments) the manuscript binder for Screenplay project types.
+**Scope:** Scene-by-scene navigation overlay for screenplays, plus the Fountain title page block, plus inline emphasis inside dialogue if capacity allows.
 
 **Deliverables:**
 - `SceneNavigator` view: extracts sluglines from current Fountain text, lists them with INT./EXT., scene headings, and page numbers
 - Click a scene → jumps cursor to that line
 - For Screenplay project types: the manuscript binder pane segments to "Manuscript / Scenes" (similar to 2b's Manuscript / Research toggle)
 - For Novel/Short Story: scene navigator hidden or disabled
+- **Title page block** parsed (key-value pairs separated from body by blank line): `Title:`, `Credit:`, `Author:`, `Source:`, `Draft date:`, `Contact:`, `Notes:`. Rendered as a styled block at the head of the document; optionally mirrored in Inspector.
+- **Inline emphasis** inside dialogue/action — `*italic*` and `**bold**` mid-line. Extends `inlineSpans` with `.italic` / `.bold` kinds. (May fall to Phase 4 if 3c gets squeezed.)
 - Optional: scene-by-scene word/page count summary in Statistics window (extends 2c's Words by Chapter to "Words/Pages by Scene" for screenplay projects)
 
-**Why third:** Less load-bearing than 3a/3b. A screenwriter can absolutely use 3a+3b without a navigator (just scroll). 3c is polish.
+**Why third:** Less load-bearing than 3a/3b. A screenwriter can absolutely use 3a+3b without a navigator (just scroll). 3c is polish + the discrete title-page feature.
 
-**Estimate:** ~6-8 tasks.
+**Estimate:** ~8-10 tasks.
+
+### 3d — Multi-file screenplay
+
+**Scope:** Optional multi-file structure for Screenplay project types — one `.fountain` per scene, similar to how Novel breaks into chapter files.
+
+**Deliverables:**
+- ProjectFactory creates a Screenplay project with optional multi-file vs single-file choice at creation time
+- Manuscript binder shows the scene file list for multi-file Screenplay projects (mirrors Novel's chapter binder)
+- DocumentStore loads each scene file as its own document; switching scenes loads the right file
+- Page count sums across all scene files for the project-level goal indicator
+- Migration: existing single-file Screenplay projects keep working unchanged (no forced migration)
+- Tidy Filenames extends to multi-file Screenplay (already supports Novel; reuse the 2a primitives)
+
+**Why fourth:** Architectural change. Touches binder, factory, store, page-count aggregation. Big enough to deserve its own milestone with focused testing. A solo screenwriter can ship a feature in a single `.fountain` without 3d; multi-file is for writers who prefer scene-per-file workflow (or for production refinement).
+
+**Estimate:** ~7-9 tasks.
 
 ### Order recommendation
 
-3a → 3b → 3c, sequentially. Each tags as a milestone. Total ~30 tasks across the phase.
+3a → 3b → 3c → 3d, sequentially. Each tags as a milestone. Total ~35 tasks across the phase.
 
-After 3c the master spec's Phase 4 (Final Draft parity: scene numbers, dual dialogue, revisions, FDX import/export) is the next chunk — but the user may want to pause and use Phase 1+2+3 for actual writing before deciding.
+After 3d the master spec's Phase 4 (Final Draft parity: scene numbers, dual dialogue, MORE/CONT'D, revisions, FDX import/export) is the next chunk — but the user may want to pause and use Phase 1+2+3 for actual writing before deciding.
 
 ---
 
@@ -130,7 +148,7 @@ These were flagged as "out of scope" during 2c brainstorming. Re-triaged on 2026
 | Item | Decision | Rationale |
 |---|---|---|
 | Wiki-link rename propagation | **Done — milestone-2d** (already shipped) | Correctness bug, not a feature. Renames rotted body-text cross-references. Hot-patched before this handoff. |
-| Search across documents | **Schedule as own milestone after Phase 3** | Foundational feature, not polish. Deserves its own brainstorm/spec/plan. Likely `milestone-4-search` or `milestone-3d` if priorities shift. |
+| Search across documents | **Schedule as own milestone after Phase 3** | Foundational feature, not polish. Deserves its own brainstorm/spec/plan. Lands as `milestone-4-search` or in early Phase 4. (Note: `milestone-3d` is now taken by multi-file screenplay per the 3a brainstorm — see "Recommended sub-milestone decomposition" above.) |
 | Tag rename / merge across documents | **Discarded** | Cheap to add but rare in practice; writers settle vocabulary early. Re-evaluate only if a real user complains. |
 | Notes pane (`notes/` folder) | **Discarded** | Research browser already covers most use cases. Don't fragment user mental model on speculation. The `notes/` folder stays scaffolded; no UI. Re-evaluate only after sustained real-world usage surfaces a need. |
 | Drag-research-into-editor | **Discarded for now** | Without inline-image rendering in NSTextView (Phase 5+), this would just insert text the user could type manually. Group with image-attachment work in a future phase. |
