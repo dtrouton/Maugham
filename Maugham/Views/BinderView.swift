@@ -73,7 +73,8 @@ struct BinderView: View {
         )
         .contextMenu {
             Button("New Document") {
-                Task { await addItem(parent: item, kind: .document(extension: "md")) }
+                let ext = store.manifest.type == .screenplay ? "fountain" : "md"
+                Task { await addItem(parent: item, kind: .document(extension: ext)) }
             }
             Button("New Group") {
                 Task { await addItem(parent: item, kind: .group) }

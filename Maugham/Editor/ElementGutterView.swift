@@ -10,6 +10,16 @@ final class ElementGutterView: NSView {
 
     override var isFlipped: Bool { true }
 
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        wantsLayer = true
+    }
+
     /// Static abbreviation lookup. Exposed for unit testing via `@testable`.
     static func abbreviation(for element: ScreenplayElement) -> String? {
         switch element {
@@ -73,11 +83,11 @@ final class ElementGutterView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
-        // Fill the background to erase stale labels from previous draws —
-        // critical when the script becomes empty (e.g., select-all + delete).
+        // Update the layer's background color to match the current theme.
+        // wantsLayer = true (set in init) ensures the layer auto-clears
+        // between draws, so we don't need an explicit fill that could bleed.
         let palette = currentPalette()
-        palette.background.setFill()
-        dirtyRect.fill()
+        layer?.backgroundColor = palette.background.cgColor
 
         guard let textView = associatedTextView,
               let layoutManager = textView.layoutManager,
