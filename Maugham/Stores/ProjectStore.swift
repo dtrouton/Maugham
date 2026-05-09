@@ -891,6 +891,14 @@ public final class ProjectStore {
         try await saveManifest()
     }
 
+    /// Toggle the per-project element gutter. nil = default (show); false =
+    /// hide. The screenplay editor reads this on each layout pass.
+    public func setShowElementGutter(_ value: Bool?) async throws {
+        manifest.showElementGutter = value
+        manifest.modified = Date()
+        try await saveManifest()
+    }
+
     /// Persist the current manuscript text and an updated `modified` timestamp.
     /// Manifest write is atomic via temp-file + rename. Manuscript write is
     /// non-atomic in 1a; NSFileCoordinator integration arrives in milestone 1e.

@@ -22,6 +22,10 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// the user-level UserPreferences.typography.
     public var typography: TypographySettings?
 
+    /// Per-project toggle for the element-type gutter (3b). Nil = use default
+    /// (show for screenplay projects). Set explicitly to false to hide.
+    public var showElementGutter: Bool?
+
     public init(
         schemaVersion: Int = ProjectManifest.currentSchemaVersion,
         type: ProjectType,
@@ -32,7 +36,8 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         structure: [StructureItem],
         research: [ResearchItem],
         targets: ProjectTargets? = nil,
-        typography: TypographySettings? = nil
+        typography: TypographySettings? = nil,
+        showElementGutter: Bool? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.type = type
@@ -44,5 +49,6 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         self.research = research
         self.targets = targets
         self.typography = typography
+        self.showElementGutter = showElementGutter
     }
 }
