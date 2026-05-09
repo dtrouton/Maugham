@@ -91,7 +91,7 @@ Phase 3 is too big for one milestone (~35 tasks). Decompose into four (originall
 
 ### 3c — Scene navigator + title page + polish
 
-**Scope:** Scene-by-scene navigation overlay for screenplays, plus the Fountain title page block, plus inline emphasis inside dialogue if capacity allows.
+**Scope:** Scene-by-scene navigation overlay for screenplays, plus the Fountain title page block, plus inline emphasis inside dialogue if capacity allows, plus the syntax help overlay.
 
 **Deliverables:**
 - `SceneNavigator` view: extracts sluglines from current Fountain text, lists them with INT./EXT., scene headings, and page numbers
@@ -100,6 +100,7 @@ Phase 3 is too big for one milestone (~35 tasks). Decompose into four (originall
 - For Novel/Short Story: scene navigator hidden or disabled
 - **Title page block** parsed (key-value pairs separated from body by blank line): `Title:`, `Credit:`, `Author:`, `Source:`, `Draft date:`, `Contact:`, `Notes:`. Rendered as a styled block at the head of the document; optionally mirrored in Inspector.
 - **Inline emphasis** inside dialogue/action — `*italic*` and `**bold**` mid-line. Extends `inlineSpans` with `.italic` / `.bold` kinds. (May fall to Phase 4 if 3c gets squeezed.)
+- **⌘? syntax help overlay** — keyboard shortcut surfaces a HUD-style popover showing the active mode's syntax reference (markdown or fountain). Source content is the committed `docs/markdown-syntax.md` / `docs/fountain-syntax.md` (added during 3a). Dismissed with Escape, click-outside, or another `⌘?`. The popover renders the markdown content via `NSAttributedString` with the editor's current theme colors. Mode-aware: prose docs show markdown reference; screenplay docs show fountain reference. Mirrors the existing `SaveFlashOverlay` pattern but as a longer-lived dismissible popover rather than an auto-fading flash.
 - Optional: scene-by-scene word/page count summary in Statistics window (extends 2c's Words by Chapter to "Words/Pages by Scene" for screenplay projects)
 
 **Why third:** Less load-bearing than 3a/3b. A screenwriter can absolutely use 3a+3b without a navigator (just scroll). 3c is polish + the discrete title-page feature.
