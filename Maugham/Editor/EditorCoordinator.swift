@@ -229,31 +229,6 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                   doCommandBy commandSelector: Selector) -> Bool {
         guard mode is ScreenplayMode else { return false }
 
-        if autocompleter.isVisible {
-            switch commandSelector {
-            case #selector(NSResponder.moveUp(_:)):
-                autocompleter.moveSelectionUp()
-                return true
-            case #selector(NSResponder.moveDown(_:)):
-                autocompleter.moveSelectionDown()
-                return true
-            case #selector(NSResponder.insertTab(_:)):
-                autocompleter.acceptSelection(in: textView)
-                return true
-            case #selector(NSResponder.cancelOperation(_:)):
-                autocompleter.dismiss()
-                return true
-            case #selector(NSResponder.insertNewline(_:)):
-                // Enter does NOT accept — let it pass through as a newline.
-                // The selection-change that follows naturally dismisses the
-                // popover (cursor moves to a different line).
-                autocompleter.dismiss()
-                return false
-            default:
-                return false
-            }
-        }
-
         switch commandSelector {
         case #selector(NSResponder.insertTab(_:)):
             cycleElementForward(in: textView)
@@ -288,9 +263,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         let postEditSelection = textView.selectedRange()
         binding.wrappedValue = textView.string
         retokenizeAndStyle()
-        if mode is ScreenplayMode {
-            updateAutocomplete(in: textView)
-        }
+        // Autocomplete trigger deferred — see milestone-3b notes.
         if !skipCursorRestore {
             if textView.selectedRange() != postEditSelection {
                 textView.setSelectedRange(postEditSelection)
@@ -321,9 +294,6 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                 lastCycleTarget = nil
                 lastCycleTargetLineRange = nil
             }
-        }
-        if mode is ScreenplayMode {
-            updateAutocomplete(in: textView)
         }
         if typewriterScroll {
             scrollSelectionToVerticalCenter(in: textView)

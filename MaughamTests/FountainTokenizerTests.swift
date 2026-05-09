@@ -85,10 +85,12 @@ final class FountainTokenizerTests: XCTestCase {
         XCTAssertEqual(script.lines[1].content, "Hello there.")
     }
 
-    func test_allCapsLine_alone_classifiesAsAction() {
-        // No following non-blank line → not a character cue.
+    func test_allCapsLine_alone_classifiesAsCharacter() {
+        // ALL-CAPS line preceded by blank classifies as Character even
+        // without dialogue below — supports live editing where the user
+        // is mid-typing (about to type dialogue but hasn't yet).
         let script = parser.parse("BARRY\n")
-        XCTAssertEqual(script.lines[0].element, .action)
+        XCTAssertEqual(script.lines[0].element, .character)
     }
 
     func test_forcedCharacterAt_classifiesAsCharacter() {

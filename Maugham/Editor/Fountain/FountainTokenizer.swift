@@ -138,27 +138,7 @@ public struct FountainTokenizer: Sendable {
                 inlineSpans: []))
         }
 
-        // Post-pass: orphan Character cue → Action (unchanged from Task 3).
-        var corrected: [FountainLine] = []
-        corrected.reserveCapacity(lines.count)
-        for (index, line) in lines.enumerated() {
-            if line.element == .character && !line.isForced {
-                let next = (index + 1 < lines.count) ? lines[index + 1] : nil
-                let nextIsBlank = next.map { $0.content.isEmpty } ?? true
-                if nextIsBlank {
-                    corrected.append(FountainLine(
-                        range: line.range,
-                        element: .action,
-                        content: line.content,
-                        isForced: false,
-                        sourceCase: line.sourceCase,
-                        inlineSpans: line.inlineSpans))
-                    continue
-                }
-            }
-            corrected.append(line)
-        }
-        return FountainScript(lines: corrected)
+        return FountainScript(lines: lines)
     }
 
     // MARK: - Classification

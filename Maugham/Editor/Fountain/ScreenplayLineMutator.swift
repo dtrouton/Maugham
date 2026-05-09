@@ -69,13 +69,11 @@ public enum ScreenplayLineMutator {
         line: String,
         neighborhood: LineNeighborhood
     ) -> Result {
-        if line.hasPrefix(".") && !line.hasPrefix("..") {
-            return Result(text: line, cursorOffset: (line as NSString).length)
+        let stripped = stripActionMarkers(line)
+        if neighborhood.prevIsBlank && hasSceneHeadingPrefix(stripped) {
+            return Result(text: stripped, cursorOffset: (stripped as NSString).length)
         }
-        if neighborhood.prevIsBlank && hasSceneHeadingPrefix(line) {
-            return Result(text: line, cursorOffset: (line as NSString).length)
-        }
-        let new = "." + line
+        let new = "." + stripped
         return Result(text: new, cursorOffset: (new as NSString).length)
     }
 
@@ -83,24 +81,20 @@ public enum ScreenplayLineMutator {
         line: String,
         neighborhood: LineNeighborhood
     ) -> Result {
-        if line.hasPrefix("@") {
-            return Result(text: line, cursorOffset: (line as NSString).length)
-        }
-        if isAllUppercaseLetters(line)
+        let stripped = stripActionMarkers(line)
+        if isAllUppercaseLetters(stripped)
             && neighborhood.prevIsBlank
             && !neighborhood.nextIsBlank {
-            return Result(text: line, cursorOffset: (line as NSString).length)
+            return Result(text: stripped, cursorOffset: (stripped as NSString).length)
         }
-        let new = "@" + line
+        let new = "@" + stripped
         return Result(text: new, cursorOffset: (new as NSString).length)
     }
 
     private static func mutateToParenthetical(line: String) -> Result {
-        if line.hasPrefix("(") && line.hasSuffix(")") {
-            return Result(text: line, cursorOffset: (line as NSString).length)
-        }
-        let new = "(\(line))"
-        // Cursor inside the opening paren, before content.
+        let stripped = stripActionMarkers(line)
+        let new = "(\(stripped))"
+        // Cursor inside the opening paren — between '(' and the content.
         return Result(text: new, cursorOffset: 1)
     }
 
@@ -108,23 +102,19 @@ public enum ScreenplayLineMutator {
         line: String,
         neighborhood: LineNeighborhood
     ) -> Result {
-        if line.hasPrefix(">") {
-            return Result(text: line, cursorOffset: (line as NSString).length)
-        }
+        let stripped = stripActionMarkers(line)
         if neighborhood.prevIsBlank
-            && isAllUppercaseLetters(line)
-            && line.uppercased().hasSuffix("TO:") {
-            return Result(text: line, cursorOffset: (line as NSString).length)
+            && isAllUppercaseLetters(stripped)
+            && stripped.uppercased().hasSuffix("TO:") {
+            return Result(text: stripped, cursorOffset: (stripped as NSString).length)
         }
-        let new = "> " + line
+        let new = "> " + stripped
         return Result(text: new, cursorOffset: (new as NSString).length)
     }
 
     private static func mutateToLyric(line: String) -> Result {
-        if line.hasPrefix("~") {
-            return Result(text: line, cursorOffset: (line as NSString).length)
-        }
-        let new = "~" + line
+        let stripped = stripActionMarkers(line)
+        let new = "~" + stripped
         return Result(text: new, cursorOffset: (new as NSString).length)
     }
 

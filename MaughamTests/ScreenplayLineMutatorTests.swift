@@ -134,10 +134,13 @@ final class ScreenplayLineMutatorTests: XCTestCase {
         XCTAssertEqual(result.text, "> cut to:")
     }
 
-    func test_mutateToTransition_alreadyForced_unchanged() {
+    func test_mutateToTransition_alreadyForced_stripsToContextual() {
+        // Strip-then-apply: "> SMASH CUT TO:" strips to "SMASH CUT TO:",
+        // which satisfies the contextual transition rule (blankAbove + allCaps
+        // + ends in TO:), so the forced marker is dropped.
         let result = ScreenplayLineMutator.mutate(
             line: "> SMASH CUT TO:", to: .transition, neighborhood: blankAbove)
-        XCTAssertEqual(result.text, "> SMASH CUT TO:")
+        XCTAssertEqual(result.text, "SMASH CUT TO:")
     }
 
     // MARK: - Lyric
@@ -171,5 +174,22 @@ final class ScreenplayLineMutatorTests: XCTestCase {
         let second = ScreenplayLineMutator.mutate(
             line: first.text, to: .parenthetical, neighborhood: nonBlankAbove)
         XCTAssertEqual(first.text, second.text)
+    }
+
+    // MARK: - Cycle-cleanup (strip-then-apply)
+
+    func test_mutateToTransition_stripsExistingParensFromCycle() {
+        // Cycling Parenthetical -> Transition should strip the parens
+        // before prepending the transition marker, so the result is just
+        // "> " not "> ()".
+        let result = ScreenplayLineMutator.mutate(
+            line: "()", to: .transition, neighborhood: nonBlankAbove)
+        XCTAssertEqual(result.text, "> ")
+    }
+
+    func test_mutateToCharacter_stripsExistingParensFromCycle() {
+        let result = ScreenplayLineMutator.mutate(
+            line: "()", to: .character, neighborhood: nonBlankAbove)
+        XCTAssertEqual(result.text, "@")
     }
 }
