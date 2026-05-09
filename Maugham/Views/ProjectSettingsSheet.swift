@@ -61,6 +61,8 @@ struct ProjectSettingsSheet: View {
                                 in: 60...90)
                     }
                 }
+
+                screenplaySection()
             }
             .formStyle(.grouped)
 
@@ -105,5 +107,23 @@ struct ProjectSettingsSheet: View {
         guard !useDefaults else { return }
         let d = draft
         Task { try? await store.setProjectTypography(d) }
+    }
+
+    @ViewBuilder
+    private func screenplaySection() -> some View {
+        if store.manifest.type == .screenplay {
+            Section("Screenplay") {
+                Toggle("Show element gutter", isOn: Binding(
+                    get: { store.manifest.showElementGutter ?? true },
+                    set: { newValue in
+                        Task { await applyGutterToggle(newValue) }
+                    }))
+            }
+        }
+    }
+
+    private func applyGutterToggle(_ newValue: Bool) async {
+        // Persist as nil when value matches default (show), else explicit.
+        try? await store.setShowElementGutter(newValue ? nil : false)
     }
 }

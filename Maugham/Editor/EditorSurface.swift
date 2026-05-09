@@ -21,6 +21,7 @@ struct EditorSurface: NSViewRepresentable {
     /// Optional id-returning resolver used by mouseDown click routing.
     /// Returns the doc id if the title resolves, nil otherwise.
     var wikiLinkClickResolver: ((String) -> String?)? = nil
+    var showElementGutter: Bool = true
 
     func makeCoordinator() -> EditorCoordinator {
         let coordinator = EditorCoordinator(
@@ -74,7 +75,7 @@ struct EditorSurface: NSViewRepresentable {
 
         context.coordinator.attach(to: textView)
         textView.coordinator = context.coordinator
-        if mode is ScreenplayMode {
+        if mode is ScreenplayMode && showElementGutter {
             textView.installGutter(coordinator: context.coordinator)
         }
         return scrollView
@@ -115,9 +116,10 @@ struct EditorSurface: NSViewRepresentable {
                 sentence: sentenceFocus, paragraph: paragraphFocus)
         }
         // Mode-change reconciliation for gutter.
-        if mode is ScreenplayMode && textView.gutterView == nil {
+        let needsGutter = (mode is ScreenplayMode) && showElementGutter
+        if needsGutter && textView.gutterView == nil {
             textView.installGutter(coordinator: context.coordinator)
-        } else if !(mode is ScreenplayMode) && textView.gutterView != nil {
+        } else if !needsGutter && textView.gutterView != nil {
             textView.removeGutter()
         }
     }

@@ -61,7 +61,8 @@ struct EditorHost: View {
                         documentStore.setCursor(position, for: path)
                     },
                     wikiLinkResolver: wikiLinkResolver,
-                    wikiLinkClickResolver: wikiLinkClickResolver
+                    wikiLinkClickResolver: wikiLinkClickResolver,
+                    showElementGutter: store.manifest.showElementGutter ?? true
                 )
                 .id(path)
             } else if currentItem?.type == .group {
