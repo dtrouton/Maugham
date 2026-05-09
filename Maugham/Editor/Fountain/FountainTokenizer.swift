@@ -47,7 +47,28 @@ public struct FountainTokenizer: Sendable {
             prevElement = classified.element
         }
 
-        return FountainScript(lines: lines)
+        // Post-pass: a tentative Character cue must be followed by a non-blank
+        // line. If it isn't, demote it to .action.
+        var corrected: [FountainLine] = []
+        corrected.reserveCapacity(lines.count)
+        for (index, line) in lines.enumerated() {
+            if line.element == .character && !line.isForced {
+                let next = (index + 1 < lines.count) ? lines[index + 1] : nil
+                let nextIsBlank = next.map { $0.content.isEmpty } ?? true
+                if nextIsBlank {
+                    corrected.append(FountainLine(
+                        range: line.range,
+                        element: .action,
+                        content: line.content,
+                        isForced: false,
+                        sourceCase: line.sourceCase,
+                        inlineSpans: line.inlineSpans))
+                    continue
+                }
+            }
+            corrected.append(line)
+        }
+        return FountainScript(lines: corrected)
     }
 
     // MARK: - Classification
@@ -72,6 +93,22 @@ public struct FountainTokenizer: Sendable {
                 isForced: true)
         }
 
+        // Forced action bang.
+        if line.hasPrefix("!") {
+            return Classified(
+                element: .action,
+                content: String(line.dropFirst()),
+                isForced: true)
+        }
+
+        // Forced character.
+        if line.hasPrefix("@") {
+            return Classified(
+                element: .character,
+                content: String(line.dropFirst()),
+                isForced: true)
+        }
+
         // Context-sensitive scene heading: starts with INT./EXT./EST./I/E./
         // INT/EXT., case-insensitive, and has a blank line above.
         if prevBlank && Self.isSceneHeadingPrefix(line) {
@@ -81,10 +118,46 @@ public struct FountainTokenizer: Sendable {
                 isForced: false)
         }
 
+        // Tentative Character: ALL-CAPS letters with blank line above.
+        // The "followed by a non-blank line" requirement is enforced in a
+        // post-pass (second loop), since enumerateSubstrings doesn't give
+        // us forward lookahead cheaply.
+        if prevBlank && Self.isAllCapsCueCandidate(line) {
+            return Classified(
+                element: .character,
+                content: line,
+                isForced: false)
+        }
+
+        // Inside a dialogue block: parenthetical or continued dialogue.
+        if prevElement == .character || prevElement == .parenthetical || prevElement == .dialogue {
+            if line.hasPrefix("(") && line.hasSuffix(")") {
+                return Classified(
+                    element: .parenthetical,
+                    content: line,
+                    isForced: false)
+            }
+            return Classified(
+                element: .dialogue,
+                content: line,
+                isForced: false)
+        }
+
         return Classified(
             element: .action,
             content: line,
             isForced: false)
+    }
+
+    private static func isAllCapsCueCandidate(_ line: String) -> Bool {
+        var hasLetter = false
+        for ch in line {
+            if ch.isLetter {
+                hasLetter = true
+                if ch.isLowercase { return false }
+            }
+        }
+        return hasLetter
     }
 
     private static let sceneHeadingPrefixes = [

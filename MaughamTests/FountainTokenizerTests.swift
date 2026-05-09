@@ -73,4 +73,59 @@ final class FountainTokenizerTests: XCTestCase {
         let script = parser.parse("..ellipsis-ish")
         XCTAssertEqual(script.lines[0].element, .action)
     }
+
+    // MARK: - Character / Dialogue / Parenthetical
+
+    func test_allCapsLine_followedByDialogue_classifiesAsCharacter() {
+        let script = parser.parse("BARRY\nHello there.")
+        XCTAssertEqual(script.lines[0].element, .character)
+        XCTAssertEqual(script.lines[0].content, "BARRY")
+        XCTAssertEqual(script.lines[0].sourceCase, .upper)
+        XCTAssertEqual(script.lines[1].element, .dialogue)
+        XCTAssertEqual(script.lines[1].content, "Hello there.")
+    }
+
+    func test_allCapsLine_alone_classifiesAsAction() {
+        // No following non-blank line → not a character cue.
+        let script = parser.parse("BARRY\n")
+        XCTAssertEqual(script.lines[0].element, .action)
+    }
+
+    func test_forcedCharacterAt_classifiesAsCharacter() {
+        let script = parser.parse("@Sam\nHi.")
+        XCTAssertEqual(script.lines[0].element, .character)
+        XCTAssertEqual(script.lines[0].content, "Sam")
+        XCTAssertEqual(script.lines[0].isForced, true)
+        XCTAssertEqual(script.lines[0].sourceCase, .mixed)
+    }
+
+    func test_parentheticalBetweenCharacterAndDialogue() {
+        let script = parser.parse("BARRY\n(quietly)\nHi.")
+        XCTAssertEqual(script.lines[0].element, .character)
+        XCTAssertEqual(script.lines[1].element, .parenthetical)
+        XCTAssertEqual(script.lines[1].content, "(quietly)")
+        XCTAssertEqual(script.lines[2].element, .dialogue)
+    }
+
+    func test_dialogueContinuesAcrossMultipleLines() {
+        let script = parser.parse("BARRY\nLine one.\nLine two.\nLine three.")
+        XCTAssertEqual(script.lines[1].element, .dialogue)
+        XCTAssertEqual(script.lines[2].element, .dialogue)
+        XCTAssertEqual(script.lines[3].element, .dialogue)
+    }
+
+    func test_dialogueEndsAtBlankLine() {
+        let script = parser.parse("BARRY\nDialogue.\n\nAction line.")
+        XCTAssertEqual(script.lines[1].element, .dialogue)
+        XCTAssertEqual(script.lines[3].element, .action)
+    }
+
+    func test_forcedActionBang_classifiesAsAction() {
+        // Without bang, an ALL-CAPS line preceded by blank with following
+        // non-blank line would be Character. Forced-action bang overrides.
+        let script = parser.parse("!ALL CAPS DESCRIPTION\nMore action.")
+        XCTAssertEqual(script.lines[0].element, .action)
+        XCTAssertEqual(script.lines[0].content, "ALL CAPS DESCRIPTION")
+        XCTAssertEqual(script.lines[0].isForced, true)
+    }
 }
