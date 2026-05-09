@@ -63,8 +63,17 @@ public final class CharacterAutocompleter: NSObject {
             dismiss()
             return
         }
+
+        // If suggestions are unchanged AND popover is already visible, no work.
+        if popover.isShown && self.suggestions == suggestions {
+            return
+        }
+
+        let suggestionsChanged = self.suggestions != suggestions
         self.suggestions = suggestions
-        self.selectedIndex = 0
+        if suggestionsChanged {
+            self.selectedIndex = 0
+        }
 
         let height = CGFloat(min(suggestions.count, 8) * 24 + 8)
         if let containerView = popover.contentViewController?.view {
@@ -73,14 +82,26 @@ public final class CharacterAutocompleter: NSObject {
         }
 
         tableView.reloadData()
-        tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
-
-        if popover.isShown {
-            // Reposition.
-            popover.show(relativeTo: anchorRect, of: view, preferredEdge: .minY)
-        } else {
-            popover.show(relativeTo: anchorRect, of: view, preferredEdge: .minY)
+        if !suggestions.isEmpty, selectedIndex < suggestions.count {
+            tableView.selectRowIndexes(
+                IndexSet(integer: selectedIndex), byExtendingSelection: false)
         }
+
+        // Don't re-show if already visible — re-showing during animation has
+        // surfaced as a crash source. AppKit handles content updates fine via
+        // reloadData; the popover stays anchored at its initial position.
+        guard !popover.isShown else { return }
+
+        // Clamp anchor rect to the relativeTo view's bounds to avoid the
+        // "anchor rect outside view bounds" exception.
+        let viewBounds = view.bounds
+        let clampedRect = NSRect(
+            x: max(viewBounds.minX, min(anchorRect.origin.x, viewBounds.maxX - 1)),
+            y: max(viewBounds.minY, min(anchorRect.origin.y, viewBounds.maxY - 1)),
+            width: max(1, min(anchorRect.width, viewBounds.width)),
+            height: max(1, min(anchorRect.height, viewBounds.height)))
+
+        popover.show(relativeTo: clampedRect, of: view, preferredEdge: .minY)
     }
 
     public func dismiss() {
