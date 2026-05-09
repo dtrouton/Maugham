@@ -72,12 +72,18 @@ final class ElementGutterView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
+
+        // Fill the background to erase stale labels from previous draws —
+        // critical when the script becomes empty (e.g., select-all + delete).
+        let palette = currentPalette()
+        palette.background.setFill()
+        dirtyRect.fill()
+
         guard let textView = associatedTextView,
               let layoutManager = textView.layoutManager,
               let container = textView.textContainer,
               let script = coordinator?.lastParsedScript else { return }
 
-        let palette = currentPalette()
         let baseSize = textView.font?.pointSize ?? 13
         let font = NSFont.monospacedSystemFont(ofSize: baseSize, weight: .regular)
             .scaled(by: 0.7)

@@ -508,6 +508,14 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // Cursor must be at end of line content.
         // End of line in source: range covers content + trailing newline if
         // present. Subtract 1 if the line's source text ends with newline.
+        // Bound-check the range against current storage — lastParsedScript
+        // can be momentarily stale relative to textView.string (selection-
+        // change fires before textDidChange + retokenizeAndStyle re-parses).
+        let storageLength = (textView.string as NSString).length
+        guard NSMaxRange(activeLine.range) <= storageLength else {
+            autocompleter.dismiss()
+            return
+        }
         let lineSource = (textView.string as NSString).substring(with: activeLine.range)
         let trailingNewlineLength = lineSource.hasSuffix("\n") ? 1 : 0
         let endOfLine = activeLine.range.location
