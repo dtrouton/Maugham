@@ -28,25 +28,77 @@ public struct FountainTokenizer: Sendable {
                     isForced: false,
                     sourceCase: .neutral))
                 prevBlank = true
+                prevElement = .action
                 return
             }
 
-            // Default classification — refined in Tasks 2-6.
-            let element: ScreenplayElement = .action
-            let content = trimmedTrailing
+            let classified = Self.classify(
+                line: trimmedTrailing,
+                prevBlank: prevBlank,
+                prevElement: prevElement)
+
             lines.append(FountainLine(
                 range: enclosingRange,
-                element: element,
-                content: content,
-                isForced: false,
-                sourceCase: Self.sourceCase(of: content)))
+                element: classified.element,
+                content: classified.content,
+                isForced: classified.isForced,
+                sourceCase: Self.sourceCase(of: classified.content)))
             prevBlank = false
-            prevElement = element
-
-            _ = prevElement   // silence "never read" until Tasks 2-6 use it
+            prevElement = classified.element
         }
 
         return FountainScript(lines: lines)
+    }
+
+    // MARK: - Classification
+
+    private struct Classified {
+        let element: ScreenplayElement
+        let content: String
+        let isForced: Bool
+    }
+
+    private static func classify(
+        line: String,
+        prevBlank: Bool,
+        prevElement: ScreenplayElement
+    ) -> Classified {
+        // Forced scene heading: leading "." but not "..".
+        if line.hasPrefix(".") && !line.hasPrefix("..") {
+            let stripped = String(line.dropFirst())
+            return Classified(
+                element: .sceneHeading,
+                content: stripped,
+                isForced: true)
+        }
+
+        // Context-sensitive scene heading: starts with INT./EXT./EST./I/E./
+        // INT/EXT., case-insensitive, and has a blank line above.
+        if prevBlank && Self.isSceneHeadingPrefix(line) {
+            return Classified(
+                element: .sceneHeading,
+                content: line,
+                isForced: false)
+        }
+
+        return Classified(
+            element: .action,
+            content: line,
+            isForced: false)
+    }
+
+    private static let sceneHeadingPrefixes = [
+        "INT.", "EXT.", "EST.", "I/E.", "INT/EXT."
+    ]
+
+    private static func isSceneHeadingPrefix(_ line: String) -> Bool {
+        let upper = line.uppercased()
+        for prefix in sceneHeadingPrefixes {
+            if upper.hasPrefix(prefix + " ") || upper == prefix {
+                return true
+            }
+        }
+        return false
     }
 
     static func sourceCase(of text: String) -> SourceCase {
