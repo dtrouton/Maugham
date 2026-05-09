@@ -84,6 +84,31 @@ public struct FountainTokenizer: Sendable {
         prevBlank: Bool,
         prevElement: ScreenplayElement
     ) -> Classified {
+        // Page break: three or more = with no other content.
+        if Self.isPageBreak(line) {
+            return Classified(
+                element: .pageBreak,
+                content: line,
+                isForced: false)
+        }
+
+        // Sections: 1 to 6 leading '#' followed by space then content.
+        if let section = Self.parseSection(line) {
+            return Classified(
+                element: .section(level: section.level),
+                content: section.content,
+                isForced: true)
+        }
+
+        // Synopsis: leading '=' followed by space then content (and not a
+        // page break — already handled above).
+        if line.hasPrefix("= ") {
+            return Classified(
+                element: .synopsis,
+                content: String(line.dropFirst(2)),
+                isForced: true)
+        }
+
         // Forced scene heading: leading "." but not "..".
         if line.hasPrefix(".") && !line.hasPrefix("..") {
             let stripped = String(line.dropFirst())
@@ -216,6 +241,24 @@ public struct FountainTokenizer: Sendable {
             }
         }
         return false
+    }
+
+    private static func isPageBreak(_ line: String) -> Bool {
+        guard line.count >= 3 else { return false }
+        return line.allSatisfy { $0 == "=" }
+    }
+
+    private static func parseSection(_ line: String) -> (level: Int, content: String)? {
+        var level = 0
+        for ch in line {
+            if ch == "#" { level += 1 } else { break }
+            if level > 6 { return nil }   // 7+ # is action
+        }
+        guard level >= 1, level <= 6 else { return nil }
+        let after = line.dropFirst(level)
+        guard after.first == " " else { return nil }
+        let content = String(after.dropFirst())
+        return (level, content)
     }
 
     static func sourceCase(of text: String) -> SourceCase {

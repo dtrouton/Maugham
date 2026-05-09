@@ -164,4 +164,58 @@ final class FountainTokenizerTests: XCTestCase {
         XCTAssertEqual(script.lines[0].content, "la la la")
         XCTAssertEqual(script.lines[0].isForced, true)
     }
+
+    // MARK: - Section / Synopsis / Page Break
+
+    func test_sectionLevelOne_classifiesAsSection1() {
+        let script = parser.parse("# ACT ONE")
+        XCTAssertEqual(script.lines[0].element, .section(level: 1))
+        XCTAssertEqual(script.lines[0].content, "ACT ONE")
+    }
+
+    func test_sectionLevelThree_classifiesAsSection3() {
+        let script = parser.parse("### Beat")
+        XCTAssertEqual(script.lines[0].element, .section(level: 3))
+        XCTAssertEqual(script.lines[0].content, "Beat")
+    }
+
+    func test_sectionLevelSix_classifiesAsSection6() {
+        let script = parser.parse("###### deep")
+        XCTAssertEqual(script.lines[0].element, .section(level: 6))
+    }
+
+    func test_sectionLevelSeven_isAction() {
+        // Fountain caps section nesting at 6.
+        let script = parser.parse("####### too deep")
+        XCTAssertEqual(script.lines[0].element, .action)
+    }
+
+    func test_synopsisEquals_classifiesAsSynopsis() {
+        let script = parser.parse("= the chase begins")
+        XCTAssertEqual(script.lines[0].element, .synopsis)
+        XCTAssertEqual(script.lines[0].content, "the chase begins")
+    }
+
+    func test_pageBreakTripleEquals_classifiesAsPageBreak() {
+        let script = parser.parse("===")
+        XCTAssertEqual(script.lines[0].element, .pageBreak)
+    }
+
+    func test_pageBreakManyEquals_classifiesAsPageBreak() {
+        let script = parser.parse("==========")
+        XCTAssertEqual(script.lines[0].element, .pageBreak)
+    }
+
+    func test_doubleEquals_isAction_notPageBreak() {
+        // Per Fountain spec: page break requires THREE or more =.
+        let script = parser.parse("==")
+        XCTAssertEqual(script.lines[0].element, .action)
+    }
+
+    func test_synopsisRequiresSpace_singleEqualsAlone_isAction() {
+        // "=" alone (no content after) classifies as action; spec requires
+        // "= space content" for synopsis.
+        let script = parser.parse("=")
+        XCTAssertEqual(script.lines[0].element, .action)
+    }
 }
