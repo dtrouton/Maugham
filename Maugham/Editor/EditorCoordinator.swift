@@ -237,13 +237,18 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             case #selector(NSResponder.moveDown(_:)):
                 autocompleter.moveSelectionDown()
                 return true
-            case #selector(NSResponder.insertTab(_:)),
-                 #selector(NSResponder.insertNewline(_:)):
+            case #selector(NSResponder.insertTab(_:)):
                 autocompleter.acceptSelection(in: textView)
                 return true
             case #selector(NSResponder.cancelOperation(_:)):
                 autocompleter.dismiss()
                 return true
+            case #selector(NSResponder.insertNewline(_:)):
+                // Enter does NOT accept — let it pass through as a newline.
+                // The selection-change that follows naturally dismisses the
+                // popover (cursor moves to a different line).
+                autocompleter.dismiss()
+                return false
             default:
                 return false
             }

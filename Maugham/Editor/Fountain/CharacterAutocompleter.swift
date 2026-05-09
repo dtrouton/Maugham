@@ -25,6 +25,7 @@ public final class CharacterAutocompleter: NSObject {
         tv.rowHeight = 22
         tv.usesAlternatingRowBackgroundColors = false
         tv.style = .plain
+        tv.refusesFirstResponder = true
 
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("name"))
         column.width = 200
@@ -102,6 +103,14 @@ public final class CharacterAutocompleter: NSObject {
             height: max(1, min(anchorRect.height, viewBounds.height)))
 
         popover.show(relativeTo: clampedRect, of: view, preferredEdge: .minY)
+
+        // NSPopover takes first responder when it shows; re-establish the
+        // text view as first responder so keystrokes continue to flow into
+        // the document. The popover stays visible — only focus is restored.
+        DispatchQueue.main.async { [weak view] in
+            guard let view else { return }
+            view.window?.makeFirstResponder(view)
+        }
     }
 
     public func dismiss() {
