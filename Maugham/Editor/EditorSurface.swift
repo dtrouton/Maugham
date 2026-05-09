@@ -74,6 +74,9 @@ struct EditorSurface: NSViewRepresentable {
 
         context.coordinator.attach(to: textView)
         textView.coordinator = context.coordinator
+        if mode is ScreenplayMode {
+            textView.installGutter(coordinator: context.coordinator)
+        }
         return scrollView
     }
 
@@ -111,6 +114,12 @@ struct EditorSurface: NSViewRepresentable {
             context.coordinator.applyFocusPrefs(
                 sentence: sentenceFocus, paragraph: paragraphFocus)
         }
+        // Mode-change reconciliation for gutter.
+        if mode is ScreenplayMode && textView.gutterView == nil {
+            textView.installGutter(coordinator: context.coordinator)
+        } else if !(mode is ScreenplayMode) && textView.gutterView != nil {
+            textView.removeGutter()
+        }
     }
 }
 
@@ -125,6 +134,8 @@ private final class MaughamTextView: NSTextView {
     }
 
     weak var coordinator: EditorCoordinator?
+
+    var gutterView: ElementGutterView?
 
     override var acceptsFirstResponder: Bool { true }
     override func becomeFirstResponder() -> Bool {
@@ -161,7 +172,7 @@ private final class MaughamTextView: NSTextView {
         }
     }
 
-    private func updateColumnInset() {
+    fileprivate func updateColumnInset() {
         guard columnWidth > 0, bounds.width > 0 else { return }
         // When the available width is wider than the configured column,
         // center the column with gutters on each side. When the pane is
@@ -181,5 +192,32 @@ private final class MaughamTextView: NSTextView {
                 width: horizontal,
                 height: textContainerInset.height)
         }
+
+        // Update gutter frame if present.
+        if let gutter = gutterView {
+            let gutterWidth = max(0, horizontal)
+            gutter.frame = NSRect(
+                x: 0,
+                y: 0,
+                width: gutterWidth,
+                height: max(bounds.height, frame.height))
+            gutter.needsDisplay = true
+        }
+    }
+
+    func installGutter(coordinator: EditorCoordinator) {
+        guard gutterView == nil else { return }
+        let gutter = ElementGutterView(frame: NSRect(x: 0, y: 0, width: 0, height: 0))
+        gutter.coordinator = coordinator
+        gutter.associatedTextView = self
+        gutter.autoresizingMask = [.height]
+        addSubview(gutter)
+        gutterView = gutter
+        updateColumnInset()
+    }
+
+    func removeGutter() {
+        gutterView?.removeFromSuperview()
+        gutterView = nil
     }
 }
