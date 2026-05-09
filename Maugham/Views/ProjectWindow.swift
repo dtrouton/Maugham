@@ -342,13 +342,17 @@ struct ProjectWindow: View {
         let currentDoc = selectedItemId.flatMap {
             findItem(id: $0, in: store.manifest.structure)
         }
+        let isScreenplay = store.manifest.type == .screenplay
         return GoalIndicatorState(
             docWordCount: metrics.wordCount,
             docWordTarget: currentDoc?.wordTarget,
             projectWordCount: store.projectWordCount,
             projectWordTarget: store.manifest.targets?.totalWords,
             wordsToday: sessionLog.wordsToday(),
-            readingMinutes: metrics.readingMinutes)
+            readingMinutes: metrics.readingMinutes,
+            pageCount: metrics.pageCount,
+            pageTarget: store.manifest.targets?.pageTarget,
+            isScreenplay: isScreenplay)
     }
 
     private func findResearchItem(

@@ -14,6 +14,24 @@ struct GoalIndicatorView: View {
     }
 
     private var label: String {
+        if state.isScreenplay {
+            return screenplayLabel
+        }
+        return proseLabel
+    }
+
+    private var screenplayLabel: String {
+        let pages = state.pageCount ?? 0
+        let pagesStr: String = String(format: "%.1f", pages)
+        if let target = state.pageTarget, target > 0 {
+            let targetStr: String = String(target)
+            let pct: Int = Int((pages / Double(target) * 100).rounded())
+            return pagesStr + " / " + targetStr + " pages (" + String(pct) + "%)"
+        }
+        return pagesStr + " pages"
+    }
+
+    private var proseLabel: String {
         let words: String = state.docWordCount.formatted(.number)
         let today: String = state.wordsToday.formatted(.number)
 
