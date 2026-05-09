@@ -98,23 +98,6 @@ public struct ScreenplayMode: WritingMode {
             }
         }
 
-        // Third pass — display-uppercase marker for forced character/scene/
-        // transition lines whose source isn't already uppercase. Glyph
-        // substitution at draw time is handled by ScreenplayLayoutManager.
-        for line in script.lines {
-            guard line.isForced,
-                  line.sourceCase != .upper else { continue }
-            switch line.element {
-            case .character, .sceneHeading, .transition:
-                guard NSMaxRange(line.range) <= storage.length else { continue }
-                storage.addAttribute(
-                    .maughamDisplayUppercase,
-                    value: true,
-                    range: line.range)
-            default:
-                break
-            }
-        }
         storage.endEditing()
     }
 

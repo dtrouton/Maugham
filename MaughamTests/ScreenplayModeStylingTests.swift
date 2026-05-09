@@ -127,21 +127,6 @@ final class ScreenplayModeStylingTests: XCTestCase {
         XCTAssertNotEqual(bodyColor, noteColor)
     }
 
-    func test_forcedMixedCaseCharacter_getsDisplayUppercaseMarker() {
-        let storage = style("@Sam\nHello.")
-        // The first line's range covers "@Sam\n" — the marker attribute
-        // should be present somewhere within those 5 characters.
-        let attrs = storage.attributes(at: 0, effectiveRange: nil)
-        XCTAssertEqual(attrs[.maughamDisplayUppercase] as? Bool, true)
-    }
-
-    func test_allCapsCharacter_doesNotGetUppercaseMarker() {
-        // A naturally-uppercase character cue doesn't need the marker.
-        let storage = style("BARRY\nHello.")
-        let attrs = storage.attributes(at: 0, effectiveRange: nil)
-        XCTAssertNil(attrs[.maughamDisplayUppercase])
-    }
-
     /// Compute monospace character width for a typography setting,
     /// matching the math in ScreenplayMode.charWidth.
     static func charWidth(typography: TypographySettings) -> CGFloat {

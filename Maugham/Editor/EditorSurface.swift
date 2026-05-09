@@ -39,25 +39,7 @@ struct EditorSurface: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let columnWidth = mode.textColumnWidth(typography: typography)
 
-        let textView: MaughamTextView
-        if mode is ScreenplayMode {
-            // Explicit TextKit 1 wiring for the custom layout manager that
-            // performs visual-uppercase glyph substitution. NSTextView's
-            // default initializer on macOS 14+ uses TextKit 2, which doesn't
-            // expose NSLayoutManager.
-            let storage = NSTextStorage()
-            let layoutManager = ScreenplayLayoutManager()
-            storage.addLayoutManager(layoutManager)
-            let container = NSTextContainer(size: NSSize(
-                width: columnWidth,
-                height: .greatestFiniteMagnitude))
-            container.widthTracksTextView = false
-            layoutManager.addTextContainer(container)
-            textView = MaughamTextView(frame: .zero, textContainer: container)
-        } else {
-            // Prose modes use NSTextView's default (TextKit 2 on macOS 14+).
-            textView = MaughamTextView()
-        }
+        let textView = MaughamTextView()
         textView.columnWidth = columnWidth
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
