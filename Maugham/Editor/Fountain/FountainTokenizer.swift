@@ -17,6 +17,10 @@ public struct FountainTokenizer: Sendable {
         let nsText = text as NSString
         let fullRange = NSRange(location: 0, length: nsText.length)
 
+        // Pre-pass: detect and parse title page block at document head.
+        let (titlePage, titlePageEndOffset) = Self.parseTitlePage(
+            nsText: nsText, fullRange: fullRange)
+
         var lines: [FountainLine] = []
         var prevBlank = true
         var prevElement: ScreenplayElement = .action
@@ -25,6 +29,22 @@ public struct FountainTokenizer: Sendable {
         nsText.enumerateSubstrings(in: fullRange, options: .byLines) {
             substring, _, enclosingRange, _ in
             guard let raw = substring else { return }
+
+            // If this line is inside the title page block, classify as .titlePage.
+            // Don't update prevBlank/prevElement so body classification starts
+            // from the same initial state regardless of title page close mode.
+            if enclosingRange.location < titlePageEndOffset {
+                let trimmed = raw.trimmingCharacters(in: .whitespaces)
+                lines.append(FountainLine(
+                    range: enclosingRange,
+                    element: .titlePage,
+                    content: trimmed,
+                    isForced: false,
+                    sourceCase: Self.sourceCase(of: trimmed),
+                    inlineSpans: []))
+                return
+            }
+
             let trimmed = raw.trimmingCharacters(in: .whitespaces)
 
             // While inside a multi-line block, classify the line as that
@@ -138,7 +158,7 @@ public struct FountainTokenizer: Sendable {
                 inlineSpans: []))
         }
 
-        return FountainScript(lines: lines)
+        return FountainScript(lines: lines, titlePage: titlePage)
     }
 
     // MARK: - Classification
@@ -381,5 +401,153 @@ public struct FountainTokenizer: Sendable {
                 length: rawLength - nextStart)
         }
         return result
+    }
+
+    // MARK: - Title Page Pre-pass
+
+    private static let titlePageKeyMap: [String: String] = [
+        "title": "Title",
+        "credit": "Credit",
+        "author": "Author",
+        "authors": "Author",
+        "source": "Source",
+        "notes": "Notes",
+        "draft date": "Draft date",
+        "contact": "Contact",
+        "copyright": "Copyright",
+    ]
+
+    private static func canonicalTitlePageKey(_ raw: String) -> String? {
+        let lower = raw.lowercased()
+        return titlePageKeyMap[lower]
+    }
+
+    /// Parse the title page block at the document head, if present.
+    /// Returns (fields, endByteOffset). endByteOffset is the offset where
+    /// the body begins (after the title page block + closing blank line).
+    /// If no title page is present, returns (nil, 0).
+    private static func parseTitlePage(
+        nsText: NSString,
+        fullRange: NSRange
+    ) -> (fields: [TitlePageField]?, endOffset: Int) {
+        // Find the first non-empty line; check if it matches Key: Value with
+        // a recognized key. If not, no title page.
+        var firstNonEmpty: NSRange?
+        nsText.enumerateSubstrings(in: fullRange, options: .byLines) {
+            sub, _, enclosing, stop in
+            guard let s = sub else { return }
+            let trimmed = s.trimmingCharacters(in: .whitespaces)
+            if !trimmed.isEmpty {
+                firstNonEmpty = enclosing
+                stop.pointee = true
+            }
+        }
+        guard let firstLineRange = firstNonEmpty else {
+            return (nil, 0)
+        }
+        let firstLineText = nsText.substring(with: firstLineRange)
+            .trimmingCharacters(in: .whitespaces)
+        guard let firstKey = parseKey(firstLineText),
+              canonicalTitlePageKey(firstKey) != nil else {
+            // First line doesn't match recognized title page key.
+            return (nil, 0)
+        }
+
+        // Walk lines from the start, accumulating title page fields until
+        // the close condition.
+        var fields: [TitlePageField] = []
+        var currentKey: String?
+        var currentValue: [String] = []
+        var currentRange: NSRange = NSRange(location: 0, length: 0)
+        var endOffset = 0
+
+        nsText.enumerateSubstrings(in: fullRange, options: .byLines) {
+            sub, _, enclosing, stop in
+            guard let s = sub else { return }
+            let trimmed = s.trimmingCharacters(in: .whitespaces)
+            let leadingWhitespaceCount = s.prefix { $0 == " " || $0 == "\t" }.count
+            let isIndentedContinuation = leadingWhitespaceCount >= 3
+                || (s.hasPrefix("\t"))
+
+            // Close on blank line.
+            if trimmed.isEmpty {
+                Self.flushField(currentKey: &currentKey,
+                                currentValue: &currentValue,
+                                currentRange: &currentRange,
+                                fields: &fields)
+                endOffset = NSMaxRange(enclosing)
+                stop.pointee = true
+                return
+            }
+
+            // Try to match Key: Value (top-level key).
+            if let parsedKey = parseKey(trimmed),
+               !isIndentedContinuation {
+                // New field. Flush current.
+                Self.flushField(currentKey: &currentKey,
+                                currentValue: &currentValue,
+                                currentRange: &currentRange,
+                                fields: &fields)
+                let canonical = canonicalTitlePageKey(parsedKey) ?? parsedKey
+                currentKey = canonical
+                let valueStart = (trimmed as NSString).range(of: ":").location + 1
+                let valueText = (trimmed as NSString).substring(from: valueStart)
+                    .trimmingCharacters(in: .whitespaces)
+                currentValue = valueText.isEmpty ? [] : [valueText]
+                currentRange = enclosing
+            } else if currentKey != nil && isIndentedContinuation {
+                // Continuation of previous field.
+                currentValue.append(trimmed)
+                currentRange = NSRange(
+                    location: currentRange.location,
+                    length: NSMaxRange(enclosing) - currentRange.location)
+            } else {
+                // Non-key non-indented line — closes the title page.
+                Self.flushField(currentKey: &currentKey,
+                                currentValue: &currentValue,
+                                currentRange: &currentRange,
+                                fields: &fields)
+                endOffset = enclosing.location
+                stop.pointee = true
+                return
+            }
+        }
+
+        // If we reached end of document without an explicit close, flush.
+        Self.flushField(currentKey: &currentKey,
+                        currentValue: &currentValue,
+                        currentRange: &currentRange,
+                        fields: &fields)
+        if endOffset == 0 {
+            endOffset = fullRange.length
+        }
+
+        return (fields.isEmpty ? nil : fields, endOffset)
+    }
+
+    private static func flushField(
+        currentKey: inout String?,
+        currentValue: inout [String],
+        currentRange: inout NSRange,
+        fields: inout [TitlePageField]
+    ) {
+        guard let key = currentKey else { return }
+        let value = currentValue.joined(separator: "\n")
+        fields.append(TitlePageField(
+            key: key, value: value, range: currentRange))
+        currentKey = nil
+        currentValue = []
+        currentRange = NSRange(location: 0, length: 0)
+    }
+
+    /// Parse "Key: ..." into the key (without trimming surrounding whitespace).
+    /// Returns nil if the line doesn't have a colon or has invalid key format.
+    private static func parseKey(_ line: String) -> String? {
+        guard let colonIndex = line.firstIndex(of: ":") else { return nil }
+        let key = String(line[..<colonIndex])
+            .trimmingCharacters(in: .whitespaces)
+        guard !key.isEmpty,
+              !key.contains("\n") else { return nil }
+        return key
     }
 }
