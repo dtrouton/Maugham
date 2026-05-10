@@ -87,6 +87,11 @@ struct MaughamApp: App {
                 .keyboardShortcut("i", modifiers: [.command, .option])
             }
             CommandGroup(replacing: .help) {
+                Button("Syntax Reference") {
+                    NotificationCenter.default.post(
+                        name: .maughamShowSyntaxHelp, object: nil)
+                }
+                .keyboardShortcut("?", modifiers: [.command, .shift])
                 Button("Set up Claude Desktop…") {
                     NotificationCenter.default.post(
                         name: .maughamShowClaudeDesktopHelp, object: nil)

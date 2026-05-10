@@ -17,4 +17,5 @@ extension Notification.Name {
     public static let maughamShowProjectStatistics = Notification.Name("maugham.showProjectStatistics")
     public static let maughamScriptDidUpdate = Notification.Name("maugham.script.did.update")
     public static let maughamNavigateToScene = Notification.Name("maugham.navigate.to.scene")
+    public static let maughamShowSyntaxHelp = Notification.Name("maugham.show.syntax.help")
 }

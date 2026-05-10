@@ -25,6 +25,7 @@ struct ProjectWindow: View {
     @State private var showingDiffSheet: Bool = false
     @State private var sessionLog: SessionLog = .empty
     @State private var lastParsedScript: FountainScript? = nil
+    @State private var showingSyntaxHelp: Bool = false
     @Environment(UserPreferences.self) private var userPreferences
     @Environment(\.openWindow) private var openWindow
 
@@ -157,7 +158,11 @@ struct ProjectWindow: View {
             sessionLog: $sessionLog,
             selectedItemId: $selectedItemId,
             binderSegment: $binderSegment,
-            showingTidyAllConfirmation: $showingTidyAllConfirmation))
+            showingTidyAllConfirmation: $showingTidyAllConfirmation,
+            showingSyntaxHelp: $showingSyntaxHelp))
+        .sheet(isPresented: $showingSyntaxHelp) {
+            SyntaxHelpSheet(mode: currentSyntaxHelpMode)
+        }
     }
 
     private struct SessionAndNavigationModifier: ViewModifier {
@@ -167,6 +172,7 @@ struct ProjectWindow: View {
         @Binding var selectedItemId: String?
         @Binding var binderSegment: BinderSegment
         @Binding var showingTidyAllConfirmation: Bool
+        @Binding var showingSyntaxHelp: Bool
 
         func body(content: Content) -> some View {
             content
@@ -205,6 +211,9 @@ struct ProjectWindow: View {
                         }
                     }
                 }
+                .onReceive(NotificationCenter.default.publisher(for: .maughamShowSyntaxHelp)) { _ in
+                    showingSyntaxHelp = true
+                }
                 .alert("Renumber every chapter and scene?",
                        isPresented: $showingTidyAllConfirmation
                 ) {
@@ -229,6 +238,11 @@ struct ProjectWindow: View {
 
     private static func defaultSegment(for type: ProjectType) -> BinderSegment {
         type == .screenplay ? .scenes : .manuscript
+    }
+
+    private var currentSyntaxHelpMode: SyntaxHelpMode {
+        guard let store else { return .prose }
+        return store.manifest.type == .screenplay ? .screenplay : .prose
     }
 
     // MARK: - Column builders
