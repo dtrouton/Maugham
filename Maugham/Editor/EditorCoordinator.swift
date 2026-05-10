@@ -61,6 +61,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
 
     private let autocompleter = CharacterAutocompleter()
 
+    /// Observer token for `maughamNavigateToScene` notifications.
+    private var navigateObserver: NSObjectProtocol?
+
     init(text: Binding<String>,
          mode: any WritingMode,
          theme: Theme,
@@ -77,6 +80,23 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         self.sentenceFocus = sentenceFocus
         self.paragraphFocus = paragraphFocus
         self.wikiLinkResolver = wikiLinkResolver
+        super.init()
+        navigateObserver = NotificationCenter.default.addObserver(
+            forName: .maughamNavigateToScene,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self,
+                  let location = note.userInfo?["lineLocation"] as? Int,
+                  let textView = self.textView else { return }
+            self.navigateToLine(at: location, in: textView)
+        }
+    }
+
+    deinit {
+        if let token = navigateObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
     }
 
     /// Set the text view from outside (called by EditorSurface.makeNSView).
@@ -561,6 +581,16 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         autocompleter.show(suggestions: suggestions,
                            anchorRect: rect,
                            relativeTo: textView)
+    }
+
+    private func navigateToLine(at location: Int, in textView: NSTextView) {
+        let storage = textView.textStorage
+        let length = (storage?.string as NSString?)?.length ?? 0
+        let clamped = max(0, min(location, length))
+        let range = NSRange(location: clamped, length: 0)
+        textView.setSelectedRange(range)
+        textView.scrollRangeToVisible(range)
+        textView.window?.makeFirstResponder(textView)
     }
 
     private func scrollSelectionToVerticalCenter(in textView: NSTextView) {

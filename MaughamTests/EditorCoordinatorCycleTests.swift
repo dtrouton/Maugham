@@ -78,4 +78,22 @@ final class EditorCoordinatorCycleTests: XCTestCase {
     // yields dialogue→parenthetical) once FountainTokenizer produces a second
     // line entry for trailing newlines in "text\n" inputs. Currently
     // enumerateSubstrings(.byLines) yields only one line for "text\n".
+
+    @MainActor
+    func test_maughamNavigateToScene_movesCursor() throws {
+        let tv = makeTextView(text: "INT. KITCHEN - DAY\n\nLarry sits.\n\nINT. ROOFTOP - NIGHT")
+        let coord = makeCoordinator(textView: tv, mode: ScreenplayMode())
+        // Post navigation to position 21 (start of second scene heading).
+        let secondSceneStart = ("INT. KITCHEN - DAY\n\nLarry sits.\n\n" as NSString).length
+        NotificationCenter.default.post(
+            name: .maughamNavigateToScene,
+            object: nil,
+            userInfo: ["lineLocation": secondSceneStart])
+        // Allow the .main queue to deliver.
+        let expectation = XCTestExpectation()
+        DispatchQueue.main.async { expectation.fulfill() }
+        wait(for: [expectation], timeout: 1.0)
+        XCTAssertEqual(tv.selectedRange().location, secondSceneStart)
+        _ = coord  // keep alive through the assertion
+    }
 }
