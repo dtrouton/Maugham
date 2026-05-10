@@ -103,22 +103,15 @@ public struct ScreenplayMode: WritingMode {
             storage.addAttributes(attrs, range: token.range)
         }
 
-        // Second pass — inline note spans within otherwise-non-note lines.
+        // Second pass — inline emphasis/note spans within otherwise-non-note lines.
         // We already have script from the early parse above; no need to re-parse.
-        let italic = NSFont(
-            descriptor: baseFont.fontDescriptor.withSymbolicTraits(.italic),
-            size: baseFont.pointSize) ?? baseFont
-        let dimColor = dim(palette.syntaxPunctuation, alpha: 0.4)
         for line in script.lines where !line.inlineSpans.isEmpty {
             // Skip lines that are entirely .note — they're already styled.
             if line.element == .note { continue }
             for span in line.inlineSpans {
                 guard NSMaxRange(span.range) <= storage.length else { continue }
-                if span.kind == .note {
-                    storage.addAttributes(
-                        [.font: italic, .foregroundColor: dimColor],
-                        range: span.range)
-                }
+                applyInlineSpan(span, in: storage, palette: palette,
+                                baseFont: baseFont)
             }
         }
 
@@ -298,6 +291,95 @@ public struct ScreenplayMode: WritingMode {
 
     private func dim(_ color: NSColor, alpha: CGFloat) -> NSColor {
         color.withAlphaComponent(alpha)
+    }
+
+    private func applyInlineSpan(
+        _ span: FountainInlineSpan,
+        in storage: NSTextStorage,
+        palette: ThemePalette,
+        baseFont: NSFont
+    ) {
+        switch span.kind {
+        case .note:
+            let italic = NSFont(
+                descriptor: baseFont.fontDescriptor.withSymbolicTraits(.italic),
+                size: baseFont.pointSize) ?? baseFont
+            storage.addAttributes(
+                [.font: italic, .foregroundColor: dim(palette.syntaxPunctuation, alpha: 0.4)],
+                range: span.range)
+
+        case .italic:
+            let markerLen = 1
+            let inner = NSRange(
+                location: span.range.location + markerLen,
+                length: span.range.length - markerLen * 2)
+            applyTrait(.italic, in: storage, range: inner, baseFont: baseFont)
+            fadeMarker(in: storage, location: span.range.location, length: 1,
+                       palette: palette)
+            fadeMarker(in: storage,
+                       location: span.range.location + span.range.length - 1,
+                       length: 1, palette: palette)
+
+        case .bold:
+            let markerLen = 2
+            let inner = NSRange(
+                location: span.range.location + markerLen,
+                length: span.range.length - markerLen * 2)
+            applyTrait(.bold, in: storage, range: inner, baseFont: baseFont)
+            fadeMarker(in: storage, location: span.range.location, length: 2,
+                       palette: palette)
+            fadeMarker(in: storage,
+                       location: span.range.location + span.range.length - 2,
+                       length: 2, palette: palette)
+
+        case .underline:
+            let markerLen = 1
+            let inner = NSRange(
+                location: span.range.location + markerLen,
+                length: span.range.length - markerLen * 2)
+            storage.addAttribute(.underlineStyle,
+                                 value: NSUnderlineStyle.single.rawValue,
+                                 range: inner)
+            fadeMarker(in: storage, location: span.range.location, length: 1,
+                       palette: palette)
+            fadeMarker(in: storage,
+                       location: span.range.location + span.range.length - 1,
+                       length: 1, palette: palette)
+        }
+    }
+
+    private func applyTrait(
+        _ trait: NSFontDescriptor.SymbolicTraits,
+        in storage: NSTextStorage,
+        range: NSRange,
+        baseFont: NSFont
+    ) {
+        guard NSMaxRange(range) <= storage.length else { return }
+        // Compose with any existing font traits at the range — read each
+        // run's current font, INSERT the new trait, re-apply.
+        storage.enumerateAttribute(.font, in: range, options: []) { value, subrange, _ in
+            let current = (value as? NSFont) ?? baseFont
+            var traits = current.fontDescriptor.symbolicTraits
+            traits.insert(trait)
+            if let composed = NSFont(
+                descriptor: current.fontDescriptor.withSymbolicTraits(traits),
+                size: current.pointSize) {
+                storage.addAttribute(.font, value: composed, range: subrange)
+            }
+        }
+    }
+
+    private func fadeMarker(
+        in storage: NSTextStorage,
+        location: Int,
+        length: Int,
+        palette: ThemePalette
+    ) {
+        let range = NSRange(location: location, length: length)
+        guard NSMaxRange(range) <= storage.length else { return }
+        storage.addAttribute(.foregroundColor,
+                             value: palette.syntaxPunctuation,
+                             range: range)
     }
 
     private func paragraphStyle(
