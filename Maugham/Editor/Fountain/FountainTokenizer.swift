@@ -125,9 +125,9 @@ public struct FountainTokenizer: Sendable {
                 prevBlank: prevBlank,
                 prevElement: prevElement)
 
-            // Inline note pass: locate any [[ ... ]] within the line, record
-            // sub-ranges relative to the enclosing line range.
-            let inlineSpans = Self.inlineNoteSpans(
+            // Inline span pass: locate notes, bold, italic, and underline spans
+            // within the line, recorded relative to the enclosing line range.
+            let inlineSpans = Self.inlineSpans(
                 in: trimmed,
                 lineRange: enclosingRange,
                 rawLine: raw,
@@ -368,17 +368,47 @@ public struct FountainTokenizer: Sendable {
         return .lower
     }
 
-    private static func inlineNoteSpans(
+    /// Returns inline spans (notes, italic, bold, underline) detected within
+    /// a single line. Order: notes first, then bold (longest first), then
+    /// italic (skipping ranges already inside bold), then underline.
+    private static func inlineSpans(
         in trimmed: String,
         lineRange: NSRange,
         rawLine: String,
         nsText: NSString
     ) -> [FountainInlineSpan] {
+        var result: [FountainInlineSpan] = []
+        let raw = rawLine as NSString
+
+        // 1. Inline notes (existing behavior).
+        result.append(contentsOf: scanNotes(in: raw, lineRange: lineRange))
+
+        // 2. Bold **text**.
+        result.append(contentsOf: scanRegex(
+            pattern: #"\*\*([^*\n]+)\*\*"#,
+            in: raw, lineRange: lineRange, kind: .bold))
+
+        // 3. Italic *text* — delimiters must not be part of **. Lone * on each
+        //    side; content may contain ** (bold inside italic).
+        result.append(contentsOf: scanRegex(
+            pattern: #"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)"#,
+            in: raw, lineRange: lineRange, kind: .italic))
+
+        // 4. Underline _text_.
+        result.append(contentsOf: scanRegex(
+            pattern: #"_([^_\n]+)_"#,
+            in: raw, lineRange: lineRange, kind: .underline))
+
+        return result
+    }
+
+    private static func scanNotes(
+        in raw: NSString, lineRange: NSRange
+    ) -> [FountainInlineSpan] {
         // We scan over the raw line (which retains leading whitespace and
         // any trailing whitespace before newline) so positions are correct
         // relative to lineRange.location.
         var result: [FountainInlineSpan] = []
-        let raw = rawLine as NSString
         let rawLength = raw.length
         var search = NSRange(location: 0, length: rawLength)
 
@@ -399,6 +429,29 @@ public struct FountainTokenizer: Sendable {
             search = NSRange(
                 location: nextStart,
                 length: rawLength - nextStart)
+        }
+        return result
+    }
+
+    private static func scanRegex(
+        pattern: String,
+        in raw: NSString,
+        lineRange: NSRange,
+        kind: FountainInlineSpan.Kind
+    ) -> [FountainInlineSpan] {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return []
+        }
+        var result: [FountainInlineSpan] = []
+        let fullRange = NSRange(location: 0, length: raw.length)
+        regex.enumerateMatches(in: raw as String, options: [],
+                               range: fullRange) { match, _, _ in
+            guard let match else { return }
+            let outer = match.range
+            let spanStart = lineRange.location + outer.location
+            result.append(FountainInlineSpan(
+                range: NSRange(location: spanStart, length: outer.length),
+                kind: kind))
         }
         return result
     }

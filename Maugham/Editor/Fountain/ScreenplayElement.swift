@@ -27,10 +27,15 @@ public enum SourceCase: Equatable, Hashable, Sendable {
     case neutral    // no letters (punctuation/digits only)
 }
 
-/// Sub-range classification within a FountainLine — currently used to mark
-/// inline `[[ ... ]]` notes that don't span a full line.
+/// Sub-range classification within a FountainLine — used to mark
+/// inline `[[ ... ]]` notes and emphasis spans (*italic*, **bold**, _underline_).
 public struct FountainInlineSpan: Equatable, Sendable {
-    public enum Kind: Equatable, Sendable { case note }
+    public enum Kind: Equatable, Sendable {
+        case note
+        case italic
+        case bold
+        case underline
+    }
     public let range: NSRange
     public let kind: Kind
 
