@@ -65,22 +65,46 @@ public struct ScreenplayMode: WritingMode {
         let fullRange = NSRange(location: 0, length: storage.length)
         storage.setAttributes(bodyAttrs, range: fullRange)
 
+        // Parse early to detect title page for first-body-line spacing.
+        let script = parser.parse(storage.string)
+        let hasTitlePage = (script.titlePage != nil)
+
         // First pass — per-line element styling driven by tokens.
+        var isFirstBody = true
+
         for token in tokens {
             guard NSMaxRange(token.range) <= storage.length else { continue }
             guard case let .fountainElement(element, _) = token.kind else { continue }
-            let attrs = self.attributes(
+
+            // Skip titlePage elements (handled by applyTitlePageStyling).
+            if case .titlePage = element { continue }
+
+            var attrs = self.attributes(
                 for: element,
                 palette: palette,
                 baseFont: baseFont,
                 charWidth: charWidth,
                 typography: typography)
+
+            // Add paragraph spacing before the first body element when there's
+            // a title page above.
+            if hasTitlePage && isFirstBody {
+                let mutable: NSMutableParagraphStyle
+                if let existing = attrs[.paragraphStyle] as? NSParagraphStyle {
+                    mutable = (existing.mutableCopy() as! NSMutableParagraphStyle)
+                } else {
+                    mutable = NSMutableParagraphStyle()
+                }
+                mutable.paragraphSpacingBefore = baseFont.pointSize * 2.0
+                attrs[.paragraphStyle] = mutable
+                isFirstBody = false
+            }
+
             storage.addAttributes(attrs, range: token.range)
         }
 
         // Second pass — inline note spans within otherwise-non-note lines.
-        // Re-parse to access inlineSpans (cheap; ~1ms on a feature script).
-        let script = parser.parse(storage.string)
+        // We already have script from the early parse above; no need to re-parse.
         let italic = NSFont(
             descriptor: baseFont.fontDescriptor.withSymbolicTraits(.italic),
             size: baseFont.pointSize) ?? baseFont

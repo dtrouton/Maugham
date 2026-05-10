@@ -61,4 +61,21 @@ final class TitlePageStylingTests: XCTestCase {
         let font = attrs[.font] as? NSFont
         XCTAssertTrue(font!.fontDescriptor.symbolicTraits.contains(.bold))
     }
+
+    func test_firstBodyLineAfterTitlePage_hasExtraParagraphSpacing() {
+        let storage = style("Title: My Script\n\nINT. KITCHEN - DAY")
+        // Find the location of "INT. KITCHEN - DAY".
+        let bodyStart = (("Title: My Script\n\n") as NSString).length
+        let attrs = storage.attributes(at: bodyStart, effectiveRange: nil)
+        let para = attrs[.paragraphStyle] as? NSParagraphStyle
+        XCTAssertNotNil(para)
+        XCTAssertGreaterThan(para?.paragraphSpacingBefore ?? 0, 10)
+    }
+
+    func test_firstBodyLineWithoutTitlePage_hasNoExtraSpacing() {
+        let storage = style("INT. KITCHEN - DAY\n\nLarry sits.")
+        let attrs = storage.attributes(at: 0, effectiveRange: nil)
+        let para = attrs[.paragraphStyle] as? NSParagraphStyle
+        XCTAssertEqual(para?.paragraphSpacingBefore ?? 0, 0, accuracy: 0.5)
+    }
 }
