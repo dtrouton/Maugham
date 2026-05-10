@@ -18,6 +18,9 @@ struct ResearchView: View {
         }
         .listStyle(.sidebar)
         .contextMenu {
+            Button("New Note") {
+                Task { await addResearchNote(parentId: nil) }
+            }
             Button("New Group") {
                 Task { await addGroup(parentId: nil) }
             }
@@ -90,6 +93,10 @@ struct ResearchView: View {
             }
         )
         .contextMenu {
+            Button("New Note") {
+                let parentId = item.type == .group ? item.id : findParentId(of: item.id)
+                Task { await addResearchNote(parentId: parentId) }
+            }
             if item.type == .group {
                 Button("New Group") {
                     Task { await addGroup(parentId: item.id) }
@@ -149,6 +156,16 @@ struct ResearchView: View {
                 parentId: parentId, title: "Untitled Group", kind: nil)
             renamingItemId = g.id
             selectedResearchId = g.id
+        } catch {
+            pendingError = error.localizedDescription
+        }
+    }
+
+    private func addResearchNote(parentId: String?) async {
+        do {
+            let note = try await store.addResearchTextNote(parentId: parentId, title: "Untitled Note")
+            renamingItemId = note.id
+            selectedResearchId = note.id
         } catch {
             pendingError = error.localizedDescription
         }
