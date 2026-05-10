@@ -253,7 +253,7 @@ User-configurable: font, size (12–24pt typical), line-height (1.4–2.0), page
 | 1 | EditorSurface + ProseMode complete. ScreenplayMode stub (monospaced plain text, no parser). Typewriter scroll, sentence/paragraph focus, themes, typography all in. |
 | 2 | Multi-document editing — switching between files in the binder without losing focus state. Word goals, session tracking. |
 | 3 | ScreenplayMode full: Fountain parser, auto-format, Tab/Enter cycling, character autocomplete, scene navigator, page count. |
-| 4 | Final Draft parity: scene numbers, dual dialogue, revisions, FDX import/export. |
+| 4 | Final Draft parity: scene numbers, dual dialogue, revisions, FDX import/export. **Phase 4a:** Screenplay Intelligence — inline character autocomplete, slugline reuse, fountain prefix completion, optional outline minimap. |
 | 5+ | Snapshots in editor (compare versions), Compile UI. |
 
 ---
@@ -576,6 +576,17 @@ Phase 6 deliverables:
 - Research tagging: links between research items and manuscript items
 - Drag-drop images from web/Finder into research, manifest auto-populates
 - Inspector shows linked research for current document
+
+#### Phase 4a — Screenplay Intelligence (IDE-like editing)
+
+A coherent feature group focused on making the screenplay editor feel like a writing IDE rather than just a styled text view. Pulls forward several deferred items from Phase 3 plus adjacent enhancements:
+
+- **Inline character autocomplete** — completion of character names from prior usage in the document (and across files once Phase 3d multi-file ships). Carry-forward from milestone-3b where NSPopover proved too brittle; this milestone is the right place to invest in a robust completion surface (likely NSTextView-driven inline ghost-text with Tab-to-accept rather than a popover).
+- **Slugline reuse** — once you've used `INT. KITCHEN — DAY` somewhere, suggest it again when you start typing a new scene heading. Avoids slugline drift across drafts (e.g., `INT. KITCHEN — DAY` vs `INT. KITCHEN - DAY` vs `INT. THE KITCHEN - DAY`).
+- **Fountain prefix completion** — typing `I` at the start of an empty line offers `INT.` / `INT/EXT.` / `I/E.`; typing `E` offers `EXT.` / `EST.`; typing a transition prefix offers `FADE OUT:` / `CUT TO:` / etc. Reduces cognitive load on element-syntax recall.
+- **Outline minimap (optional)** — a slim secondary sidebar showing section/scene structure for fast navigation in long screenplays. Sits alongside the existing scene navigator or replaces it for "structure mode."
+
+This grouping is post-3d because cross-document context (multi-file mode) makes character-name autocomplete genuinely useful; until then a single document's character set is too small a corpus.
 
 ### Phase 5 — Scrivener Parity
 
