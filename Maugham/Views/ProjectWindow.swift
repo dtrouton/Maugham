@@ -163,6 +163,15 @@ struct ProjectWindow: View {
         .sheet(isPresented: $showingSyntaxHelp) {
             SyntaxHelpSheet(mode: currentSyntaxHelpMode)
         }
+        .preferredColorScheme(preferredColorScheme)
+    }
+
+    private var preferredColorScheme: ColorScheme? {
+        switch userPreferences.theme {
+        case .followSystem: return nil
+        case .dark:         return .dark
+        case .light, .sepia: return .light
+        }
     }
 
     private struct SessionAndNavigationModifier: ViewModifier {
