@@ -36,6 +36,7 @@ final class ElementGutterView: NSView {
         case .pageBreak:            return "PAGE"
         case .boneyard:             return "CUT"
         case .note:                 return "NOTE"
+        case .titlePage:            return nil   // title page lines have no gutter label
         }
     }
 

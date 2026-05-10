@@ -257,6 +257,9 @@ public struct ScreenplayMode: WritingMode {
                     head: 0, tail: charWidth * 60,
                     alignment: .center, typography: typography, baseFont: baseFont),
                 .foregroundColor: dim(palette.syntaxPunctuation, alpha: 0.4)]
+        case .titlePage:
+            return [
+                .foregroundColor: dim(palette.syntaxPunctuation, alpha: 0.4)]
         }
     }
 

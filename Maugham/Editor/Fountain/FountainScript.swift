@@ -3,9 +3,11 @@ import Foundation
 /// A fully parsed Fountain document. Pure value type with computed metrics.
 public struct FountainScript: Equatable, Sendable {
     public let lines: [FountainLine]
+    public let titlePage: [TitlePageField]?
 
-    public init(lines: [FountainLine] = []) {
+    public init(lines: [FountainLine] = [], titlePage: [TitlePageField]? = nil) {
         self.lines = lines
+        self.titlePage = titlePage
     }
 
     public static let empty = FountainScript()
@@ -41,7 +43,7 @@ public struct FountainScript: Equatable, Sendable {
                 totalLines += 1 + sceneHeadingExtraBlankLines
             case .character, .transition, .centered, .lyric:
                 totalLines += 1
-            case .section, .synopsis, .boneyard, .note, .pageBreak:
+            case .section, .synopsis, .boneyard, .note, .pageBreak, .titlePage:
                 totalLines += 0
             }
         }

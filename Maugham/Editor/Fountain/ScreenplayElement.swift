@@ -15,6 +15,7 @@ public enum ScreenplayElement: Equatable, Hashable, Sendable {
     case pageBreak
     case boneyard              // line is part of a /* ... */ block
     case note                  // line is part of a multi-line [[ ... ]] block
+    case titlePage             // line is part of the title page block at document head
 }
 
 /// Casing of the *content* portion of a FountainLine (after stripping any
@@ -36,5 +37,24 @@ public struct FountainInlineSpan: Equatable, Sendable {
     public init(range: NSRange, kind: Kind) {
         self.range = range
         self.kind = kind
+    }
+}
+
+/// One key/value field in a Fountain title page block. Multi-line values
+/// (continuation indent) join with newlines.
+public struct TitlePageField: Equatable, Sendable {
+    /// Canonical-cased key, e.g., "Title", "Author", "Credit". Recognized
+    /// keys are normalized; unknown keys are preserved as-typed.
+    public let key: String
+    /// Value text (may span multiple source lines, joined with `\n`).
+    public let value: String
+    /// NSRange covering the entire field in source (key + colon + value
+    /// + any continuation lines).
+    public let range: NSRange
+
+    public init(key: String, value: String, range: NSRange) {
+        self.key = key
+        self.value = value
+        self.range = range
     }
 }

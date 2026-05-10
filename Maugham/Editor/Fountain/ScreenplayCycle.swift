@@ -35,7 +35,7 @@ public enum ScreenplayCycle {
         case .dialogue:               return .parenthetical
         case .transition:             return .sceneHeading
         case .centered, .lyric, .section, .synopsis,
-             .boneyard, .note, .pageBreak:
+             .boneyard, .note, .pageBreak, .titlePage:
             return .action
         }
     }

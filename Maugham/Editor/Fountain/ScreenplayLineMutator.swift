@@ -52,7 +52,7 @@ public enum ScreenplayLineMutator {
             let stripped = stripActionMarkers(line)
             let new = "= \(stripped)"
             return Result(text: new, cursorOffset: (new as NSString).length)
-        case .pageBreak, .boneyard, .note:
+        case .pageBreak, .boneyard, .note, .titlePage:
             // Not reachable from cycle. Leave text alone.
             return Result(text: line, cursorOffset: line.utf16.count)
         }
