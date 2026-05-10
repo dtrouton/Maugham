@@ -112,6 +112,15 @@ public struct ScreenplayMode: WritingMode {
             }
         }
 
+        // Fourth pass — per-key title page styling. Runs after the per-element
+        // pass so the new styling overrides T1's placeholder dim for .titlePage.
+        applyTitlePageStyling(
+            in: storage,
+            script: script,
+            palette: palette,
+            baseFont: baseFont,
+            typography: typography)
+
         storage.endEditing()
     }
 
@@ -407,5 +416,93 @@ public struct ScreenplayMode: WritingMode {
         }
 
         return ranges
+    }
+
+    /// Apply per-key title page styling. Called from applyTypography after
+    /// the per-element styling pass. Each field's line gets per-key paragraph
+    /// and font attributes (applied to the full line so NSTextStorage paragraph-
+    /// style coalescing works correctly); the key prefix then gets faded to
+    /// palette.syntaxPunctuation color.
+    private func applyTitlePageStyling(
+        in storage: NSTextStorage,
+        script: FountainScript,
+        palette: ThemePalette,
+        baseFont: NSFont,
+        typography: TypographySettings
+    ) {
+        guard let titlePage = script.titlePage else { return }
+        for field in titlePage {
+            guard NSMaxRange(field.range) <= storage.length else { continue }
+            let lineSource = (storage.string as NSString)
+                .substring(with: field.range)
+
+            // Find the colon position — the key is everything before, value is after.
+            guard let colonIdx = lineSource.firstIndex(of: ":") else { continue }
+            let keyLength = lineSource.distance(
+                from: lineSource.startIndex, to: colonIdx) + 1  // include the ":"
+            let keyRange = NSRange(
+                location: field.range.location, length: keyLength)
+
+            // Apply paragraph and font styling to the FULL line range so that
+            // NSTextStorage's paragraph-level attribute coalescing works correctly.
+            // (Paragraph style attributes applied to a sub-range of a paragraph
+            // are silently discarded by NSTextStorage.)
+            let lineAttrs = titlePageValueAttributes(
+                key: field.key, palette: palette,
+                baseFont: baseFont, typography: typography)
+            storage.addAttributes(lineAttrs, range: field.range)
+
+            // Fade the key in syntaxPunctuation color (overrides any foreground
+            // color set by lineAttrs for the key portion).
+            storage.addAttribute(
+                .foregroundColor, value: palette.syntaxPunctuation,
+                range: keyRange)
+        }
+    }
+
+    private func titlePageValueAttributes(
+        key: String,
+        palette: ThemePalette,
+        baseFont: NSFont,
+        typography: TypographySettings
+    ) -> [NSAttributedString.Key: Any] {
+        let para = NSMutableParagraphStyle()
+        para.lineSpacing = max(0,
+            baseFont.pointSize * CGFloat(typography.lineHeightMultiplier - 1.0))
+
+        switch key {
+        case "Title":
+            let bold = NSFont(
+                descriptor: baseFont.fontDescriptor.withSymbolicTraits(.bold),
+                size: baseFont.pointSize * 1.5) ?? baseFont
+            para.alignment = .center
+            return [.paragraphStyle: para, .font: bold]
+        case "Credit":
+            let italic = NSFont(
+                descriptor: baseFont.fontDescriptor.withSymbolicTraits(.italic),
+                size: baseFont.pointSize) ?? baseFont
+            para.alignment = .center
+            return [.paragraphStyle: para, .font: italic]
+        case "Author":
+            para.alignment = .center
+            return [.paragraphStyle: para, .font: baseFont]
+        case "Source":
+            let italic = NSFont(
+                descriptor: baseFont.fontDescriptor.withSymbolicTraits(.italic),
+                size: baseFont.pointSize * 0.9) ?? baseFont
+            para.alignment = .center
+            return [.paragraphStyle: para, .font: italic]
+        default:
+            // Draft date, Contact, Notes, Copyright, unknown keys
+            let smaller = NSFont(
+                descriptor: baseFont.fontDescriptor,
+                size: baseFont.pointSize * 0.85) ?? baseFont
+            para.alignment = .left
+            return [
+                .paragraphStyle: para,
+                .font: smaller,
+                .foregroundColor: palette.syntaxPunctuation,
+            ]
+        }
     }
 }
