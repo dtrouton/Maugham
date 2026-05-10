@@ -176,12 +176,14 @@ private final class MaughamTextView: NSTextView {
 
     fileprivate func updateColumnInset() {
         guard columnWidth > 0, bounds.width > 0 else { return }
-        // When the available width is wider than the configured column,
-        // center the column with gutters on each side. When the pane is
-        // narrower than the column (e.g. squeezed by binder + inspector),
-        // shrink the container to match so text wraps at the visible edge
-        // rather than overflowing.
-        let effectiveColumn = min(columnWidth, bounds.width)
+        // Always reserve a minimum gutter on each side so text never runs
+        // edge-to-edge against the binder/inspector dividers. When the
+        // pane is wider than columnWidth the natural centering produces
+        // generous gutters; when it's narrower we shrink the column to
+        // bounds.width − 2·minGutter so the breathing room is preserved.
+        let minGutter: CGFloat = 16
+        let availableForColumn = max(40, bounds.width - 2 * minGutter)
+        let effectiveColumn = min(columnWidth, availableForColumn)
         let horizontal = max(0, (bounds.width - effectiveColumn) / 2)
         if let container = textContainer,
            abs(container.size.width - effectiveColumn) > 0.5 {
