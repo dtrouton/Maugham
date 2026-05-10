@@ -37,6 +37,10 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.maugham.Maugham
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         COMBINE_HIDPI_IMAGES: YES
+    resources:
+      - path: Maugham/Resources
+        includes:
+          - "*.md"
   MaughamTests:
     type: bundle.unit-test
     platform: macOS
