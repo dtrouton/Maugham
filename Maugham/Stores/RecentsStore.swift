@@ -15,7 +15,15 @@ public final class RecentsStore {
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         let paths = defaults.stringArray(forKey: Self.storageKey) ?? []
-        self.recents = paths.map { URL(fileURLWithPath: $0) }
+        let urls = paths.map { URL(fileURLWithPath: $0) }
+        // Prune entries whose project folder no longer exists on disk.
+        // Keeps the welcome list honest after the writer deletes a project
+        // from Finder.
+        let alive = urls.filter { FileManager.default.fileExists(atPath: $0.path) }
+        self.recents = alive
+        if alive.count != urls.count {
+            defaults.set(alive.map(\.path), forKey: Self.storageKey)
+        }
     }
 
     /// Record a project URL as recently-opened. Moves to front if already present.

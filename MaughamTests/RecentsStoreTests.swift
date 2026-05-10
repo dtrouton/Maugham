@@ -59,9 +59,36 @@ final class RecentsStoreTests: XCTestCase {
         XCTAssertEqual(store.recents.map(\.path), ["/tmp/B"])
     }
 
-    func test_persistsAcrossInstances() {
-        store.record(URL(fileURLWithPath: "/tmp/X"))
+    func test_persistsAcrossInstances() throws {
+        // Use a real temp directory so the prune-on-init guard doesn't drop it.
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RecentsStoreTest-\(UUID())")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        store.record(tmp)
         let other = RecentsStore(defaults: defaults)
-        XCTAssertEqual(other.recents.map(\.path), ["/tmp/X"])
+        XCTAssertEqual(other.recents.map(\.path), [tmp.path])
+    }
+
+    func test_init_prunesMissingFolders() throws {
+        // Create one real folder, persist a list with both real + fake paths, reload.
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RecentsStorePrune-\(UUID())")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        defaults.set([
+            "/tmp/this-does-not-exist-\(UUID())",
+            tmp.path,
+            "/tmp/also-missing-\(UUID())"
+        ], forKey: "maugham.recentProjectPaths")
+
+        let pruned = RecentsStore(defaults: defaults)
+        XCTAssertEqual(pruned.recents.map(\.path), [tmp.path])
+
+        // The pruned list is also persisted, so subsequent reads stay clean.
+        let persistedPaths = defaults.stringArray(forKey: "maugham.recentProjectPaths") ?? []
+        XCTAssertEqual(persistedPaths, [tmp.path])
     }
 }
