@@ -91,7 +91,7 @@ struct MaughamApp: App {
                     NotificationCenter.default.post(
                         name: .maughamShowSyntaxHelp, object: nil)
                 }
-                .keyboardShortcut("?", modifiers: [.command, .shift])
+                .keyboardShortcut("/", modifiers: .command)
                 Button("Set up Claude Desktop…") {
                     NotificationCenter.default.post(
                         name: .maughamShowClaudeDesktopHelp, object: nil)
