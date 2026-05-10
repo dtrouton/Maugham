@@ -15,4 +15,6 @@ extension Notification.Name {
     public static let maughamNavigateToDocument = Notification.Name("maugham.navigateToDocument")
     public static let maughamSessionLogChanged = Notification.Name("maugham.sessionLogChanged")
     public static let maughamShowProjectStatistics = Notification.Name("maugham.showProjectStatistics")
+    public static let maughamScriptDidUpdate = Notification.Name("maugham.script.did.update")
+    public static let maughamNavigateToScene = Notification.Name("maugham.navigate.to.scene")
 }

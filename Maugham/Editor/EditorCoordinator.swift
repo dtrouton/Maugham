@@ -170,6 +170,12 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         } else {
             lastParsedScript = nil
         }
+        // Notify subscribers (e.g., scene navigator) that the script changed.
+        if let script = lastParsedScript {
+            NotificationCenter.default.post(
+                name: .maughamScriptDidUpdate,
+                object: script)
+        }
         // ProseMode supports an optional wiki-link resolver for `[[Title]]`
         // styling. Other modes use the protocol's resolver-less call.
         if let prose = mode as? ProseMode {

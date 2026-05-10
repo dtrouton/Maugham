@@ -24,6 +24,7 @@ struct ProjectWindow: View {
     @State private var showingTidyAllConfirmation: Bool = false
     @State private var showingDiffSheet: Bool = false
     @State private var sessionLog: SessionLog = .empty
+    @State private var lastParsedScript: FountainScript? = nil
     @Environment(UserPreferences.self) private var userPreferences
     @Environment(\.openWindow) private var openWindow
 
@@ -132,6 +133,12 @@ struct ProjectWindow: View {
         .onReceive(NotificationCenter.default.publisher(
             for: .maughamShowProjectStatistics)) { _ in
             openWindow(id: "project-stats", value: url)
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: .maughamScriptDidUpdate)) { note in
+            if let script = note.object as? FountainScript {
+                self.lastParsedScript = script
+            }
         }
         .onChange(of: isNoChromeOn) { _, newValue in
             applyNoChrome()
@@ -272,10 +279,14 @@ struct ProjectWindow: View {
                     systemImage: "doc.text.magnifyingglass")
             }
         case .scenes:
-            // Placeholder; SceneNavigatorPane lands in T7.
-            Text("Scenes pane coming soon")
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            SceneNavigatorPane(
+                script: lastParsedScript,
+                onSelect: { lineLocation in
+                    NotificationCenter.default.post(
+                        name: .maughamNavigateToScene,
+                        object: nil,
+                        userInfo: ["lineLocation": lineLocation])
+                })
         }
     }
 
