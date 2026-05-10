@@ -198,22 +198,18 @@ The page count appears in the bottom-right goal indicator capsule. Set a Page ta
 
 Smart typography (em dash, curly quotes, ellipsis substitution) is **disabled** by default for screenplay mode. Screenplays stay ASCII so they remain compatible with Final Draft, Highland, FountainJS, and other tools that expect plain Fountain.
 
-## What's not supported in milestone-3a
+## Not supported (deliberately)
 
-The following Fountain features are deferred to later milestones:
+The following Fountain features render as plain text or are simply not recognized:
 
-- **Tab/Enter element cycling** — pressing Tab on a line to cycle its element type. **Milestone 3b**.
-- **Character autocomplete** — completion of character names from prior usage. **Milestone 3b**.
-- **Scene navigator** — a slugline jump list. **Milestone 3c**.
-- **Title page block** — `Title:` / `Author:` / `Credit:` metadata at the document head. **Milestone 3c**. Currently those lines render as plain action.
-- **Multi-file screenplays** — one `.fountain` per scene with the binder showing scenes as siblings. **Milestone 3d**.
-- **Visual uppercase for forced characters** — rendering `@sam` as "SAM" via glyph substitution. Deferred (option A is currently active: forced characters render as-typed).
-- **Scene numbers** — `INT. KITCHEN - DAY #5#`. **Phase 4**.
-- **Dual dialogue** — two speakers side-by-side via `^`. **Phase 4**.
-- **MORE / CONT'D** markers across page breaks. **Phase 4**.
-- **Revisions** (color-coded change marks per draft). **Phase 4**.
-- **FDX import/export** (Final Draft binary format). **Phase 4**.
-- **Inline emphasis inside dialogue** — `*italic*` and `**bold**` mid-line. **Phase 3c or 4**.
+- **Scene numbers** (`INT. KITCHEN - DAY #5#`) — production-side metadata, not a writing concern.
+- **Dual dialogue** (two speakers side-by-side via `^`) — rare in practice, complicates layout, and discourages clean drafting.
+- **MORE / CONT'D markers** across page breaks — production-prep concern handled at export, not while drafting.
+- **Revision marks** (color-coded change marks per draft) — production-tool concern.
+- **FDX import/export** (Final Draft binary format) — Maugham keeps screenplays in plain Fountain so they stay readable in any tool. Convert via Highland or any other Fountain-aware editor if you need FDX.
+- **Visual uppercase for forced characters** — `@sam` renders as-typed (lowercase preserved). Glyph-substituting it to "SAM" was deliberately rejected to keep what you type and what you see aligned.
+
+These omissions keep the screenplay surface focused on writing. If a screenwriter needs a feature on this list, file an issue.
 
 ## How to think about it
 
