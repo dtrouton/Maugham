@@ -80,4 +80,27 @@ public struct FountainScript: Equatable, Sendable {
             return line.content.uppercased()
         })
     }
+
+    /// Estimated length of the scene starting at `line` in pages (fractional).
+    /// Walks from `line` until the next sceneHeading (or end of script),
+    /// summing line counts and dividing by linesPerPage.
+    public func sceneLength(startingAt line: FountainLine) -> Double {
+        let linesPerPage = 55
+        var total = 0
+        var insideTarget = false
+        for candidate in lines {
+            if candidate.range.location == line.range.location {
+                insideTarget = true
+                total += Self.lineCount(for: candidate)
+                continue
+            }
+            if insideTarget {
+                if candidate.element == .sceneHeading {
+                    break
+                }
+                total += Self.lineCount(for: candidate)
+            }
+        }
+        return Double(total) / Double(linesPerPage)
+    }
 }
