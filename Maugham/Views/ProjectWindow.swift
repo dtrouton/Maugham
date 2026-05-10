@@ -39,7 +39,8 @@ struct ProjectWindow: View {
                         segment: $binderSegment,
                         selectedItemId: $selectedItemId,
                         selectedResearchId: $selectedResearchId,
-                        projectType: store.manifest.type)
+                        projectType: store.manifest.type,
+                        lastParsedScript: lastParsedScript)
                         .navigationSplitViewColumnWidth(min: 200, ideal: 240)
                 } content: {
                     contentColumn(store: store, documentStore: documentStore)
@@ -240,7 +241,7 @@ struct ProjectWindow: View {
             editorPane(store: store, documentStore: documentStore)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             if userPreferences.goalIndicatorsVisible
-               && binderSegment == .manuscript {
+               && (binderSegment == .manuscript || binderSegment == .scenes) {
                 GoalIndicatorView(state: goalIndicatorState)
             }
         }
@@ -255,7 +256,9 @@ struct ProjectWindow: View {
         store: ProjectStore, documentStore: DocumentStore
     ) -> some View {
         switch binderSegment {
-        case .manuscript:
+        case .manuscript, .scenes:
+            // Both segments show the editor — .scenes is just an alternate
+            // sidebar navigator; the underlying screenplay file is the same.
             EditorHost(
                 store: store,
                 documentStore: documentStore,
@@ -278,15 +281,6 @@ struct ProjectWindow: View {
                     "Select an item to preview",
                     systemImage: "doc.text.magnifyingglass")
             }
-        case .scenes:
-            SceneNavigatorPane(
-                script: lastParsedScript,
-                onSelect: { lineLocation in
-                    NotificationCenter.default.post(
-                        name: .maughamNavigateToScene,
-                        object: nil,
-                        userInfo: ["lineLocation": lineLocation])
-                })
         }
     }
 
@@ -319,7 +313,7 @@ struct ProjectWindow: View {
     @ViewBuilder
     private func inspectorPane(store: ProjectStore) -> some View {
         switch binderSegment {
-        case .manuscript:
+        case .manuscript, .scenes:
             InspectorView(
                 store: store,
                 selectedItemId: selectedItemId,
@@ -336,8 +330,6 @@ struct ProjectWindow: View {
                     "Select an item",
                     systemImage: "info.circle")
             }
-        case .scenes:
-            EmptyView()
         }
     }
 

@@ -6,6 +6,7 @@ struct BinderPaneToggle: View {
     @Binding var selectedItemId: String?
     @Binding var selectedResearchId: String?
     let projectType: ProjectType
+    let lastParsedScript: FountainScript?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -30,9 +31,14 @@ struct BinderPaneToggle: View {
                 case .research:
                     ResearchView(store: store, selectedResearchId: $selectedResearchId)
                 case .scenes:
-                    Text("Scenes pane coming soon")
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    SceneNavigatorPane(
+                        script: lastParsedScript,
+                        onSelect: { lineLocation in
+                            NotificationCenter.default.post(
+                                name: .maughamNavigateToScene,
+                                object: nil,
+                                userInfo: ["lineLocation": lineLocation])
+                        })
                 }
             }
         }
