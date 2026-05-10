@@ -560,11 +560,11 @@ Phase 6 deliverables:
 
 - `ScreenplayMode` complete: Fountain tokenizer, live formatting, auto-uppercase
 - Tab/Enter cycling for screenplay element entry
-- Character autocomplete from prior usage
+- Character autocomplete from prior usage *(deferred to Phase 4a)*
 - Scene navigator generated from sluglines
 - Page count estimation
-- Multi-file screenplay projects (one file per scene optionally)
 - Title page support
+- ~~Multi-file screenplay projects (one file per scene optionally)~~ **Abandoned (2026-05-10)** — see `docs/superpowers/specs/2026-05-10-maugham-phase-3d-design.md` for the design and `docs/superpowers/plans/2026-05-10-maugham-phase-3d.md` for what was attempted. Reading the script as one continuous stream is the writer's primary value, and that's what single-file already provides natively. Multi-file would have required subclassing NSTextStorage to fake a compound view over many files, fighting NSTextView's layout/undo/selection caches. Scene-as-document was rejected because it costs the continuous-stream reading flow. **Phase 3 ships at 3c** as the durable single-file screenplay surface.
 
 ### Phase 4 — Final Draft Parity + Research Tagging
 
@@ -579,14 +579,12 @@ Phase 6 deliverables:
 
 #### Phase 4a — Screenplay Intelligence (IDE-like editing)
 
-A coherent feature group focused on making the screenplay editor feel like a writing IDE rather than just a styled text view. Pulls forward several deferred items from Phase 3 plus adjacent enhancements:
+A coherent feature group focused on making the screenplay editor feel like a writing IDE rather than just a styled text view. Operates on single-file screenplays (the only screenplay mode now that 3d multi-file was abandoned):
 
-- **Inline character autocomplete** — completion of character names from prior usage in the document (and across files once Phase 3d multi-file ships). Carry-forward from milestone-3b where NSPopover proved too brittle; this milestone is the right place to invest in a robust completion surface (likely NSTextView-driven inline ghost-text with Tab-to-accept rather than a popover).
+- **Inline character autocomplete** — completion of character names from prior usage within the screenplay. Carry-forward from milestone-3b where NSPopover proved too brittle; this milestone is the right place to invest in a robust completion surface (likely NSTextView-driven inline ghost-text with Tab-to-accept rather than a popover). Single-file is sufficient corpus — the writer's character set is small but unambiguous within one screenplay.
 - **Slugline reuse** — once you've used `INT. KITCHEN — DAY` somewhere, suggest it again when you start typing a new scene heading. Avoids slugline drift across drafts (e.g., `INT. KITCHEN — DAY` vs `INT. KITCHEN - DAY` vs `INT. THE KITCHEN - DAY`).
 - **Fountain prefix completion** — typing `I` at the start of an empty line offers `INT.` / `INT/EXT.` / `I/E.`; typing `E` offers `EXT.` / `EST.`; typing a transition prefix offers `FADE OUT:` / `CUT TO:` / etc. Reduces cognitive load on element-syntax recall.
 - **Outline minimap (optional)** — a slim secondary sidebar showing section/scene structure for fast navigation in long screenplays. Sits alongside the existing scene navigator or replaces it for "structure mode."
-
-This grouping is post-3d because cross-document context (multi-file mode) makes character-name autocomplete genuinely useful; until then a single document's character set is too small a corpus.
 
 ### Phase 5 — Scrivener Parity
 

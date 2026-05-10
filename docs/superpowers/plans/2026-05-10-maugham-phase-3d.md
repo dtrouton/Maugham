@@ -1,6 +1,8 @@
 # Maugham — Phase 3d Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **⚠ ABANDONED 2026-05-10.** Tasks T1-T22 of this plan shipped on `feat/milestone-3d` (since deleted). The compound-editor architecture proved too fragile in practice — see `docs/superpowers/specs/2026-05-10-maugham-phase-3d-design.md` for the abandoned-banner rationale. Phase 3 ships at 3c with single-file screenplays. This plan stays in the repo as a record of what was attempted and learned.
+
+> **For agentic workers (historical only):** This plan is no longer executable. Do NOT dispatch subagents against it.
 
 **Goal:** Pivot screenplays from single-file to multi-file (one `.fountain` per scene + `00-title.fountain`) while preserving the writer's experience of reading and editing the screenplay as one continuous concatenated stream.
 

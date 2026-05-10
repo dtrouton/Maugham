@@ -1,8 +1,10 @@
 # Maugham — Phase 3d Design: Multi-file Screenplay
 
-**Status:** approved 2026-05-10
+> **⚠ ABANDONED 2026-05-10.** This design was implemented on `feat/milestone-3d` through Task 22 (out of 25), then rolled back. The compound-editor approach (NSTextStorage subclass faking a unified view over many files) fought NSTextView's layout/undo/selection caches in too many places — every fix surfaced a new regression. After 4 fix-rounds the writer-facing UX still had loading pauses and wrong-destination clicks. The user's actual priority — reading the script as one continuous stream — is what single-file already provides natively. **Phase 3 ships at 3c.** Multi-file mode is no longer on the roadmap. See the master spec's Phase 3 section for the rationale, and `docs/superpowers/plans/2026-05-10-maugham-phase-3d.md` for what was attempted.
+
+**Status:** abandoned 2026-05-10 (was: approved 2026-05-10)
 **Carries forward from:** milestone-3c (single-file screenplays with scene navigator)
-**Sets up:** Phase 4a Screenplay Intelligence (cross-file autocomplete)
+**Sets up:** ~~Phase 4a Screenplay Intelligence (cross-file autocomplete)~~ — Phase 4a now operates on single-file screenplays.
 
 ## Goal
 
