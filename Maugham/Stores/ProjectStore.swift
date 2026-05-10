@@ -1047,6 +1047,77 @@ public final class ProjectStore {
         return item
     }
 
+    @discardableResult
+    public func addResearchTextNote(
+        parentId: String?,
+        title: String = "Untitled Note"
+    ) async throws -> ResearchItem {
+        // Determine target folder: research/, or research/<group-slug>/
+        let researchRoot = url.appendingPathComponent("research")
+        try FileManager.default.createDirectory(
+            at: researchRoot, withIntermediateDirectories: true)
+
+        let parentFolder: URL
+        if let parentId,
+           let parent = findResearchItem(id: parentId, in: manifest.research),
+           parent.type == .group {
+            let groupSlug = Self.researchSlugify(parent.title)
+            parentFolder = researchRoot.appendingPathComponent(groupSlug)
+            try FileManager.default.createDirectory(
+                at: parentFolder, withIntermediateDirectories: true)
+        } else {
+            parentFolder = researchRoot
+        }
+
+        // Dedup title against existing siblings (numeric suffix)
+        let siblings: [ResearchItem]
+        if let parentId,
+           let parent = findResearchItem(id: parentId, in: manifest.research) {
+            siblings = parent.children ?? []
+        } else {
+            siblings = manifest.research
+        }
+        let existingTitles = Set(siblings.map { $0.title })
+        var resolvedTitle = title
+        var counter = 2
+        while existingTitles.contains(resolvedTitle) {
+            resolvedTitle = "\(title) \(counter)"
+            counter += 1
+        }
+
+        // Write the empty .md file
+        let slug = Self.researchSlugify(resolvedTitle)
+        let filename = "\(slug).md"
+        let fileURL = parentFolder.appendingPathComponent(filename)
+        try Data().write(to: fileURL)
+
+        // Compute relative path from project root
+        let relativePath: String = {
+            if parentFolder.path == researchRoot.path {
+                return "research/\(filename)"
+            }
+            return "research/\(parentFolder.lastPathComponent)/\(filename)"
+        }()
+
+        let item = ResearchItem(
+            id: Self.newId(prefix: "res-doc"),
+            title: resolvedTitle,
+            type: .asset,
+            kind: .document,
+            path: relativePath,
+            url: nil,
+            caption: nil,
+            tags: nil,
+            links: nil,
+            addedAt: Date(),
+            children: nil)
+
+        appendResearchItem(item, to: parentId)
+        manifest.modified = Date()
+        try await saveManifest()
+        return item
+    }
+
     // MARK: - Research helpers
 
     private func researchParentPath(parentId: String?) -> String {
