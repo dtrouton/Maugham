@@ -37,7 +37,8 @@ struct ProjectWindow: View {
                         store: store,
                         segment: $binderSegment,
                         selectedItemId: $selectedItemId,
-                        selectedResearchId: $selectedResearchId)
+                        selectedResearchId: $selectedResearchId,
+                        projectType: store.manifest.type)
                         .navigationSplitViewColumnWidth(min: 200, ideal: 240)
                 } content: {
                     contentColumn(store: store, documentStore: documentStore)
@@ -216,6 +217,12 @@ struct ProjectWindow: View {
         }
     }
 
+    // MARK: - Helpers
+
+    private static func defaultSegment(for type: ProjectType) -> BinderSegment {
+        type == .screenplay ? .scenes : .manuscript
+    }
+
     // MARK: - Column builders
 
     @ViewBuilder
@@ -264,6 +271,11 @@ struct ProjectWindow: View {
                     "Select an item to preview",
                     systemImage: "doc.text.magnifyingglass")
             }
+        case .scenes:
+            // Placeholder; SceneNavigatorPane lands in T7.
+            Text("Scenes pane coming soon")
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -313,6 +325,8 @@ struct ProjectWindow: View {
                     "Select an item",
                     systemImage: "info.circle")
             }
+        case .scenes:
+            EmptyView()
         }
     }
 
@@ -425,7 +439,15 @@ struct ProjectWindow: View {
                 self.selectedItemId = first.id
             }
             self.isNoChromeOn = ds.uiState.isNoChromeOn
-            self.binderSegment = ds.uiState.binderSegment
+
+            // Restore binderSegment from saved state, or use default based on project type.
+            let savedSegment = ds.uiState.binderSegment
+            // If screenplay project doesn't have manuscript segment, use scenes instead.
+            if s.manifest.type == .screenplay && savedSegment == .manuscript {
+                self.binderSegment = .scenes
+            } else {
+                self.binderSegment = savedSegment
+            }
             applyNoChrome()
             loadError = nil
         } catch ProjectStoreError.manifestNotFound {

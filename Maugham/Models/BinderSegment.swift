@@ -4,4 +4,5 @@ import Foundation
 public enum BinderSegment: String, Codable, Equatable, Sendable {
     case manuscript
     case research
+    case scenes
 }
