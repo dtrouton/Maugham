@@ -559,7 +559,8 @@ private struct ResearchNoteEditor: View {
                     onCursorChanged: { position in
                         documentStore.setCursor(position, for: path)
                     },
-                    showElementGutter: false
+                    showElementGutter: false,
+                    imagePasteHandler: makeImagePasteHandler()
                 )
                 .id(path)
             } else {
@@ -572,6 +573,22 @@ private struct ResearchNoteEditor: View {
             }
         }
         .task(id: path) { await loadDocument() }
+    }
+
+    private func makeImagePasteHandler() -> ((NSImage) -> Void) {
+        let projectURL = store.url
+        let notePath = path
+        return { [self] image in
+            do {
+                let ref = try ImagePasteHandler.saveAndReference(
+                    image: image,
+                    forNoteAt: notePath,
+                    in: projectURL)
+                documentText.append("\n" + ref + "\n")
+            } catch {
+                print("Image paste failed:", error)
+            }
+        }
     }
 
     private func loadDocument() async {

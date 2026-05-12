@@ -22,6 +22,10 @@ struct EditorSurface: NSViewRepresentable {
     /// Returns the doc id if the title resolves, nil otherwise.
     var wikiLinkClickResolver: ((String) -> String?)? = nil
     var showElementGutter: Bool = true
+    /// When set, the text view's paste(_:) routes pasteboard images to this
+    /// handler instead of pasting them as text. Used for research notes to
+    /// save images to a sibling _assets/ folder and insert a Markdown ref.
+    var imagePasteHandler: ((NSImage) -> Void)? = nil
 
     func makeCoordinator() -> EditorCoordinator {
         let coordinator = EditorCoordinator(
@@ -34,6 +38,7 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.initialCursorLocation = initialCursorLocation
         coordinator.onCursorChanged = onCursorChanged
         coordinator.wikiLinkResolverForClick = wikiLinkClickResolver
+        coordinator.imagePasteHandler = imagePasteHandler
         return coordinator
     }
 
@@ -122,6 +127,7 @@ struct EditorSurface: NSViewRepresentable {
         } else if !needsGutter && textView.gutterView != nil {
             textView.removeGutter()
         }
+        context.coordinator.imagePasteHandler = imagePasteHandler
     }
 }
 
