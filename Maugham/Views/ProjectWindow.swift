@@ -298,7 +298,15 @@ struct ProjectWindow: View {
             if let id = selectedResearchId,
                let item = findResearchItem(
                     id: id, in: store.manifest.research) {
-                ResearchPreview(projectURL: store.url, item: item)
+                if item.kind == .document, let path = item.path {
+                    ResearchNoteEditor(
+                        store: store,
+                        documentStore: documentStore,
+                        path: path,
+                        itemId: item.id)
+                } else {
+                    ResearchPreview(projectURL: store.url, item: item)
+                }
             } else {
                 ContentUnavailableView(
                     "Select an item to preview",
@@ -494,6 +502,76 @@ struct ProjectWindow: View {
                let nested = firstDocument(in: children) { return nested }
         }
         return nil
+    }
+}
+
+/// An editor surface for a research note (.document kind). Calls
+/// DocumentStore.openDocument(at:) on appearance and whenever the selected
+/// path changes, so the existing 750ms autosave writes back to the correct
+/// research/<note>.md file. Selecting a different research item or switching
+/// to the manuscript tab simply unmounts this view and remounts with the
+/// new path, triggering a flush of the pending save.
+private struct ResearchNoteEditor: View {
+    @Bindable var store: ProjectStore
+    @Bindable var documentStore: DocumentStore
+    let path: String
+    let itemId: String
+    @Environment(UserPreferences.self) private var userPreferences
+
+    @State private var documentText: String = ""
+    @State private var loadedPath: String?
+
+    var body: some View {
+        Group {
+            if loadedPath == path {
+                EditorSurface(
+                    text: Binding(
+                        get: { documentText },
+                        set: { newValue in
+                            documentText = newValue
+                            documentStore.currentDocumentText = newValue
+                            documentStore.scheduleSave(for: path, text: newValue)
+                        }
+                    ),
+                    theme: userPreferences.theme,
+                    typography: ProjectStore.effectiveTypography(
+                        override: store.manifest.typography,
+                        userDefault: userPreferences.typography),
+                    mode: WritingModeFactory.mode(for: path),
+                    typewriterScroll: userPreferences.typewriterScroll,
+                    sentenceFocus: userPreferences.sentenceFocus,
+                    paragraphFocus: userPreferences.paragraphFocus,
+                    initialCursorLocation: documentStore.cursor(for: path),
+                    onCursorChanged: { position in
+                        documentStore.setCursor(position, for: path)
+                    },
+                    showElementGutter: false
+                )
+                .id(path)
+            } else {
+                VStack {
+                    Text("Loading…")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .task(id: path) { await loadDocument() }
+    }
+
+    private func loadDocument() async {
+        guard loadedPath != path else { return }
+        do {
+            let text = try await documentStore.openDocument(at: path)
+            documentText = text
+            documentStore.currentDocumentText = text
+            loadedPath = path
+        } catch {
+            documentText = ""
+            documentStore.currentDocumentText = ""
+            loadedPath = path
+        }
     }
 }
 
