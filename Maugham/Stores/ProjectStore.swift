@@ -1734,6 +1734,24 @@ public final class ProjectStore {
                     : parentDir.appendingPathComponent("\(dedupedSlug).\(ext)")
             }
             try FileManager.default.moveItem(at: oldURL, to: newURL)
+
+            // Propagate to sibling <slug>_assets/ folder if it exists.
+            let oldAssetsURL = parentDir.appendingPathComponent("\(oldSlug)_assets")
+            let newAssetsURL = parentDir.appendingPathComponent("\(dedupedSlug)_assets")
+            if FileManager.default.fileExists(atPath: oldAssetsURL.path) {
+                try FileManager.default.moveItem(at: oldAssetsURL, to: newAssetsURL)
+
+                // Update internal refs in the renamed note
+                if let content = try? String(contentsOf: newURL, encoding: .utf8) {
+                    let oldRef = "./\(oldSlug)_assets/"
+                    let newRef = "./\(dedupedSlug)_assets/"
+                    let rewritten = content.replacingOccurrences(of: oldRef, with: newRef)
+                    if rewritten != content {
+                        try rewritten.write(to: newURL, atomically: true, encoding: .utf8)
+                    }
+                }
+            }
+
             return (relativeResearchPath(newURL), [])
         }
     }
