@@ -159,6 +159,16 @@ private final class MaughamTextView: NSTextView {
         super.mouseDown(with: event)
     }
 
+    override func paste(_ sender: Any?) {
+        if let handler = coordinator?.imagePasteHandler,
+           NSPasteboard.general.canReadObject(forClasses: [NSImage.self], options: nil),
+           let image = NSImage(pasteboard: .general) {
+            handler(image)
+            return
+        }
+        super.paste(sender)
+    }
+
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         updateColumnInset()
