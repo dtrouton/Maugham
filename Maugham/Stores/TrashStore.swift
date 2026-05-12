@@ -52,6 +52,48 @@ public struct TrashStore {
         }
     }
 
+    /// Restore a trashed entry: move its file back to original path,
+    /// delete the trash folder, return the original metadata.
+    @discardableResult
+    public func restore(trashId: String) async throws -> TrashEntry {
+        let entryFolder = trashRoot.appendingPathComponent(trashId)
+        let metaURL = entryFolder.appendingPathComponent("meta.json")
+        let metaData = try Data(contentsOf: metaURL)
+        let meta = try JSONDecoder().decode(TrashMeta.self, from: metaData)
+
+        // Identify the file inside the entry folder (the non-meta.json file)
+        let fm = FileManager.default
+        let contents = try fm.contentsOfDirectory(
+            at: entryFolder,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles])
+        guard let fileURL = contents.first(where: {
+            $0.lastPathComponent != "meta.json"
+        }) else {
+            throw TrashError.entryFileMissing(trashId)
+        }
+
+        // Restore to original path; ensure parent dirs exist
+        let dest = projectURL.appendingPathComponent(meta.originalRelativePath)
+        try fm.createDirectory(
+            at: dest.deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        try fm.moveItem(at: fileURL, to: dest)
+
+        // Delete entry folder (now contains only meta.json)
+        try fm.removeItem(at: entryFolder)
+
+        guard let trashedAt = Self.parseTimestamp(from: trashId) else {
+            throw TrashError.malformedEntryId(trashId)
+        }
+        return TrashEntry(
+            id: trashId,
+            trashedAt: trashedAt,
+            originalRelativePath: meta.originalRelativePath,
+            displayTitle: meta.displayTitle,
+            itemMetadata: meta.itemMetadata)
+    }
+
     /// Move a file or folder from its original project-relative path into
     /// .trash/<timestamp>-<id>/, with meta.json recording the original path,
     /// display title, item metadata, and original parent/index for restore.

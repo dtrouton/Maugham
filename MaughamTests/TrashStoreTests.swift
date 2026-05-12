@@ -103,6 +103,38 @@ final class TrashStoreTests: XCTestCase {
         XCTAssertEqual(meta.itemMetadata, metadata)
     }
 
+    func test_restore_movesFileBackAndRemovesEntry() async throws {
+        let project = try makeProject()
+        let originalFile = project.appendingPathComponent("manuscript/chapter9.md")
+        try FileManager.default.createDirectory(
+            at: originalFile.deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        try "Chapter 9 content".write(to: originalFile, atomically: true, encoding: .utf8)
+
+        let store = TrashStore(projectURL: project)
+        let entry = try await store.moveToTrash(
+            fileRelativePath: "manuscript/chapter9.md",
+            itemMetadata: Data("{\"id\":\"abc\"}".utf8),
+            originalParentId: nil,
+            originalIndex: 0,
+            displayTitle: "Chapter 9")
+
+        let restored = try await store.restore(trashId: entry.id)
+
+        // File back at original path
+        XCTAssertTrue(FileManager.default.fileExists(atPath: originalFile.path))
+        let content = try String(contentsOf: originalFile, encoding: .utf8)
+        XCTAssertEqual(content, "Chapter 9 content")
+
+        // Trash folder removed
+        let trashFolder = project.appendingPathComponent(".trash/\(entry.id)")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: trashFolder.path))
+
+        // Returned entry matches what was restored
+        XCTAssertEqual(restored.displayTitle, "Chapter 9")
+        XCTAssertEqual(restored.originalRelativePath, "manuscript/chapter9.md")
+    }
+
     static let timestampFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "yyyyMMdd-HHmmss"
