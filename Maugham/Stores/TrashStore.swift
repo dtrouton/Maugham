@@ -22,7 +22,7 @@ public struct TrashStore {
         let folders = (try? fm.contentsOfDirectory(
             at: trashRoot,
             includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles])) ?? []
+            options: [])) ?? []
 
         var entries: [TrashEntry] = []
         for folder in folders where folder.hasDirectoryPath {
@@ -72,11 +72,13 @@ public struct TrashStore {
         let contents = try fm.contentsOfDirectory(
             at: entryFolder,
             includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles])
+            options: [])
         guard let fileURL = contents.first(where: {
             $0.lastPathComponent != "meta.json"
         }) else {
-            throw TrashError.entryFileMissing(trashId)
+            throw TrashError.entryFileMissing(
+                trashId: trashId,
+                folderContents: contents.map(\.lastPathComponent))
         }
 
         // Restore to original path; ensure parent dirs exist
@@ -175,8 +177,17 @@ public struct TrashStore {
         timestampFormatter.string(from: date)
     }
 
-    public enum TrashError: Error {
-        case entryFileMissing(String)
+    public enum TrashError: Error, LocalizedError {
+        case entryFileMissing(trashId: String, folderContents: [String])
         case malformedEntryId(String)
+
+        public var errorDescription: String? {
+            switch self {
+            case .entryFileMissing(let id, let contents):
+                return "Trash entry \(id) is missing its source file. Contents: \(contents.joined(separator: ", "))"
+            case .malformedEntryId(let id):
+                return "Trash entry id \(id) is malformed (no parseable timestamp)."
+            }
+        }
     }
 }
