@@ -312,6 +312,10 @@ struct ProjectWindow: View {
                     "Select an item to preview",
                     systemImage: "doc.text.magnifyingglass")
             }
+        case .trash:
+            ContentUnavailableView(
+                "Trash",
+                systemImage: "trash")
         }
     }
 
@@ -361,6 +365,10 @@ struct ProjectWindow: View {
                     "Select an item",
                     systemImage: "info.circle")
             }
+        case .trash:
+            ContentUnavailableView(
+                "No selection",
+                systemImage: "trash")
         }
     }
 

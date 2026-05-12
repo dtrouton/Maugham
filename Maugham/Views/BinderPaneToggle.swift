@@ -18,6 +18,9 @@ struct BinderPaneToggle: View {
                     Text("Manuscript").tag(BinderSegment.manuscript)
                     Text("Research").tag(BinderSegment.research)
                 }
+                if !store.trashEntries.isEmpty {
+                    Text("Trash").tag(BinderSegment.trash)
+                }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -39,7 +42,14 @@ struct BinderPaneToggle: View {
                                 object: nil,
                                 userInfo: ["lineLocation": lineLocation])
                         })
+                case .trash:
+                    TrashView(store: store)
                 }
+            }
+        }
+        .onChange(of: store.trashEntries.count) { _, newValue in
+            if newValue == 0 && segment == .trash {
+                segment = projectType == .screenplay ? .scenes : .manuscript
             }
         }
     }
