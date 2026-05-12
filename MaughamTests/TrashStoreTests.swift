@@ -135,6 +135,28 @@ final class TrashStoreTests: XCTestCase {
         XCTAssertEqual(restored.originalRelativePath, "manuscript/chapter9.md")
     }
 
+    func test_permanentlyDelete_removesEntryFolder() async throws {
+        let project = try makeProject()
+        let originalFile = project.appendingPathComponent("manuscript/foo.md")
+        try FileManager.default.createDirectory(
+            at: originalFile.deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        try "foo".write(to: originalFile, atomically: true, encoding: .utf8)
+
+        let store = TrashStore(projectURL: project)
+        let entry = try await store.moveToTrash(
+            fileRelativePath: "manuscript/foo.md",
+            itemMetadata: Data("{\"id\":\"foo\"}".utf8),
+            originalParentId: nil,
+            originalIndex: 0,
+            displayTitle: "Foo")
+
+        try await store.permanentlyDelete(trashId: entry.id)
+
+        let trashFolder = project.appendingPathComponent(".trash/\(entry.id)")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: trashFolder.path))
+    }
+
     static let timestampFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "yyyyMMdd-HHmmss"

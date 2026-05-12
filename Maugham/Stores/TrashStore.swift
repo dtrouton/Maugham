@@ -52,6 +52,12 @@ public struct TrashStore {
         }
     }
 
+    /// Permanently delete a trashed entry.
+    public func permanentlyDelete(trashId: String) async throws {
+        let entryFolder = trashRoot.appendingPathComponent(trashId)
+        try FileManager.default.removeItem(at: entryFolder)
+    }
+
     /// Restore a trashed entry: move its file back to original path,
     /// delete the trash folder, return the original metadata.
     @discardableResult
