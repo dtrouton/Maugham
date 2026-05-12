@@ -91,7 +91,7 @@ struct MaughamApp: App {
                     NotificationCenter.default.post(
                         name: .maughamRestoreLastDeleted, object: nil)
                 }
-                .keyboardShortcut("z", modifiers: .command)
+                .keyboardShortcut("z", modifiers: [.command, .option])
             }
             CommandGroup(replacing: .help) {
                 Button("Syntax Reference") {
