@@ -26,6 +26,7 @@ struct ProjectWindow: View {
     @State private var sessionLog: SessionLog = .empty
     @State private var lastParsedScript: FountainScript? = nil
     @State private var showingSyntaxHelp: Bool = false
+    @State private var researchPreviewVisible: Bool = false
     @Environment(UserPreferences.self) private var userPreferences
     @Environment(\.openWindow) private var openWindow
 
@@ -159,7 +160,8 @@ struct ProjectWindow: View {
             selectedItemId: $selectedItemId,
             binderSegment: $binderSegment,
             showingTidyAllConfirmation: $showingTidyAllConfirmation,
-            showingSyntaxHelp: $showingSyntaxHelp))
+            showingSyntaxHelp: $showingSyntaxHelp,
+            researchPreviewVisible: $researchPreviewVisible))
         .sheet(isPresented: $showingSyntaxHelp) {
             SyntaxHelpSheet(mode: currentSyntaxHelpMode)
         }
@@ -182,6 +184,7 @@ struct ProjectWindow: View {
         @Binding var binderSegment: BinderSegment
         @Binding var showingTidyAllConfirmation: Bool
         @Binding var showingSyntaxHelp: Bool
+        @Binding var researchPreviewVisible: Bool
 
         func body(content: Content) -> some View {
             content
@@ -227,6 +230,13 @@ struct ProjectWindow: View {
                     for: .maughamRestoreLastDeleted)) { _ in
                     Task {
                         try? await store?.restoreLastDeleted()
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(
+                    for: .maughamToggleResearchPreview)) { _ in
+                    researchPreviewVisible.toggle()
+                    documentStore?.updateUIState {
+                        $0.researchPreviewVisible = researchPreviewVisible
                     }
                 }
                 .alert("Renumber every chapter and scene?",
@@ -309,7 +319,8 @@ struct ProjectWindow: View {
                         store: store,
                         documentStore: documentStore,
                         path: path,
-                        itemId: item.id)
+                        itemId: item.id,
+                        previewVisible: researchPreviewVisible)
                 } else {
                     ResearchPreview(projectURL: store.url, item: item)
                 }
@@ -487,6 +498,7 @@ struct ProjectWindow: View {
                 self.selectedItemId = first.id
             }
             self.isNoChromeOn = ds.uiState.isNoChromeOn
+            self.researchPreviewVisible = ds.uiState.researchPreviewVisible
 
             // Restore binderSegment from saved state, or use default based on project type.
             let savedSegment = ds.uiState.binderSegment
@@ -530,12 +542,27 @@ private struct ResearchNoteEditor: View {
     @Bindable var documentStore: DocumentStore
     let path: String
     let itemId: String
+    let previewVisible: Bool
     @Environment(UserPreferences.self) private var userPreferences
 
     @State private var documentText: String = ""
     @State private var loadedPath: String?
 
     var body: some View {
+        HSplitView {
+            editorContent
+            if previewVisible {
+                ResearchNotePreviewPane(
+                    notePath: path,
+                    projectURL: store.url,
+                    noteText: documentText)
+            }
+        }
+        .task(id: path) { await loadDocument() }
+    }
+
+    @ViewBuilder
+    private var editorContent: some View {
         Group {
             if loadedPath == path {
                 EditorSurface(
@@ -572,7 +599,6 @@ private struct ResearchNoteEditor: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .task(id: path) { await loadDocument() }
     }
 
     private func makeImagePasteHandler() -> ((NSImage) -> Void) {

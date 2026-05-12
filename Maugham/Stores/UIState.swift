@@ -10,25 +10,29 @@ public struct UIState: Codable, Equatable, Sendable {
     public var isNoChromeOn: Bool
     public var scrollLine: Int
     public var binderSegment: BinderSegment
+    public var researchPreviewVisible: Bool
 
     public init(
         schemaVersion: Int = UIState.currentSchemaVersion,
         selectedItemId: String? = nil,
         isNoChromeOn: Bool = false,
         scrollLine: Int = 0,
-        binderSegment: BinderSegment = .manuscript
+        binderSegment: BinderSegment = .manuscript,
+        researchPreviewVisible: Bool = false
     ) {
         self.schemaVersion = schemaVersion
         self.selectedItemId = selectedItemId
         self.isNoChromeOn = isNoChromeOn
         self.scrollLine = scrollLine
         self.binderSegment = binderSegment
+        self.researchPreviewVisible = researchPreviewVisible
     }
 
     public static let empty = UIState()
 
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, selectedItemId, isNoChromeOn, scrollLine, binderSegment
+        case schemaVersion, selectedItemId, isNoChromeOn, scrollLine, binderSegment,
+             researchPreviewVisible
     }
 
     public init(from decoder: Decoder) throws {
@@ -38,6 +42,7 @@ public struct UIState: Codable, Equatable, Sendable {
         self.isNoChromeOn = (try? c.decode(Bool.self, forKey: .isNoChromeOn)) ?? false
         self.scrollLine = (try? c.decode(Int.self, forKey: .scrollLine)) ?? 0
         self.binderSegment = (try? c.decode(BinderSegment.self, forKey: .binderSegment)) ?? .manuscript
+        self.researchPreviewVisible = (try? c.decode(Bool.self, forKey: .researchPreviewVisible)) ?? false
     }
 
     /// Load from disk; return `.empty` if file is missing, malformed, or has

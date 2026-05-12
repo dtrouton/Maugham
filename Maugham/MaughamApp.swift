@@ -85,6 +85,11 @@ struct MaughamApp: App {
                         name: .maughamToggleInspector, object: nil)
                 }
                 .keyboardShortcut("i", modifiers: [.command, .option])
+                Button("Toggle Research Preview") {
+                    NotificationCenter.default.post(
+                        name: .maughamToggleResearchPreview, object: nil)
+                }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
             }
             CommandGroup(after: .pasteboard) {
                 Button("Restore Last Deleted Item") {
