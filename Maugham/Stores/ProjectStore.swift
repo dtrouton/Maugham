@@ -1087,16 +1087,24 @@ public final class ProjectStore {
 
         // Write the empty .md file
         let slug = Self.researchSlugify(resolvedTitle)
-        let filename = "\(slug).md"
-        let fileURL = parentFolder.appendingPathComponent(filename)
+        // Dedup against existing files on disk (title-dedup may not match if a
+        // prior rename left a stale file at the same slug path).
+        var finalFilename = "\(slug).md"
+        var diskCounter = 2
+        while FileManager.default.fileExists(
+            atPath: parentFolder.appendingPathComponent(finalFilename).path) {
+            finalFilename = "\(slug)-\(diskCounter).md"
+            diskCounter += 1
+        }
+        let fileURL = parentFolder.appendingPathComponent(finalFilename)
         try Data().write(to: fileURL)
 
         // Compute relative path from project root
         let relativePath: String = {
             if parentFolder.path == researchRoot.path {
-                return "research/\(filename)"
+                return "research/\(finalFilename)"
             }
-            return "research/\(parentFolder.lastPathComponent)/\(filename)"
+            return "research/\(parentFolder.lastPathComponent)/\(finalFilename)"
         }()
 
         let item = ResearchItem(
@@ -1543,6 +1551,9 @@ public final class ProjectStore {
     /// Update inline fields on a research item (title, caption, tags, url).
     /// nil arguments leave the corresponding field unchanged. Pass an
     /// explicit empty string / empty array to clear a field.
+    /// When `title` changes AND the item has a path whose slug matches the old
+    /// title slug, the underlying file (for assets) or folder (for groups) is
+    /// renamed on disk to match the new slug before the manifest is updated.
     public func updateResearchItem(
         id: String,
         title: String? = nil,
@@ -1550,17 +1561,123 @@ public final class ProjectStore {
         tags: [String]? = nil,
         url linkURL: String? = nil
     ) async throws {
-        guard findResearchItem(id: id, in: manifest.research) != nil else {
+        guard let oldItem = findResearchItem(id: id, in: manifest.research) else {
             throw ProjectStoreError.structureMissing
         }
+
+        // Attempt to rename file/folder on disk when title changes.
+        var newPathForRenamed: String?
+        var childPathRewrites: [(String, String)] = []
+        if let newTitle = title, newTitle != oldItem.title {
+            if let result = try renameResearchPath(
+                item: oldItem, oldTitle: oldItem.title, newTitle: newTitle) {
+                newPathForRenamed = result.newPath
+                childPathRewrites = result.childPathRewrites
+            }
+        }
+
         mutateResearchItem(id: id) { item in
             if let title { item.title = title }
             if let caption { item.caption = caption }
             if let tags { item.tags = tags }
             if let linkURL { item.url = linkURL }
+            if let newPath = newPathForRenamed { item.path = newPath }
         }
+
+        // Apply child path rewrites when a group folder was renamed.
+        for (oldPath, newPath) in childPathRewrites {
+            rewriteResearchItemPath(from: oldPath, to: newPath, in: &manifest.research)
+        }
+
         manifest.modified = Date()
         try await saveManifest()
+    }
+
+    /// Rename the backing file or folder when a research item's title changes.
+    /// Returns (newRelativePath, childPathRewrites) or nil if no rename is needed.
+    private func renameResearchPath(
+        item: ResearchItem,
+        oldTitle: String,
+        newTitle: String
+    ) throws -> (newPath: String, childPathRewrites: [(String, String)])? {
+        guard let oldRelPath = item.path else { return nil }
+        let oldURL = url.appendingPathComponent(oldRelPath)
+        let oldSlug = Self.researchSlugify(oldTitle)
+        let newSlug = Self.researchSlugify(newTitle)
+        guard oldSlug != newSlug else { return nil }
+
+        let parentDir = oldURL.deletingLastPathComponent()
+
+        if item.type == .group {
+            // Rename folder; collect child path rewrites.
+            var dedupedSlug = newSlug
+            var counter = 2
+            while FileManager.default.fileExists(
+                atPath: parentDir.appendingPathComponent(dedupedSlug).path) {
+                dedupedSlug = "\(newSlug)-\(counter)"
+                counter += 1
+            }
+            let newURL = parentDir.appendingPathComponent(dedupedSlug)
+            try FileManager.default.moveItem(at: oldURL, to: newURL)
+            let newRelative = relativeResearchPath(newURL)
+            // Compute child rewrites.
+            let oldPrefix = oldRelPath + "/"
+            let newPrefix = newRelative + "/"
+            var rewrites: [(String, String)] = []
+            func walk(_ items: [ResearchItem]) {
+                for child in items {
+                    if let p = child.path, p.hasPrefix(oldPrefix) {
+                        rewrites.append((p, newPrefix + String(p.dropFirst(oldPrefix.count))))
+                    }
+                    if let cc = child.children { walk(cc) }
+                }
+            }
+            walk(item.children ?? [])
+            return (newRelative, rewrites)
+        } else {
+            // Asset: rename file, preserve extension.
+            let ext = oldURL.pathExtension
+            var dedupedSlug = newSlug
+            var counter = 2
+            var newURL = ext.isEmpty
+                ? parentDir.appendingPathComponent(dedupedSlug)
+                : parentDir.appendingPathComponent("\(dedupedSlug).\(ext)")
+            while FileManager.default.fileExists(atPath: newURL.path) {
+                dedupedSlug = "\(newSlug)-\(counter)"
+                counter += 1
+                newURL = ext.isEmpty
+                    ? parentDir.appendingPathComponent(dedupedSlug)
+                    : parentDir.appendingPathComponent("\(dedupedSlug).\(ext)")
+            }
+            try FileManager.default.moveItem(at: oldURL, to: newURL)
+            return (relativeResearchPath(newURL), [])
+        }
+    }
+
+    /// Convert an absolute file URL to a path relative to the project root.
+    private func relativeResearchPath(_ fileURL: URL) -> String {
+        let fullPath = fileURL.path
+        let prefix = url.path
+        guard fullPath.hasPrefix(prefix) else { return fullPath }
+        let relative = String(fullPath.dropFirst(prefix.count))
+        return relative.hasPrefix("/") ? String(relative.dropFirst()) : relative
+    }
+
+    /// Walk `items` recursively and update the first matching `path` in-place.
+    private func rewriteResearchItemPath(
+        from oldPath: String,
+        to newPath: String,
+        in items: inout [ResearchItem]
+    ) {
+        for i in 0..<items.count {
+            if items[i].path == oldPath {
+                items[i].path = newPath
+                return
+            }
+            if items[i].children != nil {
+                rewriteResearchItemPath(from: oldPath, to: newPath, in: &items[i].children!)
+            }
+        }
     }
 }
 
