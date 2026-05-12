@@ -54,10 +54,22 @@ public final class ProjectStore {
 
     private static let manifestFilename = "project.maugham.json"
 
-    private init(url: URL, manifest: ProjectManifest, manuscriptText: String) {
+    public let trashStore: TrashStore
+    public private(set) var trashEntries: [TrashEntry] = []
+    private var lastDeletedTrashId: String?
+
+    private init(
+        url: URL,
+        manifest: ProjectManifest,
+        manuscriptText: String,
+        trashStore: TrashStore,
+        trashEntries: [TrashEntry]
+    ) {
         self.url = url
         self.manifest = manifest
         self.manuscriptText = manuscriptText
+        self.trashStore = trashStore
+        self.trashEntries = trashEntries
     }
 
     /// Load a project from disk by URL.
@@ -81,8 +93,16 @@ public final class ProjectStore {
 
         let manuscriptText = try Self.readManuscript(for: manifest, at: url)
 
-        let store = ProjectStore(url: url, manifest: manifest,
-                                 manuscriptText: manuscriptText)
+        let trashStore = TrashStore(projectURL: url)
+        try? await trashStore.sweep()
+        let trashEntries = (try? await trashStore.list()) ?? []
+
+        let store = ProjectStore(
+            url: url,
+            manifest: manifest,
+            manuscriptText: manuscriptText,
+            trashStore: trashStore,
+            trashEntries: trashEntries)
         Self.populateWordCountCache(in: store, from: manifest, at: url)
         return store
     }
@@ -798,27 +818,31 @@ public final class ProjectStore {
         }
     }
 
-    /// Move the item's file or folder to the system Trash and remove its
-    /// manifest entry. For groups, the entire folder (including all children)
-    /// is recycled in one atomic system call.
+    /// Move the item's file or folder into the project's .trash/ folder and
+    /// remove its manifest entry. The original file is recoverable via
+    /// restoreLastDeleted() or restoreTrashEntry(id:) within 30 days.
     public func deleteStructureItem(id: String) async throws {
-        guard let item = findItem(id: id, in: manifest.structure),
-              let path = item.path else {
+        guard let item = findItem(id: id, in: manifest.structure) else {
             throw ProjectStoreError.structureMissing
         }
+        let path = item.path ?? ""
+        let parentId = findParentId(of: id, in: manifest.structure, parent: nil)
+        let index = currentIndex(of: id, parentId: parentId)
+        let metadata = try JSONEncoder().encode(item)
 
-        let fullURL = url.appendingPathComponent(path)
-        if FileManager.default.fileExists(atPath: fullURL.path) {
-            do {
-                try await recycleURLs([fullURL])
-            } catch {
-                throw ProjectStoreError.fileSystemError(error.localizedDescription)
-            }
-        }
+        let entry = try await trashStore.moveToTrash(
+            fileRelativePath: path,
+            itemMetadata: metadata,
+            originalParentId: parentId,
+            originalIndex: index,
+            displayTitle: item.title)
 
         removeFromStructure(id: id)
         manifest.modified = Date()
         try await saveManifest()
+
+        trashEntries = (try? await trashStore.list()) ?? trashEntries
+        lastDeletedTrashId = entry.id
     }
 
     /// Wrap NSWorkspace.recycle's callback API in async/await.
@@ -849,6 +873,49 @@ public final class ProjectStore {
             applyRemoval(id: id, in: &children)
             items[i].children = children
         }
+    }
+
+    // MARK: - Trash restore / permanent delete
+
+    /// Restore the most-recently-deleted item from the trash.
+    /// No-op if nothing was deleted in this session.
+    public func restoreLastDeleted() async throws {
+        guard let id = lastDeletedTrashId else { return }
+        try await restoreTrashEntry(id: id)
+        lastDeletedTrashId = nil
+    }
+
+    /// Restore a specific trash entry by id, appending it back into
+    /// the structure or research tree. Precise parent/index restoration
+    /// is a follow-up; this implementation appends to the root list.
+    public func restoreTrashEntry(id: String) async throws {
+        let entry = try await trashStore.restore(trashId: id)
+
+        if let item = try? JSONDecoder().decode(StructureItem.self, from: entry.itemMetadata) {
+            manifest.structure.append(item)
+        } else if let item = try? JSONDecoder().decode(ResearchItem.self, from: entry.itemMetadata) {
+            manifest.research.append(item)
+        }
+        manifest.modified = Date()
+        try await saveManifest()
+        trashEntries = (try? await trashStore.list()) ?? trashEntries
+        if lastDeletedTrashId == id { lastDeletedTrashId = nil }
+    }
+
+    /// Permanently delete a specific trash entry (no recovery after this).
+    public func permanentlyDeleteTrashEntry(id: String) async throws {
+        try await trashStore.permanentlyDelete(trashId: id)
+        trashEntries = (try? await trashStore.list()) ?? trashEntries
+        if lastDeletedTrashId == id { lastDeletedTrashId = nil }
+    }
+
+    /// Permanently delete all trash entries for this project.
+    public func emptyTrash() async throws {
+        for entry in trashEntries {
+            try? await trashStore.permanentlyDelete(trashId: entry.id)
+        }
+        trashEntries = []
+        lastDeletedTrashId = nil
     }
 
     /// Update an item's inspector fields. `nil` arguments mean "leave unchanged";
@@ -1467,19 +1534,36 @@ public final class ProjectStore {
         return copy
     }
 
-    /// Delete a research item. Files moved to Trash via NSWorkspace; manifest
-    /// loses the entry.
+    /// Delete a research item. File-backed items (assets, groups with folders)
+    /// are moved into the project's .trash/ folder (recoverable). Link-type
+    /// or path-less items are removed from the manifest directly.
     public func deleteResearchItem(id: String) async throws {
         guard let item = findResearchItem(id: id, in: manifest.research) else {
             throw ProjectStoreError.structureMissing
         }
-        if let path = item.path {
-            let onDisk = url.appendingPathComponent(path)
-            try await recycleURLs([onDisk])
+        let parentId = findResearchParentId(
+            of: id, in: manifest.research, parent: nil)
+        let index = currentResearchIndex(of: id, parentId: parentId)
+
+        if let path = item.path, !path.isEmpty {
+            let metadata = try JSONEncoder().encode(item)
+            let entry = try await trashStore.moveToTrash(
+                fileRelativePath: path,
+                itemMetadata: metadata,
+                originalParentId: parentId,
+                originalIndex: index,
+                displayTitle: item.title)
+            removeResearchItem(id: id)
+            manifest.modified = Date()
+            try await saveManifest()
+            trashEntries = (try? await trashStore.list()) ?? trashEntries
+            lastDeletedTrashId = entry.id
+        } else {
+            // Path-less items (links, etc.) — just remove from manifest.
+            removeResearchItem(id: id)
+            manifest.modified = Date()
+            try await saveManifest()
         }
-        removeResearchItem(id: id)
-        manifest.modified = Date()
-        try await saveManifest()
     }
 
     /// Import a list of file URLs (and/or folders) into the research tree
