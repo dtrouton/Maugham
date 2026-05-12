@@ -86,6 +86,13 @@ struct MaughamApp: App {
                 }
                 .keyboardShortcut("i", modifiers: [.command, .option])
             }
+            CommandGroup(after: .pasteboard) {
+                Button("Restore Last Deleted Item") {
+                    NotificationCenter.default.post(
+                        name: .maughamRestoreLastDeleted, object: nil)
+                }
+                .keyboardShortcut("z", modifiers: .command)
+            }
             CommandGroup(replacing: .help) {
                 Button("Syntax Reference") {
                     NotificationCenter.default.post(

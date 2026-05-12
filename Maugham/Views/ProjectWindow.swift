@@ -223,6 +223,12 @@ struct ProjectWindow: View {
                 .onReceive(NotificationCenter.default.publisher(for: .maughamShowSyntaxHelp)) { _ in
                     showingSyntaxHelp = true
                 }
+                .onReceive(NotificationCenter.default.publisher(
+                    for: .maughamRestoreLastDeleted)) { _ in
+                    Task {
+                        try? await store?.restoreLastDeleted()
+                    }
+                }
                 .alert("Renumber every chapter and scene?",
                        isPresented: $showingTidyAllConfirmation
                 ) {
