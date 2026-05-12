@@ -66,6 +66,43 @@ final class TrashStoreTests: XCTestCase {
                       "expected fresh entry preserved")
     }
 
+    func test_moveToTrash_movesFileAndWritesMetadata() async throws {
+        let project = try makeProject()
+        let originalFile = project.appendingPathComponent("manuscript/chapter7.md")
+        try FileManager.default.createDirectory(
+            at: originalFile.deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        try "Chapter 7 content".write(to: originalFile, atomically: true, encoding: .utf8)
+
+        let store = TrashStore(projectURL: project)
+        let metadata = Data("{\"id\":\"x\"}".utf8)
+        let entry = try await store.moveToTrash(
+            fileRelativePath: "manuscript/chapter7.md",
+            itemMetadata: metadata,
+            originalParentId: nil,
+            originalIndex: 0,
+            displayTitle: "Chapter 7")
+
+        // Original is gone
+        XCTAssertFalse(FileManager.default.fileExists(atPath: originalFile.path))
+
+        // Trash entry exists
+        let trashFolder = project.appendingPathComponent(".trash/\(entry.id)")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: trashFolder.path))
+        let trashedFile = trashFolder.appendingPathComponent("chapter7.md")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: trashedFile.path))
+        let trashedContent = try String(contentsOf: trashedFile, encoding: .utf8)
+        XCTAssertEqual(trashedContent, "Chapter 7 content")
+
+        // meta.json exists and parses
+        let metaURL = trashFolder.appendingPathComponent("meta.json")
+        let metaData = try Data(contentsOf: metaURL)
+        let meta = try JSONDecoder().decode(TrashStore.TrashMeta.self, from: metaData)
+        XCTAssertEqual(meta.originalRelativePath, "manuscript/chapter7.md")
+        XCTAssertEqual(meta.displayTitle, "Chapter 7")
+        XCTAssertEqual(meta.itemMetadata, metadata)
+    }
+
     static let timestampFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "yyyyMMdd-HHmmss"
