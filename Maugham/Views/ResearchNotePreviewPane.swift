@@ -24,6 +24,7 @@ struct ResearchNotePreviewPane: View {
     }
 
     private enum Block {
+        case heading(level: Int, text: String)
         case paragraph(AttributedString)
         case image(NSImage)
         case unknown(String)
@@ -34,10 +35,26 @@ struct ResearchNotePreviewPane: View {
         var blocks: [Block] = []
         let imageRegex = try? NSRegularExpression(
             pattern: #"^!\[.*?\]\((\.[/][^)]+)\)$"#)
+        let headingRegex = try? NSRegularExpression(
+            pattern: #"^(#{1,6})\s+(.+)$"#)
 
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.isEmpty { continue }
+
+            // Heading detection: # through ######
+            // AttributedString(markdown:) uses inline-only parsing by default,
+            // so block-level constructs like headings must be detected here.
+            if let regex = headingRegex {
+                let range = NSRange(location: 0, length: (trimmed as NSString).length)
+                if let match = regex.firstMatch(in: trimmed, range: range),
+                   match.numberOfRanges >= 3 {
+                    let hashes = (trimmed as NSString).substring(with: match.range(at: 1))
+                    let text   = (trimmed as NSString).substring(with: match.range(at: 2))
+                    blocks.append(.heading(level: hashes.count, text: text))
+                    continue
+                }
+            }
 
             // Detect solo image reference
             if let regex = imageRegex {
@@ -73,6 +90,12 @@ struct ResearchNotePreviewPane: View {
     @ViewBuilder
     private func render(block: Block) -> some View {
         switch block {
+        case .heading(let level, let text):
+            Text(text)
+                .font(headingFont(forLevel: level))
+                .fontWeight(.bold)
+                .padding(.top, level == 1 ? 8 : 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
         case .paragraph(let attr):
             Text(attr)
                 .textSelection(.enabled)
@@ -87,6 +110,16 @@ struct ResearchNotePreviewPane: View {
             Text(raw)
                 .font(.system(.body, design: .monospaced))
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    private func headingFont(forLevel level: Int) -> Font {
+        switch level {
+        case 1:  return .title
+        case 2:  return .title2
+        case 3:  return .title3
+        case 4:  return .headline
+        default: return .subheadline
         }
     }
 }
