@@ -55,12 +55,18 @@ struct ResearchView: View {
             Task { await handlePaste(items: items) }
         }
         .onChange(of: store.manifest.research) { _, _ in
-            if let id = pendingRenameId,
-               findItem(id: id, in: store.manifest.research) != nil {
-                renamingItemId = id
-                pendingRenameId = nil
-            }
+            tryCommitPendingRename()
         }
+        .onChange(of: pendingRenameId) { _, _ in
+            tryCommitPendingRename()
+        }
+    }
+
+    private func tryCommitPendingRename() {
+        guard let id = pendingRenameId,
+              findItem(id: id, in: store.manifest.research) != nil else { return }
+        renamingItemId = id
+        pendingRenameId = nil
     }
 
     @ViewBuilder
