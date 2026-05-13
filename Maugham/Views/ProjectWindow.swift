@@ -601,18 +601,18 @@ private struct ResearchNoteEditor: View {
         }
     }
 
-    private func makeImagePasteHandler() -> ((NSImage) -> Void) {
+    private func makeImagePasteHandler() -> ((NSImage) -> String?) {
         let projectURL = store.url
         let notePath = path
-        return { [self] image in
+        return { image in
             do {
-                let ref = try ImagePasteHandler.saveAndReference(
+                return try ImagePasteHandler.saveAndReference(
                     image: image,
                     forNoteAt: notePath,
                     in: projectURL)
-                documentText.append("\n" + ref + "\n")
             } catch {
                 print("Image paste failed:", error)
+                return nil
             }
         }
     }

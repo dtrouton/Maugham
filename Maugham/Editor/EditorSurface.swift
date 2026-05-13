@@ -25,7 +25,9 @@ struct EditorSurface: NSViewRepresentable {
     /// When set, the text view's paste(_:) routes pasteboard images to this
     /// handler instead of pasting them as text. Used for research notes to
     /// save images to a sibling _assets/ folder and insert a Markdown ref.
-    var imagePasteHandler: ((NSImage) -> Void)? = nil
+    /// The handler returns the Markdown ref string; the text view inserts it
+    /// at the current cursor position.
+    var imagePasteHandler: ((NSImage) -> String?)? = nil
 
     func makeCoordinator() -> EditorCoordinator {
         let coordinator = EditorCoordinator(
@@ -186,8 +188,16 @@ private final class MaughamTextView: NSTextView {
     override func paste(_ sender: Any?) {
         if let handler = coordinator?.imagePasteHandler,
            NSPasteboard.general.canReadObject(forClasses: [NSImage.self], options: nil),
-           let image = NSImage(pasteboard: .general) {
-            handler(image)
+           let image = NSImage(pasteboard: .general),
+           let ref = handler(image) {
+            // Insert the Markdown reference at the current cursor position
+            let range = selectedRange()
+            if let storage = textStorage {
+                storage.replaceCharacters(in: range, with: ref)
+                let newCursor = range.location + (ref as NSString).length
+                setSelectedRange(NSRange(location: newCursor, length: 0))
+                didChangeText()
+            }
             return
         }
         super.paste(sender)

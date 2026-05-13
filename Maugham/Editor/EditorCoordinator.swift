@@ -35,10 +35,11 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     var wikiLinkResolverForClick: ((String) -> String?)?
 
     /// Called when the text view receives a paste with image content on the
-    /// pasteboard. The handler is responsible for saving the image and
-    /// inserting a Markdown reference. Nil for non-research-note editing
-    /// (manuscript documents, screenplays — standard paste applies).
-    var imagePasteHandler: ((NSImage) -> Void)?
+    /// pasteboard. The handler saves the image and returns the Markdown
+    /// reference string to insert at the cursor, or nil if the paste should
+    /// fall through to standard NSTextView behavior. Nil for non-research-note
+    /// editing (manuscript documents, screenplays — standard paste applies).
+    var imagePasteHandler: ((NSImage) -> String?)?
 
     /// Most recent token list, captured each time we retokenize. Used by
     /// click routing to look up wiki-link ranges hit-tested by mouseDown.
