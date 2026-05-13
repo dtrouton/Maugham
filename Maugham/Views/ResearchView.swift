@@ -6,6 +6,7 @@ struct ResearchView: View {
     @Binding var selectedResearchId: String?
 
     @State private var renamingItemId: String?
+    @State private var pendingRenameId: String?
     @State private var pendingError: String?
     @State private var showingAddLinkSheet: Bool = false
     @State private var addLinkParentId: String?
@@ -52,6 +53,13 @@ struct ResearchView: View {
         }
         .onPasteCommand(of: ["public.image", "public.text", "public.url"]) { items in
             Task { await handlePaste(items: items) }
+        }
+        .onChange(of: store.manifest.research) { _, _ in
+            if let id = pendingRenameId,
+               findItem(id: id, in: store.manifest.research) != nil {
+                renamingItemId = id
+                pendingRenameId = nil
+            }
         }
     }
 
@@ -154,12 +162,8 @@ struct ResearchView: View {
         do {
             let g = try await store.addResearchItem(
                 parentId: parentId, title: "Untitled Group", kind: nil)
-            // Defer to next runloop tick so the new row is mounted in the view
-            // tree before we set the rename target.
-            DispatchQueue.main.async {
-                renamingItemId = g.id
-                selectedResearchId = g.id
-            }
+            selectedResearchId = g.id
+            pendingRenameId = g.id  // applied via .onChange when new row appears
         } catch {
             pendingError = error.localizedDescription
         }
@@ -168,12 +172,8 @@ struct ResearchView: View {
     private func addResearchNote(parentId: String?) async {
         do {
             let note = try await store.addResearchTextNote(parentId: parentId, title: "Untitled Note")
-            // Defer to next runloop tick so the new row is mounted in the view
-            // tree before we set the rename target.
-            DispatchQueue.main.async {
-                renamingItemId = note.id
-                selectedResearchId = note.id
-            }
+            selectedResearchId = note.id
+            pendingRenameId = note.id  // applied via .onChange when new row appears
         } catch {
             pendingError = error.localizedDescription
         }
