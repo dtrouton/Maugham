@@ -190,14 +190,8 @@ private final class MaughamTextView: NSTextView {
            NSPasteboard.general.canReadObject(forClasses: [NSImage.self], options: nil),
            let image = NSImage(pasteboard: .general),
            let ref = handler(image) {
-            // Insert the Markdown reference at the current cursor position
             let range = selectedRange()
-            if let storage = textStorage {
-                storage.replaceCharacters(in: range, with: ref)
-                let newCursor = range.location + (ref as NSString).length
-                setSelectedRange(NSRange(location: newCursor, length: 0))
-                didChangeText()
-            }
+            insertText(ref, replacementRange: range)
             return
         }
         super.paste(sender)
