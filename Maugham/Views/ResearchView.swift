@@ -154,8 +154,12 @@ struct ResearchView: View {
         do {
             let g = try await store.addResearchItem(
                 parentId: parentId, title: "Untitled Group", kind: nil)
-            renamingItemId = g.id
-            selectedResearchId = g.id
+            // Defer to next runloop tick so the new row is mounted in the view
+            // tree before we set the rename target.
+            DispatchQueue.main.async {
+                renamingItemId = g.id
+                selectedResearchId = g.id
+            }
         } catch {
             pendingError = error.localizedDescription
         }
@@ -164,8 +168,12 @@ struct ResearchView: View {
     private func addResearchNote(parentId: String?) async {
         do {
             let note = try await store.addResearchTextNote(parentId: parentId, title: "Untitled Note")
-            renamingItemId = note.id
-            selectedResearchId = note.id
+            // Defer to next runloop tick so the new row is mounted in the view
+            // tree before we set the rename target.
+            DispatchQueue.main.async {
+                renamingItemId = note.id
+                selectedResearchId = note.id
+            }
         } catch {
             pendingError = error.localizedDescription
         }
