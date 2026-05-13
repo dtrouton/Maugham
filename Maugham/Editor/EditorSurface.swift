@@ -165,6 +165,24 @@ private final class MaughamTextView: NSTextView {
         super.mouseDown(with: event)
     }
 
+    override var readablePasteboardTypes: [NSPasteboard.PasteboardType] {
+        var types = super.readablePasteboardTypes
+        if coordinator?.imagePasteHandler != nil {
+            // AppKit's menu-item validation for Edit→Paste checks
+            // readablePasteboardTypes; include image types so Paste is
+            // enabled when image content is on the clipboard.
+            let imageTypes: [NSPasteboard.PasteboardType] = [
+                .init("public.png"),
+                .init("public.tiff"),
+                .tiff
+            ]
+            for t in imageTypes where !types.contains(t) {
+                types.append(t)
+            }
+        }
+        return types
+    }
+
     override func paste(_ sender: Any?) {
         if let handler = coordinator?.imagePasteHandler,
            NSPasteboard.general.canReadObject(forClasses: [NSImage.self], options: nil),
