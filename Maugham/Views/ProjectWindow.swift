@@ -646,7 +646,7 @@ struct ProjectWindow: View {
 /// research/<note>.md file. Selecting a different research item or switching
 /// to the manuscript tab simply unmounts this view and remounts with the
 /// new path, triggering a flush of the pending save.
-private struct ResearchNoteEditor: View {
+struct ResearchNoteEditor: View {
     @Bindable var store: ProjectStore
     @Bindable var documentStore: DocumentStore
     let path: String

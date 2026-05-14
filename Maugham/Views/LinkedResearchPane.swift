@@ -4,6 +4,7 @@ struct LinkedResearchPane: View {
     @Bindable var store: ProjectStore
     let activeDocumentId: String?
     @State private var showingLinkPicker: Bool = false
+    @State private var viewedItemId: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -16,39 +17,97 @@ struct LinkedResearchPane: View {
                 ResearchLinkPickerSheet(store: store, documentId: docId)
             }
         }
+        .onChange(of: activeDocumentId) { _, _ in
+            // Different manuscript doc selected → reset viewer to list
+            viewedItemId = nil
+        }
     }
 
     private var header: some View {
         HStack {
-            Text("Linked Research").font(.headline)
-            Spacer()
-            Button {
-                showingLinkPicker = true
-            } label: {
-                Image(systemName: "plus.circle")
+            if viewedItemId != nil {
+                Button {
+                    viewedItemId = nil
+                } label: {
+                    Image(systemName: "chevron.left")
+                }
+                .buttonStyle(.plain)
+                .help("Back to linked list")
             }
-            .buttonStyle(.plain)
-            .disabled(activeDocumentId == nil)
-            .help("Link research…")
+            Text(headerTitle).font(.headline)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer()
+            if viewedItemId == nil {
+                Button {
+                    showingLinkPicker = true
+                } label: {
+                    Image(systemName: "plus.circle")
+                }
+                .buttonStyle(.plain)
+                .disabled(activeDocumentId == nil)
+                .help("Link research…")
+            }
         }
         .padding(8)
     }
 
+    private var headerTitle: String {
+        if let id = viewedItemId,
+           let item = store.resolveResearchLinks([id]).first {
+            return item.title
+        }
+        return "Linked Research"
+    }
+
     @ViewBuilder
     private var content: some View {
-        if let docId = activeDocumentId {
-            let items = linkedItems(for: docId)
-            Group {
-                if items.isEmpty {
-                    ContentUnavailableView {
-                        Label("No linked research", systemImage: "doc.text.magnifyingglass")
-                    } description: {
-                        Text("Drag research items here, or use the + button.")
-                    }
-                } else {
-                    List {
-                        ForEach(items) { item in
-                            LinkedResearchRow(store: store, item: item) {
+        if let id = viewedItemId,
+           let item = store.resolveResearchLinks([id]).first {
+            viewer(for: item)
+        } else if let docId = activeDocumentId {
+            list(for: docId)
+        } else {
+            ContentUnavailableView {
+                Label("No document selected", systemImage: "doc.text")
+            } description: {
+                Text("Select a chapter or scene to see its linked research")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func viewer(for item: ResearchItem) -> some View {
+        if item.kind == .document, let path = item.path,
+           let documentStore = store.documentStore {
+            ResearchNoteEditor(
+                store: store,
+                documentStore: documentStore,
+                path: path,
+                itemId: item.id,
+                previewVisible: false)
+        } else {
+            ResearchPreview(projectURL: store.url, item: item)
+        }
+    }
+
+    @ViewBuilder
+    private func list(for docId: String) -> some View {
+        let items = linkedItems(for: docId)
+        Group {
+            if items.isEmpty {
+                ContentUnavailableView {
+                    Label("No linked research", systemImage: "doc.text.magnifyingglass")
+                } description: {
+                    Text("Drag research items here, or use the + button.")
+                }
+            } else {
+                List {
+                    ForEach(items) { item in
+                        Button {
+                            viewedItemId = item.id
+                        } label: {
+                            LinkedResearchRow(item: item) {
                                 Task {
                                     try? await store.unlinkResearch(
                                         researchId: item.id,
@@ -56,25 +115,20 @@ struct LinkedResearchPane: View {
                                 }
                             }
                         }
-                    }
-                    .listStyle(.sidebar)
-                }
-            }
-            .dropDestination(for: String.self) { ids, _ in
-                for id in ids {
-                    Task {
-                        try? await store.linkResearch(
-                            researchId: id, toDocumentId: docId)
+                        .buttonStyle(.plain)
                     }
                 }
-                return true
+                .listStyle(.sidebar)
             }
-        } else {
-            ContentUnavailableView {
-                Label("No document selected", systemImage: "doc.text")
-            } description: {
-                Text("Select a chapter or scene to see its linked research")
+        }
+        .dropDestination(for: String.self) { ids, _ in
+            for id in ids {
+                Task {
+                    try? await store.linkResearch(
+                        researchId: id, toDocumentId: docId)
+                }
             }
+            return true
         }
     }
 
