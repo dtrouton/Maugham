@@ -6,4 +6,5 @@ public enum BinderSegment: String, Codable, Equatable, Sendable {
     case research
     case scenes
     case trash
+    case find
 }

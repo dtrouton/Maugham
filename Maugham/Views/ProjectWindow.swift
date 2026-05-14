@@ -27,6 +27,7 @@ struct ProjectWindow: View {
     @State private var lastParsedScript: FountainScript? = nil
     @State private var showingSyntaxHelp: Bool = false
     @State private var researchPreviewVisible: Bool = false
+    @State private var findActive: Bool = false
     @Environment(UserPreferences.self) private var userPreferences
     @Environment(\.openWindow) private var openWindow
 
@@ -42,7 +43,8 @@ struct ProjectWindow: View {
                         selectedItemId: $selectedItemId,
                         selectedResearchId: $selectedResearchId,
                         projectType: store.manifest.type,
-                        lastParsedScript: lastParsedScript)
+                        lastParsedScript: lastParsedScript,
+                        findActive: $findActive)
                         .navigationSplitViewColumnWidth(min: 200, ideal: 240)
                 } content: {
                     contentColumn(store: store, documentStore: documentStore)
@@ -333,6 +335,10 @@ struct ProjectWindow: View {
             ContentUnavailableView(
                 "Trash",
                 systemImage: "trash")
+        case .find:
+            ContentUnavailableView(
+                "Find",
+                systemImage: "magnifyingglass")
         }
     }
 
@@ -386,6 +392,10 @@ struct ProjectWindow: View {
             ContentUnavailableView(
                 "No selection",
                 systemImage: "trash")
+        case .find:
+            ContentUnavailableView(
+                "No selection",
+                systemImage: "magnifyingglass")
         }
     }
 

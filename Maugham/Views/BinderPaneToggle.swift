@@ -7,6 +7,7 @@ struct BinderPaneToggle: View {
     @Binding var selectedResearchId: String?
     let projectType: ProjectType
     let lastParsedScript: FountainScript?
+    @Binding var findActive: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -20,6 +21,9 @@ struct BinderPaneToggle: View {
                 }
                 if !store.trashEntries.isEmpty {
                     Text("Trash").tag(BinderSegment.trash)
+                }
+                if findActive {
+                    Text("Find").tag(BinderSegment.find)
                 }
             }
             .pickerStyle(.segmented)
@@ -44,11 +48,19 @@ struct BinderPaneToggle: View {
                         })
                 case .trash:
                     TrashView(store: store)
+                case .find:
+                    Text("Find UI lands in Task 8")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
         }
         .onChange(of: store.trashEntries.count) { _, newValue in
             if newValue == 0 && segment == .trash {
+                segment = projectType == .screenplay ? .scenes : .manuscript
+            }
+        }
+        .onChange(of: findActive) { _, newValue in
+            if !newValue && segment == .find {
                 segment = projectType == .screenplay ? .scenes : .manuscript
             }
         }
