@@ -38,25 +38,36 @@ struct LinkedResearchPane: View {
     private var content: some View {
         if let docId = activeDocumentId {
             let items = linkedItems(for: docId)
-            if items.isEmpty {
-                ContentUnavailableView {
-                    Label("No linked research", systemImage: "doc.text.magnifyingglass")
-                } description: {
-                    Text("Drag research items here, or use the + button.")
-                }
-            } else {
-                List {
-                    ForEach(items) { item in
-                        LinkedResearchRow(store: store, item: item) {
-                            Task {
-                                try? await store.unlinkResearch(
-                                    researchId: item.id,
-                                    fromDocumentId: docId)
+            Group {
+                if items.isEmpty {
+                    ContentUnavailableView {
+                        Label("No linked research", systemImage: "doc.text.magnifyingglass")
+                    } description: {
+                        Text("Drag research items here, or use the + button.")
+                    }
+                } else {
+                    List {
+                        ForEach(items) { item in
+                            LinkedResearchRow(store: store, item: item) {
+                                Task {
+                                    try? await store.unlinkResearch(
+                                        researchId: item.id,
+                                        fromDocumentId: docId)
+                                }
                             }
                         }
                     }
+                    .listStyle(.sidebar)
                 }
-                .listStyle(.sidebar)
+            }
+            .dropDestination(for: String.self) { ids, _ in
+                for id in ids {
+                    Task {
+                        try? await store.linkResearch(
+                            researchId: id, toDocumentId: docId)
+                    }
+                }
+                return true
             }
         } else {
             ContentUnavailableView {
