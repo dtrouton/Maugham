@@ -608,6 +608,9 @@ Daily-writing improvements. Reduces friction in the surface you spend hours in.
 **Screenplay editing depth:**
 - Dual dialogue (`^` for side-by-side speakers)
 
+**Visual reference:**
+- Mood board — a board surface for arranging images, swatches, and notes when thinking through a project's visual identity (colour palettes, character looks, locations). Project-level (not per-document). Needs brainstorming on scope: dedicated binder pane vs. new project type vs. extension of the Research browser.
+
 ---
 
 ### Group 2 — Claude integration
