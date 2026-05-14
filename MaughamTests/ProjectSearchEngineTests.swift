@@ -43,3 +43,97 @@ final class SearchTypesTests: XCTestCase {
         XCTAssertFalse(o.wholeWord)
     }
 }
+
+@MainActor
+final class ProjectSearchEngineTests: XCTestCase {
+    /// Build a project on disk with manuscript items, return its URL.
+    private func makeProject(manuscript: [(slug: String, content: String)]) throws -> URL {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SearchEngine-\(UUID())")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("manuscript"),
+            withIntermediateDirectories: true)
+        var structure: [StructureItem] = []
+        for (slug, content) in manuscript {
+            try content.write(
+                to: tmp.appendingPathComponent("manuscript/\(slug).md"),
+                atomically: true, encoding: .utf8)
+            structure.append(StructureItem(
+                id: "ms-\(slug)", title: slug, type: .document,
+                path: "manuscript/\(slug).md"))
+        }
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A",
+            created: Date(), modified: Date(),
+            structure: structure, research: [])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(
+            to: tmp.appendingPathComponent("project.maugham.json"))
+        return tmp
+    }
+
+    func test_search_findsMatchInOneDocument() async throws {
+        let project = try makeProject(manuscript: [
+            ("chapter-1", "She walked to the kitchen.\nIt was empty.\n")
+        ])
+        let store = try await ProjectStore.load(from: project)
+
+        let engine = ProjectSearchEngine()
+        let results = await engine.search(
+            query: "kitchen", options: SearchOptions(), in: store)
+
+        XCTAssertEqual(results.matchCount, 1)
+        XCTAssertEqual(results.matches[0].documentPath, "manuscript/chapter-1.md")
+        XCTAssertEqual(results.matches[0].lineNumber, 1)
+        XCTAssertEqual(results.matches[0].documentSource, .manuscript)
+        XCTAssertEqual(results.matches[0].linePreview, "She walked to the kitchen.")
+        XCTAssertEqual(results.matches[0].matchRangeInLine.length, 7)
+    }
+
+    func test_search_findsMultipleMatchesAcrossDocuments() async throws {
+        let project = try makeProject(manuscript: [
+            ("chapter-1", "kitchen scene one.\nkitchen scene two.\n"),
+            ("chapter-2", "another kitchen.\nno match here.\n")
+        ])
+        let store = try await ProjectStore.load(from: project)
+
+        let engine = ProjectSearchEngine()
+        let results = await engine.search(
+            query: "kitchen", options: SearchOptions(), in: store)
+
+        XCTAssertEqual(results.matchCount, 3)
+        XCTAssertEqual(results.documentCount, 2)
+        // Sorted: chapter-1 lines 1,2 then chapter-2 line 1
+        XCTAssertEqual(results.matches[0].documentPath, "manuscript/chapter-1.md")
+        XCTAssertEqual(results.matches[0].lineNumber, 1)
+        XCTAssertEqual(results.matches[1].lineNumber, 2)
+        XCTAssertEqual(results.matches[2].documentPath, "manuscript/chapter-2.md")
+    }
+
+    func test_search_emptyQuery_returnsEmptyResults() async throws {
+        let project = try makeProject(manuscript: [
+            ("chapter-1", "some content\n")
+        ])
+        let store = try await ProjectStore.load(from: project)
+
+        let results = await ProjectSearchEngine().search(
+            query: "", options: SearchOptions(), in: store)
+
+        XCTAssertEqual(results.matchCount, 0)
+        XCTAssertEqual(results.query, "")
+    }
+
+    func test_search_caseInsensitiveByDefault() async throws {
+        let project = try makeProject(manuscript: [
+            ("c", "Kitchen\nKITCHEN\nkitchen\n")
+        ])
+        let store = try await ProjectStore.load(from: project)
+
+        let results = await ProjectSearchEngine().search(
+            query: "kitchen", options: SearchOptions(), in: store)
+
+        XCTAssertEqual(results.matchCount, 3)
+    }
+}
