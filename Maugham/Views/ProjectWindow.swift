@@ -28,6 +28,8 @@ struct ProjectWindow: View {
     @State private var showingSyntaxHelp: Bool = false
     @State private var researchPreviewVisible: Bool = false
     @State private var findActive: Bool = false
+    @State private var detailSegment: DetailSegment = .inspector
+    @State private var outlineLayout: OutlineLayout = .table
     @Environment(UserPreferences.self) private var userPreferences
     @Environment(\.openWindow) private var openWindow
 
@@ -424,28 +426,36 @@ struct ProjectWindow: View {
 
     @ViewBuilder
     private func inspectorPane(store: ProjectStore) -> some View {
-        switch binderSegment {
-        case .manuscript, .scenes, .find:
-            InspectorView(
-                store: store,
-                selectedItemId: selectedItemId,
-                metrics: metrics,
-                onOpenProjectSettings: { activeSheet = .projectSettings }
-            )
-        case .research:
-            if let id = selectedResearchId,
-               let item = findResearchItem(
-                    id: id, in: store.manifest.research) {
-                InspectorResearchPanel(store: store, item: item)
-            } else {
+        DetailPaneToggle(
+            store: store,
+            segment: $detailSegment,
+            outlineLayout: $outlineLayout,
+            selectedItemId: $selectedItemId,
+            activeManuscriptItemId: selectedItemId
+        ) {
+            switch binderSegment {
+            case .manuscript, .scenes, .find:
+                InspectorView(
+                    store: store,
+                    selectedItemId: selectedItemId,
+                    metrics: metrics,
+                    onOpenProjectSettings: { activeSheet = .projectSettings }
+                )
+            case .research:
+                if let id = selectedResearchId,
+                   let item = findResearchItem(
+                        id: id, in: store.manifest.research) {
+                    InspectorResearchPanel(store: store, item: item)
+                } else {
+                    ContentUnavailableView(
+                        "Select an item",
+                        systemImage: "info.circle")
+                }
+            case .trash:
                 ContentUnavailableView(
-                    "Select an item",
-                    systemImage: "info.circle")
+                    "No selection",
+                    systemImage: "trash")
             }
-        case .trash:
-            ContentUnavailableView(
-                "No selection",
-                systemImage: "trash")
         }
     }
 
@@ -585,6 +595,8 @@ struct ProjectWindow: View {
             }
             self.isNoChromeOn = ds.uiState.isNoChromeOn
             self.researchPreviewVisible = ds.uiState.researchPreviewVisible
+            self.detailSegment = ds.uiState.detailSegment
+            self.outlineLayout = ds.uiState.outlineLayout
 
             // Restore binderSegment from saved state, or use default based on project type.
             let savedSegment = ds.uiState.binderSegment
