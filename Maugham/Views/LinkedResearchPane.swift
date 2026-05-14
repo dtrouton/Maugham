@@ -76,19 +76,12 @@ struct LinkedResearchPane: View {
         }
     }
 
-    @ViewBuilder
     private func viewer(for item: ResearchItem) -> some View {
-        if item.kind == .document, let path = item.path,
-           let documentStore = store.documentStore {
-            ResearchNoteEditor(
-                store: store,
-                documentStore: documentStore,
-                path: path,
-                itemId: item.id,
-                previewVisible: false)
-        } else {
-            ResearchPreview(projectURL: store.url, item: item)
-        }
+        // Always use ResearchPreview here — its TextPreview branch handles
+        // .document read-only without going through DocumentStore. Using
+        // ResearchNoteEditor would hijack DocumentStore's active document
+        // and evict the manuscript doc from the editor pane.
+        ResearchPreview(projectURL: store.url, item: item)
     }
 
     @ViewBuilder
