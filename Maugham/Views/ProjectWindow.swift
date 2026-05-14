@@ -167,7 +167,9 @@ struct ProjectWindow: View {
             findActive: $findActive,
             showingTidyAllConfirmation: $showingTidyAllConfirmation,
             showingSyntaxHelp: $showingSyntaxHelp,
-            researchPreviewVisible: $researchPreviewVisible))
+            researchPreviewVisible: $researchPreviewVisible,
+            showInspector: $showInspector,
+            detailSegment: $detailSegment))
         .sheet(isPresented: $showingSyntaxHelp) {
             SyntaxHelpSheet(mode: currentSyntaxHelpMode)
         }
@@ -193,9 +195,18 @@ struct ProjectWindow: View {
         @Binding var showingTidyAllConfirmation: Bool
         @Binding var showingSyntaxHelp: Bool
         @Binding var researchPreviewVisible: Bool
+        @Binding var showInspector: Bool
+        @Binding var detailSegment: DetailSegment
 
         func body(content: Content) -> some View {
             content
+                .onReceive(NotificationCenter.default.publisher(
+                    for: .maughamSetDetailSegment)) { note in
+                    guard let raw = note.userInfo?["segment"] as? String,
+                          let seg = DetailSegment(rawValue: raw) else { return }
+                    showInspector = true     // ensure pane is visible
+                    detailSegment = seg
+                }
                 .onReceive(NotificationCenter.default.publisher(
                     for: .maughamTidyAllFilenames)) { _ in
                     showingTidyAllConfirmation = true
