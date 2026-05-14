@@ -92,6 +92,21 @@ struct MaughamApp: App {
                 .keyboardShortcut("p", modifiers: [.command, .shift])
             }
             CommandGroup(after: .pasteboard) {
+                Divider()
+                Button("Find\u{2026}") {
+                    Self.dispatchFindAction(tag: 1)  // NSFindPanelActionShowFindPanel
+                }
+                .keyboardShortcut("f", modifiers: .command)
+                Button("Find Next") {
+                    Self.dispatchFindAction(tag: 2)  // NSFindPanelActionNext
+                }
+                .keyboardShortcut("g", modifiers: .command)
+                Button("Find Previous") {
+                    Self.dispatchFindAction(tag: 3)  // NSFindPanelActionPrevious
+                }
+                .keyboardShortcut("g", modifiers: [.command, .shift])
+            }
+            CommandGroup(after: .pasteboard) {
                 Button("Find in Project…") {
                     NotificationCenter.default.post(
                         name: .maughamFindInProject, object: nil)
@@ -138,6 +153,16 @@ struct MaughamApp: App {
             SettingsView()
                 .environment(userPreferences)
         }
+    }
+
+    private static func dispatchFindAction(tag: Int) {
+        guard let window = NSApp.keyWindow,
+              let firstResponder = window.firstResponder else { return }
+        let item = NSMenuItem()
+        item.tag = tag
+        _ = firstResponder.tryToPerform(
+            #selector(NSResponder.performTextFinderAction(_:)),
+            with: item)
     }
 }
 
