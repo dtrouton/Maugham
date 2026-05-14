@@ -20,98 +20,43 @@ struct SyntaxHelpSheet: View {
     let mode: SyntaxHelpMode
     @Environment(\.dismiss) private var dismiss
 
-    @State private var blocks: [HelpBlock] = []
+    @State private var selectedTab: Tab
+
+    enum Tab: String, Hashable {
+        case markdown, fountain, keyboard
+    }
+
+    init(mode: SyntaxHelpMode) {
+        self.mode = mode
+        switch mode {
+        case .prose:      self._selectedTab = State(initialValue: .markdown)
+        case .screenplay: self._selectedTab = State(initialValue: .fountain)
+        }
+    }
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 8) {
-                    ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                        blockView(for: block)
-                    }
-                }
-                .padding(24)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
+            TabView(selection: $selectedTab) {
+                SyntaxHelpBlocksView(mode: .prose)
+                    .tabItem { Text("Markdown") }
+                    .tag(Tab.markdown)
+                SyntaxHelpBlocksView(mode: .screenplay)
+                    .tabItem { Text("Fountain") }
+                    .tag(Tab.fountain)
+                KeyboardCheatsheetView()
+                    .tabItem { Text("Keyboard") }
+                    .tag(Tab.keyboard)
             }
+            .padding(.top, 8)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                         .keyboardShortcut(.defaultAction)
                 }
             }
-            .navigationTitle(navigationTitle)
+            .navigationTitle("Reference")
         }
         .frame(minWidth: 640, minHeight: 480)
-        .task {
-            blocks = Self.loadContent(mode: mode)
-        }
-    }
-
-    // MARK: Block renderers
-
-    @ViewBuilder
-    private func blockView(for block: HelpBlock) -> some View {
-        switch block {
-        case .heading(let level, let text):
-            headingView(level: level, text: text)
-        case .paragraph(let attributed):
-            Text(attributed)
-                .font(.body)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        case .codeBlock(let text):
-            Text(text)
-                .font(.system(.body, design: .monospaced))
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.secondary.opacity(0.12))
-                .cornerRadius(6)
-        case .bullet(let attributed):
-            HStack(alignment: .top, spacing: 6) {
-                Text("•")
-                    .font(.body)
-                Text(attributed)
-                    .font(.body)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func headingView(level: Int, text: String) -> some View {
-        switch level {
-        case 1:
-            Text(text)
-                .font(.title2)
-                .bold()
-                .padding(.top, 24)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        case 2:
-            Text(text)
-                .font(.title3)
-                .bold()
-                .padding(.top, 16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        case 3:
-            Text(text)
-                .font(.headline)
-                .padding(.top, 12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        default:
-            Text(text)
-                .font(.subheadline)
-                .bold()
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    // MARK: Navigation title
-
-    private var navigationTitle: String {
-        switch mode {
-        case .prose:        return "Markdown Syntax"
-        case .screenplay:   return "Fountain Syntax"
-        }
     }
 
     // MARK: - Content loading
@@ -214,5 +159,74 @@ struct SyntaxHelpSheet: View {
 
     static func parseInline(_ s: String) -> AttributedString {
         (try? AttributedString(markdown: s)) ?? AttributedString(s)
+    }
+}
+
+// MARK: - Per-mode blocks view
+
+/// Renders a single help mode's blocks. Used inside each tab of SyntaxHelpSheet.
+private struct SyntaxHelpBlocksView: View {
+    let mode: SyntaxHelpMode
+    @State private var blocks: [HelpBlock] = []
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+                    blockView(for: block)
+                }
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .textSelection(.enabled)
+        }
+        .task(id: mode) {
+            blocks = SyntaxHelpSheet.loadContent(mode: mode)
+        }
+    }
+
+    @ViewBuilder
+    private func blockView(for block: HelpBlock) -> some View {
+        switch block {
+        case .heading(let level, let text):
+            headingView(level: level, text: text)
+        case .paragraph(let attributed):
+            Text(attributed)
+                .font(.body)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        case .codeBlock(let text):
+            Text(text)
+                .font(.system(.body, design: .monospaced))
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.secondary.opacity(0.12))
+                .cornerRadius(6)
+        case .bullet(let attributed):
+            HStack(alignment: .top, spacing: 6) {
+                Text("•")
+                    .font(.body)
+                Text(attributed)
+                    .font(.body)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func headingView(level: Int, text: String) -> some View {
+        switch level {
+        case 1:
+            Text(text).font(.title2).bold().padding(.top, 24)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        case 2:
+            Text(text).font(.title3).bold().padding(.top, 16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        case 3:
+            Text(text).font(.headline).padding(.top, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        default:
+            Text(text).font(.subheadline).bold()
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
