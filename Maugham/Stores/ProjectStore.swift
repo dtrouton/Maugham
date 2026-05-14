@@ -1011,6 +1011,32 @@ public final class ProjectStore {
         try updated.write(to: url, atomically: true, encoding: .utf8)
     }
 
+    /// Replace all matches in the given results with `replacement`.
+    /// Groups by document; applies replacements right-to-left within each
+    /// document so earlier offsets aren't shifted by later edits.
+    public func replaceAll(
+        in results: SearchResults, with replacement: String
+    ) async throws {
+        let grouped = Dictionary(grouping: results.matches, by: \.documentPath)
+        for (path, matches) in grouped {
+            let url = self.url.appendingPathComponent(path)
+            let original = try String(contentsOf: url, encoding: .utf8)
+            var ns = original as NSString
+            // Right-to-left order
+            let ordered = matches.sorted {
+                $0.charRangeInDocument.location > $1.charRangeInDocument.location
+            }
+            for match in ordered {
+                // Guard against out-of-bounds in case content changed
+                guard match.charRangeInDocument.location + match.charRangeInDocument.length
+                        <= ns.length else { continue }
+                ns = ns.replacingCharacters(
+                    in: match.charRangeInDocument, with: replacement) as NSString
+            }
+            try (ns as String).write(to: url, atomically: true, encoding: .utf8)
+        }
+    }
+
     /// Update project-level targets. Currently surfaces 3a's page target;
     /// future expansion can add total-words / deadline editing through the
     /// same path. Treat 0 as "clear the target" — mirrors per-document word

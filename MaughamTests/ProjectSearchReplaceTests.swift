@@ -61,4 +61,39 @@ final class ProjectSearchReplaceTests: XCTestCase {
             contentsOf: project.appendingPathComponent("manuscript/c1.md"))
         XCTAssertEqual(content, "the is empty\n")
     }
+
+    func test_replaceAll_replacesAllMatchesPerDoc() async throws {
+        let project = try makeProject(manuscript: [
+            ("c1", "kitchen here\nand kitchen there\n"),
+            ("c2", "no kitchen anywhere\n")
+        ])
+        let store = try await ProjectStore.load(from: project)
+        let results = await ProjectSearchEngine().search(
+            query: "kitchen", options: SearchOptions(), in: store)
+        XCTAssertEqual(results.matchCount, 3)
+
+        try await store.replaceAll(in: results, with: "library")
+
+        let c1 = try String(contentsOf: project.appendingPathComponent("manuscript/c1.md"))
+        let c2 = try String(contentsOf: project.appendingPathComponent("manuscript/c2.md"))
+        XCTAssertEqual(c1, "library here\nand library there\n")
+        XCTAssertEqual(c2, "no library anywhere\n")
+    }
+
+    func test_replaceAll_rightToLeftOrderPreservesOffsets() async throws {
+        // Multiple matches on the same line; offsets must apply right-to-left
+        // so earlier matches' ranges stay valid.
+        let project = try makeProject(manuscript: [
+            ("c1", "ab ab ab\n")  // 3 matches of "ab" at offsets 0, 3, 6
+        ])
+        let store = try await ProjectStore.load(from: project)
+        let results = await ProjectSearchEngine().search(
+            query: "ab", options: SearchOptions(), in: store)
+        XCTAssertEqual(results.matchCount, 3)
+
+        try await store.replaceAll(in: results, with: "XYZ")  // longer than "ab"
+
+        let content = try String(contentsOf: project.appendingPathComponent("manuscript/c1.md"))
+        XCTAssertEqual(content, "XYZ XYZ XYZ\n")
+    }
 }
