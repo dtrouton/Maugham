@@ -37,6 +37,23 @@ public struct ProjectSearchEngine {
             allMatches.append(contentsOf: matches)
         }
 
+        // Research pass
+        let researchDocs = Self.flattenResearchDocs(store.manifest.research)
+        for (item, fullPath) in researchDocs {
+            await Task.yield()
+            if Task.isCancelled { break }
+            let url = store.url.appendingPathComponent(fullPath)
+            guard let content = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            let matches = Self.matchesIn(
+                content: content,
+                query: query,
+                options: options,
+                documentPath: fullPath,
+                documentTitle: item.title,
+                documentSource: .research)
+            allMatches.append(contentsOf: matches)
+        }
+
         return SearchResults(query: query, options: options, matches: allMatches)
     }
 
@@ -56,6 +73,26 @@ public struct ProjectSearchEngine {
                 if let children = item.children {
                     out.append(contentsOf: flattenManuscriptDocs(children))
                 }
+            }
+        }
+        return out
+    }
+
+    /// Flatten research tree, returning (item, path) pairs for .document-kind
+    /// items whose path ends with .md.
+    private static func flattenResearchDocs(
+        _ items: [ResearchItem]
+    ) -> [(item: ResearchItem, path: String)] {
+        var out: [(item: ResearchItem, path: String)] = []
+        for item in items {
+            if item.type == .asset,
+               item.kind == .document,
+               let path = item.path,
+               path.hasSuffix(".md") {
+                out.append((item, path))
+            }
+            if let children = item.children {
+                out.append(contentsOf: flattenResearchDocs(children))
             }
         }
         return out
