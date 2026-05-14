@@ -47,17 +47,25 @@ struct ProjectSearchView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                TextField("Find in project", text: $query)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($queryFocused)
+                Text("Find in Project")
+                    .font(.headline)
+                Spacer()
                 Button {
                     isActive = false
                     store.clearSearch()
+                    NotificationCenter.default.post(
+                        name: .maughamCloseFind, object: nil)
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
+                .help("Close find")
+            }
+            HStack {
+                TextField("Find in project", text: $query)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($queryFocused)
             }
             Toggle("Replace\u{2026}", isOn: $showReplace)
                 .toggleStyle(.switch)
@@ -143,33 +151,34 @@ struct ProjectSearchView: View {
     }
 
     private func matchRow(for match: SearchMatch) -> some View {
-        HStack(spacing: 8) {
-            Text("\(match.lineNumber)")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .monospacedDigit()
-                .frame(width: 30, alignment: .trailing)
-            Text(highlightedPreview(for: match))
-                .font(.callout)
-                .lineLimit(2)
-            Spacer(minLength: 4)
-            if showReplace {
-                Button {
-                    Task { await runReplaceMatch(match) }
-                } label: {
-                    Image(systemName: "arrow.right.circle")
-                }
-                .buttonStyle(.plain)
-                .help("Replace this match")
-            }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
+        Button {
             NotificationCenter.default.post(
                 name: .maughamFindMatchSelected,
                 object: nil,
                 userInfo: ["match": match])
+        } label: {
+            HStack(spacing: 8) {
+                Text("\(match.lineNumber)")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .monospacedDigit()
+                    .frame(width: 30, alignment: .trailing)
+                Text(highlightedPreview(for: match))
+                    .font(.callout)
+                    .lineLimit(2)
+                Spacer(minLength: 4)
+                if showReplace {
+                    Button {
+                        Task { await runReplaceMatch(match) }
+                    } label: {
+                        Image(systemName: "arrow.right.circle")
+                    }
+                    .buttonStyle(.plain)
+                    .help("Replace this match")
+                }
+            }
         }
+        .buttonStyle(.plain)
     }
 
     private func highlightedPreview(for match: SearchMatch) -> AttributedString {
