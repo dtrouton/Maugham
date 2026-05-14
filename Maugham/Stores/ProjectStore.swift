@@ -992,6 +992,25 @@ public final class ProjectStore {
         searchInProgress = false
     }
 
+    /// Replace a single search match with the given replacement text.
+    /// Loads the file, splices the replacement into the match's char range,
+    /// saves via atomic write.
+    public func replaceMatch(
+        _ match: SearchMatch, with replacement: String
+    ) async throws {
+        let url = self.url.appendingPathComponent(match.documentPath)
+        let original = try String(contentsOf: url, encoding: .utf8)
+        let ns = original as NSString
+        guard match.charRangeInDocument.location + match.charRangeInDocument.length
+                <= ns.length else {
+            // Stale match (file changed since search). Caller should re-run search.
+            throw ProjectStoreError.fileSystemError("Match range out of bounds")
+        }
+        let updated = ns.replacingCharacters(
+            in: match.charRangeInDocument, with: replacement) as String
+        try updated.write(to: url, atomically: true, encoding: .utf8)
+    }
+
     /// Update project-level targets. Currently surfaces 3a's page target;
     /// future expansion can add total-words / deadline editing through the
     /// same path. Treat 0 as "clear the target" — mirrors per-document word
