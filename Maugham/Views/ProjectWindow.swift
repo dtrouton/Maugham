@@ -162,6 +162,7 @@ struct ProjectWindow: View {
             selectedItemId: $selectedItemId,
             selectedResearchId: $selectedResearchId,
             binderSegment: $binderSegment,
+            findActive: $findActive,
             showingTidyAllConfirmation: $showingTidyAllConfirmation,
             showingSyntaxHelp: $showingSyntaxHelp,
             researchPreviewVisible: $researchPreviewVisible))
@@ -186,6 +187,7 @@ struct ProjectWindow: View {
         @Binding var selectedItemId: String?
         @Binding var selectedResearchId: String?
         @Binding var binderSegment: BinderSegment
+        @Binding var findActive: Bool
         @Binding var showingTidyAllConfirmation: Bool
         @Binding var showingSyntaxHelp: Bool
         @Binding var researchPreviewVisible: Bool
@@ -246,6 +248,11 @@ struct ProjectWindow: View {
                 .onReceive(NotificationCenter.default.publisher(
                     for: .maughamFindInProject)) { _ in
                     binderSegment = .find
+                }
+                .onReceive(NotificationCenter.default.publisher(
+                    for: .maughamCloseFind)) { _ in
+                    findActive = false
+                    binderSegment = store?.manifest.type == .screenplay ? .scenes : .manuscript
                 }
                 .onReceive(NotificationCenter.default.publisher(
                     for: .maughamFindMatchSelected)) { note in
