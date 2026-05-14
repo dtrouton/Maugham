@@ -241,6 +241,10 @@ struct ProjectWindow: View {
                         $0.researchPreviewVisible = researchPreviewVisible
                     }
                 }
+                .onReceive(NotificationCenter.default.publisher(
+                    for: .maughamFindInProject)) { _ in
+                    binderSegment = .find
+                }
                 .alert("Renumber every chapter and scene?",
                        isPresented: $showingTidyAllConfirmation
                 ) {

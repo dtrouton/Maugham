@@ -21,4 +21,5 @@ extension Notification.Name {
     public static let maughamRestoreLastDeleted = Notification.Name("maugham.restore.last.deleted")
     public static let maughamToggleResearchPreview = Notification.Name("maugham.toggle.research.preview")
     public static let maughamFindMatchSelected = Notification.Name("maugham.find.match.selected")
+    public static let maughamFindInProject = Notification.Name("maugham.find.in.project")
 }

@@ -54,7 +54,7 @@ struct EditorSurface: NSViewRepresentable {
         textView.isEditable = true
         textView.isRichText = false
         textView.allowsUndo = true
-        textView.usesFindBar = false
+        textView.usesFindBar = true
         textView.usesFontPanel = false
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false

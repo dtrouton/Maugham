@@ -92,6 +92,11 @@ struct MaughamApp: App {
                 .keyboardShortcut("p", modifiers: [.command, .shift])
             }
             CommandGroup(after: .pasteboard) {
+                Button("Find in Project…") {
+                    NotificationCenter.default.post(
+                        name: .maughamFindInProject, object: nil)
+                }
+                .keyboardShortcut("f", modifiers: [.command, .option])
                 Button("Restore Last Deleted Item") {
                     NotificationCenter.default.post(
                         name: .maughamRestoreLastDeleted, object: nil)
