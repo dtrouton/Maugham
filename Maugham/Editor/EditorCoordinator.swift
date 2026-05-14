@@ -71,6 +71,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// Observer token for `maughamNavigateToScene` notifications.
     private var navigateObserver: NSObjectProtocol?
 
+    /// Observer token for `maughamFindMatchSelected` notifications.
+    private var findMatchObserver: NSObjectProtocol?
+
     init(text: Binding<String>,
          mode: any WritingMode,
          theme: Theme,
@@ -98,10 +101,32 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                   let textView = self.textView else { return }
             self.navigateToLine(at: location, in: textView)
         }
+        findMatchObserver = NotificationCenter.default.addObserver(
+            forName: .maughamFindMatchSelected,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self,
+                  let match = note.userInfo?["match"] as? SearchMatch,
+                  let textView = self.textView else { return }
+
+            // Defer to allow the document load to complete first.
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 50_000_000)
+                let range = match.charRangeInDocument
+                guard let storage = textView.textStorage,
+                      range.location + range.length <= storage.length else { return }
+                textView.setSelectedRange(range)
+                textView.scrollRangeToVisible(range)
+            }
+        }
     }
 
     deinit {
         if let token = navigateObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+        if let token = findMatchObserver {
             NotificationCenter.default.removeObserver(token)
         }
     }

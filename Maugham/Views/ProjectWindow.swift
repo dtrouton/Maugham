@@ -160,6 +160,7 @@ struct ProjectWindow: View {
             store: store,
             sessionLog: $sessionLog,
             selectedItemId: $selectedItemId,
+            selectedResearchId: $selectedResearchId,
             binderSegment: $binderSegment,
             showingTidyAllConfirmation: $showingTidyAllConfirmation,
             showingSyntaxHelp: $showingSyntaxHelp,
@@ -183,6 +184,7 @@ struct ProjectWindow: View {
         let store: ProjectStore?
         @Binding var sessionLog: SessionLog
         @Binding var selectedItemId: String?
+        @Binding var selectedResearchId: String?
         @Binding var binderSegment: BinderSegment
         @Binding var showingTidyAllConfirmation: Bool
         @Binding var showingSyntaxHelp: Bool
@@ -245,6 +247,23 @@ struct ProjectWindow: View {
                     for: .maughamFindInProject)) { _ in
                     binderSegment = .find
                 }
+                .onReceive(NotificationCenter.default.publisher(
+                    for: .maughamFindMatchSelected)) { note in
+                    guard let store,
+                          let match = note.userInfo?["match"] as? SearchMatch else { return }
+                    switch match.documentSource {
+                    case .manuscript:
+                        if let item = findStructureItemByPath(
+                            match.documentPath, in: store.manifest.structure) {
+                            selectedItemId = item.id
+                        }
+                    case .research:
+                        if let item = findResearchItemByPath(
+                            match.documentPath, in: store.manifest.research) {
+                            selectedResearchId = item.id
+                        }
+                    }
+                }
                 .alert("Renumber every chapter and scene?",
                        isPresented: $showingTidyAllConfirmation
                 ) {
@@ -262,6 +281,32 @@ struct ProjectWindow: View {
                 } message: {
                     Text("Filenames in every group will be renumbered to fix gaps. This change is visible to other apps that read this folder.")
                 }
+        }
+
+        private func findStructureItemByPath(
+            _ path: String, in items: [StructureItem]
+        ) -> StructureItem? {
+            for item in items {
+                if item.path == path { return item }
+                if let children = item.children,
+                   let nested = findStructureItemByPath(path, in: children) {
+                    return nested
+                }
+            }
+            return nil
+        }
+
+        private func findResearchItemByPath(
+            _ path: String, in items: [ResearchItem]
+        ) -> ResearchItem? {
+            for item in items {
+                if item.path == path { return item }
+                if let children = item.children,
+                   let nested = findResearchItemByPath(path, in: children) {
+                    return nested
+                }
+            }
+            return nil
         }
     }
 
@@ -449,6 +494,32 @@ struct ProjectWindow: View {
             if item.id == id { return item }
             if let children = item.children,
                let nested = findResearchItem(id: id, in: children) {
+                return nested
+            }
+        }
+        return nil
+    }
+
+    private func findStructureItemByPath(
+        _ path: String, in items: [StructureItem]
+    ) -> StructureItem? {
+        for item in items {
+            if item.path == path { return item }
+            if let children = item.children,
+               let nested = findStructureItemByPath(path, in: children) {
+                return nested
+            }
+        }
+        return nil
+    }
+
+    private func findResearchItemByPath(
+        _ path: String, in items: [ResearchItem]
+    ) -> ResearchItem? {
+        for item in items {
+            if item.path == path { return item }
+            if let children = item.children,
+               let nested = findResearchItemByPath(path, in: children) {
                 return nested
             }
         }
