@@ -353,9 +353,11 @@ struct ProjectWindow: View {
         store: ProjectStore, documentStore: DocumentStore
     ) -> some View {
         switch binderSegment {
-        case .manuscript, .scenes:
-            // Both segments show the editor — .scenes is just an alternate
-            // sidebar navigator; the underlying screenplay file is the same.
+        case .manuscript, .scenes, .find:
+            // Both .manuscript and .scenes show the editor — .scenes is just an
+            // alternate sidebar navigator; the underlying screenplay file is the same.
+            // .find also shows the active document, as search results update
+            // selectedItemId when clicked.
             EditorHost(
                 store: store,
                 documentStore: documentStore,
@@ -391,10 +393,6 @@ struct ProjectWindow: View {
             ContentUnavailableView(
                 "Trash",
                 systemImage: "trash")
-        case .find:
-            ContentUnavailableView(
-                "Find",
-                systemImage: "magnifyingglass")
         }
     }
 
@@ -427,7 +425,7 @@ struct ProjectWindow: View {
     @ViewBuilder
     private func inspectorPane(store: ProjectStore) -> some View {
         switch binderSegment {
-        case .manuscript, .scenes:
+        case .manuscript, .scenes, .find:
             InspectorView(
                 store: store,
                 selectedItemId: selectedItemId,
@@ -448,10 +446,6 @@ struct ProjectWindow: View {
             ContentUnavailableView(
                 "No selection",
                 systemImage: "trash")
-        case .find:
-            ContentUnavailableView(
-                "No selection",
-                systemImage: "magnifyingglass")
         }
     }
 
