@@ -11,6 +11,8 @@ public struct UIState: Codable, Equatable, Sendable {
     public var scrollLine: Int
     public var binderSegment: BinderSegment
     public var researchPreviewVisible: Bool
+    public var detailSegment: DetailSegment
+    public var outlineLayout: OutlineLayout
 
     public init(
         schemaVersion: Int = UIState.currentSchemaVersion,
@@ -18,7 +20,9 @@ public struct UIState: Codable, Equatable, Sendable {
         isNoChromeOn: Bool = false,
         scrollLine: Int = 0,
         binderSegment: BinderSegment = .manuscript,
-        researchPreviewVisible: Bool = false
+        researchPreviewVisible: Bool = false,
+        detailSegment: DetailSegment = .inspector,
+        outlineLayout: OutlineLayout = .table
     ) {
         self.schemaVersion = schemaVersion
         self.selectedItemId = selectedItemId
@@ -26,13 +30,15 @@ public struct UIState: Codable, Equatable, Sendable {
         self.scrollLine = scrollLine
         self.binderSegment = binderSegment
         self.researchPreviewVisible = researchPreviewVisible
+        self.detailSegment = detailSegment
+        self.outlineLayout = outlineLayout
     }
 
     public static let empty = UIState()
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, selectedItemId, isNoChromeOn, scrollLine, binderSegment,
-             researchPreviewVisible
+             researchPreviewVisible, detailSegment, outlineLayout
     }
 
     public init(from decoder: Decoder) throws {
@@ -43,6 +49,8 @@ public struct UIState: Codable, Equatable, Sendable {
         self.scrollLine = (try? c.decode(Int.self, forKey: .scrollLine)) ?? 0
         self.binderSegment = (try? c.decode(BinderSegment.self, forKey: .binderSegment)) ?? .manuscript
         self.researchPreviewVisible = (try? c.decode(Bool.self, forKey: .researchPreviewVisible)) ?? false
+        self.detailSegment = (try? c.decode(DetailSegment.self, forKey: .detailSegment)) ?? .inspector
+        self.outlineLayout = (try? c.decode(OutlineLayout.self, forKey: .outlineLayout)) ?? .table
     }
 
     /// Load from disk; return `.empty` if file is missing, malformed, or has
