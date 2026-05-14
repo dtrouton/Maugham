@@ -49,8 +49,7 @@ struct BinderPaneToggle: View {
                 case .trash:
                     TrashView(store: store)
                 case .find:
-                    Text("Find UI lands in Task 8")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    ProjectSearchView(store: store, isActive: $findActive)
                 }
             }
         }

@@ -20,4 +20,5 @@ extension Notification.Name {
     public static let maughamShowSyntaxHelp = Notification.Name("maugham.show.syntax.help")
     public static let maughamRestoreLastDeleted = Notification.Name("maugham.restore.last.deleted")
     public static let maughamToggleResearchPreview = Notification.Name("maugham.toggle.research.preview")
+    public static let maughamFindMatchSelected = Notification.Name("maugham.find.match.selected")
 }
