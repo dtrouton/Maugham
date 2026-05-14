@@ -62,12 +62,3 @@ struct OutlinePane: View {
         return out
     }
 }
-
-// Temporary stub — T10 replaces with real implementation in its own file.
-// Keep this inline so OutlinePane compiles standalone.
-struct CorkboardGrid: View {
-    let items: [StructureItem]
-    @Bindable var store: ProjectStore
-    @Binding var selectedItemId: String?
-    var body: some View { Text("Cards (T10)") }
-}
