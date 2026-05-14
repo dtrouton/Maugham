@@ -20,7 +20,7 @@ struct ResearchPreview: View {
             }
         case .document:
             if let path = item.path {
-                TextPreview(fileURL: projectURL.appendingPathComponent(path))
+                TextPreview(notePath: path, projectURL: projectURL)
             } else {
                 emptyState
             }

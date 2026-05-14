@@ -1,18 +1,22 @@
 import SwiftUI
 
+/// Read-only markdown preview for a research-note file. Loads the file
+/// from disk and delegates rendering to ResearchNotePreviewPane — the
+/// same renderer the editor's ⌘⇧P preview uses, so headings, inline
+/// emphasis, and inline images render consistently.
 struct TextPreview: View {
-    let fileURL: URL
+    let notePath: String
+    let projectURL: URL
     @State private var text: String = ""
 
     var body: some View {
-        ScrollView {
-            Text(text)
-                .font(.system(.body, design: .serif))
-                .frame(maxWidth: 720, alignment: .leading)
-                .padding(20)
-        }
-        .task(id: fileURL) {
-            text = (try? String(contentsOf: fileURL, encoding: .utf8)) ?? ""
+        ResearchNotePreviewPane(
+            notePath: notePath,
+            projectURL: projectURL,
+            noteText: text)
+        .task(id: notePath) {
+            let url = projectURL.appendingPathComponent(notePath)
+            text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
         }
     }
 }
