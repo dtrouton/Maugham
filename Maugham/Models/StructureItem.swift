@@ -17,6 +17,7 @@ public struct StructureItem: Codable, Equatable, Identifiable, Sendable {
     public var tags: [String]?
     public var links: [String]?
     public var children: [StructureItem]?
+    public var linkedResearchIds: [String]?
 
     public init(
         id: String,
@@ -28,7 +29,8 @@ public struct StructureItem: Codable, Equatable, Identifiable, Sendable {
         wordTarget: Int? = nil,
         tags: [String]? = nil,
         links: [String]? = nil,
-        children: [StructureItem]? = nil
+        children: [StructureItem]? = nil,
+        linkedResearchIds: [String]? = nil
     ) {
         self.id = id
         self.title = title
@@ -40,5 +42,6 @@ public struct StructureItem: Codable, Equatable, Identifiable, Sendable {
         self.tags = tags
         self.links = links
         self.children = children
+        self.linkedResearchIds = linkedResearchIds
     }
 }

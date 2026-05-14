@@ -812,6 +812,89 @@ public final class ProjectStore {
         }
     }
 
+    /// Link a research item to a manuscript document. Idempotent.
+    public func linkResearch(
+        researchId: String, toDocumentId documentId: String
+    ) async throws {
+        var changed = false
+        Self.applyLinkMutation(
+            documentId: documentId,
+            in: &manifest.structure
+        ) { item in
+            var ids = item.linkedResearchIds ?? []
+            if !ids.contains(researchId) {
+                ids.append(researchId)
+                item.linkedResearchIds = ids
+                changed = true
+            }
+        }
+        if changed {
+            manifest.modified = Date()
+            try await saveManifest()
+        }
+    }
+
+    /// Remove a research link. Idempotent.
+    public func unlinkResearch(
+        researchId: String, fromDocumentId documentId: String
+    ) async throws {
+        var changed = false
+        Self.applyLinkMutation(
+            documentId: documentId,
+            in: &manifest.structure
+        ) { item in
+            if var ids = item.linkedResearchIds, let idx = ids.firstIndex(of: researchId) {
+                ids.remove(at: idx)
+                item.linkedResearchIds = ids.isEmpty ? nil : ids
+                changed = true
+            }
+        }
+        if changed {
+            manifest.modified = Date()
+            try await saveManifest()
+        }
+    }
+
+    /// IDs of research items linked to the given document.
+    public func linkedResearchIds(forDocumentId documentId: String) -> [String] {
+        Self.findItemLinks(documentId: documentId, in: manifest.structure) ?? []
+    }
+
+    /// Resolve a research-id list to actual ResearchItems, skipping orphans.
+    public func resolveResearchLinks(_ ids: [String]) -> [ResearchItem] {
+        ids.compactMap { id in findResearchItem(id: id, in: manifest.research) }
+    }
+
+    private static func applyLinkMutation(
+        documentId: String,
+        in items: inout [StructureItem],
+        transform: (inout StructureItem) -> Void
+    ) {
+        for i in 0..<items.count {
+            if items[i].id == documentId {
+                transform(&items[i])
+                return
+            }
+            if var children = items[i].children {
+                applyLinkMutation(documentId: documentId, in: &children, transform: transform)
+                items[i].children = children
+            }
+        }
+    }
+
+    private static func findItemLinks(
+        documentId: String, in items: [StructureItem]
+    ) -> [String]? {
+        for item in items {
+            if item.id == documentId { return item.linkedResearchIds ?? [] }
+            if let children = item.children,
+               let nested = findItemLinks(documentId: documentId, in: children) {
+                return nested
+            }
+        }
+        return nil
+    }
+
     private static func collectGroupIds(
         in items: [StructureItem],
         into result: inout [String?]
