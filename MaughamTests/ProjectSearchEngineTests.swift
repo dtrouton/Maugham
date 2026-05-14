@@ -236,4 +236,32 @@ final class ProjectSearchEngineTests: XCTestCase {
         XCTAssertEqual(results.matchCount, 1)
         XCTAssertEqual(results.matches[0].lineNumber, 1)
     }
+
+    func test_store_performSearch_populatesCurrentSearch() async throws {
+        let project = try makeProject(manuscript: [
+            ("chapter-1", "the kitchen is empty\n")
+        ])
+        let store = try await ProjectStore.load(from: project)
+
+        await store.performSearch(query: "kitchen", options: SearchOptions())
+        // Wait for debounce + execution
+        try await Task.sleep(nanoseconds: 500_000_000)
+
+        XCTAssertNotNil(store.currentSearch)
+        XCTAssertEqual(store.currentSearch?.matchCount, 1)
+    }
+
+    func test_store_clearSearch_resetsCurrentSearch() async throws {
+        let project = try makeProject(manuscript: [
+            ("chapter-1", "the kitchen is empty\n")
+        ])
+        let store = try await ProjectStore.load(from: project)
+
+        await store.performSearch(query: "kitchen", options: SearchOptions())
+        try await Task.sleep(nanoseconds: 500_000_000)
+        XCTAssertNotNil(store.currentSearch)
+
+        store.clearSearch()
+        XCTAssertNil(store.currentSearch)
+    }
 }

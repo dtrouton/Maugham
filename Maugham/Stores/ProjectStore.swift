@@ -58,6 +58,12 @@ public final class ProjectStore {
     public private(set) var trashEntries: [TrashEntry] = []
     private var lastDeletedTrashId: String?
 
+    // MARK: - Search state
+
+    public private(set) var currentSearch: SearchResults?
+    public private(set) var searchInProgress: Bool = false
+    private var searchTask: Task<Void, Never>?
+
     private init(
         url: URL,
         manifest: ProjectManifest,
@@ -944,6 +950,46 @@ public final class ProjectStore {
         }
         manifest.modified = Date()
         try await saveManifest()
+    }
+
+    // MARK: - Cross-document search
+
+    /// Run a cross-document search. Cancels any in-flight search; debounces 300ms.
+    /// Flushes pending writes for the active document first so the search reads
+    /// the freshest content from disk. Results land on currentSearch (Observable).
+    public func performSearch(
+        query: String, options: SearchOptions
+    ) async {
+        searchTask?.cancel()
+
+        let task = Task { [weak self] in
+            // Debounce
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            if Task.isCancelled { return }
+            guard let self else { return }
+
+            // Pre-search flush so disk reflects active-doc edits
+            try? await self.documentStore?.flushPendingSave()
+            if Task.isCancelled { return }
+
+            self.searchInProgress = true
+
+            let engine = ProjectSearchEngine()
+            let results = await engine.search(query: query, options: options, in: self)
+
+            if Task.isCancelled { return }
+
+            self.currentSearch = results
+            self.searchInProgress = false
+        }
+        searchTask = task
+    }
+
+    public func clearSearch() {
+        searchTask?.cancel()
+        searchTask = nil
+        currentSearch = nil
+        searchInProgress = false
     }
 
     /// Update project-level targets. Currently surfaces 3a's page target;
