@@ -35,6 +35,7 @@ struct ProjectWindow: View {
     @State private var mcpBannerLatestId: String?
     @State private var mcpBannerDismissTask: Task<Void, Never>?
     @Environment(UserPreferences.self) private var userPreferences
+    @Environment(ProjectRegistry.self) private var mcpRegistry
     @Environment(\.openWindow) private var openWindow
 
     let url: URL
@@ -123,7 +124,10 @@ struct ProjectWindow: View {
         .frame(minWidth: 980, minHeight: 540)
         .background(WindowAccessor(window: $window))
         .task(id: url) { await load() }
-        .onDisappear { Task { await documentStore?.close() } }
+        .onDisappear {
+            mcpRegistry.unregister(url: url)
+            Task { await documentStore?.close() }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .maughamToggleNoChrome)) { _ in
             isNoChromeOn.toggle()
             applyNoChrome()
@@ -670,6 +674,7 @@ struct ProjectWindow: View {
             s.documentStore = ds
             self.store = s
             self.documentStore = ds
+            mcpRegistry.register(url: url, store: s)
             self.sessionLog = (try? await ds.loadSessionLog()) ?? .empty
 
             // Seed UI state from disk (or defaults). Validate selectedItemId

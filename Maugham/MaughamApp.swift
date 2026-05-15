@@ -5,6 +5,15 @@ import AppKit
 struct MaughamApp: App {
     @State private var userPreferences = UserPreferences()
     @State private var recents = RecentsStore()
+    @State private var mcpRouter = MCPRouter()
+    @State private var mcpRegistry = ProjectRegistry()
+    @State private var mcpServer: MCPServer?
+
+    private var mcpSocketPath: String {
+        let lib = FileManager.default.urls(
+            for: .libraryDirectory, in: .userDomainMask)[0]
+        return lib.appendingPathComponent("Application Support/Maugham/mcp.sock").path
+    }
 
     init() {
         // Best-effort: post a notification on app termination so any open
@@ -23,6 +32,23 @@ struct MaughamApp: App {
         Window("Maugham — Welcome", id: "welcome") {
             WelcomeHost()
                 .environment(recents)
+                .task {
+                    Self.registerTools(router: mcpRouter, registry: mcpRegistry)
+                    let server = MCPServer(
+                        socketPath: mcpSocketPath,
+                        router: mcpRouter,
+                        preferences: userPreferences)
+                    do {
+                        try await server.start()
+                        mcpServer = server
+                    } catch {
+                        print("MCPServer failed to start: \(error)")
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(
+                    for: .maughamAppWillTerminate)) { _ in
+                    Task { await mcpServer?.stop() }
+                }
         }
         .windowResizability(.contentSize)
         .commands {
@@ -159,6 +185,7 @@ struct MaughamApp: App {
                     .navigationTitle(url.lastPathComponent)
                     .environment(userPreferences)
                     .environment(recents)
+                    .environment(mcpRegistry)
             } else {
                 Text("No project URL").foregroundStyle(.secondary)
             }
@@ -174,6 +201,37 @@ struct MaughamApp: App {
         Settings {
             SettingsView()
                 .environment(userPreferences)
+        }
+    }
+
+    @MainActor
+    private static func registerTools(router: MCPRouter, registry: ProjectRegistry) {
+        router.register(method: ListProjectsTool.method) { params in
+            try await ListProjectsTool.handle(paramsJSON: params, registry: registry)
+        }
+        router.register(method: GetMetadataTool.method) { params in
+            try await GetMetadataTool.handle(paramsJSON: params, registry: registry)
+        }
+        router.register(method: GetOutlineTool.method) { params in
+            try await GetOutlineTool.handle(paramsJSON: params, registry: registry)
+        }
+        router.register(method: ReadDocumentTool.method) { params in
+            try await ReadDocumentTool.handle(paramsJSON: params, registry: registry)
+        }
+        router.register(method: SearchTextTool.method) { params in
+            try await SearchTextTool.handle(paramsJSON: params, registry: registry)
+        }
+        router.register(method: ListScenesTool.method) { params in
+            try await ListScenesTool.handle(paramsJSON: params, registry: registry)
+        }
+        router.register(method: FindReferencesTool.method) { params in
+            try await FindReferencesTool.handle(paramsJSON: params, registry: registry)
+        }
+        router.register(method: GetSessionStatsTool.method) { params in
+            try await GetSessionStatsTool.handle(paramsJSON: params, registry: registry)
+        }
+        router.register(method: AddNoteTool.method) { params in
+            try await AddNoteTool.handle(paramsJSON: params, registry: registry)
         }
     }
 
