@@ -29,3 +29,57 @@ public enum ClaudeDesktopConfig {
         return .stalePath(currentPath: cmd)
     }
 }
+
+extension ClaudeDesktopConfig {
+    public enum MergeError: Error {
+        case existingConfigCorrupt
+    }
+
+    /// Atomically merge a `maugham` mcpServer entry into the config. Creates
+    /// the file if absent. Throws if the existing file is unparseable JSON
+    /// (we never overwrite content we don't understand).
+    public static func merge(configURL: URL, maughamBinary: String) throws {
+        let parent = configURL.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(
+            at: parent, withIntermediateDirectories: true)
+
+        var dict: [String: Any] = [:]
+        if FileManager.default.fileExists(atPath: configURL.path) {
+            let data = try Data(contentsOf: configURL)
+            if data.isEmpty {
+                dict = [:]
+            } else if let any = try? JSONSerialization.jsonObject(with: data),
+                      let parsed = any as? [String: Any] {
+                dict = parsed
+            } else {
+                throw MergeError.existingConfigCorrupt
+            }
+        }
+        var servers = dict["mcpServers"] as? [String: Any] ?? [:]
+        servers["maugham"] = ["command": maughamBinary]
+        dict["mcpServers"] = servers
+
+        let out = try JSONSerialization.data(
+            withJSONObject: dict, options: [.prettyPrinted, .sortedKeys])
+        let tmpURL = configURL.appendingPathExtension("tmp-\(UUID().uuidString)")
+        try out.write(to: tmpURL, options: .atomic)
+        _ = try FileManager.default.replaceItemAt(configURL, withItemAt: tmpURL)
+    }
+
+    /// Remove the `maugham` entry from `mcpServers`, preserving other servers.
+    public static func removeMaughamEntry(configURL: URL) throws {
+        let data = try Data(contentsOf: configURL)
+        guard let any = try? JSONSerialization.jsonObject(with: data),
+              var dict = any as? [String: Any] else {
+            throw MergeError.existingConfigCorrupt
+        }
+        var servers = dict["mcpServers"] as? [String: Any] ?? [:]
+        servers.removeValue(forKey: "maugham")
+        dict["mcpServers"] = servers
+        let out = try JSONSerialization.data(
+            withJSONObject: dict, options: [.prettyPrinted, .sortedKeys])
+        let tmpURL = configURL.appendingPathExtension("tmp-\(UUID().uuidString)")
+        try out.write(to: tmpURL, options: .atomic)
+        _ = try FileManager.default.replaceItemAt(configURL, withItemAt: tmpURL)
+    }
+}
