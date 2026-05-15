@@ -41,6 +41,23 @@ targets:
       - path: Maugham/Resources
         includes:
           - "*.md"
+    dependencies:
+      - target: maugham-mcp
+        copy:
+          destination: executables
+          codeSign: false
+  maugham-mcp:
+    type: tool
+    platform: macOS
+    sources:
+      - path: maugham-mcp
+    settings:
+      base:
+        PRODUCT_NAME: maugham-mcp
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        SWIFT_VERSION: "5.10"
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "-"
   MaughamTests:
     type: bundle.unit-test
     platform: macOS
@@ -59,6 +76,7 @@ schemes:
     build:
       targets:
         Maugham: all
+        maugham-mcp: all
         MaughamTests: [test]
     run:
       config: Debug
