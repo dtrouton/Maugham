@@ -66,3 +66,154 @@ public enum ListScenesTool {
         return nil
     }
 }
+
+/// `find_references(project_id, target)` — wiki links + linked_research backreferences.
+public enum FindReferencesTool {
+    public struct Params: Codable {
+        public let project_id: String
+        public let target: String
+    }
+    public struct Reference: Codable, Equatable {
+        public let from_id: String
+        public let from_title: String
+        public let kind: String   // "wiki" or "linked_research"
+    }
+    public static let method = "find_references"
+
+    @MainActor
+    public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
+        guard let data = paramsJSON,
+              let params = try? JSONDecoder().decode(Params.self, from: data) else {
+            throw MCPError.invalidArgument("project_id and target required")
+        }
+        guard let entry = registry.lookup(id: params.project_id) else {
+            throw MCPError.projectNotOpen
+        }
+        let store = entry.store
+
+        var refs: [Reference] = []
+        var seenFromIds = Set<String>()  // avoid duplicates if both wiki + link match
+
+        for chapter in Self.flatDocs(store.manifest.structure) {
+            if store.linkedResearchIds(forDocumentId: chapter.id).contains(params.target) {
+                if seenFromIds.insert(chapter.id).inserted {
+                    refs.append(Reference(
+                        from_id: chapter.id,
+                        from_title: chapter.title,
+                        kind: "linked_research"))
+                }
+            }
+        }
+
+        // Wiki references: resolve `target` to title(s), then scan manuscript text.
+        let titles = Self.titlesFor(id: params.target, store: store)
+        if !titles.isEmpty {
+            for doc in Self.flatDocs(store.manifest.structure) {
+                guard let path = doc.path else { continue }
+                let abs = entry.url.appendingPathComponent(path)
+                guard let text = try? String(contentsOf: abs, encoding: .utf8) else { continue }
+                for title in titles where text.contains("[[\(title)]]") {
+                    if seenFromIds.insert(doc.id).inserted {
+                        refs.append(Reference(
+                            from_id: doc.id,
+                            from_title: doc.title,
+                            kind: "wiki"))
+                    }
+                    break
+                }
+            }
+        }
+
+        return try JSONEncoder().encode(refs)
+    }
+
+    @MainActor
+    private static func flatDocs(_ items: [StructureItem]) -> [StructureItem] {
+        var out: [StructureItem] = []
+        for item in items {
+            if item.type == .document { out.append(item) }
+            if let kids = item.children { out.append(contentsOf: flatDocs(kids)) }
+        }
+        return out
+    }
+
+    @MainActor
+    private static func titlesFor(id: String, store: ProjectStore) -> [String] {
+        var titles: [String] = []
+        for doc in flatDocs(store.manifest.structure) where doc.id == id {
+            titles.append(doc.title)
+        }
+        for item in store.resolveResearchLinks([id]) {
+            titles.append(item.title)
+        }
+        return titles
+    }
+}
+
+/// `get_session_stats(project_id, days?)` — session log aggregates.
+public enum GetSessionStatsTool {
+    public struct Params: Codable {
+        public let project_id: String
+        public let days: Int?    // default 30
+    }
+    public struct DayStat: Codable, Equatable {
+        public let date: String   // yyyy-MM-dd
+        public let words: Int
+        public let minutes: Int
+    }
+    public struct SessionStats: Codable, Equatable {
+        public let daily: [DayStat]
+        public let total_words: Int
+        public let total_minutes: Int
+    }
+    public static let method = "get_session_stats"
+
+    @MainActor
+    public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
+        guard let data = paramsJSON,
+              let params = try? JSONDecoder().decode(Params.self, from: data) else {
+            throw MCPError.invalidArgument("project_id required")
+        }
+        guard let entry = registry.lookup(id: params.project_id) else {
+            throw MCPError.projectNotOpen
+        }
+        let daysWindow = max(1, params.days ?? 30)
+        let log = (try? await entry.store.documentStore?.loadSessionLog()) ?? .empty
+        let now = Date()
+        let cutoff = Calendar.current.date(byAdding: .day, value: -daysWindow, to: now)
+            ?? Date.distantPast
+
+        // Aggregate per-day. Group SessionEvents by startOfDay(startedAt).
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = .current
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd"
+        fmt.timeZone = .current
+
+        var perDay: [Date: (Int, Int)] = [:]   // (words, seconds)
+        var totalWords = 0
+        var totalSeconds = 0
+        for event in log.events where event.startedAt >= cutoff {
+            let day = cal.startOfDay(for: event.startedAt)
+            let secs = Int(event.endedAt.timeIntervalSince(event.startedAt))
+            let secsClamped = max(0, secs)
+            let (w, s) = perDay[day] ?? (0, 0)
+            perDay[day] = (w + event.wordsNet, s + secsClamped)
+            totalWords += event.wordsNet
+            totalSeconds += secsClamped
+        }
+        let sortedDays = perDay.keys.sorted()
+        let daily = sortedDays.map { day in
+            let (w, s) = perDay[day]!
+            return DayStat(
+                date: fmt.string(from: day),
+                words: w,
+                minutes: s / 60)
+        }
+        let stats = SessionStats(
+            daily: daily,
+            total_words: totalWords,
+            total_minutes: totalSeconds / 60)
+        return try JSONEncoder().encode(stats)
+    }
+}
