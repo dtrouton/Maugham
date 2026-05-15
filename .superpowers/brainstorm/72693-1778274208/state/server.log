@@ -1,0 +1,4 @@
+{"type":"server-started","port":59309,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:59309","screen_dir":"/Users/denver/src/Maugham/.superpowers/brainstorm/72693-1778274208/content","state_dir":"/Users/denver/src/Maugham/.superpowers/brainstorm/72693-1778274208/state"}
+{"type":"screen-added","file":"/Users/denver/src/Maugham/.superpowers/brainstorm/72693-1778274208/content/stats-layout.html"}
+{"type":"screen-added","file":"/Users/denver/src/Maugham/.superpowers/brainstorm/72693-1778274208/content/waiting.html"}
+{"type":"server-stopped","reason":"idle timeout"}

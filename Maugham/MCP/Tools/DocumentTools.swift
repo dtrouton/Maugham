@@ -74,3 +74,49 @@ public enum ReadDocumentTool {
         return "prose"
     }
 }
+
+/// `search_text(project_id, query, options?)` — reuses ProjectSearchEngine.
+public enum SearchTextTool {
+    public struct Params: Codable {
+        public let project_id: String
+        public let query: String
+        public let case_sensitive: Bool?
+        public let whole_word: Bool?
+    }
+    public struct Match: Codable, Equatable {
+        public let document_id: String
+        public let document_title: String
+        public let line: Int
+        public let preview: String
+    }
+    public static let method = "search_text"
+
+    @MainActor
+    public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
+        guard let data = paramsJSON,
+              let params = try? JSONDecoder().decode(Params.self, from: data) else {
+            throw MCPError.invalidArgument("project_id and query required")
+        }
+        guard let entry = registry.lookup(id: params.project_id) else {
+            throw MCPError.projectNotOpen
+        }
+        let opts = SearchOptions(
+            caseSensitive: params.case_sensitive ?? false,
+            wholeWord: params.whole_word ?? false)
+        let engine = ProjectSearchEngine()
+        let results = await engine.search(
+            query: params.query, options: opts, in: entry.store)
+        let allMatches = results.matches
+        let manuscriptOnly = allMatches.filter { m in
+            m.documentSource == .manuscript
+        }
+        let mapped = manuscriptOnly.map { m in
+            Match(
+                document_id: m.documentPath,
+                document_title: m.documentTitle,
+                line: m.lineNumber,
+                preview: m.linePreview)
+        }
+        return try JSONEncoder().encode(mapped)
+    }
+}

@@ -1,0 +1,30 @@
+<h2>Maugham — Phase 3c brainstorm</h2>
+<p class="subtitle">Scene navigator + title page + inline emphasis + ⌘? help overlay</p>
+
+<div class="mockup">
+  <div class="mockup-header">3c features per Phase 3 handoff</div>
+  <div class="mockup-body">
+    <ul style="line-height: 1.85;">
+      <li><strong>Scene navigator</strong> — sluglines as a jump list in the binder pane</li>
+      <li><strong>Title page block</strong> — Fountain title page parsing + rendering (Title:, Author:, Credit:, Source:, Draft date:, Contact:, Notes:)</li>
+      <li><strong>Inline emphasis</strong> — <code>*italic*</code> and <code>**bold**</code> mid-line in dialogue/action (handoff says "may fall to Phase 4 if 3c gets squeezed")</li>
+      <li><strong>⌘? syntax help overlay</strong> — HUD popover sourced from <code>docs/markdown-syntax.md</code> / <code>docs/fountain-syntax.md</code></li>
+      <li><em>Optional</em>: scene-by-scene word/page count summary in Statistics window</li>
+    </ul>
+  </div>
+</div>
+
+<div class="mockup" style="margin-top: 1em;">
+  <div class="mockup-header">Already-built primitives we can lean on</div>
+  <div class="mockup-body">
+    <ul style="line-height: 1.8;">
+      <li><code>FountainTokenizer</code> + <code>FountainScript.lines</code> — sluglines extractable via filter on <code>.sceneHeading</code></li>
+      <li><code>FountainLine.inlineSpans</code> — already exists for notes; can extend with <code>.italic</code> / <code>.bold</code> kinds</li>
+      <li><code>BinderPaneToggle</code> (2b) — segmented binder pattern, ready for "Manuscript / Scenes" toggle</li>
+      <li><code>HelpClaudeDesktopSheet</code> (1d) — sheet pattern for help content</li>
+      <li><code>InspectorView</code> private @ViewBuilder pattern — for any title-page mirror in inspector</li>
+    </ul>
+  </div>
+</div>
+
+<p class="subtitle">First question is in the terminal — it's a scope/decomposition decision.</p>

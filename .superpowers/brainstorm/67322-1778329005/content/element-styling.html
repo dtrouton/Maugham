@@ -1,0 +1,104 @@
+<h2>Fountain element styling — what Maugham renders</h2>
+<p class="subtitle">Industry-standard layout (Cole & Haag / Final Draft conventions). One detail to settle below.</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">Fountain source (.fountain on disk)</div>
+    <div class="mockup-body" style="font-family: 'SF Mono', Menlo, monospace; font-size: 12px; line-height: 1.55; white-space: pre-wrap; padding: 18px; color: #2a2a2a; background: #fafafa;">INT. COFFEE SHOP - DAY
+
+Two friends sit across from each other, mugs steaming. The diner clatters around them.
+
+BARRY
+(after a long pause)
+You ever wonder if we made the right call?
+
+@Sam
+Every damn day.
+
+&gt; SMASH CUT TO:
+
+&gt;THE END&lt;
+
+# ACT TWO
+
+= Sam confronts Barry about the lie.
+
+[[ todo: tighten this beat ]]
+
+/* the chase scene was cut for pacing
+   keep this here in case we need it back */
+
+===
+
+EXT. PARKING LOT - NIGHT
+
+Rain hammers the asphalt.</div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">Maugham rendered (Phase 3a)</div>
+    <div class="mockup-body" style="font-family: 'SF Mono', 'JetBrains Mono', Menlo, monospace; font-size: 12px; line-height: 1.55; padding: 18px; background: #fefdfa; color: #1a1a1a; min-height: 540px;">
+      <div style="font-weight: 700;">INT. COFFEE SHOP - DAY</div>
+      <div style="height: 1em;"></div>
+      <div>Two friends sit across from each other, mugs steaming. The diner clatters around them.</div>
+      <div style="height: 1em;"></div>
+      <div style="margin-left: 17ch;">BARRY</div>
+      <div style="margin-left: 13ch; font-style: italic;">(after a long pause)</div>
+      <div style="margin-left: 9ch; max-width: 35ch;">You ever wonder if we made the right call?</div>
+      <div style="height: 1em;"></div>
+      <div style="margin-left: 17ch;">SAM</div>
+      <div style="margin-left: 9ch; max-width: 35ch;">Every damn day.</div>
+      <div style="height: 1em;"></div>
+      <div style="text-align: right; font-weight: 600;">SMASH CUT TO:</div>
+      <div style="height: 1em;"></div>
+      <div style="text-align: center; font-weight: 600;">THE END</div>
+      <div style="height: 1em;"></div>
+      <div style="font-weight: 700; text-decoration: underline; padding-top: 4px;">ACT TWO</div>
+      <div style="font-style: italic; color: #888; padding-top: 6px;">Sam confronts Barry about the lie.</div>
+      <div style="height: 1em;"></div>
+      <div style="color: #b0a8a0; font-style: italic;">[[ todo: tighten this beat ]]</div>
+      <div style="color: #b0a8a0; font-style: italic; padding-top: 4px;">/* the chase scene was cut for pacing<br>&nbsp;&nbsp;&nbsp;keep this here in case we need it back */</div>
+      <div style="height: 0.5em;"></div>
+      <hr style="border: none; border-top: 1px dashed #c4b9ad; margin: 12px 0;">
+      <div style="font-weight: 700;">EXT. PARKING LOT - NIGHT</div>
+      <div style="height: 1em;"></div>
+      <div>Rain hammers the asphalt.</div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top: 1.5em;">
+  <p class="label">defaults baked into this mockup</p>
+  <ul style="line-height: 1.8;">
+    <li><strong>Indents</strong> (in monospace chars from the body's left margin): Character = 17ch, Parenthetical = 13ch, Dialogue = 9ch (max width 35ch), Action = 0ch (full width), Transition = right-aligned, Centered = horizontally centered.</li>
+    <li><strong>Scene Headings</strong>: bold, no underline. Underlined sluglines are a stylistic option — some scripts use them, most don't. We default off.</li>
+    <li><strong>Sections</strong> (<code>#</code>) render as bold + underlined — they're structural markers (often acts) and the writer wants them obvious.</li>
+    <li><strong>Synopses</strong> (<code>=</code>) render dim italic — they're notes-to-self about a beat, not script content.</li>
+    <li><strong>Boneyard</strong> (<code>/* … */</code>) and <strong>Notes</strong> (<code>[[ … ]]</code>) render dim italic in-place — visible to the writer, visually quiet, NOT counted in page count.</li>
+    <li><strong>Page break</strong> (<code>===</code>) renders as a faint dashed rule.</li>
+  </ul>
+</div>
+
+<h3 style="margin-top: 1.5em;">The one decision: forced-character casing</h3>
+<p>The source has <code>@Sam</code> (forced character, mixed case). How should the editor render forced-syntax lines that aren't ALL CAPS in the source?</p>
+
+<div class="options">
+  <div class="option" data-choice="as-typed" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Preserve as typed</h3>
+      <p>Render <code>@Sam</code> as "Sam" — keep source = display. Cursor positions match what the writer sees on screen.</p>
+      <p class="subtitle">Simpler. Some Fountain editors do this. Writer who wanted uppercase would have just typed it that way.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="display-uppercase" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Visually uppercase</h3>
+      <p>Render <code>@Sam</code> as "SAM" via NSAttributedString glyph transform. Source stays mixed-case on disk.</p>
+      <p class="subtitle">Matches Final Draft / Highland convention. Slightly trickier (cursor + selection handling around transformed glyphs in NSTextView).</p>
+    </div>
+  </div>
+</div>
+
+<p style="margin-top: 1.5em; opacity: 0.7;"><em>Comment on anything else in the mockup if you want to push back — indents, dim levels, scene heading boldness, page break style, etc.</em></p>

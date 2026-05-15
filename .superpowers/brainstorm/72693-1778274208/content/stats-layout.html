@@ -1,0 +1,296 @@
+<h2>Project Statistics window — layout</h2>
+<p class="subtitle">All four sections in one scrollable view. Imagine this opens via File → Show Project Statistics (⌘⇧S, no conflict with manuscript Save which is ⌘S).</p>
+
+<style>
+  .stats-mockup {
+    background: var(--bg-1, #ffffff);
+    border: 1px solid var(--border, #d1d5db);
+    border-radius: 6px;
+    overflow: hidden;
+    width: 720px;
+    margin: 0 auto;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+  .stats-mockup .titlebar {
+    background: var(--bg-2, #f4f4f5);
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border, #d1d5db);
+    font-size: 13px;
+    color: var(--text-1, #111827);
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .stats-mockup .lights {
+    display: flex;
+    gap: 6px;
+  }
+  .light { width: 12px; height: 12px; border-radius: 50%; }
+  .l-close { background: #ff5f57; }
+  .l-min { background: #febc2e; }
+  .l-max { background: #28c840; }
+  .stats-mockup .body { padding: 24px; }
+  .stats-mockup .section { margin-bottom: 28px; }
+  .stats-mockup h3 {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-2, #6b7280);
+    margin: 0 0 12px;
+  }
+  .total-row {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+  .total-num {
+    font-size: 36px;
+    font-weight: 600;
+    color: var(--text-1, #111827);
+  }
+  .total-target {
+    font-size: 16px;
+    color: var(--text-2, #6b7280);
+  }
+  .progress-bar {
+    height: 8px;
+    background: var(--bg-2, #e5e7eb);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: #0a84ff;
+    width: 62%;
+  }
+  .progress-meta {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--text-3, #9ca3af);
+    margin-top: 4px;
+  }
+
+  .heatmap {
+    display: grid;
+    grid-template-columns: repeat(13, 1fr);
+    gap: 3px;
+  }
+  .heatmap .col {
+    display: grid;
+    grid-template-rows: repeat(7, 16px);
+    gap: 3px;
+  }
+  .cell {
+    border-radius: 2px;
+    background: rgba(10, 132, 255, 0.06);
+  }
+  .cell.l1 { background: rgba(10, 132, 255, 0.18); }
+  .cell.l2 { background: rgba(10, 132, 255, 0.36); }
+  .cell.l3 { background: rgba(10, 132, 255, 0.55); }
+  .cell.l4 { background: rgba(10, 132, 255, 0.85); }
+  .heatmap-foot {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--text-3, #9ca3af);
+  }
+  .heatmap-legend {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--text-3, #9ca3af);
+  }
+  .heatmap-legend .cell { width: 12px; height: 12px; }
+
+  .chapter-row {
+    display: grid;
+    grid-template-columns: 160px 1fr 80px;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 6px;
+    font-size: 13px;
+  }
+  .chapter-row .name { color: var(--text-1, #111827); truncate: ellipsis; overflow: hidden; }
+  .chapter-bar {
+    height: 18px;
+    background: var(--bg-2, #f4f4f5);
+    border-radius: 3px;
+    position: relative;
+    overflow: hidden;
+  }
+  .chapter-bar .fill {
+    position: absolute; inset: 0 auto 0 0;
+    background: rgba(10, 132, 255, 0.55);
+    border-radius: 3px 0 0 3px;
+  }
+  .chapter-bar .target-line {
+    position: absolute; top: 0; bottom: 0; width: 1px;
+    background: rgba(248, 81, 73, 0.85);
+  }
+  .chapter-row .count {
+    text-align: right;
+    color: var(--text-2, #6b7280);
+    font-variant-numeric: tabular-nums;
+    font-size: 12px;
+  }
+
+  .session-table {
+    width: 100%;
+    font-size: 12px;
+    border-collapse: collapse;
+  }
+  .session-table th {
+    font-weight: 600;
+    text-align: left;
+    color: var(--text-2, #6b7280);
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border, #e5e7eb);
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+  }
+  .session-table td {
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border, #f4f4f5);
+    color: var(--text-1, #111827);
+    font-variant-numeric: tabular-nums;
+  }
+  .session-table td.right { text-align: right; }
+</style>
+
+<div class="mockup">
+  <div class="stats-mockup">
+    <div class="titlebar">
+      <div class="lights">
+        <div class="light l-close"></div>
+        <div class="light l-min"></div>
+        <div class="light l-max"></div>
+      </div>
+      <span>My Test Novel — Statistics</span>
+    </div>
+    <div class="body">
+
+      <!-- Section 1: Total -->
+      <div class="section">
+        <h3>Project total</h3>
+        <div class="total-row">
+          <div class="total-num">31,420</div>
+          <div class="total-target">/ 50,000 words</div>
+        </div>
+        <div class="progress-bar"><div class="progress-fill"></div></div>
+        <div class="progress-meta">
+          <span>62% complete</span>
+          <span>18,580 to go · target: 31 May 2026</span>
+        </div>
+      </div>
+
+      <!-- Section 2: Heatmap -->
+      <div class="section">
+        <h3>Daily writing — last 13 weeks</h3>
+        <div class="heatmap">
+          <!-- 13 columns × 7 rows; randomly generated levels -->
+          <div class="col"><div class="cell"></div><div class="cell l1"></div><div class="cell"></div><div class="cell l2"></div><div class="cell"></div><div class="cell l1"></div><div class="cell"></div></div>
+          <div class="col"><div class="cell l1"></div><div class="cell l2"></div><div class="cell"></div><div class="cell l3"></div><div class="cell l1"></div><div class="cell l2"></div><div class="cell"></div></div>
+          <div class="col"><div class="cell"></div><div class="cell l1"></div><div class="cell l2"></div><div class="cell l1"></div><div class="cell l3"></div><div class="cell"></div><div class="cell"></div></div>
+          <div class="col"><div class="cell l2"></div><div class="cell l3"></div><div class="cell"></div><div class="cell l4"></div><div class="cell l2"></div><div class="cell l1"></div><div class="cell"></div></div>
+          <div class="col"><div class="cell"></div><div class="cell"></div><div class="cell l1"></div><div class="cell l2"></div><div class="cell l3"></div><div class="cell l1"></div><div class="cell"></div></div>
+          <div class="col"><div class="cell l1"></div><div class="cell l4"></div><div class="cell l3"></div><div class="cell l2"></div><div class="cell l3"></div><div class="cell l2"></div><div class="cell l1"></div></div>
+          <div class="col"><div class="cell"></div><div class="cell l2"></div><div class="cell l1"></div><div class="cell l3"></div><div class="cell l4"></div><div class="cell l2"></div><div class="cell"></div></div>
+          <div class="col"><div class="cell l1"></div><div class="cell l3"></div><div class="cell l2"></div><div class="cell l3"></div><div class="cell l2"></div><div class="cell l1"></div><div class="cell"></div></div>
+          <div class="col"><div class="cell"></div><div class="cell l2"></div><div class="cell"></div><div class="cell l4"></div><div class="cell l3"></div><div class="cell l2"></div><div class="cell"></div></div>
+          <div class="col"><div class="cell l1"></div><div class="cell l1"></div><div class="cell l2"></div><div class="cell l2"></div><div class="cell l3"></div><div class="cell l1"></div><div class="cell"></div></div>
+          <div class="col"><div class="cell l2"></div><div class="cell l3"></div><div class="cell l4"></div><div class="cell l3"></div><div class="cell l2"></div><div class="cell l1"></div><div class="cell"></div></div>
+          <div class="col"><div class="cell l1"></div><div class="cell l2"></div><div class="cell l3"></div><div class="cell l3"></div><div class="cell l4"></div><div class="cell l2"></div><div class="cell l3"></div></div>
+          <div class="col"><div class="cell l3"></div><div class="cell l4"></div><div class="cell l2"></div><div class="cell l3"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div></div>
+        </div>
+        <div class="heatmap-foot">
+          <span>Feb</span>
+          <div class="heatmap-legend">
+            <span>Less</span>
+            <div class="cell"></div>
+            <div class="cell l1"></div>
+            <div class="cell l2"></div>
+            <div class="cell l3"></div>
+            <div class="cell l4"></div>
+            <span>More</span>
+          </div>
+          <span>May</span>
+        </div>
+      </div>
+
+      <!-- Section 3: Words by chapter -->
+      <div class="section">
+        <h3>Words by chapter</h3>
+        <div class="chapter-row">
+          <div class="name">Chapter 1</div>
+          <div class="chapter-bar">
+            <div class="fill" style="width: 75%"></div>
+            <div class="target-line" style="left: 80%"></div>
+          </div>
+          <div class="count">3,750 / 5,000</div>
+        </div>
+        <div class="chapter-row">
+          <div class="name">Chapter 2</div>
+          <div class="chapter-bar">
+            <div class="fill" style="width: 95%"></div>
+            <div class="target-line" style="left: 80%"></div>
+          </div>
+          <div class="count">4,750 / 5,000</div>
+        </div>
+        <div class="chapter-row">
+          <div class="name">Act One — Scene 1</div>
+          <div class="chapter-bar">
+            <div class="fill" style="width: 40%"></div>
+            <div class="target-line" style="left: 60%"></div>
+          </div>
+          <div class="count">1,200 / 3,000</div>
+        </div>
+        <div class="chapter-row">
+          <div class="name">Act One — Scene 2</div>
+          <div class="chapter-bar">
+            <div class="fill" style="width: 65%"></div>
+            <div class="target-line" style="left: 60%"></div>
+          </div>
+          <div class="count">1,950 / 3,000</div>
+        </div>
+        <div class="chapter-row">
+          <div class="name">Chapter 3 (no target)</div>
+          <div class="chapter-bar">
+            <div class="fill" style="width: 30%"></div>
+          </div>
+          <div class="count">2,200</div>
+        </div>
+      </div>
+
+      <!-- Section 4: Sessions -->
+      <div class="section">
+        <h3>Recent sessions</h3>
+        <table class="session-table">
+          <thead>
+            <tr><th>Date</th><th>Time</th><th>Duration</th><th class="right">Words</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Today</td><td>14:32 – 15:18</td><td>46 min</td><td class="right">+532</td></tr>
+            <tr><td>Today</td><td>09:05 – 10:02</td><td>57 min</td><td class="right">+780</td></tr>
+            <tr><td>Yesterday</td><td>21:14 – 21:48</td><td>34 min</td><td class="right">+412</td></tr>
+            <tr><td>Yesterday</td><td>15:06 – 16:11</td><td>1h 5m</td><td class="right">+891</td></tr>
+            <tr><td>May 6</td><td>08:42 – 09:30</td><td>48 min</td><td class="right">+602</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top: 16px;">
+  Single scrollable view, not tabs. Section order: project total → heatmap → chapters → sessions, top to bottom.
+  Click a chapter bar to open that document. Hover a heatmap cell for date + count.
+  Looks right? Reply "yes" or describe what to change.
+</p>

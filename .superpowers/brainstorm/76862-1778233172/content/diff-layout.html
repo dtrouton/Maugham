@@ -1,0 +1,141 @@
+<h2>Conflict diff: which layout?</h2>
+<p class="subtitle">Same content shown two ways. Imagine this is the sheet that opens when you click "Show diff" in the conflict banner.</p>
+
+<style>
+  .diff-mockup {
+    background: var(--bg-1, #ffffff);
+    border: 1px solid var(--border, #d1d5db);
+    border-radius: 6px;
+    padding: 0;
+    overflow: hidden;
+    font-family: 'SF Mono', Menlo, Monaco, monospace;
+    font-size: 12px;
+    line-height: 1.55;
+  }
+  .diff-mockup .head {
+    background: var(--bg-2, #f4f4f5);
+    padding: 6px 12px;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 11px;
+    color: var(--text-2, #6b7280);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid var(--border, #d1d5db);
+  }
+  .diff-mockup .body { padding: 8px 0; max-height: 220px; overflow: hidden; }
+  .diff-mockup .ln { display: flex; padding: 0 12px; white-space: pre; }
+  .diff-mockup .gutter {
+    width: 22px;
+    color: var(--text-3, #9ca3af);
+    text-align: right;
+    padding-right: 8px;
+    user-select: none;
+  }
+  .diff-mockup .marker {
+    width: 12px;
+    user-select: none;
+    color: var(--text-3, #9ca3af);
+  }
+  .added { background: rgba(46, 160, 67, 0.16); }
+  .added .marker { color: rgb(46, 160, 67); }
+  .removed { background: rgba(248, 81, 73, 0.16); }
+  .removed .marker { color: rgb(248, 81, 73); }
+  .ctx { color: var(--text-1, #111827); }
+
+  .sbs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+  }
+  .sbs > div { border-right: 1px solid var(--border, #d1d5db); padding: 8px 0; min-height: 220px; }
+  .sbs > div:last-child { border-right: none; }
+  .sbs .pane-head {
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 11px;
+    color: var(--text-2, #6b7280);
+    text-transform: uppercase;
+    padding: 0 12px 6px;
+    border-bottom: 1px solid var(--border, #e5e7eb);
+    margin-bottom: 6px;
+  }
+  .sheet-footer {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    padding: 10px 12px;
+    background: var(--bg-2, #f4f4f5);
+    border-top: 1px solid var(--border, #d1d5db);
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+  .btn { padding: 4px 12px; border: 1px solid var(--border, #d1d5db); border-radius: 5px; font-size: 12px; background: var(--bg-1, #fff); }
+  .btn.primary { background: #0a84ff; border-color: #0a84ff; color: white; }
+</style>
+
+<div class="cards">
+
+  <div class="card" data-choice="unified" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="diff-mockup">
+        <div class="head">Chapter 2 — diff (unified)</div>
+        <div class="body">
+          <div class="ln ctx"><span class="gutter">12</span><span class="marker">  </span>The lighthouse stood alone on the cliff,</div>
+          <div class="ln ctx"><span class="gutter">13</span><span class="marker">  </span>watching the storm roll in from the west.</div>
+          <div class="ln removed"><span class="gutter">14</span><span class="marker">−</span>Margaret pulled her coat tight.</div>
+          <div class="ln added"><span class="gutter">14</span><span class="marker">+</span>Margaret drew the wool coat tight against the wind.</div>
+          <div class="ln ctx"><span class="gutter">15</span><span class="marker">  </span>She had not seen him in three years.</div>
+          <div class="ln removed"><span class="gutter">16</span><span class="marker">−</span>Three long years.</div>
+          <div class="ln ctx"><span class="gutter">16</span><span class="marker">  </span>The bell tolled once.</div>
+        </div>
+        <div class="sheet-footer">
+          <button class="btn">Cancel</button>
+          <button class="btn">Use cloud</button>
+          <button class="btn primary">Keep mine</button>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Unified</h3>
+      <p>One column. Removed lines (red, −) directly above added lines (green, +). Like <code>git diff</code>. Scans densely; small hunks read fast; large prose hunks pile up vertically.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="sidebyside" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="diff-mockup">
+        <div class="head">Chapter 2 — diff (side by side)</div>
+        <div class="sbs">
+          <div>
+            <div class="pane-head">Mine</div>
+            <div class="ln ctx"><span class="gutter">12</span>The lighthouse stood alone on the cliff,</div>
+            <div class="ln ctx"><span class="gutter">13</span>watching the storm roll in from the west.</div>
+            <div class="ln removed"><span class="gutter">14</span>Margaret pulled her coat tight.</div>
+            <div class="ln ctx"><span class="gutter">15</span>She had not seen him in three years.</div>
+            <div class="ln removed"><span class="gutter">16</span>Three long years.</div>
+            <div class="ln ctx"><span class="gutter">17</span>The bell tolled once.</div>
+          </div>
+          <div>
+            <div class="pane-head">Cloud</div>
+            <div class="ln ctx"><span class="gutter">12</span>The lighthouse stood alone on the cliff,</div>
+            <div class="ln ctx"><span class="gutter">13</span>watching the storm roll in from the west.</div>
+            <div class="ln added"><span class="gutter">14</span>Margaret drew the wool coat tight against the wind.</div>
+            <div class="ln ctx"><span class="gutter">15</span>She had not seen him in three years.</div>
+            <div class="ln ctx"><span class="gutter">16</span>The bell tolled once.</div>
+            <div class="ln ctx"><span class="gutter">17</span> </div>
+          </div>
+        </div>
+        <div class="sheet-footer">
+          <button class="btn">Cancel</button>
+          <button class="btn">Use cloud</button>
+          <button class="btn primary">Keep mine</button>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Side by side</h3>
+      <p>Two columns aligned by hunk. Mine on the left, Cloud on the right. Reads more like comparing two manuscripts; better for prose blocks but uses more horizontal space. Sheet is wider.</p>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top: 16px;">Click a card to select. Both options keep the action buttons (Keep mine, Use cloud) at the bottom of the sheet.</p>

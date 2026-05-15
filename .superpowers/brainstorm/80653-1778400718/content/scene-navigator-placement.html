@@ -1,0 +1,79 @@
+<h2>Scene navigator — where does it live in the binder?</h2>
+<p class="subtitle">For single-file screenplays, "Manuscript" shows just one .fountain. Worth replacing it with "Scenes"?</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="three-segments" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 16px; background: #2a2a2a;">
+      <div style="font-family: -apple-system, sans-serif; font-size: 11px; line-height: 1.5; padding: 12px; background: #1c1c1c; color: #e0e0e0; border-radius: 6px;">
+        <div style="display: flex; gap: 4px; padding: 6px; background: #2c2c2c; border-radius: 4px; margin-bottom: 12px;">
+          <div style="flex: 1; padding: 4px 8px; background: #007aff; color: white; border-radius: 3px; text-align: center; font-size: 10px;">Manuscript</div>
+          <div style="flex: 1; padding: 4px 8px; text-align: center; font-size: 10px;">Scenes</div>
+          <div style="flex: 1; padding: 4px 8px; text-align: center; font-size: 10px;">Research</div>
+        </div>
+        <div style="opacity: 0.7;">▸ 📄 screenplay.fountain</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Three segments: Manuscript / Scenes / Research</h3>
+      <p>Add Scenes alongside Manuscript. Manuscript shows the single .fountain file (forward-compatible with multi-file in 3d). Scenes shows extracted sluglines.</p>
+      <p class="subtitle">Pros: matches handoff. Forward-compatible. Cons: Manuscript is redundant for single-file (one item).</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="scenes-replaces" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 16px; background: #2a2a2a;">
+      <div style="font-family: -apple-system, sans-serif; font-size: 11px; line-height: 1.5; padding: 12px; background: #1c1c1c; color: #e0e0e0; border-radius: 6px;">
+        <div style="display: flex; gap: 4px; padding: 6px; background: #2c2c2c; border-radius: 4px; margin-bottom: 12px;">
+          <div style="flex: 1; padding: 4px 8px; background: #007aff; color: white; border-radius: 3px; text-align: center; font-size: 10px;">Scenes</div>
+          <div style="flex: 1; padding: 4px 8px; text-align: center; font-size: 10px;">Research</div>
+        </div>
+        <div style="line-height: 1.7;">
+          <div>▸ INT. KITCHEN - DAY <span style="opacity: 0.6;">p.1</span></div>
+          <div>▸ EXT. ROOFTOP - NIGHT <span style="opacity: 0.6;">p.3</span></div>
+          <div>▸ INT. CAR - CONT'D <span style="opacity: 0.6;">p.5</span></div>
+          <div>▸ EXT. PARKING LOT - NIGHT <span style="opacity: 0.6;">p.7</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Scenes replaces Manuscript for screenplay (recommended)</h3>
+      <p>For Screenplay projects: binder is "Scenes / Research" — no redundant Manuscript segment for the single .fountain. For Novel/Story/Collection: binder stays "Manuscript / Research" as today.</p>
+      <p class="subtitle">Pros: cleaner UI, no redundancy. Cons: per-project-type segment shape; 3d (multi-file) will need to revisit.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="floating" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 16px; background: #2a2a2a;">
+      <div style="font-family: -apple-system, sans-serif; font-size: 11px; line-height: 1.5; padding: 12px; background: #1c1c1c; color: #e0e0e0; border-radius: 6px; min-height: 100px; position: relative;">
+        <div style="display: flex; gap: 4px; padding: 6px; background: #2c2c2c; border-radius: 4px; margin-bottom: 12px;">
+          <div style="flex: 1; padding: 4px 8px; background: #007aff; color: white; border-radius: 3px; text-align: center; font-size: 10px;">Manuscript</div>
+          <div style="flex: 1; padding: 4px 8px; text-align: center; font-size: 10px;">Research</div>
+        </div>
+        <div style="opacity: 0.5;">▸ 📄 screenplay.fountain</div>
+        <div style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: #2c2c2c; border: 1px solid #555; border-radius: 6px; padding: 8px; font-size: 9px; box-shadow: 0 4px 12px rgba(0,0,0,0.4);">
+          <div style="font-weight: 600; margin-bottom: 4px; opacity: 0.7;">Scenes</div>
+          <div>INT. KITCHEN</div>
+          <div>EXT. ROOFTOP</div>
+          <div>INT. CAR</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Floating scene navigator window</h3>
+      <p>Separate window/sheet showing scenes. Toggle via ⌘ shortcut. Binder stays unchanged.</p>
+      <p class="subtitle">Pros: doesn't perturb binder UX. Cons: adds a new window scene; users have to remember a shortcut.</p>
+    </div>
+  </div>
+
+</div>
+
+<div class="section" style="margin-top: 1.5em;">
+  <p class="label">scene row format (same across all options)</p>
+  <ul style="line-height: 1.7;">
+    <li>Slug: <code>INT. KITCHEN - DAY</code> (full text from FountainLine.content)</li>
+    <li>Page number: <code>p.5</code> (computed by accumulating page-count up to that line)</li>
+    <li>Click row → editor scrolls to that line, cursor lands at start of slug</li>
+    <li>Optional: synopsis/section context surfaced inline (deferred)</li>
+  </ul>
+</div>

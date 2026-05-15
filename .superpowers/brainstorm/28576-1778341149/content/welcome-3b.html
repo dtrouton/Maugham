@@ -1,0 +1,30 @@
+<h2>Maugham — Phase 3b brainstorm</h2>
+<p class="subtitle">Tab/Enter cycling + character autocomplete</p>
+
+<div class="mockup">
+  <div class="mockup-header">3b deliverables (per Phase 3 handoff)</div>
+  <div class="mockup-body">
+    <ul style="line-height: 1.8;">
+      <li><strong>ScreenplayCycle</strong> — pure logic mapping current element + Tab → next element</li>
+      <li><strong>ScreenplayFlow</strong> — pure logic mapping current element + Enter → next-line element</li>
+      <li><strong>Keystroke interception</strong> in EditorCoordinator (Tab / Shift+Tab / Enter when in ScreenplayMode)</li>
+      <li><strong>Character autocomplete</strong> — suggest names from <code>FountainScript.characterNames</code> (already populated by 3a's parser)</li>
+      <li><strong>Element-type indicator</strong> in the gutter (handoff says "optional")</li>
+    </ul>
+    <p class="subtitle" style="margin-top: 1em;">Out of 3b: title page (3c), scene navigator (3c), inline emphasis (3c), multi-file screenplays (3d), display-uppercase (carry forward as TextKit 2 attempt)</p>
+  </div>
+</div>
+
+<div class="mockup" style="margin-top: 1em;">
+  <div class="mockup-header">Already-built primitives</div>
+  <div class="mockup-body">
+    <ul style="line-height: 1.8;">
+      <li><code>ScreenplayElement</code> enum (12 cases, 3a)</li>
+      <li><code>FountainScript.characterNames: Set&lt;String&gt;</code> — purpose-built for autocomplete</li>
+      <li><code>FountainTokenizer</code> line classification (3a)</li>
+      <li><code>EditorCoordinator</code> already has <code>shouldChangeTextIn</code>; we'll add <code>doCommandBy</code> for Tab/Enter</li>
+    </ul>
+  </div>
+</div>
+
+<p class="subtitle">First question is in the terminal — it's a scope decision.</p>

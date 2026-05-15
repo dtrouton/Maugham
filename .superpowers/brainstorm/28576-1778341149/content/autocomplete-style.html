@@ -1,0 +1,84 @@
+<h2>Character autocomplete — UX style</h2>
+<p class="subtitle">When the writer types on a character cue line, suggestions appear from <code>FountainScript.characterNames</code>. How should they appear?</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="popup" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 24px; background: #fafafa;">
+      <div style="font-family: 'SF Mono', monospace; font-size: 12px; line-height: 1.6; padding: 12px; background: #fefdfa;">
+        <div>INT. KITCHEN - DAY</div>
+        <div style="height: 1em;"></div>
+        <div>Two friends at the bar.</div>
+        <div style="height: 1em;"></div>
+        <div style="margin-left: 4em; position: relative;">
+          @BAR
+          <div style="position: absolute; top: 1.4em; left: 0; background: white; border: 1px solid #ccc; box-shadow: 0 4px 12px rgba(0,0,0,0.1); border-radius: 6px; min-width: 140px; font-size: 11px; z-index: 10;">
+            <div style="padding: 6px 12px; background: #007aff; color: white; border-radius: 6px 6px 0 0;">BARRY</div>
+            <div style="padding: 6px 12px; color: #1a1a1a;">BARTENDER</div>
+            <div style="padding: 6px 12px; color: #1a1a1a;">BARNEY</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Popup menu (NSPopover-style)</h3>
+      <p>Discrete dropdown anchored at the cursor. Up/Down arrows select. Tab or Enter accepts. Escape dismisses. Visible.</p>
+      <p class="subtitle">Pros: Familiar pattern (Xcode, IDEs). Multi-match visible. No commitment until accept. Cons: Adds a floating surface to manage.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="ghost" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 24px; background: #fafafa;">
+      <div style="font-family: 'SF Mono', monospace; font-size: 12px; line-height: 1.6; padding: 12px; background: #fefdfa;">
+        <div>INT. KITCHEN - DAY</div>
+        <div style="height: 1em;"></div>
+        <div>Two friends at the bar.</div>
+        <div style="height: 1em;"></div>
+        <div style="margin-left: 4em;">
+          @BAR<span style="color: #b8b8b8; background: #f0f0f0;">RY</span>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Inline ghost text</h3>
+      <p>The most-likely completion appears in dim grey directly after the cursor. Tab accepts. Any other key dismisses (and the next character typed continues the input).</p>
+      <p class="subtitle">Pros: Quiet. No popup chrome. iA-Writer / GitHub Copilot vibe. Cons: Only shows ONE suggestion (the best match). Multi-character ambiguity (BAR → BARRY or BARTENDER?) loses one option.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="hybrid" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 24px; background: #fafafa;">
+      <div style="font-family: 'SF Mono', monospace; font-size: 12px; line-height: 1.6; padding: 12px; background: #fefdfa;">
+        <div>INT. KITCHEN - DAY</div>
+        <div style="height: 1em;"></div>
+        <div>Two friends at the bar.</div>
+        <div style="height: 1em;"></div>
+        <div style="margin-left: 4em; position: relative;">
+          @BAR<span style="color: #b8b8b8;">RY</span>
+          <div style="position: absolute; top: 1.4em; left: 0; background: white; border: 1px solid #ccc; box-shadow: 0 4px 12px rgba(0,0,0,0.1); border-radius: 6px; min-width: 140px; font-size: 11px; z-index: 10;">
+            <div style="padding: 6px 12px; background: #007aff; color: white; border-radius: 6px 6px 0 0;">BARRY</div>
+            <div style="padding: 6px 12px; color: #1a1a1a;">BARTENDER</div>
+            <div style="padding: 6px 12px; color: #1a1a1a;">BARNEY</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Both: ghost + popup</h3>
+      <p>Ghost text shows the top match inline; popup shows the full list of candidates below. Tab accepts the ghost; arrows + Enter select from the popup.</p>
+      <p class="subtitle">Pros: Best of both (quiet AND complete). Cons: Most code. Two surfaces to manage. Risk of feeling busy.</p>
+    </div>
+  </div>
+
+</div>
+
+<div class="section" style="margin-top: 1.5em;">
+  <p class="label">Trigger conditions (same across all 3 options)</p>
+  <ul style="line-height: 1.8;">
+    <li>Active only on a Character cue line (forced <code>@</code> or detected ALL-CAPS)</li>
+    <li>Activates after typing 1+ character in the cue</li>
+    <li>Suggestions are uppercased character names from <code>FountainScript.characterNames</code> (already populated by 3a's parser)</li>
+    <li>Ranking: prefix-match first, sub-string match second, alphabetical within each</li>
+    <li>Dismisses on: blank line, cursor leaving the cue line, Escape</li>
+  </ul>
+</div>

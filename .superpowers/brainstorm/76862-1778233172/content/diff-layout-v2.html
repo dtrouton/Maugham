@@ -1,0 +1,133 @@
+<h2>Conflict diff: side-by-side with buttons under each side</h2>
+<p class="subtitle">Each action button sits directly under the pane it acts on, so clicking is unambiguous: "keep this side."</p>
+
+<style>
+  .diff-mockup {
+    background: var(--bg-1, #ffffff);
+    border: 1px solid var(--border, #d1d5db);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .diff-mockup .head {
+    background: var(--bg-2, #f4f4f5);
+    padding: 8px 14px;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 12px;
+    color: var(--text-1, #111827);
+    border-bottom: 1px solid var(--border, #d1d5db);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .diff-mockup .head .title { font-weight: 500; }
+  .diff-mockup .head .meta { font-size: 11px; color: var(--text-2, #6b7280); }
+  .diff-mockup .head .close {
+    background: transparent;
+    border: 0;
+    color: var(--text-2, #6b7280);
+    font-size: 16px;
+    line-height: 1;
+    padding: 0 4px;
+    cursor: pointer;
+  }
+
+  .sbs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    font-family: 'SF Mono', Menlo, Monaco, monospace;
+    font-size: 12px;
+    line-height: 1.55;
+  }
+  .pane { border-right: 1px solid var(--border, #d1d5db); }
+  .pane:last-child { border-right: none; }
+  .pane-head {
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 11px;
+    color: var(--text-2, #6b7280);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border, #e5e7eb);
+    background: var(--bg-2, #fafafa);
+  }
+  .body { padding: 8px 0; max-height: 220px; overflow: hidden; }
+  .ln { display: flex; padding: 0 12px; white-space: pre; }
+  .gutter {
+    width: 22px;
+    color: var(--text-3, #9ca3af);
+    text-align: right;
+    padding-right: 8px;
+    user-select: none;
+  }
+  .added { background: rgba(46, 160, 67, 0.16); }
+  .removed { background: rgba(248, 81, 73, 0.16); }
+  .ctx { color: var(--text-1, #111827); }
+
+  .pane-foot {
+    border-top: 1px solid var(--border, #d1d5db);
+    padding: 10px 12px;
+    background: var(--bg-2, #fafafa);
+    display: flex;
+    justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+  .btn {
+    padding: 6px 18px;
+    border: 1px solid var(--border, #c7cad1);
+    border-radius: 6px;
+    font-size: 13px;
+    background: var(--bg-1, #fff);
+    cursor: pointer;
+  }
+  .btn.primary { background: #0a84ff; border-color: #0a84ff; color: white; }
+  .btn.secondary { background: var(--bg-1, #fff); }
+</style>
+
+<div class="mockup">
+  <div class="diff-mockup">
+    <div class="head">
+      <span class="title">Chapter 2 — diff</span>
+      <span class="meta">Cloud version saved 2m ago · 3 hunks</span>
+      <button class="close" aria-label="Close">&times;</button>
+    </div>
+    <div class="sbs">
+      <div class="pane">
+        <div class="pane-head">Mine</div>
+        <div class="body">
+          <div class="ln ctx"><span class="gutter">12</span>The lighthouse stood alone on the cliff,</div>
+          <div class="ln ctx"><span class="gutter">13</span>watching the storm roll in from the west.</div>
+          <div class="ln removed"><span class="gutter">14</span>Margaret pulled her coat tight.</div>
+          <div class="ln ctx"><span class="gutter">15</span>She had not seen him in three years.</div>
+          <div class="ln removed"><span class="gutter">16</span>Three long years.</div>
+          <div class="ln ctx"><span class="gutter">17</span>The bell tolled once.</div>
+        </div>
+        <div class="pane-foot">
+          <button class="btn primary">Keep mine</button>
+        </div>
+      </div>
+      <div class="pane">
+        <div class="pane-head">Cloud</div>
+        <div class="body">
+          <div class="ln ctx"><span class="gutter">12</span>The lighthouse stood alone on the cliff,</div>
+          <div class="ln ctx"><span class="gutter">13</span>watching the storm roll in from the west.</div>
+          <div class="ln added"><span class="gutter">14</span>Margaret drew the wool coat tight against the wind.</div>
+          <div class="ln ctx"><span class="gutter">15</span>She had not seen him in three years.</div>
+          <div class="ln ctx"><span class="gutter">16</span>The bell tolled once.</div>
+          <div class="ln ctx"><span class="gutter">17</span> </div>
+        </div>
+        <div class="pane-foot">
+          <button class="btn secondary">Use cloud</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top: 16px;">
+  <strong>Notes:</strong>
+  Sheet header carries the close (×) instead of a Cancel button — closing returns to the conflict banner without resolving.
+  "Keep mine" is the default action (primary blue) since it preserves user-visible work; "Use cloud" is secondary (still one click).
+</p>
+
+<p class="subtitle">If this looks right, click anywhere or just say "yes" in chat and we move to the last few questions.</p>
