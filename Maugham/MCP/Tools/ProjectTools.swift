@@ -95,3 +95,52 @@ public enum GetMetadataTool {
         return count
     }
 }
+
+/// `get_outline(project_id)` — hierarchical manifest.structure with metadata.
+public enum GetOutlineTool {
+    public struct Params: Codable { public let project_id: String }
+    public struct Outline: Codable, Equatable {
+        public let nodes: [Node]
+    }
+    public struct Node: Codable, Equatable {
+        public let id: String
+        public let title: String
+        public let type: String     // "document" or "group"
+        public let status: String?
+        public let synopsis: String?
+        public let word_count: Int?
+        public let word_target: Int?
+        public let children: [Node]?
+    }
+    public static let method = "get_outline"
+
+    @MainActor
+    public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
+        guard let data = paramsJSON,
+              let params = try? JSONDecoder().decode(Params.self, from: data) else {
+            throw MCPError.invalidArgument("project_id required")
+        }
+        guard let entry = registry.lookup(id: params.project_id) else {
+            throw MCPError.projectNotOpen
+        }
+        let store = entry.store
+        let nodes = Self.toNodes(store.manifest.structure, store: store)
+        return try JSONEncoder().encode(Outline(nodes: nodes))
+    }
+
+    @MainActor
+    private static func toNodes(_ items: [StructureItem], store: ProjectStore) -> [Node] {
+        items.map { item in
+            let childNodes = item.children.map { toNodes($0, store: store) }
+            return Node(
+                id: item.id,
+                title: item.title,
+                type: item.type == .document ? "document" : "group",
+                status: item.status,
+                synopsis: item.synopsis,
+                word_count: item.type == .document ? store.cachedWordCount(for: item.id) : nil,
+                word_target: item.wordTarget,
+                children: childNodes)
+        }
+    }
+}
