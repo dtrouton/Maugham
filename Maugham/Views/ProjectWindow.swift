@@ -30,6 +30,10 @@ struct ProjectWindow: View {
     @State private var findActive: Bool = false
     @State private var detailSegment: DetailSegment = .inspector
     @State private var outlineLayout: OutlineLayout = .table
+    @State private var mcpBannerTitle: String?
+    @State private var mcpBannerCount: Int = 0
+    @State private var mcpBannerLatestId: String?
+    @State private var mcpBannerDismissTask: Task<Void, Never>?
     @Environment(UserPreferences.self) private var userPreferences
     @Environment(\.openWindow) private var openWindow
 
@@ -56,6 +60,18 @@ struct ProjectWindow: View {
                 .overlay(alignment: .top) {
                     SaveFlashOverlay(isShowing: $showingSaveFlash)
                 }
+                .overlay(alignment: .top) {
+                    if let title = mcpBannerTitle {
+                        MCPNoteBanner(
+                            title: title,
+                            count: mcpBannerCount,
+                            onShow: { handleShowLatestMCPNote() },
+                            onDismiss: { handleDismissMCPBanner() }
+                        )
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                }
+                .animation(.easeInOut(duration: 0.2), value: mcpBannerTitle)
                 .navigationTitle(store.manifest.title)
                 .sheet(item: $activeSheet) { sheet in
                     switch sheet {
@@ -160,6 +176,7 @@ struct ProjectWindow: View {
         .modifier(SessionAndNavigationModifier(
             documentStore: documentStore,
             store: store,
+            url: url,
             sessionLog: $sessionLog,
             selectedItemId: $selectedItemId,
             selectedResearchId: $selectedResearchId,
@@ -169,7 +186,11 @@ struct ProjectWindow: View {
             showingSyntaxHelp: $showingSyntaxHelp,
             researchPreviewVisible: $researchPreviewVisible,
             showInspector: $showInspector,
-            detailSegment: $detailSegment))
+            detailSegment: $detailSegment,
+            mcpBannerTitle: $mcpBannerTitle,
+            mcpBannerCount: $mcpBannerCount,
+            mcpBannerLatestId: $mcpBannerLatestId,
+            mcpBannerDismissTask: $mcpBannerDismissTask))
         .sheet(isPresented: $showingSyntaxHelp) {
             SyntaxHelpSheet(mode: currentSyntaxHelpMode)
         }
@@ -187,6 +208,7 @@ struct ProjectWindow: View {
     private struct SessionAndNavigationModifier: ViewModifier {
         let documentStore: DocumentStore?
         let store: ProjectStore?
+        let url: URL
         @Binding var sessionLog: SessionLog
         @Binding var selectedItemId: String?
         @Binding var selectedResearchId: String?
@@ -197,6 +219,10 @@ struct ProjectWindow: View {
         @Binding var researchPreviewVisible: Bool
         @Binding var showInspector: Bool
         @Binding var detailSegment: DetailSegment
+        @Binding var mcpBannerTitle: String?
+        @Binding var mcpBannerCount: Int
+        @Binding var mcpBannerLatestId: String?
+        @Binding var mcpBannerDismissTask: Task<Void, Never>?
 
         func body(content: Content) -> some View {
             content
@@ -281,6 +307,32 @@ struct ProjectWindow: View {
                         if let item = findResearchItemByPath(
                             match.documentPath, in: store.manifest.research) {
                             selectedResearchId = item.id
+                        }
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(
+                    for: .maughamMCPNoteAdded)) { note in
+                    guard let info = note.userInfo,
+                          let projectId = info["project_id"] as? String,
+                          let researchId = info["research_id"] as? String,
+                          let title = info["title"] as? String,
+                          ProjectIdentifier.id(for: url) == projectId else { return }
+                    DispatchQueue.main.async {
+                        mcpBannerTitle = title
+                        mcpBannerCount += 1
+                        mcpBannerLatestId = researchId
+                        mcpBannerDismissTask?.cancel()
+                        mcpBannerDismissTask = Task {
+                            try? await Task.sleep(for: .seconds(8))
+                            if !Task.isCancelled {
+                                await MainActor.run {
+                                    mcpBannerTitle = nil
+                                    mcpBannerCount = 0
+                                    mcpBannerLatestId = nil
+                                    mcpBannerDismissTask?.cancel()
+                                    mcpBannerDismissTask = nil
+                                }
+                            }
                         }
                     }
                 }
@@ -580,6 +632,34 @@ struct ProjectWindow: View {
             try? await Task.sleep(for: .milliseconds(1200))
             await MainActor.run { showingSaveFlash = false }
         }
+    }
+
+    private func handleMCPNoteAdded(researchId: String, title: String) {
+        mcpBannerTitle = title
+        mcpBannerCount += 1
+        mcpBannerLatestId = researchId
+        mcpBannerDismissTask?.cancel()
+        mcpBannerDismissTask = Task {
+            try? await Task.sleep(for: .seconds(8))
+            if !Task.isCancelled {
+                await MainActor.run { handleDismissMCPBanner() }
+            }
+        }
+    }
+
+    private func handleShowLatestMCPNote() {
+        guard let id = mcpBannerLatestId else { return }
+        binderSegment = .research
+        selectedResearchId = id
+        handleDismissMCPBanner()
+    }
+
+    private func handleDismissMCPBanner() {
+        mcpBannerTitle = nil
+        mcpBannerCount = 0
+        mcpBannerLatestId = nil
+        mcpBannerDismissTask?.cancel()
+        mcpBannerDismissTask = nil
     }
 
     @MainActor
