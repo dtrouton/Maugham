@@ -60,7 +60,7 @@ Three Maugham-specific error codes, all returned over the wire as JSON-RPC error
 |---|---|---|
 | `-32001 maugham_not_running` | Binary couldn't reach socket | Binary |
 | `-32002 project_not_open` | `project_id` not in registry | MCPServer |
-| `-32003 mcp_disabled` | User toggled off in Settings | MCPServer (still binds for a moment to send the error, OR binary detects no socket present and returns this if a settings flag file says disabled — final implementation choice during build) |
+| `-32003 mcp_disabled` | User toggled off in Settings | MCPServer (socket stays bound while Maugham is running, but every incoming request returns this error — preserves the user-actionable distinction between "Maugham closed" and "MCP turned off") |
 
 Standard JSON-RPC errors (`-32600` invalid request, `-32601` method not found, `-32602` invalid params, `-32603` internal error) cover everything else. Internal errors get short messages over the wire; full detail stays in Maugham's local log.
 
