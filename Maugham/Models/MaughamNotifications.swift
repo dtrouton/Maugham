@@ -24,4 +24,5 @@ extension Notification.Name {
     public static let maughamFindInProject = Notification.Name("maugham.find.in.project")
     public static let maughamCloseFind = Notification.Name("maugham.close.find")
     public static let maughamSetDetailSegment = Notification.Name("maugham.set.detail.segment")
+    public static let maughamMCPNoteAdded = Notification.Name("maugham.mcp.note.added")
 }
