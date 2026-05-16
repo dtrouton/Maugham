@@ -56,6 +56,71 @@ final class MCPServerLifecycleTests: XCTestCase {
         XCTAssertFalse(resp.contains("\"result\""))
     }
 
+    /// If a client disconnects between sending its request and the server's
+    /// response write, send() fails. The server must:
+    /// 1) Not be killed by SIGPIPE
+    /// 2) Exit the connection's handler loop cleanly
+    /// 3) Keep the listening socket open so new connections still work
+    func test_server_survives_clientDisconnectMidResponse() async throws {
+        let path = tmpSocketPath()
+        let router = MCPRouter()
+        // Slow handler — gives the test time to close the client before
+        // the server's send() runs.
+        router.register(method: "slow") { _ in
+            try? await Task.sleep(for: .milliseconds(150))
+            return Data("\"ok\"".utf8)
+        }
+        let prefs = UserPreferences(defaults: ephemeralDefaults())
+        let server = MCPServer(socketPath: path, router: router, preferences: prefs)
+        try await server.start()
+        defer { Task { await server.stop() } }
+
+        // Open a client, send the slow request, close immediately.
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        XCTAssertTrue(fd >= 0)
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        path.withCString { src in
+            withUnsafeMutablePointer(to: &addr.sun_path) { dst in
+                _ = strlcpy(
+                    UnsafeMutableRawPointer(dst).assumingMemoryBound(to: CChar.self),
+                    src, MemoryLayout.size(ofValue: dst.pointee))
+            }
+        }
+        var connected = false
+        for _ in 0..<20 {
+            let r = withUnsafePointer(to: &addr) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+                }
+            }
+            if r == 0 { connected = true; break }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        XCTAssertTrue(connected)
+
+        let req = #"{"jsonrpc":"2.0","id":1,"method":"slow"}"# + "\n"
+        _ = req.withCString { send(fd, $0, strlen($0), 0) }
+        // Immediately close before the server's handler responds.
+        close(fd)
+
+        // Wait past the slow handler. If the server were killed by SIGPIPE,
+        // a subsequent connection would fail. If it cleanly handled the
+        // disconnect, a new connection succeeds.
+        try await Task.sleep(for: .milliseconds(400))
+
+        // Open a second client and verify the listening socket still works.
+        let fd2 = socket(AF_UNIX, SOCK_STREAM, 0)
+        XCTAssertTrue(fd2 >= 0)
+        defer { close(fd2) }
+        let r2 = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                connect(fd2, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        XCTAssertEqual(r2, 0, "server should still accept connections after a peer disconnect; errno=\(errno)")
+    }
+
     /// Connect to a Unix socket, write `request` + newline, read one line.
     /// All blocking syscalls run on DispatchQueue.global() via
     /// withCheckedContinuation so Swift's cooperative thread pool is never

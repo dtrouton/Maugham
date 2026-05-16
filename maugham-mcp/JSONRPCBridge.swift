@@ -56,12 +56,18 @@ final class JSONRPCBridge {
         group.enter()
         DispatchQueue.global().async {
             Self.pipe(from: stdinFD, to: socketFD)
-            shutdown(socketFD, SHUT_WR)
+            // stdin → socket finished (stdin EOF or socket write failed). Half-close
+            // the socket write side so the server sees EOF. Also shut down the read
+            // side so the other pipe's blocked recv returns.
+            shutdown(socketFD, SHUT_RDWR)
             group.leave()
         }
         group.enter()
         DispatchQueue.global().async {
             Self.pipe(from: socketFD, to: stdoutFD)
+            // socket → stdout finished (socket closed or stdout write failed).
+            // Close stdin so the other pipe's blocked read returns.
+            close(stdinFD)
             group.leave()
         }
         group.wait()

@@ -23,6 +23,20 @@ public final class MCPServer {
     private var listenFD: Int32 = -1
     private var acceptTask: Task<Void, Never>?
 
+    /// Process-wide SIGPIPE ignore. Installed lazily on first server start;
+    /// idempotent. Writing to a peer-closed socket would otherwise terminate
+    /// Maugham silently (no crash report on Darwin).
+    nonisolated(unsafe) private static var sigpipeIgnored = false
+    private static let sigpipeIgnoredLock = NSLock()
+
+    private static func installSIGPIPEIgnoreOnce() {
+        sigpipeIgnoredLock.lock()
+        defer { sigpipeIgnoredLock.unlock() }
+        if sigpipeIgnored { return }
+        signal(SIGPIPE, SIG_IGN)
+        sigpipeIgnored = true
+    }
+
     public init(socketPath: String, router: MCPRouter, preferences: UserPreferences) {
         self.socketPath = socketPath
         self.router = router
@@ -30,6 +44,10 @@ public final class MCPServer {
     }
 
     public func start() async throws {
+        // Block SIGPIPE for the entire process. Writing to a peer-closed socket
+        // would otherwise terminate Maugham silently (no crash report on Darwin).
+        Self.installSIGPIPEIgnoreOnce()
+
         let parent = (socketPath as NSString).deletingLastPathComponent
         try? FileManager.default.createDirectory(
             atPath: parent, withIntermediateDirectories: true)
@@ -150,7 +168,12 @@ public final class MCPServer {
                 if response.isEmpty { continue }
                 var out = response
                 out.append(0x0A)
-                _ = out.withUnsafeBytes { send(clientFD, $0.baseAddress, out.count, 0) }
+                let sent = out.withUnsafeBytes { send(clientFD, $0.baseAddress, out.count, 0) }
+                if sent < 0 {
+                    // Peer closed (EPIPE) or connection reset (ECONNRESET) — exit this
+                    // connection's loop cleanly. The listening socket stays up.
+                    return
+                }
             }
         }
     }
