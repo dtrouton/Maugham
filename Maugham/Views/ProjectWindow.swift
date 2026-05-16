@@ -648,16 +648,42 @@ struct ProjectWindow: View {
         let currentDoc = selectedItemId.flatMap {
             findItem(id: $0, in: store.manifest.structure)
         }
-        let isScreenplay = store.manifest.type == .screenplay
+
+        // For a Collection, derive isScreenplay from the active piece, not the
+        // project. Reference pieces hide the goal indicator entirely.
+        let isScreenplay: Bool
+        let docWordTarget: Int?
+        let docPageTarget: Int?
+        if store.manifest.type == .collection {
+            if let piece = currentDoc, piece.pieceKind == .reference {
+                return .empty  // hidden for references
+            }
+            if let path = currentDoc?.path, path.hasSuffix(".fountain") {
+                isScreenplay = true
+                docWordTarget = nil
+                docPageTarget = currentDoc?.pageTarget
+            } else {
+                isScreenplay = false
+                docWordTarget = currentDoc?.wordTarget
+                docPageTarget = nil
+            }
+        } else {
+            isScreenplay = store.manifest.type == .screenplay
+            docWordTarget = currentDoc?.wordTarget
+            docPageTarget = nil
+        }
+
         return GoalIndicatorState(
             docWordCount: metrics.wordCount,
-            docWordTarget: currentDoc?.wordTarget,
+            docWordTarget: docWordTarget,
             projectWordCount: store.projectWordCount,
             projectWordTarget: store.manifest.targets?.totalWords,
             wordsToday: sessionLog.wordsToday(),
             readingMinutes: metrics.readingMinutes,
             pageCount: metrics.pageCount,
-            pageTarget: store.manifest.targets?.pageTarget,
+            pageTarget: store.manifest.type == .collection
+                ? docPageTarget
+                : store.manifest.targets?.pageTarget,
             isScreenplay: isScreenplay)
     }
 
