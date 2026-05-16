@@ -2150,6 +2150,163 @@ extension ProjectStore {
         return item
     }
 
+    /// Promote a loose Collection piece into a standalone Maugham project.
+    /// Moves the piece's main doc + research/ subfolder to a fresh project
+    /// at `destination`. Converts the Collection's manifest entry into a
+    /// reference. Returns the new project's URL.
+    public func promotePieceToProject(
+        pieceId: String, destination: URL
+    ) async throws -> URL {
+        guard manifest.type == .collection else {
+            throw ProjectStoreError.fileSystemError(
+                "promotePieceToProject only valid for Collection projects")
+        }
+        guard let pieceIdx = manifest.structure.firstIndex(where: { $0.id == pieceId }),
+              manifest.structure[pieceIdx].pieceKind == .loose,
+              let piecePath = manifest.structure[pieceIdx].path else {
+            throw ProjectStoreError.fileSystemError(
+                "Piece not found or not a loose piece: \(pieceId)")
+        }
+        let piece = manifest.structure[pieceIdx]
+        let pieceFolderRel = (piecePath as NSString).deletingLastPathComponent
+        let pieceFolderURL = url.appendingPathComponent(pieceFolderRel)
+        let mainDocName = (piecePath as NSString).lastPathComponent
+        let mainDocExt = (mainDocName as NSString).pathExtension
+        let newType: ProjectType = mainDocExt == "fountain" ? .screenplay : .shortStory
+
+        // 1. Flush + close any open document for this piece.
+        if let docStore = documentStore,
+           docStore.openDocumentPath == piecePath {
+            try? await docStore.flushPendingSave()
+            await docStore.close()
+        }
+
+        // 2. Stage the new project under a sibling .maugham-staging-* folder.
+        let parent = destination.deletingLastPathComponent()
+        try FileManager.default.createDirectory(
+            at: parent, withIntermediateDirectories: true)
+        let stagingURL = parent.appendingPathComponent(
+            ".maugham-staging-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: stagingURL, withIntermediateDirectories: true)
+
+        do {
+            try FileManager.default.createDirectory(
+                at: stagingURL.appendingPathComponent("manuscript"),
+                withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(
+                at: stagingURL.appendingPathComponent("notes"),
+                withIntermediateDirectories: true)
+
+            // 3. Move main doc into staging/manuscript/
+            let newDocURL = stagingURL.appendingPathComponent("manuscript/\(mainDocName)")
+            try FileManager.default.moveItem(
+                at: pieceFolderURL.appendingPathComponent(mainDocName),
+                to: newDocURL)
+
+            // 4. Move piece's research/ subfolder into staging/research/ (if non-empty)
+            let pieceResearchURL = pieceFolderURL.appendingPathComponent("research")
+            let newResearchURL = stagingURL.appendingPathComponent("research")
+            if FileManager.default.fileExists(atPath: pieceResearchURL.path) {
+                try FileManager.default.moveItem(at: pieceResearchURL, to: newResearchURL)
+            } else {
+                try FileManager.default.createDirectory(
+                    at: newResearchURL, withIntermediateDirectories: true)
+            }
+
+            // 5. Build + write new project manifest
+            let now = Date()
+            let docStructItem = StructureItem(
+                id: Self.newId(prefix: "doc"),
+                title: piece.title,
+                type: .document,
+                path: "manuscript/\(mainDocName)",
+                synopsis: piece.synopsis,
+                status: piece.status,
+                wordTarget: piece.wordTarget,
+                pageTarget: piece.pageTarget,
+                tags: piece.tags,
+                links: piece.links)
+            // Carry over per-piece research as the new project's research items;
+            // rewrite their paths from pieces/<NN>-<slug>/research/X to research/X.
+            let researchPrefix = "\(pieceFolderRel)/research/"
+            let carriedResearch: [ResearchItem] = manifest.research.compactMap { item in
+                guard let p = item.path, p.hasPrefix(researchPrefix) else { return nil }
+                var copy = item
+                copy.path = "research/" + String(p.dropFirst(researchPrefix.count))
+                return copy
+            }
+            let newTargets: ProjectTargets? = {
+                if let pt = piece.pageTarget { return ProjectTargets(pageTarget: pt) }
+                if let wt = piece.wordTarget { return ProjectTargets(totalWords: wt) }
+                return nil
+            }()
+            let newManifest = ProjectManifest(
+                type: newType,
+                title: piece.title,
+                author: manifest.author,
+                created: now,
+                modified: now,
+                structure: [docStructItem],
+                research: carriedResearch,
+                targets: newTargets)
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            try encoder.encode(newManifest).write(
+                to: stagingURL.appendingPathComponent("project.maugham.json"),
+                options: .atomic)
+
+            // 6. Validate by loading
+            _ = try await ProjectStore.load(from: stagingURL)
+
+            // 7. Atomic replace to final destination
+            if FileManager.default.fileExists(atPath: destination.path) {
+                _ = try FileManager.default.replaceItemAt(
+                    destination, withItemAt: stagingURL)
+            } else {
+                try FileManager.default.moveItem(at: stagingURL, to: destination)
+            }
+
+            // 8. Convert Collection piece to a reference:
+            //    a. Write .maugham-link.json
+            //    b. Update manifest entry
+            //    c. Remove per-piece research items from manifest.research
+            let bookmarkData = try destination.bookmarkData(
+                options: .withSecurityScope,
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil)
+            let linkFile = CollectionLinkFile(
+                version: 1,
+                title: piece.title,
+                path: destination.path,
+                bookmark: bookmarkData.base64EncodedString(),
+                linkedAt: now)
+            let linkURL = pieceFolderURL.appendingPathComponent(".maugham-link.json")
+            try encoder.encode(linkFile).write(to: linkURL, options: .atomic)
+
+            manifest.structure[pieceIdx].pieceKind = .reference
+            manifest.structure[pieceIdx].path = "\(pieceFolderRel)/.maugham-link.json"
+            manifest.structure[pieceIdx].linkedProjectPath = destination.path
+            manifest.structure[pieceIdx].linkedProjectBookmark = bookmarkData
+            manifest.structure[pieceIdx].synopsis = nil
+            manifest.structure[pieceIdx].status = nil
+            manifest.structure[pieceIdx].wordTarget = nil
+            manifest.structure[pieceIdx].pageTarget = nil
+            // Remove per-piece research entries from Collection's manifest
+            manifest.research.removeAll { item in
+                item.path?.hasPrefix(researchPrefix) == true
+            }
+            manifest.modified = now
+            try await saveManifest()
+
+            return destination
+        } catch {
+            // Rollback: delete staging if present
+            try? FileManager.default.removeItem(at: stagingURL)
+            throw error
+        }
+    }
+
     /// Add a research note inside a piece's research/ subfolder. Adds a
     /// ResearchItem to manifest.research with a piece-scoped path. The note
     /// is project-local research from the manifest's POV — discoverability
