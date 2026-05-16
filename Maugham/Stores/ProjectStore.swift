@@ -2178,3 +2178,41 @@ extension ProjectStore: WikiLinkProject {
         return nil
     }
 }
+
+// MARK: - Collection-Pieces: Reference Resolution
+
+public enum ReferenceResolution: Equatable {
+    case resolved(URL)
+    case resolvedViaPathFallback(URL)
+    case unresolved
+}
+
+extension ProjectStore {
+    public func resolveReference(_ piece: StructureItem) -> ReferenceResolution {
+        guard piece.pieceKind == .reference else { return .unresolved }
+        // Bookmark path
+        if let bookmark = piece.linkedProjectBookmark {
+            var isStale = false
+            if let resolved = try? URL(
+                resolvingBookmarkData: bookmark,
+                options: [.withSecurityScope],
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale) {
+                // Validate it still points at a project
+                let manifestURL = resolved.appendingPathComponent("project.maugham.json")
+                if FileManager.default.fileExists(atPath: manifestURL.path) {
+                    return .resolved(resolved.resolvingSymlinksInPath())
+                }
+            }
+        }
+        // Path fallback
+        if let pathStr = piece.linkedProjectPath {
+            let candidate = URL(fileURLWithPath: pathStr)
+            let manifestURL = candidate.appendingPathComponent("project.maugham.json")
+            if FileManager.default.fileExists(atPath: manifestURL.path) {
+                return .resolvedViaPathFallback(candidate)
+            }
+        }
+        return .unresolved
+    }
+}
