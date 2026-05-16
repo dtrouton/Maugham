@@ -147,6 +147,7 @@ public final class MCPServer {
                     lineData: lineData,
                     router: router,
                     preferences: preferences)
+                if response.isEmpty { continue }
                 var out = response
                 out.append(0x0A)
                 _ = out.withUnsafeBytes { send(clientFD, $0.baseAddress, out.count, 0) }
@@ -164,6 +165,11 @@ public final class MCPServer {
             let resp = MCPResponse.failure(id: nil, code: -32700, message: "Parse error")
             return (try? JSONEncoder().encode(resp)) ?? Data()
         }
+
+        // JSON-RPC notification: no id, no response. Per spec, server MUST NOT reply.
+        // Claude Desktop sends `notifications/initialized` after handshake; replying
+        // would be a protocol error.
+        if req.id == nil { return Data() }
 
         let enabled = await MainActor.run { preferences.mcpEnabled }
         if !enabled {
