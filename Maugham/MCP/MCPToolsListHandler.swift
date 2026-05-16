@@ -33,7 +33,7 @@ public enum MCPToolsListHandler {
              "{\"type\":\"object\",\"properties\":{\"project_id\":{\"type\":\"string\"}},\"required\":[\"project_id\"]}"),
 
             ("find_references",
-             "Find back-references to a document or research item ([[wiki links]] in manuscript text + research-link backrefs).",
+             "Find back-references to a document or research item. The `target` can be an id (returned by get_outline / list_research) or a title (case-insensitive match). Returns [[wiki link]] matches in manuscript text + research-link backrefs.",
              "{\"type\":\"object\",\"properties\":{\"project_id\":{\"type\":\"string\"},\"target\":{\"type\":\"string\"}},\"required\":[\"project_id\",\"target\"]}"),
 
             ("get_session_stats",
@@ -42,7 +42,11 @@ public enum MCPToolsListHandler {
 
             ("add_note",
              "Create a research note (.md) under the project's research folder. Optionally placed in an existing group.",
-             "{\"type\":\"object\",\"properties\":{\"project_id\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"body\":{\"type\":\"string\"},\"parent_group_id\":{\"type\":\"string\"}},\"required\":[\"project_id\",\"title\",\"body\"]}")
+             "{\"type\":\"object\",\"properties\":{\"project_id\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"body\":{\"type\":\"string\"},\"parent_group_id\":{\"type\":\"string\"}},\"required\":[\"project_id\",\"title\",\"body\"]}"),
+
+            ("list_research",
+             "List the project's research tree hierarchically. Each item has id, title, type (group/asset), kind, path. Use this to discover research items before calling find_references or read_document.",
+             "{\"type\":\"object\",\"properties\":{\"project_id\":{\"type\":\"string\"}},\"required\":[\"project_id\"]}")
         ]
 
         var tools: [AnyJSON] = []

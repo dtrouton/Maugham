@@ -91,22 +91,30 @@ public enum FindReferencesTool {
         }
         let store = entry.store
 
-        var refs: [Reference] = []
-        var seenFromIds = Set<String>()  // avoid duplicates if both wiki + link match
+        // Resolve target to a canonical id (document or research).
+        // Try id-match first, then title-match.
+        let resolvedId: String? = Self.resolveTargetId(params.target, store: store)
 
-        for chapter in Self.flatDocs(store.manifest.structure) {
-            if store.linkedResearchIds(forDocumentId: chapter.id).contains(params.target) {
-                if seenFromIds.insert(chapter.id).inserted {
-                    refs.append(Reference(
-                        from_id: chapter.id,
-                        from_title: chapter.title,
-                        kind: "linked_research"))
+        var refs: [Reference] = []
+        var seenFromIds = Set<String>()
+
+        // Linked-research backref scan needs an id.
+        if let rid = resolvedId {
+            for chapter in Self.flatDocs(store.manifest.structure) {
+                if store.linkedResearchIds(forDocumentId: chapter.id).contains(rid) {
+                    if seenFromIds.insert(chapter.id).inserted {
+                        refs.append(Reference(
+                            from_id: chapter.id,
+                            from_title: chapter.title,
+                            kind: "linked_research"))
+                    }
                 }
             }
         }
 
-        // Wiki references: resolve `target` to title(s), then scan manuscript text.
-        let titles = Self.titlesFor(id: params.target, store: store)
+        // Wiki-link references: gather candidate titles. If target resolved to an
+        // id, look up its title(s); else use the literal target string as a title.
+        let titles = Self.titlesToScan(target: params.target, resolvedId: resolvedId, store: store)
         if !titles.isEmpty {
             for doc in Self.flatDocs(store.manifest.structure) {
                 guard let path = doc.path else { continue }
@@ -127,6 +135,50 @@ public enum FindReferencesTool {
         return try JSONEncoder().encode(refs)
     }
 
+    /// Resolve `target` to a canonical id: first by id match (structure or
+    /// research), then by case-insensitive title match.
+    @MainActor
+    private static func resolveTargetId(_ target: String, store: ProjectStore) -> String? {
+        // Exact id in manuscript structure?
+        if flatDocs(store.manifest.structure).contains(where: { $0.id == target }) {
+            return target
+        }
+        // Exact id in research tree?
+        if findResearchById(id: target, in: store.manifest.research) != nil {
+            return target
+        }
+        // Case-insensitive title match in manuscript structure?
+        if let m = flatDocs(store.manifest.structure)
+            .first(where: { $0.title.compare(target, options: .caseInsensitive) == .orderedSame }) {
+            return m.id
+        }
+        // Case-insensitive title match in research tree?
+        if let r = findResearchByTitle(title: target, in: store.manifest.research) {
+            return r.id
+        }
+        return nil
+    }
+
+    @MainActor
+    private static func titlesToScan(
+        target: String, resolvedId: String?, store: ProjectStore
+    ) -> [String] {
+        var titles: [String] = []
+        if let id = resolvedId {
+            for doc in flatDocs(store.manifest.structure) where doc.id == id {
+                titles.append(doc.title)
+            }
+            for item in store.resolveResearchLinks([id]) {
+                titles.append(item.title)
+            }
+        } else {
+            // Unresolved id — still scan for [[target]] literally; user may have
+            // a wiki link to something that hasn't been created yet.
+            titles.append(target)
+        }
+        return titles
+    }
+
     @MainActor
     private static func flatDocs(_ items: [StructureItem]) -> [StructureItem] {
         var out: [StructureItem] = []
@@ -137,16 +189,20 @@ public enum FindReferencesTool {
         return out
     }
 
-    @MainActor
-    private static func titlesFor(id: String, store: ProjectStore) -> [String] {
-        var titles: [String] = []
-        for doc in flatDocs(store.manifest.structure) where doc.id == id {
-            titles.append(doc.title)
+    private static func findResearchById(id: String, in items: [ResearchItem]) -> ResearchItem? {
+        for item in items {
+            if item.id == id { return item }
+            if let kids = item.children, let n = findResearchById(id: id, in: kids) { return n }
         }
-        for item in store.resolveResearchLinks([id]) {
-            titles.append(item.title)
+        return nil
+    }
+
+    private static func findResearchByTitle(title: String, in items: [ResearchItem]) -> ResearchItem? {
+        for item in items {
+            if item.title.compare(title, options: .caseInsensitive) == .orderedSame { return item }
+            if let kids = item.children, let n = findResearchByTitle(title: title, in: kids) { return n }
         }
-        return titles
+        return nil
     }
 }
 

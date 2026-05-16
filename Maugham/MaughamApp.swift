@@ -233,6 +233,9 @@ struct MaughamApp: App {
         router.register(method: AddNoteTool.method) { params in
             try await AddNoteTool.handle(paramsJSON: params, registry: registry)
         }
+        router.register(method: ListResearchTool.method) { params in
+            try await ListResearchTool.handle(paramsJSON: params, registry: registry)
+        }
         // MCP protocol layer — Claude Desktop and other MCP clients require these.
         router.register(method: MCPInitializeHandler.method) { params in
             try await MCPInitializeHandler.handle(paramsJSON: params)
