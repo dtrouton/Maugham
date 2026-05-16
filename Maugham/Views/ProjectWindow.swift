@@ -333,6 +333,9 @@ struct ProjectWindow: View {
                         }
                     }
                 }
+                .modifier(CollectionPieceModifier(
+                    store: store,
+                    selectedItemId: $selectedItemId))
                 .alert("Renumber every chapter and scene?",
                        isPresented: $showingTidyAllConfirmation
                 ) {
@@ -379,6 +382,51 @@ struct ProjectWindow: View {
         }
     }
 
+    /// Handles the three collection-piece notifications in a separate modifier
+    /// so that SessionAndNavigationModifier.body stays within the type-checker limit.
+    private struct CollectionPieceModifier: ViewModifier {
+        let store: ProjectStore?
+        @Binding var selectedItemId: String?
+
+        func body(content: Content) -> some View {
+            content
+                .onReceive(NotificationCenter.default.publisher(
+                    for: .maughamAddLoosePiece)) { _ in
+                    guard let store, store.manifest.type == .collection else { return }
+                    Task {
+                        let piece = try? await store.addLoosePiece(
+                            title: "Untitled Piece", mode: .prose)
+                        if let piece { selectedItemId = piece.id }
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(
+                    for: .maughamAddScreenplayPiece)) { _ in
+                    guard let store, store.manifest.type == .collection else { return }
+                    Task {
+                        let piece = try? await store.addLoosePiece(
+                            title: "Untitled Screenplay", mode: .screenplay)
+                        if let piece { selectedItemId = piece.id }
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(
+                    for: .maughamLinkProject)) { _ in
+                    guard let store, store.manifest.type == .collection else { return }
+                    let panel = NSOpenPanel()
+                    panel.canChooseDirectories = true
+                    panel.canChooseFiles = false
+                    panel.allowsMultipleSelection = false
+                    panel.message = "Pick a Maugham project folder to link"
+                    panel.begin { response in
+                        guard response == .OK, let target = panel.url else { return }
+                        Task {
+                            let piece = try? await store.addProjectReference(targetURL: target)
+                            if let piece { selectedItemId = piece.id }
+                        }
+                    }
+                }
+        }
+    }
+
     // MARK: - Helpers
 
     private static func defaultSegment(for type: ProjectType) -> BinderSegment {
@@ -402,7 +450,9 @@ struct ProjectWindow: View {
                 selectedResearchId: $selectedResearchId,
                 findActive: $findActive,
                 activePiece: activePiece(in: store),
-                onAddPiece: { /* T15 will wire this to a notification post */ },
+                onAddPiece: {
+                    NotificationCenter.default.post(name: .maughamAddLoosePiece, object: nil)
+                },
                 onAddSharedNote: { Task { try? await addSharedNoteAction(store: store) } },
                 onAddPieceNote: { Task { try? await addPieceNoteAction(store: store) } }
             )

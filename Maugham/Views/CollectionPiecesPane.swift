@@ -32,12 +32,25 @@ struct CollectionPiecesPane: View {
         HStack {
             Text("Pieces").font(.headline)
             Spacer()
-            Button {
-                onAddPiece()
+            Menu {
+                Button("New Prose Story") {
+                    NotificationCenter.default.post(
+                        name: .maughamAddLoosePiece, object: nil)
+                }
+                Button("New Screenplay") {
+                    NotificationCenter.default.post(
+                        name: .maughamAddScreenplayPiece, object: nil)
+                }
+                Button("Link Existing Project…") {
+                    NotificationCenter.default.post(
+                        name: .maughamLinkProject, object: nil)
+                }
             } label: {
                 Image(systemName: "plus.circle")
             }
-            .buttonStyle(.plain)
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
             .help("Add a piece")
         }
         .padding(8)

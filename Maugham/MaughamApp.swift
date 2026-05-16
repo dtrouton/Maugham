@@ -85,6 +85,19 @@ struct MaughamApp: App {
                         name: .maughamShowProjectStatistics, object: nil)
                 }
                 Divider()
+                Button("New Prose Story") {
+                    NotificationCenter.default.post(
+                        name: .maughamAddLoosePiece, object: nil)
+                }
+                Button("New Screenplay (Collection)") {
+                    NotificationCenter.default.post(
+                        name: .maughamAddScreenplayPiece, object: nil)
+                }
+                Button("Link Existing Project…") {
+                    NotificationCenter.default.post(
+                        name: .maughamLinkProject, object: nil)
+                }
+                Divider()
                 Button("Project Settings…") {
                     NotificationCenter.default.post(
                         name: .maughamShowProjectSettings, object: nil)
