@@ -110,6 +110,7 @@ public enum GetOutlineTool {
         public let synopsis: String?
         public let word_count: Int?
         public let word_target: Int?
+        public let modified: Date?  // filesystem mtime for document nodes
         public let children: [Node]?
     }
     public static let method = "get_outline"
@@ -125,7 +126,9 @@ public enum GetOutlineTool {
         }
         let store = entry.store
         let nodes = Self.toNodes(store.manifest.structure, store: store)
-        return try JSONEncoder().encode(Outline(nodes: nodes))
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return try encoder.encode(Outline(nodes: nodes))
     }
 
     @MainActor
@@ -140,7 +143,15 @@ public enum GetOutlineTool {
                 synopsis: item.synopsis,
                 word_count: item.type == .document ? store.cachedWordCount(for: item.id) : nil,
                 word_target: item.wordTarget,
+                modified: item.type == .document ? Self.modifiedDate(for: item, store: store) : nil,
                 children: childNodes)
         }
+    }
+
+    private static func modifiedDate(for item: StructureItem, store: ProjectStore) -> Date? {
+        guard let path = item.path else { return nil }
+        let url = store.url.appendingPathComponent(path)
+        let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
+        return attrs?[.modificationDate] as? Date
     }
 }

@@ -35,11 +35,15 @@ final class DocumentToolsTests: XCTestCase {
         let req = "{\"project_id\":\"\(id)\"}"
         let json = try await GetOutlineTool.handle(
             paramsJSON: Data(req.utf8), registry: reg)
-        let outline = try JSONDecoder().decode(
-            GetOutlineTool.Outline.self, from: json)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let outline = try decoder.decode(GetOutlineTool.Outline.self, from: json)
         XCTAssertEqual(outline.nodes.count, 1)
         XCTAssertEqual(outline.nodes[0].title, "Ch 1")
         XCTAssertEqual(outline.nodes[0].type, "document")
+        // T-pre-tag: document nodes carry filesystem mtime so agents can answer
+        // "what have you been working on lately?"
+        XCTAssertNotNil(outline.nodes[0].modified)
     }
 
     func test_readDocument_returnsContent() async throws {

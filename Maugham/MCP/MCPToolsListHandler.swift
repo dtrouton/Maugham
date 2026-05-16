@@ -25,7 +25,7 @@ public enum MCPToolsListHandler {
              "{\"type\":\"object\",\"properties\":{\"project_id\":{\"type\":\"string\"},\"document_id\":{\"type\":\"string\"}},\"required\":[\"project_id\",\"document_id\"]}"),
 
             ("search_text",
-             "Search the manuscript for text matches. Supports case_sensitive and whole_word options.",
+             "Search manuscript document text for matches. Manuscript-only — does not scan [[wiki-link]] tokens, linked-research backrefs, or research note bodies. Use find_references for those.",
              "{\"type\":\"object\",\"properties\":{\"project_id\":{\"type\":\"string\"},\"query\":{\"type\":\"string\"},\"case_sensitive\":{\"type\":\"boolean\"},\"whole_word\":{\"type\":\"boolean\"}},\"required\":[\"project_id\",\"query\"]}"),
 
             ("list_scenes",
@@ -46,7 +46,19 @@ public enum MCPToolsListHandler {
 
             ("list_research",
              "List the project's research tree hierarchically. Each item has id, title, type (group/asset), kind, path. Use this to discover research items before calling find_references or read_document.",
-             "{\"type\":\"object\",\"properties\":{\"project_id\":{\"type\":\"string\"}},\"required\":[\"project_id\"]}")
+             "{\"type\":\"object\",\"properties\":{\"project_id\":{\"type\":\"string\"}},\"required\":[\"project_id\"]}"),
+
+            ("list_documents_by_tag",
+             "List manuscript documents whose tags include the given tag (case-insensitive). Returns id, title, path, tags.",
+             "{\"type\":\"object\",\"properties\":{\"project_id\":{\"type\":\"string\"},\"tag\":{\"type\":\"string\"}},\"required\":[\"project_id\",\"tag\"]}"),
+
+            ("link_research",
+             "Link a research item to a manuscript document so it shows up in the Inspector. Idempotent. Use get_outline + list_research to find ids.",
+             "{\"type\":\"object\",\"properties\":{\"project_id\":{\"type\":\"string\"},\"research_id\":{\"type\":\"string\"},\"document_id\":{\"type\":\"string\"}},\"required\":[\"project_id\",\"research_id\",\"document_id\"]}"),
+
+            ("unlink_research",
+             "Remove a research-to-document link. Idempotent (no-op if the link doesn't exist).",
+             "{\"type\":\"object\",\"properties\":{\"project_id\":{\"type\":\"string\"},\"research_id\":{\"type\":\"string\"},\"document_id\":{\"type\":\"string\"}},\"required\":[\"project_id\",\"research_id\",\"document_id\"]}")
         ]
 
         var tools: [AnyJSON] = []

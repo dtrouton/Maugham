@@ -19,7 +19,7 @@ final class MCPProtocolHandlersTests: XCTestCase {
         XCTAssertNotNil(caps["tools"])
     }
 
-    func test_toolsList_returnsAllTenTools() async throws {
+    func test_toolsList_returnsAllExpectedTools() async throws {
         let data = try await MCPToolsListHandler.handle(paramsJSON: nil)
         let any = try JSONDecoder().decode(AnyJSON.self, from: data)
         guard case .object(let obj) = any,
@@ -34,7 +34,8 @@ final class MCPProtocolHandlersTests: XCTestCase {
             "list_projects", "get_metadata", "get_outline",
             "read_document", "search_text", "list_scenes",
             "find_references", "get_session_stats", "add_note",
-            "list_research"
+            "list_research", "list_documents_by_tag",
+            "link_research", "unlink_research"
         ]))
     }
 
@@ -45,7 +46,7 @@ final class MCPProtocolHandlersTests: XCTestCase {
               case .array(let tools) = obj["tools"] else {
             return XCTFail("expected {tools: [...]}")
         }
-        XCTAssertEqual(tools.count, 10)
+        XCTAssertEqual(tools.count, 13)
         for t in tools {
             guard case .object(let o) = t else { return XCTFail("tool not object") }
             XCTAssertNotNil(o["name"])
