@@ -58,7 +58,11 @@ public enum MCPToolsListHandler {
 
             ("unlink_research",
              "Remove a research-to-document link. Idempotent (no-op if the link doesn't exist).",
-             "{\"type\":\"object\",\"properties\":{\"project_id\":{\"type\":\"string\"},\"research_id\":{\"type\":\"string\"},\"document_id\":{\"type\":\"string\"}},\"required\":[\"project_id\",\"research_id\",\"document_id\"]}")
+             "{\"type\":\"object\",\"properties\":{\"project_id\":{\"type\":\"string\"},\"research_id\":{\"type\":\"string\"},\"document_id\":{\"type\":\"string\"}},\"required\":[\"project_id\",\"research_id\",\"document_id\"]}"),
+
+            ("list_all_links",
+             "Return the full reference graph as edges: every manuscript document's linked-research and [[wiki-link]] targets. Each edge has from_id/from_title, to_id (null for unresolved wiki targets) / to_title, and kind ('linked_research' / 'wiki' / 'wiki_unresolved').",
+             "{\"type\":\"object\",\"properties\":{\"project_id\":{\"type\":\"string\"}},\"required\":[\"project_id\"]}")
         ]
 
         var tools: [AnyJSON] = []

@@ -182,7 +182,7 @@ public enum FindReferencesTool {
     }
 
     /// Resolve `target` to a canonical id: first by id match (structure or
-    /// research), then by case-insensitive title match.
+    /// research), then by case-insensitive title match, then by exact path match.
     @MainActor
     private static func resolveTargetId(_ target: String, store: ProjectStore) -> String? {
         // Exact id in manuscript structure?
@@ -201,6 +201,23 @@ public enum FindReferencesTool {
         // Case-insensitive title match in research tree?
         if let r = findResearchByTitle(title: target, in: store.manifest.research) {
             return r.id
+        }
+        // Exact path match (manuscript)?
+        if let m = flatDocs(store.manifest.structure)
+            .first(where: { $0.path == target }) {
+            return m.id
+        }
+        // Exact path match (research)?
+        if let r = findResearchByPath(path: target, in: store.manifest.research) {
+            return r.id
+        }
+        return nil
+    }
+
+    private static func findResearchByPath(path: String, in items: [ResearchItem]) -> ResearchItem? {
+        for item in items {
+            if item.path == path { return item }
+            if let kids = item.children, let n = findResearchByPath(path: path, in: kids) { return n }
         }
         return nil
     }
