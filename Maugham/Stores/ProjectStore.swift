@@ -2065,6 +2065,86 @@ extension ProjectStore {
         }
         return (prefixes.max() ?? 0) + 1
     }
+
+    /// Link an existing standalone Maugham project as a reference piece in
+    /// this Collection. Reads target's project.maugham.json for the title
+    /// seed, generates a security-scoped bookmark, writes .maugham-link.json
+    /// inside pieces/<NN>-<slug>/.
+    public func addProjectReference(targetURL: URL) async throws -> StructureItem {
+        guard manifest.type == .collection else {
+            throw ProjectStoreError.fileSystemError(
+                "addProjectReference only valid for Collection projects")
+        }
+        // Validate target is a Maugham project (has project.maugham.json)
+        let targetManifestURL = targetURL.appendingPathComponent("project.maugham.json")
+        guard FileManager.default.fileExists(atPath: targetManifestURL.path) else {
+            throw ProjectStoreError.fileSystemError(
+                "Selected folder is not a Maugham project: \(targetURL.path)")
+        }
+        let data = try Data(contentsOf: targetManifestURL)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let targetManifest = try decoder.decode(ProjectManifest.self, from: data)
+        let title = targetManifest.title
+
+        // Slug from title; dedup against existing pieces by folder slug.
+        let baseSlug = Slugifier.slug(from: title)
+        let existingSlugs: Set<String> = Set(manifest.structure.compactMap { piece -> String? in
+            guard let path = piece.path else { return nil }
+            let folderName = ((path as NSString).deletingLastPathComponent
+                as NSString).lastPathComponent
+            // Folder name shape: "<NN>-<slug>". Pull off the leading "<NN>-".
+            let parts = folderName.components(separatedBy: "-")
+            guard parts.count >= 2 else { return folderName }
+            return parts.dropFirst().joined(separator: "-")
+        })
+        var slug = baseSlug
+        var counter = 2
+        while existingSlugs.contains(slug) {
+            slug = "\(baseSlug)-\(counter)"
+            counter += 1
+        }
+
+        let nn = String(format: "%02d", nextPieceNumber())
+        let folderName = "\(nn)-\(slug)"
+        let folderURL = url.appendingPathComponent("pieces/\(folderName)")
+        try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+
+        // Create security-scoped bookmark
+        let bookmarkData = try targetURL.bookmarkData(
+            options: .withSecurityScope,
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil)
+        let bookmarkBase64 = bookmarkData.base64EncodedString()
+
+        let linkFile = CollectionLinkFile(
+            version: 1,
+            title: title,
+            path: targetURL.path,
+            bookmark: bookmarkBase64,
+            linkedAt: Date())
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let linkData = try encoder.encode(linkFile)
+        let linkURL = folderURL.appendingPathComponent(".maugham-link.json")
+        try linkData.write(to: linkURL, options: .atomic)
+
+        let relativePath = "pieces/\(folderName)/.maugham-link.json"
+        let item = StructureItem(
+            id: Self.newId(prefix: "doc"),
+            title: title,
+            type: .document,
+            path: relativePath,
+            pieceKind: .reference,
+            linkedProjectPath: targetURL.path,
+            linkedProjectBookmark: bookmarkData)
+
+        manifest.structure.append(item)
+        manifest.modified = Date()
+        try await saveManifest()
+        return item
+    }
 }
 
 // MARK: - WikiLinkProject
