@@ -28,6 +28,7 @@ struct ProjectWindow: View {
     @State private var showingSyntaxHelp: Bool = false
     @State private var researchPreviewVisible: Bool = false
     @State private var findActive: Bool = false
+    @State private var pendingPieceRenameId: String?
     @State private var detailSegment: DetailSegment = .inspector
     @State private var outlineLayout: OutlineLayout = .table
     @State private var mcpBannerTitle: String?
@@ -179,6 +180,7 @@ struct ProjectWindow: View {
             selectedResearchId: $selectedResearchId,
             binderSegment: $binderSegment,
             findActive: $findActive,
+            pendingPieceRenameId: $pendingPieceRenameId,
             showingTidyAllConfirmation: $showingTidyAllConfirmation,
             showingSyntaxHelp: $showingSyntaxHelp,
             researchPreviewVisible: $researchPreviewVisible,
@@ -211,6 +213,7 @@ struct ProjectWindow: View {
         @Binding var selectedResearchId: String?
         @Binding var binderSegment: BinderSegment
         @Binding var findActive: Bool
+        @Binding var pendingPieceRenameId: String?
         @Binding var showingTidyAllConfirmation: Bool
         @Binding var showingSyntaxHelp: Bool
         @Binding var researchPreviewVisible: Bool
@@ -335,7 +338,8 @@ struct ProjectWindow: View {
                 }
                 .modifier(CollectionPieceModifier(
                     store: store,
-                    selectedItemId: $selectedItemId))
+                    selectedItemId: $selectedItemId,
+                    pendingPieceRenameId: $pendingPieceRenameId))
                 .alert("Renumber every chapter and scene?",
                        isPresented: $showingTidyAllConfirmation
                 ) {
@@ -387,6 +391,7 @@ struct ProjectWindow: View {
     private struct CollectionPieceModifier: ViewModifier {
         let store: ProjectStore?
         @Binding var selectedItemId: String?
+        @Binding var pendingPieceRenameId: String?
 
         func body(content: Content) -> some View {
             content
@@ -396,7 +401,10 @@ struct ProjectWindow: View {
                     Task {
                         let piece = try? await store.addLoosePiece(
                             title: "Untitled Piece", mode: .prose)
-                        if let piece { selectedItemId = piece.id }
+                        if let piece {
+                            selectedItemId = piece.id
+                            pendingPieceRenameId = piece.id
+                        }
                     }
                 }
                 .onReceive(NotificationCenter.default.publisher(
@@ -405,7 +413,10 @@ struct ProjectWindow: View {
                     Task {
                         let piece = try? await store.addLoosePiece(
                             title: "Untitled Screenplay", mode: .screenplay)
-                        if let piece { selectedItemId = piece.id }
+                        if let piece {
+                            selectedItemId = piece.id
+                            pendingPieceRenameId = piece.id
+                        }
                     }
                 }
                 .onReceive(NotificationCenter.default.publisher(
@@ -475,6 +486,7 @@ struct ProjectWindow: View {
                 selectedItemId: $selectedItemId,
                 selectedResearchId: $selectedResearchId,
                 findActive: $findActive,
+                renamingItemId: $pendingPieceRenameId,
                 activePiece: activePiece(in: store),
                 onAddPiece: {
                     NotificationCenter.default.post(name: .maughamAddLoosePiece, object: nil)

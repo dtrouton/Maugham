@@ -2357,6 +2357,97 @@ extension ProjectStore {
         try await saveManifest()
         return item
     }
+
+    /// Rename a Collection piece. For loose pieces: renames the parent folder
+    /// AND the main doc inside it, and rewrites per-piece research item paths
+    /// in manifest.research. For reference pieces: renames the parent folder
+    /// only (the .maugham-link.json filename stays). Slug dedup against
+    /// existing sibling piece folders.
+    public func renamePiece(pieceId: String, newTitle: String) async throws {
+        guard manifest.type == .collection else {
+            throw ProjectStoreError.fileSystemError(
+                "renamePiece only valid for Collection projects")
+        }
+        guard let pieceIdx = manifest.structure.firstIndex(where: { $0.id == pieceId }),
+              let oldPath = manifest.structure[pieceIdx].path else {
+            throw ProjectStoreError.structureMissing
+        }
+        let piece = manifest.structure[pieceIdx]
+        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedTitle = trimmed.isEmpty ? "Untitled Piece" : trimmed
+
+        // Old folder = parent of oldPath. Folder name = "<NN>-<oldSlug>".
+        let oldFolderRel = (oldPath as NSString).deletingLastPathComponent
+        let oldFolderName = (oldFolderRel as NSString).lastPathComponent
+        let nnPrefix = String(oldFolderName.prefix(3))  // e.g., "01-"
+
+        let baseSlug = Slugifier.slug(from: resolvedTitle)
+        let piecesDirRel = (oldFolderRel as NSString).deletingLastPathComponent  // "pieces"
+        let piecesDirURL = url.appendingPathComponent(piecesDirRel)
+        let fm = FileManager.default
+        let siblingFolders = ((try? fm.contentsOfDirectory(atPath: piecesDirURL.path)) ?? [])
+            .filter { $0 != oldFolderName }
+
+        // Slug dedup against sibling folder slugs (strip NN- prefix from each)
+        let siblingSlugs: Set<String> = Set(siblingFolders.compactMap { name -> String? in
+            let parts = name.components(separatedBy: "-").dropFirst()
+            let s = parts.joined(separator: "-")
+            return s.isEmpty ? nil : s
+        })
+        var slug = baseSlug
+        var counter = 2
+        while siblingSlugs.contains(slug) {
+            slug = "\(baseSlug)-\(counter)"
+            counter += 1
+        }
+
+        let newFolderName = "\(nnPrefix)\(slug)"
+        let newFolderRel = piecesDirRel.isEmpty ? newFolderName : "\(piecesDirRel)/\(newFolderName)"
+        let oldFolderURL = url.appendingPathComponent(oldFolderRel)
+        let newFolderURL = url.appendingPathComponent(newFolderRel)
+
+        // 1. Move the parent folder.
+        if oldFolderURL.path != newFolderURL.path {
+            try fm.moveItem(at: oldFolderURL, to: newFolderURL)
+        }
+
+        // 2. For loose pieces, rename the main doc inside the new folder.
+        let newDocBaseName: String
+        if piece.pieceKind == .loose {
+            let oldDocName = (oldPath as NSString).lastPathComponent
+            let oldExt = (oldDocName as NSString).pathExtension
+            let newDocName = "\(slug).\(oldExt)"
+            if oldDocName != newDocName {
+                try fm.moveItem(
+                    at: newFolderURL.appendingPathComponent(oldDocName),
+                    to: newFolderURL.appendingPathComponent(newDocName))
+            }
+            newDocBaseName = newDocName
+        } else {
+            // References keep .maugham-link.json
+            newDocBaseName = (oldPath as NSString).lastPathComponent
+        }
+
+        let newPiecePath = "\(newFolderRel)/\(newDocBaseName)"
+
+        // 3. Rewrite per-piece research item paths in manifest.research.
+        let oldResearchPrefix = "\(oldFolderRel)/research/"
+        let newResearchPrefix = "\(newFolderRel)/research/"
+        for (i, item) in manifest.research.enumerated() {
+            if let p = item.path, p.hasPrefix(oldResearchPrefix) {
+                var copy = item
+                copy.path = newResearchPrefix + String(p.dropFirst(oldResearchPrefix.count))
+                manifest.research[i] = copy
+            }
+        }
+
+        // 4. Update manifest entry: title + path.
+        manifest.structure[pieceIdx].title = resolvedTitle
+        manifest.structure[pieceIdx].path = newPiecePath
+
+        manifest.modified = Date()
+        try await saveManifest()
+    }
 }
 
 // MARK: - WikiLinkProject

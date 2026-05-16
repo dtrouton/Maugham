@@ -9,6 +9,7 @@ struct CollectionBinderPaneToggle: View {
     @Binding var selectedItemId: String?
     @Binding var selectedResearchId: String?
     @Binding var findActive: Bool
+    @Binding var renamingItemId: String?
     let activePiece: StructureItem?
     let onAddPiece: () -> Void
     let onAddSharedNote: () -> Void
@@ -37,6 +38,7 @@ struct CollectionBinderPaneToggle: View {
                     CollectionPiecesPane(
                         store: store,
                         selectedItemId: $selectedItemId,
+                        renamingItemId: $renamingItemId,
                         onAddPiece: onAddPiece)
                 case .research:
                     CollectionResearchPane(
@@ -56,6 +58,7 @@ struct CollectionBinderPaneToggle: View {
                     CollectionPiecesPane(
                         store: store,
                         selectedItemId: $selectedItemId,
+                        renamingItemId: $renamingItemId,
                         onAddPiece: onAddPiece)
                 }
             }

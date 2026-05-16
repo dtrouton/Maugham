@@ -1,23 +1,50 @@
 import SwiftUI
 
 /// One row in the Collection's Pieces segment: kind icon, title, status dot.
+/// Supports inline rename when `renamingItemId == piece.id`.
 struct PieceRow: View {
     let piece: StructureItem
+    @Binding var renamingItemId: String?
+    let onRename: (String, String) -> Void   // (pieceId, newTitle)
+
+    @State private var draftTitle: String = ""
+    @FocusState private var isRenameFieldFocused: Bool
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: iconName)
-                .foregroundStyle(.secondary)
-                .frame(width: 18, alignment: .center)
-            Text(piece.title)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer()
-            if let status = piece.status, !status.isEmpty {
-                Circle()
-                    .fill(statusColor(status))
-                    .frame(width: 6, height: 6)
+        if renamingItemId == piece.id {
+            HStack(spacing: 8) {
+                Image(systemName: iconName)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18, alignment: .center)
+                TextField("", text: $draftTitle, onCommit: commitRename)
+                    .textFieldStyle(.plain)
+                    .focused($isRenameFieldFocused)
+                    .onAppear {
+                        draftTitle = piece.title
+                        DispatchQueue.main.async {
+                            isRenameFieldFocused = true
+                        }
+                    }
+                    .onExitCommand { renamingItemId = nil }
+                Spacer()
             }
+            .contentShape(Rectangle())
+        } else {
+            HStack(spacing: 8) {
+                Image(systemName: iconName)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18, alignment: .center)
+                Text(piece.title)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                if let status = piece.status, !status.isEmpty {
+                    Circle()
+                        .fill(statusColor(status))
+                        .frame(width: 6, height: 6)
+                }
+            }
+            .contentShape(Rectangle())
         }
     }
 
@@ -40,5 +67,13 @@ struct PieceRow: View {
         case "final":     return .green
         default:          return .secondary
         }
+    }
+
+    private func commitRename() {
+        let trimmed = draftTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty && trimmed != piece.title {
+            onRename(piece.id, trimmed)
+        }
+        renamingItemId = nil
     }
 }

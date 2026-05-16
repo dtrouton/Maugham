@@ -1,10 +1,12 @@
 import SwiftUI
 
-/// The Pieces segment of a Collection binder. Flat list with kind icons.
+/// The Pieces segment of a Collection binder. Flat list with kind icons,
+/// inline rename support, and a right-click context menu.
 struct CollectionPiecesPane: View {
     @Bindable var store: ProjectStore
     @Binding var selectedItemId: String?
-    let onAddPiece: () -> Void   // opens the new-piece menu (T15 wires this)
+    @Binding var renamingItemId: String?
+    let onAddPiece: () -> Void   // unused (Menu in header fires directly), kept for API compat
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,15 +21,32 @@ struct CollectionPiecesPane: View {
             } else {
                 List(selection: $selectedItemId) {
                     ForEach(store.manifest.structure) { piece in
-                        PieceRow(piece: piece)
+                        PieceRow(
+                            piece: piece,
+                            renamingItemId: $renamingItemId,
+                            onRename: { id, newTitle in
+                                Task {
+                                    try? await store.renamePiece(
+                                        pieceId: id, newTitle: newTitle)
+                                }
+                            })
                             .tag(piece.id as String?)
                             .contextMenu {
+                                Button("Rename") {
+                                    renamingItemId = piece.id
+                                }
                                 if piece.pieceKind == .loose {
                                     Button("Promote to Standalone Project…") {
                                         NotificationCenter.default.post(
                                             name: .maughamPromotePiece,
                                             object: nil,
                                             userInfo: ["piece_id": piece.id])
+                                    }
+                                }
+                                Divider()
+                                Button("Delete", role: .destructive) {
+                                    Task {
+                                        try? await store.deleteStructureItem(id: piece.id)
                                     }
                                 }
                             }
