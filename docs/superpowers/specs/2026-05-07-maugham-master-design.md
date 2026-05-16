@@ -1,7 +1,7 @@
 # Maugham — Master Architecture Design
 
 **Date:** 2026-05-07
-**Status:** Draft v1, awaiting author review
+**Status:** Initial design snapshot. Decisions taken since this date are recorded as ADRs in [`docs/adr/`](../../adr/) — read those alongside this document. The most consequential divergences from this snapshot are [ADR 0001](../../adr/0001-multi-file-screenplay-abandoned.md) (Phase 3d abandoned), [ADR 0002](../../adr/0002-roadmap-by-writer-intent.md) (roadmap reorganized by writer intent), and [ADR 0003](../../adr/0003-mcp-live-only-unix-socket.md) (MCP transport).
 **Scope:** Master architecture spec. Each phase below will get its own brainstorm → spec → plan → implementation cycle anchored on this document.
 
 ---
@@ -564,133 +564,11 @@ Phase 6 deliverables:
 - Scene navigator generated from sluglines
 - Page count estimation
 - Title page support
-- ~~Multi-file screenplay projects (one file per scene optionally)~~ **Abandoned (2026-05-10)** — see `docs/superpowers/specs/2026-05-10-maugham-phase-3d-design.md` for the design and `docs/superpowers/plans/2026-05-10-maugham-phase-3d.md` for what was attempted. Reading the script as one continuous stream is the writer's primary value, and that's what single-file already provides natively. Multi-file would have required subclassing NSTextStorage to fake a compound view over many files, fighting NSTextView's layout/undo/selection caches. Scene-as-document was rejected because it costs the continuous-stream reading flow. **Phase 3 ships at 3c** as the durable single-file screenplay surface.
+- Multi-file screenplay projects (one file per scene optionally) — see [ADR 0001](../../adr/0001-multi-file-screenplay-abandoned.md)
 
-### Reorganized by intent (2026-05-10)
+### Roadmap reorganization
 
-Phases 1-3 shipped as phase-numbered milestones (kept above as historical record). From here forward the roadmap is grouped by **writer intent** rather than a strict phase sequence: drafting (Group 1), AI assist (Group 2), publishing (Group 3), and the reliability foundation underneath all of it (Group 4). Groups are independent — pick what to work on based on day-to-day friction, not a linear order.
-
-Within each group, items are listed roughly small-first. Each group's "next up" is the suggested first concrete milestone.
-
----
-
-### Group 1 — Editing flow polish
-
-Daily-writing improvements. Reduces friction in the surface you spend hours in.
-
-**Next up — Research polish:**
-- Plain-text file creation directly in the Research browser (text → `.md` via context menu / `+` button)
-- Inline images in notes (paste image → stored alongside note, displayed inline) — primarily for character outlining and world-building
-- Trash & undo for binder operations — accidentally deleted Chapter 7 recoverable from a `.trash/` folder, with automatic sweep after 30 days
-
-**Phase 4a — Screenplay Intelligence (IDE-like editing):**
-- Inline character autocomplete — NSTextView-driven inline ghost-text with Tab-to-accept (carry-forward from 3b where NSPopover proved too brittle)
-- Slugline reuse — suggest previously-used `INT. KITCHEN — DAY` when typing a new heading; avoids drift across drafts
-- Fountain prefix completion — `I` at line start offers `INT.` / `I/E.` / `INT/EXT.`; `E` offers `EXT.` / `EST.`; transitions get `FADE OUT:` / `CUT TO:` etc.
-- Outline minimap (optional) — slim secondary sidebar with section/scene structure
-
-**Prose-mode parallel:**
-- Inline character/place autocomplete in prose mode — uses parsed `[[Wiki Links]]` from 2c plus proper-noun frequency
-
-**Research ↔ manuscript linking:**
-- Inspector shows linked research for current document
-- Drag-drop images from web/Finder into research, manifest auto-populates
-- Research-to-manuscript tagging / cross-references
-
-**Cross-document features:**
-- Cross-document Find/Replace — global search across all manuscript items
-- Keyboard shortcut cheatsheet — `⌘?`-style help surface for all Maugham shortcuts, not just Fountain syntax
-
-**Structure views:**
-- Corkboard view — index-card synopses for binder items
-- Outliner view — synopses + status + word counts in a table
-
-**Screenplay editing depth:**
-- Dual dialogue (`^` for side-by-side speakers)
-
-**Visual reference:**
-- Mood board — a board surface for arranging images, swatches, and notes when thinking through a project's visual identity (colour palettes, character looks, locations). Project-level (not per-document). Needs brainstorming on scope: dedicated binder pane vs. new project type vs. extension of the Research browser.
-
----
-
-### Group 2 — Claude integration
-
-AI assist for drafting, transcription, and project understanding.
-
-**Foundation milestone — MCP server:**
-- `maugham-mcp` bundled binary
-- "Configure Claude Desktop" menu item
-- MCP tools: `list_projects`, `get_outline`, `read_document`, `search_text`, `list_scenes`, `find_references`, `get_metadata`, `get_session_stats`
-- Optional `add_note(scene_id)` so Claude can drop notes into `notes/` (read-only on manuscript)
-- Documentation for prompt patterns
-
-**MCP-dependent workflows (sequenced after the foundation):**
-- **Handwritten note import** — drag photos of handwritten pages in, Claude transcribes to `.md` using phone-camera filenames as ordering hints, page-by-page accept/edit/reject UI, automatic placement into manuscript or research. Possible today as a Claude desktop workflow; the milestone work is the dedicated import pane.
-- **Project-level Claude prompt templates** — curated prompts like "Brainstorm character motivations for this scene" / "Find continuity errors in Chapter 3", pre-wired to MCP read-tools so Claude is grounded
-- **Read-only Claude Code companion view** — sidebar in Maugham showing Claude responses without leaving the writing context
-- **Voice notes / Whisper transcription** — drop audio in, Claude transcribes to draft `.md` files (placed in `research/voice-notes/` for review before manuscript placement)
-
----
-
-### Group 3 — Publishing flow
-
-Delivery, sharing, and mixed-media compilation.
-
-**Needs design first:**
-- **Mixed-content collection** — a single project containing both prose stories AND screenplays. Touches manifest schema (per-item writing mode), binder (mixed icons/affordances per item), and compile (mixed typography in one output). The existing `ProjectType.collection` is a 1d placeholder; this milestone makes it functional. Brainstorm before scoping.
-
-**Compile (cross-type):**
-- Compile UI — assemble manuscript into Word / EPUB / PDF / plain text
-- Markdown manuscript export for novels — Shunn standard (Times New Roman 12pt, double-spaced, 1" margins) for short-fiction submissions
-- EPUB cover image handling
-
-**Screenplay-specific production polish:**
-- FDX export and import (Final Draft binary format)
-- Scene numbers (`INT. KITCHEN - DAY #5#`)
-- MORE / CONT'D markers across page breaks
-- Revisions — color-coded change marks per draft
-
-**Submission workflow (speculative — confirm interest before scoping):**
-- Submission tracker — "this story is at Magazine X (sent 2026-04-12, awaiting response)"; per-item state machine, deadlines, reminders
-
----
-
-### Group 4 — Foundations & safety
-
-Reliability the writer doesn't think about until it bites. Not glamorous, but each item builds Maugham's "trust me with your novel" credibility.
-
-**Day-to-day reliability:**
-- Snapshots — versioned manuscript saves with labels ("before-rewrite", "agent submission")
-- Backup & recovery story — iCloud version-history surfacing, Time Machine compatibility note, cross-session undo
-- (Trash & undo for binder operations is in Group 1's "next up" — listed there because it's the lowest-effort, highest-trust win and pairs with the research polish milestone)
-
-**Future-proofing:**
-- Manifest schema versioning — `project.maugham.json` is at `schemaVersion: 1`. Define migration story before it evolves (e.g., when 4a adds pageTarget per-item)
-- Performance pass — long-haul project simulation (100k words, 30 chapters): editor responsiveness, Project Statistics, cross-document operations stay O(scale)-aware
-
-**Distribution & onboarding:**
-- App icon, version stamping, code-signing, notarization, auto-update — without this, Maugham is "the thing that runs in Xcode"
-- Welcome experience for new writers / future-you on a new Mac — clearer New Project sheet, better empty states, walkthrough
-- Project templates — Three-Act Novel, Hero's Journey, Short Story, etc.; pairs with distribution since templates are onboarding-flavored
-
----
-
-### Deferred surfaces (not on the roadmap)
-
-Considered and explicitly de-prioritized. Each gets a fresh brainstorm if/when prioritized.
-
-- **iPad companion** — read-only first, then drafting. Separate engineering bet on a different surface; not a feature of the desktop Mac app.
-- **Shared folder collaboration** — writing-partner / editor edits the same project. Needs locking + multi-author conflict UI beyond what 1e provides.
-- **Goal-tracking calendar widget** — macOS widget extension; separate target from the app proper.
-
----
-
-### Sequencing notes
-
-- **Group 1's "Research polish" is the recommended next milestone** — three tight items, low engineering risk, daily-writing impact.
-- **Group 2 (MCP)** depends on the project structure being mature enough to be worth exposing — which it is now. Could start any time after Group 1's first milestone.
-- **Group 3 (Compile)** is the natural "I want to send this to my agent" feature, but premature if you're still drafting; pick it up when you have something to ship.
-- **Group 4 (Foundations)** items are pickable any time; distribution becomes urgent only when you want Maugham off your dev Mac.
+The phase-numbered linear plan was reorganized by writer intent into Groups 1–4. See [ADR 0002](../../adr/0002-roadmap-by-writer-intent.md) for the rationale, and **[`docs/roadmap.md`](../../roadmap.md) for the current live roadmap** with shipped items marked. The Phase 4–6 sketches that originally lived here have been superseded by that roadmap.
 
 ---
 
