@@ -398,3 +398,42 @@ extension ReferenceToolsTests {
             "scene ids must be unique across documents, got: \(scenes.map(\.id))")
     }
 }
+
+extension ReferenceToolsTests {
+    /// When the underlying document id already starts with "scene-",
+    /// the composite scene id shouldn't double the prefix.
+    func test_listScenes_compositeId_doesNotDoublePrefix() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LSDP-\(UUID())")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("manuscript"), withIntermediateDirectories: true)
+        try "INT. KITCHEN - DAY\n\nBeat.\n".write(
+            to: tmp.appendingPathComponent("manuscript/s1.fountain"),
+            atomically: true, encoding: .utf8)
+        // Document id deliberately uses the "scene-" prefix.
+        let s = StructureItem(id: "scene-f8c9644e", title: "Scene 1", type: .document,
+                               path: "manuscript/s1.fountain")
+        let manifest = ProjectManifest(
+            type: .screenplay, title: "T", author: "A",
+            created: Date(), modified: Date(),
+            structure: [s], research: [])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(
+            to: tmp.appendingPathComponent("project.maugham.json"))
+        let store = try await ProjectStore.load(from: tmp)
+        let reg = ProjectRegistry()
+        reg.register(url: tmp, store: store)
+
+        let id = ProjectIdentifier.id(for: tmp)
+        let req = "{\"project_id\":\"\(id)\"}"
+        let json = try await ListScenesTool.handle(
+            paramsJSON: Data(req.utf8), registry: reg)
+        let scenes = try JSONDecoder().decode(
+            [ListScenesTool.Scene].self, from: json)
+        XCTAssertEqual(scenes.count, 1)
+        XCTAssertFalse(scenes[0].id.hasPrefix("scene-scene-"),
+            "composite id must not double-prefix; got: \(scenes[0].id)")
+    }
+}

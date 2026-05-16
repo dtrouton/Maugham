@@ -64,8 +64,13 @@ public enum ListScenesTool {
         for (idx, h) in headings.enumerated() {
             let end = (idx + 1 < headings.count) ? headings[idx + 1].pageStart : scriptEnd
             let length = max(0, end - h.pageStart)
+            // Strip redundant "scene-" prefix from document id when building the
+            // composite scene id (old projects may have stored ids like "scene-f8c9644e").
+            let normalizedDocId = h.documentId.hasPrefix("scene-")
+                ? String(h.documentId.dropFirst("scene-".count))
+                : h.documentId
             scenes.append(Scene(
-                id: "scene-\(h.documentId)-\(h.line.range.location)",
+                id: "scene-\(normalizedDocId)-\(h.line.range.location)",
                 heading: h.line.content,
                 page_start: h.pageStart,
                 page_length: length,

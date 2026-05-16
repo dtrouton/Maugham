@@ -74,3 +74,114 @@ final class DocumentToolsTests: XCTestCase {
         }
     }
 }
+
+extension DocumentToolsTests {
+    /// Every node in the outline response must contain the keys
+    /// `synopsis`, `status`, `word_count`, `word_target`, and `modified`
+    /// (with null when the value is nil) — not omitted. This keeps the
+    /// JSON shape uniform across documents regardless of which optional
+    /// fields are populated.
+    func test_getOutline_documentNodes_alwaysIncludeOptionalKeys() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GOK-\(UUID())")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("manuscript"), withIntermediateDirectories: true)
+        try "a".write(to: tmp.appendingPathComponent("manuscript/c1.md"),
+                       atomically: true, encoding: .utf8)
+        try "b".write(to: tmp.appendingPathComponent("manuscript/c2.md"),
+                       atomically: true, encoding: .utf8)
+        // ch-1 has all metadata; ch-2 has none — both should report all keys.
+        let ch1 = StructureItem(id: "ch-1", title: "Ch 1", type: .document,
+                                 path: "manuscript/c1.md",
+                                 synopsis: "S", status: "draft", wordTarget: 500)
+        let ch2 = StructureItem(id: "ch-2", title: "b", type: .document,
+                                 path: "manuscript/c2.md")
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A",
+            created: Date(), modified: Date(),
+            structure: [ch1, ch2], research: [])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(
+            to: tmp.appendingPathComponent("project.maugham.json"))
+        let store = try await ProjectStore.load(from: tmp)
+        let reg = ProjectRegistry()
+        reg.register(url: tmp, store: store)
+
+        let id = ProjectIdentifier.id(for: tmp)
+        let req = "{\"project_id\":\"\(id)\"}"
+        let json = try await GetOutlineTool.handle(
+            paramsJSON: Data(req.utf8), registry: reg)
+        // Parse as raw JSON so we can confirm key *presence* (not just decoded
+        // values — those'd swallow the omitted-vs-null distinction).
+        guard let any = try? JSONSerialization.jsonObject(with: json) as? [String: Any],
+              let nodes = any["nodes"] as? [[String: Any]] else {
+            return XCTFail("expected {nodes: [...]}")
+        }
+        XCTAssertEqual(nodes.count, 2)
+        for node in nodes {
+            let title = (node["title"] as? String) ?? "?"
+            for key in ["synopsis", "status", "word_count", "word_target", "modified"] {
+                XCTAssertNotNil(node[key],
+                    "node \"\(title)\" missing key \(key); got: \(node.keys.sorted())")
+            }
+        }
+    }
+
+    /// Groups should expose a modified timestamp derived from the max of
+    /// descendant document mtimes. Empty groups can stay nil.
+    func test_getOutline_groupModified_isMaxOfDescendantDocs() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GOM-\(UUID())")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("manuscript/act-one"),
+            withIntermediateDirectories: true)
+        let c1Path = tmp.appendingPathComponent("manuscript/act-one/c1.md")
+        let c2Path = tmp.appendingPathComponent("manuscript/act-one/c2.md")
+        try "a".write(to: c1Path, atomically: true, encoding: .utf8)
+        try "b".write(to: c2Path, atomically: true, encoding: .utf8)
+        // Force c2 to be more recent than c1 by a measurable delta.
+        let recent = Date()
+        let older = recent.addingTimeInterval(-3600)
+        try FileManager.default.setAttributes(
+            [.modificationDate: older], ofItemAtPath: c1Path.path)
+        try FileManager.default.setAttributes(
+            [.modificationDate: recent], ofItemAtPath: c2Path.path)
+
+        let c1 = StructureItem(id: "ch-1", title: "Ch 1", type: .document,
+                                path: "manuscript/act-one/c1.md")
+        let c2 = StructureItem(id: "ch-2", title: "Ch 2", type: .document,
+                                path: "manuscript/act-one/c2.md")
+        let act1 = StructureItem(id: "grp-act1", title: "Act One", type: .group,
+                                  path: nil, children: [c1, c2])
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A",
+            created: Date(), modified: Date(),
+            structure: [act1], research: [])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(
+            to: tmp.appendingPathComponent("project.maugham.json"))
+        let store = try await ProjectStore.load(from: tmp)
+        let reg = ProjectRegistry()
+        reg.register(url: tmp, store: store)
+
+        let id = ProjectIdentifier.id(for: tmp)
+        let req = "{\"project_id\":\"\(id)\"}"
+        let json = try await GetOutlineTool.handle(
+            paramsJSON: Data(req.utf8), registry: reg)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let outline = try decoder.decode(
+            GetOutlineTool.Outline.self, from: json)
+        XCTAssertEqual(outline.nodes.count, 1)
+        let group = outline.nodes[0]
+        XCTAssertEqual(group.type, "group")
+        let groupModified = try XCTUnwrap(group.modified,
+            "group should expose modified derived from descendant docs")
+        // Within ~5s of the most-recent child (`recent`)
+        XCTAssertEqual(groupModified.timeIntervalSince(recent), 0, accuracy: 5)
+    }
+}

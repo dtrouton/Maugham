@@ -110,8 +110,46 @@ public enum GetOutlineTool {
         public let synopsis: String?
         public let word_count: Int?
         public let word_target: Int?
-        public let modified: Date?  // filesystem mtime for document nodes
+        public let modified: Date?  // filesystem mtime for document nodes; max descendant mtime for groups
         public let children: [Node]?
+
+        enum CodingKeys: String, CodingKey {
+            case id, title, type, status, synopsis, word_count, word_target, modified, children
+        }
+
+        public init(id: String, title: String, type: String,
+                    status: String?, synopsis: String?,
+                    word_count: Int?, word_target: Int?,
+                    modified: Date?, children: [Node]?) {
+            self.id = id
+            self.title = title
+            self.type = type
+            self.status = status
+            self.synopsis = synopsis
+            self.word_count = word_count
+            self.word_target = word_target
+            self.modified = modified
+            self.children = children
+        }
+
+        // Default-synthesized decoder is fine (Optionals decode as nil when absent).
+
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(id, forKey: .id)
+            try c.encode(title, forKey: .title)
+            try c.encode(type, forKey: .type)
+            // Optionals encoded explicitly so nil emits as JSON null rather
+            // than omitting the key (uniform schema across nodes).
+            try c.encode(status, forKey: .status)
+            try c.encode(synopsis, forKey: .synopsis)
+            try c.encode(word_count, forKey: .word_count)
+            try c.encode(word_target, forKey: .word_target)
+            try c.encode(modified, forKey: .modified)
+            // children: only emit when present; a missing key naturally signals
+            // "leaf document, no children".
+            try c.encodeIfPresent(children, forKey: .children)
+        }
     }
     public static let method = "get_outline"
 
@@ -134,16 +172,20 @@ public enum GetOutlineTool {
     @MainActor
     private static func toNodes(_ items: [StructureItem], store: ProjectStore) -> [Node] {
         items.map { item in
+            let isDoc = (item.type == .document)
             let childNodes = item.children.map { toNodes($0, store: store) }
+            let modified: Date? = isDoc
+                ? Self.modifiedDate(for: item, store: store)
+                : Self.maxDescendantModified(in: item.children ?? [], store: store)
             return Node(
                 id: item.id,
                 title: item.title,
-                type: item.type == .document ? "document" : "group",
+                type: isDoc ? "document" : "group",
                 status: item.status,
                 synopsis: item.synopsis,
-                word_count: item.type == .document ? store.cachedWordCount(for: item.id) : nil,
+                word_count: isDoc ? store.cachedWordCount(for: item.id) : nil,
                 word_target: item.wordTarget,
-                modified: item.type == .document ? Self.modifiedDate(for: item, store: store) : nil,
+                modified: modified,
                 children: childNodes)
         }
     }
@@ -153,5 +195,23 @@ public enum GetOutlineTool {
         let url = store.url.appendingPathComponent(path)
         let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
         return attrs?[.modificationDate] as? Date
+    }
+
+    /// Max document mtime among all descendants. Returns nil if there are no
+    /// document descendants (empty group).
+    private static func maxDescendantModified(
+        in items: [StructureItem], store: ProjectStore
+    ) -> Date? {
+        var best: Date? = nil
+        for item in items {
+            if item.type == .document, let d = modifiedDate(for: item, store: store) {
+                if let b = best { best = max(b, d) } else { best = d }
+            }
+            if let kids = item.children,
+               let nested = maxDescendantModified(in: kids, store: store) {
+                best = best.map { max($0, nested) } ?? nested
+            }
+        }
+        return best
     }
 }
