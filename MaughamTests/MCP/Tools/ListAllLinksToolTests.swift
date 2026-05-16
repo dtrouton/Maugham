@@ -110,4 +110,46 @@ final class ListAllLinksToolTests: XCTestCase {
             $0.kind == "wiki_unresolved"
         }, "expected unresolved wiki edge for [[Nonexistent]], got: \(edges)")
     }
+
+    /// Smoke caught a chapter linked to a research GROUP returning the group's
+    /// id as to_title (group titles weren't indexed). Resolve via group title.
+    func test_listAllLinks_linkToResearchGroup_resolvesGroupTitle() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LALG-\(UUID())")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("manuscript"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("research"), withIntermediateDirectories: true)
+        try "x".write(to: tmp.appendingPathComponent("manuscript/c1.md"),
+                       atomically: true, encoding: .utf8)
+        let ch1 = StructureItem(id: "ch-1", title: "Ch 1", type: .document,
+                                 path: "manuscript/c1.md")
+        let location = ResearchItem(id: "res-grp-loc", title: "Location",
+                                     type: .group, kind: nil,
+                                     path: nil, addedAt: Date(),
+                                     children: nil)
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A",
+            created: Date(), modified: Date(),
+            structure: [ch1], research: [location])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(
+            to: tmp.appendingPathComponent("project.maugham.json"))
+        let store = try await ProjectStore.load(from: tmp)
+        try await store.linkResearch(researchId: "res-grp-loc", toDocumentId: "ch-1")
+        let reg = ProjectRegistry()
+        reg.register(url: tmp, store: store)
+        let id = ProjectIdentifier.id(for: tmp)
+        let req = "{\"project_id\":\"\(id)\"}"
+        let json = try await ListAllLinksTool.handle(
+            paramsJSON: Data(req.utf8), registry: reg)
+        let edges = try JSONDecoder().decode(
+            [ListAllLinksTool.Edge].self, from: json)
+        let groupEdge = try XCTUnwrap(edges.first { $0.to_id == "res-grp-loc" })
+        XCTAssertEqual(groupEdge.to_title, "Location",
+            "group link should resolve to group title, not raw id")
+        XCTAssertEqual(groupEdge.kind, "linked_research")
+    }
 }

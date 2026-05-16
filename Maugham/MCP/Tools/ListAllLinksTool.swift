@@ -34,7 +34,9 @@ public enum ListAllLinksTool {
         // research assets compete on title; if both exist with the same title
         // the document wins (caller should be using unique titles).
         var titleIndex: [String: (id: String, title: String)] = [:]
-        for r in Self.flatResearchAssets(store.manifest.research) {
+        // Index every research item (groups + assets) so linked groups
+        // resolve their title instead of falling back to the raw id.
+        for r in Self.flatResearch(store.manifest.research) {
             titleIndex[r.title.lowercased()] = (r.id, r.title)
         }
         for d in docs {
@@ -42,7 +44,7 @@ public enum ListAllLinksTool {
         }
         let researchById: [String: ResearchItem] =
             Dictionary(uniqueKeysWithValues:
-                Self.flatResearchAssets(store.manifest.research).map { ($0.id, $0) })
+                Self.flatResearch(store.manifest.research).map { ($0.id, $0) })
 
         var edges: [Edge] = []
 
@@ -94,11 +96,13 @@ public enum ListAllLinksTool {
         return out
     }
 
-    private static func flatResearchAssets(_ items: [ResearchItem]) -> [ResearchItem] {
+    /// All research items (groups + assets), recursively flattened. We index
+    /// groups too so chapter→group links resolve their title.
+    private static func flatResearch(_ items: [ResearchItem]) -> [ResearchItem] {
         var out: [ResearchItem] = []
         for item in items {
-            if item.type == .asset { out.append(item) }
-            if let kids = item.children { out.append(contentsOf: flatResearchAssets(kids)) }
+            out.append(item)
+            if let kids = item.children { out.append(contentsOf: flatResearch(kids)) }
         }
         return out
     }
