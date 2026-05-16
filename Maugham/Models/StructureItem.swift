@@ -14,6 +14,10 @@ public struct StructureItem: Codable, Equatable, Identifiable, Sendable {
     public var synopsis: String?
     public var status: String?
     public var wordTarget: Int?
+    public var pageTarget: Int?
+    public var pieceKind: PieceKind?
+    public var linkedProjectPath: String?
+    public var linkedProjectBookmark: Data?
     public var tags: [String]?
     public var links: [String]?
     public var children: [StructureItem]?
@@ -27,6 +31,10 @@ public struct StructureItem: Codable, Equatable, Identifiable, Sendable {
         synopsis: String? = nil,
         status: String? = nil,
         wordTarget: Int? = nil,
+        pageTarget: Int? = nil,
+        pieceKind: PieceKind? = nil,
+        linkedProjectPath: String? = nil,
+        linkedProjectBookmark: Data? = nil,
         tags: [String]? = nil,
         links: [String]? = nil,
         children: [StructureItem]? = nil,
@@ -39,6 +47,10 @@ public struct StructureItem: Codable, Equatable, Identifiable, Sendable {
         self.synopsis = synopsis
         self.status = status
         self.wordTarget = wordTarget
+        self.pageTarget = pageTarget
+        self.pieceKind = pieceKind
+        self.linkedProjectPath = linkedProjectPath
+        self.linkedProjectBookmark = linkedProjectBookmark
         self.tags = tags
         self.links = links
         self.children = children
