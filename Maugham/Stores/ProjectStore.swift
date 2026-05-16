@@ -1973,6 +1973,100 @@ private extension StructureItemKind {
     }
 }
 
+// MARK: - Collection Pieces
+
+/// Mode for a loose Collection piece: prose (.md) or screenplay (.fountain).
+public enum PieceMode {
+    case prose
+    case screenplay
+
+    var fileExtension: String {
+        switch self {
+        case .prose: return "md"
+        case .screenplay: return "fountain"
+        }
+    }
+}
+
+extension ProjectStore {
+
+    /// Add a loose piece to a Collection. Creates `pieces/<NN>-<slug>/`
+    /// containing `<slug>.<ext>` (the main doc) plus an empty `research/`
+    /// subfolder. Returns the manifest StructureItem for the new piece.
+    public func addLoosePiece(
+        title: String, mode: PieceMode
+    ) async throws -> StructureItem {
+        guard manifest.type == .collection else {
+            throw ProjectStoreError.fileSystemError(
+                "addLoosePiece only valid for Collection projects")
+        }
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let baseTitle = trimmed.isEmpty ? "Untitled Piece" : trimmed
+        let baseSlug = Slugifier.slug(from: baseTitle)
+
+        // Slug dedup against existing piece doc basenames
+        let existingSlugs: Set<String> = Set(manifest.structure.compactMap { piece -> String? in
+            guard let path = piece.path else { return nil }
+            // path for a loose piece is "pieces/<NN>-<slug>/<docSlug>.<ext>";
+            // pull the doc slug from the basename without extension.
+            let basename = (path as NSString).lastPathComponent
+            return basename
+                .replacingOccurrences(of: ".md", with: "")
+                .replacingOccurrences(of: ".fountain", with: "")
+        })
+        var slug = baseSlug
+        var resolvedTitle = baseTitle
+        var counter = 2
+        while existingSlugs.contains(slug) {
+            slug = "\(baseSlug)-\(counter)"
+            resolvedTitle = "\(baseTitle) \(counter)"
+            counter += 1
+        }
+
+        // Folder NN prefix — next-available among existing piece folder names.
+        let nn = String(format: "%02d", nextPieceNumber())
+        let folderName = "\(nn)-\(slug)"
+        let docName = "\(slug).\(mode.fileExtension)"
+
+        let piecesURL = url.appendingPathComponent("pieces")
+        let folderURL = piecesURL.appendingPathComponent(folderName)
+        let researchURL = folderURL.appendingPathComponent("research")
+        let docURL = folderURL.appendingPathComponent(docName)
+
+        try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: researchURL, withIntermediateDirectories: true)
+        try Data().write(to: docURL)  // empty file
+
+        let relativePath = "pieces/\(folderName)/\(docName)"
+        let id = Self.newId(prefix: "doc")
+        let item = StructureItem(
+            id: id,
+            title: resolvedTitle,
+            type: .document,
+            path: relativePath,
+            pieceKind: .loose)
+
+        manifest.structure.append(item)
+        manifest.modified = Date()
+        try await saveManifest()
+        return item
+    }
+
+    private func nextPieceNumber() -> Int {
+        let prefixes: [Int] = manifest.structure.compactMap { piece -> Int? in
+            guard let path = piece.path else { return nil }
+            // Path for a piece: "pieces/<NN>-<slug>/<file>"; folder is the parent
+            // dir of the doc. Pull "<NN>" off the folder name.
+            let folderName = ((path as NSString).deletingLastPathComponent
+                as NSString).lastPathComponent
+            let parts = folderName.components(separatedBy: "-")
+            guard let first = parts.first, let n = Int(first) else { return nil }
+            return n
+        }
+        return (prefixes.max() ?? 0) + 1
+    }
+}
+
 // MARK: - WikiLinkProject
 
 extension ProjectStore: WikiLinkProject {
