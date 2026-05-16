@@ -246,3 +246,110 @@ extension ReferenceToolsTests {
             "short scene should not exceed 1 page")
     }
 }
+
+extension ReferenceToolsTests {
+    /// Multi-document screenplay: page_start values must be monotonically
+    /// increasing across documents (script-relative), not document-relative
+    /// where each doc restarts at 0.
+    func test_listScenes_pagesAreScriptRelative() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LSP-\(UUID())")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("manuscript"), withIntermediateDirectories: true)
+        // Each doc has one scene heading. Bodies are intentionally non-empty
+        // so doc 1 has measurable length and doc 2's scene appears past 0.
+        try "INT. KITCHEN - DAY\n\nSarah pours coffee. She stares out the window. The morning light is harsh.\n".write(
+            to: tmp.appendingPathComponent("manuscript/s1.fountain"),
+            atomically: true, encoding: .utf8)
+        try "EXT. PARK - NIGHT\n\nJames waits on a bench. The fog rolls in. He checks his watch.\n".write(
+            to: tmp.appendingPathComponent("manuscript/s2.fountain"),
+            atomically: true, encoding: .utf8)
+        try "INT. CAR - DAY\n\nDriving in silence. The radio plays softly.\n".write(
+            to: tmp.appendingPathComponent("manuscript/s3.fountain"),
+            atomically: true, encoding: .utf8)
+        let s1 = StructureItem(id: "doc-1", title: "Scene 1", type: .document,
+                                path: "manuscript/s1.fountain")
+        let s2 = StructureItem(id: "doc-2", title: "Scene 2", type: .document,
+                                path: "manuscript/s2.fountain")
+        let s3 = StructureItem(id: "doc-3", title: "Scene 3", type: .document,
+                                path: "manuscript/s3.fountain")
+        let manifest = ProjectManifest(
+            type: .screenplay, title: "T", author: "A",
+            created: Date(), modified: Date(),
+            structure: [s1, s2, s3], research: [])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(
+            to: tmp.appendingPathComponent("project.maugham.json"))
+        let store = try await ProjectStore.load(from: tmp)
+        let reg = ProjectRegistry()
+        reg.register(url: tmp, store: store)
+
+        let id = ProjectIdentifier.id(for: tmp)
+        let req = "{\"project_id\":\"\(id)\"}"
+        let json = try await ListScenesTool.handle(
+            paramsJSON: Data(req.utf8), registry: reg)
+        let scenes = try JSONDecoder().decode(
+            [ListScenesTool.Scene].self, from: json)
+        XCTAssertEqual(scenes.count, 3)
+        // Document order should match manifest order
+        XCTAssertEqual(scenes[0].document_id, "doc-1")
+        XCTAssertEqual(scenes[1].document_id, "doc-2")
+        XCTAssertEqual(scenes[2].document_id, "doc-3")
+        // First scene starts at the very top of the script
+        XCTAssertEqual(scenes[0].page_start, 0.0, accuracy: 0.0001)
+        // Subsequent scenes must start strictly after the previous one.
+        XCTAssertGreaterThan(scenes[1].page_start, scenes[0].page_start,
+            "scene 2 must start past scene 1's start (script-relative)")
+        XCTAssertGreaterThan(scenes[2].page_start, scenes[1].page_start,
+            "scene 3 must start past scene 2's start (script-relative)")
+        // page_length is the delta to the next scene; all lengths positive
+        for s in scenes {
+            XCTAssertGreaterThan(s.page_length, 0.0,
+                "every scene should have positive length")
+        }
+    }
+
+    /// First scene in each of multiple documents currently collides on
+    /// id="scene-0". Compound the doc id into the scene id so it's actually
+    /// unique across the script.
+    func test_listScenes_idsAreUniqueAcrossDocs() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LSU-\(UUID())")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("manuscript"), withIntermediateDirectories: true)
+        try "INT. KITCHEN - DAY\n\nBeat.\n".write(
+            to: tmp.appendingPathComponent("manuscript/s1.fountain"),
+            atomically: true, encoding: .utf8)
+        try "EXT. PARK - NIGHT\n\nBeat.\n".write(
+            to: tmp.appendingPathComponent("manuscript/s2.fountain"),
+            atomically: true, encoding: .utf8)
+        let s1 = StructureItem(id: "doc-A", title: "A", type: .document,
+                                path: "manuscript/s1.fountain")
+        let s2 = StructureItem(id: "doc-B", title: "B", type: .document,
+                                path: "manuscript/s2.fountain")
+        let manifest = ProjectManifest(
+            type: .screenplay, title: "T", author: "A",
+            created: Date(), modified: Date(),
+            structure: [s1, s2], research: [])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(
+            to: tmp.appendingPathComponent("project.maugham.json"))
+        let store = try await ProjectStore.load(from: tmp)
+        let reg = ProjectRegistry()
+        reg.register(url: tmp, store: store)
+
+        let id = ProjectIdentifier.id(for: tmp)
+        let req = "{\"project_id\":\"\(id)\"}"
+        let json = try await ListScenesTool.handle(
+            paramsJSON: Data(req.utf8), registry: reg)
+        let scenes = try JSONDecoder().decode(
+            [ListScenesTool.Scene].self, from: json)
+        XCTAssertEqual(scenes.count, 2)
+        XCTAssertNotEqual(scenes[0].id, scenes[1].id,
+            "scene ids must be unique across documents, got: \(scenes.map(\.id))")
+    }
+}

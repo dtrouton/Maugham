@@ -26,10 +26,20 @@ public enum ListScenesTool {
             return try JSONEncoder().encode([Scene]())
         }
 
-        var scenes: [Scene] = []
+        // Walk all .document items in manifest order, maintaining a script-global
+        // line counter so page_start positions are cumulative across documents.
+        // Compound (documentId, lineLocation) into each scene's id so the id is
+        // actually unique across the script.
+        struct Heading {
+            let documentId: String
+            let line: FountainLine
+            let pageStart: Double
+        }
+        let linesPerPage = 55.0
+        var headings: [Heading] = []
+        var cumulativeLines = 0
         for item in Self.allDocuments(in: store.manifest.structure) {
             guard let path = item.path else { continue }
-            // Live in-memory text if open, else disk.
             let text: String
             if let ds = store.documentStore, ds.openDocumentPath == path {
                 text = ds.currentDocumentText
@@ -38,7 +48,28 @@ public enum ListScenesTool {
                 text = (try? String(contentsOf: abs, encoding: .utf8)) ?? ""
             }
             let script = FountainTokenizer().parse(text)
-            scenes.append(contentsOf: Self.scenesIn(script: script, documentId: item.id))
+            for line in script.lines {
+                if line.element == .sceneHeading {
+                    headings.append(Heading(
+                        documentId: item.id,
+                        line: line,
+                        pageStart: Double(cumulativeLines) / linesPerPage))
+                }
+                cumulativeLines += Self.lineCount(for: line)
+            }
+        }
+        let scriptEnd = Double(cumulativeLines) / linesPerPage
+
+        var scenes: [Scene] = []
+        for (idx, h) in headings.enumerated() {
+            let end = (idx + 1 < headings.count) ? headings[idx + 1].pageStart : scriptEnd
+            let length = max(0, end - h.pageStart)
+            scenes.append(Scene(
+                id: "scene-\(h.documentId)-\(h.line.range.location)",
+                heading: h.line.content,
+                page_start: h.pageStart,
+                page_length: length,
+                document_id: h.documentId))
         }
         return try JSONEncoder().encode(scenes)
     }
@@ -51,44 +82,6 @@ public enum ListScenesTool {
             if let kids = item.children { out.append(contentsOf: allDocuments(in: kids)) }
         }
         return out
-    }
-
-    /// Given a parsed script, emit Scene entries with fractional page positions.
-    /// page_start is `linesBeforeScene / linesPerPage` (so the first scene starts
-    /// at 0.0, not 1.0). page_length is the next scene's start minus this one's
-    /// (or end-of-script minus this one for the last).
-    private static func scenesIn(
-        script: FountainScript, documentId: String
-    ) -> [Scene] {
-        let linesPerPage = 55.0
-        struct Heading {
-            let line: FountainLine
-            let pageStart: Double
-        }
-        var headings: [Heading] = []
-        var totalLines = 0
-        for line in script.lines {
-            if line.element == .sceneHeading {
-                headings.append(Heading(
-                    line: line,
-                    pageStart: Double(totalLines) / linesPerPage))
-            }
-            totalLines += Self.lineCount(for: line)
-        }
-        let scriptEnd = Double(totalLines) / linesPerPage
-
-        var scenes: [Scene] = []
-        for (idx, h) in headings.enumerated() {
-            let end = (idx + 1 < headings.count) ? headings[idx + 1].pageStart : scriptEnd
-            let length = max(0, end - h.pageStart)
-            scenes.append(Scene(
-                id: "scene-\(h.line.range.location)",
-                heading: h.line.content,
-                page_start: h.pageStart,
-                page_length: length,
-                document_id: documentId))
-        }
-        return scenes
     }
 
     /// Mirror of FountainScript's private lineCount(for:). Replicated here because
