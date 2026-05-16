@@ -116,6 +116,8 @@ public enum ProjectFactory {
                                    withIntermediateDirectories: true)
             try fm.createDirectory(at: projectURL.appendingPathComponent("notes"),
                                    withIntermediateDirectories: true)
+            try fm.createDirectory(at: projectURL.appendingPathComponent("pieces"),
+                                   withIntermediateDirectories: true)
 
             let now = Date()
             let manifest = ProjectManifest(
