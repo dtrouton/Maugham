@@ -1016,6 +1016,7 @@ public final class ProjectStore {
         status: String? = nil,
         tags: [String]? = nil,
         wordTarget: Int? = nil,
+        pageTarget: Int? = nil,
         links: [String]? = nil
     ) async throws {
         guard findItem(id: id, in: manifest.structure) != nil else {
@@ -1028,6 +1029,9 @@ public final class ProjectStore {
             if let wordTarget {
                 // Treat 0 as "clear the target."
                 item.wordTarget = wordTarget == 0 ? nil : wordTarget
+            }
+            if let pageTarget {
+                item.pageTarget = pageTarget == 0 ? nil : pageTarget
             }
             if let links { item.links = links.isEmpty ? nil : links }
         }
@@ -2265,5 +2269,45 @@ extension ProjectStore {
             }
         }
         return .unresolved
+    }
+
+    /// Update an existing reference piece's link target. Rewrites the
+    /// .maugham-link.json on disk and refreshes the manifest entry's
+    /// path + bookmark. Used by Inspector's Re-link button when the
+    /// original reference is unresolved.
+    public func relinkReference(pieceId: String, newURL: URL) async throws {
+        guard let idx = manifest.structure.firstIndex(where: { $0.id == pieceId }) else {
+            throw ProjectStoreError.fileSystemError("Unknown piece: \(pieceId)")
+        }
+        guard manifest.structure[idx].pieceKind == .reference,
+              let relPath = manifest.structure[idx].path else {
+            throw ProjectStoreError.fileSystemError("Piece is not a reference")
+        }
+        let targetManifestURL = newURL.appendingPathComponent("project.maugham.json")
+        guard FileManager.default.fileExists(atPath: targetManifestURL.path) else {
+            throw ProjectStoreError.fileSystemError(
+                "Selected folder is not a Maugham project")
+        }
+        let bookmarkData = try newURL.bookmarkData(
+            options: .withSecurityScope,
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil)
+        manifest.structure[idx].linkedProjectPath = newURL.path
+        manifest.structure[idx].linkedProjectBookmark = bookmarkData
+
+        let linkURL = url.appendingPathComponent(relPath)
+        let linkFile = CollectionLinkFile(
+            version: 1,
+            title: manifest.structure[idx].title,
+            path: newURL.path,
+            bookmark: bookmarkData.base64EncodedString(),
+            linkedAt: Date())
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(linkFile).write(to: linkURL, options: .atomic)
+
+        manifest.modified = Date()
+        try await saveManifest()
     }
 }
