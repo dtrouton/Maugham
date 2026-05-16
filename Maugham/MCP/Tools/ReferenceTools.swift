@@ -25,45 +25,98 @@ public enum ListScenesTool {
         guard store.manifest.type == .screenplay else {
             return try JSONEncoder().encode([Scene]())
         }
-        // Find the screenplay document — typically the first .document item.
-        guard let item = Self.firstDocument(in: store.manifest.structure),
-              let path = item.path else {
-            return try JSONEncoder().encode([Scene]())
-        }
-        // Read text — live if open, else disk.
-        let text: String
-        if let ds = store.documentStore, ds.openDocumentPath == path {
-            text = ds.currentDocumentText
-        } else {
-            let abs = entry.url.appendingPathComponent(path)
-            text = (try? String(contentsOf: abs, encoding: .utf8)) ?? ""
-        }
-        let script = FountainTokenizer().parse(text)
-        let headings = script.lines.filter { $0.element == .sceneHeading }
-        let starts = headings.map { Double(script.pageNumber(at: $0)) }
-        let totalPages = script.estimatedPageCount
 
         var scenes: [Scene] = []
-        for (idx, line) in headings.enumerated() {
-            let start = starts[idx]
-            let end = (idx + 1 < starts.count) ? starts[idx + 1] : totalPages
-            let length = max(0, end - start)
-            scenes.append(Scene(
-                id: "scene-\(line.range.location)",
-                heading: line.content,
-                page_start: start,
-                page_length: length,
-                document_id: item.id))
+        for item in Self.allDocuments(in: store.manifest.structure) {
+            guard let path = item.path else { continue }
+            // Live in-memory text if open, else disk.
+            let text: String
+            if let ds = store.documentStore, ds.openDocumentPath == path {
+                text = ds.currentDocumentText
+            } else {
+                let abs = entry.url.appendingPathComponent(path)
+                text = (try? String(contentsOf: abs, encoding: .utf8)) ?? ""
+            }
+            let script = FountainTokenizer().parse(text)
+            scenes.append(contentsOf: Self.scenesIn(script: script, documentId: item.id))
         }
         return try JSONEncoder().encode(scenes)
     }
 
-    private static func firstDocument(in items: [StructureItem]) -> StructureItem? {
+    /// Walk manifest.structure recursively, flattening to .document items.
+    private static func allDocuments(in items: [StructureItem]) -> [StructureItem] {
+        var out: [StructureItem] = []
         for item in items {
-            if item.type == .document { return item }
-            if let kids = item.children, let n = firstDocument(in: kids) { return n }
+            if item.type == .document { out.append(item) }
+            if let kids = item.children { out.append(contentsOf: allDocuments(in: kids)) }
         }
-        return nil
+        return out
+    }
+
+    /// Given a parsed script, emit Scene entries with fractional page positions.
+    /// page_start is `linesBeforeScene / linesPerPage` (so the first scene starts
+    /// at 0.0, not 1.0). page_length is the next scene's start minus this one's
+    /// (or end-of-script minus this one for the last).
+    private static func scenesIn(
+        script: FountainScript, documentId: String
+    ) -> [Scene] {
+        let linesPerPage = 55.0
+        struct Heading {
+            let line: FountainLine
+            let pageStart: Double
+        }
+        var headings: [Heading] = []
+        var totalLines = 0
+        for line in script.lines {
+            if line.element == .sceneHeading {
+                headings.append(Heading(
+                    line: line,
+                    pageStart: Double(totalLines) / linesPerPage))
+            }
+            totalLines += Self.lineCount(for: line)
+        }
+        let scriptEnd = Double(totalLines) / linesPerPage
+
+        var scenes: [Scene] = []
+        for (idx, h) in headings.enumerated() {
+            let end = (idx + 1 < headings.count) ? headings[idx + 1].pageStart : scriptEnd
+            let length = max(0, end - h.pageStart)
+            scenes.append(Scene(
+                id: "scene-\(h.line.range.location)",
+                heading: h.line.content,
+                page_start: h.pageStart,
+                page_length: length,
+                document_id: documentId))
+        }
+        return scenes
+    }
+
+    /// Mirror of FountainScript's private lineCount(for:). Replicated here because
+    /// the original is `private static` — keep in sync if the script's wrap math
+    /// changes. Documented in spec carry-forwards.
+    private static func lineCount(for line: FountainLine) -> Int {
+        let charsPerActionLine = 60
+        let charsPerDialogueLine = 35
+        let charsPerParenthetical = 20
+        let sceneHeadingExtraBlankLines = 1
+        switch line.element {
+        case .action:
+            let len = line.content.count
+            guard len > 0 else { return 0 }
+            return max((len + charsPerActionLine - 1) / charsPerActionLine, 1)
+        case .dialogue:
+            let len = line.content.count
+            return max((len + charsPerDialogueLine - 1) / charsPerDialogueLine, 1)
+        case .parenthetical:
+            let len = line.content.count
+            return max((len + charsPerParenthetical - 1) / charsPerParenthetical, 1)
+        case .sceneHeading:
+            return 1 + sceneHeadingExtraBlankLines
+        case .character, .transition, .centered, .lyric:
+            return 1
+        case .section, .synopsis, .boneyard, .note, .pageBreak, .titlePage:
+            return 0
+        }
     }
 }
 
