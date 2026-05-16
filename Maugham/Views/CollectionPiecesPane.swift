@@ -21,6 +21,16 @@ struct CollectionPiecesPane: View {
                     ForEach(store.manifest.structure) { piece in
                         PieceRow(piece: piece)
                             .tag(piece.id as String?)
+                            .contextMenu {
+                                if piece.pieceKind == .loose {
+                                    Button("Promote to Standalone Project…") {
+                                        NotificationCenter.default.post(
+                                            name: .maughamPromotePiece,
+                                            object: nil,
+                                            userInfo: ["piece_id": piece.id])
+                                    }
+                                }
+                            }
                     }
                 }
                 .listStyle(.sidebar)

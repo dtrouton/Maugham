@@ -424,6 +424,32 @@ struct ProjectWindow: View {
                         }
                     }
                 }
+                .onReceive(NotificationCenter.default.publisher(
+                    for: .maughamPromotePiece)) { note in
+                    guard let store, store.manifest.type == .collection,
+                          let info = note.userInfo,
+                          let pieceId = info["piece_id"] as? String,
+                          let piece = store.manifest.structure.first(where: { $0.id == pieceId }) else { return }
+                    let panel = NSSavePanel()
+                    panel.nameFieldStringValue = piece.title
+                    panel.directoryURL = store.url.deletingLastPathComponent()
+                    panel.message = "Promote \"\(piece.title)\" to a standalone Maugham project"
+                    panel.prompt = "Promote"
+                    panel.begin { response in
+                        guard response == .OK, let destination = panel.url else { return }
+                        Task {
+                            do {
+                                let newProjectURL = try await store.promotePieceToProject(
+                                    pieceId: pieceId, destination: destination)
+                                NotificationCenter.default.post(
+                                    name: .maughamOpenProject, object: nil,
+                                    userInfo: ["url": newProjectURL])
+                            } catch {
+                                print("Promote failed: \(error)")
+                            }
+                        }
+                    }
+                }
         }
     }
 
