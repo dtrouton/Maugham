@@ -78,7 +78,7 @@ AI assist for drafting, transcription, and project understanding.
 Delivery, sharing, and mixed-media compilation.
 
 **Open — needs design first:**
-- • **Mixed-content collection** — a single project containing both prose stories AND screenplays. Touches manifest schema (per-item writing mode), binder (mixed icons/affordances per item), and compile (mixed typography in one output). The existing `ProjectType.collection` is a 1d placeholder; this milestone makes it functional. Brainstorm before scoping.
+- • **Mixed-content collection** — a single project containing both prose stories AND screenplays. The existing `ProjectType.collection` is a 1d placeholder; this milestone makes it functional. Touches manifest schema (per-item writing mode), binder (mixed icons/affordances per item), and compile (mixed typography in one output). **Design direction (provisional, 2026-05-16):** hybrid — a Collection contains both "loose" mixed-content documents (each declares its own `mode: prose` / `mode: fountain` in the manifest) AND references to standalone Maugham projects. Loose docs and project-references coexist in one binder. Matches the writer's mental model where a short story collection has some pieces large enough to warrant their own project folder and others that don't. **Deferred questions** (captured for the brainstorm): can a loose Collection document be "split out" into its own standalone project later? Submission tracker semantics for Collection items vs. referenced projects. Brainstorm before scoping.
 
 **Compile (cross-type):**
 - • Compile UI — assemble manuscript into Word / EPUB / PDF / plain text
