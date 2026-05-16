@@ -66,3 +66,44 @@ final class ProjectToolsTests: XCTestCase {
         }
     }
 }
+
+extension ProjectToolsTests {
+    func test_listProjects_includesCollection() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MCP-coll-\(UUID())")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        let url = try await ProjectFactory.createCollectionProject(
+            named: "C", in: tmp)
+        let store = try await ProjectStore.load(from: url)
+        let reg = ProjectRegistry()
+        reg.register(url: url, store: store)
+        let data = try await ListProjectsTool.handle(paramsJSON: nil, registry: reg)
+        let projects = try JSONDecoder().decode(
+            [ListProjectsTool.Project].self, from: data)
+        XCTAssertTrue(projects.contains { $0.type == "collection" })
+    }
+
+    func test_getOutline_Collection_returnsPiecesFlat() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MCP-out-\(UUID())")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        let url = try await ProjectFactory.createCollectionProject(
+            named: "C", in: tmp)
+        let store = try await ProjectStore.load(from: url)
+        _ = try await store.addLoosePiece(title: "Story A", mode: .prose)
+        _ = try await store.addLoosePiece(title: "Story B", mode: .screenplay)
+        let reg = ProjectRegistry()
+        reg.register(url: url, store: store)
+
+        let id = ProjectIdentifier.id(for: url)
+        let req = "{\"project_id\":\"\(id)\"}"
+        let data = try await GetOutlineTool.handle(
+            paramsJSON: Data(req.utf8), registry: reg)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let outline = try decoder.decode(
+            GetOutlineTool.Outline.self, from: data)
+        XCTAssertEqual(outline.nodes.count, 2)
+        XCTAssertNil(outline.nodes[0].children)
+    }
+}
