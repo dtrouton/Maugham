@@ -460,6 +460,34 @@ struct ProjectWindow: View {
     private func editorPane(
         store: ProjectStore, documentStore: DocumentStore
     ) -> some View {
+        if store.manifest.type == .collection,
+           let id = selectedItemId,
+           let piece = store.manifest.structure.first(where: { $0.id == id }),
+           piece.pieceKind == .reference {
+            ReferencePlaceholderCard(piece: piece) {
+                openReferenceInWindow(piece: piece, store: store)
+            }
+        } else {
+            existingEditorSwitch(store: store, documentStore: documentStore)
+        }
+    }
+
+    private func openReferenceInWindow(piece: StructureItem, store: ProjectStore) {
+        let resolution = store.resolveReference(piece)
+        let url: URL
+        switch resolution {
+        case .resolved(let u): url = u
+        case .resolvedViaPathFallback(let u): url = u
+        case .unresolved: return
+        }
+        NotificationCenter.default.post(
+            name: .maughamOpenProject, object: nil, userInfo: ["url": url])
+    }
+
+    @ViewBuilder
+    private func existingEditorSwitch(
+        store: ProjectStore, documentStore: DocumentStore
+    ) -> some View {
         switch binderSegment {
         case .manuscript, .scenes, .find:
             // Both .manuscript and .scenes show the editor — .scenes is just an
@@ -524,7 +552,7 @@ struct ProjectWindow: View {
 
     @ViewBuilder
     private func detailColumn(store: ProjectStore) -> some View {
-        if showInspector && store.manifest.type != .collection {
+        if showInspector {
             inspectorPane(store: store)
                 .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 360)
         }
@@ -537,31 +565,60 @@ struct ProjectWindow: View {
             segment: $detailSegment,
             outlineLayout: $outlineLayout,
             selectedItemId: $selectedItemId,
-            activeManuscriptItemId: selectedItemId
+            activeManuscriptItemId: selectedItemId,
+            hideOutline: store.manifest.type == .collection
         ) {
-            switch binderSegment {
-            case .manuscript, .scenes, .find:
-                InspectorView(
-                    store: store,
-                    selectedItemId: selectedItemId,
-                    metrics: metrics,
-                    onOpenProjectSettings: { activeSheet = .projectSettings }
-                )
-            case .research:
-                if let id = selectedResearchId,
-                   let item = findResearchItem(
-                        id: id, in: store.manifest.research) {
-                    InspectorResearchPanel(store: store, item: item)
-                } else {
-                    ContentUnavailableView(
-                        "Select an item",
-                        systemImage: "info.circle")
-                }
-            case .trash:
-                ContentUnavailableView(
-                    "No selection",
-                    systemImage: "trash")
+            if store.manifest.type == .collection {
+                collectionInspector(store: store)
+            } else {
+                existingInspectorSwitch(store: store)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func collectionInspector(store: ProjectStore) -> some View {
+        if let id = selectedItemId,
+           let piece = store.manifest.structure.first(where: { $0.id == id }) {
+            switch piece.pieceKind {
+            case .reference:
+                ReferencePieceInspector(store: store, pieceId: id)
+            case .loose, .none:
+                if let path = piece.path, path.hasSuffix(".fountain") {
+                    ScreenplayPieceInspector(store: store, pieceId: id)
+                } else {
+                    ProsePieceInspector(store: store, pieceId: id)
+                }
+            }
+        } else {
+            ContentUnavailableView("Select a piece", systemImage: "doc.text")
+        }
+    }
+
+    @ViewBuilder
+    private func existingInspectorSwitch(store: ProjectStore) -> some View {
+        switch binderSegment {
+        case .manuscript, .scenes, .find:
+            InspectorView(
+                store: store,
+                selectedItemId: selectedItemId,
+                metrics: metrics,
+                onOpenProjectSettings: { activeSheet = .projectSettings }
+            )
+        case .research:
+            if let id = selectedResearchId,
+               let item = findResearchItem(
+                    id: id, in: store.manifest.research) {
+                InspectorResearchPanel(store: store, item: item)
+            } else {
+                ContentUnavailableView(
+                    "Select an item",
+                    systemImage: "info.circle")
+            }
+        case .trash:
+            ContentUnavailableView(
+                "No selection",
+                systemImage: "trash")
         }
     }
 
