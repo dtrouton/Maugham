@@ -2145,6 +2145,57 @@ extension ProjectStore {
         try await saveManifest()
         return item
     }
+
+    /// Add a research note inside a piece's research/ subfolder. Adds a
+    /// ResearchItem to manifest.research with a piece-scoped path. The note
+    /// is project-local research from the manifest's POV — discoverability
+    /// in the binder is done by path-prefix matching (UI layer).
+    public func addPieceResearchNote(
+        pieceId: String, title: String
+    ) async throws -> ResearchItem {
+        guard manifest.type == .collection else {
+            throw ProjectStoreError.fileSystemError(
+                "addPieceResearchNote only valid for Collection projects")
+        }
+        guard let piece = manifest.structure.first(where: { $0.id == pieceId }),
+              piece.pieceKind == .loose,
+              let piecePath = piece.path else {
+            throw ProjectStoreError.fileSystemError(
+                "Unknown loose piece: \(pieceId)")
+        }
+        // piecePath is "pieces/<NN>-<slug>/<slug>.<ext>"; the piece folder is
+        // its parent.
+        let pieceFolder = (piecePath as NSString).deletingLastPathComponent
+        let researchFolder = "\(pieceFolder)/research"
+        let researchFolderURL = url.appendingPathComponent(researchFolder)
+        try FileManager.default.createDirectory(
+            at: researchFolderURL, withIntermediateDirectories: true)
+
+        let baseTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedTitle = baseTitle.isEmpty ? "Untitled Note" : baseTitle
+        let slug = Self.researchSlugify(resolvedTitle)
+        var filename = "\(slug).md"
+        var counter = 2
+        while FileManager.default.fileExists(
+            atPath: researchFolderURL.appendingPathComponent(filename).path) {
+            filename = "\(slug)-\(counter).md"
+            counter += 1
+        }
+        try Data().write(to: researchFolderURL.appendingPathComponent(filename))
+
+        let relativePath = "\(researchFolder)/\(filename)"
+        let item = ResearchItem(
+            id: Self.newId(prefix: "res"),
+            title: resolvedTitle,
+            type: .asset,
+            kind: .document,
+            path: relativePath,
+            addedAt: Date())
+        manifest.research.append(item)
+        manifest.modified = Date()
+        try await saveManifest()
+        return item
+    }
 }
 
 // MARK: - WikiLinkProject
