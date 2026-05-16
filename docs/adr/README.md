@@ -28,7 +28,8 @@ Keep them short. One to two pages is the right scale. If an ADR keeps growing, i
 | [0004](0004-mcp-foundation-scope.md) | MCP foundation scope: read + add_note + research links | Accepted | 2026-05-15 |
 | [0005](0005-right-pane-mode-swap.md) | Right-pane mode-swap pattern (Inspector / Research / Outline) | Accepted | 2026-05-14 |
 | [0006](0006-trash-and-undo.md) | Trash & undo design (.trash/ folder + ⌘⌥Z) | Accepted | 2026-05-13 |
-| [0007](0007-id-prefix-no-migration.md) | ID prefix inconsistency — accept, no migration runner | Accepted | 2026-05-16 |
+| [0007](0007-id-prefix-no-migration.md) | ID prefix inconsistency — accept, no migration runner | Superseded by [0008](0008-id-prefix-cleanup.md) | 2026-05-16 |
+| [0008](0008-id-prefix-cleanup.md) | ID prefix cleanup: canonical scheme adopted | Accepted | 2026-05-16 |
 
 ## How to write a new ADR
 

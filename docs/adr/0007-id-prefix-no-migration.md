@@ -1,6 +1,6 @@
 # 0007 — ID prefix inconsistency: accept, no migration runner
 
-**Status:** Accepted
+**Status:** Superseded by [0008](0008-id-prefix-cleanup.md)
 **Date:** 2026-05-16
 
 ## Context

@@ -1248,7 +1248,7 @@ public final class ProjectStore {
         try await documentStore.executeCopy(from: externalURL, to: targetURL)
 
         let item = ResearchItem(
-            id: Self.newId(prefix: "res-ast"),
+            id: Self.newId(prefix: "res"),
             title: stem,
             type: .asset,
             kind: kind,
@@ -1271,7 +1271,7 @@ public final class ProjectStore {
         url linkURL: String
     ) async throws -> ResearchItem {
         let item = ResearchItem(
-            id: Self.newId(prefix: "res-lnk"),
+            id: Self.newId(prefix: "res"),
             title: title,
             type: .asset,
             kind: .link,
@@ -1349,7 +1349,7 @@ public final class ProjectStore {
         }()
 
         let item = ResearchItem(
-            id: Self.newId(prefix: "res-doc"),
+            id: Self.newId(prefix: "res"),
             title: resolvedTitle,
             type: .asset,
             kind: .document,
@@ -1660,7 +1660,7 @@ public final class ProjectStore {
         let newTitle = "Copy of " + source.title
 
         var copy = source
-        copy.id = Self.newId(prefix: source.type == .group ? "res-grp" : "res-ast")
+        copy.id = Self.newId(prefix: source.type == .group ? "res-grp" : "res")
         copy.title = newTitle
         copy.addedAt = Date()
         copy.children = source.children?.map { Self.researchFreshIds($0) }
@@ -1701,7 +1701,7 @@ public final class ProjectStore {
 
     private static func researchFreshIds(_ item: ResearchItem) -> ResearchItem {
         var copy = item
-        copy.id = Self.newId(prefix: item.type == .group ? "res-grp" : "res-ast")
+        copy.id = Self.newId(prefix: item.type == .group ? "res-grp" : "res")
         if let children = copy.children {
             copy.children = children.map { researchFreshIds($0) }
         }
@@ -1967,8 +1967,7 @@ private extension StructureItemKind {
 
     var idPrefix: String {
         switch self {
-        case .document(let ext) where ext == "fountain": return "scene"
-        case .document: return "doc"
+        case .document: return "doc"   // file extension is orthogonal to ID prefix
         case .group: return "grp"
         }
     }
