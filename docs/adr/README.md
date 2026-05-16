@@ -30,6 +30,7 @@ Keep them short. One to two pages is the right scale. If an ADR keeps growing, i
 | [0006](0006-trash-and-undo.md) | Trash & undo design (.trash/ folder + ⌘⌥Z) | Accepted | 2026-05-13 |
 | [0007](0007-id-prefix-no-migration.md) | ID prefix inconsistency — accept, no migration runner | Superseded by [0008](0008-id-prefix-cleanup.md) | 2026-05-16 |
 | [0008](0008-id-prefix-cleanup.md) | ID prefix cleanup: canonical scheme adopted | Accepted | 2026-05-16 |
+| [0009](0009-collection-references-mac-local.md) | Collection references are Mac-local; iCloud cross-Mac is best-effort | Accepted | 2026-05-16 |
 
 ## How to write a new ADR
 
