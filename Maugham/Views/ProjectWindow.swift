@@ -44,14 +44,7 @@ struct ProjectWindow: View {
         Group {
             if let store, let documentStore {
                 NavigationSplitView {
-                    BinderPaneToggle(
-                        store: store,
-                        segment: $binderSegment,
-                        selectedItemId: $selectedItemId,
-                        selectedResearchId: $selectedResearchId,
-                        projectType: store.manifest.type,
-                        lastParsedScript: lastParsedScript,
-                        findActive: $findActive)
+                    binderColumn(store: store)
                         .navigationSplitViewColumnWidth(min: 200, ideal: 240)
                 } content: {
                     contentColumn(store: store, documentStore: documentStore)
@@ -398,6 +391,52 @@ struct ProjectWindow: View {
     }
 
     // MARK: - Column builders
+
+    @ViewBuilder
+    private func binderColumn(store: ProjectStore) -> some View {
+        if store.manifest.type == .collection {
+            CollectionBinderPaneToggle(
+                store: store,
+                segment: $binderSegment,
+                selectedItemId: $selectedItemId,
+                selectedResearchId: $selectedResearchId,
+                findActive: $findActive,
+                activePiece: activePiece(in: store),
+                onAddPiece: { /* T15 will wire this to a notification post */ },
+                onAddSharedNote: { Task { try? await addSharedNoteAction(store: store) } },
+                onAddPieceNote: { Task { try? await addPieceNoteAction(store: store) } }
+            )
+        } else {
+            BinderPaneToggle(
+                store: store,
+                segment: $binderSegment,
+                selectedItemId: $selectedItemId,
+                selectedResearchId: $selectedResearchId,
+                projectType: store.manifest.type,
+                lastParsedScript: lastParsedScript,
+                findActive: $findActive)
+        }
+    }
+
+    private func activePiece(in store: ProjectStore) -> StructureItem? {
+        guard store.manifest.type == .collection,
+              let id = selectedItemId else { return nil }
+        return store.manifest.structure.first(where: { $0.id == id })
+    }
+
+    @MainActor
+    private func addSharedNoteAction(store: ProjectStore) async throws {
+        let item = try await store.addResearchTextNote(parentId: nil)
+        selectedResearchId = item.id
+    }
+
+    @MainActor
+    private func addPieceNoteAction(store: ProjectStore) async throws {
+        guard let pieceId = selectedItemId else { return }
+        let item = try await store.addPieceResearchNote(
+            pieceId: pieceId, title: "Untitled Note")
+        selectedResearchId = item.id
+    }
 
     @ViewBuilder
     private func contentColumn(
