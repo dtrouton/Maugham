@@ -1,6 +1,6 @@
 import Foundation
 
-public struct Checkpoint: Codable, Equatable, Sendable {
+public struct Checkpoint: Codable, Equatable, Hashable, Sendable {
     public let checkpointId: String
     public let label: String
     public let labelSource: LabelSource
@@ -10,7 +10,7 @@ public struct Checkpoint: Codable, Equatable, Sendable {
     public let docPointers: [String: String]   // doc_id -> op_id
     public let manuscriptWordCount: Int
 
-    public enum LabelSource: String, Codable, Sendable {
+    public enum LabelSource: String, Codable, Hashable, Sendable {
         case user, auto
     }
 

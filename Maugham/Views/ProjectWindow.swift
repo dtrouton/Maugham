@@ -59,7 +59,7 @@ struct ProjectWindow: View {
                 } content: {
                     contentColumn(store: store, documentStore: documentStore)
                 } detail: {
-                    detailColumn(store: store)
+                    detailColumn(store: store, documentStore: documentStore)
                 }
                 .overlay(alignment: .top) {
                     SaveFlashOverlay(isShowing: $showingSaveFlash)
@@ -685,22 +685,29 @@ struct ProjectWindow: View {
     }
 
     @ViewBuilder
-    private func detailColumn(store: ProjectStore) -> some View {
+    private func detailColumn(store: ProjectStore, documentStore: DocumentStore) -> some View {
         if showInspector {
-            inspectorPane(store: store)
+            inspectorPane(store: store, documentStore: documentStore)
                 .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 360)
         }
     }
 
     @ViewBuilder
-    private func inspectorPane(store: ProjectStore) -> some View {
+    private func inspectorPane(store: ProjectStore, documentStore: DocumentStore) -> some View {
         DetailPaneToggle(
             store: store,
             segment: $detailSegment,
             outlineLayout: $outlineLayout,
             selectedItemId: $selectedItemId,
             activeManuscriptItemId: selectedItemId,
-            hideOutline: store.manifest.type == .collection
+            hideOutline: store.manifest.type == .collection,
+            projectURL: store.url,
+            activeDocId: selectedItemId ?? "__no-selection__",
+            allDocIds: collectAllDocIds(in: store.manifest.structure),
+            device: _checkpointDeviceId,
+            session: _checkpointSessionId,
+            docPaths: collectDocPaths(in: store.manifest.structure),
+            documentStore: documentStore
         ) {
             if store.manifest.type == .collection {
                 collectionInspector(store: store)
@@ -708,6 +715,26 @@ struct ProjectWindow: View {
                 existingInspectorSwitch(store: store)
             }
         }
+    }
+
+    private func collectAllDocIds(in items: [StructureItem]) -> [String] {
+        var ids: [String] = []
+        for item in items {
+            if item.type == .document { ids.append(item.id) }
+            if let children = item.children { ids.append(contentsOf: collectAllDocIds(in: children)) }
+        }
+        return ids
+    }
+
+    private func collectDocPaths(in items: [StructureItem]) -> [String: String] {
+        var result: [String: String] = [:]
+        for item in items {
+            if item.type == .document, let path = item.path { result[item.id] = path }
+            if let children = item.children {
+                for (k, v) in collectDocPaths(in: children) { result[k] = v }
+            }
+        }
+        return result
     }
 
     @ViewBuilder

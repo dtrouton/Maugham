@@ -5,4 +5,5 @@ public enum DetailSegment: String, Codable, Equatable, Sendable {
     case inspector
     case research
     case outline
+    case history
 }
