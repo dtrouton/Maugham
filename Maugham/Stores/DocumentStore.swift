@@ -583,6 +583,17 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
         guard changed.hasPrefix(project + "/") else { return }
         let relativePath = String(changed.dropFirst(project.count + 1))
 
+        if relativePath.hasPrefix(".maugham/ops/") && relativePath.hasSuffix(".jsonl") {
+            NotificationCenter.default.post(
+                name: .maughamOpLogChanged,
+                object: nil, userInfo: ["path": relativePath])
+            return
+        }
+        if relativePath == ".maugham/checkpoints.jsonl" {
+            NotificationCenter.default.post(
+                name: .maughamCheckpointAdded, object: nil)
+            return
+        }
         if relativePath == "project.maugham.json" {
             handleManifestChanged()
         } else if relativePath == openDocumentPath {

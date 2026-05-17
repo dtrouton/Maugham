@@ -34,4 +34,9 @@ extension Notification.Name {
     public static let maughamSaveCheckpoint = Notification.Name("maugham.save.checkpoint")
     /// Posted when Shift-⌘S is pressed — triggers the checkpoint label prompt sheet.
     public static let maughamNamedCheckpoint = Notification.Name("maugham.named.checkpoint")
+    /// Posted when a `.maugham/ops/<docId>.jsonl` file is added or changed.
+    /// userInfo["path"] contains the relative path string.
+    public static let maughamOpLogChanged = Notification.Name("maughamOpLogChanged")
+    /// Posted when `.maugham/checkpoints.jsonl` is added or changed.
+    public static let maughamCheckpointAdded = Notification.Name("maughamCheckpointAdded")
 }
