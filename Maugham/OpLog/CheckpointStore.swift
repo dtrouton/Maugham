@@ -54,9 +54,35 @@ public final class CheckpointStore {
         if let writeErr { throw writeErr }
     }
 
+    // ISO8601 formatter with fractional-second precision so sub-millisecond
+    // timestamps survive a JSON round-trip without truncation.
+    // (Previously used .secondsSince1970 because plain .iso8601 was lossy;
+    //  this formatter preserves full precision while staying spec-compliant.)
+    private static let iso8601Formatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    private static let dateEncoding = JSONEncoder.DateEncodingStrategy.custom { date, encoder in
+        var c = encoder.singleValueContainer()
+        try c.encode(CheckpointStore.iso8601Formatter.string(from: date))
+    }
+
+    private static let dateDecoding = JSONDecoder.DateDecodingStrategy.custom { decoder in
+        let c = try decoder.singleValueContainer()
+        let s = try c.decode(String.self)
+        // Accept fractional-second and whole-second ISO8601 strings, plus raw
+        // epoch numbers (backward compatibility with data written via .secondsSince1970).
+        if let d = CheckpointStore.iso8601Formatter.date(from: s) { return d }
+        if let d = ISO8601DateFormatter().date(from: s) { return d }
+        if let epoch = Double(s) { return Date(timeIntervalSince1970: epoch) }
+        throw DecodingError.dataCorruptedError(in: c, debugDescription: "Unrecognised date: \(s)")
+    }
+
     private func encode(_ cp: Checkpoint) throws -> String {
         let enc = JSONEncoder()
-        enc.dateEncodingStrategy = .secondsSince1970
+        enc.dateEncodingStrategy = Self.dateEncoding
         enc.outputFormatting = [.sortedKeys]
         return String(data: try enc.encode(cp), encoding: .utf8) ?? ""
     }
@@ -64,7 +90,7 @@ public final class CheckpointStore {
     private func parse(bytes: Data) -> [Checkpoint] {
         guard let text = String(data: bytes, encoding: .utf8) else { return [] }
         let dec = JSONDecoder()
-        dec.dateDecodingStrategy = .secondsSince1970
+        dec.dateDecodingStrategy = Self.dateDecoding
         var out: [Checkpoint] = []
         for line in text.split(omittingEmptySubsequences: true, whereSeparator: \.isNewline) {
             guard let d = String(line).data(using: .utf8),

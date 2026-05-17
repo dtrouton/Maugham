@@ -59,9 +59,32 @@ public final class OpLogStore {
         if let writeErr { throw writeErr }
     }
 
+    // ISO8601 formatter with fractional-second precision so sub-millisecond
+    // timestamps survive a JSON round-trip without truncation.
+    private static let iso8601Formatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    private static let dateEncoding = JSONEncoder.DateEncodingStrategy.custom { date, encoder in
+        var c = encoder.singleValueContainer()
+        try c.encode(OpLogStore.iso8601Formatter.string(from: date))
+    }
+
+    private static let dateDecoding = JSONDecoder.DateDecodingStrategy.custom { decoder in
+        let c = try decoder.singleValueContainer()
+        let s = try c.decode(String.self)
+        // Accept both fractional-second and whole-second ISO8601 strings for
+        // backward compatibility with data written before this change.
+        if let d = OpLogStore.iso8601Formatter.date(from: s) { return d }
+        if let d = ISO8601DateFormatter().date(from: s) { return d }
+        throw DecodingError.dataCorruptedError(in: c, debugDescription: "Unrecognised date: \(s)")
+    }
+
     private func encode(_ op: Op) throws -> String {
         let enc = JSONEncoder()
-        enc.dateEncodingStrategy = .iso8601
+        enc.dateEncodingStrategy = Self.dateEncoding
         enc.outputFormatting = [.sortedKeys]
         let data = try enc.encode(op)
         return String(data: data, encoding: .utf8) ?? ""
@@ -70,7 +93,7 @@ public final class OpLogStore {
     private func parseAndSort(bytes: Data) -> [Op] {
         guard let text = String(data: bytes, encoding: .utf8) else { return [] }
         let dec = JSONDecoder()
-        dec.dateDecodingStrategy = .iso8601
+        dec.dateDecodingStrategy = Self.dateDecoding
         var seen = Set<String>()
         var ops: [Op] = []
         for line in text.split(omittingEmptySubsequences: true, whereSeparator: \.isNewline) {
