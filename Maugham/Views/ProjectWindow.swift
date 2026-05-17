@@ -44,6 +44,7 @@ struct ProjectWindow: View {
     @State private var mcpBannerLatestId: String?
     @State private var mcpBannerDismissTask: Task<Void, Never>?
     @State private var showingCheckpointLabelSheet: Bool = false
+    @State private var showingBootstrapNotice: Bool = false
     @Environment(UserPreferences.self) private var userPreferences
     @Environment(ProjectRegistry.self) private var mcpRegistry
     @Environment(\.openWindow) private var openWindow
@@ -137,6 +138,13 @@ struct ProjectWindow: View {
                         },
                         onCancel: { showingCheckpointLabelSheet = false }
                     )
+                }
+                .sheet(isPresented: Binding(
+                    get: { !documentStore.uiState.hasShownOpLogBootstrapNotice },
+                    set: { _ in })) {
+                    BootstrapNoticeSheet {
+                        documentStore.updateUIState { $0.hasShownOpLogBootstrapNotice = true }
+                    }
                 }
             } else if let loadError {
                 VStack(spacing: 12) {
