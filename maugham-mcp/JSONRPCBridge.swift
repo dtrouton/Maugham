@@ -55,17 +55,24 @@ final class JSONRPCBridge {
         // get no response. Don't block waiting for one.
         let isNotification = Self.isNotification(line: line)
 
+        let hadPriorConnection = socketFD >= 0
+
         // First attempt: forward on whatever connection we have (open one if needed).
         if socketFD < 0 { _ = tryConnect() }
         if socketFD >= 0, tryForward(line: line, isNotification: isNotification) {
             return
         }
 
-        // First attempt failed. Most common cause: Maugham restarted and our
-        // socketFD is stale — write/read fails but a fresh connect succeeds.
-        // One free retry covers that case so Claude Desktop doesn't see a
-        // spurious "Tool execution failed" on the first request after restart.
+        // First attempt failed. If we had a prior connection that just died,
+        // Maugham was likely restarted (Xcode rebuild) — there's a window where
+        // the OLD process is gone but the NEW one's MCPServer hasn't bound the
+        // socket yet. Wait briefly so the new server has time to come up before
+        // reconnecting. This adds ~500ms to the FIRST call after restart but
+        // catches the "Tool execution failed" race cleanly.
         closeSocket()
+        if hadPriorConnection {
+            Thread.sleep(forTimeInterval: 0.5)
+        }
         if tryConnect(), tryForward(line: line, isNotification: isNotification) {
             return
         }

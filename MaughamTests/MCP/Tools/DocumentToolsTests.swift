@@ -168,6 +168,82 @@ extension DocumentToolsTests {
             "document_id should be the structure item id, not a path; got: \(matches[0].document_id)")
     }
 
+    func test_readDocument_returnsResearchNoteText() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RDR-\(UUID())")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("research"), withIntermediateDirectories: true)
+        try "# Sarah\n\nSoft, clipped voice.\n".write(
+            to: tmp.appendingPathComponent("research/sarah.md"),
+            atomically: true, encoding: .utf8)
+        let sarah = ResearchItem(
+            id: "res-sarah-target",
+            title: "Sarah",
+            type: .asset,
+            kind: .document,
+            path: "research/sarah.md",
+            addedAt: Date())
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A",
+            created: Date(), modified: Date(),
+            structure: [], research: [sarah])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(
+            to: tmp.appendingPathComponent("project.maugham.json"))
+        let store = try await ProjectStore.load(from: tmp)
+        let reg = ProjectRegistry()
+        reg.register(url: tmp, store: store)
+
+        let id = ProjectIdentifier.id(for: tmp)
+        let req = "{\"project_id\":\"\(id)\",\"document_id\":\"res-sarah-target\"}"
+        let json = try await ReadDocumentTool.handle(
+            paramsJSON: Data(req.utf8), registry: reg)
+        let doc = try JSONDecoder().decode(
+            ReadDocumentTool.DocumentContent.self, from: json)
+        XCTAssertEqual(doc.id, "res-sarah-target")
+        XCTAssertEqual(doc.title, "Sarah")
+        XCTAssertTrue(doc.text.contains("Soft, clipped voice"))
+        XCTAssertEqual(doc.mode, "prose")
+    }
+
+    func test_readDocument_rejectsImageResearchItem() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RDRI-\(UUID())")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        let img = ResearchItem(
+            id: "res-image",
+            title: "Cover Photo",
+            type: .asset,
+            kind: .image,
+            path: "research/cover.png",
+            addedAt: Date())
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A",
+            created: Date(), modified: Date(),
+            structure: [], research: [img])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(
+            to: tmp.appendingPathComponent("project.maugham.json"))
+        let store = try await ProjectStore.load(from: tmp)
+        let reg = ProjectRegistry()
+        reg.register(url: tmp, store: store)
+
+        let id = ProjectIdentifier.id(for: tmp)
+        let req = "{\"project_id\":\"\(id)\",\"document_id\":\"res-image\"}"
+        do {
+            _ = try await ReadDocumentTool.handle(
+                paramsJSON: Data(req.utf8), registry: reg)
+            XCTFail("expected throw for image research item")
+        } catch MCPError.invalidArgument {
+            // ok
+        } catch {
+            XCTFail("wrong error: \(error)")
+        }
+    }
+
     /// Groups should expose a modified timestamp derived from the max of
     /// descendant document mtimes. Empty groups can stay nil.
     func test_getOutline_groupModified_isMaxOfDescendantDocs() async throws {
