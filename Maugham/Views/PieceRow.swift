@@ -2,10 +2,13 @@ import SwiftUI
 
 /// One row in the Collection's Pieces segment: kind icon, title, status dot.
 /// Supports inline rename when `renamingItemId == piece.id`.
+/// Supports drag-reorder via `.draggable` + `.dropDestination` on the
+/// non-rename branch, mirroring `BinderRow`'s pattern.
 struct PieceRow: View {
     let piece: StructureItem
     @Binding var renamingItemId: String?
     let onRename: (String, String) -> Void   // (pieceId, newTitle)
+    let onDrop: (_ draggedId: String, _ position: DropIntent.Position) -> Void
 
     @State private var draftTitle: String = ""
     @FocusState private var isRenameFieldFocused: Bool
@@ -45,6 +48,22 @@ struct PieceRow: View {
                 }
             }
             .contentShape(Rectangle())
+            .draggable(piece.id) {
+                Text(piece.title)
+                    .padding(6)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 4))
+            }
+            .dropDestination(for: String.self) { ids, location in
+                guard let droppedId = ids.first, droppedId != piece.id else {
+                    return false
+                }
+                // Top half = above this row; bottom half = below.
+                let rowHeight: CGFloat = 22
+                let position: DropIntent.Position =
+                    location.y < rowHeight / 2 ? .top : .bottom
+                onDrop(droppedId, position)
+                return true
+            }
         }
     }
 

@@ -2358,6 +2358,96 @@ extension ProjectStore {
         return item
     }
 
+    /// Reorder a Collection piece within manifest.structure. Renumbers all
+    /// piece folder NN- prefixes contiguously (01, 02, 03, …), moves folders
+    /// on disk to match, updates manifest entry paths, and rewrites per-piece
+    /// research item paths whose prefix changed.
+    public func movePiece(pieceId: String, toIndex destIndex: Int) async throws {
+        guard manifest.type == .collection else {
+            throw ProjectStoreError.fileSystemError(
+                "movePiece only valid for Collection projects")
+        }
+        guard let sourceIdx = manifest.structure.firstIndex(where: { $0.id == pieceId }) else {
+            throw ProjectStoreError.structureMissing
+        }
+        if sourceIdx == destIndex { return }
+
+        // 1. Reorder in memory (logical order)
+        var reordered = manifest.structure
+        let piece = reordered.remove(at: sourceIdx)
+        let clamped = max(0, min(destIndex, reordered.count))
+        reordered.insert(piece, at: clamped)
+
+        // 2. Compute new NN- prefix for each piece in its new position.
+        // Build a path rewrite map: oldFolderRel -> newFolderRel.
+        var folderRewrites: [(oldRel: String, newRel: String)] = []
+        var updatedPieces: [StructureItem] = []
+        for (i, p) in reordered.enumerated() {
+            guard let oldPath = p.path else {
+                updatedPieces.append(p)
+                continue
+            }
+            let oldFolderRel = (oldPath as NSString).deletingLastPathComponent
+            let oldFolderName = (oldFolderRel as NSString).lastPathComponent
+            // Strip old NN- prefix (first 3 chars, e.g. "01-"), append new
+            let slug = String(oldFolderName.dropFirst(3))
+            let newNN = String(format: "%02d", i + 1)
+            let newFolderName = "\(newNN)-\(slug)"
+            let piecesDirRel = (oldFolderRel as NSString).deletingLastPathComponent
+            let newFolderRel = piecesDirRel.isEmpty
+                ? newFolderName
+                : "\(piecesDirRel)/\(newFolderName)"
+            let docName = (oldPath as NSString).lastPathComponent
+            let newPath = "\(newFolderRel)/\(docName)"
+
+            if oldFolderRel != newFolderRel {
+                folderRewrites.append((oldRel: oldFolderRel, newRel: newFolderRel))
+            }
+
+            var copy = p
+            copy.path = newPath
+            updatedPieces.append(copy)
+        }
+
+        // 3. Move folders on disk. Use a two-phase rename via temp names to
+        //    avoid collisions when pieces swap positions (e.g. swap 01 and 02
+        //    would have moveItem fail because the destination exists).
+        let fm = FileManager.default
+        let tmpSuffix = "-mv-\(UUID().uuidString.prefix(8))"
+        // Phase A: oldRel -> oldRel + tmpSuffix
+        for rewrite in folderRewrites {
+            let oldURL = url.appendingPathComponent(rewrite.oldRel)
+            let tmpURL = url.appendingPathComponent("\(rewrite.oldRel)\(tmpSuffix)")
+            try fm.moveItem(at: oldURL, to: tmpURL)
+        }
+        // Phase B: oldRel + tmpSuffix -> newRel
+        for rewrite in folderRewrites {
+            let tmpURL = url.appendingPathComponent("\(rewrite.oldRel)\(tmpSuffix)")
+            let newURL = url.appendingPathComponent(rewrite.newRel)
+            try fm.moveItem(at: tmpURL, to: newURL)
+        }
+
+        // 4. Rewrite per-piece research item paths.
+        for (i, item) in manifest.research.enumerated() {
+            guard let p = item.path else { continue }
+            for rewrite in folderRewrites {
+                let oldPrefix = "\(rewrite.oldRel)/research/"
+                let newPrefix = "\(rewrite.newRel)/research/"
+                if p.hasPrefix(oldPrefix) {
+                    var copy = item
+                    copy.path = newPrefix + String(p.dropFirst(oldPrefix.count))
+                    manifest.research[i] = copy
+                    break
+                }
+            }
+        }
+
+        // 5. Commit
+        manifest.structure = updatedPieces
+        manifest.modified = Date()
+        try await saveManifest()
+    }
+
     /// Rename a Collection piece. For loose pieces: renames the parent folder
     /// AND the main doc inside it, and rewrites per-piece research item paths
     /// in manifest.research. For reference pieces: renames the parent folder

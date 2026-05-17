@@ -29,6 +29,12 @@ struct CollectionPiecesPane: View {
                                     try? await store.renamePiece(
                                         pieceId: id, newTitle: newTitle)
                                 }
+                            },
+                            onDrop: { draggedId, position in
+                                handleDrop(
+                                    draggedId: draggedId,
+                                    targetId: piece.id,
+                                    position: position)
                             })
                             .tag(piece.id as String?)
                             .contextMenu {
@@ -54,6 +60,28 @@ struct CollectionPiecesPane: View {
                 }
                 .listStyle(.sidebar)
             }
+        }
+    }
+
+    // MARK: - Drag-reorder
+
+    private func handleDrop(
+        draggedId: String,
+        targetId: String,
+        position: DropIntent.Position
+    ) {
+        guard let sourceIdx = store.manifest.structure.firstIndex(where: { $0.id == draggedId }),
+              let targetIdx = store.manifest.structure.firstIndex(where: { $0.id == targetId }) else {
+            return
+        }
+        // .top = before target; .bottom/.middle = after target.
+        // Pieces don't have children so .middle is treated as .top (just above).
+        var destIdx = (position == .bottom) ? targetIdx + 1 : targetIdx
+        // If the source is before the target, removing it shifts indices down
+        // by 1, so the effective destination index decreases by 1.
+        if sourceIdx < destIdx { destIdx -= 1 }
+        Task {
+            try? await store.movePiece(pieceId: draggedId, toIndex: destIdx)
         }
     }
 

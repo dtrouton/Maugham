@@ -74,6 +74,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// Observer token for `maughamFindMatchSelected` notifications.
     private var findMatchObserver: NSObjectProtocol?
 
+    /// Observer token for `maughamEffectiveAppearanceChanged` notifications.
+    private var appearanceObserver: NSObjectProtocol?
+
     init(text: Binding<String>,
          mode: any WritingMode,
          theme: Theme,
@@ -120,6 +123,16 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                 textView.scrollRangeToVisible(range)
             }
         }
+        appearanceObserver = NotificationCenter.default.addObserver(
+            forName: .maughamEffectiveAppearanceChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            // Re-run the full appearance pass so background/caret/syntax
+            // highlight colors re-resolve against the new effective appearance.
+            self.applyAppearance(theme: self.theme, typography: self.typography)
+        }
     }
 
     deinit {
@@ -127,6 +140,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = findMatchObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+        if let token = appearanceObserver {
             NotificationCenter.default.removeObserver(token)
         }
     }

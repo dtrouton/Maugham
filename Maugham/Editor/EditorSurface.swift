@@ -212,6 +212,17 @@ private final class MaughamTextView: NSTextView {
         }
     }
 
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        // OS appearance flipped (or app appearance changed under Follow System).
+        // Re-render so syntax highlighting and theme colors re-resolve.
+        needsDisplay = true
+        // Notify the coordinator so it can re-run the full styling pipeline
+        // (background color, caret color, syntax highlighting attributes).
+        NotificationCenter.default.post(
+            name: .maughamEffectiveAppearanceChanged, object: nil)
+    }
+
     fileprivate func updateColumnInset() {
         guard columnWidth > 0, bounds.width > 0 else { return }
         // Always reserve a minimum gutter on each side so text never runs

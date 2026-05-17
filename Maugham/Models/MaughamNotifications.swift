@@ -29,4 +29,5 @@ extension Notification.Name {
     public static let maughamAddScreenplayPiece = Notification.Name("maugham.add.screenplay.piece")
     public static let maughamLinkProject = Notification.Name("maugham.link.project")
     public static let maughamPromotePiece = Notification.Name("maugham.promote.piece")
+    public static let maughamEffectiveAppearanceChanged = Notification.Name("maugham.effective.appearance.changed")
 }
