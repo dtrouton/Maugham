@@ -3,21 +3,21 @@ import XCTest
 @testable import Maugham
 
 final class ShingleMatcherTests: XCTestCase {
-    func test_jaccard_identicalText_isOne() {
+    func test_overlapCoefficient_identicalText_isOne() {
         let s = "The morning began with toast and a sense of foreboding."
-        XCTAssertEqual(ShingleMatcher.jaccard(s, s, k: 4), 1.0, accuracy: 0.001)
+        XCTAssertEqual(ShingleMatcher.overlapCoefficient(s, s, k: 4), 1.0, accuracy: 0.001)
     }
 
-    func test_jaccard_disjointText_isZero() {
+    func test_overlapCoefficient_disjointText_isZero() {
         let a = "The cat sat on the mat in the morning light."
         let b = "Programming languages have evolved enormously over the decades."
-        XCTAssertEqual(ShingleMatcher.jaccard(a, b, k: 4), 0.0, accuracy: 0.001)
+        XCTAssertEqual(ShingleMatcher.overlapCoefficient(a, b, k: 4), 0.0, accuracy: 0.001)
     }
 
-    func test_jaccard_minorEdit_returnsHighSimilarity() {
+    func test_overlapCoefficient_minorEdit_returnsHighSimilarity() {
         let a = "The morning began with toast and a sense of foreboding she could not place."
         let b = "The morning began with burnt toast and a sense of foreboding she could not place."
-        XCTAssertGreaterThan(ShingleMatcher.jaccard(a, b, k: 4), 0.6)
+        XCTAssertGreaterThan(ShingleMatcher.overlapCoefficient(a, b, k: 4), 0.6)
     }
 
     func test_bestMatch_returnsHighestAboveThreshold() {
