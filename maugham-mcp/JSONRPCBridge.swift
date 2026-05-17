@@ -66,14 +66,28 @@ final class JSONRPCBridge {
         // First attempt failed. If we had a prior connection that just died,
         // Maugham was likely restarted (Xcode rebuild) — there's a window where
         // the OLD process is gone but the NEW one's MCPServer hasn't bound the
-        // socket yet. Wait briefly so the new server has time to come up before
-        // reconnecting. This adds ~500ms to the FIRST call after restart but
-        // catches the "Tool execution failed" race cleanly.
+        // socket yet. Poll for up to 5s (cold-launch headroom) so the new
+        // server has time to come up before we give up. Without a prior
+        // connection we fall through quickly to synthesize the not-running
+        // error — no point making "I haven't started Maugham yet" callers wait.
         closeSocket()
         if hadPriorConnection {
-            Thread.sleep(forTimeInterval: 0.5)
-        }
-        if tryConnect(), tryForward(line: line, isNotification: isNotification) {
+            let deadline = Date().addingTimeInterval(5.0)
+            while Date() < deadline {
+                Thread.sleep(forTimeInterval: 0.25)
+                let fd = openSocket()
+                if fd >= 0 {
+                    socketFD = fd
+                    socketReadBuffer.removeAll()
+                    nextReconnectIdx = 0
+                    if tryForward(line: line, isNotification: isNotification) {
+                        return
+                    }
+                    closeSocket()
+                }
+            }
+        } else if tryConnect(),
+                  tryForward(line: line, isNotification: isNotification) {
             return
         }
 

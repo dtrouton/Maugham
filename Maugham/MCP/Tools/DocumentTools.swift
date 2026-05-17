@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 /// `read_document(project_id, document_id)` — current text + metadata.
 public enum ReadDocumentTool {
@@ -118,14 +119,21 @@ public enum ReadDocumentTool {
         }
     }
 
-    /// Maximum on-disk size for an image returned inline. Base64 inflates by
-    /// ~33%, and Claude Desktop chokes on very large payloads, so cap at 5 MB
-    /// of source bytes.
-    private static let maxInlineImageBytes = 5 * 1024 * 1024
+    /// Sanity cap on the on-disk source before NSImage even opens it. Phone
+    /// photos top out around 10–15 MB; 50 MB is well above any reasonable
+    /// research input and prevents loading absurd files into memory.
+    private static let maxSourceImageBytes = 50 * 1024 * 1024
+    /// Longest edge after downscaling. Vision models work at roughly this
+    /// resolution; sending the full original is wasted bytes.
+    static let downscaleMaxDimension: CGFloat = 1024
+    /// JPEG compression. 0.8 is a good agent-consumption default.
+    static let downscaleJPEGQuality: CGFloat = 0.8
 
     /// Emit an image research item as an MCP `tools/call` content envelope.
     /// The wrapper (`MCPToolsCallHandler`) detects the top-level `content`
-    /// array and passes the envelope through unchanged.
+    /// array and passes the envelope through unchanged. The image is always
+    /// downscaled to a JPEG (longest edge 1024 px, quality 0.8) so the
+    /// base64 payload stays well under MCP's 1 MB result cap.
     private static func emitImageResearchItem(
         item: ResearchItem, projectURL: URL
     ) throws -> Data {
@@ -136,43 +144,64 @@ public enum ReadDocumentTool {
         let abs = projectURL.appendingPathComponent(path)
         let attrs = try? FileManager.default.attributesOfItem(atPath: abs.path)
         if let size = attrs?[.size] as? NSNumber,
-           size.intValue > maxInlineImageBytes {
+           size.intValue > maxSourceImageBytes {
             let mb = Double(size.intValue) / (1024 * 1024)
             throw MCPError.invalidArgument(String(
-                format: "Image '%@' is %.1f MB, larger than the %d MB inline cap. Resize the source or use list_research for metadata.",
-                item.title, mb, maxInlineImageBytes / (1024 * 1024)))
+                format: "Image '%@' is %.1f MB on disk; refusing to load. Maugham resizes for MCP delivery but won't open a source over 50 MB.",
+                item.title, mb))
         }
-        guard let bytes = try? Data(contentsOf: abs) else {
+        guard let jpeg = downscaleImageToJPEG(at: abs) else {
             throw MCPError.invalidArgument(
-                "Could not read image at '\(path)'")
+                "Could not decode image at '\(path)' as a recognized format")
         }
-        let mime = mimeTypeFor(path: path)
-        let base64 = bytes.base64EncodedString()
+        let base64 = jpeg.base64EncodedString()
         let envelope = AnyJSON.object([
             "content": .array([
                 .object([
                     "type": .string("image"),
                     "data": .string(base64),
-                    "mimeType": .string(mime)
+                    "mimeType": .string("image/jpeg")
                 ])
             ])
         ])
         return try JSONEncoder().encode(envelope)
     }
 
-    private static func mimeTypeFor(path: String) -> String {
-        let ext = (path as NSString).pathExtension.lowercased()
-        switch ext {
-        case "png": return "image/png"
-        case "jpg", "jpeg": return "image/jpeg"
-        case "gif": return "image/gif"
-        case "webp": return "image/webp"
-        case "bmp": return "image/bmp"
-        case "tiff", "tif": return "image/tiff"
-        case "heic": return "image/heic"
-        case "heif": return "image/heif"
-        default: return "application/octet-stream"
-        }
+    /// Load via NSImage, downscale to fit within `downscaleMaxDimension`
+    /// preserving aspect ratio, and JPEG-encode at quality 0.8. Returns nil
+    /// if the source isn't a decodable image. If the source is already at or
+    /// below the max dimension we still re-encode — same code path, simpler.
+    private static func downscaleImageToJPEG(at url: URL) -> Data? {
+        guard let source = NSImage(contentsOf: url) else { return nil }
+        let sourceSize = source.size
+        guard sourceSize.width > 0, sourceSize.height > 0 else { return nil }
+        let scale = min(1.0, downscaleMaxDimension / max(sourceSize.width, sourceSize.height))
+        let targetW = max(1, Int((sourceSize.width * scale).rounded()))
+        let targetH = max(1, Int((sourceSize.height * scale).rounded()))
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: targetW,
+            pixelsHigh: targetH,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0) else { return nil }
+        rep.size = NSSize(width: targetW, height: targetH)
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        guard let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
+        NSGraphicsContext.current = ctx
+        ctx.imageInterpolation = .high
+        source.draw(
+            in: NSRect(x: 0, y: 0, width: targetW, height: targetH),
+            from: NSRect(origin: .zero, size: sourceSize),
+            operation: .copy, fraction: 1.0)
+        return rep.representation(
+            using: .jpeg,
+            properties: [.compressionFactor: downscaleJPEGQuality])
     }
 
     private static func findResearchItem(

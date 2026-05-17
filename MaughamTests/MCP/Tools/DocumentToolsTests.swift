@@ -209,28 +209,35 @@ extension DocumentToolsTests {
     }
 
     /// Reading an image research item returns an MCP content envelope with
-    /// a base64-encoded image block. The wrapper in MCPToolsCallHandler
-    /// detects the envelope shape and passes it through unchanged.
-    func test_readDocument_returnsImageBase64Envelope() async throws {
+    /// a downscaled JPEG payload (longest edge ≤ 1024 px, quality 0.8). This
+    /// keeps the base64 well under MCP's 1 MB result cap regardless of how
+    /// large the source photo is.
+    func test_readDocument_returnsDownscaledJPEGEnvelope() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("RDRI-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
             at: tmp.appendingPathComponent("research"), withIntermediateDirectories: true)
-        // 1x1 PNG (smallest valid PNG).
-        let pngBytes: [UInt8] = [
-            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-            0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
-            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-            0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
-            0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41,
-            0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
-            0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
-            0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
-            0x42, 0x60, 0x82
-        ]
-        let pngData = Data(pngBytes)
+        // Render a 2000x1500 PNG (larger than the 1024 cap on both axes) so
+        // we can assert that downscaling actually happened.
+        let sourceSize = NSSize(width: 2000, height: 1500)
+        let sourceRep = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(sourceSize.width),
+            pixelsHigh: Int(sourceSize.height),
+            bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0, bitsPerPixel: 0))
+        sourceRep.size = sourceSize
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: sourceRep)
+        NSColor.systemBlue.setFill()
+        NSRect(origin: .zero, size: sourceSize).fill()
+        NSGraphicsContext.restoreGraphicsState()
+        let pngData = try XCTUnwrap(sourceRep.representation(using: .png, properties: [:]))
         try pngData.write(to: tmp.appendingPathComponent("research/cover.png"))
+
         let img = ResearchItem(
             id: "res-image",
             title: "Cover Photo",
@@ -259,11 +266,19 @@ extension DocumentToolsTests {
         let content = try XCTUnwrap(obj["content"] as? [[String: Any]])
         XCTAssertEqual(content.count, 1)
         XCTAssertEqual(content[0]["type"] as? String, "image")
-        XCTAssertEqual(content[0]["mimeType"] as? String, "image/png")
+        XCTAssertEqual(content[0]["mimeType"] as? String, "image/jpeg",
+            "downscaling always emits JPEG regardless of source format")
         let b64 = try XCTUnwrap(content[0]["data"] as? String)
         let decoded = try XCTUnwrap(Data(base64Encoded: b64))
-        XCTAssertEqual(decoded, pngData,
-            "decoded base64 should round-trip to the original PNG bytes")
+        let decodedImage = try XCTUnwrap(NSImage(data: decoded))
+        let longestEdge = max(decodedImage.size.width, decodedImage.size.height)
+        XCTAssertLessThanOrEqual(longestEdge, 1024,
+            "downscaled image should have longest edge ≤ 1024; got \(decodedImage.size)")
+        // Round-trip dimensions: 2000x1500 scaled to 1024px longest edge → 1024x768.
+        XCTAssertEqual(decodedImage.size.width, 1024, accuracy: 1)
+        XCTAssertEqual(decodedImage.size.height, 768, accuracy: 1)
+        XCTAssertLessThan(decoded.count, 1_000_000,
+            "downscaled JPEG should be well under MCP's 1 MB cap")
     }
 
     /// MCPToolsCallHandler must pass through tool results that are already
