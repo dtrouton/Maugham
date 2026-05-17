@@ -1,6 +1,14 @@
 import SwiftUI
 import AppKit
 
+/// Stable-per-launch session ID shared by all checkpoint captures in this process.
+private let _checkpointSessionId: String = UUID().uuidString
+/// Best-effort stable per-machine device ID for checkpoint attribution.
+private let _checkpointDeviceId: String = {
+    let name = ProcessInfo.processInfo.hostName
+    return name.isEmpty ? "unknown-host" : name
+}()
+
 enum ProjectActiveSheet: Identifiable {
     case projectSettings
     case claudeDesktop
@@ -35,6 +43,7 @@ struct ProjectWindow: View {
     @State private var mcpBannerCount: Int = 0
     @State private var mcpBannerLatestId: String?
     @State private var mcpBannerDismissTask: Task<Void, Never>?
+    @State private var showingCheckpointLabelSheet: Bool = false
     @Environment(UserPreferences.self) private var userPreferences
     @Environment(ProjectRegistry.self) private var mcpRegistry
     @Environment(\.openWindow) private var openWindow
@@ -97,6 +106,37 @@ struct ProjectWindow: View {
                             onClose: { showingDiffSheet = false }
                         )
                     }
+                }
+                .sheet(isPresented: $showingCheckpointLabelSheet) {
+                    let projectURL = store.url
+                    let activeDocId = selectedItemId ?? "__no-selection__"
+                    let allDocIds: [String] = {
+                        func collect(_ items: [StructureItem]) -> [String] {
+                            var ids: [String] = []
+                            for item in items {
+                                if item.type == .document { ids.append(item.id) }
+                                if let ch = item.children { ids.append(contentsOf: collect(ch)) }
+                            }
+                            return ids
+                        }
+                        return collect(store.manifest.structure)
+                    }()
+                    CheckpointLabelPromptSheet(
+                        onConfirm: { label in
+                            showingCheckpointLabelSheet = false
+                            Task { @MainActor in
+                                try? await documentStore.flushBurstNow()
+                                _ = try? await CheckpointCapture.run(
+                                    projectURL: projectURL,
+                                    activeDocId: activeDocId,
+                                    allDocIds: allDocIds,
+                                    device: _checkpointDeviceId,
+                                    session: _checkpointSessionId,
+                                    label: label)
+                            }
+                        },
+                        onCancel: { showingCheckpointLabelSheet = false }
+                    )
                 }
             } else if let loadError {
                 VStack(spacing: 12) {
@@ -190,6 +230,12 @@ struct ProjectWindow: View {
             mcpBannerCount: $mcpBannerCount,
             mcpBannerLatestId: $mcpBannerLatestId,
             mcpBannerDismissTask: $mcpBannerDismissTask))
+        .modifier(CheckpointModifier(
+            documentStore: documentStore,
+            store: store,
+            selectedItemId: selectedItemId,
+            showingCheckpointLabelSheet: $showingCheckpointLabelSheet,
+            onSaveFlash: { showSaveFlash() }))
         .sheet(isPresented: $showingSyntaxHelp) {
             SyntaxHelpSheet(mode: currentSyntaxHelpMode)
         }
@@ -932,6 +978,55 @@ struct ProjectWindow: View {
                let nested = firstDocument(in: children) { return nested }
         }
         return nil
+    }
+}
+
+// MARK: - CheckpointModifier
+
+/// Breaks the ⌘S / Shift-⌘S checkpoint notification handlers out of the
+/// main body chain so Swift's type-checker doesn't time out.
+private struct CheckpointModifier: ViewModifier {
+    let documentStore: DocumentStore?
+    let store: ProjectStore?
+    let selectedItemId: String?
+    @Binding var showingCheckpointLabelSheet: Bool
+    let onSaveFlash: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(
+                for: .maughamSaveCheckpoint)) { _ in
+                guard let store, let documentStore else { return }
+                let activeDocId = selectedItemId ?? "__no-selection__"
+                let allDocIds = collectDocIds(in: store.manifest.structure)
+                Task { @MainActor in
+                    try? await documentStore.flushBurstNow()
+                    _ = try? await CheckpointCapture.run(
+                        projectURL: store.url,
+                        activeDocId: activeDocId,
+                        allDocIds: allDocIds,
+                        device: _checkpointDeviceId,
+                        session: _checkpointSessionId,
+                        label: nil)
+                    onSaveFlash()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(
+                for: .maughamNamedCheckpoint)) { _ in
+                guard store != nil else { return }
+                showingCheckpointLabelSheet = true
+            }
+    }
+
+    private func collectDocIds(in items: [StructureItem]) -> [String] {
+        var ids: [String] = []
+        for item in items {
+            if item.type == .document { ids.append(item.id) }
+            if let children = item.children {
+                ids.append(contentsOf: collectDocIds(in: children))
+            }
+        }
+        return ids
     }
 }
 

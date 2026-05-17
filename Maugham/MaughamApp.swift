@@ -68,8 +68,15 @@ struct MaughamApp: App {
                 Button("Save") {
                     NotificationCenter.default.post(
                         name: .maughamDummySave, object: nil)
+                    NotificationCenter.default.post(
+                        name: .maughamSaveCheckpoint, object: nil)
                 }
                 .keyboardShortcut("s", modifiers: .command)
+                Button("Save Checkpoint As…") {
+                    NotificationCenter.default.post(
+                        name: .maughamNamedCheckpoint, object: nil)
+                }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
                 Divider()
                 Button("Tidy All Filenames") {
                     NotificationCenter.default.post(

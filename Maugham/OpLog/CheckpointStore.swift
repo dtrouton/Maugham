@@ -56,7 +56,7 @@ public final class CheckpointStore {
 
     private func encode(_ cp: Checkpoint) throws -> String {
         let enc = JSONEncoder()
-        enc.dateEncodingStrategy = .iso8601
+        enc.dateEncodingStrategy = .secondsSince1970
         enc.outputFormatting = [.sortedKeys]
         return String(data: try enc.encode(cp), encoding: .utf8) ?? ""
     }
@@ -64,7 +64,7 @@ public final class CheckpointStore {
     private func parse(bytes: Data) -> [Checkpoint] {
         guard let text = String(data: bytes, encoding: .utf8) else { return [] }
         let dec = JSONDecoder()
-        dec.dateDecodingStrategy = .iso8601
+        dec.dateDecodingStrategy = .secondsSince1970
         var out: [Checkpoint] = []
         for line in text.split(omittingEmptySubsequences: true, whereSeparator: \.isNewline) {
             guard let d = String(line).data(using: .utf8),

@@ -30,4 +30,8 @@ extension Notification.Name {
     public static let maughamLinkProject = Notification.Name("maugham.link.project")
     public static let maughamPromotePiece = Notification.Name("maugham.promote.piece")
     public static let maughamEffectiveAppearanceChanged = Notification.Name("maugham.effective.appearance.changed")
+    /// Posted when ⌘S is pressed — triggers a checkpoint capture with an auto-label.
+    public static let maughamSaveCheckpoint = Notification.Name("maugham.save.checkpoint")
+    /// Posted when Shift-⌘S is pressed — triggers the checkpoint label prompt sheet.
+    public static let maughamNamedCheckpoint = Notification.Name("maugham.named.checkpoint")
 }
