@@ -143,6 +143,74 @@ public final class DocumentStore {
         let text: String
     }
 
+    // MARK: - Op log integration
+
+    private struct OpLogContext {
+        let docId: String
+        let device: String
+        let session: String
+        let buffer: PendingBuffer
+    }
+    private var opLogContext: OpLogContext?
+    private var burstScheduler: BurstScheduler?
+
+    /// Bind an op-log recording context to the currently-open document.
+    /// Sets up an in-memory PendingBuffer for paragraph changes plus a
+    /// BurstScheduler whose onFire flushes those changes as a `typing_burst`
+    /// Op. Called by EditorCoordinator on document open.
+    public func beginOpLogContext(docId: String, device: String, session: String) {
+        opLogContext = OpLogContext(
+            docId: docId, device: device, session: session,
+            buffer: PendingBuffer(projectURL: projectURL, docId: docId))
+        burstScheduler = BurstScheduler(
+            idle: .seconds(30), max: .seconds(90)
+        ) { [weak self] in
+            Task { @MainActor [weak self] in
+                try? await self?.flushBurstNow()
+            }
+        }
+    }
+
+    /// Record a paragraph-level change into the pending buffer and tickle the
+    /// burst scheduler so the idle/max timers re-arm.
+    public func recordParagraphChange(paragraphId: String, prior: String?, next: String) {
+        guard let ctx = opLogContext else { return }
+        ctx.buffer.recordChange(paragraphId: paragraphId, prior: prior, next: next)
+        burstScheduler?.recordActivity()
+    }
+
+    /// True when the op-log pending buffer holds no changes (or no context is
+    /// bound). Used by tests and the burst-flush guard.
+    public func opLogPendingIsEmpty() -> Bool {
+        return opLogContext?.buffer.isEmpty() ?? true
+    }
+
+    /// Materialise the current pending buffer as a single `typing_burst` Op
+    /// appended to this doc's op log, then clear the buffer (both in-memory
+    /// and on-disk). No-op when there's nothing pending.
+    public func flushBurstNow() async throws {
+        guard let ctx = opLogContext, !ctx.buffer.isEmpty() else { return }
+        let changes = ctx.buffer.snapshot()
+        let op = Op(
+            opId: ULID.generate(),
+            docId: ctx.docId, at: Date(),
+            device: ctx.device, session: ctx.session,
+            kind: .typingBurst,
+            changes: changes,
+            sequence: nil,
+            provenance: nil)
+        try await OpLogStore(projectURL: projectURL, presenter: presenter).append(op)
+        try await ctx.buffer.clear()
+    }
+
+    /// Mirror the in-memory pending buffer to disk so a hard crash mid-burst
+    /// doesn't lose editorial classification. Hooked to the 750ms autosave
+    /// cadence by EditorCoordinator (Task 18).
+    public func persistPendingBufferToDisk() async throws {
+        guard let ctx = opLogContext else { return }
+        try await ctx.buffer.flushToDisk()
+    }
+
     private init(projectURL: URL, uiState: UIState) {
         self.projectURL = projectURL
         self.uiState = uiState
