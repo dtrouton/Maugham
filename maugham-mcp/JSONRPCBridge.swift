@@ -82,8 +82,9 @@ final class JSONRPCBridge {
         if isNotification { return }
         // For requests, synthesize a maugham_not_running response so Claude
         // Desktop sees a clean error instead of a hang.
-        let response = Self.errorResponseFor(line: line)
-        writeStdoutLine(response)
+        if let response = Self.errorResponseFor(line: line) {
+            writeStdoutLine(response)
+        }
     }
 
     /// JSON-RPC notification = no `id` field. We inspect the raw bytes once
@@ -197,16 +198,19 @@ final class JSONRPCBridge {
         }
     }
 
-    /// Build a JSON-RPC error response for a request whose id we extract.
-    /// Used when the socket is unreachable.
-    private static func errorResponseFor(line: Data) -> Data {
+    /// Build a JSON-RPC error response for a request whose id we can extract.
+    /// Returns nil if the incoming line has no valid id — in that case we drop
+    /// the response silently (Claude Desktop can't match null-id responses to
+    /// outstanding requests; a missed response is treated as a timeout, which
+    /// is graceful, while a malformed reply corrupts the connection).
+    private static func errorResponseFor(line: Data) -> Data? {
         let idLiteral: String
         if let obj = try? JSONSerialization.jsonObject(with: line) as? [String: Any] {
             if let i = obj["id"] as? Int { idLiteral = "\(i)" }
             else if let s = obj["id"] as? String { idLiteral = "\"\(s)\"" }
-            else { idLiteral = "null" }
+            else { return nil }
         } else {
-            idLiteral = "null"
+            return nil
         }
         let body = """
         {"jsonrpc":"2.0","id":\(idLiteral),"error":{"code":-32001,"message":"Maugham isn't running."}}

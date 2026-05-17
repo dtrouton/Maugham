@@ -110,13 +110,32 @@ public enum SearchTextTool {
         let manuscriptOnly = allMatches.filter { m in
             m.documentSource == .manuscript
         }
-        let mapped = manuscriptOnly.map { m in
-            Match(
-                document_id: m.documentPath,
+        let mapped = manuscriptOnly.map { m -> Match in
+            // SearchMatch.documentPath is the engine's relative file path, not
+            // the real StructureItem.id. Resolve to the actual id so that
+            // search_text → read_document works correctly.
+            let resolvedId = Self.findStructureItemId(
+                path: m.documentPath, in: entry.store.manifest.structure)
+                ?? m.documentPath  // fallback: orphan match, emit path for debug
+            return Match(
+                document_id: resolvedId,
                 document_title: m.documentTitle,
                 line: m.lineNumber,
                 preview: m.linePreview)
         }
         return try JSONEncoder().encode(mapped)
+    }
+
+    private static func findStructureItemId(
+        path: String, in items: [StructureItem]
+    ) -> String? {
+        for item in items {
+            if item.path == path { return item.id }
+            if let kids = item.children,
+               let nested = findStructureItemId(path: path, in: kids) {
+                return nested
+            }
+        }
+        return nil
     }
 }

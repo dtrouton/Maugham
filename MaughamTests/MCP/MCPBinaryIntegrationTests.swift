@@ -140,6 +140,47 @@ extension MCPBinaryIntegrationTests {
         return String(data: buf, encoding: .utf8) ?? ""
     }
 
+    /// A malformed JSON line (or one with no extractable id) should be dropped
+    /// silently — emitting a synthesized response with null id would corrupt
+    /// Claude Desktop's outstanding-request tracking.
+    func test_binary_dropsResponse_whenIncomingLineHasNoExtractableId() throws {
+        guard let bin = binaryURL() else {
+            throw XCTSkip("maugham-mcp not built in this product dir")
+        }
+        let process = Process()
+        process.executableURL = bin
+        process.environment = ["MAUGHAM_MCP_SOCKET":
+            "/tmp/definitely-not-a-real-socket-\(UUID()).sock"]
+        let inPipe = Pipe()
+        let outPipe = Pipe()
+        process.standardInput = inPipe
+        process.standardOutput = outPipe
+        try process.run()
+        defer { if process.isRunning { process.terminate() } }
+
+        // Send a structurally malformed request that has neither `id` nor
+        // `method` — it parses as JSON but carries no extractable id. The
+        // binary must NOT write a null-id response; it should drop silently.
+        let bogus = #"{"jsonrpc":"2.0","garbage":true}"# + "\n"
+        inPipe.fileHandleForWriting.write(Data(bogus.utf8))
+
+        // Follow immediately with a real request to confirm the binary is
+        // still alive and the bogus line didn't generate any output.
+        let real = #"{"jsonrpc":"2.0","id":99,"method":"x"}"# + "\n"
+        inPipe.fileHandleForWriting.write(Data(real.utf8))
+
+        let body = (try? collectResponseLine(
+            from: outPipe.fileHandleForReading, timeout: 5)) ?? ""
+        inPipe.fileHandleForWriting.closeFile()
+
+        // The first (and only) response must be for id 99 — the real request.
+        // The bogus line should have generated no output at all.
+        XCTAssertTrue(body.contains("\"id\":99"),
+            "expected response for id 99 (bogus dropped); got: \(body)")
+        XCTAssertFalse(body.contains("\"id\":null"),
+            "must not emit null-id responses; got: \(body)")
+    }
+
     /// JSON-RPC notifications (no `id` field) get no response. The binary
     /// must forward them and immediately accept the next stdin line — not
     /// block waiting for a response that never comes. Regression for the

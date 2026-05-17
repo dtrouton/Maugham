@@ -129,6 +129,45 @@ extension DocumentToolsTests {
         }
     }
 
+    /// search_text used to emit document_id as a file path; that breaks the
+    /// chain search → read_document because read_document expects a
+    /// StructureItem.id. Regression: document_id must be the real id.
+    func test_searchText_returnsRealStructureItemId() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("STID-\(UUID())")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("manuscript"), withIntermediateDirectories: true)
+        try "The lighthouse keeper waited.".write(
+            to: tmp.appendingPathComponent("manuscript/c1.md"),
+            atomically: true, encoding: .utf8)
+        let ch = StructureItem(
+            id: "doc-lookup-target", title: "Ch 1", type: .document,
+            path: "manuscript/c1.md")
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A",
+            created: Date(), modified: Date(),
+            structure: [ch], research: [])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(
+            to: tmp.appendingPathComponent("project.maugham.json"))
+        let store = try await ProjectStore.load(from: tmp)
+        let reg = ProjectRegistry()
+        reg.register(url: tmp, store: store)
+
+        let id = ProjectIdentifier.id(for: tmp)
+        let req = "{\"project_id\":\"\(id)\",\"query\":\"lighthouse\"}"
+        let json = try await SearchTextTool.handle(
+            paramsJSON: Data(req.utf8), registry: reg)
+        let matches = try JSONDecoder().decode(
+            [SearchTextTool.Match].self, from: json)
+        XCTAssertFalse(matches.isEmpty, "expected at least one match for 'lighthouse'")
+        // Real id is "doc-lookup-target", NOT the path "manuscript/c1.md".
+        XCTAssertEqual(matches[0].document_id, "doc-lookup-target",
+            "document_id should be the structure item id, not a path; got: \(matches[0].document_id)")
+    }
+
     /// Groups should expose a modified timestamp derived from the max of
     /// descendant document mtimes. Empty groups can stay nil.
     func test_getOutline_groupModified_isMaxOfDescendantDocs() async throws {
