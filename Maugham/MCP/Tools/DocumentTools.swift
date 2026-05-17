@@ -102,8 +102,7 @@ public enum ReadDocumentTool {
                 links: item.links)
             return try JSONEncoder().encode(content)
         case .image:
-            throw MCPError.invalidArgument(
-                "Research item '\(item.title)' is an image, not a readable text document. Use list_research for metadata.")
+            return try emitImageResearchItem(item: item, projectURL: projectURL)
         case .pdf:
             throw MCPError.invalidArgument(
                 "Research item '\(item.title)' is a PDF, not a readable text document. Use list_research for metadata.")
@@ -116,6 +115,63 @@ public enum ReadDocumentTool {
         case .none:
             throw MCPError.invalidArgument(
                 "Research item '\(item.title)' has no kind set")
+        }
+    }
+
+    /// Maximum on-disk size for an image returned inline. Base64 inflates by
+    /// ~33%, and Claude Desktop chokes on very large payloads, so cap at 5 MB
+    /// of source bytes.
+    private static let maxInlineImageBytes = 5 * 1024 * 1024
+
+    /// Emit an image research item as an MCP `tools/call` content envelope.
+    /// The wrapper (`MCPToolsCallHandler`) detects the top-level `content`
+    /// array and passes the envelope through unchanged.
+    private static func emitImageResearchItem(
+        item: ResearchItem, projectURL: URL
+    ) throws -> Data {
+        guard let path = item.path else {
+            throw MCPError.invalidArgument(
+                "Research item '\(item.title)' has no on-disk path")
+        }
+        let abs = projectURL.appendingPathComponent(path)
+        let attrs = try? FileManager.default.attributesOfItem(atPath: abs.path)
+        if let size = attrs?[.size] as? NSNumber,
+           size.intValue > maxInlineImageBytes {
+            let mb = Double(size.intValue) / (1024 * 1024)
+            throw MCPError.invalidArgument(String(
+                format: "Image '%@' is %.1f MB, larger than the %d MB inline cap. Resize the source or use list_research for metadata.",
+                item.title, mb, maxInlineImageBytes / (1024 * 1024)))
+        }
+        guard let bytes = try? Data(contentsOf: abs) else {
+            throw MCPError.invalidArgument(
+                "Could not read image at '\(path)'")
+        }
+        let mime = mimeTypeFor(path: path)
+        let base64 = bytes.base64EncodedString()
+        let envelope = AnyJSON.object([
+            "content": .array([
+                .object([
+                    "type": .string("image"),
+                    "data": .string(base64),
+                    "mimeType": .string(mime)
+                ])
+            ])
+        ])
+        return try JSONEncoder().encode(envelope)
+    }
+
+    private static func mimeTypeFor(path: String) -> String {
+        let ext = (path as NSString).pathExtension.lowercased()
+        switch ext {
+        case "png": return "image/png"
+        case "jpg", "jpeg": return "image/jpeg"
+        case "gif": return "image/gif"
+        case "webp": return "image/webp"
+        case "bmp": return "image/bmp"
+        case "tiff", "tif": return "image/tiff"
+        case "heic": return "image/heic"
+        case "heif": return "image/heif"
+        default: return "application/octet-stream"
         }
     }
 

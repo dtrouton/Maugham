@@ -71,6 +71,7 @@ targets:
       base:
         BUNDLE_LOADER: $(TEST_HOST)
         TEST_HOST: $(BUILT_PRODUCTS_DIR)/Maugham.app/Contents/MacOS/Maugham
+        GENERATE_INFOPLIST_FILE: YES
 schemes:
   Maugham:
     build:

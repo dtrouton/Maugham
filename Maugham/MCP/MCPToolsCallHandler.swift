@@ -26,9 +26,15 @@ public enum MCPToolsCallHandler {
         }
         let resultData = try await router.dispatch(
             method: params.name, paramsJSON: argsData)
-        // Wrap as MCP content. The underlying tool returned arbitrary JSON;
-        // we stringify and pass it as a text block so Claude can display
-        // structured results in the conversation.
+        // Polymorphic wrapping: if the tool already returned an MCP envelope
+        // (a JSON object with a top-level `content` array), pass it through.
+        // This lets tools emit non-text content blocks (image, etc.) without
+        // every tool needing to know about the envelope shape.
+        if let obj = try? JSONSerialization.jsonObject(with: resultData) as? [String: Any],
+           obj["content"] is [Any] {
+            return resultData
+        }
+        // Default: wrap arbitrary JSON as a text content block.
         let asText = String(data: resultData, encoding: .utf8) ?? "{}"
         let wrapped = AnyJSON.object([
             "content": .array([

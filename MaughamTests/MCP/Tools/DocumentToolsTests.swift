@@ -208,10 +208,29 @@ extension DocumentToolsTests {
         XCTAssertEqual(doc.mode, "prose")
     }
 
-    func test_readDocument_rejectsImageResearchItem() async throws {
+    /// Reading an image research item returns an MCP content envelope with
+    /// a base64-encoded image block. The wrapper in MCPToolsCallHandler
+    /// detects the envelope shape and passes it through unchanged.
+    func test_readDocument_returnsImageBase64Envelope() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("RDRI-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("research"), withIntermediateDirectories: true)
+        // 1x1 PNG (smallest valid PNG).
+        let pngBytes: [UInt8] = [
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+            0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+            0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+            0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41,
+            0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+            0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
+            0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+            0x42, 0x60, 0x82
+        ]
+        let pngData = Data(pngBytes)
+        try pngData.write(to: tmp.appendingPathComponent("research/cover.png"))
         let img = ResearchItem(
             id: "res-image",
             title: "Cover Photo",
@@ -233,15 +252,77 @@ extension DocumentToolsTests {
 
         let id = ProjectIdentifier.id(for: tmp)
         let req = "{\"project_id\":\"\(id)\",\"document_id\":\"res-image\"}"
-        do {
-            _ = try await ReadDocumentTool.handle(
-                paramsJSON: Data(req.utf8), registry: reg)
-            XCTFail("expected throw for image research item")
-        } catch MCPError.invalidArgument {
-            // ok
-        } catch {
-            XCTFail("wrong error: \(error)")
+        let json = try await ReadDocumentTool.handle(
+            paramsJSON: Data(req.utf8), registry: reg)
+        let obj = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: json) as? [String: Any])
+        let content = try XCTUnwrap(obj["content"] as? [[String: Any]])
+        XCTAssertEqual(content.count, 1)
+        XCTAssertEqual(content[0]["type"] as? String, "image")
+        XCTAssertEqual(content[0]["mimeType"] as? String, "image/png")
+        let b64 = try XCTUnwrap(content[0]["data"] as? String)
+        let decoded = try XCTUnwrap(Data(base64Encoded: b64))
+        XCTAssertEqual(decoded, pngData,
+            "decoded base64 should round-trip to the original PNG bytes")
+    }
+
+    /// MCPToolsCallHandler must pass through tool results that are already
+    /// MCP-shaped (top-level `content` array). Without this, image envelopes
+    /// would be re-wrapped as a text block containing stringified JSON.
+    func test_toolsCallHandler_passesThroughMCPContentEnvelope() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TCP-\(UUID())")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("research"), withIntermediateDirectories: true)
+        let pngBytes: [UInt8] = [
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+            0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+            0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+            0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41,
+            0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+            0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
+            0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+            0x42, 0x60, 0x82
+        ]
+        try Data(pngBytes).write(to: tmp.appendingPathComponent("research/cover.png"))
+        let img = ResearchItem(
+            id: "res-image",
+            title: "Cover Photo",
+            type: .asset,
+            kind: .image,
+            path: "research/cover.png",
+            addedAt: Date())
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A",
+            created: Date(), modified: Date(),
+            structure: [], research: [img])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(
+            to: tmp.appendingPathComponent("project.maugham.json"))
+        let store = try await ProjectStore.load(from: tmp)
+        let reg = ProjectRegistry()
+        reg.register(url: tmp, store: store)
+
+        let router = MCPRouter()
+        router.register(method: ReadDocumentTool.method) { params in
+            try await ReadDocumentTool.handle(paramsJSON: params, registry: reg)
         }
+
+        let id = ProjectIdentifier.id(for: tmp)
+        let callJSON = """
+        {"name":"read_document","arguments":{"project_id":"\(id)","document_id":"res-image"}}
+        """
+        let resp = try await MCPToolsCallHandler.handle(
+            paramsJSON: Data(callJSON.utf8), router: router)
+        let obj = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: resp) as? [String: Any])
+        let content = try XCTUnwrap(obj["content"] as? [[String: Any]])
+        // Image block came through, NOT stringified as text.
+        XCTAssertEqual(content[0]["type"] as? String, "image",
+            "envelope should pass through unchanged; got: \(content)")
     }
 
     /// Groups should expose a modified timestamp derived from the max of
