@@ -56,9 +56,16 @@ final class JSONRPCBridge {
             _ = tryConnect()
         }
 
+        // JSON-RPC notifications (id-less requests like notifications/initialized)
+        // get no response. Don't block waiting for one.
+        let isNotification = Self.isNotification(line: line)
+
         if socketFD >= 0 {
-            // Forward to socket, then read the response back.
             if writeLine(line, toFD: socketFD) {
+                if isNotification {
+                    // Fire-and-forget; server stays silent per JSON-RPC spec.
+                    return
+                }
                 if let response = readSocketLine() {
                     writeStdoutLine(response)
                     return
@@ -70,11 +77,28 @@ final class JSONRPCBridge {
                 closeSocket()
             }
         }
-        // Socket is dead (initial connect failed OR mid-request failure).
-        // Synthesize a maugham_not_running response so Claude Desktop sees a
-        // clean error instead of a hang.
+        // Socket is dead. For notifications we have no response obligation,
+        // so just return — Claude Desktop doesn't expect bytes back.
+        if isNotification { return }
+        // For requests, synthesize a maugham_not_running response so Claude
+        // Desktop sees a clean error instead of a hang.
         let response = Self.errorResponseFor(line: line)
         writeStdoutLine(response)
+    }
+
+    /// JSON-RPC notification = no `id` field. We inspect the raw bytes once
+    /// to decide whether to wait for a response. Conservative: if the line
+    /// doesn't parse cleanly, treat it as a request (we'll either get a
+    /// response or synthesize one).
+    private static func isNotification(line: Data) -> Bool {
+        guard let obj = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else {
+            return false
+        }
+        // Present-but-null id is still "no id" per JSON-RPC 2.0; treat as
+        // notification.
+        if obj["id"] == nil { return true }
+        if obj["id"] is NSNull { return true }
+        return false
     }
 
     /// Try to connect to the socket. Returns true on success; updates

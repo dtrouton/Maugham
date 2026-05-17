@@ -139,4 +139,44 @@ extension MCPBinaryIntegrationTests {
         }
         return String(data: buf, encoding: .utf8) ?? ""
     }
+
+    /// JSON-RPC notifications (no `id` field) get no response. The binary
+    /// must forward them and immediately accept the next stdin line — not
+    /// block waiting for a response that never comes. Regression for the
+    /// "MCP shows connected but Claude can't see tools" bug: Claude Desktop
+    /// sends `notifications/initialized` after the handshake, and if the
+    /// binary blocked there, subsequent `tools/list` never makes it through.
+    func test_binary_doesNotBlockOnNotification_andProcessesNextRequest() throws {
+        guard let bin = binaryURL() else {
+            throw XCTSkip("maugham-mcp not built in this product dir")
+        }
+        let process = Process()
+        process.executableURL = bin
+        process.environment = ["MAUGHAM_MCP_SOCKET":
+            "/tmp/definitely-not-a-real-socket-\(UUID()).sock"]
+        let inPipe = Pipe()
+        let outPipe = Pipe()
+        process.standardInput = inPipe
+        process.standardOutput = outPipe
+        try process.run()
+        defer { if process.isRunning { process.terminate() } }
+
+        // 1. Send an id-less notification first. Binary should NOT block.
+        let notif = #"{"jsonrpc":"2.0","method":"notifications/initialized"}"# + "\n"
+        inPipe.fileHandleForWriting.write(Data(notif.utf8))
+
+        // 2. Immediately send a request. If the binary blocked on the
+        //    notification, this never gets read.
+        let req = #"{"jsonrpc":"2.0","id":42,"method":"list_projects"}"# + "\n"
+        inPipe.fileHandleForWriting.write(Data(req.utf8))
+
+        // 3. We should get a response for the request within a few seconds.
+        let body = (try? collectResponseLine(
+            from: outPipe.fileHandleForReading, timeout: 5)) ?? ""
+        inPipe.fileHandleForWriting.closeFile()
+        XCTAssertTrue(body.contains("\"id\":42"),
+            "expected response for id 42 (notification didn't block); got: \(body)")
+        XCTAssertTrue(body.contains("-32001"),
+            "expected synthesized maugham_not_running; got: \(body)")
+    }
 }
