@@ -63,12 +63,12 @@ public enum CheckpointCapture {
             labelSource = .auto
         }
 
-        // Snap `at` through Double so that encode(→secondsSince1970)→decode
-        // produces the identical Date value. Date internally uses sub-Double
-        // precision; constructing via timeIntervalSince1970 eliminates that
-        // gap and makes CheckpointStore.load() return an equal Checkpoint.
+        // Snap `at` to millisecond precision so the ISO8601-with-fractional-seconds
+        // encoder (which has 3 decimal places → ms precision) round-trips back to
+        // an equal Date. Date internally uses sub-millisecond precision that would
+        // otherwise be lost on the encode→decode path.
         let now = Date()
-        let snappedAt = Date(timeIntervalSince1970: now.timeIntervalSince1970)
+        let snappedAt = Date(timeIntervalSince1970: (now.timeIntervalSince1970 * 1000).rounded() / 1000)
         let cp = Checkpoint(
             checkpointId: ULID.generate(),
             label: resolvedLabel,
