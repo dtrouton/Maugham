@@ -2358,6 +2358,115 @@ extension ProjectStore {
         return item
     }
 
+    /// Import an asset file into a piece's research/ subfolder. Mirrors
+    /// addResearchAsset(parentId:fromURL:) but lands at pieces/<piece>/research/.
+    /// Auto-detects kind (image/pdf/audio/document) via ResearchKindInference;
+    /// unknown extensions fall back to .document.
+    public func addPieceResearchAsset(
+        pieceId: String, fromURL sourceURL: URL
+    ) async throws -> ResearchItem {
+        guard manifest.type == .collection else {
+            throw ProjectStoreError.fileSystemError(
+                "addPieceResearchAsset only valid for Collection projects")
+        }
+        guard let piece = manifest.structure.first(where: { $0.id == pieceId }),
+              piece.pieceKind == .loose,
+              let piecePath = piece.path else {
+            throw ProjectStoreError.fileSystemError(
+                "Unknown loose piece: \(pieceId)")
+        }
+        let pieceFolder = (piecePath as NSString).deletingLastPathComponent
+        let researchFolder = "\(pieceFolder)/research"
+        let researchFolderURL = url.appendingPathComponent(researchFolder)
+        try FileManager.default.createDirectory(
+            at: researchFolderURL, withIntermediateDirectories: true)
+
+        let filename = sourceURL.lastPathComponent
+        let kind = ResearchKindInference.kind(forFilename: filename) ?? .document
+        let stem = (filename as NSString).deletingPathExtension
+        let ext = (filename as NSString).pathExtension.lowercased()
+        let slug = Self.researchSlugify(stem)
+        let existing = (try? FileManager.default
+            .contentsOfDirectory(atPath: researchFolderURL.path)) ?? []
+        let baseFilename = ext.isEmpty ? slug : "\(slug).\(ext)"
+        let targetFilename = Self.researchDedupedFilename(baseFilename, existing: existing)
+        let destURL = researchFolderURL.appendingPathComponent(targetFilename)
+        try FileManager.default.copyItem(at: sourceURL, to: destURL)
+
+        let relativePath = "\(researchFolder)/\(targetFilename)"
+        let item = ResearchItem(
+            id: Self.newId(prefix: "res"),
+            title: stem,
+            type: .asset,
+            kind: kind,
+            path: relativePath,
+            addedAt: Date())
+        manifest.research.append(item)
+        manifest.modified = Date()
+        try await saveManifest()
+        return item
+    }
+
+    /// Add a web-link research item scoped to a piece. The manifest entry's
+    /// path lives under pieces/<piece>/research/ (as a synthetic .link filename)
+    /// so the pane's path-prefix filter includes it in the right section.
+    public func addPieceResearchLink(
+        pieceId: String, title: String, url linkURL: String
+    ) async throws -> ResearchItem {
+        guard manifest.type == .collection else {
+            throw ProjectStoreError.fileSystemError(
+                "addPieceResearchLink only valid for Collection projects")
+        }
+        guard let piece = manifest.structure.first(where: { $0.id == pieceId }),
+              piece.pieceKind == .loose,
+              let piecePath = piece.path else {
+            throw ProjectStoreError.fileSystemError(
+                "Unknown loose piece: \(pieceId)")
+        }
+        let pieceFolder = (piecePath as NSString).deletingLastPathComponent
+        let researchFolder = "\(pieceFolder)/research"
+        let baseTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedTitle = baseTitle.isEmpty ? "Untitled Link" : baseTitle
+        let slug = Self.researchSlugify(resolvedTitle)
+        // Build a synthetic path for filtering — no file is actually written.
+        let existingPaths = Set(manifest.research.compactMap { $0.path })
+        var pathName = "\(slug).link"
+        var counter = 2
+        while existingPaths.contains("\(researchFolder)/\(pathName)") {
+            pathName = "\(slug)-\(counter).link"
+            counter += 1
+        }
+        let item = ResearchItem(
+            id: Self.newId(prefix: "res"),
+            title: resolvedTitle,
+            type: .asset,
+            kind: .link,
+            path: "\(researchFolder)/\(pathName)",
+            url: linkURL,
+            addedAt: Date())
+        manifest.research.append(item)
+        manifest.modified = Date()
+        try await saveManifest()
+        return item
+    }
+
+    /// Bulk-import files into a piece's research/ folder. Returns all created
+    /// items; individual file failures are skipped silently (caller can inspect
+    /// the returned count to detect partial failures).
+    @discardableResult
+    public func importPieceResearchFiles(
+        pieceId: String, urls: [URL]
+    ) async throws -> [ResearchItem] {
+        var imported: [ResearchItem] = []
+        for fileURL in urls {
+            if let item = try? await addPieceResearchAsset(
+                pieceId: pieceId, fromURL: fileURL) {
+                imported.append(item)
+            }
+        }
+        return imported
+    }
+
     /// Reorder a Collection piece within manifest.structure. Renumbers all
     /// piece folder NN- prefixes contiguously (01, 02, 03, …), moves folders
     /// on disk to match, updates manifest entry paths, and rewrites per-piece
