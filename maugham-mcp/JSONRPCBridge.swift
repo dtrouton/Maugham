@@ -51,40 +51,43 @@ final class JSONRPCBridge {
 
     /// Handle one complete JSON-RPC line from Claude Desktop.
     private func handleStdinLine(_ line: Data) {
-        // Ensure we have a socket connection (try to reconnect if dead).
-        if socketFD < 0 {
-            _ = tryConnect()
-        }
-
         // JSON-RPC notifications (id-less requests like notifications/initialized)
         // get no response. Don't block waiting for one.
         let isNotification = Self.isNotification(line: line)
 
-        if socketFD >= 0 {
-            if writeLine(line, toFD: socketFD) {
-                if isNotification {
-                    // Fire-and-forget; server stays silent per JSON-RPC spec.
-                    return
-                }
-                if let response = readSocketLine() {
-                    writeStdoutLine(response)
-                    return
-                }
-                // Socket died mid-exchange. Close and synthesize.
-                closeSocket()
-            } else {
-                // Write failed (peer reset). Close and synthesize.
-                closeSocket()
-            }
+        // First attempt: forward on whatever connection we have (open one if needed).
+        if socketFD < 0 { _ = tryConnect() }
+        if socketFD >= 0, tryForward(line: line, isNotification: isNotification) {
+            return
         }
-        // Socket is dead. For notifications we have no response obligation,
-        // so just return — Claude Desktop doesn't expect bytes back.
+
+        // First attempt failed. Most common cause: Maugham restarted and our
+        // socketFD is stale — write/read fails but a fresh connect succeeds.
+        // One free retry covers that case so Claude Desktop doesn't see a
+        // spurious "Tool execution failed" on the first request after restart.
+        closeSocket()
+        if tryConnect(), tryForward(line: line, isNotification: isNotification) {
+            return
+        }
+
+        // Still failed. For notifications: silent (Claude doesn't expect bytes).
+        // For requests: synthesize a maugham_not_running error.
         if isNotification { return }
-        // For requests, synthesize a maugham_not_running response so Claude
-        // Desktop sees a clean error instead of a hang.
         if let response = Self.errorResponseFor(line: line) {
             writeStdoutLine(response)
         }
+    }
+
+    /// Forward one line on the current socketFD, and for requests read+write
+    /// the response back to stdout. Returns true if the round completed
+    /// without a socket-level failure; false otherwise (caller should
+    /// closeSocket + retry or synthesize).
+    private func tryForward(line: Data, isNotification: Bool) -> Bool {
+        if !writeLine(line, toFD: socketFD) { return false }
+        if isNotification { return true }
+        guard let response = readSocketLine() else { return false }
+        writeStdoutLine(response)
+        return true
     }
 
     /// JSON-RPC notification = no `id` field. We inspect the raw bytes once
