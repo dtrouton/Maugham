@@ -1,11 +1,23 @@
 import Foundation
 import AppKit
 
-/// `read_document(project_id, document_id)` — current text + metadata.
+/// `read_document(project_id, document_id, max_dimension?, quality?, region?)` —
+/// returns text + metadata for manuscript / text-research docs; returns a
+/// downscaled JPEG inside an MCP content envelope for image research items.
+/// Image params are ignored for non-image targets.
 public enum ReadDocumentTool {
+    public struct Region: Codable, Equatable {
+        public let x: Double
+        public let y: Double
+        public let width: Double
+        public let height: Double
+    }
     public struct Params: Codable {
         public let project_id: String
         public let document_id: String
+        public let max_dimension: Int?
+        public let quality: Int?
+        public let region: Region?
     }
     public struct DocumentContent: Codable, Equatable {
         public let id: String
@@ -40,7 +52,7 @@ public enum ReadDocumentTool {
 
         // Research item path
         if let item = Self.findResearchItem(id: params.document_id, in: store.manifest.research) {
-            return try emitResearchItem(item: item, projectURL: entry.url)
+            return try emitResearchItem(item: item, projectURL: entry.url, params: params)
         }
 
         throw MCPError.invalidArgument("document not found: \(params.document_id)")
@@ -75,7 +87,7 @@ public enum ReadDocumentTool {
     }
 
     private static func emitResearchItem(
-        item: ResearchItem, projectURL: URL
+        item: ResearchItem, projectURL: URL, params: Params
     ) throws -> Data {
         guard item.type == .asset else {
             throw MCPError.invalidArgument(
@@ -103,7 +115,8 @@ public enum ReadDocumentTool {
                 links: item.links)
             return try JSONEncoder().encode(content)
         case .image:
-            return try emitImageResearchItem(item: item, projectURL: projectURL)
+            return try emitImageResearchItem(
+                item: item, projectURL: projectURL, params: params)
         case .pdf:
             throw MCPError.invalidArgument(
                 "Research item '\(item.title)' is a PDF, not a readable text document. Use list_research for metadata.")
@@ -119,23 +132,44 @@ public enum ReadDocumentTool {
         }
     }
 
-    /// Sanity cap on the on-disk source before NSImage even opens it. Phone
-    /// photos top out around 10–15 MB; 50 MB is well above any reasonable
-    /// research input and prevents loading absurd files into memory.
+    /// Sanity cap on the on-disk source before NSImage opens it. Phone photos
+    /// top out around 10–15 MB; 50 MB is well above any reasonable research
+    /// input and prevents loading absurd files into memory.
     private static let maxSourceImageBytes = 50 * 1024 * 1024
-    /// Longest edge after downscaling. Vision models work at roughly this
-    /// resolution; sending the full original is wasted bytes.
-    static let downscaleMaxDimension: CGFloat = 1024
-    /// JPEG compression. 0.8 is a good agent-consumption default.
-    static let downscaleJPEGQuality: CGFloat = 0.8
+    /// Default longest-edge cap if the caller doesn't override. 2048 px at
+    /// JPEG q=85 produces ~400–700 KB for a full-page handwritten photo —
+    /// the sweet spot for readability under MCP's ~720 KB raw-bytes budget.
+    static let defaultMaxDimension: Int = 2048
+    /// Default JPEG quality. 85 keeps handwriting legible without bloat.
+    static let defaultJPEGQuality: Int = 85
+    /// Raw-bytes budget for the JPEG payload. Base64 inflates ~33% and the
+    /// JSON envelope adds a few hundred bytes; 720 KB leaves headroom under
+    /// MCP's 1 MB result cap.
+    private static let jpegByteBudget = 720_000
+    /// Allowed range for the caller-supplied max_dimension.
+    private static let dimensionFloor = 256
+    private static let dimensionCeiling = 4096
+    /// Step-down sequence for auto-fallback when the encoded JPEG exceeds
+    /// jpegByteBudget. Each retry reduces longest-edge by roughly 25%.
+    private static let fallbackSteps: [Double] = [1.0, 0.75, 0.5625, 0.4218]
 
     /// Emit an image research item as an MCP `tools/call` content envelope.
-    /// The wrapper (`MCPToolsCallHandler`) detects the top-level `content`
-    /// array and passes the envelope through unchanged. The image is always
-    /// downscaled to a JPEG (longest edge 1024 px, quality 0.8) so the
-    /// base64 payload stays well under MCP's 1 MB result cap.
+    /// Pipeline:
+    ///   1. Open via NSImage.
+    ///   2. If `region` provided, crop in source-pixel coords (top-left origin,
+    ///      so y=0 is the top of the page) to a sub-rect at native resolution.
+    ///   3. Scale the (cropped) image so longest edge ≤ max_dimension. Never
+    ///      upscale — if the source/crop is already smaller, we keep its
+    ///      native pixels.
+    ///   4. JPEG-encode at `quality`. If the encoded size exceeds the byte
+    ///      budget, step max_dimension down ~25% and retry up to 3 times.
+    ///   5. If a fallback happened, prepend a `text` content block with a
+    ///      one-line note so the agent knows the effective resolution.
+    ///
+    /// Errors out clearly if the image can't be decoded, the region is
+    /// invalid, or no fallback step fits.
     private static func emitImageResearchItem(
-        item: ResearchItem, projectURL: URL
+        item: ResearchItem, projectURL: URL, params: Params
     ) throws -> Data {
         guard let path = item.path else {
             throw MCPError.invalidArgument(
@@ -150,34 +184,107 @@ public enum ReadDocumentTool {
                 format: "Image '%@' is %.1f MB on disk; refusing to load. Maugham resizes for MCP delivery but won't open a source over 50 MB.",
                 item.title, mb))
         }
-        guard let jpeg = downscaleImageToJPEG(at: abs) else {
-            throw MCPError.invalidArgument(
-                "Could not decode image at '\(path)' as a recognized format")
-        }
-        let base64 = jpeg.base64EncodedString()
-        let envelope = AnyJSON.object([
-            "content": .array([
-                .object([
-                    "type": .string("image"),
-                    "data": .string(base64),
-                    "mimeType": .string("image/jpeg")
-                ])
-            ])
+
+        let requestedMax = clampDimension(params.max_dimension ?? defaultMaxDimension)
+        let quality = clampQuality(params.quality ?? defaultJPEGQuality)
+        if let region = params.region { try validateRegion(region) }
+
+        let rendered = try renderImageWithBudget(
+            at: abs, region: params.region,
+            requestedMax: requestedMax, quality: quality)
+
+        let imageBlock: AnyJSON = .object([
+            "type": .string("image"),
+            "data": .string(rendered.jpeg.base64EncodedString()),
+            "mimeType": .string("image/jpeg")
         ])
+        var blocks: [AnyJSON] = []
+        if rendered.fallbackUsed {
+            let note = "Requested \(requestedMax)px exceeded the 1 MB transport cap; returning at \(rendered.effectiveMax)px instead."
+            blocks.append(.object([
+                "type": .string("text"),
+                "text": .string(note)
+            ]))
+        }
+        blocks.append(imageBlock)
+        let envelope = AnyJSON.object(["content": .array(blocks)])
         return try JSONEncoder().encode(envelope)
     }
 
-    /// Load via NSImage, downscale to fit within `downscaleMaxDimension`
-    /// preserving aspect ratio, and JPEG-encode at quality 0.8. Returns nil
-    /// if the source isn't a decodable image. If the source is already at or
-    /// below the max dimension we still re-encode — same code path, simpler.
-    private static func downscaleImageToJPEG(at url: URL) -> Data? {
-        guard let source = NSImage(contentsOf: url) else { return nil }
+    private static func clampDimension(_ d: Int) -> Int {
+        return min(dimensionCeiling, max(dimensionFloor, d))
+    }
+    private static func clampQuality(_ q: Int) -> Int {
+        return min(100, max(10, q))
+    }
+    private static func validateRegion(_ r: Region) throws {
+        let inUnit = { (v: Double) in v >= 0 && v <= 1 }
+        guard inUnit(r.x), inUnit(r.y),
+              r.width > 0, r.height > 0,
+              r.x + r.width <= 1.0 + 1e-9,
+              r.y + r.height <= 1.0 + 1e-9 else {
+            throw MCPError.invalidArgument(
+                "region must satisfy 0≤x,y; 0<width,height; x+width≤1; y+height≤1 (got x=\(r.x), y=\(r.y), width=\(r.width), height=\(r.height))")
+        }
+    }
+
+    private struct RenderResult {
+        let jpeg: Data
+        let effectiveMax: Int
+        let fallbackUsed: Bool
+    }
+
+    private static func renderImageWithBudget(
+        at url: URL, region: Region?, requestedMax: Int, quality: Int
+    ) throws -> RenderResult {
+        guard let source = NSImage(contentsOf: url) else {
+            throw MCPError.invalidArgument(
+                "Could not decode image at '\(url.path)' as a recognized format")
+        }
         let sourceSize = source.size
-        guard sourceSize.width > 0, sourceSize.height > 0 else { return nil }
-        let scale = min(1.0, downscaleMaxDimension / max(sourceSize.width, sourceSize.height))
-        let targetW = max(1, Int((sourceSize.width * scale).rounded()))
-        let targetH = max(1, Int((sourceSize.height * scale).rounded()))
+        guard sourceSize.width > 0, sourceSize.height > 0 else {
+            throw MCPError.invalidArgument("image has zero dimensions")
+        }
+        // Source rect: full image or the requested crop. NSImage uses
+        // bottom-up coordinates, so we flip the region's y to convert from
+        // the agent's top-left-origin convention.
+        let sourceRect: NSRect
+        if let r = region {
+            let sx = r.x * sourceSize.width
+            let sy = (1.0 - r.y - r.height) * sourceSize.height
+            let sw = r.width * sourceSize.width
+            let sh = r.height * sourceSize.height
+            sourceRect = NSRect(x: sx, y: sy, width: sw, height: sh)
+        } else {
+            sourceRect = NSRect(origin: .zero, size: sourceSize)
+        }
+
+        for step in fallbackSteps {
+            let maxDim = max(dimensionFloor, Int(Double(requestedMax) * step))
+            guard let jpeg = renderJPEG(
+                source: source, sourceRect: sourceRect,
+                maxDimension: maxDim, quality: quality) else { continue }
+            if jpeg.count <= jpegByteBudget || maxDim <= dimensionFloor {
+                return RenderResult(
+                    jpeg: jpeg,
+                    effectiveMax: maxDim,
+                    fallbackUsed: step != 1.0)
+            }
+        }
+        throw MCPError.invalidArgument(
+            "Could not fit image under the 1 MB transport cap even at \(dimensionFloor)px. Try a tighter region.")
+    }
+
+    /// Draw `sourceRect` of `source` into a bitmap whose longest edge equals
+    /// `maxDimension` (preserving aspect ratio), then JPEG-encode at the
+    /// given quality. Never upscales — if the source rect is smaller than
+    /// the cap in both dimensions, the bitmap matches the source rect.
+    private static func renderJPEG(
+        source: NSImage, sourceRect: NSRect, maxDimension: Int, quality: Int
+    ) -> Data? {
+        let scale = min(1.0, Double(maxDimension) / Double(max(sourceRect.width, sourceRect.height)))
+        let targetW = max(1, Int((sourceRect.width * scale).rounded()))
+        let targetH = max(1, Int((sourceRect.height * scale).rounded()))
         guard let rep = NSBitmapImageRep(
             bitmapDataPlanes: nil,
             pixelsWide: targetW,
@@ -197,11 +304,11 @@ public enum ReadDocumentTool {
         ctx.imageInterpolation = .high
         source.draw(
             in: NSRect(x: 0, y: 0, width: targetW, height: targetH),
-            from: NSRect(origin: .zero, size: sourceSize),
+            from: sourceRect,
             operation: .copy, fraction: 1.0)
         return rep.representation(
             using: .jpeg,
-            properties: [.compressionFactor: downscaleJPEGQuality])
+            properties: [.compressionFactor: CGFloat(quality) / 100.0])
     }
 
     private static func findResearchItem(

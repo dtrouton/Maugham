@@ -208,43 +208,52 @@ extension DocumentToolsTests {
         XCTAssertEqual(doc.mode, "prose")
     }
 
-    /// Reading an image research item returns an MCP content envelope with
-    /// a downscaled JPEG payload (longest edge ≤ 1024 px, quality 0.8). This
-    /// keeps the base64 well under MCP's 1 MB result cap regardless of how
-    /// large the source photo is.
-    func test_readDocument_returnsDownscaledJPEGEnvelope() async throws {
+    /// Helpers shared by the image tests.
+    private func makeSolidPNG(width: Int, height: Int, color: NSColor) throws -> Data {
+        let rep = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        rep.size = NSSize(width: width, height: height)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        color.setFill()
+        NSRect(x: 0, y: 0, width: width, height: height).fill()
+        NSGraphicsContext.restoreGraphicsState()
+        return try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+    }
+
+    /// Top-half red, bottom-half blue. Used to verify that crop coordinates
+    /// use top-left origin (y=0 should pick up red, y=0.5 should pick up blue).
+    private func makeTwoToneVerticalPNG(width: Int, height: Int) throws -> Data {
+        let rep = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        rep.size = NSSize(width: width, height: height)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        // Cocoa is bottom-up: y=0 is the bottom of the bitmap. To put red at
+        // the visual top, fill the upper half (high y).
+        NSColor.red.setFill()
+        NSRect(x: 0, y: height / 2, width: width, height: height / 2).fill()
+        NSColor.blue.setFill()
+        NSRect(x: 0, y: 0, width: width, height: height / 2).fill()
+        NSGraphicsContext.restoreGraphicsState()
+        return try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+    }
+
+    private func setupImageProject(pngData: Data) async throws -> (tmp: URL, reg: ProjectRegistry, id: String) {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("RDRI-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
             at: tmp.appendingPathComponent("research"), withIntermediateDirectories: true)
-        // Render a 2000x1500 PNG (larger than the 1024 cap on both axes) so
-        // we can assert that downscaling actually happened.
-        let sourceSize = NSSize(width: 2000, height: 1500)
-        let sourceRep = try XCTUnwrap(NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: Int(sourceSize.width),
-            pixelsHigh: Int(sourceSize.height),
-            bitsPerSample: 8, samplesPerPixel: 4,
-            hasAlpha: true, isPlanar: false,
-            colorSpaceName: .deviceRGB,
-            bytesPerRow: 0, bitsPerPixel: 0))
-        sourceRep.size = sourceSize
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: sourceRep)
-        NSColor.systemBlue.setFill()
-        NSRect(origin: .zero, size: sourceSize).fill()
-        NSGraphicsContext.restoreGraphicsState()
-        let pngData = try XCTUnwrap(sourceRep.representation(using: .png, properties: [:]))
         try pngData.write(to: tmp.appendingPathComponent("research/cover.png"))
-
         let img = ResearchItem(
-            id: "res-image",
-            title: "Cover Photo",
-            type: .asset,
-            kind: .image,
-            path: "research/cover.png",
-            addedAt: Date())
+            id: "res-image", title: "Cover Photo",
+            type: .asset, kind: .image,
+            path: "research/cover.png", addedAt: Date())
         let manifest = ProjectManifest(
             type: .novel, title: "T", author: "A",
             created: Date(), modified: Date(),
@@ -256,29 +265,108 @@ extension DocumentToolsTests {
         let store = try await ProjectStore.load(from: tmp)
         let reg = ProjectRegistry()
         reg.register(url: tmp, store: store)
+        return (tmp, reg, ProjectIdentifier.id(for: tmp))
+    }
 
-        let id = ProjectIdentifier.id(for: tmp)
+    /// Default behavior: 2048 px longest edge, JPEG quality 85. The envelope
+    /// must contain exactly one image block (no fallback note) when the
+    /// payload fits the byte budget.
+    func test_readDocument_imageDefaults_returnsJPEGAt2048() async throws {
+        let png = try makeSolidPNG(width: 3000, height: 2000, color: .systemBlue)
+        let (_, reg, id) = try await setupImageProject(pngData: png)
         let req = "{\"project_id\":\"\(id)\",\"document_id\":\"res-image\"}"
         let json = try await ReadDocumentTool.handle(
             paramsJSON: Data(req.utf8), registry: reg)
         let obj = try XCTUnwrap(
             try JSONSerialization.jsonObject(with: json) as? [String: Any])
         let content = try XCTUnwrap(obj["content"] as? [[String: Any]])
-        XCTAssertEqual(content.count, 1)
+        XCTAssertEqual(content.count, 1, "no fallback note expected for solid-color input")
         XCTAssertEqual(content[0]["type"] as? String, "image")
-        XCTAssertEqual(content[0]["mimeType"] as? String, "image/jpeg",
-            "downscaling always emits JPEG regardless of source format")
+        XCTAssertEqual(content[0]["mimeType"] as? String, "image/jpeg")
         let b64 = try XCTUnwrap(content[0]["data"] as? String)
         let decoded = try XCTUnwrap(Data(base64Encoded: b64))
         let decodedImage = try XCTUnwrap(NSImage(data: decoded))
-        let longestEdge = max(decodedImage.size.width, decodedImage.size.height)
-        XCTAssertLessThanOrEqual(longestEdge, 1024,
-            "downscaled image should have longest edge ≤ 1024; got \(decodedImage.size)")
-        // Round-trip dimensions: 2000x1500 scaled to 1024px longest edge → 1024x768.
-        XCTAssertEqual(decodedImage.size.width, 1024, accuracy: 1)
-        XCTAssertEqual(decodedImage.size.height, 768, accuracy: 1)
-        XCTAssertLessThan(decoded.count, 1_000_000,
-            "downscaled JPEG should be well under MCP's 1 MB cap")
+        let longest = max(decodedImage.size.width, decodedImage.size.height)
+        XCTAssertEqual(longest, 2048, accuracy: 1,
+            "default max_dimension should be 2048; got \(decodedImage.size)")
+        XCTAssertLessThan(decoded.count, 720_000,
+            "encoded JPEG should fit the byte budget")
+    }
+
+    /// `region` crops in source pixel coords using top-left origin. A crop of
+    /// the top half of a top=red / bottom=blue image must come back red.
+    func test_readDocument_imageRegion_cropsWithTopLeftOrigin() async throws {
+        let png = try makeTwoToneVerticalPNG(width: 1000, height: 1000)
+        let (_, reg, id) = try await setupImageProject(pngData: png)
+        let req = """
+        {"project_id":"\(id)","document_id":"res-image","region":{"x":0,"y":0,"width":1.0,"height":0.5}}
+        """
+        let json = try await ReadDocumentTool.handle(
+            paramsJSON: Data(req.utf8), registry: reg)
+        let obj = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: json) as? [String: Any])
+        let content = try XCTUnwrap(obj["content"] as? [[String: Any]])
+        let b64 = try XCTUnwrap(content.last?["data"] as? String)
+        let decoded = try XCTUnwrap(Data(base64Encoded: b64))
+        let decodedImage = try XCTUnwrap(NSImage(data: decoded))
+        let pixel = try samplePixelColor(from: decodedImage, at: CGPoint(x: 0.5, y: 0.5))
+        XCTAssertGreaterThan(pixel.red, 0.6,
+            "top-half crop should sample red; got rgba=\(pixel)")
+        XCTAssertLessThan(pixel.blue, 0.3,
+            "top-half crop should not sample blue; got rgba=\(pixel)")
+    }
+
+    /// Invalid regions are rejected with a clear MCP error rather than
+    /// silently clamping. x+width > 1 is the canonical mistake.
+    func test_readDocument_imageRegion_rejectsOutOfBounds() async throws {
+        let png = try makeSolidPNG(width: 500, height: 500, color: .systemBlue)
+        let (_, reg, id) = try await setupImageProject(pngData: png)
+        let req = """
+        {"project_id":"\(id)","document_id":"res-image","region":{"x":0.7,"y":0.0,"width":0.5,"height":0.5}}
+        """
+        do {
+            _ = try await ReadDocumentTool.handle(
+                paramsJSON: Data(req.utf8), registry: reg)
+            XCTFail("expected throw for x+width > 1")
+        } catch MCPError.invalidArgument {
+            // ok
+        } catch {
+            XCTFail("wrong error: \(error)")
+        }
+    }
+
+    /// max_dimension is honored when explicitly set, and clamped to the
+    /// 256–4096 range. 512 px override should produce a 512 px JPEG.
+    func test_readDocument_imageMaxDimension_overrideHonored() async throws {
+        let png = try makeSolidPNG(width: 3000, height: 2000, color: .systemTeal)
+        let (_, reg, id) = try await setupImageProject(pngData: png)
+        let req = """
+        {"project_id":"\(id)","document_id":"res-image","max_dimension":512}
+        """
+        let json = try await ReadDocumentTool.handle(
+            paramsJSON: Data(req.utf8), registry: reg)
+        let obj = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: json) as? [String: Any])
+        let content = try XCTUnwrap(obj["content"] as? [[String: Any]])
+        let b64 = try XCTUnwrap(content.last?["data"] as? String)
+        let decoded = try XCTUnwrap(Data(base64Encoded: b64))
+        let decodedImage = try XCTUnwrap(NSImage(data: decoded))
+        XCTAssertEqual(max(decodedImage.size.width, decodedImage.size.height), 512, accuracy: 1)
+    }
+
+    /// Sample the first pixel of `image` at normalized point (x,y) in
+    /// top-left-origin coords. Tests use this to verify region crops.
+    private func samplePixelColor(
+        from image: NSImage, at point: CGPoint
+    ) throws -> (red: Double, green: Double, blue: Double) {
+        let rep = try XCTUnwrap(image.representations.first as? NSBitmapImageRep
+            ?? NSBitmapImageRep(data: image.tiffRepresentation ?? Data()))
+        // Flip y because NSBitmapImageRep.colorAt is also bottom-up.
+        let px = Int(point.x * Double(rep.pixelsWide))
+        let py = Int((1.0 - point.y) * Double(rep.pixelsHigh))
+        let color = try XCTUnwrap(rep.colorAt(x: px, y: py))
+        let conv = color.usingColorSpace(.deviceRGB) ?? color
+        return (Double(conv.redComponent), Double(conv.greenComponent), Double(conv.blueComponent))
     }
 
     /// MCPToolsCallHandler must pass through tool results that are already
@@ -290,18 +378,8 @@ extension DocumentToolsTests {
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
             at: tmp.appendingPathComponent("research"), withIntermediateDirectories: true)
-        let pngBytes: [UInt8] = [
-            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-            0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
-            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-            0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
-            0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41,
-            0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
-            0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
-            0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
-            0x42, 0x60, 0x82
-        ]
-        try Data(pngBytes).write(to: tmp.appendingPathComponent("research/cover.png"))
+        let png = try makeSolidPNG(width: 64, height: 64, color: .systemTeal)
+        try png.write(to: tmp.appendingPathComponent("research/cover.png"))
         let img = ResearchItem(
             id: "res-image",
             title: "Cover Photo",
