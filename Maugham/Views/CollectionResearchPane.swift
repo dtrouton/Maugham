@@ -152,8 +152,12 @@ struct CollectionResearchPane: View {
             onRename: { id, newTitle in
                 Task { await rename(id: id, to: newTitle) }
             },
-            onDrop: { _, _ in
-                // Cross-section research drag is out of scope for v1.
+            onDrop: { draggedId, position in
+                Task { await handleResearchReorder(
+                    draggedId: draggedId,
+                    targetItem: item,
+                    position: position,
+                    scope: scope) }
             },
             onExternalDrop: { urls, _ in
                 Task { await runImport(urls: urls, scope: scope) }
@@ -290,5 +294,54 @@ struct CollectionResearchPane: View {
         } catch {
             pendingError = error.localizedDescription
         }
+    }
+
+    /// Within-section research reorder. Cross-section drags (Shared → per-piece
+    /// or between different pieces) are ignored — those are out of scope per
+    /// the milestone spec. Within-section, we compute the destination index in
+    /// the flat manifest.research array such that the section-filtered view
+    /// reflects the drop position. moveResearchItem preserves the relative
+    /// order of items in other sections.
+    private func handleResearchReorder(
+        draggedId: String,
+        targetItem: ResearchItem,
+        position: DropIntent.Position,
+        scope: Scope
+    ) async {
+        guard draggedId != targetItem.id else { return }
+        // Both items must belong to the same section. If the dragged item
+        // came from a different section, silently ignore the drop.
+        guard let dragged = store.manifest.research.first(where: { $0.id == draggedId }),
+              scopeFor(item: dragged) == scope,
+              scopeFor(item: targetItem) == scope else {
+            return
+        }
+        guard let sourceFullIdx = store.manifest.research.firstIndex(where: { $0.id == draggedId }),
+              let targetFullIdx = store.manifest.research.firstIndex(where: { $0.id == targetItem.id }) else {
+            return
+        }
+        var destIdx = position == .top ? targetFullIdx : targetFullIdx + 1
+        if sourceFullIdx < destIdx { destIdx -= 1 }
+        do {
+            try await store.moveResearchItem(
+                id: draggedId, toParentId: nil, atIndex: destIdx)
+        } catch {
+            pendingError = error.localizedDescription
+        }
+    }
+
+    /// Which section a given research item belongs to, based on its path.
+    private func scopeFor(item: ResearchItem) -> Scope {
+        guard let path = item.path, path.hasPrefix("pieces/") else {
+            return .shared
+        }
+        for piece in store.manifest.structure where piece.pieceKind == .loose {
+            guard let piecePath = piece.path else { continue }
+            let pieceFolder = (piecePath as NSString).deletingLastPathComponent
+            if path.hasPrefix("\(pieceFolder)/research/") {
+                return .piece(piece.id)
+            }
+        }
+        return .shared
     }
 }
