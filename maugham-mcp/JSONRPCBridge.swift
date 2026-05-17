@@ -1,27 +1,112 @@
 import Foundation
 import Darwin
 
-/// Stdio↔Unix-socket relay. If the socket connects, forwards line-delimited
-/// JSON-RPC bytes in both directions until either side closes. If the socket
-/// is absent, reads stdin requests and synthesizes maugham_not_running
-/// responses (-32001), preserving the request id when present.
+/// Bridges Claude Desktop's stdio JSON-RPC to Maugham's Unix socket.
+/// Single-threaded line loop with auto-reconnect: when the socket dies
+/// (Maugham crashed or was rebuilt), the binary holds stdin/stdout open,
+/// synthesizes maugham_not_running for incoming requests, and periodically
+/// attempts reconnect with exponential backoff. When the connection is
+/// restored, request forwarding resumes transparently.
 final class JSONRPCBridge {
     private let socketPath: String
+    private var socketFD: Int32 = -1
+    /// Buffer of bytes read from socket that haven't yet been parsed into a complete line.
+    private var socketReadBuffer = Data()
+
+    /// Reconnect cadence in seconds. Starts fast, backs off, settles at
+    /// 8s. The binary stays alive indefinitely; each new stdin line
+    /// triggers a reconnect attempt if the socket is dead.
+    private let reconnectDelays: [TimeInterval] = [0.5, 1.0, 2.0, 4.0, 8.0]
+    private var nextReconnectIdx = 0
 
     init(socketPath: String) {
         self.socketPath = socketPath
     }
 
     func run() {
-        let fd = openSocket()
-        if fd >= 0 {
-            relay(socketFD: fd)
-            close(fd)
-        } else {
-            synthesizeErrors()
+        // Try initial connect (non-fatal if it fails — we'll keep trying as
+        // requests arrive).
+        _ = tryConnect()
+
+        // Single-threaded line loop on stdin.
+        var stdinBuffer = Data()
+        var buf = [UInt8](repeating: 0, count: 8192)
+        while true {
+            let n = read(0, &buf, buf.count)
+            if n <= 0 {
+                // stdin closed — Claude Desktop quit or shut us down. Exit cleanly.
+                if socketFD >= 0 { close(socketFD); socketFD = -1 }
+                return
+            }
+            stdinBuffer.append(buf, count: Int(n))
+
+            // Process all complete lines in the buffer.
+            while let newlineIdx = stdinBuffer.firstIndex(of: 0x0A) {
+                let line = stdinBuffer[..<newlineIdx]
+                stdinBuffer.removeSubrange(...newlineIdx)
+                handleStdinLine(Data(line))
+            }
         }
     }
 
+    /// Handle one complete JSON-RPC line from Claude Desktop.
+    private func handleStdinLine(_ line: Data) {
+        // Ensure we have a socket connection (try to reconnect if dead).
+        if socketFD < 0 {
+            _ = tryConnect()
+        }
+
+        if socketFD >= 0 {
+            // Forward to socket, then read the response back.
+            if writeLine(line, toFD: socketFD) {
+                if let response = readSocketLine() {
+                    writeStdoutLine(response)
+                    return
+                }
+                // Socket died mid-exchange. Close and synthesize.
+                closeSocket()
+            } else {
+                // Write failed (peer reset). Close and synthesize.
+                closeSocket()
+            }
+        }
+        // Socket is dead (initial connect failed OR mid-request failure).
+        // Synthesize a maugham_not_running response so Claude Desktop sees a
+        // clean error instead of a hang.
+        let response = Self.errorResponseFor(line: line)
+        writeStdoutLine(response)
+    }
+
+    /// Try to connect to the socket. Returns true on success; updates
+    /// socketFD. Implements exponential backoff: each call advances the
+    /// delay index; on success the index resets.
+    private func tryConnect() -> Bool {
+        if socketFD >= 0 { return true }
+        // Apply backoff for repeated failed attempts.
+        if nextReconnectIdx > 0 {
+            let delay = reconnectDelays[min(nextReconnectIdx - 1, reconnectDelays.count - 1)]
+            Thread.sleep(forTimeInterval: delay)
+        }
+        let fd = openSocket()
+        if fd >= 0 {
+            socketFD = fd
+            socketReadBuffer.removeAll()
+            nextReconnectIdx = 0
+            return true
+        }
+        nextReconnectIdx = min(nextReconnectIdx + 1, reconnectDelays.count)
+        return false
+    }
+
+    private func closeSocket() {
+        if socketFD >= 0 {
+            close(socketFD)
+            socketFD = -1
+        }
+        socketReadBuffer.removeAll()
+    }
+
+    /// Connect to the Unix socket. Returns fd ≥ 0 on success, -1 on failure.
     private func openSocket() -> Int32 {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { return -1 }
@@ -47,74 +132,54 @@ final class JSONRPCBridge {
         return fd
     }
 
-    private func relay(socketFD: Int32) {
-        // Two threads: stdin → socket, socket → stdout. Either ends causes shutdown.
-        let group = DispatchGroup()
-        let stdinFD: Int32 = 0
-        let stdoutFD: Int32 = 1
-
-        group.enter()
-        DispatchQueue.global().async {
-            Self.pipe(from: stdinFD, to: socketFD)
-            // stdin → socket finished (stdin EOF or socket write failed). Half-close
-            // the socket write side so the server sees EOF. Also shut down the read
-            // side so the other pipe's blocked recv returns.
-            shutdown(socketFD, SHUT_RDWR)
-            group.leave()
-        }
-        group.enter()
-        DispatchQueue.global().async {
-            Self.pipe(from: socketFD, to: stdoutFD)
-            // socket → stdout finished (socket closed or stdout write failed).
-            // Close stdin so the other pipe's blocked read returns.
-            close(stdinFD)
-            group.leave()
-        }
-        group.wait()
-    }
-
-    private static func pipe(from: Int32, to: Int32) {
-        var buf = [UInt8](repeating: 0, count: 8192)
-        while true {
-            let n = read(from, &buf, buf.count)
-            if n <= 0 { return }
-            var written = 0
-            while written < Int(n) {
-                let w = buf.withUnsafeBufferPointer { ptr in
-                    write(to, ptr.baseAddress! + written, Int(n) - written)
-                }
-                if w <= 0 { return }
+    /// Write a line (followed by newline) to the given fd. Returns true on success.
+    private func writeLine(_ line: Data, toFD fd: Int32) -> Bool {
+        var out = line
+        out.append(0x0A)
+        var written = 0
+        return out.withUnsafeBytes { rawBytes -> Bool in
+            let base = rawBytes.baseAddress!
+            while written < out.count {
+                let w = write(fd, base + written, out.count - written)
+                if w <= 0 { return false }
                 written += w
             }
+            return true
         }
     }
 
-    private func synthesizeErrors() {
-        // Read stdin line-by-line, return a maugham_not_running error for each.
-        var pending = Data()
+    private func writeStdoutLine(_ line: Data) {
+        _ = writeLine(line, toFD: 1)
+    }
+
+    /// Read one line from the socket. Returns nil if the socket died mid-read.
+    private func readSocketLine() -> Data? {
+        // If buffer already has a complete line, return it.
+        if let newlineIdx = socketReadBuffer.firstIndex(of: 0x0A) {
+            let line = socketReadBuffer[..<newlineIdx]
+            socketReadBuffer.removeSubrange(...newlineIdx)
+            return Data(line)
+        }
         var buf = [UInt8](repeating: 0, count: 8192)
         while true {
-            let n = read(0, &buf, buf.count)
-            if n <= 0 { return }
-            pending.append(buf, count: Int(n))
-            while let newlineIdx = pending.firstIndex(of: 0x0A) {
-                let line = pending[..<newlineIdx]
-                pending.removeSubrange(...newlineIdx)
-                let response = Self.errorResponseFor(line: Data(line))
-                _ = response.withUnsafeBytes { write(1, $0.baseAddress, response.count) }
-                let newline: [UInt8] = [0x0A]
-                _ = newline.withUnsafeBufferPointer { write(1, $0.baseAddress, 1) }
+            let n = read(socketFD, &buf, buf.count)
+            if n <= 0 { return nil }
+            socketReadBuffer.append(buf, count: Int(n))
+            if let newlineIdx = socketReadBuffer.firstIndex(of: 0x0A) {
+                let line = socketReadBuffer[..<newlineIdx]
+                socketReadBuffer.removeSubrange(...newlineIdx)
+                return Data(line)
             }
         }
     }
 
+    /// Build a JSON-RPC error response for a request whose id we extract.
+    /// Used when the socket is unreachable.
     private static func errorResponseFor(line: Data) -> Data {
-        // Extract the id field if present. We don't fully parse the request —
-        // just enough to preserve the id so the client matches the response.
         let idLiteral: String
-        if let json = try? JSONSerialization.jsonObject(with: line) as? [String: Any] {
-            if let intId = json["id"] as? Int { idLiteral = "\(intId)" }
-            else if let strId = json["id"] as? String { idLiteral = "\"\(strId)\"" }
+        if let obj = try? JSONSerialization.jsonObject(with: line) as? [String: Any] {
+            if let i = obj["id"] as? Int { idLiteral = "\(i)" }
+            else if let s = obj["id"] as? String { idLiteral = "\"\(s)\"" }
             else { idLiteral = "null" }
         } else {
             idLiteral = "null"
