@@ -96,4 +96,26 @@ final class EditorCoordinatorCycleTests: XCTestCase {
         XCTAssertEqual(tv.selectedRange().location, secondSceneStart)
         _ = coord  // keep alive through the assertion
     }
+
+    /// Regression: textDidChange bumps a generation counter. The async
+    /// cursor-restore closure captures the counter at schedule time and
+    /// bails out if a newer textDidChange has bumped it before the
+    /// closure fires. Without this guard, the stale closure from an
+    /// earlier keystroke clobbers the cursor that a subsequent keystroke
+    /// has legitimately advanced — producing the "cursor jumps behind a
+    /// few characters and pushes them along" pattern. The full race
+    /// requires user input to land BETWEEN the two async firings and
+    /// isn't directly reproducible from a unit test, but the invariant
+    /// the fix relies on — that the counter strictly increases on each
+    /// textDidChange — is testable.
+    func test_textDidChange_bumpsGenerationCounter() {
+        let tv = makeTextView(text: "abc")
+        let coord = makeCoordinator(textView: tv, mode: ScreenplayMode())
+        let before = coord.changeGeneration
+        let note = Notification(name: NSText.didChangeNotification, object: tv)
+        coord.textDidChange(note)
+        XCTAssertEqual(coord.changeGeneration, before + 1)
+        coord.textDidChange(note)
+        XCTAssertEqual(coord.changeGeneration, before + 2)
+    }
 }

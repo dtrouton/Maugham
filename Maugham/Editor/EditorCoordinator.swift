@@ -66,6 +66,18 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// textDidChange knows to leave lastCycleTarget alone.
     private var isApplyingTabCycle = false
 
+    /// Incremented on every textDidChange invocation. The deferred async
+    /// cursor-restore closure in textDidChange captures this counter at
+    /// capture time and bails out if a newer textDidChange has bumped it
+    /// before the closure fires — preventing a stale postEditSelection
+    /// from clobbering the cursor that subsequent keystrokes have
+    /// legitimately advanced. Without this guard, rapid typing (especially
+    /// in screenplay mode where retokenizeAndStyle is heavier) lets the
+    /// async restore from keystroke N fire after keystroke N+1, dragging
+    /// the cursor backward and producing the "cursor ends up behind a few
+    /// characters, pushing them along" pattern.
+    internal var changeGeneration: Int = 0
+
     private let autocompleter = CharacterAutocompleter()
 
     /// Observer token for `maughamNavigateToScene` notifications.
@@ -335,6 +347,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // cycle() will reset it before the async block fires.
         let skipCursorRestore = isApplyingTabCycle
         let postEditSelection = textView.selectedRange()
+        changeGeneration &+= 1
+        let generation = changeGeneration
         binding.wrappedValue = textView.string
         retokenizeAndStyle()
         // Autocomplete trigger deferred — see milestone-3b notes.
@@ -343,8 +357,13 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                 textView.setSelectedRange(postEditSelection)
                 textView.scrollRangeToVisible(postEditSelection)
             }
-            DispatchQueue.main.async { [weak textView, postEditSelection] in
-                guard let textView else { return }
+            DispatchQueue.main.async { [weak self, weak textView, postEditSelection, generation] in
+                guard let self, let textView else { return }
+                // Only apply this stale-capture restore if no newer keystroke
+                // has bumped the generation since we scheduled. Without this
+                // guard, the async closure can clobber the cursor that a
+                // subsequent keystroke has legitimately advanced.
+                guard self.changeGeneration == generation else { return }
                 if textView.selectedRange() != postEditSelection {
                     textView.setSelectedRange(postEditSelection)
                     // Also scroll back to the cursor: a large paste reflows the
