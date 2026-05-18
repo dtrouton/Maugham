@@ -36,6 +36,32 @@ final class DocumentStoreSaveTests: XCTestCase {
         await store.close()
     }
 
+    /// Regression: after our own save, `lastWrittenText` equals exactly
+    /// the bytes we scheduled. The EditorHost gate
+    /// `priorStoredMarkdown != newValue` on `.onChange(of: lastWrittenText)`
+    /// relies on this invariant to skip re-syncing the editor view from
+    /// our own save echo. The previous gate compared display-form against
+    /// stored-form (always different), causing a re-sync on every autosave
+    /// that stripped trailing whitespace via stripComments(restoreComments(...))
+    /// and dragged the cursor backward by one character — most visible in
+    /// screenplay mode where single-line elements are common.
+    func test_lastWrittenText_equalsScheduledBytes_afterSave() async throws {
+        let url = try await createNovelWithChapter1()
+        let chapterPath = "manuscript/01-chapter-1.md"
+        let store = try await DocumentStore.open(url: url)
+        _ = try await store.openDocument(at: chapterPath)
+
+        // Shape of what EditorHost would schedule after restoreComments:
+        // a paragraph with an inline ¶id comment marker.
+        let storedBytes = "<!-- ¶a3f9 -->\n\nHello world\n"
+        store.scheduleSave(for: chapterPath, text: storedBytes)
+        try await store.flushPendingSave()
+
+        XCTAssertEqual(store.lastWrittenText, storedBytes,
+            "lastWrittenText must equal the bytes we scheduled so EditorHost can detect 'this is our own save echo' and skip the re-sync that would clobber the cursor.")
+        await store.close()
+    }
+
     func test_scheduleSave_writesAfterDebounce() async throws {
         let url = try await createNovelWithChapter1()
         let chapterPath = "manuscript/01-chapter-1.md"

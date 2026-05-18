@@ -143,15 +143,19 @@ struct EditorHost: View {
             Task { await loadDocumentIfNeeded() }
         }
         .onChange(of: documentStore.lastWrittenText) { _, newValue in
-            // External "Use cloud" resolution updates lastWrittenText to the
-            // external content; rebind the editor to match. The external
-            // bytes are in stored form (with `<!-- ¶id -->` comments) — so
-            // we strip for display and update priorStoredMarkdown so the
-            // next save round-trips cleanly without minting fresh IDs for
-            // every paragraph.
+            // Re-sync the editor view only when this update is genuinely
+            // external — Use-cloud resolution, iCloud sync from another
+            // Mac, or a silent reload after no local edits. After our own
+            // save, lastWrittenText echoes priorStoredMarkdown; re-syncing
+            // would strip whitespace via stripComments(restoreComments(...))
+            // and clobber any trailing space the user just typed, dragging
+            // the cursor backward by one. The previous gate compared
+            // documentText (display form) against newValue (stored form) —
+            // those representations are always different, so the body ran
+            // on every autosave, not just on external resolutions.
             if let item = currentItem,
                item.id == loadedItemId,
-               documentText != newValue {
+               priorStoredMarkdown != newValue {
                 let displayed = RenderFilter.stripComments(newValue)
                 documentText = displayed
                 priorStoredMarkdown = newValue
