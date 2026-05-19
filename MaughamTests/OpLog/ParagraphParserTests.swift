@@ -68,4 +68,18 @@ final class ParagraphParserTests: XCTestCase {
         XCTAssertEqual(p.count, 1)
         XCTAssertEqual(p[0].text, "First.")
     }
+
+    func test_parse_trailingSpacePreserved() {
+        let parsed = ParagraphParser.parse("Hello world ")
+        XCTAssertEqual(parsed.count, 1)
+        XCTAssertEqual(parsed[0].text, "Hello world ",
+            "trailing space within a single-line paragraph must survive parse")
+    }
+
+    func test_parse_leadingSpacePreserved() {
+        let parsed = ParagraphParser.parse("  indented line")
+        XCTAssertEqual(parsed.count, 1)
+        XCTAssertEqual(parsed[0].text, "  indented line",
+            "leading space within a single-line paragraph must survive parse")
+    }
 }

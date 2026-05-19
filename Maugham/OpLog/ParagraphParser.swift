@@ -23,7 +23,7 @@ public enum ParagraphParser {
         func flushParagraph() {
             guard !buffer.isEmpty else { return }
             let text = buffer.joined(separator: "\n")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: .newlines)
             if !text.isEmpty {
                 result.append(ParsedParagraph(id: pendingId, text: text))
             }
