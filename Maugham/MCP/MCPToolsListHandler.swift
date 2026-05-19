@@ -62,7 +62,31 @@ public enum MCPToolsListHandler {
 
             ("list_all_links",
              "Return the full reference graph as edges: every manuscript document's linked-research and [[wiki-link]] targets. Each edge has from_id/from_title, to_id (null for unresolved wiki targets) / to_title, and kind ('linked_research' / 'wiki' / 'wiki_unresolved').",
-             "{\"type\":\"object\",\"properties\":{\"project_id\":{\"type\":\"string\"}},\"required\":[\"project_id\"]}")
+             "{\"type\":\"object\",\"properties\":{\"project_id\":{\"type\":\"string\"}},\"required\":[\"project_id\"]}"),
+
+            ("add_comment",
+             "Attach an editorial comment to a manuscript paragraph. Comments do not modify the manuscript; the user accepts or rejects them via the Annotations pane. Reject reasoning is captured for future sessions.",
+             "{\"type\":\"object\",\"properties\":{\"project_id\":{\"type\":\"string\"},\"document_id\":{\"type\":\"string\"},\"paragraph_id\":{\"type\":\"string\"},\"body\":{\"type\":\"string\"}},\"required\":[\"project_id\",\"document_id\",\"paragraph_id\",\"body\"]}"),
+
+            ("add_suggested_change",
+             "Propose a specific replacement for a paragraph. `body` is the editorial justification; `suggested_text` is the proposed new paragraph. The user accepts (applies the change) or rejects (with reasoning).",
+             "{\"type\":\"object\",\"properties\":{\"project_id\":{\"type\":\"string\"},\"document_id\":{\"type\":\"string\"},\"paragraph_id\":{\"type\":\"string\"},\"body\":{\"type\":\"string\"},\"suggested_text\":{\"type\":\"string\"}},\"required\":[\"project_id\",\"document_id\",\"paragraph_id\",\"body\",\"suggested_text\"]}"),
+
+            ("add_query",
+             "Ask the writer a question about a paragraph (intent, ambiguity, character motivation). The writer replies via the Annotations pane; the reply is persisted in the annotation history.",
+             "{\"type\":\"object\",\"properties\":{\"project_id\":{\"type\":\"string\"},\"document_id\":{\"type\":\"string\"},\"paragraph_id\":{\"type\":\"string\"},\"body\":{\"type\":\"string\"}},\"required\":[\"project_id\",\"document_id\",\"paragraph_id\",\"body\"]}"),
+
+            ("add_craft_note",
+             "Record a document-scoped craft observation (e.g., character voice rule, structural pattern). Doc-scoped; no paragraph anchor. Accepted craft notes surface in `list_annotations(kind: craft_note, status: accepted)` for next-session reference.",
+             "{\"type\":\"object\",\"properties\":{\"project_id\":{\"type\":\"string\"},\"document_id\":{\"type\":\"string\"},\"body\":{\"type\":\"string\"}},\"required\":[\"project_id\",\"document_id\",\"body\"]}"),
+
+            ("list_annotations",
+             "List annotations on a document. Defaults to status=open. Filter by `kinds` (any of comment/suggested_change/query/craft_note), `statuses` (open/accepted/rejected/archived), `paragraph_id`. Use this to check prior editorial conversation on a paragraph before adding new suggestions.",
+             "{\"type\":\"object\",\"properties\":{\"project_id\":{\"type\":\"string\"},\"document_id\":{\"type\":\"string\"},\"kinds\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"statuses\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"paragraph_id\":{\"type\":\"string\"}},\"required\":[\"project_id\",\"document_id\"]}"),
+
+            ("get_annotation",
+             "Return a full annotation record including its lifecycle history (creation + accept/reject/archive ops).",
+             "{\"type\":\"object\",\"properties\":{\"project_id\":{\"type\":\"string\"},\"document_id\":{\"type\":\"string\"},\"annotation_id\":{\"type\":\"string\"}},\"required\":[\"project_id\",\"document_id\",\"annotation_id\"]}")
         ]
 
         var tools: [AnyJSON] = []
