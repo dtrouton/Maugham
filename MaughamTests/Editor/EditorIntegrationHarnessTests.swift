@@ -80,4 +80,38 @@ final class EditorIntegrationHarnessTests: XCTestCase {
         // Same situation — Stage 3 will un-skip.
         throw XCTSkip("Reconciler end-to-end path is wired in Stage 3")
     }
+
+    func test_endOfFileTyping_doesNotFireApplyExternalText() {
+        let rig = EditorIntegrationHarness(initialText: "Hello")
+        rig.setCursor(to: 5)
+
+        rig.assertNoApplyExternalText {
+            rig.typeCharacter(" ")
+            rig.typeCharacter("w")
+            rig.typeCharacter("o")
+            rig.typeCharacter("r")
+            rig.typeCharacter("l")
+            rig.typeCharacter("d")
+        }
+
+        XCTAssertEqual(rig.currentText, "Hello world")
+        XCTAssertEqual(rig.cursorLocation, 11)
+    }
+
+    func test_documentSwitch_flushesPendingBurst_beforeNewBinding() async throws {
+        // This test pins the contract that switching documents flushes any
+        // pending burst on the previously-loaded doc. The harness today
+        // doesn't run a multi-doc binder, so this test is XCTSkip'd until
+        // Stage 2 lands DocumentStore.register + Document.close.
+        throw XCTSkip("Multi-doc switching wired in Stage 2 via Document.close")
+    }
+
+    func test_burst_appendOnceAtIdleThreshold() async throws {
+        // BurstScheduler is idle: 30s, max: 90s today. Verifying a single
+        // typing_burst op lands after the idle threshold requires either a
+        // 30-second test (too slow) or a test-only constructor that lets
+        // us override the thresholds. Stage 1 lands the Document type with
+        // testable thresholds; this test un-skips then.
+        throw XCTSkip("Testable burst thresholds land with Document in Stage 1")
+    }
 }
