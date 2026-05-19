@@ -235,8 +235,25 @@ public final class Document {
             autosaveScheduler.schedule(())
         }
 
-        // ONE @Observable write at the end. SwiftUI sees one body re-eval.
-        recomputeDisplayText()
+        // ONE @Observable write at the end — but mirror the user's input
+        // VERBATIM rather than re-rendering from paragraphs. ParagraphParser
+        // strips trailing whitespace and newlines from paragraph text; a
+        // round-trip through recomputeDisplayText() would shorten what the
+        // user just typed (e.g. pressing Enter at end of paragraph yields
+        // textView.string="Hello\n" but paragraphs={id:"Hello"} renders to
+        // "Hello"). SwiftUI then sees displayText shorter than textView.string
+        // and fires applyExternalText, which clobbers cursor position and —
+        // when NSSpellChecker / inline-prediction has a pending marked-range
+        // mid-correction — underflows the selection fixup and crashes
+        // (`Range {N, UInt.max-2} out of bounds`).
+        //
+        // The canonical state for ops lives in paragraphs/sequence (updated
+        // above). The .md on disk is materialized via materialize(). Both of
+        // those paths normalize whitespace, which is the existing data-loss
+        // tradeoff we already documented. But the live editor view must
+        // stay byte-for-byte synchronized with textView.string while the
+        // user is typing, or NSTextView's invariants break.
+        displayText = text
     }
 
     public func setParagraph(id: String, text: String) {

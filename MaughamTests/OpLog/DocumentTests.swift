@@ -101,6 +101,41 @@ final class DocumentTests: XCTestCase {
         XCTAssertTrue(onDisk.contains("Hello world."))
     }
 
+    /// Regression: setFullText must write displayText verbatim, not the
+    /// re-rendered form. ParagraphParser strips trailing whitespace and
+    /// newlines from paragraph text; if displayText is recomputed from
+    /// paragraphs, pressing Enter (textView.string="Hello\n") produces a
+    /// shorter displayText ("Hello"), which causes the EditorSurface
+    /// updateNSView mismatch path to fire applyExternalText. Under
+    /// NSSpellChecker's inline-prediction window that crashes the app
+    /// with an NSRangeException unsigned-underflow. The invariant: for
+    /// any input text, displayText == text after setFullText returns.
+    func test_setFullText_displayTextMatchesInputVerbatim() async throws {
+        let (project, path) = try makeProject(initialMd: "")
+        let doc = try await Document.load(
+            url: project.appendingPathComponent(path),
+            device: "m", session: "s", presenter: nil)
+
+        // Trailing newline — the case that crashed under autocorrect.
+        doc.setFullText("Hello\n")
+        XCTAssertEqual(doc.displayText, "Hello\n",
+            "trailing newline must round-trip verbatim through setFullText")
+
+        // Trailing space.
+        doc.setFullText("Hello world ")
+        XCTAssertEqual(doc.displayText, "Hello world ",
+            "trailing space must round-trip verbatim through setFullText")
+
+        // Multiple consecutive newlines.
+        doc.setFullText("Hello\n\n\n")
+        XCTAssertEqual(doc.displayText, "Hello\n\n\n",
+            "trailing blank lines must round-trip verbatim through setFullText")
+
+        // Standard mid-paragraph text — also unchanged.
+        doc.setFullText("Hello\n\nWorld.")
+        XCTAssertEqual(doc.displayText, "Hello\n\nWorld.")
+    }
+
     func test_handleExternalDiskChange_echo_isNoOp() async throws {
         let (project, path) = try makeProject(initialMd: "Hello.\n")
         let doc = try await Document.load(
