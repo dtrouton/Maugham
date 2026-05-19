@@ -216,6 +216,8 @@
 		A990E05C406B4ACD8B5A988D /* AddNoteTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88D97FA98E0762E8DBE79986 /* AddNoteTool.swift */; };
 		19266C5DDDD3400FB52A6620 /* AnnotationCreationTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50FE7C4F1AD04F31ADA9C3C7 /* AnnotationCreationTools.swift */; };
 		53770C1BF50041488FF8FB9C /* AnnotationCreationToolsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 718E4D3E111449C4B6B2423E /* AnnotationCreationToolsTests.swift */; };
+		55C90C67FE734F1DA0CA2611 /* AnnotationReadTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = F519AE5C9A3A42BE8DD2F397 /* AnnotationReadTools.swift */; };
+		14470E8DC0664B9586703A91 /* AnnotationReadToolsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8FDB8C4DC264BE7A21F4469 /* AnnotationReadToolsTests.swift */; };
 		A9C742ABF4919E23F697CAFE /* MaughamNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FB9A38C597B3E374D78D0A3 /* MaughamNotifications.swift */; };
 		AC36A047262ABAE9DFC295A3 /* EditorIntegrationHarnessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6186D39FC0C632864B832CF9 /* EditorIntegrationHarnessTests.swift */; };
 		AF3E693FFD8408D7BC6C1158 /* UIStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A78756471A0D5F92AC5BCE0 /* UIStateTests.swift */; };
@@ -522,6 +524,8 @@
 		88D97FA98E0762E8DBE79986 /* AddNoteTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddNoteTool.swift; sourceTree = "<group>"; };
 		50FE7C4F1AD04F31ADA9C3C7 /* AnnotationCreationTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationCreationTools.swift; sourceTree = "<group>"; };
 		718E4D3E111449C4B6B2423E /* AnnotationCreationToolsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationCreationToolsTests.swift; sourceTree = "<group>"; };
+		F519AE5C9A3A42BE8DD2F397 /* AnnotationReadTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationReadTools.swift; sourceTree = "<group>"; };
+		A8FDB8C4DC264BE7A21F4469 /* AnnotationReadToolsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationReadToolsTests.swift; sourceTree = "<group>"; };
 		8C45355A5D996486B5B85E72 /* RenameWithAssetsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenameWithAssetsTests.swift; sourceTree = "<group>"; };
 		8D33C6EC0BC5C8B6D12F4C8C /* PartialRestorePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PartialRestorePicker.swift; sourceTree = "<group>"; };
 		8DACE3DF21C128616E5E65E0 /* StructureItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StructureItem.swift; sourceTree = "<group>"; };
@@ -1066,6 +1070,7 @@
 			children = (
 				88D97FA98E0762E8DBE79986 /* AddNoteTool.swift */,
 				50FE7C4F1AD04F31ADA9C3C7 /* AnnotationCreationTools.swift */,
+				F519AE5C9A3A42BE8DD2F397 /* AnnotationReadTools.swift */,
 				BCC482727808269EAE11B868 /* DocumentTools.swift */,
 				3F0CE3F98FE2D203A6587AA1 /* ListAllLinksTool.swift */,
 				999880EA3C2155CBD41B976C /* ListDocumentsByTagTool.swift */,
@@ -1100,6 +1105,7 @@
 			children = (
 				606D3152931B261784D023E0 /* AddNoteToolTests.swift */,
 				718E4D3E111449C4B6B2423E /* AnnotationCreationToolsTests.swift */,
+				A8FDB8C4DC264BE7A21F4469 /* AnnotationReadToolsTests.swift */,
 				0CB33B33C3DD85F080D3953C /* DocumentToolsTests.swift */,
 				606E7B415A5FDAE8FBE5BDC0 /* ListAllLinksToolTests.swift */,
 				C3A1C9F548F21456386DD837 /* ListDocumentsByTagToolTests.swift */,
@@ -1329,6 +1335,7 @@
 				487B50AEF2A43FF3C5C3D8AA /* AddProjectReferenceTests.swift in Sources */,
 				14926BA15C0FAA06D568C07D /* AddResearchTextNoteTests.swift in Sources */,
 				53770C1BF50041488FF8FB9C /* AnnotationCreationToolsTests.swift in Sources */,
+				14470E8DC0664B9586703A91 /* AnnotationReadToolsTests.swift in Sources */,
 				4C1E9D9AEFB9FC6027FDB16E /* AnnotationDeriverTests.swift in Sources */,
 				C8AF3077C4CC94F986E6F2DF /* AnnotationTypeTests.swift in Sources */,
 				D011032EB40D7D56C7A1D16A /* BootstrapTests.swift in Sources */,
@@ -1466,6 +1473,7 @@
 				C3C7DB94B9B0D68256413D5A /* AboutSettingsTab.swift in Sources */,
 				A990E05C406B4ACD8B5A988D /* AddNoteTool.swift in Sources */,
 				19266C5DDDD3400FB52A6620 /* AnnotationCreationTools.swift in Sources */,
+				55C90C67FE734F1DA0CA2611 /* AnnotationReadTools.swift in Sources */,
 				466FC7224F0B1E6CD48F82D9 /* AddResearchLinkSheet.swift in Sources */,
 				2BE4D173545DC87996AC9248 /* Annotation.swift in Sources */,
 				DDFD6A37D01EDFFC7847D323 /* AnnotationDeriver.swift in Sources */,
