@@ -140,6 +140,7 @@ struct HistoryPane: View {
             }
         }
         .task { await reload() }
+        .onChange(of: activeDocId) { _, _ in Task { await reload() } }
         .sheet(isPresented: $showingRestorePicker) {
             if let cp = selectedCheckpoint {
                 PartialRestorePicker(
@@ -188,9 +189,17 @@ struct HistoryPane: View {
             // multi-doc novel/screenplay project.
             checkpoints = loaded
         }
+        // Prefer the live Document if it's loaded (its mirror reflects any
+        // unflushed in-memory state). Otherwise read the op log directly
+        // from disk — the History pane should always show typing bursts /
+        // annotations / external edits for the active doc, even when the
+        // user hasn't yet opened it in the editor this session.
         if let ds = documentStore,
            let doc = ds.document(forDocId: activeDocId) {
             ops = (try? await doc.opLog()) ?? []
+        } else if activeDocId != "__no-selection__" {
+            let opStore = OpLogStore(projectURL: projectURL)
+            ops = (try? await opStore.load(docId: activeDocId)) ?? []
         } else {
             ops = []
         }
