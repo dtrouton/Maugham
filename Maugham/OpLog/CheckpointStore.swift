@@ -58,18 +58,22 @@ public final class CheckpointStore {
     // timestamps survive a JSON round-trip without truncation.
     // (Previously used .secondsSince1970 because plain .iso8601 was lossy;
     //  this formatter preserves full precision while staying spec-compliant.)
-    private static let iso8601Formatter: ISO8601DateFormatter = {
+    // `nonisolated(unsafe)` for parity with OpLogStore: the formatter is
+    // read inside Sendable JSON coding closures, but every call site is on
+    // the main thread (the @MainActor store methods invoke the encoder
+    // synchronously).
+    nonisolated(unsafe) private static let iso8601Formatter: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return f
     }()
 
-    private static let dateEncoding = JSONEncoder.DateEncodingStrategy.custom { date, encoder in
+    nonisolated private static let dateEncoding = JSONEncoder.DateEncodingStrategy.custom { date, encoder in
         var c = encoder.singleValueContainer()
         try c.encode(CheckpointStore.iso8601Formatter.string(from: date))
     }
 
-    private static let dateDecoding = JSONDecoder.DateDecodingStrategy.custom { decoder in
+    nonisolated private static let dateDecoding = JSONDecoder.DateDecodingStrategy.custom { decoder in
         let c = try decoder.singleValueContainer()
         let s = try c.decode(String.self)
         // Accept fractional-second and whole-second ISO8601 strings, plus raw

@@ -61,18 +61,22 @@ public final class OpLogStore {
 
     // ISO8601 formatter with fractional-second precision so sub-millisecond
     // timestamps survive a JSON round-trip without truncation.
-    private static let iso8601Formatter: ISO8601DateFormatter = {
+    // `nonisolated(unsafe)` because the formatter is read from inside the
+    // JSON coding closures, which are Sendable and can't see @MainActor
+    // state. In practice every call site is on the main thread anyway —
+    // the encoder/decoder runs synchronously inside @MainActor methods.
+    nonisolated(unsafe) private static let iso8601Formatter: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return f
     }()
 
-    private static let dateEncoding = JSONEncoder.DateEncodingStrategy.custom { date, encoder in
+    nonisolated private static let dateEncoding = JSONEncoder.DateEncodingStrategy.custom { date, encoder in
         var c = encoder.singleValueContainer()
         try c.encode(OpLogStore.iso8601Formatter.string(from: date))
     }
 
-    private static let dateDecoding = JSONDecoder.DateDecodingStrategy.custom { decoder in
+    nonisolated private static let dateDecoding = JSONDecoder.DateDecodingStrategy.custom { decoder in
         let c = try decoder.singleValueContainer()
         let s = try c.decode(String.self)
         // Accept both fractional-second and whole-second ISO8601 strings for

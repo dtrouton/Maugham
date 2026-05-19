@@ -94,33 +94,42 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         self.paragraphFocus = paragraphFocus
         self.wikiLinkResolver = wikiLinkResolver
         super.init()
+        // NotificationCenter posts these on `.main` so we're on the main
+        // thread when the closures fire, but the closure types aren't
+        // @MainActor-annotated. `MainActor.assumeIsolated` bridges the gap
+        // without an extra Task hop (and asserts in debug if we're wrong
+        // about being on the main thread).
         navigateObserver = NotificationCenter.default.addObserver(
             forName: .maughamNavigateToScene,
             object: nil,
             queue: .main
         ) { [weak self] note in
-            guard let self,
-                  let location = note.userInfo?["lineLocation"] as? Int,
-                  let textView = self.textView else { return }
-            self.navigateToLine(at: location, in: textView)
+            MainActor.assumeIsolated {
+                guard let self,
+                      let location = note.userInfo?["lineLocation"] as? Int,
+                      let textView = self.textView else { return }
+                self.navigateToLine(at: location, in: textView)
+            }
         }
         findMatchObserver = NotificationCenter.default.addObserver(
             forName: .maughamFindMatchSelected,
             object: nil,
             queue: .main
         ) { [weak self] note in
-            guard let self,
-                  let match = note.userInfo?["match"] as? SearchMatch,
-                  let textView = self.textView else { return }
+            MainActor.assumeIsolated {
+                guard let self,
+                      let match = note.userInfo?["match"] as? SearchMatch,
+                      let textView = self.textView else { return }
 
-            // Defer to allow the document load to complete first.
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 50_000_000)
-                let range = match.charRangeInDocument
-                guard let storage = textView.textStorage,
-                      range.location + range.length <= storage.length else { return }
-                textView.setSelectedRange(range)
-                textView.scrollRangeToVisible(range)
+                // Defer to allow the document load to complete first.
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 50_000_000)
+                    let range = match.charRangeInDocument
+                    guard let storage = textView.textStorage,
+                          range.location + range.length <= storage.length else { return }
+                    textView.setSelectedRange(range)
+                    textView.scrollRangeToVisible(range)
+                }
             }
         }
         appearanceObserver = NotificationCenter.default.addObserver(
@@ -128,10 +137,12 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            guard let self else { return }
-            // Re-run the full appearance pass so background/caret/syntax
-            // highlight colors re-resolve against the new effective appearance.
-            self.applyAppearance(theme: self.theme, typography: self.typography)
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                // Re-run the full appearance pass so background/caret/syntax
+                // highlight colors re-resolve against the new effective appearance.
+                self.applyAppearance(theme: self.theme, typography: self.typography)
+            }
         }
     }
 
