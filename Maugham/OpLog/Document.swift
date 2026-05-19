@@ -295,6 +295,7 @@ public final class Document {
         if !changes.isEmpty || sequenceChanged {
             burstScheduler.recordActivity()
             autosaveScheduler.schedule(())
+            invalidateAnnotationsCache()
         }
 
         // ONE @Observable write at the end — but mirror the user's input

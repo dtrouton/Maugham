@@ -208,4 +208,37 @@ final class DocumentAnnotationCacheTests: XCTestCase {
         let all = doc.annotations(filter: .init(statuses: nil))
         XCTAssertEqual(all.first(where: { $0.id == id })?.status, .archived)
     }
+
+    func test_annotation_isMarkedStaleWhenParagraphChanges() async throws {
+        // Use a longer initial text so the bigram matcher has enough overlap to
+        // reuse the same paragraph ID after the edit (threshold ≥ 0.6).
+        let (project, path) = try makeProject(
+            initialMd: "She was angry and shaking with fury.")
+        let doc = try await Document.load(
+            url: project.appendingPathComponent(path),
+            device: "m", session: "s", presenter: nil)
+        let log = try await doc.opLog()
+        guard let pid = log.first(where: { $0.kind == .bootstrap })?
+            .changes.first?.paragraphId
+        else { return XCTFail("no bootstrap paragraph") }
+
+        let id = try await doc.addAnnotation(
+            kind: .suggestedChange, paragraphId: pid,
+            body: "tighter", suggestedText: "Her jaw clenched.")
+
+        // Not stale immediately after creation.
+        XCTAssertFalse(doc.annotations()
+            .first(where: { $0.id == id })?.isStale ?? true,
+            "annotation should be non-stale immediately after creation")
+
+        // User edits the paragraph directly via setFullText; text is different
+        // enough to mark the annotation stale but similar enough (~0.7+ bigram
+        // overlap) that restoreComments maps it to the same paragraph ID.
+        doc.setFullText("She was furious and shaking, her voice breaking.")
+
+        // Cache must now reflect the staleness.
+        let anns = doc.annotations()
+        XCTAssertTrue(anns.first(where: { $0.id == id })?.isStale ?? false,
+            "annotation should be flagged stale after paragraph edit via setFullText")
+    }
 }
