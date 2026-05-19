@@ -365,6 +365,58 @@ public final class Document {
         autosaveScheduler.schedule(())
         recomputeDisplayText()
     }
+
+    // MARK: - Annotation mutation API
+
+    @discardableResult
+    public func addAnnotation(
+        kind: AnnotationKind,
+        paragraphId: String?,
+        body: String,
+        suggestedText: String? = nil,
+        prompt: String? = nil,
+        toolArgs: String? = nil
+    ) async throws -> String {
+        let opKind: OpKind = {
+            switch kind {
+            case .comment:         return .claudeComment
+            case .suggestedChange: return .claudeSuggestion
+            case .query:           return .claudeQuery
+            case .craftNote:       return .claudeCraftNote
+            }
+        }()
+        let changes: [Op.ParagraphChange] = {
+            switch kind {
+            case .craftNote:
+                return []
+            case .suggestedChange:
+                guard let pid = paragraphId else { return [] }
+                let prior = paragraphs[pid]
+                return [.init(paragraphId: pid,
+                              prior: prior,
+                              next: suggestedText ?? "")]
+            case .comment, .query:
+                guard let pid = paragraphId else { return [] }
+                let prior = paragraphs[pid]
+                return [.init(paragraphId: pid, prior: prior, next: "")]
+            }
+        }()
+        let op = Op(
+            opId: ULID.generate(),
+            docId: docId, at: Date(),
+            device: device, session: session,
+            kind: opKind, changes: changes, sequence: nil,
+            provenance: Op.Provenance(
+                sessionId: session,
+                prompt: prompt,
+                toolArgs: toolArgs,
+                annotationBody: body))
+        try await opStore.append(op)
+        _opLogMirror.append(op)
+        invalidateAnnotationsCache()
+        return op.opId
+    }
+
     public func flushBurstNow() async throws {
         guard !pending.isEmpty() else { return }
         let changes = pending.snapshot()
