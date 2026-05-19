@@ -103,14 +103,50 @@ struct HistoryPane: View {
             .filter { filter.matches($0) }
     }
 
+    private var emptyTitle: String {
+        switch filter {
+        case .all:         return "No history yet"
+        case .checkpoints: return "No checkpoints"
+        case .edits:       return "No edits"
+        case .annotations: return "No annotations"
+        case .external:    return "No external edits"
+        }
+    }
+
+    private var emptySymbol: String {
+        switch filter {
+        case .all:         return "clock.arrow.circlepath"
+        case .checkpoints: return "flag"
+        case .edits:       return "pencil"
+        case .annotations: return "bubble.left.and.bubble.right"
+        case .external:    return "arrow.down.doc"
+        }
+    }
+
+    private var emptyHint: String {
+        switch filter {
+        case .all:
+            return "Type, take a checkpoint, or ask Claude for feedback — your activity will show up here."
+        case .checkpoints:
+            return "Press ⌘⇧S to capture a named checkpoint, or ⌘S to auto-checkpoint."
+        case .edits:
+            return "Typing bursts appear here every 30 seconds while you work."
+        case .annotations:
+            return "Ask Claude to comment or suggest a change — annotations land here as a forensic record."
+        case .external:
+            return "External edits to the .md file (e.g. via another editor or sync) show up here."
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             filterToolbar
             Divider()
             if entries.isEmpty {
                 ContentUnavailableView(
-                    "No history yet",
-                    systemImage: "clock.arrow.circlepath")
+                    emptyTitle,
+                    systemImage: emptySymbol,
+                    description: Text(emptyHint))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
