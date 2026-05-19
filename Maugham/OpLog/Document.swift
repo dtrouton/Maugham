@@ -32,6 +32,15 @@ public final class Document {
     private var sequence: [String]
     private var lastWrittenText: String
 
+    private var _annotationsCache: [Annotation] = []
+    private var _annotationsCacheValid: Bool = false
+    public private(set) var annotationsVersion: Int = 0
+
+    /// Mirror of every op append for synchronous annotation derivation.
+    /// Populated at load(...) with the result of opStore.load, then kept
+    /// in sync by every mutation path that calls opStore.append.
+    fileprivate var _opLogMirror: [Op] = []
+
     /// Internal autosave debounce (replaces DocumentStore.scheduleSave).
     private var autosaveScheduler: DebounceScheduler<Void>!
 
@@ -162,6 +171,8 @@ public final class Document {
             try? await doc?.performAutosave()
         }
         doc.recomputeDisplayText()
+        doc._opLogMirror = ops
+        doc._annotationsCacheValid = false
         return doc
     }
 
@@ -204,10 +215,38 @@ public final class Document {
 
     /// Returns the full op log for this document, ordered by `op_id`
     /// (ULID timestamp-prefixed → chronologically stable across devices).
-    /// Reads from disk via `OpLogStore.load(docId:)` each call; T7 replaces
-    /// this with a mirror read for synchronous annotation derivation.
+    /// Prefers the in-memory mirror populated at `load(...)`; falls back
+    /// to a disk read only if the mirror hasn't been seeded yet.
     public func opLog() async throws -> [Op] {
-        try await opStore.load(docId: docId)
+        if !_opLogMirror.isEmpty { return _opLogMirror }
+        return try await opStore.load(docId: docId)
+    }
+
+    // MARK: - Annotation read API
+
+    public func annotations(
+        filter: AnnotationFilter = AnnotationFilter()
+    ) -> [Annotation] {
+        if !_annotationsCacheValid {
+            rebuildAnnotationsCache()
+        }
+        return _annotationsCache.filter { ann in
+            if let kinds = filter.kinds, !kinds.contains(ann.kind) { return false }
+            if let statuses = filter.statuses, !statuses.contains(ann.status) { return false }
+            if let pid = filter.paragraphId, ann.paragraphId != pid { return false }
+            return true
+        }
+    }
+
+    fileprivate func invalidateAnnotationsCache() {
+        _annotationsCacheValid = false
+        annotationsVersion &+= 1
+    }
+
+    private func rebuildAnnotationsCache() {
+        _annotationsCache = AnnotationDeriver.derive(
+            ops: _opLogMirror, paragraphs: paragraphs)
+        _annotationsCacheValid = true
     }
 
     // === Mutation API (Task 6) ===
@@ -340,6 +379,8 @@ public final class Document {
             sequence: sequence,
             provenance: nil)
         try await opStore.append(op)
+        _opLogMirror.append(op)
+        invalidateAnnotationsCache()
         try await pending.clear()
     }
 
@@ -373,6 +414,8 @@ public final class Document {
                 sequence: nil,
                 provenance: .init(synthesisSource: "disk_at_ingest"))
             try await opStore.append(op)
+            _opLogMirror.append(op)
+            invalidateAnnotationsCache()
             // Update internal state.
             for change in changes {
                 paragraphs[change.paragraphId] = change.next
@@ -399,6 +442,8 @@ public final class Document {
         let state = Deriver.derive(ops: ops)
         self.paragraphs = state.paragraphs
         self.sequence = state.sequence
+        self._opLogMirror = ops
+        invalidateAnnotationsCache()
 
         // No conflict UI for log merge. Just publish the new state.
         recomputeDisplayText()
@@ -463,6 +508,8 @@ public final class Document {
             sequence: newSequence,
             provenance: .init(synthesisSource: "use_cloud_resolution"))
         try await opStore.append(op)
+        _opLogMirror.append(op)
+        invalidateAnnotationsCache()
         self.paragraphs = newParagraphs
         self.sequence = newSequence
         self.lastWrittenText = diskMd
