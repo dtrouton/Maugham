@@ -573,6 +573,30 @@ public final class DocumentStore {
             // UI state is best-effort; log but don't surface to user.
         }
     }
+
+    // MARK: - Document registry (Stage 2 of document-first-class refactor)
+
+    /// Open `Document` instances keyed by manuscript-relative path. Populated
+    /// by `EditorHost` when it loads a document, cleared when the editor
+    /// switches away. The presenter routes external change callbacks through
+    /// this registry to the owning Document (Stage 3, Task 11).
+    private var openDocuments: [String: Document] = [:]
+
+    public func register(document: Document, for path: String) {
+        openDocuments[path] = document
+    }
+
+    public func unregister(path: String) {
+        openDocuments.removeValue(forKey: path)
+    }
+
+    public func document(for path: String) -> Document? {
+        openDocuments[path]
+    }
+
+    public func document(forDocId docId: String) -> Document? {
+        openDocuments.values.first(where: { $0.docId == docId })
+    }
 }
 
 extension DocumentStore: ProjectFolderPresenterDelegate {
