@@ -181,10 +181,12 @@ struct HistoryPane: View {
     private func reload() async {
         if let loaded = try? await CheckpointStore(
             projectURL: projectURL).load() {
-            checkpoints = loaded.filter { cp in
-                // Show checkpoints relevant to the active doc OR project-scoped.
-                cp.docPointers[activeDocId] != nil || cp.docPointers.isEmpty
-            }
+            // Show all project-scope checkpoints regardless of active doc.
+            // Checkpoints are project-wide artefacts; filtering by active doc
+            // would hide checkpoints captured while a different doc was open,
+            // which is exactly what the user would expect to see for a
+            // multi-doc novel/screenplay project.
+            checkpoints = loaded
         }
         if let ds = documentStore,
            let doc = ds.document(forDocId: activeDocId) {
