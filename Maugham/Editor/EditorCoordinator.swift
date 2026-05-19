@@ -77,6 +77,12 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// Observer token for `maughamEffectiveAppearanceChanged` notifications.
     private var appearanceObserver: NSObjectProtocol?
 
+    /// Number of times applyExternalText has been called. Internal so
+    /// @testable importers (EditorIntegrationHarness) can assert invariants
+    /// about typing not triggering external-text replacement. Production
+    /// never reads this.
+    internal private(set) var applyExternalTextCallCount: Int = 0
+
     init(text: Binding<String>,
          mode: any WritingMode,
          theme: Theme,
@@ -181,6 +187,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
 
     /// External (binding-side) update — replace text without disturbing user.
     func applyExternalText(_ text: String) {
+        applyExternalTextCallCount += 1
         guard let textView, textView.string != text else { return }
         isApplyingExternalUpdate = true
         defer { isApplyingExternalUpdate = false }
