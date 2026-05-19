@@ -116,9 +116,15 @@ public final class Document {
         // setup, fall back to a deterministic id derived from the path.
         let docId = try resolveDocId(for: url)
 
-        // projectURL is the parent of the manuscript/ folder.
-        let projectURL = url.deletingLastPathComponent()
-            .deletingLastPathComponent()
+        // projectURL is wherever `project.maugham.json` lives. Walk up
+        // from the doc's URL until we find it. For Novel/Screenplay this
+        // is 2 levels up (manuscript/<file>.md → project/); for Collection
+        // it can be 3 (pieces/<piece-folder>/<file>.md → project/) or
+        // deeper for research notes. Defaulting to a fixed 2-level
+        // deletingLastPathComponent landed inside the piece folder for
+        // Collections and made every .maugham/ops/<docId>.jsonl path
+        // resolve to a non-existent location, silently dropping ops.
+        let projectURL = resolveProjectURL(for: url)
 
         // Bootstrap detection.
         let opLogPath = projectURL
@@ -810,26 +816,76 @@ public final class Document {
     }
 }
 
-/// Looks up the doc-id for a manuscript path. For now resolves via the
-/// manifest if available; falls back to a deterministic hash of the
-/// relative path. Test helper; real lookup will use ProjectStore.
+/// Looks up the doc-id for a manuscript path. Walks UP the directory tree
+/// until it finds `project.maugham.json`, then resolves the doc against
+/// that project's manifest. Falls back to a deterministic hash of the
+/// path if no manifest is found (test fixtures, headless tooling).
+///
+/// The walk-up matters for nested doc layouts: Novel/Screenplay projects
+/// keep manuscripts at `<project>/manuscript/<file>.md` (2 levels), but
+/// Collection projects put pieces at `<project>/pieces/<piece-folder>/<file>`
+/// (3 levels) and research notes can be deeper still. A fixed
+/// `deletingLastPathComponent().deletingLastPathComponent()` lands inside
+/// the piece folder for Collections and silently triggers the hash fallback,
+/// producing a docId that doesn't match the manifest's StructureItem.id.
+/// Op log files then go to the wrong file, MCP annotations stop resolving,
+/// and the editor's live Document gets a fabricated id no other lookup
+/// can find.
 internal func resolveDocId(for url: URL) throws -> String {
-    let projectURL = url.deletingLastPathComponent()
-        .deletingLastPathComponent()
-    let manifestURL = projectURL
-        .appendingPathComponent("project.maugham.json")
-    let relativePath = url.path
-        .replacingOccurrences(of: projectURL.path + "/", with: "")
-    if let data = try? Data(contentsOf: manifestURL) {
-        let dec = JSONDecoder()
-        dec.dateDecodingStrategy = .iso8601
-        if let manifest = try? dec.decode(ProjectManifest.self, from: data),
-           let item = findItemByPath(relativePath, in: manifest.structure) {
-            return item.id
+    var probe = url.deletingLastPathComponent()
+    let fm = FileManager.default
+    // Cap the walk at 16 ancestors so a malformed URL can't infinite-loop.
+    for _ in 0..<16 {
+        let manifestURL = probe.appendingPathComponent("project.maugham.json")
+        if fm.fileExists(atPath: manifestURL.path) {
+            let relativePath = url.path
+                .replacingOccurrences(of: probe.path + "/", with: "")
+            if let data = try? Data(contentsOf: manifestURL) {
+                let dec = JSONDecoder()
+                dec.dateDecodingStrategy = .iso8601
+                if let manifest = try? dec.decode(
+                    ProjectManifest.self, from: data),
+                   let item = findItemByPath(
+                    relativePath, in: manifest.structure) {
+                    return item.id
+                }
+            }
+            // Found the manifest but couldn't decode or match. Stop walking;
+            // don't keep climbing into an unrelated parent project.
+            let relativeFallback = url.path
+                .replacingOccurrences(of: probe.path + "/", with: "")
+            return "doc-\(relativeFallback.hashValue.magnitude)"
         }
+        let parent = probe.deletingLastPathComponent()
+        if parent.path == probe.path { break }   // hit root
+        probe = parent
     }
-    // Fallback: deterministic id from path. Sufficient for tests.
-    return "doc-\(relativePath.hashValue.magnitude)"
+    // No manifest found — hash-fallback against the basename so test fixtures
+    // still get a stable id.
+    let basename = url.lastPathComponent
+    return "doc-\(basename.hashValue.magnitude)"
+}
+
+/// Walks up the directory tree from a doc's URL until it finds the directory
+/// that contains `project.maugham.json`. Used by Document.load to anchor
+/// `.maugham/ops/<docId>.jsonl` and other project-relative paths. Falls
+/// back to two-level deletion (the legacy behavior) if no manifest is found,
+/// which keeps test fixtures that fake a project structure without writing
+/// a manifest working.
+internal func resolveProjectURL(for url: URL) -> URL {
+    var probe = url.deletingLastPathComponent()
+    let fm = FileManager.default
+    for _ in 0..<16 {
+        if fm.fileExists(atPath:
+            probe.appendingPathComponent("project.maugham.json").path) {
+            return probe
+        }
+        let parent = probe.deletingLastPathComponent()
+        if parent.path == probe.path { break }
+        probe = parent
+    }
+    // Legacy fallback for tests that don't write a manifest: 2 levels up.
+    return url.deletingLastPathComponent().deletingLastPathComponent()
 }
 
 private func findItemByPath(_ path: String, in items: [StructureItem]) -> StructureItem? {
