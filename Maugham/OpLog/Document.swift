@@ -318,24 +318,22 @@ public final class Document {
         if !changes.isEmpty || sequenceChanged {
             burstScheduler.recordActivity()
             autosaveScheduler.schedule(())
-            // Only touch the annotation cache when the doc actually has
-            // annotation ops. For docs without annotations (the common case),
-            // bumping annotationsVersion on every keystroke is pure
-            // observable-write churn that races with displayText updates
-            // and can leave NSTextView's spellchecker holding stale ranges
-            // (FAULT: NSRangeException in NSTextCheckingController).
-            if _hasAnyAnnotationOps {
-                invalidateAnnotationsCache()
-            }
         }
 
-        // T12: auto-archive annotations whose paragraph dropped out of
-        // `sequence` on this edit. Fire-and-forget on the main actor.
-        // Skip entirely when the doc has no annotations — the sweep would
-        // be a no-op but the Task scheduling itself adds main-actor churn.
-        if _hasAnyAnnotationOps {
-            Task { @MainActor in await self.sweepOrphanedAnnotations() }
-        }
+        // Intentionally NO per-keystroke annotation work here. Earlier
+        // attempts to invalidate the annotation cache and schedule a sweep
+        // on every keystroke created an observable-write storm: AnnotationsPane
+        // observes `annotations(filter:)`, whose evaluation transitively
+        // observes `paragraphs` on the @Observable Document. Bumping
+        // `annotationsVersion` on every keystroke triggered cascading
+        // re-renders (AttributeGraph cycle detection + NSHostingView
+        // reentrant-layout warnings + applyExternalText feedback into
+        // NSTextView that desynced its spellchecker ranges).
+        //
+        // Staleness + paragraph-deletion auto-archive run at typing-burst
+        // flush time (flushBurstNow) instead, which fires every 30s idle /
+        // 90s max. That's invisible to the user but eliminates the hot
+        // observable-write path.
 
         // ONE @Observable write at the end — but mirror the user's input
         // VERBATIM rather than re-rendering from paragraphs. ParagraphParser
@@ -379,9 +377,9 @@ public final class Document {
         pending.recordChange(paragraphId: newId, prior: nil, next: text)
         burstScheduler.recordActivity()
         autosaveScheduler.schedule(())
-        if _hasAnyAnnotationOps {
-            Task { @MainActor in await self.sweepOrphanedAnnotations() }
-        }
+        // Annotation cache + sweep are deferred to flushBurstNow to keep
+        // the keystroke path off the observable-write hot loop. See note in
+        // setFullText for the cycle-detection / reentrant-layout reasoning.
         recomputeDisplayText()
         return newId
     }
@@ -397,9 +395,9 @@ public final class Document {
         pending.recordChange(paragraphId: id, prior: priorText, next: "")
         burstScheduler.recordActivity()
         autosaveScheduler.schedule(())
-        if _hasAnyAnnotationOps {
-            Task { @MainActor in await self.sweepOrphanedAnnotations() }
-        }
+        // Annotation cache + sweep are deferred to flushBurstNow to keep
+        // the keystroke path off the observable-write hot loop. See note in
+        // setFullText for the cycle-detection / reentrant-layout reasoning.
         recomputeDisplayText()
     }
 
@@ -409,9 +407,9 @@ public final class Document {
         // emission will carry the new sequence as its `sequence` field.
         burstScheduler.recordActivity()
         autosaveScheduler.schedule(())
-        if _hasAnyAnnotationOps {
-            Task { @MainActor in await self.sweepOrphanedAnnotations() }
-        }
+        // Annotation cache + sweep are deferred to flushBurstNow to keep
+        // the keystroke path off the observable-write hot loop. See note in
+        // setFullText for the cycle-detection / reentrant-layout reasoning.
         recomputeDisplayText()
     }
 
@@ -564,11 +562,10 @@ public final class Document {
     /// present in `sequence`. Synthesizes `claude_archive` lifecycle ops with
     /// `provenance.synthesisSource = "paragraph_deleted"` for forensic context.
     ///
-    /// Note: sync mutation paths schedule this via `Task { } ` and return
-    /// immediately. Tests that depend on observing the post-sweep state must
-    /// `await Task.sleep(for: .milliseconds(50))` (or similar yield) after
-    /// the mutation. UI re-renders naturally on the cache invalidation that
-    /// bumps `annotationsVersion`.
+    /// Runs from flushBurstNow (every 30s idle / 90s max during typing),
+    /// from external-change handlers, and from explicit annotation lifecycle
+    /// methods. NOT scheduled from per-keystroke paragraph mutation —
+    /// see setFullText for the cycle/reentrancy rationale.
     private func sweepOrphanedAnnotations() async {
         let presentIds = Set(sequence)
         if !_annotationsCacheValid {
@@ -591,22 +588,33 @@ public final class Document {
     }
 
     public func flushBurstNow() async throws {
-        guard !pending.isEmpty() else { return }
-        let changes = pending.snapshot()
-        // Capture the latest sequence on the burst so cross-Mac merge sees
-        // ordering changes.
-        let op = Op(
-            opId: ULID.generate(),
-            docId: docId, at: Date(),
-            device: device, session: session,
-            kind: .typingBurst,
-            changes: changes,
-            sequence: sequence,
-            provenance: nil)
-        try await opStore.append(op)
-        _opLogMirror.append(op)
-        invalidateAnnotationsCache()
-        try await pending.clear()
+        if !pending.isEmpty() {
+            let changes = pending.snapshot()
+            // Capture the latest sequence on the burst so cross-Mac merge sees
+            // ordering changes.
+            let op = Op(
+                opId: ULID.generate(),
+                docId: docId, at: Date(),
+                device: device, session: session,
+                kind: .typingBurst,
+                changes: changes,
+                sequence: sequence,
+                provenance: nil)
+            try await opStore.append(op)
+            _opLogMirror.append(op)
+            try await pending.clear()
+        }
+
+        // Annotation maintenance — deferred from per-keystroke paths to
+        // here so the editor's hot path stays free of observable-write
+        // churn. The burst fires every 30s idle / 90s max, which is plenty
+        // fresh for stale-badge UX while being invisible to the typing path.
+        // Runs even when pending was empty so callers (close, tests) can
+        // explicitly trigger sweep without producing a no-op burst op.
+        if _hasAnyAnnotationOps {
+            invalidateAnnotationsCache()
+            await sweepOrphanedAnnotations()
+        }
     }
 
     public func close() async {

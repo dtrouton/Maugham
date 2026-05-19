@@ -236,6 +236,11 @@ final class DocumentAnnotationCacheTests: XCTestCase {
         // overlap) that restoreComments maps it to the same paragraph ID.
         doc.setFullText("She was furious and shaking, her voice breaking.")
 
+        // Annotation maintenance is deferred from per-keystroke paths to
+        // flushBurstNow to keep the editor's hot path off the observable-
+        // write loop. Trigger a flush so staleness recomputes.
+        try await doc.flushBurstNow()
+
         // Cache must now reflect the staleness.
         let anns = doc.annotations()
         XCTAssertTrue(anns.first(where: { $0.id == id })?.isStale ?? false,
@@ -260,8 +265,9 @@ final class DocumentAnnotationCacheTests: XCTestCase {
         XCTAssertEqual(doc.annotations().count, 1)
 
         doc.deleteParagraph(id: p1)
-        // Allow the fire-and-forget sweep Task to run.
-        try await Task.sleep(for: .milliseconds(100))
+        // Annotation maintenance is deferred to flushBurstNow (keeps the
+        // editor hot path free of observable-write churn).
+        try await doc.flushBurstNow()
 
         // After deletion, the annotation should be archived.
         XCTAssertTrue(doc.annotations().isEmpty,
@@ -304,7 +310,8 @@ final class DocumentAnnotationCacheTests: XCTestCase {
 
         // Edit removing the second paragraph entirely.
         doc.setFullText("First paragraph with enough text to survive bigram matching.")
-        try await Task.sleep(for: .milliseconds(100))
+        // Annotation maintenance is deferred to flushBurstNow.
+        try await doc.flushBurstNow()
 
         let a = doc.annotations(filter: .init(statuses: nil))
             .first { $0.id == id }
