@@ -188,13 +188,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// External (binding-side) update — replace text without disturbing user.
     func applyExternalText(_ text: String) {
         applyExternalTextCallCount += 1
-        guard let textView else { return }
-        let tvLen = (textView.string as NSString).length
-        let textLen = (text as NSString).length
-        if textView.string == text {
-            return
-        }
-        print("[TRACE] applyExternalText DESYNC tvLen=\(tvLen) textLen=\(textLen) diff=\(textLen - tvLen) selection=\(textView.selectedRange().location) callCount=\(applyExternalTextCallCount)")
+        guard let textView, textView.string != text else { return }
         isApplyingExternalUpdate = true
         defer { isApplyingExternalUpdate = false }
 
