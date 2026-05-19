@@ -97,25 +97,33 @@ final class EditorCoordinatorCycleTests: XCTestCase {
         _ = coord  // keep alive through the assertion
     }
 
-    /// Regression: textDidChange bumps a generation counter. The async
-    /// cursor-restore closure captures the counter at schedule time and
-    /// bails out if a newer textDidChange has bumped it before the
-    /// closure fires. Without this guard, the stale closure from an
-    /// earlier keystroke clobbers the cursor that a subsequent keystroke
-    /// has legitimately advanced — producing the "cursor jumps behind a
-    /// few characters and pushes them along" pattern. The full race
-    /// requires user input to land BETWEEN the two async firings and
-    /// isn't directly reproducible from a unit test, but the invariant
-    /// the fix relies on — that the counter strictly increases on each
-    /// textDidChange — is testable.
-    func test_textDidChange_bumpsGenerationCounter() {
-        let tv = makeTextView(text: "abc")
+    /// Regression: rapid textDidChange invocations must leave the cursor
+    /// exactly where the latest keystroke put it. An earlier defensive
+    /// async cursor-restore closure captured postEditSelection at
+    /// schedule time and could fire on the next runloop tick BEFORE the
+    /// next key event in the queue had been processed — meaning the
+    /// generation hadn't bumped yet, the guard passed, and the closure
+    /// dragged the cursor back to a position the user had already typed
+    /// past. Removing the async restore entirely fixed it: the sync
+    /// restore inside textDidChange (which races nothing because it runs
+    /// on the same dispatch as the keystroke) covers paste-induced
+    /// jostle. Verifies the surviving sync path doesn't introduce its
+    /// own regression on rapid invocations.
+    func test_rapidTextDidChange_preservesLatestCursor() {
+        let tv = makeTextView(text: "abcdef")
         let coord = makeCoordinator(textView: tv, mode: ScreenplayMode())
-        let before = coord.changeGeneration
+
+        // Simulate the first keystroke landing the cursor at 3.
+        tv.setSelectedRange(NSRange(location: 3, length: 0))
         let note = Notification(name: NSText.didChangeNotification, object: tv)
         coord.textDidChange(note)
-        XCTAssertEqual(coord.changeGeneration, before + 1)
+
+        // Simulate a subsequent keystroke advancing the cursor to 5
+        // (as NSTextView would when the user types another character).
+        tv.setSelectedRange(NSRange(location: 5, length: 0))
         coord.textDidChange(note)
-        XCTAssertEqual(coord.changeGeneration, before + 2)
+
+        XCTAssertEqual(tv.selectedRange().location, 5,
+            "after rapid back-to-back keystrokes the cursor must remain at the latest position, not be dragged back by a stale defensive restore")
     }
 }
