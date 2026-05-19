@@ -123,19 +123,89 @@ final class EditorIntegrationHarnessTests: XCTestCase {
     }
 
     func test_documentSwitch_flushesPendingBurst_beforeNewBinding() async throws {
-        // This test pins the contract that switching documents flushes any
-        // pending burst on the previously-loaded doc. The harness today
-        // doesn't run a multi-doc binder, so this test is XCTSkip'd until
-        // Stage 2 lands DocumentStore.register + Document.close.
-        throw XCTSkip("Multi-doc switching wired in Stage 2 via Document.close")
+        // Two documents in the same project; type in doc A, close it,
+        // assert A's op log received the typing_burst op (i.e. close
+        // flushed the pending buffer).
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EIH-T9-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("manuscript"),
+            withIntermediateDirectories: true)
+        let docAPath = "manuscript/a.md"
+        let docBPath = "manuscript/b.md"
+        try "Doc A initial.\n".data(using: .utf8)!.write(
+            to: tmp.appendingPathComponent(docAPath), options: .atomic)
+        try "Doc B initial.\n".data(using: .utf8)!.write(
+            to: tmp.appendingPathComponent(docBPath), options: .atomic)
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A",
+            created: Date(), modified: Date(),
+            structure: [
+                StructureItem(id: "doc-a", title: "A", type: .document, path: docAPath),
+                StructureItem(id: "doc-b", title: "B", type: .document, path: docBPath),
+            ],
+            research: [])
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = .iso8601
+        try enc.encode(manifest).write(
+            to: tmp.appendingPathComponent("project.maugham.json"))
+
+        let docA = try await Document.load(
+            url: tmp.appendingPathComponent(docAPath),
+            device: "m", session: "s", presenter: nil)
+        docA.setFullText("Doc A edited.")
+        // Simulate the doc-switch: close docA before loading docB.
+        await docA.close()
+
+        let opStore = OpLogStore(projectURL: tmp)
+        let opsA = try await opStore.load(docId: docA.docId)
+        let burstCount = opsA.filter { $0.kind == .typingBurst }.count
+        XCTAssertGreaterThanOrEqual(burstCount, 1,
+            "doc-switch close() must flush the pending typing_burst op")
     }
 
     func test_burst_appendOnceAtIdleThreshold() async throws {
-        // BurstScheduler is idle: 30s, max: 90s today. Verifying a single
-        // typing_burst op lands after the idle threshold requires either a
-        // 30-second test (too slow) or a test-only constructor that lets
-        // us override the thresholds. Stage 1 lands the Document type with
-        // testable thresholds; this test un-skips then.
-        throw XCTSkip("Testable burst thresholds land with Document in Stage 1")
+        // Short thresholds via the internal Document.load overload so the
+        // test doesn't have to wait 30 seconds.
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EIH-T10-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("manuscript"),
+            withIntermediateDirectories: true)
+        let docPath = "manuscript/c.md"
+        try "Hello.\n".data(using: .utf8)!.write(
+            to: tmp.appendingPathComponent(docPath), options: .atomic)
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A",
+            created: Date(), modified: Date(),
+            structure: [StructureItem(id: "doc-c", title: "C", type: .document, path: docPath)],
+            research: [])
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = .iso8601
+        try enc.encode(manifest).write(
+            to: tmp.appendingPathComponent("project.maugham.json"))
+
+        let doc = try await Document.load(
+            url: tmp.appendingPathComponent(docPath),
+            device: "m", session: "s", presenter: nil,
+            burstIdle: .milliseconds(250),
+            burstMax: .seconds(60))
+
+        let opStore = OpLogStore(projectURL: tmp)
+        let opsBefore = try await opStore.load(docId: doc.docId)
+        let burstsBefore = opsBefore.filter { $0.kind == .typingBurst }.count
+
+        // Type a burst.
+        doc.setFullText("Hello world.")
+
+        // Wait > idle threshold so the BurstScheduler fires.
+        try await Task.sleep(for: .milliseconds(600))
+
+        let opsAfter = try await opStore.load(docId: doc.docId)
+        let burstsAfter = opsAfter.filter { $0.kind == .typingBurst }.count
+        XCTAssertEqual(burstsAfter, burstsBefore + 1,
+            "exactly one typing_burst op should fire at idle threshold")
     }
 }

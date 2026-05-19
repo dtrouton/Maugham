@@ -65,6 +65,21 @@ public final class Document {
         session: String,
         presenter: NSFilePresenter?
     ) async throws -> Document {
+        try await load(
+            url: url, device: device, session: session, presenter: presenter,
+            burstIdle: .seconds(30), burstMax: .seconds(90))
+    }
+
+    /// Internal overload that accepts custom burst thresholds. Used by tests
+    /// to avoid waiting 30 seconds for the default idle threshold.
+    internal static func load(
+        url: URL,
+        device: String,
+        session: String,
+        presenter: NSFilePresenter?,
+        burstIdle: Duration,
+        burstMax: Duration
+    ) async throws -> Document {
         // Resolve doc-id by looking up the manifest. For tests + initial
         // setup, fall back to a deterministic id derived from the path.
         let docId = try resolveDocId(for: url)
@@ -122,10 +137,10 @@ public final class Document {
         }
         let lastWritten = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
 
-        // BurstScheduler with default thresholds.
+        // BurstScheduler with caller-supplied thresholds (defaults: 30s/90s).
         let burstHolder = WeakBurstHolder()
         let burst = BurstScheduler(
-            idle: .seconds(30), max: .seconds(90)
+            idle: burstIdle, max: burstMax
         ) {
             Task { @MainActor in
                 try? await burstHolder.document?.flushBurstNow()
