@@ -56,64 +56,24 @@ struct EditorHost: View {
                 // chapter's text and the cursor restoration would clamp
                 // against the wrong content length.
                 EditorSurface(
-                    text: Binding(
-                        get: { documentText },
-                        set: { newValue in
-                            documentText = newValue
-                            // Re-attach `<!-- ¶id -->` markers by matching
-                            // the edited display form against the prior
-                            // stored form. New paragraphs receive freshly
-                            // minted IDs; reordered ones keep theirs;
-                            // similar ones (shingle ≥ 0.6) are recognized
-                            // as edits, not insertions.
-                            let newStored = RenderFilter.restoreComments(
-                                stored: priorStoredMarkdown,
-                                displayEdited: newValue)
-                            // Diff paragraphs by id and emit one
-                            // recordParagraphChange per changed/inserted
-                            // paragraph. The PendingBuffer dedupes by
-                            // paragraph id, so repeated keystrokes inside
-                            // the same paragraph collapse to one entry
-                            // (prior captured the first time it appeared).
-                            let priorParsed = ParagraphParser.parse(
-                                priorStoredMarkdown)
-                            let nextParsed = ParagraphParser.parse(newStored)
-                            var priorById: [String: String] = [:]
-                            for p in priorParsed {
-                                if let id = p.id { priorById[id] = p.text }
-                            }
-                            for p in nextParsed {
-                                guard let id = p.id else { continue }
-                                let prior = priorById[id]
-                                if prior != p.text {
-                                    documentStore.recordParagraphChange(
-                                        paragraphId: id,
-                                        prior: prior,
-                                        next: p.text)
-                                }
-                            }
-                            // The bytes that hit disk are the ID-tagged
-                            // form. Conflict detection compares
-                            // currentDocumentText against disk bytes, so
-                            // it must also operate on the stored form.
-                            priorStoredMarkdown = newStored
-                            documentStore.currentDocumentText = newStored
-                            documentStore.scheduleSave(
-                                for: path, text: newStored)
-                            // Update project word-count cache and idle
-                            // session tracker. Word counts are computed
-                            // against the display form (what the user
-                            // actually wrote, no syntactic noise).
-                            let words = WritingModeFactory.mode(for: path)
-                                .metrics(newValue).wordCount
-                            store.recordWordCount(
-                                forDocumentId: item.id, wordCount: words)
-                            documentStore.recordSessionActivity(
-                                documentId: item.id,
-                                projectWordCount: store.projectWordCount)
-                            onTextChange?(newValue)
-                        }
-                    ),
+                    // Pass-through binding. Heavy work (RenderFilter, op-log
+                    // recording, autosave scheduling) lives in
+                    // `.onChange(of: documentText)` below — NOT inside a
+                    // custom Binding(get:, set:). The previous shape did the
+                    // heavy work synchronously inside the binding setter,
+                    // which interleaved several @Observable writes
+                    // (currentDocumentText, recordWordCount, etc.) with
+                    // SwiftUI's body re-eval pass. SwiftUI ended up reading
+                    // documentText from a stale view-tree snapshot during
+                    // one of those re-evals and firing updateNSView with
+                    // text=N-1 while textView was already at N; the resulting
+                    // applyExternalText clobbered textView back to N-1, the
+                    // cursor clamped to N-1, and the user lost one cursor
+                    // position per keystroke. Routing through $documentText
+                    // lets SwiftUI's state propagation settle before any
+                    // downstream work runs, so updateNSView always sees a
+                    // consistent (textView, text) pair.
+                    text: $documentText,
                     theme: userPreferences.theme,
                     typography: ProjectStore.effectiveTypography(
                         override: store.manifest.typography,
@@ -141,6 +101,65 @@ struct EditorHost: View {
         }
         .onChange(of: selectedItemId) { _, _ in
             Task { await loadDocumentIfNeeded() }
+        }
+        .onChange(of: documentText) { _, newValue in
+            // Heavy work that used to live in a custom Binding setter. Running
+            // here, AFTER SwiftUI has finished propagating the documentText
+            // write through the view tree, prevents the "updateNSView reads
+            // stale documentText" race that produced backward cursor jumps
+            // mid-typing.
+            //
+            // Guard 1: only run when a document is fully loaded — otherwise
+            // the initial documentText assignment from loadDocumentIfNeeded
+            // would trigger a spurious autosave of unchanged content.
+            //
+            // Guard 2: skip if the restoreComments round-trip produces the
+            // same stored form we already have (newStored == priorStoredMarkdown).
+            // This makes initial load + external re-sync echoes inert without
+            // a separate flag.
+            guard let item = currentItem,
+                  item.id == loadedItemId,
+                  let path = item.path else { return }
+            let newStored = RenderFilter.restoreComments(
+                stored: priorStoredMarkdown, displayEdited: newValue)
+            guard newStored != priorStoredMarkdown else {
+                // Display changed but stored form is identical — load echo
+                // or whitespace-only change the parser trims. Don't fire
+                // downstream effects.
+                return
+            }
+            // Diff paragraphs by id and emit one recordParagraphChange per
+            // changed paragraph. PendingBuffer dedupes by paragraph_id, so
+            // repeated keystrokes inside the same paragraph collapse to one
+            // entry (prior captured the first time it appeared).
+            let priorParsed = ParagraphParser.parse(priorStoredMarkdown)
+            let nextParsed = ParagraphParser.parse(newStored)
+            var priorById: [String: String] = [:]
+            for p in priorParsed {
+                if let id = p.id { priorById[id] = p.text }
+            }
+            for p in nextParsed {
+                guard let id = p.id else { continue }
+                let prior = priorById[id]
+                if prior != p.text {
+                    documentStore.recordParagraphChange(
+                        paragraphId: id, prior: prior, next: p.text)
+                }
+            }
+            // Update the bookkeeping that the .onChange(of: lastWrittenText)
+            // gate and DocumentStore's conflict detection rely on.
+            priorStoredMarkdown = newStored
+            documentStore.currentDocumentText = newStored
+            documentStore.scheduleSave(for: path, text: newStored)
+            // Word count + idle session tracker.
+            let words = WritingModeFactory.mode(for: path)
+                .metrics(newValue).wordCount
+            store.recordWordCount(
+                forDocumentId: item.id, wordCount: words)
+            documentStore.recordSessionActivity(
+                documentId: item.id,
+                projectWordCount: store.projectWordCount)
+            onTextChange?(newValue)
         }
         .onChange(of: documentStore.lastWrittenText) { _, newValue in
             // Re-sync the editor view only when this update is genuinely
