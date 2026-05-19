@@ -417,6 +417,58 @@ public final class Document {
         return op.opId
     }
 
+    public func acceptAnnotation(
+        id: String,
+        userResponse: String? = nil
+    ) async throws {
+        guard let creation = _opLogMirror.first(where: { $0.opId == id }),
+              let kind = AnnotationKind.fromOpKind(creation.kind) else {
+            return  // unknown id or non-annotation op — no-op
+        }
+
+        // Determine the changes payload. Only suggestedChange mutates the
+        // manuscript on accept.
+        let changes: [Op.ParagraphChange] = {
+            switch kind {
+            case .suggestedChange:
+                return creation.changes   // re-applies prior/next on replay
+            case .comment, .query, .craftNote:
+                return []
+            }
+        }()
+
+        let acceptOp = Op(
+            opId: ULID.generate(),
+            docId: docId, at: Date(),
+            device: device, session: session,
+            kind: .claudeAccept,
+            changes: changes,
+            sequence: nil,
+            provenance: Op.Provenance(
+                sessionId: session,
+                sourceAnnotationId: id,
+                userResponse: userResponse))
+        try await opStore.append(acceptOp)
+        _opLogMirror.append(acceptOp)
+
+        // Apply manuscript mutation for suggestedChange. This is the
+        // "two effects, one op" case: the same op resolves the annotation
+        // AND mutates `paragraphs` + writes `_displayText`. The single-
+        // observable-write rule still holds because annotationsVersion and
+        // displayText are distinct surfaces driving distinct views.
+        if kind == .suggestedChange, let change = changes.first {
+            paragraphs[change.paragraphId] = change.next
+            pending.recordChange(
+                paragraphId: change.paragraphId,
+                prior: change.prior, next: change.next)
+            burstScheduler.recordActivity()
+            autosaveScheduler.schedule(())
+            recomputeDisplayText()
+        }
+
+        invalidateAnnotationsCache()
+    }
+
     public func flushBurstNow() async throws {
         guard !pending.isEmpty() else { return }
         let changes = pending.snapshot()

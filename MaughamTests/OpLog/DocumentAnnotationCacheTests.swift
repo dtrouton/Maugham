@@ -92,6 +92,64 @@ final class DocumentAnnotationCacheTests: XCTestCase {
         XCTAssertEqual(change?.next, "Her jaw clenched.")
     }
 
+    func test_acceptSuggestedChange_appliesChangeToDocument() async throws {
+        let (project, path) = try makeProject(initialMd: "She was angry.")
+        let doc = try await Document.load(
+            url: project.appendingPathComponent(path),
+            device: "m", session: "s", presenter: nil)
+        let log = try await doc.opLog()
+        guard let pid = log.first(where: { $0.kind == .bootstrap })?
+            .changes.first?.paragraphId
+        else { return XCTFail("no bootstrap paragraph") }
+
+        let id = try await doc.addAnnotation(
+            kind: .suggestedChange, paragraphId: pid,
+            body: "tighter", suggestedText: "Her jaw clenched.")
+        try await doc.acceptAnnotation(id: id)
+
+        XCTAssertEqual(doc.displayText, "Her jaw clenched.")
+        let anns = doc.annotations(filter: .init(statuses: nil))
+        XCTAssertEqual(anns.first(where: { $0.id == id })?.status, .accepted)
+    }
+
+    func test_acceptComment_doesNotChangeDisplayText() async throws {
+        let (project, path) = try makeProject(initialMd: "Original prose.")
+        let doc = try await Document.load(
+            url: project.appendingPathComponent(path),
+            device: "m", session: "s", presenter: nil)
+        let log = try await doc.opLog()
+        guard let pid = log.first(where: { $0.kind == .bootstrap })?
+            .changes.first?.paragraphId
+        else { return XCTFail("no bootstrap paragraph") }
+        let before = doc.displayText
+
+        let id = try await doc.addAnnotation(
+            kind: .comment, paragraphId: pid, body: "noted")
+        try await doc.acceptAnnotation(id: id)
+
+        XCTAssertEqual(doc.displayText, before)
+    }
+
+    func test_acceptQuery_capturesUserResponse() async throws {
+        let (project, path) = try makeProject(initialMd: "Hello.")
+        let doc = try await Document.load(
+            url: project.appendingPathComponent(path),
+            device: "m", session: "s", presenter: nil)
+        let log = try await doc.opLog()
+        guard let pid = log.first(where: { $0.kind == .bootstrap })?
+            .changes.first?.paragraphId
+        else { return XCTFail("no bootstrap paragraph") }
+
+        let id = try await doc.addAnnotation(
+            kind: .query, paragraphId: pid, body: "ambiguous?")
+        try await doc.acceptAnnotation(id: id, userResponse: "yes, intended")
+
+        let anns = doc.annotations(filter: .init(statuses: nil))
+        let a = anns.first { $0.id == id }
+        XCTAssertEqual(a?.status, .accepted)
+        XCTAssertEqual(a?.userResponse, "yes, intended")
+    }
+
     func test_addCraftNote_hasNoParagraphAnchor() async throws {
         let (project, path) = try makeProject(initialMd: "Hello.")
         let doc = try await Document.load(
