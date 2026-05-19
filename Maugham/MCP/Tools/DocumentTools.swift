@@ -62,10 +62,14 @@ public enum ReadDocumentTool {
     private static func emitManuscriptDoc(
         item: StructureItem, path: String, store: ProjectStore, projectURL: URL
     ) async throws -> Data {
-        // Live in-memory text if this doc is the one currently open in the editor.
+        // Return the anchored (materialized) form so Claude can target
+        // paragraphs by `<!-- ¶id -->` markers. If the doc is open in the
+        // editor, materialize from its in-memory state — that's fresher than
+        // disk (autosave is debounced at 750ms). Otherwise read the .md
+        // verbatim, which already contains the anchors from Bootstrap.
         let text: String
         if let ds = store.documentStore, let doc = ds.document(for: path) {
-            text = doc.displayText
+            text = doc.materialize()
         } else {
             let abs = projectURL.appendingPathComponent(path)
             text = (try? String(contentsOf: abs, encoding: .utf8)) ?? ""
