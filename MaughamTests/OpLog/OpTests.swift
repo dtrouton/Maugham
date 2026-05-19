@@ -57,6 +57,10 @@ final class OpTests: XCTestCase {
             ("checkpoint", .checkpoint),
             ("checkpoint_restore", .checkpointRestore),
             ("bootstrap", .bootstrap),
+            ("claude_comment", .claudeComment),
+            ("claude_query", .claudeQuery),
+            ("claude_craft_note", .claudeCraftNote),
+            ("claude_archive", .claudeArchive),
         ]
         for (str, expected) in kinds {
             let json = """
