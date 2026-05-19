@@ -20,14 +20,17 @@ public enum AddCommentTool {
     ) async throws -> Data {
         let params = try decodeAnnotationParams(Params.self, from: paramsJSON,
             required: "project_id, document_id, paragraph_id, body required")
-        let doc = try resolveAnnotationDoc(
+        let id = try await withAnnotationDocument(
             projectId: params.project_id,
-            documentId: params.document_id, registry: registry)
-        let id = try await doc.addAnnotation(
-            kind: .comment,
-            paragraphId: params.paragraph_id,
-            body: params.body,
-            toolArgs: annotationToolArgsJSON(params))
+            documentId: params.document_id,
+            registry: registry
+        ) { doc in
+            try await doc.addAnnotation(
+                kind: .comment,
+                paragraphId: params.paragraph_id,
+                body: params.body,
+                toolArgs: annotationToolArgsJSON(params))
+        }
         return try JSONEncoder().encode(Result(annotation_id: id))
     }
 }
@@ -53,15 +56,18 @@ public enum AddSuggestedChangeTool {
     ) async throws -> Data {
         let params = try decodeAnnotationParams(Params.self, from: paramsJSON,
             required: "project_id, document_id, paragraph_id, body, suggested_text required")
-        let doc = try resolveAnnotationDoc(
+        let id = try await withAnnotationDocument(
             projectId: params.project_id,
-            documentId: params.document_id, registry: registry)
-        let id = try await doc.addAnnotation(
-            kind: .suggestedChange,
-            paragraphId: params.paragraph_id,
-            body: params.body,
-            suggestedText: params.suggested_text,
-            toolArgs: annotationToolArgsJSON(params))
+            documentId: params.document_id,
+            registry: registry
+        ) { doc in
+            try await doc.addAnnotation(
+                kind: .suggestedChange,
+                paragraphId: params.paragraph_id,
+                body: params.body,
+                suggestedText: params.suggested_text,
+                toolArgs: annotationToolArgsJSON(params))
+        }
         return try JSONEncoder().encode(Result(annotation_id: id))
     }
 }
@@ -86,14 +92,17 @@ public enum AddQueryTool {
     ) async throws -> Data {
         let params = try decodeAnnotationParams(Params.self, from: paramsJSON,
             required: "project_id, document_id, paragraph_id, body required")
-        let doc = try resolveAnnotationDoc(
+        let id = try await withAnnotationDocument(
             projectId: params.project_id,
-            documentId: params.document_id, registry: registry)
-        let id = try await doc.addAnnotation(
-            kind: .query,
-            paragraphId: params.paragraph_id,
-            body: params.body,
-            toolArgs: annotationToolArgsJSON(params))
+            documentId: params.document_id,
+            registry: registry
+        ) { doc in
+            try await doc.addAnnotation(
+                kind: .query,
+                paragraphId: params.paragraph_id,
+                body: params.body,
+                toolArgs: annotationToolArgsJSON(params))
+        }
         return try JSONEncoder().encode(Result(annotation_id: id))
     }
 }
@@ -117,14 +126,17 @@ public enum AddCraftNoteTool {
     ) async throws -> Data {
         let params = try decodeAnnotationParams(Params.self, from: paramsJSON,
             required: "project_id, document_id, body required")
-        let doc = try resolveAnnotationDoc(
+        let id = try await withAnnotationDocument(
             projectId: params.project_id,
-            documentId: params.document_id, registry: registry)
-        let id = try await doc.addAnnotation(
-            kind: .craftNote,
-            paragraphId: nil,
-            body: params.body,
-            toolArgs: annotationToolArgsJSON(params))
+            documentId: params.document_id,
+            registry: registry
+        ) { doc in
+            try await doc.addAnnotation(
+                kind: .craftNote,
+                paragraphId: nil,
+                body: params.body,
+                toolArgs: annotationToolArgsJSON(params))
+        }
         return try JSONEncoder().encode(Result(annotation_id: id))
     }
 }
@@ -137,21 +149,6 @@ private func decodeAnnotationParams<T: Decodable>(
     guard let data, let decoded = try? JSONDecoder().decode(T.self, from: data)
     else { throw MCPError.invalidArgument(required) }
     return decoded
-}
-
-@MainActor
-private func resolveAnnotationDoc(
-    projectId: String, documentId: String, registry: ProjectRegistry
-) throws -> Document {
-    guard let entry = registry.lookup(id: projectId) else {
-        throw MCPError.projectNotOpen
-    }
-    guard let ds = entry.store.documentStore,
-          let doc = ds.document(forDocId: documentId) else {
-        throw MCPError.invalidArgument(
-            "document_id not open: \(documentId)")
-    }
-    return doc
 }
 
 private func annotationToolArgsJSON<T: Encodable>(_ params: T) -> String? {

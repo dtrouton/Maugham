@@ -34,15 +34,6 @@ public enum ListAnnotationsTool {
             throw MCPError.invalidArgument(
                 "project_id, document_id required")
         }
-        guard let entry = registry.lookup(id: params.project_id) else {
-            throw MCPError.projectNotOpen
-        }
-        guard let ds = entry.store.documentStore,
-              let doc = ds.document(forDocId: params.document_id) else {
-            throw MCPError.invalidArgument(
-                "document_id not open: \(params.document_id)")
-        }
-
         let kindFilter: Set<AnnotationKind>? = params.kinds.flatMap { raws in
             let set = Set(raws.compactMap(AnnotationKind.init(rawValue:)))
             return set.isEmpty ? nil : set
@@ -52,12 +43,18 @@ public enum ListAnnotationsTool {
             let set = Set(raws.compactMap(AnnotationStatus.init(rawValue:)))
             return set.isEmpty ? nil : set
         } ?? [.open]
-
         let filter = AnnotationFilter(
             kinds: kindFilter,
             statuses: statusFilter,
             paragraphId: params.paragraph_id)
-        let items: [Item] = doc.annotations(filter: filter).map(Item.init)
+
+        let items: [Item] = try await withAnnotationDocument(
+            projectId: params.project_id,
+            documentId: params.document_id,
+            registry: registry
+        ) { doc in
+            doc.annotations(filter: filter).map(Item.init)
+        }
         let enc = JSONEncoder()
         enc.dateEncodingStrategy = .iso8601
         return try enc.encode(items)
@@ -105,40 +102,38 @@ public enum GetAnnotationTool {
             throw MCPError.invalidArgument(
                 "project_id, document_id, annotation_id required")
         }
-        guard let entry = registry.lookup(id: params.project_id) else {
-            throw MCPError.projectNotOpen
-        }
-        guard let ds = entry.store.documentStore,
-              let doc = ds.document(forDocId: params.document_id) else {
-            throw MCPError.invalidArgument(
-                "document_id not open: \(params.document_id)")
-        }
-        let all = doc.annotations(filter: .init(statuses: nil))
-        guard let ann = all.first(where: { $0.id == params.annotation_id })
-        else {
-            throw MCPError.invalidArgument(
-                "annotation_id not found: \(params.annotation_id)")
-        }
-        let ops = try await doc.opLog()
-        let history: [Result.HistoryEntry] = ops
-            .filter {
-                $0.opId == params.annotation_id
-                || $0.provenance?.sourceAnnotationId == params.annotation_id
+        let result: Result = try await withAnnotationDocument(
+            projectId: params.project_id,
+            documentId: params.document_id,
+            registry: registry
+        ) { doc in
+            let all = doc.annotations(filter: .init(statuses: nil))
+            guard let ann = all.first(where: { $0.id == params.annotation_id })
+            else {
+                throw MCPError.invalidArgument(
+                    "annotation_id not found: \(params.annotation_id)")
             }
-            .map { op in
-                Result.HistoryEntry(
-                    op_id: op.opId,
-                    kind: op.kind.rawValue,
-                    at: op.at,
-                    user_response: op.provenance?.userResponse)
-            }
-        let result = Result(
-            id: ann.id, kind: ann.kind.rawValue,
-            paragraph_id: ann.paragraphId, body: ann.body,
-            suggested_text: ann.suggestedText, prior_text: ann.priorText,
-            status: ann.status.rawValue, user_response: ann.userResponse,
-            created_at: ann.createdAt, resolved_at: ann.resolvedAt,
-            is_stale: ann.isStale, history: history)
+            let ops = try await doc.opLog()
+            let history: [Result.HistoryEntry] = ops
+                .filter {
+                    $0.opId == params.annotation_id
+                    || $0.provenance?.sourceAnnotationId == params.annotation_id
+                }
+                .map { op in
+                    Result.HistoryEntry(
+                        op_id: op.opId,
+                        kind: op.kind.rawValue,
+                        at: op.at,
+                        user_response: op.provenance?.userResponse)
+                }
+            return Result(
+                id: ann.id, kind: ann.kind.rawValue,
+                paragraph_id: ann.paragraphId, body: ann.body,
+                suggested_text: ann.suggestedText, prior_text: ann.priorText,
+                status: ann.status.rawValue, user_response: ann.userResponse,
+                created_at: ann.createdAt, resolved_at: ann.resolvedAt,
+                is_stale: ann.isStale, history: history)
+        }
         let enc = JSONEncoder()
         enc.dateEncodingStrategy = .iso8601
         return try enc.encode(result)

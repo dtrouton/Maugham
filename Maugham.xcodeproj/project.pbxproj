@@ -49,6 +49,7 @@
 		208BA651B96377862FCE6368 /* RenameWithAssetsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C45355A5D996486B5B85E72 /* RenameWithAssetsTests.swift */; };
 		20BF1C6583F2D6E105277AE5 /* ProjectStore+WikiLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C5D5408EDE678A5491A2611 /* ProjectStore+WikiLink.swift */; };
 		20E92EC83D635161482BE05F /* ScreenplayCycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = D76A2764D919EC0A88964A8D /* ScreenplayCycle.swift */; };
+		20F0F61EDAECA76228C1CD80 /* AnnotationFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE261A339DCE7F48B87152E3 /* AnnotationFlowTests.swift */; };
 		21AEA92263DBA581792361EA /* ScreenplayModeStylingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E94CF73B0C40446985731D7 /* ScreenplayModeStylingTests.swift */; };
 		21C5304C801E2EAF8C022E7B /* MCPToolsListSmokeTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35A2ABD8D081D893BA2920E /* MCPToolsListSmokeTest.swift */; };
 		2233BE7AC3EBE6F19E80C9DF /* ProjectSettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62492345F7DD1ED165A088D3 /* ProjectSettingsSheet.swift */; };
@@ -120,6 +121,7 @@
 		4D8589E49CD55AF98E1DCF5B /* MCPNoteBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10BD95AC3A65176FC1D38F51 /* MCPNoteBanner.swift */; };
 		4E867EBC6A2C164C49E7AAB6 /* InlineEmphasisStylingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5497681DEACA48768B156C8 /* InlineEmphasisStylingTests.swift */; };
 		4F48D1E74AEB8466ABD7B51D /* MCPServerLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E391FCBA382AE9EF7D045C5 /* MCPServerLifecycleTests.swift */; };
+		4FC7EAD678F6D7FE906DF112 /* AnnotationToolHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB0232B79AD6292F5689DC78 /* AnnotationToolHelpers.swift */; };
 		5191A11183482B1566F48A76 /* ScreenplayLayoutManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48421C3696EA7EEFDCF40D9D /* ScreenplayLayoutManager.swift */; };
 		51C73399925700839D0C2BB2 /* ResearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2897AF707E7E5124CB150171 /* ResearchView.swift */; };
 		5294001CBA6A57A00D02C144 /* LinkedResearchPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EDC4E479E976651AAD2136F /* LinkedResearchPane.swift */; };
@@ -206,7 +208,6 @@
 		9F2D405031E1006D180640A6 /* ParagraphIDTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC461021BD2BE4E2BEA0090A /* ParagraphIDTests.swift */; };
 		A004D0ADF50CB62BCD4E32B4 /* SceneNavigatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13D58339D7AFFD9475D0B08 /* SceneNavigatorTests.swift */; };
 		A0594B6C21F36EEB62D06EBB /* AnnotationCreationToolsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10E3B0B876556A53139896E8 /* AnnotationCreationToolsTests.swift */; };
-		A1F2E3D4B5C6789012345678 /* AnnotationFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C3D4E5F6A7890123456789 /* AnnotationFlowTests.swift */; };
 		A18348C77D687E30A9131BEE /* fountain-syntax.md in Resources */ = {isa = PBXBuildFile; fileRef = 0ED4EAF2AF7EE645562FA642 /* fountain-syntax.md */; };
 		A1A133A43AF56DB192079C29 /* SearchMatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB80E4CD36E6412540A1A507 /* SearchMatch.swift */; };
 		A1E6BC3D63880A4B0BBFAB12 /* MarkdownTokenizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21BBA97B6C00947EBF4EBBAD /* MarkdownTokenizerTests.swift */; };
@@ -375,7 +376,6 @@
 		0FCF1AF3897E461B8BAA1C7C /* ProjectStoreResearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectStoreResearchTests.swift; sourceTree = "<group>"; };
 		10BD95AC3A65176FC1D38F51 /* MCPNoteBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPNoteBanner.swift; sourceTree = "<group>"; };
 		10E3B0B876556A53139896E8 /* AnnotationCreationToolsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationCreationToolsTests.swift; sourceTree = "<group>"; };
-		B2C3D4E5F6A7890123456789 /* AnnotationFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationFlowTests.swift; sourceTree = "<group>"; };
 		113BAF46D3526F6E12D16087 /* PendingBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingBuffer.swift; sourceTree = "<group>"; };
 		11C94011E6B73CFEF59DDEC1 /* ResearchLinkToolsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchLinkToolsTests.swift; sourceTree = "<group>"; };
 		129A8E9F35B6662BFBC6B2B4 /* AnnotationTypeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationTypeTests.swift; sourceTree = "<group>"; };
@@ -587,6 +587,7 @@
 		BA64374F4D6FAD197F6F1C23 /* SyntaxHelpSheetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyntaxHelpSheetTests.swift; sourceTree = "<group>"; };
 		BC461021BD2BE4E2BEA0090A /* ParagraphIDTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParagraphIDTests.swift; sourceTree = "<group>"; };
 		BCC482727808269EAE11B868 /* DocumentTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentTools.swift; sourceTree = "<group>"; };
+		BE261A339DCE7F48B87152E3 /* AnnotationFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationFlowTests.swift; sourceTree = "<group>"; };
 		BE4E086412BC9008025522A6 /* sample-screenplay.fountain */ = {isa = PBXFileReference; path = "sample-screenplay.fountain"; sourceTree = "<group>"; };
 		BE5B8D4630372B04C1806D59 /* ParagraphParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParagraphParser.swift; sourceTree = "<group>"; };
 		BEDE30B87EF034A2CDDA3E0D /* AnnotationReadToolsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationReadToolsTests.swift; sourceTree = "<group>"; };
@@ -649,6 +650,7 @@
 		E6715FC030DFCF401BFF7634 /* DocumentAnnotationCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentAnnotationCacheTests.swift; sourceTree = "<group>"; };
 		E6F46AFC5B0D64CEA781E818 /* ProjectStore+Structure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ProjectStore+Structure.swift"; sourceTree = "<group>"; };
 		E9C672C9D5C0F13AE0D8B593 /* ProjectWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectWindow.swift; sourceTree = "<group>"; };
+		EB0232B79AD6292F5689DC78 /* AnnotationToolHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationToolHelpers.swift; sourceTree = "<group>"; };
 		EB3941DC998A10DFFA3B0909 /* MCPRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPRouter.swift; sourceTree = "<group>"; };
 		EBCF6484E70E92382DCC820F /* EditorIntegrationHarness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorIntegrationHarness.swift; sourceTree = "<group>"; };
 		ED5515978818F162F7830D23 /* CheckpointStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckpointStoreTests.swift; sourceTree = "<group>"; };
@@ -731,7 +733,7 @@
 			children = (
 				824220D1524C9699740E06CD /* .gitkeep */,
 				441BBEB38F71F743ADB684BD /* AddResearchTextNoteTests.swift */,
-				B2C3D4E5F6A7890123456789 /* AnnotationFlowTests.swift */,
+				BE261A339DCE7F48B87152E3 /* AnnotationFlowTests.swift */,
 				D04602DD147AB194A0AEAB48 /* CharacterAutocompleterDataTests.swift */,
 				229232B37A92049B578BA4DC /* ConflictStateTests.swift */,
 				46B2FFC7BA12C2867381E747 /* DebounceSchedulerTests.swift */,
@@ -1082,6 +1084,7 @@
 				88D97FA98E0762E8DBE79986 /* AddNoteTool.swift */,
 				15297DB6B8AF6CA84FE16393 /* AnnotationCreationTools.swift */,
 				9FD293205AC705AE87844305 /* AnnotationReadTools.swift */,
+				EB0232B79AD6292F5689DC78 /* AnnotationToolHelpers.swift */,
 				BCC482727808269EAE11B868 /* DocumentTools.swift */,
 				3F0CE3F98FE2D203A6587AA1 /* ListAllLinksTool.swift */,
 				999880EA3C2155CBD41B976C /* ListDocumentsByTagTool.swift */,
@@ -1347,8 +1350,8 @@
 				487B50AEF2A43FF3C5C3D8AA /* AddProjectReferenceTests.swift in Sources */,
 				14926BA15C0FAA06D568C07D /* AddResearchTextNoteTests.swift in Sources */,
 				A0594B6C21F36EEB62D06EBB /* AnnotationCreationToolsTests.swift in Sources */,
-				A1F2E3D4B5C6789012345678 /* AnnotationFlowTests.swift in Sources */,
 				4C1E9D9AEFB9FC6027FDB16E /* AnnotationDeriverTests.swift in Sources */,
+				20F0F61EDAECA76228C1CD80 /* AnnotationFlowTests.swift in Sources */,
 				FC9E35DE2C7008CEED0221C1 /* AnnotationReadToolsTests.swift in Sources */,
 				C8AF3077C4CC94F986E6F2DF /* AnnotationTypeTests.swift in Sources */,
 				D011032EB40D7D56C7A1D16A /* BootstrapTests.swift in Sources */,
@@ -1492,6 +1495,7 @@
 				B35E56E43A71E9373410DB7D /* AnnotationCreationTools.swift in Sources */,
 				DDFD6A37D01EDFFC7847D323 /* AnnotationDeriver.swift in Sources */,
 				5E8480389264CC8F04116D18 /* AnnotationReadTools.swift in Sources */,
+				4FC7EAD678F6D7FE906DF112 /* AnnotationToolHelpers.swift in Sources */,
 				FA87F6C63F0543B73BE8E152 /* AnnotationsPane.swift in Sources */,
 				E4080529CF4F49C6782BB69A /* AudioPreview.swift in Sources */,
 				19C8220F149BD9E26961AC37 /* BinderPaneToggle.swift in Sources */,
