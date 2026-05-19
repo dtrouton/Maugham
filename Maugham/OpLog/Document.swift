@@ -298,6 +298,10 @@ public final class Document {
             invalidateAnnotationsCache()
         }
 
+        // T12: auto-archive annotations whose paragraph dropped out of
+        // `sequence` on this edit. Fire-and-forget on the main actor.
+        Task { @MainActor in await self.sweepOrphanedAnnotations() }
+
         // ONE @Observable write at the end — but mirror the user's input
         // VERBATIM rather than re-rendering from paragraphs. ParagraphParser
         // strips trailing whitespace and newlines from paragraph text; a
@@ -340,6 +344,7 @@ public final class Document {
         pending.recordChange(paragraphId: newId, prior: nil, next: text)
         burstScheduler.recordActivity()
         autosaveScheduler.schedule(())
+        Task { @MainActor in await self.sweepOrphanedAnnotations() }
         recomputeDisplayText()
         return newId
     }
@@ -355,6 +360,7 @@ public final class Document {
         pending.recordChange(paragraphId: id, prior: priorText, next: "")
         burstScheduler.recordActivity()
         autosaveScheduler.schedule(())
+        Task { @MainActor in await self.sweepOrphanedAnnotations() }
         recomputeDisplayText()
     }
 
@@ -364,6 +370,7 @@ public final class Document {
         // emission will carry the new sequence as its `sequence` field.
         burstScheduler.recordActivity()
         autosaveScheduler.schedule(())
+        Task { @MainActor in await self.sweepOrphanedAnnotations() }
         recomputeDisplayText()
     }
 
@@ -509,6 +516,36 @@ public final class Document {
         invalidateAnnotationsCache()
     }
 
+    /// Auto-archive any open annotations anchored to paragraphs no longer
+    /// present in `sequence`. Synthesizes `claude_archive` lifecycle ops with
+    /// `provenance.synthesisSource = "paragraph_deleted"` for forensic context.
+    ///
+    /// Note: sync mutation paths schedule this via `Task { } ` and return
+    /// immediately. Tests that depend on observing the post-sweep state must
+    /// `await Task.sleep(for: .milliseconds(50))` (or similar yield) after
+    /// the mutation. UI re-renders naturally on the cache invalidation that
+    /// bumps `annotationsVersion`.
+    private func sweepOrphanedAnnotations() async {
+        let presentIds = Set(sequence)
+        if !_annotationsCacheValid {
+            rebuildAnnotationsCache()
+        }
+        let orphans = _annotationsCache.filter { ann in
+            ann.status == .open
+                && ann.kind != .craftNote
+                && (ann.paragraphId.map { !presentIds.contains($0) } ?? false)
+        }
+        for orphan in orphans {
+            try? await appendLifecycleOp(
+                kind: .claudeArchive,
+                sourceAnnotationId: orphan.id,
+                userResponse: nil,
+                synthesisSource: "paragraph_deleted")
+        }
+        // appendLifecycleOp already invalidates the cache on each call;
+        // no extra invalidation needed here.
+    }
+
     public func flushBurstNow() async throws {
         guard !pending.isEmpty() else { return }
         let changes = pending.snapshot()
@@ -589,6 +626,10 @@ public final class Document {
         self._opLogMirror = ops
         invalidateAnnotationsCache()
 
+        // T12: auto-archive annotations anchored to paragraphs that vanished
+        // in the merged state.
+        await sweepOrphanedAnnotations()
+
         // No conflict UI for log merge. Just publish the new state.
         recomputeDisplayText()
     }
@@ -657,6 +698,9 @@ public final class Document {
         self.paragraphs = newParagraphs
         self.sequence = newSequence
         self.lastWrittenText = diskMd
+        // T12: auto-archive annotations anchored to paragraphs that vanished
+        // in the force-ingest from disk.
+        await sweepOrphanedAnnotations()
         recomputeDisplayText()
     }
 

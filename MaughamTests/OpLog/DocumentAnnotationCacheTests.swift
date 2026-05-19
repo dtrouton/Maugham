@@ -241,4 +241,74 @@ final class DocumentAnnotationCacheTests: XCTestCase {
         XCTAssertTrue(anns.first(where: { $0.id == id })?.isStale ?? false,
             "annotation should be flagged stale after paragraph edit via setFullText")
     }
+
+    func test_paragraphDeletion_autoArchivesAnnotations() async throws {
+        let (project, path) = try makeProject(
+            initialMd: "First paragraph.\n\nSecond paragraph.")
+        let doc = try await Document.load(
+            url: project.appendingPathComponent(path),
+            device: "m", session: "s", presenter: nil)
+        let log = try await doc.opLog()
+        guard let bootstrap = log.first(where: { $0.kind == .bootstrap })
+        else { return XCTFail("no bootstrap op") }
+        let pids = bootstrap.changes.map(\.paragraphId)
+        guard pids.count >= 2 else { return XCTFail("expected 2 paragraphs") }
+        let p1 = pids[0]
+
+        let id = try await doc.addAnnotation(
+            kind: .comment, paragraphId: p1, body: "on first")
+        XCTAssertEqual(doc.annotations().count, 1)
+
+        doc.deleteParagraph(id: p1)
+        // Allow the fire-and-forget sweep Task to run.
+        try await Task.sleep(for: .milliseconds(100))
+
+        // After deletion, the annotation should be archived.
+        XCTAssertTrue(doc.annotations().isEmpty,
+            "open-default view should not include archived annotations")
+        let all = doc.annotations(filter: .init(statuses: nil))
+        let a = all.first { $0.id == id }
+        XCTAssertEqual(a?.status, .archived)
+
+        // The archive op should carry the synthesisSource flag.
+        let newLog = try await doc.opLog()
+        let archiveOp = newLog.first {
+            $0.kind == .claudeArchive
+                && $0.provenance?.sourceAnnotationId == id
+        }
+        XCTAssertEqual(
+            archiveOp?.provenance?.synthesisSource, "paragraph_deleted")
+    }
+
+    func test_setFullText_dropsParagraph_autoArchivesAnnotations() async throws {
+        // Use longer text so RenderFilter.restoreComments preserves the
+        // remaining paragraph's ID via bigram-similarity matching above the
+        // 0.6 threshold — same trick as the T11 stale test.
+        let initial = """
+        First paragraph with enough text to survive bigram matching.
+
+        Second paragraph that will be deleted in this test entirely.
+        """
+        let (project, path) = try makeProject(initialMd: initial)
+        let doc = try await Document.load(
+            url: project.appendingPathComponent(path),
+            device: "m", session: "s", presenter: nil)
+        let log = try await doc.opLog()
+        let pids = log.first(where: { $0.kind == .bootstrap })!
+            .changes.map(\.paragraphId)
+        guard pids.count >= 2 else { return XCTFail("expected 2 paragraphs") }
+        let p2 = pids[1]
+
+        let id = try await doc.addAnnotation(
+            kind: .comment, paragraphId: p2, body: "on second")
+
+        // Edit removing the second paragraph entirely.
+        doc.setFullText("First paragraph with enough text to survive bigram matching.")
+        try await Task.sleep(for: .milliseconds(100))
+
+        let a = doc.annotations(filter: .init(statuses: nil))
+            .first { $0.id == id }
+        XCTAssertEqual(a?.status, .archived,
+            "annotation on deleted paragraph should be auto-archived")
+    }
 }
