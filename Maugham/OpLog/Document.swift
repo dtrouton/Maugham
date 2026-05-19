@@ -469,6 +469,45 @@ public final class Document {
         invalidateAnnotationsCache()
     }
 
+    public func rejectAnnotation(
+        id: String, userResponse: String? = nil
+    ) async throws {
+        try await appendLifecycleOp(
+            kind: .claudeReject,
+            sourceAnnotationId: id,
+            userResponse: userResponse)
+    }
+
+    public func archiveAnnotation(id: String) async throws {
+        try await appendLifecycleOp(
+            kind: .claudeArchive,
+            sourceAnnotationId: id,
+            userResponse: nil)
+    }
+
+    /// Shared helper for reject/archive (and the paragraph-deletion sweep in
+    /// T12, which uses `synthesisSource = "paragraph_deleted"`).
+    private func appendLifecycleOp(
+        kind: OpKind,
+        sourceAnnotationId: String,
+        userResponse: String?,
+        synthesisSource: String? = nil
+    ) async throws {
+        let op = Op(
+            opId: ULID.generate(),
+            docId: docId, at: Date(),
+            device: device, session: session,
+            kind: kind, changes: [], sequence: nil,
+            provenance: Op.Provenance(
+                sessionId: session,
+                synthesisSource: synthesisSource,
+                sourceAnnotationId: sourceAnnotationId,
+                userResponse: userResponse))
+        try await opStore.append(op)
+        _opLogMirror.append(op)
+        invalidateAnnotationsCache()
+    }
+
     public func flushBurstNow() async throws {
         guard !pending.isEmpty() else { return }
         let changes = pending.snapshot()

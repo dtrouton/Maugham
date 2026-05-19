@@ -163,4 +163,49 @@ final class DocumentAnnotationCacheTests: XCTestCase {
         XCTAssertEqual(creation?.kind, .claudeCraftNote)
         XCTAssertTrue(creation?.changes.isEmpty ?? false)
     }
+
+    func test_rejectWithUserResponse_capturesReasoning() async throws {
+        let (project, path) = try makeProject(initialMd: "She was angry.")
+        let doc = try await Document.load(
+            url: project.appendingPathComponent(path),
+            device: "m", session: "s", presenter: nil)
+        let log = try await doc.opLog()
+        guard let pid = log.first(where: { $0.kind == .bootstrap })?
+            .changes.first?.paragraphId
+        else { return XCTFail("no bootstrap paragraph") }
+
+        let id = try await doc.addAnnotation(
+            kind: .suggestedChange, paragraphId: pid,
+            body: "rewrite", suggestedText: "Her jaw clenched.")
+        try await doc.rejectAnnotation(
+            id: id, userResponse: "original lands harder")
+
+        let anns = doc.annotations(filter: .init(statuses: nil))
+        let a = anns.first { $0.id == id }
+        XCTAssertEqual(a?.status, .rejected)
+        XCTAssertEqual(a?.userResponse, "original lands harder")
+        // Manuscript should be untouched by reject.
+        XCTAssertEqual(doc.displayText, "She was angry.")
+    }
+
+    func test_archive_leavesAnnotationInHistoryButOutOfDefaultView() async throws {
+        let (project, path) = try makeProject(initialMd: "Hello.")
+        let doc = try await Document.load(
+            url: project.appendingPathComponent(path),
+            device: "m", session: "s", presenter: nil)
+        let log = try await doc.opLog()
+        guard let pid = log.first(where: { $0.kind == .bootstrap })?
+            .changes.first?.paragraphId
+        else { return XCTFail("no bootstrap paragraph") }
+
+        let id = try await doc.addAnnotation(
+            kind: .comment, paragraphId: pid, body: "x")
+        try await doc.archiveAnnotation(id: id)
+
+        // Default (open only) — empty.
+        XCTAssertTrue(doc.annotations().isEmpty)
+        // All statuses → archived.
+        let all = doc.annotations(filter: .init(statuses: nil))
+        XCTAssertEqual(all.first(where: { $0.id == id })?.status, .archived)
+    }
 }
