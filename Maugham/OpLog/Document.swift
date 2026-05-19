@@ -41,6 +41,26 @@ public final class Document {
     /// in sync by every mutation path that calls opStore.append.
     fileprivate var _opLogMirror: [Op] = []
 
+    /// Sticky flag: true once the doc has ever had an annotation op
+    /// (creation OR lifecycle). Lets the hot typing path short-circuit
+    /// per-keystroke annotation work (invalidateAnnotationsCache + sweep)
+    /// when the document has never seen an annotation, which is the common
+    /// case. Set at load() time by scanning the mirror, and stays true once
+    /// flipped — annotations are append-only, so the flag only ratchets up.
+    private var _hasAnyAnnotationOps: Bool = false
+
+    /// Hot-path check whether any of the seven annotation-related OpKinds
+    /// has ever been observed on this document. Reads the cached flag.
+    private static func isAnnotationOpKind(_ kind: OpKind) -> Bool {
+        switch kind {
+        case .claudeComment, .claudeSuggestion, .claudeQuery, .claudeCraftNote,
+             .claudeAccept, .claudeReject, .claudeArchive:
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Internal autosave debounce (replaces DocumentStore.scheduleSave).
     private var autosaveScheduler: DebounceScheduler<Void>!
 
@@ -173,6 +193,9 @@ public final class Document {
         doc.recomputeDisplayText()
         doc._opLogMirror = ops
         doc._annotationsCacheValid = false
+        doc._hasAnyAnnotationOps = ops.contains {
+            Document.isAnnotationOpKind($0.kind)
+        }
         return doc
     }
 
@@ -295,12 +318,24 @@ public final class Document {
         if !changes.isEmpty || sequenceChanged {
             burstScheduler.recordActivity()
             autosaveScheduler.schedule(())
-            invalidateAnnotationsCache()
+            // Only touch the annotation cache when the doc actually has
+            // annotation ops. For docs without annotations (the common case),
+            // bumping annotationsVersion on every keystroke is pure
+            // observable-write churn that races with displayText updates
+            // and can leave NSTextView's spellchecker holding stale ranges
+            // (FAULT: NSRangeException in NSTextCheckingController).
+            if _hasAnyAnnotationOps {
+                invalidateAnnotationsCache()
+            }
         }
 
         // T12: auto-archive annotations whose paragraph dropped out of
         // `sequence` on this edit. Fire-and-forget on the main actor.
-        Task { @MainActor in await self.sweepOrphanedAnnotations() }
+        // Skip entirely when the doc has no annotations — the sweep would
+        // be a no-op but the Task scheduling itself adds main-actor churn.
+        if _hasAnyAnnotationOps {
+            Task { @MainActor in await self.sweepOrphanedAnnotations() }
+        }
 
         // ONE @Observable write at the end — but mirror the user's input
         // VERBATIM rather than re-rendering from paragraphs. ParagraphParser
@@ -344,7 +379,9 @@ public final class Document {
         pending.recordChange(paragraphId: newId, prior: nil, next: text)
         burstScheduler.recordActivity()
         autosaveScheduler.schedule(())
-        Task { @MainActor in await self.sweepOrphanedAnnotations() }
+        if _hasAnyAnnotationOps {
+            Task { @MainActor in await self.sweepOrphanedAnnotations() }
+        }
         recomputeDisplayText()
         return newId
     }
@@ -360,7 +397,9 @@ public final class Document {
         pending.recordChange(paragraphId: id, prior: priorText, next: "")
         burstScheduler.recordActivity()
         autosaveScheduler.schedule(())
-        Task { @MainActor in await self.sweepOrphanedAnnotations() }
+        if _hasAnyAnnotationOps {
+            Task { @MainActor in await self.sweepOrphanedAnnotations() }
+        }
         recomputeDisplayText()
     }
 
@@ -370,7 +409,9 @@ public final class Document {
         // emission will carry the new sequence as its `sequence` field.
         burstScheduler.recordActivity()
         autosaveScheduler.schedule(())
-        Task { @MainActor in await self.sweepOrphanedAnnotations() }
+        if _hasAnyAnnotationOps {
+            Task { @MainActor in await self.sweepOrphanedAnnotations() }
+        }
         recomputeDisplayText()
     }
 
@@ -421,6 +462,7 @@ public final class Document {
                 annotationBody: body))
         try await opStore.append(op)
         _opLogMirror.append(op)
+        _hasAnyAnnotationOps = true
         invalidateAnnotationsCache()
         return op.opId
     }
@@ -458,6 +500,7 @@ public final class Document {
                 userResponse: userResponse))
         try await opStore.append(acceptOp)
         _opLogMirror.append(acceptOp)
+        _hasAnyAnnotationOps = true
 
         // Apply manuscript mutation for suggestedChange. This is the
         // "two effects, one op" case: the same op resolves the annotation
@@ -513,6 +556,7 @@ public final class Document {
                 userResponse: userResponse))
         try await opStore.append(op)
         _opLogMirror.append(op)
+        _hasAnyAnnotationOps = true
         invalidateAnnotationsCache()
     }
 
@@ -624,6 +668,11 @@ public final class Document {
         self.paragraphs = state.paragraphs
         self.sequence = state.sequence
         self._opLogMirror = ops
+        // Re-derive the sticky flag from the merged log: cross-Mac sync
+        // could deliver annotation ops on a doc that previously had none.
+        self._hasAnyAnnotationOps = ops.contains {
+            Document.isAnnotationOpKind($0.kind)
+        }
         invalidateAnnotationsCache()
 
         // T12: auto-archive annotations anchored to paragraphs that vanished
