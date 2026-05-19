@@ -156,6 +156,8 @@
 		71C4A2881B4CB843C87E6989 /* RenderFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E5E8DB2EDC05667DBE11850 /* RenderFilter.swift */; };
 		71CAD7EDDB03A95E7EB75716 /* OpTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A803E9E774A037C8BA012A9 /* OpTests.swift */; };
 		725FFC66E852297FE7226C0A /* OpKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA1EE51FA93B3B588CEC84E7 /* OpKind.swift */; };
+		B2A1B3F45A724819960D3588 /* Annotation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A3DC078A8D4F36BCA3DC73 /* Annotation.swift */; };
+		7B930B34204C4EAC8A4EAA9D /* AnnotationTypeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B6F9B8EF8B142DC8A237F0F /* AnnotationTypeTests.swift */; };
 		72BC9F0706A16D33C321EAFC /* MCPProtocolHandlersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64AF8FACBA1B52A03063017C /* MCPProtocolHandlersTests.swift */; };
 		72F40FF2C6508C9703A1E41F /* ResearchRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F56FC0CFFA727F705E862C4 /* ResearchRow.swift */; };
 		738B13C816FA714D68ABE1CC /* TrashEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2578CEFB3B66F0BAE4558D4F /* TrashEntry.swift */; };
@@ -560,6 +562,8 @@
 		B80184F9EC8C04AF83C107C0 /* ProseModeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProseModeTests.swift; sourceTree = "<group>"; };
 		B9F2F54152F7FBF3795ADF37 /* ProjectIdentifierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectIdentifierTests.swift; sourceTree = "<group>"; };
 		BA1EE51FA93B3B588CEC84E7 /* OpKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpKind.swift; sourceTree = "<group>"; };
+		96A3DC078A8D4F36BCA3DC73 /* Annotation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Annotation.swift; sourceTree = "<group>"; };
+		5B6F9B8EF8B142DC8A237F0F /* AnnotationTypeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationTypeTests.swift; sourceTree = "<group>"; };
 		BA5DA62928B7AFE7C72A7B7C /* WikiLinkTokenizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WikiLinkTokenizerTests.swift; sourceTree = "<group>"; };
 		BA64374F4D6FAD197F6F1C23 /* SyntaxHelpSheetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyntaxHelpSheetTests.swift; sourceTree = "<group>"; };
 		BC461021BD2BE4E2BEA0090A /* ParagraphIDTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParagraphIDTests.swift; sourceTree = "<group>"; };
@@ -1009,6 +1013,7 @@
 				6F2EB64355D8DC9ECBD1C7C7 /* JSONLAppendStore.swift */,
 				6E26683FF7B10CEE116A6FDF /* Materializer.swift */,
 				C2B13C54EBA7C8206718DD51 /* Op.swift */,
+				96A3DC078A8D4F36BCA3DC73 /* Annotation.swift */,
 				BA1EE51FA93B3B588CEC84E7 /* OpKind.swift */,
 				DA9F4E4C924EA655D4F5F59F /* OpLogStore.swift */,
 				B1640E2FF1654D7D77E41FAA /* ParagraphID.swift */,
@@ -1122,6 +1127,7 @@
 				0D9A2AF1C7DB5A8459FB95DE /* DocumentTests.swift */,
 				4B6F91D075205E5BF3EE17D3 /* MaterializerTests.swift */,
 				7BDA5E1B14714ED09637EC91 /* OpLogStoreTests.swift */,
+				5B6F9B8EF8B142DC8A237F0F /* AnnotationTypeTests.swift */,
 				0A803E9E774A037C8BA012A9 /* OpTests.swift */,
 				BC461021BD2BE4E2BEA0090A /* ParagraphIDTests.swift */,
 				772D6D80FD2B1543616D806A /* ParagraphParserTests.swift */,
@@ -1352,6 +1358,7 @@
 				A1E6BC3D63880A4B0BBFAB12 /* MarkdownTokenizerTests.swift in Sources */,
 				A4BABB5FF0063A0D01AA5D4B /* MaterializerTests.swift in Sources */,
 				CB5D74DABDF5816CBC0DE9FB /* MovePieceTests.swift in Sources */,
+				7B930B34204C4EAC8A4EAA9D /* AnnotationTypeTests.swift in Sources */,
 				16B1B03B2BF17CB3DFA9850D /* OpLogStoreTests.swift in Sources */,
 				71CAD7EDDB03A95E7EB75716 /* OpTests.swift in Sources */,
 				9F2D405031E1006D180640A6 /* ParagraphIDTests.swift in Sources */,
@@ -1512,6 +1519,7 @@
 				F331544B21FB5B7C5F46830A /* MaughamApp.swift in Sources */,
 				A9C742ABF4919E23F697CAFE /* MaughamNotifications.swift in Sources */,
 				5FA21BD3EA2D121E9F102A18 /* NewProjectSheet.swift in Sources */,
+				B2A1B3F45A724819960D3588 /* Annotation.swift in Sources */,
 				97BE80630CB6CE6C63C7AFF4 /* Op.swift in Sources */,
 				725FFC66E852297FE7226C0A /* OpKind.swift in Sources */,
 				1AAC794F925FA43D12CCCE44 /* OpLogStore.swift in Sources */,
