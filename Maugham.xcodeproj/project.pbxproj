@@ -206,6 +206,7 @@
 		9F2D405031E1006D180640A6 /* ParagraphIDTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC461021BD2BE4E2BEA0090A /* ParagraphIDTests.swift */; };
 		A004D0ADF50CB62BCD4E32B4 /* SceneNavigatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13D58339D7AFFD9475D0B08 /* SceneNavigatorTests.swift */; };
 		A0594B6C21F36EEB62D06EBB /* AnnotationCreationToolsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10E3B0B876556A53139896E8 /* AnnotationCreationToolsTests.swift */; };
+		A1F2E3D4B5C6789012345678 /* AnnotationFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C3D4E5F6A7890123456789 /* AnnotationFlowTests.swift */; };
 		A18348C77D687E30A9131BEE /* fountain-syntax.md in Resources */ = {isa = PBXBuildFile; fileRef = 0ED4EAF2AF7EE645562FA642 /* fountain-syntax.md */; };
 		A1A133A43AF56DB192079C29 /* SearchMatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB80E4CD36E6412540A1A507 /* SearchMatch.swift */; };
 		A1E6BC3D63880A4B0BBFAB12 /* MarkdownTokenizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21BBA97B6C00947EBF4EBBAD /* MarkdownTokenizerTests.swift */; };
@@ -374,6 +375,7 @@
 		0FCF1AF3897E461B8BAA1C7C /* ProjectStoreResearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectStoreResearchTests.swift; sourceTree = "<group>"; };
 		10BD95AC3A65176FC1D38F51 /* MCPNoteBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPNoteBanner.swift; sourceTree = "<group>"; };
 		10E3B0B876556A53139896E8 /* AnnotationCreationToolsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationCreationToolsTests.swift; sourceTree = "<group>"; };
+		B2C3D4E5F6A7890123456789 /* AnnotationFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationFlowTests.swift; sourceTree = "<group>"; };
 		113BAF46D3526F6E12D16087 /* PendingBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingBuffer.swift; sourceTree = "<group>"; };
 		11C94011E6B73CFEF59DDEC1 /* ResearchLinkToolsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchLinkToolsTests.swift; sourceTree = "<group>"; };
 		129A8E9F35B6662BFBC6B2B4 /* AnnotationTypeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationTypeTests.swift; sourceTree = "<group>"; };
@@ -729,6 +731,7 @@
 			children = (
 				824220D1524C9699740E06CD /* .gitkeep */,
 				441BBEB38F71F743ADB684BD /* AddResearchTextNoteTests.swift */,
+				B2C3D4E5F6A7890123456789 /* AnnotationFlowTests.swift */,
 				D04602DD147AB194A0AEAB48 /* CharacterAutocompleterDataTests.swift */,
 				229232B37A92049B578BA4DC /* ConflictStateTests.swift */,
 				46B2FFC7BA12C2867381E747 /* DebounceSchedulerTests.swift */,
@@ -1344,6 +1347,7 @@
 				487B50AEF2A43FF3C5C3D8AA /* AddProjectReferenceTests.swift in Sources */,
 				14926BA15C0FAA06D568C07D /* AddResearchTextNoteTests.swift in Sources */,
 				A0594B6C21F36EEB62D06EBB /* AnnotationCreationToolsTests.swift in Sources */,
+				A1F2E3D4B5C6789012345678 /* AnnotationFlowTests.swift in Sources */,
 				4C1E9D9AEFB9FC6027FDB16E /* AnnotationDeriverTests.swift in Sources */,
 				FC9E35DE2C7008CEED0221C1 /* AnnotationReadToolsTests.swift in Sources */,
 				C8AF3077C4CC94F986E6F2DF /* AnnotationTypeTests.swift in Sources */,
