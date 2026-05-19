@@ -38,6 +38,11 @@ public struct Op: Codable, Equatable, Sendable {
         public let synthesisSource: String?
         public let orphanRecoveryMethod: String?
 
+        // Annotation semantics — populated only on claude_* ops.
+        public let annotationBody: String?
+        public let sourceAnnotationId: String?
+        public let userResponse: String?
+
         enum CodingKeys: String, CodingKey {
             case sessionId = "session_id"
             case prompt
@@ -45,12 +50,17 @@ public struct Op: Codable, Equatable, Sendable {
             case sourceCheckpoint = "source_checkpoint"
             case synthesisSource = "synthesis_source"
             case orphanRecoveryMethod = "orphan_recovery_method"
+            case annotationBody = "annotation_body"
+            case sourceAnnotationId = "source_annotation_id"
+            case userResponse = "user_response"
         }
 
         public init(
             sessionId: String? = nil, prompt: String? = nil,
             toolArgs: String? = nil, sourceCheckpoint: String? = nil,
-            synthesisSource: String? = nil, orphanRecoveryMethod: String? = nil
+            synthesisSource: String? = nil, orphanRecoveryMethod: String? = nil,
+            annotationBody: String? = nil, sourceAnnotationId: String? = nil,
+            userResponse: String? = nil
         ) {
             self.sessionId = sessionId
             self.prompt = prompt
@@ -58,6 +68,9 @@ public struct Op: Codable, Equatable, Sendable {
             self.sourceCheckpoint = sourceCheckpoint
             self.synthesisSource = synthesisSource
             self.orphanRecoveryMethod = orphanRecoveryMethod
+            self.annotationBody = annotationBody
+            self.sourceAnnotationId = sourceAnnotationId
+            self.userResponse = userResponse
         }
     }
 
