@@ -202,6 +202,14 @@ public final class Document {
             paragraphs: paragraphs, sequence: sequence)
     }
 
+    /// Returns the full op log for this document, ordered by `op_id`
+    /// (ULID timestamp-prefixed → chronologically stable across devices).
+    /// Reads from disk via `OpLogStore.load(docId:)` each call; T7 replaces
+    /// this with a mirror read for synchronous annotation derivation.
+    public func opLog() async throws -> [Op] {
+        try await opStore.load(docId: docId)
+    }
+
     // === Mutation API (Task 6) ===
     public func setFullText(_ text: String) {
         // Build the next stored form by running restoreComments against
