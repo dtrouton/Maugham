@@ -89,18 +89,20 @@ struct ProjectWindow: View {
                     }
                 }
                 .sheet(isPresented: $showingDiffSheet) {
-                    if let conflict = documentStore.pendingConflict {
+                    if let conflict = activeDocument(in: store, documentStore: documentStore)?.pendingConflict {
                         ConflictDiffSheet(
                             conflict: conflict,
                             onKeepMine: {
                                 Task {
-                                    try? await documentStore.resolveConflictKeepMine()
+                                    try? await activeDocument(in: store, documentStore: documentStore)?
+                                        .resolveConflictKeepMine()
                                     showingDiffSheet = false
                                 }
                             },
                             onUseCloud: {
                                 Task {
-                                    try? await documentStore.resolveConflictUseCloud()
+                                    try? await activeDocument(in: store, documentStore: documentStore)?
+                                        .resolveConflictUseExternal()
                                     showingDiffSheet = false
                                 }
                             },
@@ -126,7 +128,8 @@ struct ProjectWindow: View {
                         onConfirm: { label in
                             showingCheckpointLabelSheet = false
                             Task { @MainActor in
-                                try? await documentStore.flushBurstNow()
+                                try? await activeDocument(in: store, documentStore: documentStore)?
+                                    .flushBurstNow()
                                 _ = try? await CheckpointCapture.run(
                                     projectURL: projectURL,
                                     activeDocId: activeDocId,
@@ -676,20 +679,36 @@ struct ProjectWindow: View {
 
     @ViewBuilder
     private func conflictBanner(documentStore: DocumentStore) -> some View {
-        if let conflict = documentStore.pendingConflict {
+        if let store, let conflict = activeDocument(in: store, documentStore: documentStore)?.pendingConflict {
             ConflictBanner(
                 conflict: conflict,
                 onKeepMine: {
-                    Task { try? await documentStore.resolveConflictKeepMine() }
+                    Task {
+                        try? await activeDocument(in: store, documentStore: documentStore)?
+                            .resolveConflictKeepMine()
+                    }
                 },
                 onUseCloud: {
-                    Task { try? await documentStore.resolveConflictUseCloud() }
+                    Task {
+                        try? await activeDocument(in: store, documentStore: documentStore)?
+                            .resolveConflictUseExternal()
+                    }
                 },
                 onShowDiff: isDocumentConflict(conflict) ? {
                     showingDiffSheet = true
                 } : nil
             )
         }
+    }
+
+    /// Helper: the currently-selected manuscript Document, if one is open
+    /// in the editor registry. Used by conflict banner + diff sheet binding
+    /// post the document-first-class refactor (T11).
+    private func activeDocument(in store: ProjectStore, documentStore: DocumentStore) -> Document? {
+        guard let id = selectedItemId,
+              let item = findItem(id: id, in: store.manifest.structure),
+              let path = item.path else { return nil }
+        return documentStore.document(for: path)
     }
 
     @ViewBuilder
@@ -1034,8 +1053,12 @@ private struct CheckpointModifier: ViewModifier {
                 guard let store, let documentStore else { return }
                 let activeDocId = selectedItemId ?? "__no-selection__"
                 let allDocIds = collectDocIds(in: store.manifest.structure)
+                let activeDoc = activeDocument(
+                    selectedItemId: selectedItemId,
+                    structure: store.manifest.structure,
+                    documentStore: documentStore)
                 Task { @MainActor in
-                    try? await documentStore.flushBurstNow()
+                    try? await activeDoc?.flushBurstNow()
                     _ = try? await CheckpointCapture.run(
                         projectURL: store.url,
                         activeDocId: activeDocId,
@@ -1063,14 +1086,30 @@ private struct CheckpointModifier: ViewModifier {
         }
         return ids
     }
+
+    private func activeDocument(
+        selectedItemId: String?,
+        structure: [StructureItem],
+        documentStore: DocumentStore
+    ) -> Document? {
+        guard let id = selectedItemId else { return nil }
+        func find(_ items: [StructureItem]) -> StructureItem? {
+            for item in items {
+                if item.id == id { return item }
+                if let children = item.children, let n = find(children) { return n }
+            }
+            return nil
+        }
+        guard let item = find(structure), let path = item.path else { return nil }
+        return documentStore.document(for: path)
+    }
 }
 
-/// An editor surface for a research note (.document kind). Calls
-/// DocumentStore.openDocument(at:) on appearance and whenever the selected
-/// path changes, so the existing 750ms autosave writes back to the correct
-/// research/<note>.md file. Selecting a different research item or switching
-/// to the manuscript tab simply unmounts this view and remounts with the
-/// new path, triggering a flush of the pending save.
+/// An editor surface for a research note (.document kind). Research notes
+/// are not `Document` actors (no op-log, no paragraph IDs); they autosave via
+/// `DocumentStore.scheduleFileSave` on the same 750ms cadence. Selecting a
+/// different research item simply unmounts this view and remounts with the
+/// new path, flushing the pending save.
 private struct ResearchNoteEditor: View {
     @Bindable var store: ProjectStore
     @Bindable var documentStore: DocumentStore
@@ -1081,6 +1120,7 @@ private struct ResearchNoteEditor: View {
 
     @State private var documentText: String = ""
     @State private var loadedPath: String?
+    @State private var researchCursor: Int? = nil
 
     var body: some View {
         HSplitView {
@@ -1104,8 +1144,7 @@ private struct ResearchNoteEditor: View {
                         get: { documentText },
                         set: { newValue in
                             documentText = newValue
-                            documentStore.currentDocumentText = newValue
-                            documentStore.scheduleSave(for: path, text: newValue)
+                            documentStore.scheduleFileSave(for: path, text: newValue)
                         }
                     ),
                     theme: userPreferences.theme,
@@ -1116,9 +1155,9 @@ private struct ResearchNoteEditor: View {
                     typewriterScroll: userPreferences.typewriterScroll,
                     sentenceFocus: userPreferences.sentenceFocus,
                     paragraphFocus: userPreferences.paragraphFocus,
-                    initialCursorLocation: documentStore.cursor(for: path),
+                    initialCursorLocation: researchCursor,
                     onCursorChanged: { position in
-                        documentStore.setCursor(position, for: path)
+                        researchCursor = position
                     },
                     showElementGutter: false,
                     imagePasteHandler: makeImagePasteHandler()
@@ -1153,16 +1192,13 @@ private struct ResearchNoteEditor: View {
 
     private func loadDocument() async {
         guard loadedPath != path else { return }
-        do {
-            let text = try await documentStore.openDocument(at: path)
-            documentText = text
-            documentStore.currentDocumentText = text
-            loadedPath = path
-        } catch {
-            documentText = ""
-            documentStore.currentDocumentText = ""
-            loadedPath = path
-        }
+        // Flush any pending file save before switching research notes.
+        try? await documentStore.flushPendingSave()
+        let url = store.url.appendingPathComponent(path)
+        let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        documentText = text
+        researchCursor = nil
+        loadedPath = path
     }
 }
 

@@ -104,7 +104,22 @@ public final class Document {
             ops.append(recovered)
         }
 
-        let initial = Deriver.derive(ops: ops)
+        var initial = Deriver.derive(ops: ops)
+        // If the op log is empty but the on-disk file is fully tagged
+        // (Bootstrap.run short-circuited with `allHaveIds`), seed the
+        // in-memory paragraph map from the parsed file. Without this,
+        // `handleExternalDiskChange` would compare against an empty
+        // derived state and mis-classify subsequent external edits.
+        if initial.paragraphs.isEmpty && parsed.contains(where: { $0.id != nil }) {
+            var paragraphs: [String: String] = [:]
+            var sequence: [String] = []
+            for p in parsed {
+                guard let id = p.id else { continue }
+                paragraphs[id] = p.text
+                sequence.append(id)
+            }
+            initial = Deriver.DerivedState(paragraphs: paragraphs, sequence: sequence)
+        }
         let lastWritten = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
 
         // BurstScheduler with default thresholds.

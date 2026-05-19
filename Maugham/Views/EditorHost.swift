@@ -5,10 +5,9 @@ import Foundation
 /// Picks the WritingMode by file extension. As of Stage 2 of the
 /// document-first-class refactor (T10), the editor binds to a per-document
 /// `Document` actor that owns its own op log, pending buffer, burst
-/// scheduler, autosave, and conflict detection. EditorHost no longer
-/// reaches into DocumentStore for `documentText`, `priorStoredMarkdown`,
-/// `currentDocumentText`, or `lastWrittenText` — those properties still
-/// exist on DocumentStore but are unreferenced from this view.
+/// scheduler, autosave, and conflict detection. After T11 those properties
+/// no longer exist on DocumentStore; this view binds directly to the
+/// owning Document.
 ///
 /// The binding shape is `Binding(get: { doc.displayText }, set: { doc.setFullText($0) })`.
 /// Document.setFullText writes `displayText` exactly once at the end, which

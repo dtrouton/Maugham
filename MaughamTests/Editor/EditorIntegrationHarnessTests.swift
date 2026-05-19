@@ -49,36 +49,60 @@ final class EditorIntegrationHarnessTests: XCTestCase {
     func test_externalEditWithIdsIntact_ingestsSilently() async throws {
         let rig = EditorIntegrationHarness(
             initialText: "<!-- ¶a3f9 -->\n\nHello.\n")
-        _ = try await rig.attachDocumentStore()
+        let docStore = try await rig.attachDocumentStore()
+        let doc = try await Document.load(
+            url: rig.projectURL.appendingPathComponent(rig.docPath),
+            device: "m", session: "s", presenter: docStore.presenter)
+        docStore.register(document: doc, for: rig.docPath)
 
-        // Externally rewrite the .md, keeping the ¶id intact but changing
-        // the paragraph body. Reconciler.classify should return
-        // .silentIngest; the editor view should reflect the change without
-        // a conflict sheet surfacing.
+        // Write the external content + drive the presenter callback. In
+        // process NSFilePresenter callbacks are unreliable, so we invoke the
+        // dispatch directly — this still exercises the T11 routing path
+        // (`presenterDidChangeSubitem` → `document(for:)` → Document).
         try await rig.writeExternalMdContent(
             "<!-- ¶a3f9 -->\n\nHello, edited.\n")
-        try await Task.sleep(for: .milliseconds(300))
+        docStore.presenterDidChangeSubitem(
+            at: rig.projectURL.appendingPathComponent(rig.docPath))
+        try await waitFor(timeout: .seconds(2)) {
+            doc.displayText.contains("edited")
+        }
 
-        // Today this path may not be fully wired end-to-end (audit finding
-        // #3). After Stage 3 it will be. For now we document the expected
-        // post-refactor behaviour:
-        // XCTAssertTrue(rig.currentText.contains("edited"))
-        // The test is `XCTSkip`'d today; Stage 3 will un-skip.
-        throw XCTSkip("Reconciler end-to-end path is wired in Stage 3")
+        XCTAssertNil(doc.pendingConflict,
+            "intact ¶ids → silent ingest, no conflict sheet")
+        XCTAssertTrue(doc.displayText.contains("edited"))
     }
 
     func test_externalEditWithIdsStripped_surfacesConflict() async throws {
         let rig = EditorIntegrationHarness(
             initialText: "<!-- ¶a3f9 -->\n\nHello.\n")
-        _ = try await rig.attachDocumentStore()
+        let docStore = try await rig.attachDocumentStore()
+        let doc = try await Document.load(
+            url: rig.projectURL.appendingPathComponent(rig.docPath),
+            device: "m", session: "s", presenter: docStore.presenter)
+        docStore.register(document: doc, for: rig.docPath)
 
-        // External tool stripped the ¶id comment. Reconciler should
-        // classify as .needsSheet, surfacing pendingConflict.
         try await rig.writeExternalMdContent("Hello, edited (no IDs).\n")
-        try await Task.sleep(for: .milliseconds(300))
+        docStore.presenterDidChangeSubitem(
+            at: rig.projectURL.appendingPathComponent(rig.docPath))
+        try await waitFor(timeout: .seconds(2)) {
+            doc.pendingConflict != nil
+        }
 
-        // Same situation — Stage 3 will un-skip.
-        throw XCTSkip("Reconciler end-to-end path is wired in Stage 3")
+        XCTAssertNotNil(doc.pendingConflict,
+            "stripped ¶ids → conflict surfaces")
+    }
+
+    /// Polls predicate every 50ms up to `timeout`. Returns when true; no
+    /// throw on timeout — caller asserts the actual condition right after.
+    private func waitFor(
+        timeout: Duration, _ predicate: @escaping () -> Bool
+    ) async throws {
+        let start = Date()
+        let maxSeconds = Double(timeout.components.seconds)
+        while !predicate() {
+            if Date().timeIntervalSince(start) > maxSeconds { return }
+            try await Task.sleep(for: .milliseconds(50))
+        }
     }
 
     func test_endOfFileTyping_doesNotFireApplyExternalText() {

@@ -102,7 +102,7 @@ struct PartialRestorePicker: View {
         onComplete()
     }
 
-    /// Derive the post-restore state and push it to disk via DocumentStore.scheduleSave.
+    /// Derive the post-restore state and push it to disk via DocumentStore.scheduleFileSave.
     private func materializeAndScheduleSave(
         docId: String,
         newState: Deriver.DerivedState,
@@ -126,7 +126,7 @@ struct PartialRestorePicker: View {
             paragraphs: finalState.paragraphs,
             sequence: finalState.sequence
         )
-        documentStore?.scheduleSave(for: path, text: markdown)
+        documentStore?.scheduleFileSave(for: path, text: markdown)
     }
 }
 

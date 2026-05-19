@@ -41,8 +41,8 @@ public enum ListScenesTool {
         for item in Self.allDocuments(in: store.manifest.structure) {
             guard let path = item.path else { continue }
             let text: String
-            if let ds = store.documentStore, ds.openDocumentPath == path {
-                text = ds.currentDocumentText
+            if let ds = store.documentStore, let doc = ds.document(for: path) {
+                text = doc.displayText
             } else {
                 let abs = entry.url.appendingPathComponent(path)
                 text = (try? String(contentsOf: abs, encoding: .utf8)) ?? ""

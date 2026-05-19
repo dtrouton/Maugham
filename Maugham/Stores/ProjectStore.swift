@@ -2175,8 +2175,11 @@ extension ProjectStore {
         let newType: ProjectType = mainDocExt == "fountain" ? .screenplay : .shortStory
 
         // 1. Flush + close any open document for this piece.
-        if let docStore = documentStore,
-           docStore.openDocumentPath == piecePath {
+        if let docStore = documentStore {
+            if let doc = docStore.document(for: piecePath) {
+                await doc.close()
+                docStore.unregister(path: piecePath)
+            }
             try? await docStore.flushPendingSave()
             await docStore.close()
         }

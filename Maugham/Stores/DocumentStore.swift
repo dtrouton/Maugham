@@ -1,6 +1,12 @@
 import Foundation
 import AppKit
 
+/// Project-scoped store that owns the NSFilePresenter, the registry of
+/// per-document `Document` actors, session tracking, UI state, manifest IO,
+/// and rename/copy/move file orchestration. The op-log, autosave, conflict
+/// detection, and burst scheduling all live on `Document` (Stage 3 of the
+/// document-first-class refactor); DocumentStore routes external presenter
+/// callbacks to the matching Document via the registry.
 @MainActor
 @Observable
 public final class DocumentStore {
@@ -13,115 +19,6 @@ public final class DocumentStore {
     internal var presenter: NSFilePresenter? { return _presenter }
     private var _presenter: ProjectFolderPresenter?
     private var uiStateScheduler: DebounceScheduler<UIState>!
-
-    public private(set) var openDocumentPath: String?
-    public private(set) var lastWrittenText: String = ""
-
-    /// Per-document cursor positions kept in-memory for the lifetime of this
-    /// DocumentStore. Restored when the user revisits a document; lost on
-    /// project window close. Persistence to .maugham/ui-state.json can come
-    /// in a later milestone.
-    private var cursorPositions: [String: Int] = [:]
-
-    /// Read the saved cursor location for a document path.
-    public func cursor(for path: String) -> Int? {
-        cursorPositions[path]
-    }
-
-    /// Save a cursor location for a document path.
-    public func setCursor(_ position: Int, for path: String) {
-        cursorPositions[path] = position
-    }
-
-    /// Set when an external change is detected while the user has unsaved
-    /// edits. Cleared on resolution.
-    public private(set) var pendingConflict: ConflictState?
-
-    /// Used by EditorHost to know what the editor's currently-displayed text
-    /// is, so the conflict-detection pass can compare local vs disk vs
-    /// last-written. Set by EditorHost on every keystroke.
-    public var currentDocumentText: String = ""
-
-    /// Polling helper for tests: wait until predicate(pendingConflict) is true.
-    public func waitForConflictState(
-        _ predicate: @escaping (ConflictState?) -> Bool,
-        timeout: Duration = .seconds(2)
-    ) async throws {
-        let start = Date()
-        while !predicate(pendingConflict) {
-            if Date().timeIntervalSince(start) > Double(timeout.components.seconds) {
-                struct Timeout: Error {}
-                throw Timeout()
-            }
-            try await Task.sleep(for: .milliseconds(50))
-        }
-    }
-
-    /// Polling helper for tests: wait until predicate(lastWrittenText) is true.
-    public func waitForLastWrittenText(
-        _ predicate: @escaping (String) -> Bool,
-        timeout: Duration = .seconds(2)
-    ) async throws {
-        let start = Date()
-        while !predicate(lastWrittenText) {
-            if Date().timeIntervalSince(start) > Double(timeout.components.seconds) {
-                struct Timeout: Error {}
-                throw Timeout()
-            }
-            try await Task.sleep(for: .milliseconds(50))
-        }
-    }
-
-    public func resolveConflictKeepMine() async throws {
-        guard let conflict = pendingConflict else { return }
-        // 1. Preserve external version
-        try writeConflictBackup(
-            for: conflict.path,
-            text: conflict.externalText,
-            kind: "cloud")
-        // 2. Write local version through coordinator
-        try await performSave(path: conflict.path, text: conflict.localText)
-        // 3. Clear conflict
-        pendingConflict = nil
-    }
-
-    public func resolveConflictUseCloud() async throws {
-        guard let conflict = pendingConflict else { return }
-        // 1. Preserve local version
-        try writeConflictBackup(
-            for: conflict.path,
-            text: conflict.localText,
-            kind: "local")
-        // 2. The disk already has externalText. Update lastWrittenText so
-        //    subsequent presenter callbacks classify correctly.
-        lastWrittenText = conflict.externalText
-        currentDocumentText = conflict.externalText
-        // 3. Clear conflict
-        pendingConflict = nil
-    }
-
-    /// Write a backup copy of one side of a conflict to .maugham/conflicts/.
-    /// Filename: `<stem>-<kind>-<ISO8601>.<ext>`.
-    private func writeConflictBackup(
-        for path: String, text: String, kind: String
-    ) throws {
-        let conflictsDir = projectURL.appendingPathComponent(".maugham/conflicts")
-        try FileManager.default.createDirectory(
-            at: conflictsDir, withIntermediateDirectories: true)
-
-        let filename = (path as NSString).lastPathComponent
-        let stem = (filename as NSString).deletingPathExtension
-        let ext = (filename as NSString).pathExtension
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let stamp = formatter.string(from: Date())
-            .replacingOccurrences(of: ":", with: "-")
-        let backupName = ext.isEmpty
-            ? "\(stem)-\(kind)-\(stamp)"
-            : "\(stem)-\(kind)-\(stamp).\(ext)"
-        let backupURL = conflictsDir.appendingPathComponent(backupName)
-        try text.data(using: .utf8)?.write(to: backupURL, options: [.atomic])
-    }
 
     private var lastObservedManifestModified: Date?
 
@@ -137,79 +34,14 @@ public final class DocumentStore {
     private var lastKnownProjectWordCount: Int = 0
     private static let sessionIdleThreshold: TimeInterval = 30 * 60
 
-    private var saveScheduler: DebounceScheduler<SavePayload>!
+    /// Debounced save scheduler used by callers that aren't Documents —
+    /// today that's `ResearchNoteEditor` and `PartialRestorePicker`. Documents
+    /// run their own autosave internally (see `Document.performAutosave`).
+    private var fileSaveScheduler: DebounceScheduler<FileSavePayload>!
 
-    private struct SavePayload: Sendable {
+    private struct FileSavePayload: Sendable {
         let path: String
         let text: String
-    }
-
-    // MARK: - Op log integration
-
-    private struct OpLogContext {
-        let docId: String
-        let device: String
-        let session: String
-        let buffer: PendingBuffer
-    }
-    private var opLogContext: OpLogContext?
-    private var burstScheduler: BurstScheduler?
-
-    /// Bind an op-log recording context to the currently-open document.
-    /// Sets up an in-memory PendingBuffer for paragraph changes plus a
-    /// BurstScheduler whose onFire flushes those changes as a `typing_burst`
-    /// Op. Called by EditorCoordinator on document open.
-    public func beginOpLogContext(docId: String, device: String, session: String) {
-        opLogContext = OpLogContext(
-            docId: docId, device: device, session: session,
-            buffer: PendingBuffer(projectURL: projectURL, docId: docId))
-        burstScheduler = BurstScheduler(
-            idle: .seconds(30), max: .seconds(90)
-        ) { [weak self] in
-            Task { @MainActor [weak self] in
-                try? await self?.flushBurstNow()
-            }
-        }
-    }
-
-    /// Record a paragraph-level change into the pending buffer and tickle the
-    /// burst scheduler so the idle/max timers re-arm.
-    public func recordParagraphChange(paragraphId: String, prior: String?, next: String) {
-        guard let ctx = opLogContext else { return }
-        ctx.buffer.recordChange(paragraphId: paragraphId, prior: prior, next: next)
-        burstScheduler?.recordActivity()
-    }
-
-    /// True when the op-log pending buffer holds no changes (or no context is
-    /// bound). Used by tests and the burst-flush guard.
-    public func opLogPendingIsEmpty() -> Bool {
-        return opLogContext?.buffer.isEmpty() ?? true
-    }
-
-    /// Materialise the current pending buffer as a single `typing_burst` Op
-    /// appended to this doc's op log, then clear the buffer (both in-memory
-    /// and on-disk). No-op when there's nothing pending.
-    public func flushBurstNow() async throws {
-        guard let ctx = opLogContext, !ctx.buffer.isEmpty() else { return }
-        let changes = ctx.buffer.snapshot()
-        let op = Op(
-            opId: ULID.generate(),
-            docId: ctx.docId, at: Date(),
-            device: ctx.device, session: ctx.session,
-            kind: .typingBurst,
-            changes: changes,
-            sequence: nil,
-            provenance: nil)
-        try await OpLogStore(projectURL: projectURL, presenter: presenter).append(op)
-        try await ctx.buffer.clear()
-    }
-
-    /// Mirror the in-memory pending buffer to disk so a hard crash mid-burst
-    /// doesn't lose editorial classification. Hooked to the 750ms autosave
-    /// cadence by EditorCoordinator (Task 18).
-    public func persistPendingBufferToDisk() async throws {
-        guard let ctx = opLogContext else { return }
-        try await ctx.buffer.flushToDisk()
     }
 
     private init(projectURL: URL, uiState: UIState) {
@@ -228,6 +60,11 @@ public final class DocumentStore {
             delay: .milliseconds(500)
         ) { [weak store] state in
             await store?.persistUIState(state)
+        }
+        store.fileSaveScheduler = DebounceScheduler<FileSavePayload>(
+            delay: .milliseconds(750)
+        ) { [weak store] payload in
+            try? await store?.performFileSave(path: payload.path, text: payload.text)
         }
 
         // Log scratch stragglers from a previous crashed multi-rename.
@@ -279,38 +116,23 @@ public final class DocumentStore {
         uiStateScheduler.schedule(draft)
     }
 
-    /// Bind to a new document. Reads from disk, sets lastWrittenText, flushes
-    /// any pending save for the previously-open document.
-    public func openDocument(at path: String) async throws -> String {
-        if openDocumentPath != nil {
-            try? await flushPendingSave()
-        }
-        let url = projectURL.appendingPathComponent(path)
-        let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-        openDocumentPath = path
-        lastWrittenText = text
-        // Lazy-init save scheduler on first openDocument.
-        if saveScheduler == nil {
-            saveScheduler = DebounceScheduler<SavePayload>(
-                delay: .milliseconds(750)
-            ) { [weak self] payload in
-                try? await self?.performSave(path: payload.path, text: payload.text)
-            }
-        }
-        return text
+    // MARK: - Non-Document file save path (research notes, partial-restore)
+
+    /// Schedule a coordinated write of `text` to `path` on a 750ms debounce.
+    /// Used by `ResearchNoteEditor` and `PartialRestorePicker` — anything
+    /// that isn't a manuscript `Document` (Documents autosave internally).
+    public func scheduleFileSave(for path: String, text: String) {
+        guard fileSaveScheduler != nil else { return }
+        fileSaveScheduler.schedule(FileSavePayload(path: path, text: text))
     }
 
-    public func scheduleSave(for path: String, text: String) {
-        guard saveScheduler != nil else { return }
-        saveScheduler.schedule(SavePayload(path: path, text: text))
-    }
-
+    /// Flush any pending `scheduleFileSave` immediately.
     public func flushPendingSave() async throws {
-        guard let saveScheduler else { return }
-        await saveScheduler.flush()
+        guard let fileSaveScheduler else { return }
+        await fileSaveScheduler.flush()
     }
 
-    private func performSave(path: String, text: String) async throws {
+    private func performFileSave(path: String, text: String) async throws {
         let url = projectURL.appendingPathComponent(path)
         let coordinator = NSFileCoordinator(filePresenter: presenter)
         var coordError: NSError?
@@ -321,7 +143,6 @@ public final class DocumentStore {
             do {
                 try text.data(using: .utf8)?
                     .write(to: writeURL, options: [.atomic])
-                self.lastWrittenText = text
             } catch {
                 saveError = error
             }
@@ -574,12 +395,12 @@ public final class DocumentStore {
         }
     }
 
-    // MARK: - Document registry (Stage 2 of document-first-class refactor)
+    // MARK: - Document registry
 
     /// Open `Document` instances keyed by manuscript-relative path. Populated
     /// by `EditorHost` when it loads a document, cleared when the editor
     /// switches away. The presenter routes external change callbacks through
-    /// this registry to the owning Document (Stage 3, Task 11).
+    /// this registry to the owning Document.
     private var openDocuments: [String: Document] = [:]
 
     public func register(document: Document, for path: String) {
@@ -602,27 +423,50 @@ public final class DocumentStore {
 extension DocumentStore: ProjectFolderPresenterDelegate {
 
     public func presenterDidChangeSubitem(at url: URL) {
-        // Compute the relative path from projectURL.
         let project = projectURL.standardizedFileURL.path
         let changed = url.standardizedFileURL.path
         guard changed.hasPrefix(project + "/") else { return }
         let relativePath = String(changed.dropFirst(project.count + 1))
 
-        if relativePath.hasPrefix(".maugham/ops/") && relativePath.hasSuffix(".jsonl") {
-            NotificationCenter.default.post(
-                name: .maughamOpLogChanged,
-                object: nil, userInfo: ["path": relativePath])
+        // Manifest changes — handle in DocumentStore (existing path).
+        if relativePath == "project.maugham.json" {
+            handleManifestChanged()
             return
         }
+
+        // Op log changes — route to the matching Document.
+        if relativePath.hasPrefix(".maugham/ops/")
+            && relativePath.hasSuffix(".jsonl")
+            && !relativePath.hasSuffix(".pending.jsonl") {
+            let filename = (relativePath as NSString).lastPathComponent
+            let docId = (filename as NSString).deletingPathExtension
+            if let doc = document(forDocId: docId) {
+                Task { @MainActor in
+                    try? await doc.handleExternalLogChange()
+                }
+            }
+            NotificationCenter.default.post(
+                name: .maughamOpLogChanged, object: nil,
+                userInfo: ["path": relativePath])
+            return
+        }
+
+        // Checkpoints — post the existing notification.
         if relativePath == ".maugham/checkpoints.jsonl" {
             NotificationCenter.default.post(
                 name: .maughamCheckpointAdded, object: nil)
             return
         }
-        if relativePath == "project.maugham.json" {
-            handleManifestChanged()
-        } else if relativePath == openDocumentPath {
-            handleOpenDocumentChanged(path: relativePath)
+
+        // Manuscript document changes — route to the Document.
+        if let doc = document(for: relativePath) {
+            let projectRoot = projectURL
+            Task { @MainActor in
+                let mdURL = projectRoot.appendingPathComponent(relativePath)
+                guard let data = try? Data(contentsOf: mdURL),
+                      let diskText = String(data: data, encoding: .utf8) else { return }
+                try? await doc.handleExternalDiskChange(diskMd: diskText)
+            }
         }
     }
 
@@ -630,33 +474,6 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
         // Phase 1e doesn't react to directory-level changes; the per-file
         // callbacks handle our cases. Phase 2+ may use this for binder
         // refresh on external file additions.
-    }
-
-    // MARK: - Document conflict handling
-
-    private func handleOpenDocumentChanged(path: String) {
-        let url = projectURL.appendingPathComponent(path)
-        guard let data = try? Data(contentsOf: url),
-              let diskText = String(data: data, encoding: .utf8) else { return }
-
-        // Disk text equals our last write → echo from our own coordinated save.
-        if diskText == lastWrittenText { return }
-
-        // Disk text differs. Are there pending local edits?
-        if currentDocumentText == lastWrittenText {
-            // Case A: silent reload. No banner.
-            lastWrittenText = diskText
-            currentDocumentText = diskText
-        } else {
-            // Case B: conflict. Capture both versions, surface to UI.
-            pendingConflict = ConflictState(
-                path: path,
-                localText: currentDocumentText,
-                externalText: diskText,
-                externalModifiedAt: (try? FileManager.default
-                    .attributesOfItem(atPath: url.path)[.modificationDate]
-                    as? Date) ?? Date())
-        }
     }
 
     private func handleManifestChanged() {

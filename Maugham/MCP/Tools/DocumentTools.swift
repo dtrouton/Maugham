@@ -64,8 +64,8 @@ public enum ReadDocumentTool {
     ) async throws -> Data {
         // Live in-memory text if this doc is the one currently open in the editor.
         let text: String
-        if let ds = store.documentStore, ds.openDocumentPath == path {
-            text = ds.currentDocumentText
+        if let ds = store.documentStore, let doc = ds.document(for: path) {
+            text = doc.displayText
         } else {
             let abs = projectURL.appendingPathComponent(path)
             text = (try? String(contentsOf: abs, encoding: .utf8)) ?? ""
