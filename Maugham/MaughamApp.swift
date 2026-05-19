@@ -158,6 +158,13 @@ struct MaughamApp: App {
                         userInfo: ["segment": "outline"])
                 }
                 .keyboardShortcut("3", modifiers: [.command, .option])
+                Button("Annotations") {
+                    NotificationCenter.default.post(
+                        name: .maughamSetDetailSegment,
+                        object: nil,
+                        userInfo: ["segment": "annotations"])
+                }
+                .keyboardShortcut("a", modifiers: [.command, .option])
             }
             CommandGroup(after: .pasteboard) {
                 Divider()

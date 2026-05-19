@@ -72,6 +72,7 @@ struct DetailPaneToggle<Inspector: View>: View {
     private var segmentPicker: some View {
         Picker("Right pane", selection: $segment) {
             Image(systemName: "info.circle").tag(DetailSegment.inspector)
+            Image(systemName: "checklist").tag(DetailSegment.annotations)
             Image(systemName: "doc.text.magnifyingglass").tag(DetailSegment.research)
             if !hideOutline {
                 Image(systemName: "list.bullet.indent").tag(DetailSegment.outline)
@@ -92,6 +93,10 @@ struct DetailPaneToggle<Inspector: View>: View {
         switch segment {
         case .inspector:
             inspectorContent()
+        case .annotations:
+            ContentUnavailableView(
+                "Annotations pane coming online",
+                systemImage: "checklist")
         case .research:
             LinkedResearchPane(
                 store: store,
