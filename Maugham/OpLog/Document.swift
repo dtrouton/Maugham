@@ -199,12 +199,17 @@ public final class Document {
         return doc
     }
 
-    private func recomputeDisplayText() {
+    private func recomputeDisplayText(caller: String = #function) {
         var rendered = ""
         for id in sequence {
             guard let text = paragraphs[id] else { continue }
             if !rendered.isEmpty { rendered.append("\n\n") }
             rendered.append(text)
+        }
+        let priorLen = displayText.utf16.count
+        let newLen = rendered.utf16.count
+        if priorLen != newLen {
+            print("[TRACE] recomputeDisplayText caller=\(caller) priorLen=\(priorLen) newLen=\(newLen) docId=\(docId)")
         }
         displayText = rendered
     }
@@ -353,6 +358,11 @@ public final class Document {
         // tradeoff we already documented. But the live editor view must
         // stay byte-for-byte synchronized with textView.string while the
         // user is typing, or NSTextView's invariants break.
+        let priorDisplay = displayText.utf16.count
+        let newDisplay = text.utf16.count
+        if priorDisplay != newDisplay {
+            print("[TRACE] setFullText priorLen=\(priorDisplay) newLen=\(newDisplay) changes=\(changes.count) seqChanged=\(sequenceChanged) docId=\(docId)")
+        }
         displayText = text
     }
 
@@ -625,8 +635,12 @@ public final class Document {
         await autosaveScheduler.flush()
     }
     public func handleExternalDiskChange(diskMd: String) async throws {
+        print("[TRACE] handleExternalDiskChange entered diskLen=\(diskMd.utf16.count) lastWrittenLen=\(lastWrittenText.utf16.count) docId=\(docId)")
         // Echo guard: this is the file change we ourselves just wrote.
-        guard diskMd != lastWrittenText else { return }
+        guard diskMd != lastWrittenText else {
+            print("[TRACE] handleExternalDiskChange echo-guarded (self-write)")
+            return
+        }
 
         let derivedMd = materialize()
         let classification = Reconciler.classify(
@@ -668,6 +682,7 @@ public final class Document {
     }
 
     public func handleExternalLogChange() async throws {
+        print("[TRACE] handleExternalLogChange entered docId=\(docId)")
         // Reload the log file (OpLogStore.load dedupes by op_id and sorts).
         let ops = try await opStore.load(docId: docId)
 
