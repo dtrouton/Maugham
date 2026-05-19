@@ -42,7 +42,10 @@ struct AnnotationsPane: View {
     private var visibleAnnotations: [Annotation] {
         // Observing annotationsVersion forces re-render when cache invalidates.
         _ = document.annotationsVersion
-        return document.annotations(filter: filter)
+        let result = document.annotations(filter: filter)
+        let all = document.annotations(filter: .init(statuses: nil))
+        print("[TRACE] AnnotationsPane docId=\(document.docId) version=\(document.annotationsVersion) returned=\(result.count) total=\(all.count) statuses=\(all.map { $0.status.rawValue })")
+        return result
     }
 
     var body: some View {

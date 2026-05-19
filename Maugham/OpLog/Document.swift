@@ -41,6 +41,9 @@ public final class Document {
     /// in sync by every mutation path that calls opStore.append.
     fileprivate var _opLogMirror: [Op] = []
 
+    /// Diagnostic accessor: size of the in-memory op log mirror.
+    public var opLogMirrorCount: Int { _opLogMirror.count }
+
     /// Sticky flag: true once the doc has ever had an annotation op
     /// (creation OR lifecycle). Lets the hot typing path short-circuit
     /// per-keystroke annotation work (invalidateAnnotationsCache + sweep)
@@ -220,6 +223,7 @@ public final class Document {
         doc._hasAnyAnnotationOps = ops.contains {
             Document.isAnnotationOpKind($0.kind)
         }
+        print("[TRACE] Document.load docId=\(docId) ops=\(ops.count) annotationOps=\(ops.filter { Document.isAnnotationOpKind($0.kind) }.count) hasAnnotationFlag=\(doc._hasAnyAnnotationOps)")
         return doc
     }
 
