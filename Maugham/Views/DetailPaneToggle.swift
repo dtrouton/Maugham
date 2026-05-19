@@ -116,7 +116,7 @@ struct DetailPaneToggle<Inspector: View>: View {
     @ViewBuilder
     private var historyPane: some View {
         if let url = projectURL {
-            CheckpointBrowserPane(
+            HistoryPane(
                 projectURL: url,
                 activeDocId: activeDocId ?? "__no-selection__",
                 allDocIds: allDocIds,
