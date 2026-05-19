@@ -314,6 +314,7 @@
 		F78C23C6CF11BA5381D18D0B /* BinderRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB8E611DFDD11D71AD5CD7B5 /* BinderRow.swift */; };
 		F7F4F097524A4227BF062574 /* Token.swift in Sources */ = {isa = PBXBuildFile; fileRef = 621AC0BED8090999162F4625 /* Token.swift */; };
 		F885495A1B63FFAE21B958EE /* FountainLine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E8FC275873D961A92D3905F /* FountainLine.swift */; };
+		FA87F6C63F0543B73BE8E152 /* AnnotationsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F46D0D85B9E5B2A11AF5887 /* AnnotationsPane.swift */; };
 		FBA5B6DB644C20101D399CA4 /* ImagePreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87D760D4836717C4983D5EB0 /* ImagePreview.swift */; };
 		FBDC52B1EBC22CE30F13F519 /* ShingleMatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5F4BA59F8892397124E03DD /* ShingleMatcherTests.swift */; };
 		FC661BF16F84F5F00B683563 /* ProjectRegistryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA54584246EF920B1C1CBF35 /* ProjectRegistryTests.swift */; };
@@ -501,6 +502,7 @@
 		6EFCA3AD7F2F1A0F99066F86 /* Annotation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Annotation.swift; sourceTree = "<group>"; };
 		6F0FC968D0D89696A9EFA130 /* ConflictDiffSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConflictDiffSheet.swift; sourceTree = "<group>"; };
 		6F2EB64355D8DC9ECBD1C7C7 /* JSONLAppendStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONLAppendStore.swift; sourceTree = "<group>"; };
+		6F46D0D85B9E5B2A11AF5887 /* AnnotationsPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationsPane.swift; sourceTree = "<group>"; };
 		6F878345A84438C1D5659763 /* UIStateMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStateMigrationTests.swift; sourceTree = "<group>"; };
 		7201B6A1764254805B22CE5A /* BurstSchedulerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BurstSchedulerTests.swift; sourceTree = "<group>"; };
 		765FCAB2EDC2829122CEE559 /* NewProjectSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewProjectSheet.swift; sourceTree = "<group>"; };
@@ -846,6 +848,7 @@
 			isa = PBXGroup;
 			children = (
 				F00666F0CF61DC3DD9DD2CAA /* AddResearchLinkSheet.swift */,
+				6F46D0D85B9E5B2A11AF5887 /* AnnotationsPane.swift */,
 				4994A3FC0080FB2647C8E958 /* BinderPaneToggle.swift */,
 				DB8E611DFDD11D71AD5CD7B5 /* BinderRow.swift */,
 				FBE8985AA5527193DC3386F7 /* BinderView.swift */,
@@ -1481,6 +1484,7 @@
 				B35E56E43A71E9373410DB7D /* AnnotationCreationTools.swift in Sources */,
 				DDFD6A37D01EDFFC7847D323 /* AnnotationDeriver.swift in Sources */,
 				5E8480389264CC8F04116D18 /* AnnotationReadTools.swift in Sources */,
+				FA87F6C63F0543B73BE8E152 /* AnnotationsPane.swift in Sources */,
 				E4080529CF4F49C6782BB69A /* AudioPreview.swift in Sources */,
 				19C8220F149BD9E26961AC37 /* BinderPaneToggle.swift in Sources */,
 				F78C23C6CF11BA5381D18D0B /* BinderRow.swift in Sources */,
