@@ -74,16 +74,17 @@ final class EditorIntegrationHarness {
         // Binding whose setter mirrors what EditorHost does today: store
         // the new value. The Document refactor will change this body but
         // the contract (boundText reflects user input) stays.
-        let bindingTextRef = UnsafeMutablePointer<String>.allocate(capacity: 1)
-        bindingTextRef.initialize(to: initialText)
-        _ = bindingTextRef  // (placeholder; bindings created below)
+        // Use a heap-allocated box so the Binding closures don't need to
+        // capture `self` before all stored properties are initialized.
+        final class TextBox { var value: String; init(_ v: String) { value = v } }
+        let textBox = TextBox(initialText)
 
         let coord = EditorCoordinator(
             text: Binding(
-                get: { [weak self] in self?.boundText ?? "" },
-                set: { [weak self] newValue in self?.boundText = newValue }),
+                get: { textBox.value },
+                set: { textBox.value = $0 }),
             mode: mode,
-            theme: .light, typography: .proseDefaults,
+            theme: .light, typography: .defaults,
             typewriterScroll: false,
             sentenceFocus: false, paragraphFocus: false)
         tv.delegate = coord
