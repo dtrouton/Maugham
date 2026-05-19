@@ -146,6 +146,9 @@ public final class Document {
     }
 
     private func performAutosave() async throws {
+        // Mirror pending buffer to disk for crash recovery.
+        try? await pending.flushToDisk()
+
         let bytes = materialize()
         let coord = NSFileCoordinator(filePresenter: presenter)
         var coordErr: NSError?
@@ -269,10 +272,28 @@ public final class Document {
         recomputeDisplayText()
     }
     public func flushBurstNow() async throws {
-        fatalError("flushBurstNow: implemented in Task 7")
+        guard !pending.isEmpty() else { return }
+        let changes = pending.snapshot()
+        // Capture the latest sequence on the burst so cross-Mac merge sees
+        // ordering changes.
+        let op = Op(
+            opId: ULID.generate(),
+            docId: docId, at: Date(),
+            device: device, session: session,
+            kind: .typingBurst,
+            changes: changes,
+            sequence: sequence,
+            provenance: nil)
+        try await opStore.append(op)
+        try await pending.clear()
     }
+
     public func close() async {
-        fatalError("close: implemented in Task 7")
+        // Flush any pending burst so editorial classification survives the
+        // close (matches EditorHost's onDocChange behaviour).
+        try? await flushBurstNow()
+        // Flush any pending autosave so the .md reflects the final state.
+        await autosaveScheduler.flush()
     }
     public func handleExternalDiskChange(diskMd: String) async throws {
         fatalError("handleExternalDiskChange: implemented in Task 8")
