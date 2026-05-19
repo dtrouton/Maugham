@@ -296,16 +296,142 @@ public final class Document {
         await autosaveScheduler.flush()
     }
     public func handleExternalDiskChange(diskMd: String) async throws {
-        fatalError("handleExternalDiskChange: implemented in Task 8")
+        // Echo guard: this is the file change we ourselves just wrote.
+        guard diskMd != lastWrittenText else { return }
+
+        let derivedMd = materialize()
+        let classification = Reconciler.classify(
+            diskMd: diskMd, derivedMd: derivedMd)
+
+        switch classification {
+        case .echo:
+            return
+
+        case .silentIngest(let changes):
+            // Construct an external_edit op carrying the changes.
+            let op = Op(
+                opId: ULID.generate(),
+                docId: docId, at: Date(),
+                device: device, session: session,
+                kind: .externalEdit,
+                changes: changes,
+                sequence: nil,
+                provenance: .init(synthesisSource: "disk_at_ingest"))
+            try await opStore.append(op)
+            // Update internal state.
+            for change in changes {
+                paragraphs[change.paragraphId] = change.next
+            }
+            lastWrittenText = diskMd
+            recomputeDisplayText()
+
+        case .needsSheet(let orphanCount):
+            // Surface a pending conflict. UI reads document.pendingConflict.
+            pendingConflict = ConflictState(
+                path: url.path,
+                localText: derivedMd,
+                externalText: diskMd,
+                externalModifiedAt: Date())
+            _ = orphanCount  // (currently unused; could feed into the UI sheet)
+        }
     }
+
     public func handleExternalLogChange() async throws {
-        fatalError("handleExternalLogChange: implemented in Task 8")
+        // Reload the log file (OpLogStore.load dedupes by op_id and sorts).
+        let ops = try await opStore.load(docId: docId)
+
+        // Re-derive from the merged log.
+        let state = Deriver.derive(ops: ops)
+        self.paragraphs = state.paragraphs
+        self.sequence = state.sequence
+
+        // No conflict UI for log merge. Just publish the new state.
+        recomputeDisplayText()
     }
+
     public func resolveConflictKeepMine() async throws {
-        fatalError("resolveConflictKeepMine: implemented in Task 8")
+        guard let conflict = pendingConflict else { return }
+
+        // Preserve the external version as a conflict backup before
+        // overwriting (matches DocumentStore's existing backup behaviour).
+        try writeConflictBackup(text: conflict.externalText, kind: "cloud")
+
+        // Schedule an autosave of our current derived state. The disk
+        // re-write happens via the autosave path.
+        autosaveScheduler.schedule(())
+        await autosaveScheduler.flush()
+        pendingConflict = nil
     }
+
     public func resolveConflictUseExternal() async throws {
-        fatalError("resolveConflictUseExternal: implemented in Task 8")
+        guard let conflict = pendingConflict else { return }
+
+        // Preserve our local version as a backup before accepting external.
+        try writeConflictBackup(text: conflict.localText, kind: "local")
+
+        // Ingest the external bytes as a synthesized external_edit op,
+        // same as the silent-ingest path would have done if IDs had been
+        // intact.
+        try await handleExternalDiskChangeForceIngest(diskMd: conflict.externalText)
+        pendingConflict = nil
+    }
+
+    private func handleExternalDiskChangeForceIngest(diskMd: String) async throws {
+        // For "Use cloud" resolution: ignore the Reconciler classification
+        // and ingest the diskMd verbatim. The new paragraphs may get fresh
+        // IDs minted by restoreComments since the user-typed IDs are gone.
+        let priorStored = materialize()
+        let nextStored = RenderFilter.restoreComments(
+            stored: priorStored, displayEdited:
+                RenderFilter.stripComments(diskMd))
+        let parsed = ParagraphParser.parse(nextStored)
+
+        var newParagraphs: [String: String] = [:]
+        var newSequence: [String] = []
+        var changes: [Op.ParagraphChange] = []
+        for p in parsed {
+            guard let id = p.id else { continue }
+            let prior = paragraphs[id]
+            newParagraphs[id] = p.text
+            newSequence.append(id)
+            if prior != p.text {
+                changes.append(.init(paragraphId: id, prior: prior, next: p.text))
+            }
+        }
+
+        let op = Op(
+            opId: ULID.generate(),
+            docId: docId, at: Date(),
+            device: device, session: session,
+            kind: .externalEdit,
+            changes: changes,
+            sequence: newSequence,
+            provenance: .init(synthesisSource: "use_cloud_resolution"))
+        try await opStore.append(op)
+        self.paragraphs = newParagraphs
+        self.sequence = newSequence
+        self.lastWrittenText = diskMd
+        recomputeDisplayText()
+    }
+
+    private func writeConflictBackup(text: String, kind: String) throws {
+        let projectURL = url.deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let conflictsDir = projectURL.appendingPathComponent(".maugham/conflicts")
+        try FileManager.default.createDirectory(
+            at: conflictsDir, withIntermediateDirectories: true)
+        let filename = url.lastPathComponent
+        let stem = (filename as NSString).deletingPathExtension
+        let ext = (filename as NSString).pathExtension
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let stamp = formatter.string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        let backupName = ext.isEmpty
+            ? "\(stem)-\(kind)-\(stamp)"
+            : "\(stem)-\(kind)-\(stamp).\(ext)"
+        let backupURL = conflictsDir.appendingPathComponent(backupName)
+        try text.data(using: .utf8)?.write(to: backupURL, options: [.atomic])
     }
 }
 
