@@ -169,21 +169,104 @@ public final class Document {
             paragraphs: paragraphs, sequence: sequence)
     }
 
-    // === Stubs to be filled in by Tasks 6-8 ===
+    // === Mutation API (Task 6) ===
     public func setFullText(_ text: String) {
-        fatalError("setFullText: implemented in Task 6")
+        // Build the next stored form by running restoreComments against
+        // the current materialized state. This is the same parse+diff
+        // that EditorHost used to do; relocating it to Document.
+        let priorStored = Materializer.materialize(
+            paragraphs: paragraphs, sequence: sequence)
+        let nextStored = RenderFilter.restoreComments(
+            stored: priorStored, displayEdited: text)
+
+        // Parse the new stored form to extract paragraph-level changes.
+        let priorParsed = ParagraphParser.parse(priorStored)
+        let nextParsed = ParagraphParser.parse(nextStored)
+        var priorById: [String: String] = [:]
+        for p in priorParsed {
+            if let id = p.id { priorById[id] = p.text }
+        }
+
+        // Collect changes and the new sequence.
+        var changes: [Op.ParagraphChange] = []
+        var newSequence: [String] = []
+        for p in nextParsed {
+            guard let id = p.id else { continue }
+            newSequence.append(id)
+            let prior = priorById[id]
+            if prior != p.text {
+                changes.append(.init(paragraphId: id, prior: prior, next: p.text))
+                pending.recordChange(
+                    paragraphId: id, prior: prior, next: p.text)
+            }
+        }
+
+        // Update internal derived state.
+        var newParagraphs: [String: String] = paragraphs
+        for change in changes {
+            newParagraphs[change.paragraphId] = change.next
+        }
+        let sequenceChanged = (newSequence != sequence)
+        self.paragraphs = newParagraphs
+        self.sequence = newSequence
+
+        // Tickle the burst scheduler so the typing_burst op fires on
+        // idle / max thresholds.
+        if !changes.isEmpty || sequenceChanged {
+            burstScheduler.recordActivity()
+            autosaveScheduler.schedule(())
+        }
+
+        // ONE @Observable write at the end. SwiftUI sees one body re-eval.
+        recomputeDisplayText()
     }
+
     public func setParagraph(id: String, text: String) {
-        fatalError("setParagraph: implemented in Task 6")
+        let prior = paragraphs[id]
+        guard prior != text else { return }
+        pending.recordChange(paragraphId: id, prior: prior, next: text)
+        paragraphs[id] = text
+        burstScheduler.recordActivity()
+        autosaveScheduler.schedule(())
+        recomputeDisplayText()
     }
+
     public func insertParagraph(after: String?, text: String) -> String {
-        fatalError("insertParagraph: implemented in Task 6")
+        let newId = ParagraphID.mint()
+        paragraphs[newId] = text
+        if let after, let idx = sequence.firstIndex(of: after) {
+            sequence.insert(newId, at: idx + 1)
+        } else {
+            sequence.append(newId)
+        }
+        pending.recordChange(paragraphId: newId, prior: nil, next: text)
+        burstScheduler.recordActivity()
+        autosaveScheduler.schedule(())
+        recomputeDisplayText()
+        return newId
     }
+
     public func deleteParagraph(id: String) {
-        fatalError("deleteParagraph: implemented in Task 6")
+        guard paragraphs[id] != nil else { return }
+        let priorText = paragraphs[id]
+        paragraphs.removeValue(forKey: id)
+        sequence.removeAll { $0 == id }
+        // Record deletion as an op with empty next text (consumer-visible
+        // marker that the paragraph went away; sequence change carries the
+        // ordering).
+        pending.recordChange(paragraphId: id, prior: priorText, next: "")
+        burstScheduler.recordActivity()
+        autosaveScheduler.schedule(())
+        recomputeDisplayText()
     }
+
     public func reorder(sequence: [String]) {
-        fatalError("reorder: implemented in Task 6")
+        self.sequence = sequence
+        // No paragraph-change ops for pure reorder; the next typing_burst
+        // emission will carry the new sequence as its `sequence` field.
+        burstScheduler.recordActivity()
+        autosaveScheduler.schedule(())
+        recomputeDisplayText()
     }
     public func flushBurstNow() async throws {
         fatalError("flushBurstNow: implemented in Task 7")
