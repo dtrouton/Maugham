@@ -149,11 +149,19 @@ public final class Document {
         }
 
         var initial = Deriver.derive(ops: ops)
-        // If the op log is empty but the on-disk file is fully tagged
-        // (Bootstrap.run short-circuited with `allHaveIds`), seed the
-        // in-memory paragraph map from the parsed file. Without this,
-        // `handleExternalDiskChange` would compare against an empty
-        // derived state and mis-classify subsequent external edits.
+        // Two recovery paths from non-canonical op-log states:
+        //
+        // 1. Empty paragraphs + tagged on-disk file: `Bootstrap.run`
+        //    short-circuited with `allHaveIds` so no bootstrap op was
+        //    emitted. Seed paragraphs + sequence from the parsed file.
+        //
+        // 2. Non-empty paragraphs but empty sequence: an older typing_burst
+        //    landed without populating its `sequence` field (predates the
+        //    fix that always captures sequence on burst). The deriver
+        //    leaves sequence=[] in that case, which collapses displayText
+        //    to "" and stops the doc rendering. Recover the sequence from
+        //    the parsed on-disk file's id order — that's the source of
+        //    truth for paragraph ordering anyway.
         if initial.paragraphs.isEmpty && parsed.contains(where: { $0.id != nil }) {
             var paragraphs: [String: String] = [:]
             var sequence: [String] = []
@@ -163,6 +171,22 @@ public final class Document {
                 sequence.append(id)
             }
             initial = Deriver.DerivedState(paragraphs: paragraphs, sequence: sequence)
+        } else if initial.sequence.isEmpty && !initial.paragraphs.isEmpty {
+            var recovered: [String] = []
+            for p in parsed {
+                guard let id = p.id, initial.paragraphs[id] != nil else {
+                    continue
+                }
+                recovered.append(id)
+            }
+            // Fallback: if the parsed file is mis-tagged (e.g. anchor at top
+            // but everything else as one block), at minimum surface the
+            // paragraphs we do know about so the doc renders.
+            if recovered.isEmpty {
+                recovered = Array(initial.paragraphs.keys)
+            }
+            initial = Deriver.DerivedState(
+                paragraphs: initial.paragraphs, sequence: recovered)
         }
         let lastWritten = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
 
