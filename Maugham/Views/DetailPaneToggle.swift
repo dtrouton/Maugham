@@ -94,9 +94,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         case .inspector:
             inspectorContent()
         case .annotations:
-            ContentUnavailableView(
-                "Annotations pane coming online",
-                systemImage: "checklist")
+            annotationsPane
         case .research:
             LinkedResearchPane(
                 store: store,
@@ -132,6 +130,21 @@ struct DetailPaneToggle<Inspector: View>: View {
                 "History unavailable",
                 systemImage: "clock.arrow.circlepath"
             )
+        }
+    }
+
+    @ViewBuilder
+    private var annotationsPane: some View {
+        if let ds = documentStore,
+           let docId = activeDocId,
+           docId != "__no-selection__",
+           let doc = ds.document(forDocId: docId) {
+            AnnotationsPane(document: doc)
+        } else {
+            ContentUnavailableView(
+                "Select a document",
+                systemImage: "doc.text",
+                description: Text("Open a manuscript to see and act on annotations."))
         }
     }
 }
