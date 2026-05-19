@@ -10,7 +10,8 @@ public final class DocumentStore {
     /// Loaded from `.maugham/ui-state.json` on open; nil-defaulted if absent.
     public private(set) var uiState: UIState
 
-    private var presenter: ProjectFolderPresenter?
+    internal var presenter: NSFilePresenter? { return _presenter }
+    private var _presenter: ProjectFolderPresenter?
     private var uiStateScheduler: DebounceScheduler<UIState>!
 
     public private(set) var openDocumentPath: String?
@@ -252,7 +253,7 @@ public final class DocumentStore {
         let presenter = ProjectFolderPresenter(
             projectURL: url, delegate: store)
         NSFileCoordinator.addFilePresenter(presenter)
-        store.presenter = presenter
+        store._presenter = presenter
 
         return store
     }
@@ -263,9 +264,9 @@ public final class DocumentStore {
         await flushSessionOnQuit()
         try? await flushPendingSave()
         await uiStateScheduler.flush()
-        if let presenter {
+        if let presenter = _presenter {
             NSFileCoordinator.removeFilePresenter(presenter)
-            self.presenter = nil
+            self._presenter = nil
         }
     }
 
