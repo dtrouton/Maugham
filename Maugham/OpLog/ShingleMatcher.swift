@@ -40,6 +40,19 @@ public enum ShingleMatcher {
         return best
     }
 
+    /// Character-bigram overlap. Used as a fallback when word-shingle
+    /// matching fails for very short texts (< 4 words). Returns a value in
+    /// 0...1 indicating how many character bigrams overlap.
+    public static func bigramOverlap(_ a: String, _ b: String) -> Double {
+        let bigramsA = bigrams(of: a)
+        let bigramsB = bigrams(of: b)
+        if bigramsA.isEmpty && bigramsB.isEmpty { return 1.0 }
+        if bigramsA.isEmpty || bigramsB.isEmpty { return 0.0 }
+        let inter = bigramsA.intersection(bigramsB).count
+        let minSize = min(bigramsA.count, bigramsB.count)
+        return Double(inter) / Double(minSize)
+    }
+
     private static func shingles(of text: String, k: Int) -> Set<String> {
         let words = text
             .lowercased()
@@ -49,6 +62,17 @@ public enum ShingleMatcher {
         var s = Set<String>()
         for i in 0...(words.count - k) {
             s.insert(words[i..<i+k].joined(separator: " "))
+        }
+        return s
+    }
+
+    private static func bigrams(of text: String) -> Set<String> {
+        let lower = text.lowercased()
+        let chars = Array(lower)
+        guard chars.count >= 2 else { return chars.isEmpty ? [] : [lower] }
+        var s = Set<String>()
+        for i in 0..<(chars.count - 1) {
+            s.insert(String(chars[i...i+1]))
         }
         return s
     }

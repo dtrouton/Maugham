@@ -81,9 +81,12 @@ public enum RenderFilter {
             // Character-bigram fallback for short paragraphs (< k words on
             // either side) where word-shingles collapse to whole-string equality
             // and so can only match exactly.
-            if let id = bestCharShingleMatch(needle: d.text, candidates: unmatchedById) {
-                pairs.append((id, d.text))
-                unmatchedById.removeValue(forKey: id)
+            if let m = unmatchedById.max(by: {
+                ShingleMatcher.bigramOverlap(d.text, $0.value)
+                    < ShingleMatcher.bigramOverlap(d.text, $1.value)
+            }), ShingleMatcher.bigramOverlap(d.text, m.value) >= 0.6 {
+                pairs.append((m.key, d.text))
+                unmatchedById.removeValue(forKey: m.key)
                 continue
             }
             // Mint fresh.
@@ -99,44 +102,4 @@ public enum RenderFilter {
         return Materializer.materialize(paragraphs: paragraphs, sequence: sequence)
     }
 
-    // MARK: - Character-bigram fallback
-
-    private static func bestCharShingleMatch(
-        needle: String, candidates: [String: String]
-    ) -> String? {
-        let needleShingles = charBigrams(needle)
-        guard !needleShingles.isEmpty else { return nil }
-        var best: (id: String, score: Double)? = nil
-        for (id, text) in candidates {
-            let cand = charBigrams(text)
-            if cand.isEmpty { continue }
-            let inter = needleShingles.intersection(cand).count
-            let denom = min(needleShingles.count, cand.count)
-            let score = Double(inter) / Double(denom)
-            if score >= 0.6 {
-                if let b = best {
-                    if score > b.score { best = (id, score) }
-                } else {
-                    best = (id, score)
-                }
-            }
-        }
-        return best?.id
-    }
-
-    private static func charBigrams(_ s: String) -> Set<String> {
-        let lowered = s.lowercased()
-        // Strip whitespace runs to single spaces for stability.
-        let normalized = lowered.split(whereSeparator: { $0.isWhitespace })
-            .joined(separator: " ")
-        let chars = Array(normalized)
-        guard chars.count >= 2 else {
-            return chars.isEmpty ? [] : [String(chars)]
-        }
-        var out = Set<String>()
-        for i in 0..<(chars.count - 1) {
-            out.insert(String(chars[i...i+1]))
-        }
-        return out
-    }
 }

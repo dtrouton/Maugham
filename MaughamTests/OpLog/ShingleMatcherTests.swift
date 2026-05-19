@@ -39,4 +39,18 @@ final class ShingleMatcherTests: XCTestCase {
             needle: needle, candidates: haystack, k: 4, threshold: 0.6)
         XCTAssertNil(match)
     }
+
+    func test_bigramOverlap_identicalShortText_isOne() {
+        XCTAssertEqual(ShingleMatcher.bigramOverlap("hello", "hello"), 1.0, accuracy: 0.001)
+    }
+
+    func test_bigramOverlap_minorEditOnShortText_isHigh() {
+        let score = ShingleMatcher.bigramOverlap("First.", "First, edited.")
+        XCTAssertGreaterThan(score, 0.6)
+    }
+
+    func test_bigramOverlap_disjointText_isLow() {
+        let score = ShingleMatcher.bigramOverlap("xyz", "abc")
+        XCTAssertLessThan(score, 0.3)
+    }
 }
