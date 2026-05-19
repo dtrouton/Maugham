@@ -282,6 +282,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // body font/paragraph style instead of the system default.
         textView.typingAttributes = mode.bodyTypingAttributes(
             theme: theme, typography: typography)
+        // Text changes require re-dim. The textDidChange path delegates here;
+        // no separate dim call needed.
         applyFocusDim(in: textView)
     }
 
@@ -392,6 +394,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         if typewriterScroll {
             scrollSelectionToVerticalCenter(in: textView)
         }
+        // Cursor-only selection changes (arrow keys, click) don't go through
+        // retokenizeAndStyle. Re-dim here.
         applyFocusDim(in: textView)
         onCursorChanged?(textView.selectedRange().location)
     }
