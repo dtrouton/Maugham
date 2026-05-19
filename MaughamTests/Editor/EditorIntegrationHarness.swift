@@ -143,6 +143,37 @@ final class EditorIntegrationHarness {
         textView.didChangeText()
     }
 
+    // MARK: - External-edit helpers
+
+    /// Simulate an external tool writing new bytes to the manuscript file
+    /// on disk. The harness needs a DocumentStore to drive presenter
+    /// callbacks for these tests. Current implementation: load a real
+    /// DocumentStore so the presenter fires.
+    func attachDocumentStore() async throws -> DocumentStore {
+        // Manifest must exist for DocumentStore.open to work.
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A",
+            created: Date(), modified: Date(),
+            structure: [
+                StructureItem(
+                    id: "doc-test", title: "Test", type: .document,
+                    path: docPath)
+            ],
+            research: [])
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = .iso8601
+        try enc.encode(manifest).write(
+            to: projectURL.appendingPathComponent("project.maugham.json"))
+        return try await DocumentStore.open(url: projectURL)
+    }
+
+    func writeExternalMdContent(_ content: String) async throws {
+        let mdURL = projectURL.appendingPathComponent(docPath)
+        try content.data(using: .utf8)!.write(to: mdURL, options: .atomic)
+        // Give the presenter callback a tick to fire.
+        try await Task.sleep(for: .milliseconds(100))
+    }
+
     // MARK: - State inspection
 
     var currentText: String { textView.string }
