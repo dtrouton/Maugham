@@ -419,15 +419,25 @@ private struct HistoryRow: View {
                 // content). Auto-archives from paragraph deletion get
                 // both: body + cause.
                 if let body = resolvedBody(for: op) {
-                    let cause = op.provenance?.synthesisSource == .paragraphDeleted
-                        ? " · paragraph deleted" : ""
+                    let cause: String = {
+                        switch op.provenance?.synthesisSource {
+                        case .paragraphDeleted: return " · paragraph deleted"
+                        case .rewind:           return " · removed by rewind"
+                        default:                return ""
+                        }
+                    }()
                     Text("\(body)\(cause)")
                         .font(.caption).foregroundStyle(.secondary)
                         .lineLimit(1)
                 } else {
-                    Text(op.provenance?.synthesisSource == .paragraphDeleted
-                         ? "paragraph deleted" : "archived")
-                        .font(.caption).foregroundStyle(.secondary)
+                    Text({
+                        switch op.provenance?.synthesisSource {
+                        case .paragraphDeleted: return "paragraph deleted"
+                        case .rewind:           return "removed by rewind"
+                        default:                return "archived"
+                        }
+                    }() as String)
+                    .font(.caption).foregroundStyle(.secondary)
                 }
             case .externalEdit:
                 Text("\(op.changes.count) paragraph\(op.changes.count == 1 ? "" : "s") changed externally")
@@ -474,8 +484,10 @@ private struct HistoryRow: View {
                     }
                     if op.provenance?.synthesisSource == .paragraphDeleted {
                         Text("Auto-archived: paragraph deleted from manuscript.")
-                            .font(.caption2)
-                            .foregroundStyle(.orange)
+                            .font(.caption2).foregroundStyle(.orange)
+                    } else if op.provenance?.synthesisSource == .rewind {
+                        Text("Auto-archived: paragraph removed by rewind.")
+                            .font(.caption2).foregroundStyle(.orange)
                     }
                 }
             } else if let resp = op.provenance?.userResponse {
@@ -502,7 +514,9 @@ private struct HistoryRow: View {
             case .claudeCraftNote: return "Craft"
             case .externalEdit: return "External edit"
             case .checkpoint: return "Checkpoint"
-            case .checkpointRestore: return "Reverted"
+            case .checkpointRestore:
+                return op.provenance?.synthesisSource == .rewind
+                    ? "Rewound" : "Reverted"
             case .bootstrap: return "Initial"
             }
         case .checkpoint:
