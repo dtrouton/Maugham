@@ -1075,6 +1075,10 @@ private struct CheckpointModifier: ViewModifier {
                 guard store != nil else { return }
                 showingCheckpointLabelSheet = true
             }
+            .modifier(RewindModifier(
+                documentStore: documentStore,
+                store: store,
+                selectedItemId: selectedItemId))
     }
 
     private func collectDocIds(in items: [StructureItem]) -> [String] {
@@ -1103,6 +1107,90 @@ private struct CheckpointModifier: ViewModifier {
         }
         guard let item = find(structure), let path = item.path else { return nil }
         return documentStore.document(for: path)
+    }
+}
+
+// MARK: - RewindModifier
+
+/// Owns the .maughamOpenRewind notification listener and the RewindWindow
+/// sheet. Extracted into its own modifier to stay within Swift's type-checker
+/// expression limit in ProjectWindow.body.
+private struct RewindModifier: ViewModifier {
+    let documentStore: DocumentStore?
+    let store: ProjectStore?
+    let selectedItemId: String?
+    @State private var showingRewindModal: Bool = false
+    @State private var rewindInitialCursor: RewindCursor = .now
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(
+                for: .maughamOpenRewind)) { note in
+                if let opId = note.userInfo?["scrub_op_id"] as? String,
+                   let at = note.userInfo?["scrub_op_at"] as? Date {
+                    rewindInitialCursor = .atOp(opId: opId, at: at)
+                } else {
+                    rewindInitialCursor = .now
+                }
+                showingRewindModal = true
+            }
+            .sheet(isPresented: $showingRewindModal) {
+                rewindSheet
+            }
+    }
+
+    @ViewBuilder
+    private var rewindSheet: some View {
+        if let store, let documentStore, let docId = selectedItemId {
+            let allIds = collectDocIds(in: store.manifest.structure)
+            let paths = collectDocPaths(in: store.manifest.structure)
+            let title = paths[docId]?.components(separatedBy: "/").last ?? docId
+            RewindWindow(
+                projectURL: store.url,
+                activeDocId: docId,
+                allDocIds: allIds,
+                device: _checkpointDeviceId,
+                session: _checkpointSessionId,
+                docPaths: paths,
+                documentStore: documentStore,
+                docTitle: title,
+                initialCursor: rewindInitialCursor,
+                onComplete: { action in
+                    showingRewindModal = false
+                    switch action {
+                    case .cancel:
+                        break
+                    case .snapshotHere:
+                        NotificationCenter.default.post(
+                            name: .maughamCheckpointAdded, object: nil)
+                    case .restoreHere(let opId):
+                        Task { @MainActor in
+                            _ = try? await documentStore.document(forDocId: docId)?
+                                .restoreToOp(opId: opId)
+                        }
+                    }
+                })
+        }
+    }
+
+    private func collectDocIds(in items: [StructureItem]) -> [String] {
+        var ids: [String] = []
+        for item in items {
+            if item.type == .document { ids.append(item.id) }
+            if let ch = item.children { ids.append(contentsOf: collectDocIds(in: ch)) }
+        }
+        return ids
+    }
+
+    private func collectDocPaths(in items: [StructureItem]) -> [String: String] {
+        var m: [String: String] = [:]
+        for item in items {
+            if item.type == .document, let path = item.path { m[item.id] = path }
+            if let ch = item.children {
+                m.merge(collectDocPaths(in: ch)) { a, _ in a }
+            }
+        }
+        return m
     }
 }
 

@@ -7,5 +7,5 @@ import Foundation
 internal enum RewindAction: Equatable {
     case cancel
     case snapshotHere(label: String)
-    case restoreHere
+    case restoreHere(opId: String)
 }

@@ -214,7 +214,9 @@ struct RewindWindow: View {
                 Button("Cancel") { showingRestoreConfirm = false }
                 Button("Restore") {
                     showingRestoreConfirm = false
-                    onComplete(.restoreHere)
+                    if case .atOp(let opId, _) = cursor {
+                        onComplete(.restoreHere(opId: opId))
+                    }
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)

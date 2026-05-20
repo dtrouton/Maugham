@@ -221,6 +221,17 @@ struct HistoryPane: View {
                     .font(.caption)
             }
             Spacer()
+            Button {
+                NotificationCenter.default.post(
+                    name: .maughamOpenRewind,
+                    object: nil,
+                    userInfo: [:])
+            } label: {
+                Label("Rewind…", systemImage: "clock.arrow.circlepath")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(ops.isEmpty || (ops.count == 1 && ops[0].kind == .bootstrap))
         }
         .padding(.horizontal, 8).padding(.vertical, 6)
     }
@@ -313,6 +324,20 @@ private struct HistoryRow: View {
                 Button("Revert here…", action: onRevert)
                     .controlSize(.small)
                     .buttonStyle(.bordered)
+            } else if case .op(let op) = entry, mutatesManuscript(op.kind) {
+                Button {
+                    NotificationCenter.default.post(
+                        name: .maughamOpenRewind,
+                        object: nil,
+                        userInfo: ["scrub_op_id": op.opId,
+                                   "scrub_op_at": op.at])
+                } label: {
+                    Label("Rewind to before this…", systemImage: "arrow.uturn.backward")
+                        .labelStyle(.iconOnly)
+                }
+                .controlSize(.small)
+                .buttonStyle(.bordered)
+                .help("Rewind to before this point…")
             }
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
@@ -320,6 +345,16 @@ private struct HistoryRow: View {
         .onTapGesture(perform: onToggle)
         .simultaneousGesture(
             TapGesture().modifiers(.command).onEnded { _ in onJump() })
+    }
+
+    private func mutatesManuscript(_ kind: OpKind) -> Bool {
+        switch kind {
+        case .typingBurst, .externalEdit, .claudeAccept, .checkpointRestore:
+            return true
+        case .bootstrap, .checkpoint, .claudeComment, .claudeSuggestion,
+             .claudeQuery, .claudeCraftNote, .claudeReject, .claudeArchive:
+            return false
+        }
     }
 
     @ViewBuilder
