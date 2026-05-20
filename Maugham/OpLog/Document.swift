@@ -229,7 +229,6 @@ public final class Document {
         doc._hasAnyAnnotationOps = ops.contains {
             Document.isAnnotationOpKind($0.kind)
         }
-        print("[TRACE] Document.load docId=\(docId) ops=\(ops.count) annotationOps=\(ops.filter { Document.isAnnotationOpKind($0.kind) }.count) hasAnnotationFlag=\(doc._hasAnyAnnotationOps)")
         return doc
     }
 
@@ -705,10 +704,37 @@ public final class Document {
         // Reload the log file (OpLogStore.load dedupes by op_id and sorts).
         let ops = try await opStore.load(docId: docId)
 
-        // Re-derive from the merged log.
+        // Echo guard: every op we ourselves appended is already in
+        // _opLogMirror. If the disk log has no ops we haven't seen, this
+        // is NSFilePresenter firing on our own write — bail out before
+        // doing the destructive re-derivation that re-deriving sequence
+        // from the log would entail. Without this, every addAnnotation /
+        // typingBurst flush would trigger a presenter callback that
+        // re-derived state from disk, clobbered sequence (when the legacy
+        // op log doesn't capture sequence per burst), and triggered the
+        // orphan sweep to mass-archive paragraph-anchored annotations.
+        let mirrorIds = Set(_opLogMirror.map(\.opId))
+        let newOps = ops.filter { !mirrorIds.contains($0.opId) }
+        if newOps.isEmpty {
+            return
+        }
+
+        // Re-derive from the merged log, but PRESERVE the recovered sequence
+        // when the new derivation produces an empty one. The recovery code
+        // in Document.load seeded sequence from the parsed .md file for the
+        // legacy case where typing_burst ops didn't capture sequence; that
+        // recovery happens once at load and would be lost on every external
+        // change otherwise.
         let state = Deriver.derive(ops: ops)
         self.paragraphs = state.paragraphs
-        self.sequence = state.sequence
+        if state.sequence.isEmpty && !state.paragraphs.isEmpty
+           && !self.sequence.isEmpty {
+            // Keep the previously-recovered sequence. The new ops added
+            // paragraphs that aren't in `self.sequence` will appear at the
+            // tail (handled by mutation paths going forward).
+        } else {
+            self.sequence = state.sequence
+        }
         self._opLogMirror = ops
         // Re-derive the sticky flag from the merged log: cross-Mac sync
         // could deliver annotation ops on a doc that previously had none.
@@ -718,7 +744,9 @@ public final class Document {
         invalidateAnnotationsCache()
 
         // T12: auto-archive annotations anchored to paragraphs that vanished
-        // in the merged state.
+        // in the merged state. Now safe because we preserved the sequence
+        // above, so the sweep only archives annotations whose paragraph
+        // genuinely isn't in `self.sequence`.
         await sweepOrphanedAnnotations()
 
         // No conflict UI for log merge. Just publish the new state.

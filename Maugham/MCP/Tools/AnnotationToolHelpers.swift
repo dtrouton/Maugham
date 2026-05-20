@@ -31,10 +31,8 @@ func withAnnotationDocument<T>(
     // Case 1: doc is loaded in the editor — use the live instance.
     if let ds = entry.store.documentStore,
        let doc = ds.document(forDocId: documentId) {
-        print("[TRACE] withAnnotationDocument LIVE docId=\(documentId) mirrorOps=\(doc.opLogMirrorCount)")
         return try await body(doc)
     }
-    print("[TRACE] withAnnotationDocument TRANSIENT docId=\(documentId)")
     // Case 2: doc not loaded — transient-load from disk.
     guard let item = findManifestItem(
             id: documentId, in: entry.store.manifest.structure),
