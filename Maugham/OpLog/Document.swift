@@ -534,11 +534,27 @@ public final class Document {
         // staleness check has nothing to compare against, the annotation
         // can never be acted on meaningfully, and the row clutters the
         // history with no path to recovery.
+        //
+        // Throws a structured tool error (MCPError.paragraphNotFound) so
+        // MCP clients receive a tools/call result with isError=true and a
+        // machine-readable body `{"error":"paragraph_not_found",...}`
+        // rather than a generic JSON-RPC failure they surface as "Tool
+        // execution failed."
         if kind != .craftNote {
-            guard let pid = paragraphId,
-                  paragraphs[pid] != nil else {
-                throw MCPError.invalidArgument(
-                    "paragraph_id '\(paragraphId ?? "<nil>")' not found in current document state. Call read_document again to refresh paragraph anchors; the document may have been edited since the last read.")
+            guard let pid = paragraphId else {
+                throw MCPError.paragraphNotFound(
+                    paragraphId: "<nil>", currentCount: sequence.count)
+            }
+            if !sequence.contains(pid) {
+                throw MCPError.paragraphNotFound(
+                    paragraphId: pid, currentCount: sequence.count)
+            }
+            // sequence said pid is present but paragraphs map is missing
+            // the text — defensive check for an internal inconsistency
+            // that shouldn't happen with current code paths but would
+            // otherwise persist as a null prior_text again.
+            if paragraphs[pid] == nil {
+                throw MCPError.priorTextCaptureFailed(paragraphId: pid)
             }
         }
         let changes: [Op.ParagraphChange] = {
