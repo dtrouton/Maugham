@@ -493,7 +493,9 @@ public final class Document {
         let priorText = paragraphs[id]
         paragraphs.removeValue(forKey: id)
         sequence.removeAll { $0 == id }
-        flagSweep(.userTypedDeletion(removed: [id]))
+        if let reason = SweepReason.userTyped(removed: [id]) {
+            flagSweep(reason)
+        }
         // Record deletion as an op with empty next text (consumer-visible
         // marker that the paragraph went away; sequence change carries the
         // ordering).
@@ -738,7 +740,7 @@ public final class Document {
                 kind: .claudeArchive,
                 sourceAnnotationId: orphan.id,
                 userResponse: nil,
-                synthesisSource: .paragraphDeleted)
+                synthesisSource: reason.cause)
         }
         // appendLifecycleOp already invalidates the cache on each call;
         // no extra invalidation needed here.
@@ -788,6 +790,156 @@ public final class Document {
                 _pendingSweep = nil
             }
         }
+    }
+
+    /// Restore this document to the state it had immediately after the op
+    /// with id `targetOpId` was applied. Appends a `.checkpointRestore` op
+    /// with `provenance.synthesisSource = .rewind` and
+    /// `provenance.sourceCheckpoint = targetOpId` (the field is overloaded
+    /// for rewinds — its value is a past op_id rather than a checkpoint_id
+    /// when `synthesisSource == .rewind`).
+    ///
+    /// Flushes any pending typing burst first so a mid-typing rewind doesn't
+    /// lose the in-flight characters from the forensic log. Updates the
+    /// in-memory paragraph map, sequence, and displayText to match the
+    /// target state. Flags an orphan-annotation sweep with cause `.rewind`
+    /// for any paragraph ids that disappeared, then flushes again so the
+    /// sweep emits its `.claudeArchive` ops before this method returns.
+    ///
+    /// Returns a `RewindRestoreResult` carrying the restore op, the archive
+    /// op ids the sweep produced, and the prior/new sequence counts so
+    /// callers (the rewind modal) can render an impact summary without
+    /// rummaging through the op log post-hoc.
+    public func restoreToOp(opId targetOpId: String) async throws -> RewindRestoreResult {
+        // 1. Flush any pending burst so the rewind boundary is clean.
+        try await flushBurstNow()
+
+        // 2. Derive the current and target states from the in-memory mirror.
+        let currentOps = _opLogMirror
+        let currentState = Deriver.derive(ops: currentOps)
+        let targetState = Deriver.derive(
+            ops: currentOps,
+            upTo: .atOp(opId: targetOpId, at: Date()))
+
+        let priorCount = currentState.sequence.count
+        let newCount = targetState.sequence.count
+        let priorIds = Set(currentState.sequence)
+        let newIds = Set(targetState.sequence)
+        let removedIds = Array(priorIds.subtracting(newIds))
+
+        // 3. Build the restore op. `Restore.buildRestoreOp` covers the
+        //    text-change case (paragraphs whose content differs and
+        //    paragraphs present in target but not current). It returns nil
+        //    in two situations:
+        //
+        //    a) target == current → genuine no-op; return early.
+        //    b) target is a strict subset of current (pure deletion) →
+        //       no text changes but sequence shrinks; we still need to
+        //       record the restore so the sequence delta lives in the log.
+        //
+        //    To distinguish (a) from (b), check whether the sequences differ.
+        let buildResult = Restore.buildRestoreOp(
+            current: currentState,
+            target: targetState,
+            scope: .document,
+            docId: docId,
+            device: device,
+            session: session,
+            sourceCheckpoint: targetOpId,
+            synthesisSource: .rewind)
+
+        let baseOp: Op
+        if let built = buildResult {
+            baseOp = built
+        } else if currentState.sequence != targetState.sequence {
+            // Pure-deletion rewind: no paragraph-text change, only a
+            // sequence shrink. Emit a checkpoint_restore with empty
+            // `changes` so the sequence field below carries the delta.
+            baseOp = Op(
+                opId: ULID.generate(),
+                docId: docId, at: Date(),
+                device: device, session: session,
+                kind: .checkpointRestore,
+                changes: [],
+                sequence: nil,
+                provenance: .init(
+                    sourceCheckpoint: targetOpId,
+                    synthesisSource: .rewind))
+        } else {
+            // (a) Genuine no-op. Return without appending.
+            return RewindRestoreResult(
+                restoreOp: Op(
+                    opId: "",
+                    docId: docId, at: Date(),
+                    device: device, session: session,
+                    kind: .checkpointRestore,
+                    changes: [],
+                    sequence: nil,
+                    provenance: nil),
+                archivedAnnotationOpIds: [],
+                removedParagraphIds: [],
+                priorSequenceCount: priorCount,
+                newSequenceCount: newCount)
+        }
+
+        // 4. Stamp the post-restore sequence on the op so cross-Mac merge
+        //    sees the ordering change. (Deriver folds `op.sequence` whenever
+        //    it's non-nil, so this is how the new ordering survives replay.)
+        let stampedOp = Op(
+            opId: baseOp.opId,
+            docId: baseOp.docId,
+            at: baseOp.at,
+            device: baseOp.device,
+            session: baseOp.session,
+            kind: baseOp.kind,
+            changes: baseOp.changes,
+            sequence: targetState.sequence,
+            provenance: baseOp.provenance)
+        try await opStore.append(stampedOp)
+        _opLogMirror.append(stampedOp)
+
+        // 5. Update in-memory derived state to match the target.
+        self.paragraphs = targetState.paragraphs
+        self.sequence = targetState.sequence
+        recomputeDisplayText()
+
+        // The restore op is a manuscript mutation; annotation cache
+        // staleness (priorText snapshots may no longer match) needs to
+        // refresh. Setting the sticky flag isn't required — restore alone
+        // doesn't create annotation ops; the sweep below does that only
+        // when there are removed paragraphs with open annotations on them.
+        invalidateAnnotationsCache()
+
+        // 6. Schedule an autosave so the .md on disk reflects the rewind.
+        autosaveScheduler.schedule(())
+
+        // 7. Flag a sweep with cause = .rewind for removed paragraphs and
+        //    flush again so the sweep runs synchronously inside this call.
+        //    The sweep only emits claude_archive ops for OPEN annotations
+        //    anchored to ids in `removedIds`; annotations on surviving
+        //    paragraphs are untouched. Capture the op count before/after
+        //    so the returned `archivedAnnotationOpIds` reflects exactly
+        //    what this restore caused (and nothing the merging path
+        //    accumulated incidentally).
+        if let reason = SweepReason.rewind(removed: Set(removedIds)) {
+            flagSweep(reason)
+        }
+        let beforeFlushCount = _opLogMirror.count
+        try await flushBurstNow()
+        let newlyAppended = _opLogMirror.dropFirst(beforeFlushCount)
+        let archivedIds = newlyAppended
+            .filter { op in
+                op.kind == .claudeArchive
+                    && op.provenance?.synthesisSource == .rewind
+            }
+            .map(\.opId)
+
+        return RewindRestoreResult(
+            restoreOp: stampedOp,
+            archivedAnnotationOpIds: archivedIds,
+            removedParagraphIds: removedIds,
+            priorSequenceCount: priorCount,
+            newSequenceCount: newCount)
     }
 
     public func close() async {
