@@ -4,9 +4,7 @@ A focus text editor for serious creative writing on macOS. Native Swift + SwiftU
 
 ## Status
 
-Twelve milestones shipped, **585 tests passing**. Most recent: `milestone-mcp-foundation` (2026-05-16) — Claude Desktop can read and contribute to your projects via a local MCP server with 14 tools.
-
-For the current state of the roadmap (what's shipped, what's open), see [`docs/roadmap.md`](docs/roadmap.md). For architectural decisions made since the initial design, see [`docs/adr/`](docs/adr/). For the initial design itself, see [`docs/superpowers/specs/2026-05-07-maugham-master-design.md`](docs/superpowers/specs/2026-05-07-maugham-master-design.md).
+Active development. The current state of what's shipped and what's open lives in [`docs/roadmap.md`](docs/roadmap.md). Architectural decisions taken since the initial design are recorded as ADRs under [`docs/adr/`](docs/adr/); the initial design itself is [`docs/superpowers/specs/2026-05-07-maugham-master-design.md`](docs/superpowers/specs/2026-05-07-maugham-master-design.md).
 
 ## Build
 
@@ -28,17 +26,9 @@ Smoke a fresh build: launch → New project → Novel → "Smoke" → type a sen
     ./gen.sh
     xcodebuild -project Maugham.xcodeproj -scheme Maugham test CODE_SIGNING_ALLOWED=NO
 
-Currently 585 tests passing.
-
 ## Claude Desktop integration
 
-Maugham ships a local MCP server (`maugham-mcp`, bundled inside `Maugham.app/Contents/MacOS/`). Once configured, Claude Desktop can:
-
-- List your open projects, outlines, and chapters
-- Read documents (live in-memory text when the doc is open)
-- Search across manuscript
-- Discover research items and the reference graph (wiki links + linked research)
-- Create research notes for you and link them to chapters
+Maugham ships a local MCP server (`maugham-mcp`, bundled inside `Maugham.app/Contents/MacOS/`). Once configured, Claude Desktop can read your open projects (binder, manuscript, research, wiki-link graph), add research notes, and annotate the manuscript without mutating it. The manuscript itself stays yours — Claude operates in a parallel annotation layer, surfaced in Maugham's Annotations pane.
 
 To configure: open Maugham, then **Help → Set up Claude Desktop…** → click `Configure`. Restart Claude Desktop. Try asking "What Maugham projects are open?"
 
