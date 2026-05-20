@@ -5,7 +5,7 @@ import AppKit
 /// returns text + metadata for manuscript / text-research docs; returns a
 /// downscaled JPEG inside an MCP content envelope for image research items.
 /// Image params are ignored for non-image targets.
-public enum ReadDocumentTool {
+public enum ReadDocumentTool: MCPTool {
     public struct Region: Codable, Equatable {
         public let x: Double
         public let y: Double
@@ -31,6 +31,17 @@ public enum ReadDocumentTool {
         public let links: [String]?
     }
     public static let method = "read_document"
+    public static let description = """
+        Return text + metadata for a manuscript or text-research document. \
+        For an image research item (kind=image), returns a downscaled JPEG \
+        (default 2048 px longest edge, quality 85). Use `region` to crop \
+        into a sub-area at higher effective resolution — useful for \
+        hard-to-read handwriting or marginalia. `region` coordinates are \
+        normalized 0–1 with top-left origin.
+        """
+    public static let inputSchemaJSON = #"""
+        {"type":"object","properties":{"project_id":{"type":"string"},"document_id":{"type":"string"},"max_dimension":{"type":"integer","description":"Longest-edge cap for image research items (256–4096, default 2048). Ignored for text documents."},"quality":{"type":"integer","description":"JPEG quality 10–100 for image research items (default 85). Ignored for text documents."},"region":{"type":"object","description":"Optional crop for image research items, normalized 0–1, top-left origin. e.g. {x:0.3,y:0.5,width:0.2,height:0.1} = 20% × 10% slice 30% from the left, 50% down. Ignored for text documents.","properties":{"x":{"type":"number"},"y":{"type":"number"},"width":{"type":"number"},"height":{"type":"number"}},"required":["x","y","width","height"]}},"required":["project_id","document_id"]}
+        """#
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
@@ -341,7 +352,7 @@ public enum ReadDocumentTool {
 }
 
 /// `search_text(project_id, query, options?)` — reuses ProjectSearchEngine.
-public enum SearchTextTool {
+public enum SearchTextTool: MCPTool {
     public struct Params: Codable {
         public let project_id: String
         public let query: String
@@ -355,6 +366,12 @@ public enum SearchTextTool {
         public let preview: String
     }
     public static let method = "search_text"
+    public static let description =
+        "Search manuscript document text for matches. Manuscript-only — does " +
+        "not scan [[wiki-link]] tokens, linked-research backrefs, or research " +
+        "note bodies. Use find_references for those."
+    public static let inputSchemaJSON =
+        #"{"type":"object","properties":{"project_id":{"type":"string"},"query":{"type":"string"},"case_sensitive":{"type":"boolean"},"whole_word":{"type":"boolean"}},"required":["project_id","query"]}"#
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {

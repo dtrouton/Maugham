@@ -4,8 +4,15 @@ import Foundation
 /// from a manuscript document to (a) a linked research item, (b) a wiki-link
 /// target that resolves to another doc or research item, or (c) an unresolved
 /// wiki target (text mentions [[X]] but no item with title X exists).
-public enum ListAllLinksTool {
+public enum ListAllLinksTool: MCPTool {
     public static let method = "list_all_links"
+    public static let description =
+        "Return the full reference graph as edges: every manuscript document's " +
+        "linked-research and [[wiki-link]] targets. Each edge has from_id/from_title, " +
+        "to_id (null for unresolved wiki targets) / to_title, and kind " +
+        "('linked_research' / 'wiki' / 'wiki_unresolved')."
+    public static let inputSchemaJSON =
+        #"{"type":"object","properties":{"project_id":{"type":"string"}},"required":["project_id"]}"#
 
     public struct Params: Codable {
         public let project_id: String

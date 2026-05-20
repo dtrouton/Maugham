@@ -1,7 +1,7 @@
 import Foundation
 
 /// `list_scenes(project_id)` — screenplay-only. Parses on demand.
-public enum ListScenesTool {
+public enum ListScenesTool: MCPTool {
     public struct Params: Codable { public let project_id: String }
     public struct Scene: Codable, Equatable {
         public let id: String
@@ -11,6 +11,10 @@ public enum ListScenesTool {
         public let document_id: String
     }
     public static let method = "list_scenes"
+    public static let description =
+        "Return scenes parsed from a Fountain screenplay. Empty array for non-screenplay projects."
+    public static let inputSchemaJSON =
+        #"{"type":"object","properties":{"project_id":{"type":"string"}},"required":["project_id"]}"#
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
@@ -119,7 +123,7 @@ public enum ListScenesTool {
 }
 
 /// `find_references(project_id, target)` — wiki links + linked_research backreferences.
-public enum FindReferencesTool {
+public enum FindReferencesTool: MCPTool {
     public struct Params: Codable {
         public let project_id: String
         public let target: String
@@ -130,6 +134,13 @@ public enum FindReferencesTool {
         public let kind: String   // "wiki" or "linked_research"
     }
     public static let method = "find_references"
+    public static let description =
+        "Find back-references to a document or research item. The `target` " +
+        "can be an id (returned by get_outline / list_research) or a title " +
+        "(case-insensitive match). Returns [[wiki link]] matches in manuscript " +
+        "text + research-link backrefs."
+    public static let inputSchemaJSON =
+        #"{"type":"object","properties":{"project_id":{"type":"string"},"target":{"type":"string"}},"required":["project_id","target"]}"#
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
@@ -275,7 +286,7 @@ public enum FindReferencesTool {
 }
 
 /// `get_session_stats(project_id, days?)` — session log aggregates.
-public enum GetSessionStatsTool {
+public enum GetSessionStatsTool: MCPTool {
     public struct Params: Codable {
         public let project_id: String
         public let days: Int?    // default 30
@@ -291,6 +302,10 @@ public enum GetSessionStatsTool {
         public let total_minutes: Int
     }
     public static let method = "get_session_stats"
+    public static let description =
+        "Aggregate writing session stats over a window (default 30 days): per-day words + minutes, totals."
+    public static let inputSchemaJSON =
+        #"{"type":"object","properties":{"project_id":{"type":"string"},"days":{"type":"integer"}},"required":["project_id"]}"#
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {

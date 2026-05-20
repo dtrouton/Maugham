@@ -233,66 +233,10 @@ struct MaughamApp: App {
 
     @MainActor
     private static func registerTools(router: MCPRouter, registry: ProjectRegistry) {
-        router.register(method: ListProjectsTool.method) { params in
-            try await ListProjectsTool.handle(paramsJSON: params, registry: registry)
-        }
-        router.register(method: GetMetadataTool.method) { params in
-            try await GetMetadataTool.handle(paramsJSON: params, registry: registry)
-        }
-        router.register(method: GetOutlineTool.method) { params in
-            try await GetOutlineTool.handle(paramsJSON: params, registry: registry)
-        }
-        router.register(method: ReadDocumentTool.method) { params in
-            try await ReadDocumentTool.handle(paramsJSON: params, registry: registry)
-        }
-        router.register(method: SearchTextTool.method) { params in
-            try await SearchTextTool.handle(paramsJSON: params, registry: registry)
-        }
-        router.register(method: ListScenesTool.method) { params in
-            try await ListScenesTool.handle(paramsJSON: params, registry: registry)
-        }
-        router.register(method: FindReferencesTool.method) { params in
-            try await FindReferencesTool.handle(paramsJSON: params, registry: registry)
-        }
-        router.register(method: GetSessionStatsTool.method) { params in
-            try await GetSessionStatsTool.handle(paramsJSON: params, registry: registry)
-        }
-        router.register(method: AddNoteTool.method) { params in
-            try await AddNoteTool.handle(paramsJSON: params, registry: registry)
-        }
-        router.register(method: ListResearchTool.method) { params in
-            try await ListResearchTool.handle(paramsJSON: params, registry: registry)
-        }
-        router.register(method: ListDocumentsByTagTool.method) { params in
-            try await ListDocumentsByTagTool.handle(paramsJSON: params, registry: registry)
-        }
-        router.register(method: LinkResearchTool.method) { params in
-            try await LinkResearchTool.handle(paramsJSON: params, registry: registry)
-        }
-        router.register(method: UnlinkResearchTool.method) { params in
-            try await UnlinkResearchTool.handle(paramsJSON: params, registry: registry)
-        }
-        router.register(method: ListAllLinksTool.method) { params in
-            try await ListAllLinksTool.handle(paramsJSON: params, registry: registry)
-        }
-        router.register(method: AddCommentTool.method) { params in
-            try await AddCommentTool.handle(paramsJSON: params, registry: registry)
-        }
-        router.register(method: AddSuggestedChangeTool.method) { params in
-            try await AddSuggestedChangeTool.handle(paramsJSON: params, registry: registry)
-        }
-        router.register(method: AddQueryTool.method) { params in
-            try await AddQueryTool.handle(paramsJSON: params, registry: registry)
-        }
-        router.register(method: AddCraftNoteTool.method) { params in
-            try await AddCraftNoteTool.handle(paramsJSON: params, registry: registry)
-        }
-        router.register(method: ListAnnotationsTool.method) { params in
-            try await ListAnnotationsTool.handle(paramsJSON: params, registry: registry)
-        }
-        router.register(method: GetAnnotationTool.method) { params in
-            try await GetAnnotationTool.handle(paramsJSON: params, registry: registry)
-        }
+        // Tool catalog — derived from MCPToolCatalog.all (single source of truth).
+        // Adding a tool: implement MCPTool on it and add to MCPToolCatalog.all.
+        MCPToolCatalog.register(router: router, registry: registry)
+
         // MCP protocol layer — Claude Desktop and other MCP clients require these.
         router.register(method: MCPInitializeHandler.method) { params in
             try await MCPInitializeHandler.handle(paramsJSON: params)

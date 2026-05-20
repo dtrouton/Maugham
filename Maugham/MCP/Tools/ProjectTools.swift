@@ -1,7 +1,7 @@
 import Foundation
 
 /// `list_projects` — currently-open projects.
-public enum ListProjectsTool {
+public enum ListProjectsTool: MCPTool {
     public struct Project: Codable, Equatable {
         public let id: String
         public let title: String
@@ -9,6 +9,8 @@ public enum ListProjectsTool {
         public let path: String
     }
     public static let method = "list_projects"
+    public static let description = "List currently-open Maugham projects."
+    public static let inputSchemaJSON = #"{"type":"object","properties":{}}"#
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
@@ -25,7 +27,7 @@ public enum ListProjectsTool {
 }
 
 /// `get_metadata(project_id)` — project-level info.
-public enum GetMetadataTool {
+public enum GetMetadataTool: MCPTool {
     public struct Params: Codable {
         public let project_id: String
     }
@@ -41,6 +43,10 @@ public enum GetMetadataTool {
         public let research_count: Int
     }
     public static let method = "get_metadata"
+    public static let description =
+        "Return project-level metadata: title, type, author, dates, targets, tags, research count."
+    public static let inputSchemaJSON =
+        #"{"type":"object","properties":{"project_id":{"type":"string"}},"required":["project_id"]}"#
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
@@ -97,7 +103,7 @@ public enum GetMetadataTool {
 }
 
 /// `get_outline(project_id)` — hierarchical manifest.structure with metadata.
-public enum GetOutlineTool {
+public enum GetOutlineTool: MCPTool {
     public struct Params: Codable { public let project_id: String }
     public struct Outline: Codable, Equatable {
         public let nodes: [Node]
@@ -152,6 +158,10 @@ public enum GetOutlineTool {
         }
     }
     public static let method = "get_outline"
+    public static let description =
+        "Return the hierarchical manuscript structure with status, synopsis, and word counts."
+    public static let inputSchemaJSON =
+        #"{"type":"object","properties":{"project_id":{"type":"string"}},"required":["project_id"]}"#
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {

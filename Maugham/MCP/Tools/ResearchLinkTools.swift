@@ -3,8 +3,13 @@ import Foundation
 /// `link_research(project_id, research_id, document_id)` — connect a research
 /// item to a manuscript document. Idempotent (re-linking is a no-op). Wraps
 /// ProjectStore.linkResearch which writes the manifest and triggers autosave.
-public enum LinkResearchTool {
+public enum LinkResearchTool: MCPTool {
     public static let method = "link_research"
+    public static let description =
+        "Link a research item to a manuscript document so it shows up in the " +
+        "Inspector. Idempotent. Use get_outline + list_research to find ids."
+    public static let inputSchemaJSON =
+        #"{"type":"object","properties":{"project_id":{"type":"string"},"research_id":{"type":"string"},"document_id":{"type":"string"}},"required":["project_id","research_id","document_id"]}"#
 
     public struct Params: Codable {
         public let project_id: String
@@ -32,8 +37,12 @@ public enum LinkResearchTool {
 
 /// `unlink_research(project_id, research_id, document_id)` — remove a link.
 /// Idempotent (unlinking an absent link is a no-op).
-public enum UnlinkResearchTool {
+public enum UnlinkResearchTool: MCPTool {
     public static let method = "unlink_research"
+    public static let description =
+        "Remove a research-to-document link. Idempotent (no-op if the link doesn't exist)."
+    public static let inputSchemaJSON =
+        #"{"type":"object","properties":{"project_id":{"type":"string"},"research_id":{"type":"string"},"document_id":{"type":"string"}},"required":["project_id","research_id","document_id"]}"#
 
     public struct Params: Codable {
         public let project_id: String

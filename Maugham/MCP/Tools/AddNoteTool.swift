@@ -2,7 +2,7 @@ import Foundation
 
 /// `add_note(project_id, title, body, parent_group_id?)` — creates a `.document`
 /// research item under `research/` and posts maughamMCPNoteAdded for the UI.
-public enum AddNoteTool {
+public enum AddNoteTool: MCPTool {
     public struct Params: Codable {
         public let project_id: String
         public let title: String
@@ -15,6 +15,11 @@ public enum AddNoteTool {
         public let path: String
     }
     public static let method = "add_note"
+    public static let description =
+        "Create a research note (.md) under the project's research folder. " +
+        "Optionally placed in an existing group."
+    public static let inputSchemaJSON =
+        #"{"type":"object","properties":{"project_id":{"type":"string"},"title":{"type":"string"},"body":{"type":"string"},"parent_group_id":{"type":"string"}},"required":["project_id","title","body"]}"#
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {

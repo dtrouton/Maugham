@@ -1,0 +1,79 @@
+# MCP — Area guide
+
+The local MCP server that lets Claude Desktop read and contribute to projects. Read this before editing anything in `Maugham/MCP/`. Also read the project root `CLAUDE.md` for cross-cutting invariants, and `docs/adr/0003-mcp-live-only-unix-socket.md` + `docs/adr/0004-mcp-foundation-scope.md` for the canonical transport and scope decisions.
+
+## What this area owns
+
+The in-app MCP server: tool registration, JSON-RPC handling, the read/search/discover surface for projects, the `add_note` write path (research-only), the annotation layer (paragraph-anchored comments from Claude), and the bridge between Claude Desktop's stdio and Maugham's Unix socket.
+
+## Layout
+
+- `MCPServer.swift` — Unix socket server, connection lifecycle, SIGPIPE handling. **SIGPIPE handling is idempotent and required** — don't simplify it away.
+- `MCPToolsListHandler.swift` — tool list response. Iterates `MCPToolCatalog.all` to advertise tools; never touches them directly.
+- `MCPTool.swift` — the `MCPTool` protocol (every tool conforms) and `MCPToolCatalog.all` (the single source of truth for the tool list). `MCPToolCatalog.register(router:registry:)` is the shared registration path used by both production (`MaughamApp.registerTools`) and the seam test (`MCPCatalogConsistencyTests`).
+- `Tools/` — one file per tool. Read tools are pure; `add_note` is the only writer in foundation scope and it can only write under `research/`.
+- `Annotations/` (or wherever paragraph-anchored annotations live in this branch) — the parallel comment layer that lets Claude annotate the manuscript without mutating it.
+- `../maugham-mcp/` — the standalone CLI binary that bridges Claude Desktop's stdio to the app's Unix socket. Lives outside this directory but is conceptually part of this area. Main entry: `JSONRPCBridge.swift`.
+
+## Hard rules
+
+- **Transport is live-only Unix socket.** No stdio inside the app. The standalone `maugham-mcp` CLI is the stdio adapter for Claude Desktop. (ADR 0003)
+- **The server only runs while Maugham is running.** No background daemon, no LaunchAgent. Settings → General → "Allow Claude to connect (MCP)" toggles it; default on.
+- **Foundation scope: read tools + `add_note`.** `add_note` only writes under `research/`. **Manuscript text is never mutated via MCP** — that's the annotation layer's job (or no-op, in foundation scope). The user's framing: *"the manuscript is yours, full stop. Claude operates in a parallel annotation layer."* (ADR 0004)
+- **Tool responses are capped at ~1MB.** Transport limit. Larger payloads will fail silently or get truncated; design around it.
+- **Image responses use crop-on-demand.** Parameters: `max_dimension` (default 2048), `quality` (default 85), `region` (optional crop rect). Default output: JPEG q=85, max 2048px on the long side. Don't return raw images.
+
+## Tripwires
+
+1. **Adding a tool: implement `MCPTool` on it, then add the type to `MCPToolCatalog.all`.** That's the only place to list tools. `MCPToolsListHandler` and `MaughamApp.registerTools` both derive from the catalog, so they can't drift. `MCPCatalogConsistencyTests` asserts the contract holds (catalog ↔ tools/list, catalog ↔ router, schema validity). If you find yourself editing `MCPToolsListHandler` to add a tool entry, stop — you're working against the protocol.
+
+2. **First MCP call after restart is a known deferred flake.** Three rounds of bridge fixes didn't resolve it; the user deferred 2026-05-17 (see `memory/project_deferred_mcp_first_call.md`). Don't try to fix without first adding stderr logging in the bridge (`maugham-mcp/JSONRPCBridge.swift`) so you can see what's failing.
+
+3. **Paragraph-anchored annotations auto-archive within 1–2 seconds.** A post-commit handler keyed on `paragraph_id` is over-eager. If annotations vanish, suspect this path first. Open bug; not yet fixed.
+
+4. **Don't write to manuscripts from MCP, full stop.** Even if a future tool design "feels safe," the membrane principle is the hard rule. Writes go via the annotation layer or to `research/`. Violating this loses the user's trust in the whole MCP integration.
+
+5. **Don't return tool payloads >1MB.** Transport will choke. For listings that could blow past the cap, paginate or summarize.
+
+6. **Don't add a tool without thinking about the membrane.** Read tools: low-risk, generally fine. Write tools: needs explicit ADR-level justification. Annotation tools: belong to the annotation layer, not direct manuscript mutation.
+
+7. **Don't reach for stdio inside the app.** The Unix socket is the contract. The standalone CLI is the only stdio surface.
+
+## How tools are wired (end to end)
+
+```
+Claude Desktop  ──stdio──>  maugham-mcp CLI  ──Unix socket──>  MCPServer  ──>  tool handler in Tools/
+                                                                      │
+                                                                      └──>  reads/writes via Stores/MCPServices
+```
+
+Adding a new tool:
+
+1. Implement the handler in `Tools/<ToolName>.swift`. Conform the enum to `MCPTool` and declare `method`, `description`, `inputSchemaJSON`, `handle(paramsJSON:registry:)` on it.
+2. Add the type to `MCPToolCatalog.all` in `MCPTool.swift`. That's the only registration step — `MCPToolsListHandler` and `MaughamApp.registerTools` derive from this list.
+3. If it returns images, use the crop-on-demand parameters (`max_dimension`, `quality`, `region`).
+4. If it could return >1MB, add pagination or summarization.
+5. Test from Claude Desktop with the configure-flow (Settings → Help → "Set up Claude Desktop…").
+
+`MCPCatalogConsistencyTests` will catch a missing catalog entry, a malformed schema, or any drift between advertisement and dispatch at test time.
+
+## What to read before editing
+
+- For transport / connection lifecycle / SIGPIPE: `MCPServer.swift` + `docs/adr/0003-mcp-live-only-unix-socket.md`.
+- For the tool surface and scope decisions: `docs/adr/0004-mcp-foundation-scope.md`.
+- For the bridge (stdio ↔ socket): `../maugham-mcp/JSONRPCBridge.swift`.
+- For annotation behavior (especially auto-archive): grep for `paragraph_id` in this area and `Maugham/Stores/`.
+- For an example of a well-shaped read tool: `Tools/ReadDocument.swift` (or whichever currently implements `read_document` — it's the model for polymorphic responses on images vs text).
+
+## Tests worth knowing about
+
+- `MaughamTests/MCPTests/` — unit tests per tool handler.
+- **Missing high-value coverage:** end-to-end through the bridge (currently the deferred first-call flake has no regression test because it's reproduction-only), annotation auto-archive (the 1-2s vanish bug is observation-only).
+
+## What's intentionally NOT here
+
+- Manuscript persistence — `Maugham/Stores/DocumentStore.swift`.
+- The op log that MCP read tools read against — `Maugham/OpLog/`.
+- Settings UI for the "Allow Claude to connect" toggle — `Maugham/Views/SettingsTabs/`.
+- The "Set up Claude Desktop…" flow — `Maugham/Views/` (Help menu wiring).
+- The standalone `maugham-mcp` CLI source — `../maugham-mcp/` (separate Swift package, ships bundled inside `Maugham.app/Contents/MacOS/`).

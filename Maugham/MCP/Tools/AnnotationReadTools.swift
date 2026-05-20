@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - list_annotations
 
-public enum ListAnnotationsTool {
+public enum ListAnnotationsTool: MCPTool {
     public struct Params: Codable {
         public let project_id: String
         public let document_id: String
@@ -23,6 +23,13 @@ public enum ListAnnotationsTool {
         public let is_stale: Bool
     }
     public static let method = "list_annotations"
+    public static let description =
+        "List annotations on a document. Defaults to status=open. Filter by " +
+        "`kinds` (any of comment/suggested_change/query/craft_note), `statuses` " +
+        "(open/accepted/rejected/archived), `paragraph_id`. Use this to check " +
+        "prior editorial conversation on a paragraph before adding new suggestions."
+    public static let inputSchemaJSON =
+        #"{"type":"object","properties":{"project_id":{"type":"string"},"document_id":{"type":"string"},"kinds":{"type":"array","items":{"type":"string"}},"statuses":{"type":"array","items":{"type":"string"}},"paragraph_id":{"type":"string"}},"required":["project_id","document_id"]}"#
 
     @MainActor
     public static func handle(
@@ -63,7 +70,7 @@ public enum ListAnnotationsTool {
 
 // MARK: - get_annotation
 
-public enum GetAnnotationTool {
+public enum GetAnnotationTool: MCPTool {
     public struct Params: Codable {
         public let project_id: String
         public let document_id: String
@@ -91,6 +98,11 @@ public enum GetAnnotationTool {
         }
     }
     public static let method = "get_annotation"
+    public static let description =
+        "Return a full annotation record including its lifecycle history " +
+        "(creation + accept/reject/archive ops)."
+    public static let inputSchemaJSON =
+        #"{"type":"object","properties":{"project_id":{"type":"string"},"document_id":{"type":"string"},"annotation_id":{"type":"string"}},"required":["project_id","document_id","annotation_id"]}"#
 
     @MainActor
     public static func handle(
