@@ -283,7 +283,7 @@ final class DocumentAnnotationCacheTests: XCTestCase {
                 && $0.provenance?.sourceAnnotationId == id
         }
         XCTAssertEqual(
-            archiveOp?.provenance?.synthesisSource, "paragraph_deleted")
+            archiveOp?.provenance?.synthesisSource, .paragraphDeleted)
     }
 
     func test_setFullText_dropsParagraph_autoArchivesAnnotations() async throws {

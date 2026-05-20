@@ -677,7 +677,7 @@ public final class Document {
         kind: OpKind,
         sourceAnnotationId: String,
         userResponse: String?,
-        synthesisSource: String? = nil
+        synthesisSource: SynthesisSource? = nil
     ) async throws {
         let op = Op(
             opId: ULID.generate(),
@@ -738,7 +738,7 @@ public final class Document {
                 kind: .claudeArchive,
                 sourceAnnotationId: orphan.id,
                 userResponse: nil,
-                synthesisSource: "paragraph_deleted")
+                synthesisSource: .paragraphDeleted)
         }
         // appendLifecycleOp already invalidates the cache on each call;
         // no extra invalidation needed here.
@@ -821,7 +821,7 @@ public final class Document {
                 kind: .externalEdit,
                 changes: changes,
                 sequence: nil,
-                provenance: .init(synthesisSource: "disk_at_ingest"))
+                provenance: .init(synthesisSource: .diskAtIngest))
             try await opStore.append(op)
             _opLogMirror.append(op)
             invalidateAnnotationsCache()
@@ -965,7 +965,7 @@ public final class Document {
             kind: .externalEdit,
             changes: changes,
             sequence: newSequence,
-            provenance: .init(synthesisSource: "use_cloud_resolution"))
+            provenance: .init(synthesisSource: .useCloudResolution))
         try await opStore.append(op)
         _opLogMirror.append(op)
         invalidateAnnotationsCache()

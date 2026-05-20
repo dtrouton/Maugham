@@ -379,13 +379,13 @@ private struct HistoryRow: View {
                 // content). Auto-archives from paragraph deletion get
                 // both: body + cause.
                 if let body = resolvedBody(for: op) {
-                    let cause = op.provenance?.synthesisSource == "paragraph_deleted"
+                    let cause = op.provenance?.synthesisSource == .paragraphDeleted
                         ? " · paragraph deleted" : ""
                     Text("\(body)\(cause)")
                         .font(.caption).foregroundStyle(.secondary)
                         .lineLimit(1)
                 } else {
-                    Text(op.provenance?.synthesisSource == "paragraph_deleted"
+                    Text(op.provenance?.synthesisSource == .paragraphDeleted
                          ? "paragraph deleted" : "archived")
                         .font(.caption).foregroundStyle(.secondary)
                 }
@@ -432,7 +432,7 @@ private struct HistoryRow: View {
                             .font(.caption).italic()
                             .foregroundStyle(.secondary)
                     }
-                    if op.provenance?.synthesisSource == "paragraph_deleted" {
+                    if op.provenance?.synthesisSource == .paragraphDeleted {
                         Text("Auto-archived: paragraph deleted from manuscript.")
                             .font(.caption2)
                             .foregroundStyle(.orange)

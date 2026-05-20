@@ -220,7 +220,7 @@ final class PresenterRoutingTests: XCTestCase {
 
         let archiveOps = (try await doc.opLog()).filter {
             $0.kind == .claudeArchive
-                && $0.provenance?.synthesisSource == "paragraph_deleted"
+                && $0.provenance?.synthesisSource == .paragraphDeleted
         }
         XCTAssertTrue(archiveOps.isEmpty,
             "An MCP add_annotation on a live doc must not synthesize " +

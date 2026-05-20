@@ -35,7 +35,7 @@ public struct Op: Codable, Equatable, Sendable {
         public let prompt: String?
         public let toolArgs: String?
         public let sourceCheckpoint: String?
-        public let synthesisSource: String?
+        public let synthesisSource: SynthesisSource?
         public let orphanRecoveryMethod: String?
 
         // Annotation semantics — populated only on claude_* ops.
@@ -58,7 +58,7 @@ public struct Op: Codable, Equatable, Sendable {
         public init(
             sessionId: String? = nil, prompt: String? = nil,
             toolArgs: String? = nil, sourceCheckpoint: String? = nil,
-            synthesisSource: String? = nil, orphanRecoveryMethod: String? = nil,
+            synthesisSource: SynthesisSource? = nil, orphanRecoveryMethod: String? = nil,
             annotationBody: String? = nil, sourceAnnotationId: String? = nil,
             userResponse: String? = nil
         ) {
