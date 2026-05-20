@@ -53,11 +53,14 @@ public enum MCPError: Error, Equatable {
         public let error: String              // machine code, e.g. "paragraph_not_found"
         public let message: String            // human-readable summary
         public let hint: String?              // suggested next action for the agent
-        public let fields: [String: String]   // arbitrary string-keyed context
+        /// Typed context fields. Values are AnyJSON so callers can pass
+        /// strings, numbers, booleans, etc. without forcing the agent to
+        /// re-parse stringified primitives at the receiving end.
+        public let fields: [String: AnyJSON]
 
         public init(
             error: String, message: String,
-            hint: String? = nil, fields: [String: String] = [:]
+            hint: String? = nil, fields: [String: AnyJSON] = [:]
         ) {
             self.error = error
             self.message = message
@@ -74,7 +77,7 @@ public enum MCPError: Error, Equatable {
                 "message": .string(message),
             ]
             if let hint { obj["hint"] = .string(hint) }
-            for (k, v) in fields { obj[k] = .string(v) }
+            for (k, v) in fields { obj[k] = v }
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
             return (try? encoder.encode(AnyJSON.object(obj))) ?? Data("{}".utf8)
@@ -98,8 +101,8 @@ public enum MCPError: Error, Equatable {
             message: "Paragraph '\(paragraphId)' is not in the current document sequence.",
             hint: "Call read_document to refresh paragraph anchors and retry with a current id. Paragraph ids are stable across small edits but can change when a paragraph is deleted, split, or substantially rewritten.",
             fields: [
-                "paragraph_id": paragraphId,
-                "current_paragraph_count": String(currentCount)
+                "paragraph_id": .string(paragraphId),
+                "current_paragraph_count": .int(currentCount)
             ]))
     }
 
@@ -113,6 +116,6 @@ public enum MCPError: Error, Equatable {
             error: "prior_text_capture_failed",
             message: "Paragraph '\(paragraphId)' is in the sequence but its text snapshot returned nil.",
             hint: "Internal inconsistency between paragraphs map and sequence. Please retry; if it persists, report.",
-            fields: ["paragraph_id": paragraphId]))
+            fields: ["paragraph_id": .string(paragraphId)]))
     }
 }
