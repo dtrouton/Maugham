@@ -11,9 +11,10 @@ The NSTextView-backed editing surface: text storage, tokenization, styling, curs
 - `EditorSurface.swift` — `NSViewRepresentable` wrapping `NSTextView`. The SwiftUI-side boundary.
 - `EditorHost.swift` — binds the per-document `Document` actor to `EditorSurface`. Post-`milestone-document-first-class` the binding is the single source `Binding(get: { doc.displayText }, set: { doc.setFullText($0) })`; `Document.setFullText` writes `displayText` exactly once at the end. The earlier `$documentText` / `lastWrittenText` / `priorStoredMarkdown` triad is gone — all that state moved onto `Document`.
 - `EditorCoordinator.swift` (~770 lines) — `NSTextViewDelegate` implementation. The "central nervous system." Tokenizes, applies styles, manages cursor, handles Tab-cycle for screenplay, smart-quote / em-dash substitution, find-match scrolling, focus-dim, image paste routing, wiki-link `[[…]]` hit-testing.
-- `Fountain/` — screenplay parser + per-element styling.
+- `ScreenplayMode.swift` and `ScreenplayLayoutManager.swift` live at `Maugham/Editor/` (not under `Fountain/`).
   - `ScreenplayMode.applyTypography` does **full-storage** `setAttributes` (not incremental). Known race-window contributor; don't add work inside it.
   - `ScreenplayLayoutManager` exists but display-uppercase for forced sluglines/characters is the **option-A fallback** intentionally (display-time uppercase rejected for cursor-positioning reasons). Don't "fix" it without rethinking the approach.
+- `Fountain/` — screenplay parser primitives: `FountainTokenizer.swift` (the parser; despite the name it does parsing not just tokenizing), `FountainScript.swift`, `FountainLine.swift`, plus `CharacterAutocompleter.swift` (dead — see below).
 - `Tokenizer/` — prose-side tokenizer + style application.
 - `CharacterAutocompleter.swift` — **DEAD CODE**. `updateAutocomplete` is defined but never called. NSPopover was abandoned in 3b ("too brittle, blocks input"). Don't wire it back without redesigning the UX (popover → inline ghost-text or sheet, TBD).
 
@@ -60,7 +61,7 @@ Invariants:
 ## What to read before editing
 
 - For prose tokenization changes: `Tokenizer/` and the prose path in `EditorCoordinator.applyStyles`.
-- For screenplay changes: `Fountain/ScreenplayMode.swift` (start here), then `Fountain/FountainParser.swift`, then the screenplay path in `EditorCoordinator`.
+- For screenplay changes: `ScreenplayMode.swift` at `Maugham/Editor/` (start here), then `Fountain/FountainTokenizer.swift` (the parser), then the screenplay path in `EditorCoordinator`.
 - For anything touching cursor / selection / external-text arrival: re-read the triad section above before touching `EditorHost.swift` or `EditorSurface.swift`.
 - For op-log boundary: `Maugham/OpLog/AREA.md` (companion file).
 

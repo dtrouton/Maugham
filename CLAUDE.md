@@ -44,7 +44,7 @@ Each is a "do not do X — here's why it broke before." If your situation looks 
 3. **Don't put heavy work inside a synchronous SwiftUI binding setter.** This shape caused three separate cursor races in 24 hours (trailing-space autosave moved cursor; async restore raced key events; binding loop read stale `documentText`).
 4. **Don't compute in SwiftUI list rows without caching.** Per-row Fountain re-parses became O(N²) on binder click in 3d, producing visible load pauses.
 5. **Don't use NSPopover for editor autocomplete.** Abandoned in 3b — sizing was unreliable, it blocked input, character autocomplete was deferred. `CharacterAutocompleter` exists as dead code; don't wire it back without redesigning the UX.
-6. **Don't add a 4th `.onChange` to `EditorHost`.** The existing `$documentText` / `lastWrittenText` / `priorStoredMarkdown` triad is load-bearing and brittle. Any new external-text path needs a regression test asserting it doesn't fire during normal typing.
+6. **Don't reintroduce parallel observable state on `EditorHost`.** The earlier `$documentText` / `lastWrittenText` / `priorStoredMarkdown` triad drove three cursor races and is gone post-`milestone-document-first-class`. The current shape is a single `Binding(get: { doc.displayText }, set: { doc.setFullText($0) })` where `setFullText` writes `displayText` exactly once at the end. Any new external-text path needs a regression test asserting `applyExternalText` doesn't fire during normal typing.
 7. **Don't add a 4th caller to `EditorSurface.applyExternalText`.** It exists only for cloud-conflict resolution. Asserting this is what catches binding races.
 8. **Don't use 1-char paragraph IDs in tests.** `ParagraphID` requires exactly 4 chars. Tests using "a"/"b" silently bypass validation (currently violated in `PendingBufferTests` — known carry-forward, don't propagate).
 9. **Don't use `.onTapGesture` for clickable rows inside `List(.sidebar)`.** Use `Button(.plain)`. Established SwiftUI workaround for sidebar hit-testing.
@@ -80,7 +80,7 @@ Brief, high-signal callouts. Treat as "things to read or grep before editing in 
 
 ### `Maugham/OpLog/` — see [`Maugham/OpLog/AREA.md`](Maugham/OpLog/AREA.md)
 - Cleanest part of the codebase per the audit. Don't refactor structurally.
-- `OpLogStore` and `CheckpointStore` are intentional siblings with ~95% duplicated structure. Don't dedupe without a deliberate `JSONLAppendStore<T>` design.
+- `OpLogStore` and `CheckpointStore` are thin wrappers over `JSONLAppendStore<T>` (~30 lines each). The generic is the right place to extend if you need new shared persistence semantics; the wrappers exist to keep hot-path (op log, every keystroke burst) and cold-path (checkpoints, ⌘S) concurrency profiles explicit.
 - `RenderFilter` has a third matching tier (char-bigrams ≥0.6) not present in `ShingleMatcher` — late T16 fix, cleanup planned.
 - `Reconciler` external-edit ingestion has integration coverage now via `PresenterRoutingTests` (echo guards) + `EditorIntegrationHarnessTests` (silent-ingest + conflict-surfaces). The Reconciler classifier itself is still unit-only.
 - Echo guard for `.md` writes is `Document.lastDiskEcho: EchoState` — assignable only through the three factories in `EchoState.swift`. Don't introduce a parallel "last text" string. See [ADR 0010](docs/adr/0010-typed-cross-area-seams.md).
@@ -92,10 +92,10 @@ Brief, high-signal callouts. Treat as "things to read or grep before editing in 
 - Foundation scope: read tools + `add_note` that *only writes under `research/`*. Manuscript edits are annotation-layer (ADR 0004).
 - "First MCP call after restart" is a known deferred flake — don't try to fix without first adding stderr logging in the bridge (see `memory/project_deferred_mcp_first_call.md`).
 - SIGPIPE handling in `MCPServer.swift` is idempotent and required.
-- Paragraph-anchored annotations may auto-archive within 1–2s due to a post-commit handler keyed on `paragraph_id`. Suspect this path first when annotations vanish.
+- Orphan-annotation sweep is now driven by `Document._pendingSweep: SweepReason?` carrying the observed removed-paragraph-id set; sweep archives only annotations on `reason.removed`. The earlier 1–2s auto-archive bug (sweep firing on any sequence mismatch) is fixed — `PresenterRoutingTests` is the regression net. If annotations vanish, suspect sweep-reason population, not the sweep itself.
 
 ### `Maugham/Stores/` — see [`Maugham/Stores/AREA.md`](Maugham/Stores/AREA.md)
-- `ProjectStore.swift` is 2760 lines with natural seams (Structure CRUD, Trash, Inspector, Research, Collection-Pieces, WikiLink). Already uses `extension` for Collection-Pieces — emulate that pattern for new seams.
+- `ProjectStore.swift` itself is small (~170 lines); the seams live in peer files (`ProjectStore+Structure.swift`, `+Trash.swift`, `+Research.swift`, `+Metadata.swift`, `+Search.swift`, `+WikiLink.swift`, `+CollectionPieces.swift`, `+References.swift`). When you add a new seam, create a new `ProjectStore+NewSeam.swift` peer file — don't grow the main file.
 - `DocumentStore.swift` is the project-folder coordinator + Document registry; per-doc state (op log, autosave, conflict detection, echo guard) lives on `Document` (post-`milestone-document-first-class`).
 - Presenter routing goes through the typed `MaughamSidecarPath` enum — adding a new `.maugham/` subdir owner becomes a `switch must be exhaustive` compile error rather than a string-prefix cascade edit. See [ADR 0010](docs/adr/0010-typed-cross-area-seams.md).
 - `.maugham/` subdirectory layout (`ops/`, `conflicts/`, `sessions/`, `checkpoints/`, `ui-state/`, `scratch/`, `trash/`) is canonical — each has one owner. Don't invent new top-level subdirs without a reason.
@@ -117,7 +117,7 @@ These came out of the 2026-05-19 audits and are not yet fixed:
 
 - **Several subagent commits over the past week included `project.pbxproj` edits** that shouldn't have been there. If you see pbxproj in a diff you're reviewing, that's a red flag.
 - **`PendingBufferTests` (and old `RenderFilterTests`) use 1-char paragraph IDs** that silently bypass validation. New tests must use 4-char IDs.
-- **Annotations pane shows "no history" message** that's confusing, and there's no UI affordance to resolve annotations. Mentioned by the user; not yet addressed.
+- Onboarding affordance for Annotations pane vs History pane is missing — they're sibling right-pane segments with opposite affordances (Annotations = action surface with Accept/Reject/Archive buttons; History = read-only forensic log). A tooltip on the segment picker or an empty-state hint pointing across would reduce the confusion.
 
 ## Questions you do not need to ask
 

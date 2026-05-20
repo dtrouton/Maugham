@@ -10,14 +10,14 @@ The manuscript op log: append-only event stream of paragraph-level mutations, pa
 
 ## Layout
 
-- `OpLogStore.swift` — append + read + tail for the per-doc JSONL op log.
-- `CheckpointStore.swift` — project-scope checkpoint write/read/list. Sibling to OpLogStore by design (~95% duplicated structure — see "Don't dedupe" below).
+- `OpLogStore.swift` and `CheckpointStore.swift` — thin wrappers (~30 lines each) over `JSONLAppendStore<T>`. The wrappers keep hot-path (op log, every typing burst) and cold-path (checkpoints, ⌘S) concurrency profiles explicit; `JSONLAppendStore` is the shared persistence primitive.
+- `JSONLAppendStore.swift` — generic append + read + tail for any JSONL-typed store. Extend here if you need new shared persistence semantics.
 - `Bootstrap.swift` — mints `¶id` anchors on first-open of a document. **Must be called from any production load path.** Wired into `Document.load` since `milestone-document-first-class` (2026-05-19); `BootstrapWiringTests` enforces the contract. Any new manuscript-load path must route through `Document.load`.
 - `EchoState.swift` — typed snapshot of "bytes we just wrote to disk." Only three named factories construct it (`initialLoad`, `afterWrite`, `afterIngest`); the echo guard in `Document.handleExternalDiskChange` reads `lastDiskEcho.bytes` to suppress presenter callbacks that arrive in response to our own writes. See [ADR 0010](../../docs/adr/0010-typed-cross-area-seams.md).
 - `SweepReason.swift` — typed pending orphan-annotation sweep carrying the *observed* removed-paragraph-id set. Replaces an earlier bool flag. Sweep archives only annotations on `reason.removed` — never "anything missing from sequence." See [ADR 0010](../../docs/adr/0010-typed-cross-area-seams.md).
 - `ParagraphID.swift` — exactly 4 chars. Validation is enforced in production but several tests violate this silently.
 - `Reconciler.swift` — ingests external edits (writer edited the .md outside the app, or iCloud delivered a remote write) back into the op log.
-- `RenderFilter.swift` — derives the rendered .md from the op log. Three matching tiers for the "which historical paragraph does this orphan line belong to" question.
+- `RenderFilter.swift` — derives the rendered .md from the op log. **Lives at `Maugham/Editor/RenderFilter.swift`** (it's consumed by the editor's display path; conceptually owned by this area). Three matching tiers for the "which historical paragraph does this orphan line belong to" question.
 - `ShingleMatcher.swift` — k-shingle Jaccard matcher used by RenderFilter and Reconciler.
 - `PendingBuffer.swift` — in-memory buffer between live typing and op-log appends (debounce window).
 - `OpKind.swift` — the closed set of operation types. Adding a new one touches every store and the renderer.
@@ -47,7 +47,7 @@ Failure modes:
 
 ## Tripwires
 
-1. **Don't dedupe `OpLogStore` and `CheckpointStore` casually.** They're 95% structurally identical and that's tempting, but they have different concurrency profiles (op log is hot-path on every keystroke; checkpoint is cold-path on ⌘S / project-close). If you dedupe, do it via a `JSONLAppendStore<T>` generic with deliberate tests for both call patterns. Don't just extract a base class.
+1. **Don't collapse the OpLogStore / CheckpointStore wrappers into bare `JSONLAppendStore<T>` calls at every callsite.** The two thin wrappers exist precisely to keep the hot-path (op log: every typing burst) vs cold-path (checkpoint: ⌘S / project-close) concurrency profiles explicit at the type level. If you need new shared persistence semantics, extend `JSONLAppendStore<T>` and let both wrappers benefit; don't push the difference into call sites.
 
 2. **Don't use 1-char paragraph IDs in tests.** `ParagraphID` requires exactly 4 chars. `PendingBufferTests` (and old `RenderFilterTests`) violate this silently. New tests must use 4-char IDs. Existing violations are known carry-forward; don't propagate.
 

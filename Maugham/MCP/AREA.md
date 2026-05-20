@@ -12,7 +12,7 @@ The in-app MCP server: tool registration, JSON-RPC handling, the read/search/dis
 - `MCPToolsListHandler.swift` — tool list response. Iterates `MCPToolCatalog.all` to advertise tools; never touches them directly.
 - `MCPTool.swift` — the `MCPTool` protocol (every tool conforms) and `MCPToolCatalog.all` (the single source of truth for the tool list). `MCPToolCatalog.register(router:registry:)` is the shared registration path used by both production (`MaughamApp.registerTools`) and the seam test (`MCPCatalogConsistencyTests`).
 - `Tools/` — one file per tool. Read tools are pure; `add_note` is the only writer in foundation scope and it can only write under `research/`.
-- `Annotations/` (or wherever paragraph-anchored annotations live in this branch) — the parallel comment layer that lets Claude annotate the manuscript without mutating it.
+- Paragraph-anchored annotations live in `Tools/AnnotationCreationTools.swift` (add_comment / add_suggested_change / add_query / add_craft_note), `Tools/AnnotationReadTools.swift` (list_annotations / get_annotation), and `Tools/AnnotationToolHelpers.swift` (`withAnnotationDocument` — transient-load fallback when the doc isn't open in the editor). The parallel comment layer that lets Claude annotate the manuscript without mutating it.
 - `../maugham-mcp/` — the standalone CLI binary that bridges Claude Desktop's stdio to the app's Unix socket. Lives outside this directory but is conceptually part of this area. Main entry: `JSONRPCBridge.swift`.
 
 ## Hard rules
@@ -29,7 +29,7 @@ The in-app MCP server: tool registration, JSON-RPC handling, the read/search/dis
 
 2. **First MCP call after restart is a known deferred flake.** Three rounds of bridge fixes didn't resolve it; the user deferred 2026-05-17 (see `memory/project_deferred_mcp_first_call.md`). Don't try to fix without first adding stderr logging in the bridge (`maugham-mcp/JSONRPCBridge.swift`) so you can see what's failing.
 
-3. **Paragraph-anchored annotations auto-archive within 1–2 seconds.** A post-commit handler keyed on `paragraph_id` is over-eager. If annotations vanish, suspect this path first. Open bug; not yet fixed.
+3. **Orphan-annotation sweep is now edge-triggered via `Document._pendingSweep: SweepReason?`** carrying the observed removed-paragraph-id set; sweep archives only annotations on `reason.removed`. The earlier 1–2s auto-archive bug (sweep firing on any sequence mismatch from the live Document's view) is fixed via the SweepReason refactor (ADR 0010). `PresenterRoutingTests` covers the contract. If annotations vanish, suspect sweep-reason population at the call site (setFullText / deleteParagraph / handleExternalLogChange), not the sweep itself.
 
 4. **Don't write to manuscripts from MCP, full stop.** Even if a future tool design "feels safe," the membrane principle is the hard rule. Writes go via the annotation layer or to `research/`. Violating this loses the user's trust in the whole MCP integration.
 
@@ -63,12 +63,12 @@ Adding a new tool:
 - For the tool surface and scope decisions: `docs/adr/0004-mcp-foundation-scope.md`.
 - For the bridge (stdio ↔ socket): `../maugham-mcp/JSONRPCBridge.swift`.
 - For annotation behavior (especially auto-archive): grep for `paragraph_id` in this area and `Maugham/Stores/`.
-- For an example of a well-shaped read tool: `Tools/ReadDocument.swift` (or whichever currently implements `read_document` — it's the model for polymorphic responses on images vs text).
+- For an example of a well-shaped read tool: `Tools/DocumentTools.swift` (contains both `ReadDocumentTool` and `SearchTextTool` — `ReadDocumentTool` is the model for polymorphic responses on images vs text, with crop-on-demand parameters).
 
 ## Tests worth knowing about
 
 - `MaughamTests/MCPTests/` — unit tests per tool handler.
-- **Missing high-value coverage:** end-to-end through the bridge (currently the deferred first-call flake has no regression test because it's reproduction-only), annotation auto-archive (the 1-2s vanish bug is observation-only).
+- **Missing high-value coverage:** end-to-end through the bridge (the deferred first-call flake has no regression test because it's reproduction-only). The annotation auto-archive contract is now covered by `MaughamTests/Integration/PresenterRoutingTests.swift` — specifically the test asserting MCP `add_annotation` on a live doc doesn't synthesize spurious `claude_archive` ops.
 
 ## What's intentionally NOT here
 

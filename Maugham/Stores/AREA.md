@@ -12,13 +12,15 @@ The persistence and coordination layer: project structure, documents, recents, s
 
 ## Layout
 
-- `ProjectStore.swift` — ~2760 lines. The big one. Natural seams already split out via `extension`:
-  - Structure CRUD (root file)
-  - Trash (separate extension or section)
-  - Inspector (metadata)
-  - Research
-  - Collection-Pieces (extension — **emulate this pattern** when you need a new seam)
-  - WikiLink (`[[…]]` resolution and rename propagation)
+- `ProjectStore.swift` itself is small (~170 lines, holds the core types and the main `ProjectStore` class declaration). The seams are in **peer files** (one file per seam — emulate this pattern when you add a new one):
+  - `ProjectStore+Structure.swift` — Structure CRUD
+  - `ProjectStore+Trash.swift` — Trash + undo
+  - `ProjectStore+Metadata.swift` — Inspector metadata
+  - `ProjectStore+Research.swift` — Research item CRUD
+  - `ProjectStore+CollectionPieces.swift` — Collection loose pieces
+  - `ProjectStore+References.swift` — Collection project-references (Mac-local)
+  - `ProjectStore+WikiLink.swift` — `[[…]]` resolution and rename propagation
+  - `ProjectStore+Search.swift` — search across the binder
 - `DocumentStore.swift` — project-folder coordinator + Document registry. Owns the NSFilePresenter, manifest IO, session tracking, UI state, rename/copy/move orchestration. Per-doc op-log, autosave, conflict-detection, and echo guard now live on `Document` (post-`milestone-document-first-class`); this file routes external presenter callbacks to the matching Document via the registry.
 - `MaughamSidecarPath.swift` — typed classification of project-relative file URLs into manifest / opLog / checkpoints / sessions / uiState / conflictBackup / scratch / trash / unknownSidecar / otherProjectFile / outsideProject. `presenterDidChangeSubitem` dispatches via a switch on this enum — adding a new sidecar owner is a compile-error workflow. See [ADR 0010](../../docs/adr/0010-typed-cross-area-seams.md).
 - `DebounceScheduler.swift`, `RecentsStore.swift`, `SessionLog.swift`, `TrashStore.swift` — small focused stores, well-bounded. **Use these as the model** for new stores; don't model new things after `ProjectStore`'s size.
@@ -47,7 +49,7 @@ Don't invent new top-level subdirs without a reason. If you need a new one, the 
 
 2. **`wait*` helpers in `DocumentStore` are test-only living in production code.** Don't call them from production paths; don't add new ones without marking them `#if DEBUG` or moving them to a test helper.
 
-3. **Don't model a new store after `ProjectStore`.** It's 2760 lines because the project is the central polymorphic aggregate; that complexity is justified there and not elsewhere. Model after `RecentsStore` / `TrashStore` / `SessionLog` — small, focused, one responsibility.
+3. **Don't model a new store after `ProjectStore`.** The `ProjectStore` + eight peer extension files together are large because the project is the central polymorphic aggregate; that complexity is justified there and not elsewhere. Model after `RecentsStore` / `TrashStore` / `SessionLog` — small, focused, one responsibility.
 
 4. **Don't double-prefix IDs.** ID prefixes are canonical after ADR 0008. If you see `scene-scene-…` or `doc-doc-…`, that's a bug. The prefix is applied once, by the generator.
 
