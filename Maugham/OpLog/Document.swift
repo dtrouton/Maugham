@@ -917,7 +917,18 @@ public final class Document {
         //    so the returned `archivedAnnotationOpIds` reflects exactly
         //    what this restore caused (and nothing the merging path
         //    accumulated incidentally).
-        if let reason = SweepReason.rewind(removed: Set(removedIds)) {
+        //
+        //    Gate on `_hasAnyAnnotationOps`: when the doc has never had
+        //    an annotation, `flushBurstNow` skips the entire annotation
+        //    block (including the `_pendingSweep = nil` reset), so any
+        //    `_pendingSweep` we'd set here would linger until the user's
+        //    first annotation triggered the gate — at which point the
+        //    sweep would archive against a stale removed-set captured
+        //    from a long-past restore. ULID collisions are astronomically
+        //    unlikely but the leak is structural. Don't flag what
+        //    `flushBurstNow` won't drain.
+        if !removedIds.isEmpty, _hasAnyAnnotationOps,
+           let reason = SweepReason.rewind(removed: Set(removedIds)) {
             flagSweep(reason)
         }
         let beforeFlushCount = _opLogMirror.count

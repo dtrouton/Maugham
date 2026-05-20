@@ -43,6 +43,12 @@ internal struct SweepReason: Equatable, Sendable {
     /// inherits `other`'s `cause` so the "most recent" path stays
     /// visible in any future diagnostics and in the synthesisSource
     /// stamp on the claude_archive ops.
+    ///
+    /// Callers must only invoke this from `Document`'s `@MainActor`
+    /// context so that `cause` ownership is exclusive — there's no
+    /// interleaving of merges that would race over which `cause`
+    /// survives. The single caller (`Document.flagSweep`) honours this
+    /// by virtue of `Document` itself being `@MainActor`.
     func merging(_ other: SweepReason) -> SweepReason {
         SweepReason(removed: removed.union(other.removed), cause: other.cause)
     }
