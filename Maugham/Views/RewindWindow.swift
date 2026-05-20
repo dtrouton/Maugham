@@ -98,11 +98,12 @@ struct RewindWindow: View {
                 ForEach(Array(ticks.enumerated()), id: \.offset) { _, tick in
                     let frac = fraction(for: tick.at)
                     let xPos = CGFloat(frac) * width
+                    let isLandmark = tick.kind == .checkpoint || tick.kind == .checkpointRestore
                     Rectangle()
                         .fill(color(for: tick.kind))
-                        .frame(width: tick.kind == .checkpoint ? 3 : 1,
-                               height: tick.kind == .checkpoint ? 12 : 8)
-                        .offset(x: xPos, y: tick.kind == .checkpoint ? 10 : 12)
+                        .frame(width: isLandmark ? 3 : 1,
+                               height: isLandmark ? 12 : 8)
+                        .offset(x: xPos, y: isLandmark ? 10 : 12)
                 }
                 let curFrac = fraction(for: cursorDate)
                 Rectangle().fill(Color.purple)
