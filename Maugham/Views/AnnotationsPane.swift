@@ -106,21 +106,45 @@ struct AnnotationsPane: View {
 
     @ViewBuilder
     private var toolbar: some View {
-        HStack(spacing: 6) {
-            ForEach(KindOption.allCases) { opt in
-                Button(opt.label) { kindFilter = opt }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 8).padding(.vertical, 2)
-                    .background(opt == kindFilter
-                        ? Color.secondary.opacity(0.3) : Color.clear)
-                    .clipShape(Capsule())
-                    .font(.caption)
+        // ScrollView keeps the pills on one line even when the pane is
+        // narrow. Without it SwiftUI wraps the text inside each Button
+        // ("Suggestions" → "Sug-\ngestions") which looks broken at narrow
+        // widths the user can dial down to. The trailing Resolved toggle
+        // sits outside the scroll so it stays reachable.
+        HStack(spacing: 0) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    ForEach(KindOption.allCases) { opt in
+                        Button(opt.label) { kindFilter = opt }
+                            .buttonStyle(.plain)
+                            .padding(.horizontal, 8).padding(.vertical, 2)
+                            .background(opt == kindFilter
+                                ? Color.secondary.opacity(0.3)
+                                : Color.clear)
+                            .clipShape(Capsule())
+                            .font(.caption)
+                            .lineLimit(1)
+                            .fixedSize()
+                    }
+                }
+                .padding(.trailing, 6)
             }
-            Spacer()
-            Toggle("Resolved", isOn: $showResolved)
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-                .font(.caption)
+            // Resolved is the only non-kind control — render as a compact
+            // icon-only toggle to save horizontal space. The tooltip
+            // explains; tapping flips between open-only and all statuses.
+            Button {
+                showResolved.toggle()
+            } label: {
+                Image(systemName: showResolved
+                    ? "tray.full" : "tray")
+                    .font(.caption)
+                    .foregroundStyle(showResolved
+                        ? Color.accentColor : .secondary)
+            }
+            .buttonStyle(.plain)
+            .help(showResolved
+                ? "Showing all statuses · click to show only open"
+                : "Showing open only · click to include resolved")
         }
         .padding(.horizontal, 8).padding(.vertical, 6)
     }
