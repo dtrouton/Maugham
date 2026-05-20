@@ -19,6 +19,7 @@ struct RewindWindow: View {
     /// The initial scrubber position. `.now` for the header button;
     /// `.atOp(...)` for the per-row deep-link.
     let initialCursor: RewindCursor
+    let scope: RewindScope
     let onComplete: (RewindAction) -> Void
 
     // Snapshot of the op log captured at modal-open time. Stable for the
@@ -271,6 +272,11 @@ struct RewindWindow: View {
 
     private func snapshotHere(label: String) async {
         guard case .atOp(let opId, _) = cursor else { return }
+        switch scope {
+        case .thisDoc:
+            break  // existing per-doc behaviour
+        // case .project: — v2: build all-doc pointers differently
+        }
         let opStore = OpLogStore(projectURL: projectURL)
         var pointers: [String: String] = [:]
         for did in allDocIds {

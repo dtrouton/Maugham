@@ -1156,6 +1156,7 @@ private struct RewindModifier: ViewModifier {
                 documentStore: documentStore,
                 docTitle: title,
                 initialCursor: rewindInitialCursor,
+                scope: .thisDoc,
                 onComplete: { action in
                     showingRewindModal = false
                     switch action {
