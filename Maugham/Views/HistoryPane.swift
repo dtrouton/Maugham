@@ -327,6 +327,7 @@ private struct HistoryRow: View {
                 Button("Revert here…", action: onRevert)
                     .controlSize(.small)
                     .buttonStyle(.bordered)
+                    .simultaneousGesture(TapGesture().onEnded { })
             } else if case .op(let op) = entry, mutatesManuscript(op.kind) {
                 Button {
                     NotificationCenter.default.post(
@@ -341,6 +342,7 @@ private struct HistoryRow: View {
                 .controlSize(.small)
                 .buttonStyle(.bordered)
                 .help("Rewind to before this point…")
+                .simultaneousGesture(TapGesture().onEnded { })
             }
         }
         .padding(.horizontal, 12).padding(.vertical, 10)

@@ -1126,6 +1126,7 @@ private struct RewindModifier: ViewModifier {
         content
             .onReceive(NotificationCenter.default.publisher(
                 for: .maughamOpenRewind)) { note in
+                guard selectedItemId != nil else { return }
                 if let opId = note.userInfo?["scrub_op_id"] as? String,
                    let at = note.userInfo?["scrub_op_at"] as? Date {
                     rewindInitialCursor = .atOp(opId: opId, at: at)
