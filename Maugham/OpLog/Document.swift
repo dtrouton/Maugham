@@ -866,16 +866,12 @@ public final class Document {
                     sourceCheckpoint: targetOpId,
                     synthesisSource: .rewind))
         } else {
-            // (a) Genuine no-op. Return without appending.
+            // (a) Genuine no-op (target == current). Return without
+            // appending. `restoreOp == nil` signals "log was not extended"
+            // — callers inspecting `result.restoreOp.opId` would otherwise
+            // chase a sentinel empty-string id.
             return RewindRestoreResult(
-                restoreOp: Op(
-                    opId: "",
-                    docId: docId, at: Date(),
-                    device: device, session: session,
-                    kind: .checkpointRestore,
-                    changes: [],
-                    sequence: nil,
-                    provenance: nil),
+                restoreOp: nil,
                 archivedAnnotationOpIds: [],
                 removedParagraphIds: [],
                 priorSequenceCount: priorCount,

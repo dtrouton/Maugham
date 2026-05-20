@@ -77,7 +77,7 @@ final class RewindFlowTests: XCTestCase {
         try await doc.flushBurstNow()
 
         let result = try await doc.restoreToOp(opId: bootstrapOpId)
-        XCTAssertEqual(result.restoreOp.kind, .checkpointRestore)
+        XCTAssertEqual(result.restoreOp?.kind, .checkpointRestore)
         XCTAssertGreaterThan(
             result.priorSequenceCount, result.newSequenceCount,
             "Rewind should shrink the sequence (added p2 should be gone)")
@@ -176,18 +176,46 @@ final class RewindFlowTests: XCTestCase {
 
         let log0 = try await doc.opLog()
         let bootstrapId = log0[0].opId
+        let priorCount = log0.count
 
-        // Type without flushing.
+        // Type without flushing — the burst is in-memory pending.
         doc.setFullText("p1\n\nmid-typing edit\n")
         _ = try await doc.restoreToOp(opId: bootstrapId)
 
-        // The in-flight edit must appear in the log BEFORE the restore op.
         let logAfter = try await doc.opLog()
-        let burstIdx = logAfter.firstIndex { $0.kind == .typingBurst }
-        let restoreIdx = logAfter.firstIndex { $0.kind == .checkpointRestore }
-        XCTAssertNotNil(burstIdx, "Pending burst should have been flushed before restore")
-        XCTAssertNotNil(restoreIdx)
-        XCTAssertLessThan(burstIdx!, restoreIdx!)
+        // Slice to ops added by restoreToOp so we're not matching against
+        // unrelated bootstrap-era ops with `firstIndex(where:)`.
+        let newOps = Array(logAfter.dropFirst(priorCount))
+        // The first new op must be the flushed typing burst — proves the
+        // pending was flushed BEFORE the restore op was appended.
+        XCTAssertEqual(newOps.first?.kind, .typingBurst,
+                       "Pending burst must flush before the restore op")
+        // A later op must be the .checkpointRestore.
+        XCTAssertTrue(newOps.contains { $0.kind == .checkpointRestore })
+        // And the typing_burst must precede the checkpointRestore in the slice.
+        let burstIdx = newOps.firstIndex { $0.kind == .typingBurst }!
+        let restoreIdx = newOps.firstIndex { $0.kind == .checkpointRestore }!
+        XCTAssertLessThan(burstIdx, restoreIdx)
+    }
+
+    func test_restoreToPastOp_noOp_whenTargetEqualsCurrent_doesNotAppendOp() async throws {
+        let h = try await makeDocument(initialMd: "p1\n")
+        let doc = h.doc
+        try await doc.flushBurstNow()
+        let log = try await doc.opLog()
+        let latestOpId = log.last!.opId
+        let priorLogCount = log.count
+
+        let result = try await doc.restoreToOp(opId: latestOpId)
+
+        XCTAssertNil(result.restoreOp, "No-op restore must not synthesize an op")
+        XCTAssertTrue(result.removedParagraphIds.isEmpty)
+        XCTAssertEqual(result.priorSequenceCount, result.newSequenceCount)
+
+        // Op log unchanged.
+        let logAfter = try await doc.opLog()
+        XCTAssertEqual(logAfter.count, priorLogCount,
+                       "No-op restore must not extend the op log")
     }
 
     func test_restoreToPastOp_resultCountsMatchSequenceDeltas() async throws {
