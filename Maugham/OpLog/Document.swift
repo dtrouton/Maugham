@@ -280,6 +280,26 @@ public final class Document {
         if let writeErr { throw writeErr }
     }
 
+    /// Returns the NSRange within `displayText` covering the paragraph with
+    /// the given id, or nil if the id isn't in `sequence`. Used by editor
+    /// navigation (e.g., clicking an annotation row jumps the textView to
+    /// the anchored paragraph). The range corresponds to the stripped
+    /// display form — anchors aren't visible there — and to the structure
+    /// that `recomputeDisplayText` produces: paragraphs joined by "\n\n".
+    public func displayRange(forParagraphId paragraphId: String) -> NSRange? {
+        var offset = 0
+        for id in sequence {
+            guard let text = paragraphs[id] else { continue }
+            let length = (text as NSString).length
+            if id == paragraphId {
+                return NSRange(location: offset, length: length)
+            }
+            offset += length
+            offset += 2  // "\n\n" separator between paragraphs
+        }
+        return nil
+    }
+
     public func materialize() -> String {
         return Materializer.materialize(
             paragraphs: paragraphs, sequence: sequence)

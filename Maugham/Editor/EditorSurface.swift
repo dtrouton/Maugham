@@ -28,6 +28,11 @@ struct EditorSurface: NSViewRepresentable {
     /// The handler returns the Markdown ref string; the text view inserts it
     /// at the current cursor position.
     var imagePasteHandler: ((NSImage) -> String?)? = nil
+    /// Resolves a paragraph_id to its NSRange in the current displayText.
+    /// Wired through to the coordinator's paragraphRangeProvider so that
+    /// `.maughamNavigateToParagraph` notifications (fired by clicking an
+    /// annotation row) scroll the textView to the right paragraph.
+    var paragraphRangeProvider: ((String) -> NSRange?)? = nil
 
     func makeCoordinator() -> EditorCoordinator {
         let coordinator = EditorCoordinator(
@@ -41,6 +46,7 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.onCursorChanged = onCursorChanged
         coordinator.wikiLinkResolverForClick = wikiLinkClickResolver
         coordinator.imagePasteHandler = imagePasteHandler
+        coordinator.paragraphRangeProvider = paragraphRangeProvider
         return coordinator
     }
 
@@ -141,6 +147,7 @@ struct EditorSurface: NSViewRepresentable {
             textView.removeGutter()
         }
         context.coordinator.imagePasteHandler = imagePasteHandler
+        context.coordinator.paragraphRangeProvider = paragraphRangeProvider
     }
 }
 

@@ -74,7 +74,10 @@ struct EditorHost: View {
                     onCursorChanged: { doc.cursorLocation = $0 },
                     wikiLinkResolver: wikiLinkResolver,
                     wikiLinkClickResolver: wikiLinkClickResolver,
-                    showElementGutter: store.manifest.showElementGutter ?? true
+                    showElementGutter: store.manifest.showElementGutter ?? true,
+                    paragraphRangeProvider: { paragraphId in
+                        doc.displayRange(forParagraphId: paragraphId)
+                    }
                 )
                 .id(path)
             } else if currentItem?.type == .group {
