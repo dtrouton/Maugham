@@ -37,6 +37,7 @@ Daily-writing improvements. Reduces friction in the surface you spend hours in.
   - Research ↔ manuscript linking with click-to-view markdown preview
   - Structure views: Outline (table) + Corkboard (cards) with layout toggle
   - Keyboard cheatsheet tab in ⌘/
+- ✓ History Rewind (2026-05-20) — per-doc time-travel modal: scrubber over every op, Doc/Diff preview, Snapshot or Restore, per-row ↺ button on HistoryPane; SynthesisSource enum refactor + RewindCursor + RewindScope typed contracts; tag `milestone-history-rewind`; ~792 tests passing; carry-forwards: project-scope rewind (multi-doc clock UX), live-update of scrubber during MCP writes, un-archive annotation lifecycle action, scrubber pan/zoom beyond 1k ops.
 
 **Open:**
 
@@ -112,9 +113,6 @@ Reliability the writer doesn't think about until it bites. Not glamorous, but ea
 
 **Day-to-day reliability:**
 - ✓ Trash & undo for binder operations — shipped under Group 1's research polish milestone. See [ADR 0006](adr/0006-trash-and-undo.md).
-- • **History Rewind** — first-class time travel over the op log. The infrastructure already exists (per-doc JSONL op log under `.maugham/ops/`, paragraph-keyed LWW, checkpoint_restore op kind); HistoryPane shows the unified timeline today but only checkpoint rows offer "Revert here…". Two staged designs to brainstorm before scoping:
-  - **Option A — revert to any op as if it were a checkpoint** (small, reuses existing machinery). Each typing_burst / claude_accept / external_edit row in HistoryPane gets a "Revert here…" button. Reverting derives state from `ops` up to (but not including) the target op, applies it as the new in-memory state, and emits a `checkpoint_restore` op for forensic record. Reuses `PartialRestorePicker` for the per-doc-vs-project decision.
-  - **Option B — time-scrub UI** (substantial, the "cool" version). A timeline scrubber across the HistoryPane: drag a slider across recent ops to see the doc state at any moment with read-only preview, then confirm-to-revert. Like git bisect's affordance applied to writing. The op log makes this cheap to compute; the UI surface is the work. Worth scoping its own brainstorm — touches editor read-only state, scrubber UX, range performance.
 - • Snapshots — versioned manuscript saves with labels ("before-rewrite", "agent submission"). Lighter-weight than History Rewind: an explicit named bookmark rather than a scrub-anywhere capability. The two pair well — Snapshots is the user-curated index, History Rewind is the open-ended exploration.
 - • Backup & recovery story — iCloud version-history surfacing, Time Machine compatibility note, cross-session undo
 

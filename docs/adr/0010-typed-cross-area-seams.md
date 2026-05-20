@@ -36,6 +36,10 @@ This ADR records the pattern; it doesn't mandate retroactive rewrites. New seams
 | `DocumentStore.presenter` ↔ `Document` routing | `MaughamSidecarPath` enum | `MaughamSidecarPath.classify` | `PresenterRoutingTests.test_sidecarPathParser_roundTripsAllCanonicalSubdirs` |
 | `Document.lastDiskEcho` ↔ echo guard | `EchoState` struct + three named factories | `EchoState` initializers | `PresenterRoutingTests.test_ourAutosave_doesNotReingestAsExternalEdit` and `..._resolveKeepMine...` |
 | Orphan-sweep trigger ↔ sweep execution | `SweepReason` enum carrying the removed-paragraph set | `SweepReason.userTyped` / `.externalLog` / `.useCloud` factories | `PresenterRoutingTests.test_mcpAddAnnotationLive_doesNotTriggerOrphanArchive` |
+| Rewind scrub state ↔ Deriver | `RewindCursor` enum | `RewindCursor.atOp` factory | `DeriverUpToTests` |
+| Rewind modal ↔ ProjectWindow action dispatch | `RewindAction` enum | `RewindWindow.onComplete` callsite | `RewindEntryPointsTests` |
+| Rewind scope today vs. v2 | `RewindScope` enum (single-case) | `RewindWindow` initializer | (compile-error workflow; no test needed for single case) |
+| Op synthesisSource cause | `SynthesisSource` enum | `Op.Provenance.synthesisSource` field | `SynthesisSourceMigrationTests` + `RewindForensicProvenanceTests` |
 
 ## Consequences
 
