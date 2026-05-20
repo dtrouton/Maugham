@@ -197,21 +197,37 @@ public final class Document {
             }
             initial = Deriver.DerivedState(paragraphs: paragraphs, sequence: sequence)
         } else if initial.sequence.isEmpty && !initial.paragraphs.isEmpty {
-            var recovered: [String] = []
+            // Legacy log: typing_burst captured changes but not the
+            // `sequence` field. The on-disk .md is the more current source
+            // for both paragraph text AND order — autosave runs faster
+            // than the burst scheduler so the .md reflects edits the op
+            // log hasn't seen yet (e.g., user split a paragraph by adding
+            // blank lines; autosave wrote the new anchors but the typing
+            // burst hasn't fired yet so the new paragraph_ids aren't in
+            // initial.paragraphs).
+            //
+            // Trust parsed entirely when it has anchored paragraphs.
+            // Without this, addAnnotation for a freshly-minted paragraph
+            // id reads paragraphs[id]=nil and persists prior_text=nil,
+            // which silently breaks the staleness check for every
+            // markdown annotation on a legacy doc.
+            var freshParagraphs: [String: String] = [:]
+            var freshSequence: [String] = []
             for p in parsed {
-                guard let id = p.id, initial.paragraphs[id] != nil else {
-                    continue
-                }
-                recovered.append(id)
+                guard let id = p.id else { continue }
+                freshParagraphs[id] = p.text
+                freshSequence.append(id)
             }
-            // Fallback: if the parsed file is mis-tagged (e.g. anchor at top
-            // but everything else as one block), at minimum surface the
-            // paragraphs we do know about so the doc renders.
-            if recovered.isEmpty {
-                recovered = Array(initial.paragraphs.keys)
+            if !freshSequence.isEmpty {
+                initial = Deriver.DerivedState(
+                    paragraphs: freshParagraphs, sequence: freshSequence)
+            } else {
+                // .md has no anchored content — fall back to whatever
+                // the op log gave us so the doc still renders.
+                initial = Deriver.DerivedState(
+                    paragraphs: initial.paragraphs,
+                    sequence: Array(initial.paragraphs.keys))
             }
-            initial = Deriver.DerivedState(
-                paragraphs: initial.paragraphs, sequence: recovered)
         }
         let lastWritten = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
 
