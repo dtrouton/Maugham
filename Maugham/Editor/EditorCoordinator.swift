@@ -675,8 +675,20 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             forGlyphRange: glyphRange, in: textContainer)
         guard let scrollView = textView.enclosingScrollView else { return }
         let visible = scrollView.contentView.documentVisibleRect
-        let targetY = lineRect.midY - visible.height / 2
-        scrollView.contentView.scroll(to: NSPoint(x: 0, y: targetY))
+        // Centering computes negative Y near the top of the document and
+        // overshoots near the bottom; clamp to the legitimate document
+        // range so NSScrollView doesn't round-trip through a clamped value
+        // and produce a visible jump on each keystroke.
+        let documentHeight = scrollView.documentView?.frame.height ?? 0
+        let maxY = max(0, documentHeight - visible.height)
+        let rawTarget = lineRect.midY - visible.height / 2
+        let clampedY = max(0, min(rawTarget, maxY))
+        // Skip the call entirely if we're already within a pixel of the
+        // target — avoids a no-op scroll that NSScrollView still treats
+        // as a relayout event and which can perturb a typing-mid-paragraph
+        // cursor's apparent position.
+        if abs(clampedY - visible.origin.y) < 0.5 { return }
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: clampedY))
         scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
