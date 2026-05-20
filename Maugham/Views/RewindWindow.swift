@@ -30,8 +30,15 @@ struct RewindWindow: View {
     @State private var nowState: Deriver.DerivedState = .init(paragraphs: [:], sequence: [])
     @State private var showingSnapshotPrompt: Bool = false
     @State private var showingRestoreConfirm: Bool = false
+    @State private var deriveTask: Task<Void, Never>?
 
     enum PreviewMode: Equatable { case doc, diff }
+
+    private static let headerDateFmt: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "EEE h:mm a"
+        return f
+    }()
 
     private var rawTicks: [RewindTickLayout.RawTick] {
         ops.map { .init(opId: $0.opId, at: $0.at, kind: $0.kind) }
@@ -236,7 +243,10 @@ struct RewindWindow: View {
     }
 
     private func updateDerivedState() async {
-        derivedState = Deriver.derive(ops: ops, upTo: cursor)
+        let snapshot = cursor
+        let newState = Deriver.derive(ops: ops, upTo: snapshot)
+        if Task.isCancelled { return }
+        derivedState = newState
     }
 
     private func scrub(toX x: CGFloat, width: CGFloat) {
@@ -252,7 +262,8 @@ struct RewindWindow: View {
         })
         if let op = nearest {
             cursor = .atOp(opId: op.opId, at: op.at)
-            Task { await updateDerivedState() }
+            deriveTask?.cancel()
+            deriveTask = Task { await updateDerivedState() }
         }
     }
 
@@ -314,9 +325,7 @@ struct RewindWindow: View {
         case .atOp(let opId, let at):
             let idx = ops.firstIndex(where: { $0.opId == opId }) ?? -1
             let opsAgo = ops.count - 1 - idx
-            let fmt = DateFormatter()
-            fmt.dateFormat = "EEE h:mm a"
-            return "\(fmt.string(from: at)) · \(opsAgo) ops ago"
+            return "\(Self.headerDateFmt.string(from: at)) · \(opsAgo) ops ago"
         }
     }
 
