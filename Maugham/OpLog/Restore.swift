@@ -16,7 +16,8 @@ public enum Restore {
         docId: String,
         device: String,
         session: String,
-        sourceCheckpoint: String
+        sourceCheckpoint: String,
+        synthesisSource: SynthesisSource? = nil
     ) -> Op? {
         let candidatePids: [String]
         switch scope {
@@ -42,6 +43,8 @@ public enum Restore {
             kind: .checkpointRestore,
             changes: changes,
             sequence: nil,
-            provenance: .init(sourceCheckpoint: sourceCheckpoint))
+            provenance: .init(
+                sourceCheckpoint: sourceCheckpoint,
+                synthesisSource: synthesisSource))
     }
 }
