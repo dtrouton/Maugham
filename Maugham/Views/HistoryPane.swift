@@ -103,6 +103,15 @@ struct HistoryPane: View {
             .filter { filter.matches($0) }
     }
 
+    /// Index of ops by op_id for HistoryRow's sourceAnnotationId lookups
+    /// (used to surface the body of an annotation whose archive row
+    /// otherwise only shows "paragraph deleted").
+    private var opsByOpId: [String: Op] {
+        var map: [String: Op] = [:]
+        for op in ops { map[op.opId] = op }
+        return map
+    }
+
     private var emptyTitle: String {
         switch filter {
         case .all:         return "No history yet"
@@ -155,6 +164,7 @@ struct HistoryPane: View {
                             HistoryRow(
                                 entry: entry,
                                 expanded: expanded.contains(entry.id),
+                                lookupOp: { id in opsByOpId[id] },
                                 onToggle: {
                                     if expanded.contains(entry.id) {
                                         expanded.remove(entry.id)
@@ -257,9 +267,39 @@ struct HistoryPane: View {
 private struct HistoryRow: View {
     let entry: HistoryEntry
     let expanded: Bool
+    let lookupOp: (String) -> Op?
     let onToggle: () -> Void
     let onJump: () -> Void
     let onRevert: () -> Void
+
+    /// For lifecycle ops (claudeAccept/claudeReject/claudeArchive) the body
+    /// of interest is on the CREATION op (claudeComment/claudeSuggestion/
+    /// claudeQuery/claudeCraftNote) pointed to by provenance.sourceAnnotationId.
+    /// Resolves it from the parent HistoryPane's op index when present.
+    private func resolvedBody(for op: Op) -> String? {
+        if let body = op.provenance?.annotationBody, !body.isEmpty {
+            return body
+        }
+        if let sourceId = op.provenance?.sourceAnnotationId,
+           let source = lookupOp(sourceId) {
+            return source.provenance?.annotationBody
+        }
+        return nil
+    }
+
+    /// Short paragraph-id chip for the header. Returns nil for ops without
+    /// a paragraph anchor (e.g. craft_note creation, checkpoint).
+    private func paragraphAnchor(for op: Op) -> String? {
+        if let pid = op.changes.first?.paragraphId, !pid.isEmpty {
+            return pid
+        }
+        if let sourceId = op.provenance?.sourceAnnotationId,
+           let source = lookupOp(sourceId),
+           let pid = source.changes.first?.paragraphId, !pid.isEmpty {
+            return pid
+        }
+        return nil
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -288,6 +328,15 @@ private struct HistoryRow: View {
             Label(kindLabel, systemImage: kindIcon)
                 .font(.caption)
                 .foregroundStyle(kindColor)
+            if case .op(let op) = entry,
+               let pid = paragraphAnchor(for: op) {
+                Text("¶\(pid.prefix(6))")
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+                    .background(Color.secondary.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 3))
+            }
             Spacer()
             Text(entry.timestamp.formatted(date: .omitted, time: .shortened))
                 .font(.caption2).foregroundStyle(.secondary)
@@ -307,18 +356,39 @@ private struct HistoryRow: View {
                     .font(.caption).foregroundStyle(.secondary)
                     .lineLimit(1)
             case .claudeAccept:
-                Text("Accepted suggestion")
-                    .font(.caption).foregroundStyle(.secondary)
+                if let body = resolvedBody(for: op) {
+                    Text(body).font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(1)
+                } else {
+                    Text("Accepted").font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             case .claudeReject:
                 if let r = op.provenance?.userResponse {
                     Text("\"\(r)\"").italic()
                         .font(.caption).foregroundStyle(.secondary)
                         .lineLimit(1)
+                } else if let body = resolvedBody(for: op) {
+                    Text(body).font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
             case .claudeArchive:
-                Text(op.provenance?.synthesisSource == "paragraph_deleted"
-                     ? "paragraph deleted" : "archived")
-                    .font(.caption).foregroundStyle(.secondary)
+                // Show the original annotation body when we have it so the
+                // forensic record is legible (the synthesisSource alone
+                // — "paragraph deleted" — gives the cause but not the
+                // content). Auto-archives from paragraph deletion get
+                // both: body + cause.
+                if let body = resolvedBody(for: op) {
+                    let cause = op.provenance?.synthesisSource == "paragraph_deleted"
+                        ? " · paragraph deleted" : ""
+                    Text("\(body)\(cause)")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(1)
+                } else {
+                    Text(op.provenance?.synthesisSource == "paragraph_deleted"
+                         ? "paragraph deleted" : "archived")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             case .externalEdit:
                 Text("\(op.changes.count) paragraph\(op.changes.count == 1 ? "" : "s") changed externally")
                     .font(.caption).foregroundStyle(.secondary)
@@ -354,8 +424,20 @@ private struct HistoryRow: View {
                             .background(Color.green.opacity(0.08))
                     }
                 }
-            } else if let body = op.provenance?.annotationBody {
-                Text(body).font(.callout)
+            } else if let body = resolvedBody(for: op) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(body).font(.callout)
+                    if let resp = op.provenance?.userResponse {
+                        Text("Your reply: \"\(resp)\"")
+                            .font(.caption).italic()
+                            .foregroundStyle(.secondary)
+                    }
+                    if op.provenance?.synthesisSource == "paragraph_deleted" {
+                        Text("Auto-archived: paragraph deleted from manuscript.")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                    }
+                }
             } else if let resp = op.provenance?.userResponse {
                 Text("\"\(resp)\"").italic().font(.callout)
             } else {
