@@ -46,7 +46,7 @@ Each is a "do not do X — here's why it broke before." If your situation looks 
 5. **Don't use NSPopover for editor autocomplete.** Abandoned in 3b — sizing was unreliable, it blocked input, character autocomplete was deferred. `CharacterAutocompleter` exists as dead code; don't wire it back without redesigning the UX.
 6. **Don't reintroduce parallel observable state on `EditorHost`.** The earlier `$documentText` / `lastWrittenText` / `priorStoredMarkdown` triad drove three cursor races and is gone post-`milestone-document-first-class`. The current shape is a single `Binding(get: { doc.displayText }, set: { doc.setFullText($0) })` where `setFullText` writes `displayText` exactly once at the end. Any new external-text path needs a regression test asserting `applyExternalText` doesn't fire during normal typing.
 7. **Don't add a 4th caller to `EditorSurface.applyExternalText`.** It exists only for cloud-conflict resolution. Asserting this is what catches binding races.
-8. **Don't use 1-char paragraph IDs in tests.** `ParagraphID` requires exactly 4 chars. Tests using "a"/"b" silently bypass validation (currently violated in `PendingBufferTests` — known carry-forward, don't propagate).
+8. **Use 4-char alphabet-restricted paragraph IDs in any test that crosses the .md ↔ op log boundary.** `ParagraphID.parseComment` is the gate (regex `[0123456789abcdefghjkmnpqrstvwxyz]{4}`); `recordChange(paragraphId:)` and other in-memory APIs are permissive by design, so OpLog unit tests legitimately use short IDs. If your test exercises Bootstrap, Reconciler ingest, or RenderFilter-against-parsed-anchors, use `ParagraphID.mint()` or a literal matching the alphabet.
 9. **Don't use `.onTapGesture` for clickable rows inside `List(.sidebar)`.** Use `Button(.plain)`. Established SwiftUI workaround for sidebar hit-testing.
 10. **Don't return >1MB from an MCP tool.** Transport cap. Image responses use crop-on-demand (`max_dimension` / `quality` / `region`, default 2048px JPEG q=85). See ADR 0004.
 11. **Don't migrate test data when iterating on data shape.** The user explicitly prefers blowing away test projects: *"if I need to just delete all my test files and start again it's ok here. we don't need to migrate."* Propose deletion, not migration logic, unless asked.
@@ -72,8 +72,8 @@ Follow this without asking — the user has answered these questions enough time
 Brief, high-signal callouts. Treat as "things to read or grep before editing in this area." **When an area has an `AREA.md` file (e.g., `Maugham/Editor/AREA.md`), read it before editing anything in that directory.** AREA.md files exist for the areas with rich enough per-area context that one-line callouts here are insufficient.
 
 ### `Maugham/Editor/` — see [`Maugham/Editor/AREA.md`](Maugham/Editor/AREA.md)
-- `EditorCoordinator.swift` is the central nervous system (~770 lines). NSTextViewDelegate doing tokenization, cursor management, Tab-cycle, smart typography, find navigation, focus-dim, image-paste routing, wiki-link hit-testing. `applyFocusDim` is intentionally called from three paths — don't dedupe blindly.
-- `EditorHost.swift` shape is fragile — see tripwires 2, 3, 6, 7.
+- `EditorCoordinator.swift` is the central nervous system and by far the largest file in this area. NSTextViewDelegate doing tokenization, cursor management, Tab-cycle, smart typography, find navigation, focus-dim, image-paste routing, wiki-link hit-testing. `applyFocusDim` is intentionally called from three paths — don't dedupe blindly.
+- `EditorHost.swift` (at `Maugham/Views/EditorHost.swift`, historical placement) shape is fragile — see tripwires 2, 3, 6, 7. The binding contract is covered by `EditorIntegrationHarnessTests`.
 - `ScreenplayMode.applyTypography` does full-storage `setAttributes` (not incremental). Known race-window contributor; don't add work inside it.
 - `ScreenplayLayoutManager` exists but display-uppercase is the **option-A fallback** intentionally — don't try to "fix" it without rethinking the approach.
 - `CharacterAutocompleter` is **dead code** (NSPopover abandoned). Don't wire `updateAutocomplete` back; redesign the UX first.
@@ -95,7 +95,7 @@ Brief, high-signal callouts. Treat as "things to read or grep before editing in 
 - Orphan-annotation sweep is now driven by `Document._pendingSweep: SweepReason?` carrying the observed removed-paragraph-id set; sweep archives only annotations on `reason.removed`. The earlier 1–2s auto-archive bug (sweep firing on any sequence mismatch) is fixed — `PresenterRoutingTests` is the regression net. If annotations vanish, suspect sweep-reason population, not the sweep itself.
 
 ### `Maugham/Stores/` — see [`Maugham/Stores/AREA.md`](Maugham/Stores/AREA.md)
-- `ProjectStore.swift` itself is small (~170 lines); the seams live in peer files (`ProjectStore+Structure.swift`, `+Trash.swift`, `+Research.swift`, `+Metadata.swift`, `+Search.swift`, `+WikiLink.swift`, `+CollectionPieces.swift`, `+References.swift`). When you add a new seam, create a new `ProjectStore+NewSeam.swift` peer file — don't grow the main file.
+- `ProjectStore.swift` itself is a small façade; the seams live in peer files (`ProjectStore+Structure.swift`, `+Trash.swift`, `+Research.swift`, `+Metadata.swift`, `+Search.swift`, `+WikiLink.swift`, `+CollectionPieces.swift`, `+References.swift`). When you add a new seam, create a new `ProjectStore+NewSeam.swift` peer file — don't grow the main file.
 - `DocumentStore.swift` is the project-folder coordinator + Document registry; per-doc state (op log, autosave, conflict detection, echo guard) lives on `Document` (post-`milestone-document-first-class`).
 - Presenter routing goes through the typed `MaughamSidecarPath` enum — adding a new `.maugham/` subdir owner becomes a `switch must be exhaustive` compile error rather than a string-prefix cascade edit. See [ADR 0010](docs/adr/0010-typed-cross-area-seams.md).
 - `.maugham/` subdirectory layout (`ops/`, `conflicts/`, `sessions/`, `checkpoints/`, `ui-state/`, `scratch/`, `trash/`) is canonical — each has one owner. Don't invent new top-level subdirs without a reason.
@@ -113,10 +113,7 @@ Brief, high-signal callouts. Treat as "things to read or grep before editing in 
 
 ## Outstanding correctness concerns (read before touching adjacent code)
 
-These came out of the 2026-05-19 audits and are not yet fixed:
-
-- **Several subagent commits over the past week included `project.pbxproj` edits** that shouldn't have been there. If you see pbxproj in a diff you're reviewing, that's a red flag.
-- **`PendingBufferTests` (and old `RenderFilterTests`) use 1-char paragraph IDs** that silently bypass validation. New tests must use 4-char IDs.
+- **Watch for stray `project.pbxproj` edits in diffs.** `Maugham.xcodeproj/` is generated and in `.gitignore`; past subagent commits accidentally included pbxproj changes. If you see one in a review, that's a red flag, not a real change.
 - Onboarding affordance for Annotations pane vs History pane is missing — they're sibling right-pane segments with opposite affordances (Annotations = action surface with Accept/Reject/Archive buttons; History = read-only forensic log). A tooltip on the segment picker or an empty-state hint pointing across would reduce the confusion.
 
 ## Questions you do not need to ask

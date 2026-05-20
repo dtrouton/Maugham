@@ -67,8 +67,11 @@ Adding a new tool:
 
 ## Tests worth knowing about
 
-- `MaughamTests/MCPTests/` — unit tests per tool handler.
-- **Missing high-value coverage:** end-to-end through the bridge (the deferred first-call flake has no regression test because it's reproduction-only). The annotation auto-archive contract is now covered by `MaughamTests/Integration/PresenterRoutingTests.swift` — specifically the test asserting MCP `add_annotation` on a live doc doesn't synthesize spurious `claude_archive` ops.
+- `MaughamTests/MCP/` — unit tests per tool handler.
+- `MaughamTests/MCP/MCPCatalogConsistencyTests.swift` — enforces the catalog-as-single-source-of-truth rule (every method in `MCPToolCatalog.all` is advertised by `tools/list`, is dispatchable through the router, and has a parseable object schema). This is what catches "added a tool but forgot to register it" at test time, not at user time.
+- The annotation auto-archive contract is covered by `MaughamTests/Integration/PresenterRoutingTests.swift` — specifically the test asserting MCP `add_annotation` on a live doc doesn't synthesize spurious `claude_archive` ops.
+
+Known thin coverage: end-to-end through the bridge (the deferred first-call-after-restart flake has no regression test because it's reproduction-only; see `memory/project_deferred_mcp_first_call.md`).
 
 ## What's intentionally NOT here
 

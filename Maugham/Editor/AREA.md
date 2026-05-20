@@ -9,8 +9,8 @@ The NSTextView-backed editing surface: text storage, tokenization, styling, curs
 ## Layout
 
 - `EditorSurface.swift` — `NSViewRepresentable` wrapping `NSTextView`. The SwiftUI-side boundary.
-- `EditorHost.swift` — binds the per-document `Document` actor to `EditorSurface`. Post-`milestone-document-first-class` the binding is the single source `Binding(get: { doc.displayText }, set: { doc.setFullText($0) })`; `Document.setFullText` writes `displayText` exactly once at the end. The earlier `$documentText` / `lastWrittenText` / `priorStoredMarkdown` triad is gone — all that state moved onto `Document`.
-- `EditorCoordinator.swift` (~770 lines) — `NSTextViewDelegate` implementation. The "central nervous system." Tokenizes, applies styles, manages cursor, handles Tab-cycle for screenplay, smart-quote / em-dash substitution, find-match scrolling, focus-dim, image paste routing, wiki-link `[[…]]` hit-testing.
+- `EditorHost.swift` (lives at `Maugham/Views/EditorHost.swift`, not here — historical placement) — binds the per-document `Document` actor to `EditorSurface`. The binding is the single source `Binding(get: { doc.displayText }, set: { doc.setFullText($0) })`; `Document.setFullText` writes `displayText` exactly once at the end. The earlier `$documentText` / `lastWrittenText` / `priorStoredMarkdown` triad is gone — all that state moved onto `Document`.
+- `EditorCoordinator.swift` — `NSTextViewDelegate` implementation. The "central nervous system" and by far the largest file in this area. Tokenizes, applies styles, manages cursor, handles Tab-cycle for screenplay, smart-quote / em-dash substitution, find-match scrolling, focus-dim, image paste routing, wiki-link `[[…]]` hit-testing.
 - `ScreenplayMode.swift` and `ScreenplayLayoutManager.swift` live at `Maugham/Editor/` (not under `Fountain/`).
   - `ScreenplayMode.applyTypography` does **full-storage** `setAttributes` (not incremental). Known race-window contributor; don't add work inside it.
   - `ScreenplayLayoutManager` exists but display-uppercase for forced sluglines/characters is the **option-A fallback** intentionally (display-time uppercase rejected for cursor-positioning reasons). Don't "fix" it without rethinking the approach.
@@ -67,8 +67,8 @@ Invariants:
 
 ## Tests worth knowing about
 
-- Editor-side tests live in `MaughamTests/EditorTests/` (and the Fountain subfolder for screenplay-specific).
-- **Missing high-value coverage:** there is no regression test asserting `applyExternalText` doesn't fire during normal typing. Adding one is leverage.
+- Editor-side tests live in `MaughamTests/Editor/` (and the `Fountain/` subfolder for screenplay-specific).
+- `EditorIntegrationHarness` + `EditorIntegrationHarnessTests` is the regression net for the binding contract: `assertNoApplyExternalText` (via `applyExternalTextCallCount` on the coordinator) wraps a block of simulated typing and fails if `applyExternalText` fires. `test_endOfFileTyping_doesNotFireApplyExternalText` is the canonical assertion — extend it whenever you touch the binding shape.
 - Smoke test (manual, user-driven): launch → create Novel → type → ⌘Q → relaunch → reopen from Recents → sentence intact.
 
 ## What's intentionally NOT here

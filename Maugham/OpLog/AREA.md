@@ -13,9 +13,9 @@ The manuscript op log: append-only event stream of paragraph-level mutations, pa
 - `OpLogStore.swift` and `CheckpointStore.swift` — thin wrappers (~30 lines each) over `JSONLAppendStore<T>`. The wrappers keep hot-path (op log, every typing burst) and cold-path (checkpoints, ⌘S) concurrency profiles explicit; `JSONLAppendStore` is the shared persistence primitive.
 - `JSONLAppendStore.swift` — generic append + read + tail for any JSONL-typed store. Extend here if you need new shared persistence semantics.
 - `Bootstrap.swift` — mints `¶id` anchors on first-open of a document. **Must be called from any production load path.** Wired into `Document.load` since `milestone-document-first-class` (2026-05-19); `BootstrapWiringTests` enforces the contract. Any new manuscript-load path must route through `Document.load`.
-- `EchoState.swift` — typed snapshot of "bytes we just wrote to disk." Only three named factories construct it (`initialLoad`, `afterWrite`, `afterIngest`); the echo guard in `Document.handleExternalDiskChange` reads `lastDiskEcho.bytes` to suppress presenter callbacks that arrive in response to our own writes. See [ADR 0010](../../docs/adr/0010-typed-cross-area-seams.md).
+- `EchoState.swift` — typed snapshot of "bytes we just wrote to disk." The `init` is `private`; the only construction paths are the three named factories (`initialLoad`, `afterWrite`, `afterIngest`), which is a compile-checked invariant. The echo guard in `Document.handleExternalDiskChange` reads `lastDiskEcho.bytes` to suppress presenter callbacks that arrive in response to our own writes. See [ADR 0010](../../docs/adr/0010-typed-cross-area-seams.md).
 - `SweepReason.swift` — typed pending orphan-annotation sweep carrying the *observed* removed-paragraph-id set. Replaces an earlier bool flag. Sweep archives only annotations on `reason.removed` — never "anything missing from sequence." See [ADR 0010](../../docs/adr/0010-typed-cross-area-seams.md).
-- `ParagraphID.swift` — exactly 4 chars. Validation is enforced in production but several tests violate this silently.
+- `ParagraphID.swift` — paragraph IDs are 4 chars from a restricted alphabet (`0123456789abcdefghjkmnpqrstvwxyz`, no `iloux` to dodge ambiguity). `mint()` produces them; `parseComment()` only accepts strings matching `[alphabet]{4}`. The 4-char rule is enforced **at the .md round-trip boundary** — `recordChange(paragraphId:)` and other in-memory APIs accept any string, so OpLog unit tests legitimately use short IDs like `"a"`/`"b"`. If your test crosses the .md ↔ op log boundary (Bootstrap, Reconciler ingest, RenderFilter against parsed comments), use 4-char alphabet-restricted IDs or `ParagraphID.mint()`.
 - `Reconciler.swift` — ingests external edits (writer edited the .md outside the app, or iCloud delivered a remote write) back into the op log.
 - `RenderFilter.swift` — derives the rendered .md from the op log. **Lives at `Maugham/Editor/RenderFilter.swift`** (it's consumed by the editor's display path; conceptually owned by this area). Three matching tiers for the "which historical paragraph does this orphan line belong to" question.
 - `ShingleMatcher.swift` — k-shingle Jaccard matcher used by RenderFilter and Reconciler.
@@ -49,7 +49,7 @@ Failure modes:
 
 1. **Don't collapse the OpLogStore / CheckpointStore wrappers into bare `JSONLAppendStore<T>` calls at every callsite.** The two thin wrappers exist precisely to keep the hot-path (op log: every typing burst) vs cold-path (checkpoint: ⌘S / project-close) concurrency profiles explicit at the type level. If you need new shared persistence semantics, extend `JSONLAppendStore<T>` and let both wrappers benefit; don't push the difference into call sites.
 
-2. **Don't use 1-char paragraph IDs in tests.** `ParagraphID` requires exactly 4 chars. `PendingBufferTests` (and old `RenderFilterTests`) violate this silently. New tests must use 4-char IDs. Existing violations are known carry-forward; don't propagate.
+2. **Use 4-char alphabet-restricted paragraph IDs in any test that crosses the .md boundary.** In-memory tests of `PendingBuffer`, `Deriver`, `Op` serialization, `CrossMacMerge` etc. don't cross the boundary and short IDs (`"a"`) are fine. Tests exercising Bootstrap, Reconciler ingest, or RenderFilter-against-parsed-anchors need 4-char IDs from the alphabet, otherwise `parseComment` won't recognize them and the test will silently exercise only half the round-trip.
 
 3. **Don't add a new `OpKind` without checking all consumers.** Adding a case touches `OpLogStore` (serialization), `RenderFilter` (rendering), `Reconciler` (external-edit reverse mapping), and probably `MCP/Tools/` (if the new op is annotation-visible). Audit before adding.
 
@@ -57,17 +57,16 @@ Failure modes:
 
 5. **Don't bypass `PendingBuffer`** to write directly to the op log on every keystroke. The debounce is load-bearing for I/O cost; bypassing it will hit disk hundreds of times per second.
 
-## Outstanding correctness
-
-- **`Reconciler`'s classifier still unit-only.** End-to-end coverage of the silent-ingest and needs-sheet branches lives in `EditorIntegrationHarnessTests`; echo-guard coverage lives in `PresenterRoutingTests`. What's missing is a focused test that simulates "writer edits .md externally with subtle changes (whitespace shifts, near-duplicate paragraphs) and the classifier picks the right matcher tier."
-- **No regression test for the bigram-tier matcher in `RenderFilter`.** Tier 2 / tier 3 disagreement is silent; a test that creates near-duplicate paragraphs and asserts the right matcher fires would catch unification regressions.
-
 ## Tests worth knowing about
 
 - `MaughamTests/OpLog/` — unit tests for each store + the matchers.
-- `MaughamTests/OpLog/BootstrapWiringTests.swift` — asserts every production manuscript-load path (`Document.load` and `withAnnotationDocument`) runs Bootstrap on an unanchored .md. Touch this whenever a new manuscript-load entry point is added.
-- `MaughamTests/Integration/PresenterRoutingTests.swift` — asserts the echo-guard contracts hold (autosave + keep-mine round-trips don't reingest) and that the new `SweepReason` keeps MCP annotation writes against a live doc from triggering spurious archives.
-- **Missing high-value coverage:** the bigram-tier matching in `RenderFilter` (tier-2 / tier-3 disagreement is silent) and Reconciler classifier edge cases on subtle external edits.
+- `MaughamTests/OpLog/BootstrapWiringTests.swift` — asserts every production manuscript-load path (`Document.load` and `withAnnotationDocument`) runs Bootstrap on an unanchored .md. Touch this whenever you add a new manuscript-load entry point.
+- `MaughamTests/Integration/PresenterRoutingTests.swift` — asserts the echo-guard contracts hold (autosave + keep-mine round-trips don't reingest) and that `SweepReason` keeps MCP annotation writes against a live doc from triggering spurious archives.
+
+Known thin coverage (file an issue before relying on these areas for novel behavior):
+
+- `Reconciler` tier-selection on subtle external edits (whitespace shifts, near-duplicate paragraphs) is only indirectly covered through `EditorIntegrationHarnessTests`.
+- `RenderFilter`'s third (bigram) matching tier doesn't have a focused tier-2-vs-tier-3 disagreement test.
 
 ## What's intentionally NOT here
 

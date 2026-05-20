@@ -20,6 +20,11 @@ internal struct EchoState: Equatable {
     let bytes: String
     let writtenAt: Date
 
+    private init(bytes: String, writtenAt: Date) {
+        self.bytes = bytes
+        self.writtenAt = writtenAt
+    }
+
     /// The initial snapshot read at `Document.load` time. The bytes are
     /// whatever was on disk when the document opened; if the user externally
     /// edits the file between two app launches without typing in Maugham,
