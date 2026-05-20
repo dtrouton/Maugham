@@ -30,7 +30,18 @@ public final class Document {
 
     private var paragraphs: [String: String]
     private var sequence: [String]
-    private var lastWrittenText: String
+
+    /// Snapshot of "the last bytes we know are on disk, because we put them
+    /// there." Used by `handleExternalDiskChange` to skip echoes: when the
+    /// presenter fires after our own autosave or our own ingest, `diskMd`
+    /// will equal `lastDiskEcho.bytes` and the change is a no-op.
+    ///
+    /// Mutation is restricted to the autosave path, the silent-ingest branch
+    /// of `handleExternalDiskChange`, and `handleExternalDiskChangeForceIngest`
+    /// — see `EchoState.afterWrite(bytes:)`. Anything else trying to assign
+    /// here is a contract violation; the typed wrapper exists specifically
+    /// to keep that surface small.
+    private var lastDiskEcho: EchoState
 
     private var _annotationsCache: [Annotation] = []
     private var _annotationsCacheValid: Bool = false
@@ -52,21 +63,21 @@ public final class Document {
     /// flipped — annotations are append-only, so the flag only ratchets up.
     private var _hasAnyAnnotationOps: Bool = false
 
-    /// Edge-triggered: flips true when a paragraph is dropped from
-    /// `sequence` (deleteParagraph, setFullText whose parse removed one,
-    /// external paths whose merged state shrunk the sequence). Read +
-    /// cleared at flushBurstNow's annotation maintenance step.
+    /// Pending orphan-annotation sweep carrying the *exact* paragraph ids
+    /// observed disappearing since the last sweep. Replaces the older
+    /// `_pendingOrphanSweep: Bool` flag — see `SweepReason.swift` for the
+    /// rationale.
     ///
-    /// Sweep is gated on this flag rather than on `!pending.isEmpty()`
+    /// Sweep is gated on this value rather than on `!pending.isEmpty()`
     /// because paragraph DELETIONS don't write anything to `pending` —
-    /// setFullText only records changes for paragraphs in `nextParsed`,
-    /// so a deletion produces an empty pending. Without this flag the
-    /// alternatives are either spurious sweeps (transient Document close
-    /// fires flushBurstNow with empty pending and falsely archives every
-    /// paragraph-anchored annotation whose paragraph id isn't in the
-    /// transient's reconstructed sequence) or missed sweeps (gate on
-    /// pending and never run sweep on legitimate deletions).
-    private var _pendingOrphanSweep: Bool = false
+    /// `setFullText` only records changes for paragraphs in `nextParsed`,
+    /// so a deletion produces an empty pending. Without the explicit
+    /// removed-set, the alternatives were either spurious sweeps (a
+    /// transient `Document` close fires `flushBurstNow` against a
+    /// reconstructed sequence and falsely archives every paragraph-anchored
+    /// annotation whose id isn't in the reconstructed view) or missed
+    /// sweeps (gate on pending and never run sweep on legitimate deletions).
+    private var _pendingSweep: SweepReason? = nil
 
     /// Hot-path check whether any of the seven annotation-related OpKinds
     /// has ever been observed on this document. Reads the cached flag.
@@ -88,7 +99,7 @@ public final class Document {
         presenter: NSFilePresenter?, opStore: OpLogStore,
         pending: PendingBuffer, burstScheduler: BurstScheduler,
         paragraphs: [String: String], sequence: [String],
-        lastWrittenText: String
+        lastDiskEcho: EchoState
     ) {
         self.url = url
         self.docId = docId
@@ -100,7 +111,7 @@ public final class Document {
         self.burstScheduler = burstScheduler
         self.paragraphs = paragraphs
         self.sequence = sequence
-        self.lastWrittenText = lastWrittenText
+        self.lastDiskEcho = lastDiskEcho
     }
 
     /// Construct a Document from an on-disk manuscript file. Runs the
@@ -230,6 +241,7 @@ public final class Document {
             }
         }
         let lastWritten = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        let initialEcho = EchoState.initialLoad(bytes: lastWritten)
 
         // BurstScheduler with caller-supplied thresholds (defaults: 30s/90s).
         let burstHolder = WeakBurstHolder()
@@ -246,7 +258,7 @@ public final class Document {
             presenter: presenter, opStore: opStore, pending: pending,
             burstScheduler: burst,
             paragraphs: initial.paragraphs, sequence: initial.sequence,
-            lastWrittenText: lastWritten)
+            lastDiskEcho: initialEcho)
         burstHolder.document = doc
 
         // Initialize autosave + displayText.
@@ -287,7 +299,7 @@ public final class Document {
         ) { wu in
             do {
                 try bytes.data(using: .utf8)?.write(to: wu, options: .atomic)
-                self.lastWrittenText = bytes
+                self.lastDiskEcho = .afterWrite(bytes: bytes)
             } catch {
                 writeErr = error
             }
@@ -399,8 +411,8 @@ public final class Document {
         // missing from the next sequence. Flag a sweep so the next burst
         // flush archives annotations anchored to removed paragraphs.
         let removedIds = Set(self.sequence).subtracting(Set(newSequence))
-        if !removedIds.isEmpty {
-            _pendingOrphanSweep = true
+        if let reason = SweepReason.userTyped(removed: removedIds) {
+            flagSweep(reason)
         }
         self.paragraphs = newParagraphs
         self.sequence = newSequence
@@ -481,7 +493,7 @@ public final class Document {
         let priorText = paragraphs[id]
         paragraphs.removeValue(forKey: id)
         sequence.removeAll { $0 == id }
-        _pendingOrphanSweep = true
+        flagSweep(.userTypedDeletion(removed: [id]))
         // Record deletion as an op with empty next text (consumer-visible
         // marker that the paragraph went away; sequence change carries the
         // ordering).
@@ -683,23 +695,43 @@ public final class Document {
         invalidateAnnotationsCache()
     }
 
-    /// Auto-archive any open annotations anchored to paragraphs no longer
-    /// present in `sequence`. Synthesizes `claude_archive` lifecycle ops with
-    /// `provenance.synthesisSource = "paragraph_deleted"` for forensic context.
+    /// Merge a fresh sweep reason into any pending one. The merge unions
+    /// the removed sets so multiple deletion paths between two
+    /// `flushBurstNow` runs accumulate correctly.
+    private func flagSweep(_ reason: SweepReason) {
+        if let existing = _pendingSweep {
+            _pendingSweep = existing.merging(reason)
+        } else {
+            _pendingSweep = reason
+        }
+    }
+
+    /// Auto-archive any open annotations anchored to paragraphs that the
+    /// caller observed being removed. Synthesizes `claude_archive` lifecycle
+    /// ops with `provenance.synthesisSource = "paragraph_deleted"` for
+    /// forensic context.
     ///
-    /// Runs from flushBurstNow (every 30s idle / 90s max during typing),
-    /// from external-change handlers, and from explicit annotation lifecycle
-    /// methods. NOT scheduled from per-keystroke paragraph mutation —
-    /// see setFullText for the cycle/reentrancy rationale.
-    private func sweepOrphanedAnnotations() async {
-        let presentIds = Set(sequence)
+    /// The `reason.removed` set is the *exact* group of paragraph ids
+    /// whose annotations should be archived — not "anything not in
+    /// `sequence`." This matters for transient `Document` instances loaded
+    /// by `withAnnotationDocument`: their reconstructed sequence can be a
+    /// strict subset of the live Document's in-memory sequence, and
+    /// archiving every annotation not in the reconstruction would falsely
+    /// vanish open annotations the live editor is still working on.
+    ///
+    /// Runs from flushBurstNow (every 30s idle / 90s max during typing)
+    /// and from external-change handlers. NOT scheduled from per-keystroke
+    /// paragraph mutation — see setFullText for the cycle/reentrancy
+    /// rationale.
+    private func sweepOrphanedAnnotations(reason: SweepReason) async {
         if !_annotationsCacheValid {
             rebuildAnnotationsCache()
         }
+        let removed = reason.removed
         let orphans = _annotationsCache.filter { ann in
             ann.status == .open
                 && ann.kind != .craftNote
-                && (ann.paragraphId.map { !presentIds.contains($0) } ?? false)
+                && (ann.paragraphId.map { removed.contains($0) } ?? false)
         }
         for orphan in orphans {
             try? await appendLifecycleOp(
@@ -738,22 +770,22 @@ public final class Document {
         //    annotations whose priorText snapshot no longer matches
         //    paragraphs[pid]. Refresh the cache so isStale recomputes.
         //
-        // 2. Sweep on `_pendingOrphanSweep`: only run the orphan archive
-        //    pass when a paragraph was actually dropped from `sequence`
-        //    on this Document instance since the last sweep. This avoids
-        //    transient-Document close (via MCP's withAnnotationDocument
-        //    for list_annotations) from running sweep against a sequence
-        //    reconstructed from disk that's missing in-memory paragraph
-        //    ids the live editor has minted but not yet bursted — which
-        //    falsely archived every paragraph-anchored annotation in the
-        //    process.
+        // 2. Sweep on `_pendingSweep`: only run the orphan archive pass
+        //    when this Document instance observed a paragraph being
+        //    removed since the last sweep, and only against that exact
+        //    removed set. This avoids transient-Document close (via MCP's
+        //    `withAnnotationDocument` for `list_annotations`) from running
+        //    sweep against a sequence reconstructed from disk that's
+        //    missing in-memory paragraph ids the live editor has minted
+        //    but not yet bursted — which falsely archived every
+        //    paragraph-anchored annotation in the process.
         if _hasAnyAnnotationOps {
             if hadPending {
                 invalidateAnnotationsCache()
             }
-            if _pendingOrphanSweep {
-                await sweepOrphanedAnnotations()
-                _pendingOrphanSweep = false
+            if let reason = _pendingSweep {
+                await sweepOrphanedAnnotations(reason: reason)
+                _pendingSweep = nil
             }
         }
     }
@@ -767,7 +799,10 @@ public final class Document {
     }
     public func handleExternalDiskChange(diskMd: String) async throws {
         // Echo guard: this is the file change we ourselves just wrote.
-        guard diskMd != lastWrittenText else { return }
+        // `lastDiskEcho` is updated atomically inside the autosave's
+        // coordinated-write block, so by the time the presenter callback
+        // hops back to the main actor the snapshot is already in place.
+        guard diskMd != lastDiskEcho.bytes else { return }
 
         let derivedMd = materialize()
         let classification = Reconciler.classify(
@@ -794,7 +829,7 @@ public final class Document {
             for change in changes {
                 paragraphs[change.paragraphId] = change.next
             }
-            lastWrittenText = diskMd
+            lastDiskEcho = .afterIngest(bytes: diskMd)
             recomputeDisplayText()
 
         case .needsSheet(let orphanCount):
@@ -847,8 +882,9 @@ public final class Document {
         // External op-log changes (cross-Mac sync) can shrink sequence —
         // flag a sweep so any annotations on now-removed paragraphs get
         // auto-archived on the next burst.
-        if !Set(priorSequence).subtracting(Set(self.sequence)).isEmpty {
-            _pendingOrphanSweep = true
+        let removedFromLog = Set(priorSequence).subtracting(Set(self.sequence))
+        if let reason = SweepReason.externalLog(removed: removedFromLog) {
+            flagSweep(reason)
         }
         self._opLogMirror = ops
         // Re-derive the sticky flag from the merged log: cross-Mac sync
@@ -863,9 +899,9 @@ public final class Document {
         // cross-Mac sync that only adds new ops without dropping paragraphs,
         // no sweep is needed — and avoiding it prevents the false-archive
         // cascade when sequence reconstruction differs from the live view.
-        if _pendingOrphanSweep {
-            await sweepOrphanedAnnotations()
-            _pendingOrphanSweep = false
+        if let reason = _pendingSweep {
+            await sweepOrphanedAnnotations(reason: reason)
+            _pendingSweep = nil
         }
 
         // No conflict UI for log merge. Just publish the new state.
@@ -936,14 +972,13 @@ public final class Document {
         let priorSequence = self.sequence
         self.paragraphs = newParagraphs
         self.sequence = newSequence
-        self.lastWrittenText = diskMd
+        self.lastDiskEcho = .afterIngest(bytes: diskMd)
         // Use-cloud conflict resolution can shrink sequence — flag a sweep
         // for any annotations on paragraphs that disappeared. Run sweep
         // directly here (it's already at an async boundary).
-        if !Set(priorSequence).subtracting(Set(newSequence)).isEmpty {
-            _pendingOrphanSweep = true
-            await sweepOrphanedAnnotations()
-            _pendingOrphanSweep = false
+        let removedInResolution = Set(priorSequence).subtracting(Set(newSequence))
+        if let reason = SweepReason.useCloud(removed: removedInResolution) {
+            await sweepOrphanedAnnotations(reason: reason)
         }
         recomputeDisplayText()
     }

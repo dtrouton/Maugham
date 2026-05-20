@@ -423,23 +423,12 @@ public final class DocumentStore {
 extension DocumentStore: ProjectFolderPresenterDelegate {
 
     public func presenterDidChangeSubitem(at url: URL) {
-        let project = projectURL.standardizedFileURL.path
-        let changed = url.standardizedFileURL.path
-        guard changed.hasPrefix(project + "/") else { return }
-        let relativePath = String(changed.dropFirst(project.count + 1))
+        switch MaughamSidecarPath.classify(url: url, projectURL: projectURL) {
 
-        // Manifest changes — handle in DocumentStore (existing path).
-        if relativePath == "project.maugham.json" {
+        case .manifest:
             handleManifestChanged()
-            return
-        }
 
-        // Op log changes — route to the matching Document.
-        if relativePath.hasPrefix(".maugham/ops/")
-            && relativePath.hasSuffix(".jsonl")
-            && !relativePath.hasSuffix(".pending.jsonl") {
-            let filename = (relativePath as NSString).lastPathComponent
-            let docId = (filename as NSString).deletingPathExtension
+        case .opLog(let docId):
             if let doc = document(forDocId: docId) {
                 Task { @MainActor in
                     try? await doc.handleExternalLogChange()
@@ -447,26 +436,34 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
             }
             NotificationCenter.default.post(
                 name: .maughamOpLogChanged, object: nil,
-                userInfo: ["path": relativePath])
-            return
-        }
+                userInfo: ["docId": docId])
 
-        // Checkpoints — post the existing notification.
-        if relativePath == ".maugham/checkpoints.jsonl" {
+        case .checkpoints:
             NotificationCenter.default.post(
                 name: .maughamCheckpointAdded, object: nil)
-            return
-        }
 
-        // Manuscript document changes — route to the Document.
-        if let doc = document(for: relativePath) {
+        case .otherProjectFile(let relativePath):
+            // Manuscripts live alongside research notes and binder content
+            // outside `.maugham/`. The registry's path-keyed lookup is the
+            // authoritative way to recognize a manuscript here — anything
+            // not registered is research, binder metadata, or user-dropped
+            // files we don't react to via the presenter.
+            guard let doc = document(for: relativePath) else { return }
             let projectRoot = projectURL
             Task { @MainActor in
                 let mdURL = projectRoot.appendingPathComponent(relativePath)
                 guard let data = try? Data(contentsOf: mdURL),
-                      let diskText = String(data: data, encoding: .utf8) else { return }
+                      let diskText = String(data: data, encoding: .utf8)
+                else { return }
                 try? await doc.handleExternalDiskChange(diskMd: diskText)
             }
+
+        case .sessionLog, .uiState, .conflictBackup, .scratch, .trash,
+             .unknownSidecar, .outsideProject:
+            // No presenter routing today. Each case has a named owner in
+            // `Maugham/Stores/AREA.md`; wiring one up is "add a case branch"
+            // rather than "extend a string cascade".
+            return
         }
     }
 
