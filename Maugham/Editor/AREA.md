@@ -9,7 +9,7 @@ The NSTextView-backed editing surface: text storage, tokenization, styling, curs
 ## Layout
 
 - `EditorSurface.swift` — `NSViewRepresentable` wrapping `NSTextView`. The SwiftUI-side boundary.
-- `EditorHost.swift` — owns the document-text binding for the surface. Three onChange handlers (`$documentText`, `lastWrittenText`, `priorStoredMarkdown`) form a triad that is **load-bearing and brittle**. See tripwire #1 below.
+- `EditorHost.swift` — binds the per-document `Document` actor to `EditorSurface`. Post-`milestone-document-first-class` the binding is the single source `Binding(get: { doc.displayText }, set: { doc.setFullText($0) })`; `Document.setFullText` writes `displayText` exactly once at the end. The earlier `$documentText` / `lastWrittenText` / `priorStoredMarkdown` triad is gone — all that state moved onto `Document`.
 - `EditorCoordinator.swift` (~770 lines) — `NSTextViewDelegate` implementation. The "central nervous system." Tokenizes, applies styles, manages cursor, handles Tab-cycle for screenplay, smart-quote / em-dash substitution, find-match scrolling, focus-dim, image paste routing, wiki-link `[[…]]` hit-testing.
 - `Fountain/` — screenplay parser + per-element styling.
   - `ScreenplayMode.applyTypography` does **full-storage** `setAttributes` (not incremental). Known race-window contributor; don't add work inside it.
@@ -17,27 +17,29 @@ The NSTextView-backed editing surface: text storage, tokenization, styling, curs
 - `Tokenizer/` — prose-side tokenizer + style application.
 - `CharacterAutocompleter.swift` — **DEAD CODE**. `updateAutocomplete` is defined but never called. NSPopover was abandoned in 3b ("too brittle, blocks input"). Don't wire it back without redesigning the UX (popover → inline ghost-text or sheet, TBD).
 
-## The load-bearing triad in EditorHost
+## The binding contract
 
 ```
-$documentText  ←→  NSTextView.string
-lastWrittenText  →  conflict detection vs disk
-priorStoredMarkdown  →  op-log context for diff generation
+EditorHost: Binding(get: { doc.displayText }, set: { doc.setFullText($0) })
+   ↓
+Document.setFullText: parse → diff → record paragraph changes → write displayText ONCE at end
+   ↓
+debounced burst flush → op log + autosave → eventual disk write → Document.lastDiskEcho updates inside the coordinated-write block
 ```
 
-These three pieces of state co-evolve on every keystroke. The three onChange handlers must stay in sync. Specifically:
+Invariants:
 
-- `$documentText` change → write through to op log (debounced) → eventual write to disk → `lastWrittenText` updates after the write resolves.
-- External text arrival (cloud conflict resolution only) → call `EditorSurface.applyExternalText` → coordinator-side update without re-firing the onChange loop.
-- Op-log re-render → set `priorStoredMarkdown` before pushing to `$documentText` to keep the differ correct.
+- **`displayText` is written exactly once per `setFullText` call.** That's what closes the binding-loop race (see harness test `test_endOfFileTyping_doesNotFireApplyExternalText`).
+- **`EditorSurface.applyExternalText` is for cloud-conflict resolution only** — not for normal typing, not for op-log re-renders. Adding a caller is a tripwire (see below).
+- **Echo guard for our own writes** lives on `Document` as `lastDiskEcho: EchoState`; the editor doesn't see it. Don't introduce parallel "last text" state in the editor layer.
 
 **If you change the shape here, every cursor race you've heard about returns.**
 
 ## Tripwires (history of pain)
 
-1. **Don't add a 4th onChange to EditorHost.** The triad is fragile by design — any new external-text path needs a regression test asserting it doesn't fire during normal typing.
+1. **Don't add a parallel onChange in `EditorHost` that reads back into the binding.** The current single-binding shape replaced the older 3-onChange triad that drove three cursor races in 24 hours. New external-text paths need a regression test asserting `applyExternalText` doesn't fire during normal typing.
 
-2. **Don't add a 4th caller to `EditorSurface.applyExternalText`.** It exists for **cloud-conflict resolution only**. Asserting this is what catches binding races. Current callers: conflict resolution flow, … (intentionally limited).
+2. **Don't add a 2nd caller to `EditorSurface.applyExternalText`.** It exists for **cloud-conflict resolution only**. Asserting this is what catches binding races. The harness test `test_endOfFileTyping_doesNotFireApplyExternalText` is the regression net.
 
 3. **Don't put heavy work inside a synchronous SwiftUI binding setter.** This caused three separate cursor races in 24 hours:
    - Trailing-space autosave moved the cursor (autosave wrote, NSTextView re-laid-out, cursor jumped).

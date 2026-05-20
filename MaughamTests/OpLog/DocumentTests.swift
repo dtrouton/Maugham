@@ -141,7 +141,7 @@ final class DocumentTests: XCTestCase {
         let doc = try await Document.load(
             url: project.appendingPathComponent(path),
             device: "m", session: "s", presenter: nil)
-        // Force lastWrittenText to match the diskMd we'll feed in.
+        // Force lastDiskEcho to match the diskMd we'll feed in.
         doc.setFullText("Hello.")
         await doc.close()
         let onDisk = try String(

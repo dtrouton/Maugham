@@ -82,7 +82,9 @@ Brief, high-signal callouts. Treat as "things to read or grep before editing in 
 - Cleanest part of the codebase per the audit. Don't refactor structurally.
 - `OpLogStore` and `CheckpointStore` are intentional siblings with ~95% duplicated structure. Don't dedupe without a deliberate `JSONLAppendStore<T>` design.
 - `RenderFilter` has a third matching tier (char-bigrams ≥0.6) not present in `ShingleMatcher` — late T16 fix, cleanup planned.
-- `Reconciler` (external-edit ingestion) has no end-to-end integration test — high-leverage place to add one.
+- `Reconciler` external-edit ingestion has integration coverage now via `PresenterRoutingTests` (echo guards) + `EditorIntegrationHarnessTests` (silent-ingest + conflict-surfaces). The Reconciler classifier itself is still unit-only.
+- Echo guard for `.md` writes is `Document.lastDiskEcho: EchoState` — assignable only through the three factories in `EchoState.swift`. Don't introduce a parallel "last text" string. See [ADR 0010](docs/adr/0010-typed-cross-area-seams.md).
+- Orphan-annotation sweep is gated on `Document._pendingSweep: SweepReason?` carrying the *observed* removed paragraph ids. Sweep archives only annotations on those ids — never "anything missing from sequence." Don't reintroduce a bool flag.
 
 ### `Maugham/MCP/` — see [`Maugham/MCP/AREA.md`](Maugham/MCP/AREA.md)
 - Tool registration has a single source of truth: `MCPToolCatalog.all` in `Maugham/MCP/MCPTool.swift`. Implement `MCPTool` on the tool enum (declare `method`/`description`/`inputSchemaJSON`/`handle`) and add the type to `MCPToolCatalog.all`. `MCPToolsListHandler` and `MaughamApp.registerTools` both derive from it; `MCPCatalogConsistencyTests` enforces the contract.
@@ -94,8 +96,8 @@ Brief, high-signal callouts. Treat as "things to read or grep before editing in 
 
 ### `Maugham/Stores/` — see [`Maugham/Stores/AREA.md`](Maugham/Stores/AREA.md)
 - `ProjectStore.swift` is 2760 lines with natural seams (Structure CRUD, Trash, Inspector, Research, Collection-Pieces, WikiLink). Already uses `extension` for Collection-Pieces — emulate that pattern for new seams.
-- `DocumentStore.swift` has bolted-on op-log integration; `currentDocumentText` is overloaded between conflict detection (stored-form) and op-log context (display-form). Bug-bearing seam — be deliberate.
-- `wait*` helpers in DocumentStore are test-only living in production.
+- `DocumentStore.swift` is the project-folder coordinator + Document registry; per-doc state (op log, autosave, conflict detection, echo guard) lives on `Document` (post-`milestone-document-first-class`).
+- Presenter routing goes through the typed `MaughamSidecarPath` enum — adding a new `.maugham/` subdir owner becomes a `switch must be exhaustive` compile error rather than a string-prefix cascade edit. See [ADR 0010](docs/adr/0010-typed-cross-area-seams.md).
 - `.maugham/` subdirectory layout (`ops/`, `conflicts/`, `sessions/`, `checkpoints/`, `ui-state/`, `scratch/`, `trash/`) is canonical — each has one owner. Don't invent new top-level subdirs without a reason.
 - ID prefixes are canonical after ADR 0008; don't double-prefix (no `scene-scene-…`).
 
