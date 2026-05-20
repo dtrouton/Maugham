@@ -22,7 +22,7 @@ These are non-negotiable. Violating one is a regression even if tests pass.
 - **MCP never mutates manuscript text directly.** The manuscript belongs to the writer. Claude operates in a parallel **annotation layer** (`add_note`, annotations against paragraph IDs), or writes into `research/` — never into the manuscript file itself. The user's framing: *"the manuscript is yours, full stop."*
 - **Single-file screenplays.** One `.fountain` per screenplay project. Multi-file compound screenplay is **dead** (see Phase 3d abandonment). The Scenes segment in the binder is a slugline navigator within that one file.
 - **⌘S is a labeled checkpoint, not a save.** Saving is autosave (750ms debounce via `DocumentStore`). ⌘S writes a project-scope checkpoint. Keep the muscle-memory flash even though "save" is redundant.
-- **`Bootstrap.run` must be called from any new manuscript load path.** It mints the inline `¶id` anchors the op log joins on. **As of 2026-05-19 it is not wired into production load paths** — fixing this is open work, and any new load path you add must call it.
+- **`Bootstrap.run` must be called from any new manuscript load path.** It mints the inline `¶id` anchors the op log joins on. The contract surface is `Document.load` — it calls `Bootstrap.run` when the .md lacks anchors. Both production callers (`EditorHost.loadDocumentIfNeeded` and `AnnotationToolHelpers.withAnnotationDocument`) funnel through it. `BootstrapWiringTests` enforces this. If you add a new manuscript-load path, route it through `Document.load`; don't construct `Document` or read manuscript bytes for editing any other way.
 
 ## Build flow
 
@@ -113,7 +113,6 @@ Brief, high-signal callouts. Treat as "things to read or grep before editing in 
 
 These came out of the 2026-05-19 audits and are not yet fixed:
 
-- **`Bootstrap.run` is not called from production load paths.** The stable-paragraph-ID infrastructure is dark in shipping builds. Any new manuscript load path *must* call it; the existing ones need to be retrofitted.
 - **Several subagent commits over the past week included `project.pbxproj` edits** that shouldn't have been there. If you see pbxproj in a diff you're reviewing, that's a red flag.
 - **`PendingBufferTests` (and old `RenderFilterTests`) use 1-char paragraph IDs** that silently bypass validation. New tests must use 4-char IDs.
 - **Annotations pane shows "no history" message** that's confusing, and there's no UI affordance to resolve annotations. Mentioned by the user; not yet addressed.

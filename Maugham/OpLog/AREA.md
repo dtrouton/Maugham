@@ -12,7 +12,7 @@ The manuscript op log: append-only event stream of paragraph-level mutations, pa
 
 - `OpLogStore.swift` — append + read + tail for the per-doc JSONL op log.
 - `CheckpointStore.swift` — project-scope checkpoint write/read/list. Sibling to OpLogStore by design (~95% duplicated structure — see "Don't dedupe" below).
-- `Bootstrap.swift` — mints `¶id` anchors on first-open of a document. **Must be called from any production load path.** As of 2026-05-19 it is not wired into shipping load paths (see "Outstanding correctness" in root `CLAUDE.md`).
+- `Bootstrap.swift` — mints `¶id` anchors on first-open of a document. **Must be called from any production load path.** Wired into `Document.load` since `milestone-document-first-class` (2026-05-19); `BootstrapWiringTests` enforces the contract. Any new manuscript-load path must route through `Document.load`.
 - `ParagraphID.swift` — exactly 4 chars. Validation is enforced in production but several tests violate this silently.
 - `Reconciler.swift` — ingests external edits (writer edited the .md outside the app, or iCloud delivered a remote write) back into the op log.
 - `RenderFilter.swift` — derives the rendered .md from the op log. Three matching tiers for the "which historical paragraph does this orphan line belong to" question.
@@ -57,14 +57,14 @@ Failure modes:
 
 ## Outstanding correctness
 
-- **`Bootstrap.run` is not called from production load paths.** The stable-paragraph-ID infrastructure is dark in shipping builds. Any new manuscript load path *must* call it; existing ones need to be retrofitted. This is the highest-priority open work in this area.
 - **`Reconciler` has no end-to-end integration test.** Unit tests cover the matcher; there's no test that simulates "writer edits .md externally, Maugham reopens, op log absorbs the change." Adding one is high leverage.
 - **No regression test for the bigram-tier matcher in `RenderFilter`.** Tier 2 / tier 3 disagreement is silent; a test that creates near-duplicate paragraphs and asserts the right matcher fires would catch unification regressions.
 
 ## Tests worth knowing about
 
 - `MaughamTests/OpLog/` — unit tests for each store + the matchers.
-- **Missing high-value coverage:** Reconciler end-to-end, Bootstrap-on-production-load-path (currently can't exist because Bootstrap isn't on those paths), bigram-tier matching in RenderFilter.
+- `MaughamTests/OpLog/BootstrapWiringTests.swift` — asserts every production manuscript-load path (`Document.load` and `withAnnotationDocument`) runs Bootstrap on an unanchored .md. Touch this whenever a new manuscript-load entry point is added.
+- **Missing high-value coverage:** Reconciler end-to-end, bigram-tier matching in RenderFilter.
 
 ## What's intentionally NOT here
 
