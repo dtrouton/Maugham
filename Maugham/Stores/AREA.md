@@ -19,7 +19,8 @@ The persistence and coordination layer: project structure, documents, recents, s
   - Research
   - Collection-Pieces (extension — **emulate this pattern** when you need a new seam)
   - WikiLink (`[[…]]` resolution and rename propagation)
-- `DocumentStore.swift` — document lifecycle. NSFileCoordinator/Presenter for cloud sync. 750ms autosave debounce. Conflict resolution flow. Bolted-on op-log integration that's bug-bearing (see tripwire #1).
+- `DocumentStore.swift` — project-folder coordinator + Document registry. Owns the NSFilePresenter, manifest IO, session tracking, UI state, rename/copy/move orchestration. Per-doc op-log, autosave, conflict-detection, and echo guard now live on `Document` (post-`milestone-document-first-class`); this file routes external presenter callbacks to the matching Document via the registry.
+- `MaughamSidecarPath.swift` — typed classification of project-relative file URLs into manifest / opLog / checkpoints / sessions / uiState / conflictBackup / scratch / trash / unknownSidecar / otherProjectFile / outsideProject. `presenterDidChangeSubitem` dispatches via a switch on this enum — adding a new sidecar owner is a compile-error workflow. See [ADR 0010](../../docs/adr/0010-typed-cross-area-seams.md).
 - `DebounceScheduler.swift`, `RecentsStore.swift`, `SessionLog.swift`, `TrashStore.swift` — small focused stores, well-bounded. **Use these as the model** for new stores; don't model new things after `ProjectStore`'s size.
 - `BinderSegment` files — search across documents (`⌘⌥F`) plus the regular binder slicing.
 - ID-prefix helpers / generators — see ADR 0008.
@@ -42,7 +43,7 @@ Don't invent new top-level subdirs without a reason. If you need a new one, the 
 
 ## Tripwires
 
-1. **`DocumentStore.currentDocumentText` is overloaded.** It serves *both* conflict detection (which wants the stored-on-disk form) *and* op-log context (which wants the display form). This is a bug-bearing seam — code that "obviously needs the current text" might be reading the wrong form. When editing here, decide explicitly which form you need and consider adding a separate accessor.
+1. **Don't reintroduce a shared "current text" field on `DocumentStore`.** The historical `currentDocumentText: String` was overloaded between conflict detection (stored-form) and op-log context (display-form) — that field is gone post-`milestone-document-first-class`. Document text now lives only on `Document` itself: `displayText` (public, observed) and `lastDiskEcho.bytes` (private, echo-guard only, see `Maugham/OpLog/EchoState.swift`). If you find yourself wanting a "DocumentStore-side current text" again, you're probably about to recreate the bug; route via the registry's `document(for:)` lookup instead.
 
 2. **`wait*` helpers in `DocumentStore` are test-only living in production code.** Don't call them from production paths; don't add new ones without marking them `#if DEBUG` or moving them to a test helper.
 
@@ -69,7 +70,7 @@ Don't invent new top-level subdirs without a reason. If you need a new one, the 
 ## Tests worth knowing about
 
 - `MaughamTests/StoreTests/` — unit tests per store.
-- **Missing high-value coverage:** the `currentDocumentText` form-confusion seam (tripwire #1) has no regression test that would catch a caller using the wrong form. Adding one would prevent a class of future bugs.
+- `MaughamTests/Integration/PresenterRoutingTests.swift` — cross-area integration tests for the `presenter → Document` routing seam. Asserts: typed-path classifier round-trips every canonical sidecar subdir; our own autosave doesn't reingest as `externalEdit`; `resolveConflictKeepMine`'s autosave doesn't reingest; MCP `add_annotation` against a live doc doesn't synthesize spurious `claude_archive` ops; unhandled sidecar paths don't route to manuscripts.
 
 ## What's intentionally NOT here
 

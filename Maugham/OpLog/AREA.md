@@ -13,6 +13,8 @@ The manuscript op log: append-only event stream of paragraph-level mutations, pa
 - `OpLogStore.swift` — append + read + tail for the per-doc JSONL op log.
 - `CheckpointStore.swift` — project-scope checkpoint write/read/list. Sibling to OpLogStore by design (~95% duplicated structure — see "Don't dedupe" below).
 - `Bootstrap.swift` — mints `¶id` anchors on first-open of a document. **Must be called from any production load path.** Wired into `Document.load` since `milestone-document-first-class` (2026-05-19); `BootstrapWiringTests` enforces the contract. Any new manuscript-load path must route through `Document.load`.
+- `EchoState.swift` — typed snapshot of "bytes we just wrote to disk." Only three named factories construct it (`initialLoad`, `afterWrite`, `afterIngest`); the echo guard in `Document.handleExternalDiskChange` reads `lastDiskEcho.bytes` to suppress presenter callbacks that arrive in response to our own writes. See [ADR 0010](../../docs/adr/0010-typed-cross-area-seams.md).
+- `SweepReason.swift` — typed pending orphan-annotation sweep carrying the *observed* removed-paragraph-id set. Replaces an earlier bool flag. Sweep archives only annotations on `reason.removed` — never "anything missing from sequence." See [ADR 0010](../../docs/adr/0010-typed-cross-area-seams.md).
 - `ParagraphID.swift` — exactly 4 chars. Validation is enforced in production but several tests violate this silently.
 - `Reconciler.swift` — ingests external edits (writer edited the .md outside the app, or iCloud delivered a remote write) back into the op log.
 - `RenderFilter.swift` — derives the rendered .md from the op log. Three matching tiers for the "which historical paragraph does this orphan line belong to" question.
@@ -57,14 +59,15 @@ Failure modes:
 
 ## Outstanding correctness
 
-- **`Reconciler` has no end-to-end integration test.** Unit tests cover the matcher; there's no test that simulates "writer edits .md externally, Maugham reopens, op log absorbs the change." Adding one is high leverage.
+- **`Reconciler`'s classifier still unit-only.** End-to-end coverage of the silent-ingest and needs-sheet branches lives in `EditorIntegrationHarnessTests`; echo-guard coverage lives in `PresenterRoutingTests`. What's missing is a focused test that simulates "writer edits .md externally with subtle changes (whitespace shifts, near-duplicate paragraphs) and the classifier picks the right matcher tier."
 - **No regression test for the bigram-tier matcher in `RenderFilter`.** Tier 2 / tier 3 disagreement is silent; a test that creates near-duplicate paragraphs and asserts the right matcher fires would catch unification regressions.
 
 ## Tests worth knowing about
 
 - `MaughamTests/OpLog/` — unit tests for each store + the matchers.
 - `MaughamTests/OpLog/BootstrapWiringTests.swift` — asserts every production manuscript-load path (`Document.load` and `withAnnotationDocument`) runs Bootstrap on an unanchored .md. Touch this whenever a new manuscript-load entry point is added.
-- **Missing high-value coverage:** Reconciler end-to-end, bigram-tier matching in RenderFilter.
+- `MaughamTests/Integration/PresenterRoutingTests.swift` — asserts the echo-guard contracts hold (autosave + keep-mine round-trips don't reingest) and that the new `SweepReason` keeps MCP annotation writes against a live doc from triggering spurious archives.
+- **Missing high-value coverage:** the bigram-tier matching in `RenderFilter` (tier-2 / tier-3 disagreement is silent) and Reconciler classifier edge cases on subtle external edits.
 
 ## What's intentionally NOT here
 
