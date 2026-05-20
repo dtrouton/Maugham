@@ -32,6 +32,54 @@ public final class Document {
     private var sequence: [String]
     private var lastWrittenText: String
 
+    private var _annotationsCache: [Annotation] = []
+    private var _annotationsCacheValid: Bool = false
+    public private(set) var annotationsVersion: Int = 0
+
+    /// Mirror of every op append for synchronous annotation derivation.
+    /// Populated at load(...) with the result of opStore.load, then kept
+    /// in sync by every mutation path that calls opStore.append.
+    fileprivate var _opLogMirror: [Op] = []
+
+    /// Diagnostic accessor: size of the in-memory op log mirror.
+    public var opLogMirrorCount: Int { _opLogMirror.count }
+
+    /// Sticky flag: true once the doc has ever had an annotation op
+    /// (creation OR lifecycle). Lets the hot typing path short-circuit
+    /// per-keystroke annotation work (invalidateAnnotationsCache + sweep)
+    /// when the document has never seen an annotation, which is the common
+    /// case. Set at load() time by scanning the mirror, and stays true once
+    /// flipped — annotations are append-only, so the flag only ratchets up.
+    private var _hasAnyAnnotationOps: Bool = false
+
+    /// Edge-triggered: flips true when a paragraph is dropped from
+    /// `sequence` (deleteParagraph, setFullText whose parse removed one,
+    /// external paths whose merged state shrunk the sequence). Read +
+    /// cleared at flushBurstNow's annotation maintenance step.
+    ///
+    /// Sweep is gated on this flag rather than on `!pending.isEmpty()`
+    /// because paragraph DELETIONS don't write anything to `pending` —
+    /// setFullText only records changes for paragraphs in `nextParsed`,
+    /// so a deletion produces an empty pending. Without this flag the
+    /// alternatives are either spurious sweeps (transient Document close
+    /// fires flushBurstNow with empty pending and falsely archives every
+    /// paragraph-anchored annotation whose paragraph id isn't in the
+    /// transient's reconstructed sequence) or missed sweeps (gate on
+    /// pending and never run sweep on legitimate deletions).
+    private var _pendingOrphanSweep: Bool = false
+
+    /// Hot-path check whether any of the seven annotation-related OpKinds
+    /// has ever been observed on this document. Reads the cached flag.
+    private static func isAnnotationOpKind(_ kind: OpKind) -> Bool {
+        switch kind {
+        case .claudeComment, .claudeSuggestion, .claudeQuery, .claudeCraftNote,
+             .claudeAccept, .claudeReject, .claudeArchive:
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Internal autosave debounce (replaces DocumentStore.scheduleSave).
     private var autosaveScheduler: DebounceScheduler<Void>!
 
@@ -84,9 +132,15 @@ public final class Document {
         // setup, fall back to a deterministic id derived from the path.
         let docId = try resolveDocId(for: url)
 
-        // projectURL is the parent of the manuscript/ folder.
-        let projectURL = url.deletingLastPathComponent()
-            .deletingLastPathComponent()
+        // projectURL is wherever `project.maugham.json` lives. Walk up
+        // from the doc's URL until we find it. For Novel/Screenplay this
+        // is 2 levels up (manuscript/<file>.md → project/); for Collection
+        // it can be 3 (pieces/<piece-folder>/<file>.md → project/) or
+        // deeper for research notes. Defaulting to a fixed 2-level
+        // deletingLastPathComponent landed inside the piece folder for
+        // Collections and made every .maugham/ops/<docId>.jsonl path
+        // resolve to a non-existent location, silently dropping ops.
+        let projectURL = resolveProjectURL(for: url)
 
         // Bootstrap detection.
         let opLogPath = projectURL
@@ -120,11 +174,19 @@ public final class Document {
         }
 
         var initial = Deriver.derive(ops: ops)
-        // If the op log is empty but the on-disk file is fully tagged
-        // (Bootstrap.run short-circuited with `allHaveIds`), seed the
-        // in-memory paragraph map from the parsed file. Without this,
-        // `handleExternalDiskChange` would compare against an empty
-        // derived state and mis-classify subsequent external edits.
+        // Two recovery paths from non-canonical op-log states:
+        //
+        // 1. Empty paragraphs + tagged on-disk file: `Bootstrap.run`
+        //    short-circuited with `allHaveIds` so no bootstrap op was
+        //    emitted. Seed paragraphs + sequence from the parsed file.
+        //
+        // 2. Non-empty paragraphs but empty sequence: an older typing_burst
+        //    landed without populating its `sequence` field (predates the
+        //    fix that always captures sequence on burst). The deriver
+        //    leaves sequence=[] in that case, which collapses displayText
+        //    to "" and stops the doc rendering. Recover the sequence from
+        //    the parsed on-disk file's id order — that's the source of
+        //    truth for paragraph ordering anyway.
         if initial.paragraphs.isEmpty && parsed.contains(where: { $0.id != nil }) {
             var paragraphs: [String: String] = [:]
             var sequence: [String] = []
@@ -134,6 +196,38 @@ public final class Document {
                 sequence.append(id)
             }
             initial = Deriver.DerivedState(paragraphs: paragraphs, sequence: sequence)
+        } else if initial.sequence.isEmpty && !initial.paragraphs.isEmpty {
+            // Legacy log: typing_burst captured changes but not the
+            // `sequence` field. The on-disk .md is the more current source
+            // for both paragraph text AND order — autosave runs faster
+            // than the burst scheduler so the .md reflects edits the op
+            // log hasn't seen yet (e.g., user split a paragraph by adding
+            // blank lines; autosave wrote the new anchors but the typing
+            // burst hasn't fired yet so the new paragraph_ids aren't in
+            // initial.paragraphs).
+            //
+            // Trust parsed entirely when it has anchored paragraphs.
+            // Without this, addAnnotation for a freshly-minted paragraph
+            // id reads paragraphs[id]=nil and persists prior_text=nil,
+            // which silently breaks the staleness check for every
+            // markdown annotation on a legacy doc.
+            var freshParagraphs: [String: String] = [:]
+            var freshSequence: [String] = []
+            for p in parsed {
+                guard let id = p.id else { continue }
+                freshParagraphs[id] = p.text
+                freshSequence.append(id)
+            }
+            if !freshSequence.isEmpty {
+                initial = Deriver.DerivedState(
+                    paragraphs: freshParagraphs, sequence: freshSequence)
+            } else {
+                // .md has no anchored content — fall back to whatever
+                // the op log gave us so the doc still renders.
+                initial = Deriver.DerivedState(
+                    paragraphs: initial.paragraphs,
+                    sequence: Array(initial.paragraphs.keys))
+            }
         }
         let lastWritten = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
 
@@ -162,6 +256,11 @@ public final class Document {
             try? await doc?.performAutosave()
         }
         doc.recomputeDisplayText()
+        doc._opLogMirror = ops
+        doc._annotationsCacheValid = false
+        doc._hasAnyAnnotationOps = ops.contains {
+            Document.isAnnotationOpKind($0.kind)
+        }
         return doc
     }
 
@@ -197,9 +296,65 @@ public final class Document {
         if let writeErr { throw writeErr }
     }
 
+    /// Returns the NSRange within `displayText` covering the paragraph with
+    /// the given id, or nil if the id isn't in `sequence`. Used by editor
+    /// navigation (e.g., clicking an annotation row jumps the textView to
+    /// the anchored paragraph). The range corresponds to the stripped
+    /// display form — anchors aren't visible there — and to the structure
+    /// that `recomputeDisplayText` produces: paragraphs joined by "\n\n".
+    public func displayRange(forParagraphId paragraphId: String) -> NSRange? {
+        var offset = 0
+        for id in sequence {
+            guard let text = paragraphs[id] else { continue }
+            let length = (text as NSString).length
+            if id == paragraphId {
+                return NSRange(location: offset, length: length)
+            }
+            offset += length
+            offset += 2  // "\n\n" separator between paragraphs
+        }
+        return nil
+    }
+
     public func materialize() -> String {
         return Materializer.materialize(
             paragraphs: paragraphs, sequence: sequence)
+    }
+
+    /// Returns the full op log for this document, ordered by `op_id`
+    /// (ULID timestamp-prefixed → chronologically stable across devices).
+    /// Prefers the in-memory mirror populated at `load(...)`; falls back
+    /// to a disk read only if the mirror hasn't been seeded yet.
+    public func opLog() async throws -> [Op] {
+        if !_opLogMirror.isEmpty { return _opLogMirror }
+        return try await opStore.load(docId: docId)
+    }
+
+    // MARK: - Annotation read API
+
+    public func annotations(
+        filter: AnnotationFilter = AnnotationFilter()
+    ) -> [Annotation] {
+        if !_annotationsCacheValid {
+            rebuildAnnotationsCache()
+        }
+        return _annotationsCache.filter { ann in
+            if let kinds = filter.kinds, !kinds.contains(ann.kind) { return false }
+            if let statuses = filter.statuses, !statuses.contains(ann.status) { return false }
+            if let pid = filter.paragraphId, ann.paragraphId != pid { return false }
+            return true
+        }
+    }
+
+    fileprivate func invalidateAnnotationsCache() {
+        _annotationsCacheValid = false
+        annotationsVersion &+= 1
+    }
+
+    private func rebuildAnnotationsCache() {
+        _annotationsCache = AnnotationDeriver.derive(
+            ops: _opLogMirror, paragraphs: paragraphs)
+        _annotationsCacheValid = true
     }
 
     // === Mutation API (Task 6) ===
@@ -240,6 +395,13 @@ public final class Document {
             newParagraphs[change.paragraphId] = change.next
         }
         let sequenceChanged = (newSequence != sequence)
+        // Detect paragraph DELETIONS — any id in the prior sequence that's
+        // missing from the next sequence. Flag a sweep so the next burst
+        // flush archives annotations anchored to removed paragraphs.
+        let removedIds = Set(self.sequence).subtracting(Set(newSequence))
+        if !removedIds.isEmpty {
+            _pendingOrphanSweep = true
+        }
         self.paragraphs = newParagraphs
         self.sequence = newSequence
 
@@ -249,6 +411,21 @@ public final class Document {
             burstScheduler.recordActivity()
             autosaveScheduler.schedule(())
         }
+
+        // Intentionally NO per-keystroke annotation work here. Earlier
+        // attempts to invalidate the annotation cache and schedule a sweep
+        // on every keystroke created an observable-write storm: AnnotationsPane
+        // observes `annotations(filter:)`, whose evaluation transitively
+        // observes `paragraphs` on the @Observable Document. Bumping
+        // `annotationsVersion` on every keystroke triggered cascading
+        // re-renders (AttributeGraph cycle detection + NSHostingView
+        // reentrant-layout warnings + applyExternalText feedback into
+        // NSTextView that desynced its spellchecker ranges).
+        //
+        // Staleness + paragraph-deletion auto-archive run at typing-burst
+        // flush time (flushBurstNow) instead, which fires every 30s idle /
+        // 90s max. That's invisible to the user but eliminates the hot
+        // observable-write path.
 
         // ONE @Observable write at the end — but mirror the user's input
         // VERBATIM rather than re-rendering from paragraphs. ParagraphParser
@@ -292,6 +469,9 @@ public final class Document {
         pending.recordChange(paragraphId: newId, prior: nil, next: text)
         burstScheduler.recordActivity()
         autosaveScheduler.schedule(())
+        // Annotation cache + sweep are deferred to flushBurstNow to keep
+        // the keystroke path off the observable-write hot loop. See note in
+        // setFullText for the cycle-detection / reentrant-layout reasoning.
         recomputeDisplayText()
         return newId
     }
@@ -301,12 +481,16 @@ public final class Document {
         let priorText = paragraphs[id]
         paragraphs.removeValue(forKey: id)
         sequence.removeAll { $0 == id }
+        _pendingOrphanSweep = true
         // Record deletion as an op with empty next text (consumer-visible
         // marker that the paragraph went away; sequence change carries the
         // ordering).
         pending.recordChange(paragraphId: id, prior: priorText, next: "")
         burstScheduler.recordActivity()
         autosaveScheduler.schedule(())
+        // Annotation cache + sweep are deferred to flushBurstNow to keep
+        // the keystroke path off the observable-write hot loop. See note in
+        // setFullText for the cycle-detection / reentrant-layout reasoning.
         recomputeDisplayText()
     }
 
@@ -316,23 +500,262 @@ public final class Document {
         // emission will carry the new sequence as its `sequence` field.
         burstScheduler.recordActivity()
         autosaveScheduler.schedule(())
+        // Annotation cache + sweep are deferred to flushBurstNow to keep
+        // the keystroke path off the observable-write hot loop. See note in
+        // setFullText for the cycle-detection / reentrant-layout reasoning.
         recomputeDisplayText()
     }
-    public func flushBurstNow() async throws {
-        guard !pending.isEmpty() else { return }
-        let changes = pending.snapshot()
-        // Capture the latest sequence on the burst so cross-Mac merge sees
-        // ordering changes.
+
+    // MARK: - Annotation mutation API
+
+    @discardableResult
+    public func addAnnotation(
+        kind: AnnotationKind,
+        paragraphId: String?,
+        body: String,
+        suggestedText: String? = nil,
+        prompt: String? = nil,
+        toolArgs: String? = nil
+    ) async throws -> String {
+        let opKind: OpKind = {
+            switch kind {
+            case .comment:         return .claudeComment
+            case .suggestedChange: return .claudeSuggestion
+            case .query:           return .claudeQuery
+            case .craftNote:       return .claudeCraftNote
+            }
+        }()
+        // Validate the paragraph anchor before persisting. For paragraph-
+        // scoped kinds (comment/query/suggested_change), the caller must
+        // supply a paragraph_id that exists in the current sequence. A
+        // stale id (from an old read_document response that the caller
+        // didn't refresh after the user edited) would otherwise silently
+        // persist as an orphan annotation with prior_text=null — the
+        // staleness check has nothing to compare against, the annotation
+        // can never be acted on meaningfully, and the row clutters the
+        // history with no path to recovery.
+        //
+        // Throws a structured tool error (MCPError.paragraphNotFound) so
+        // MCP clients receive a tools/call result with isError=true and a
+        // machine-readable body `{"error":"paragraph_not_found",...}`
+        // rather than a generic JSON-RPC failure they surface as "Tool
+        // execution failed."
+        if kind != .craftNote {
+            guard let pid = paragraphId else {
+                throw MCPError.paragraphNotFound(
+                    paragraphId: "<nil>", currentCount: sequence.count)
+            }
+            if !sequence.contains(pid) {
+                throw MCPError.paragraphNotFound(
+                    paragraphId: pid, currentCount: sequence.count)
+            }
+            // sequence said pid is present but paragraphs map is missing
+            // the text — defensive check for an internal inconsistency
+            // that shouldn't happen with current code paths but would
+            // otherwise persist as a null prior_text again.
+            if paragraphs[pid] == nil {
+                throw MCPError.priorTextCaptureFailed(paragraphId: pid)
+            }
+        }
+        let changes: [Op.ParagraphChange] = {
+            switch kind {
+            case .craftNote:
+                return []
+            case .suggestedChange:
+                guard let pid = paragraphId else { return [] }
+                let prior = paragraphs[pid]
+                return [.init(paragraphId: pid,
+                              prior: prior,
+                              next: suggestedText ?? "")]
+            case .comment, .query:
+                guard let pid = paragraphId else { return [] }
+                let prior = paragraphs[pid]
+                return [.init(paragraphId: pid, prior: prior, next: "")]
+            }
+        }()
         let op = Op(
             opId: ULID.generate(),
             docId: docId, at: Date(),
             device: device, session: session,
-            kind: .typingBurst,
-            changes: changes,
-            sequence: sequence,
-            provenance: nil)
+            kind: opKind, changes: changes, sequence: nil,
+            provenance: Op.Provenance(
+                sessionId: session,
+                prompt: prompt,
+                toolArgs: toolArgs,
+                annotationBody: body))
         try await opStore.append(op)
-        try await pending.clear()
+        _opLogMirror.append(op)
+        _hasAnyAnnotationOps = true
+        invalidateAnnotationsCache()
+        return op.opId
+    }
+
+    public func acceptAnnotation(
+        id: String,
+        userResponse: String? = nil
+    ) async throws {
+        guard let creation = _opLogMirror.first(where: { $0.opId == id }),
+              let kind = AnnotationKind.fromOpKind(creation.kind) else {
+            return  // unknown id or non-annotation op — no-op
+        }
+
+        // Determine the changes payload. Only suggestedChange mutates the
+        // manuscript on accept.
+        let changes: [Op.ParagraphChange] = {
+            switch kind {
+            case .suggestedChange:
+                return creation.changes   // re-applies prior/next on replay
+            case .comment, .query, .craftNote:
+                return []
+            }
+        }()
+
+        let acceptOp = Op(
+            opId: ULID.generate(),
+            docId: docId, at: Date(),
+            device: device, session: session,
+            kind: .claudeAccept,
+            changes: changes,
+            sequence: nil,
+            provenance: Op.Provenance(
+                sessionId: session,
+                sourceAnnotationId: id,
+                userResponse: userResponse))
+        try await opStore.append(acceptOp)
+        _opLogMirror.append(acceptOp)
+        _hasAnyAnnotationOps = true
+
+        // Apply manuscript mutation for suggestedChange. This is the
+        // "two effects, one op" case: the same op resolves the annotation
+        // AND mutates `paragraphs` + writes `_displayText`. The single-
+        // observable-write rule still holds because annotationsVersion and
+        // displayText are distinct surfaces driving distinct views.
+        if kind == .suggestedChange, let change = changes.first {
+            paragraphs[change.paragraphId] = change.next
+            pending.recordChange(
+                paragraphId: change.paragraphId,
+                prior: change.prior, next: change.next)
+            burstScheduler.recordActivity()
+            autosaveScheduler.schedule(())
+            recomputeDisplayText()
+        }
+
+        invalidateAnnotationsCache()
+    }
+
+    public func rejectAnnotation(
+        id: String, userResponse: String? = nil
+    ) async throws {
+        try await appendLifecycleOp(
+            kind: .claudeReject,
+            sourceAnnotationId: id,
+            userResponse: userResponse)
+    }
+
+    public func archiveAnnotation(id: String) async throws {
+        try await appendLifecycleOp(
+            kind: .claudeArchive,
+            sourceAnnotationId: id,
+            userResponse: nil)
+    }
+
+    /// Shared helper for reject/archive (and the paragraph-deletion sweep in
+    /// T12, which uses `synthesisSource = "paragraph_deleted"`).
+    private func appendLifecycleOp(
+        kind: OpKind,
+        sourceAnnotationId: String,
+        userResponse: String?,
+        synthesisSource: String? = nil
+    ) async throws {
+        let op = Op(
+            opId: ULID.generate(),
+            docId: docId, at: Date(),
+            device: device, session: session,
+            kind: kind, changes: [], sequence: nil,
+            provenance: Op.Provenance(
+                sessionId: session,
+                synthesisSource: synthesisSource,
+                sourceAnnotationId: sourceAnnotationId,
+                userResponse: userResponse))
+        try await opStore.append(op)
+        _opLogMirror.append(op)
+        _hasAnyAnnotationOps = true
+        invalidateAnnotationsCache()
+    }
+
+    /// Auto-archive any open annotations anchored to paragraphs no longer
+    /// present in `sequence`. Synthesizes `claude_archive` lifecycle ops with
+    /// `provenance.synthesisSource = "paragraph_deleted"` for forensic context.
+    ///
+    /// Runs from flushBurstNow (every 30s idle / 90s max during typing),
+    /// from external-change handlers, and from explicit annotation lifecycle
+    /// methods. NOT scheduled from per-keystroke paragraph mutation —
+    /// see setFullText for the cycle/reentrancy rationale.
+    private func sweepOrphanedAnnotations() async {
+        let presentIds = Set(sequence)
+        if !_annotationsCacheValid {
+            rebuildAnnotationsCache()
+        }
+        let orphans = _annotationsCache.filter { ann in
+            ann.status == .open
+                && ann.kind != .craftNote
+                && (ann.paragraphId.map { !presentIds.contains($0) } ?? false)
+        }
+        for orphan in orphans {
+            try? await appendLifecycleOp(
+                kind: .claudeArchive,
+                sourceAnnotationId: orphan.id,
+                userResponse: nil,
+                synthesisSource: "paragraph_deleted")
+        }
+        // appendLifecycleOp already invalidates the cache on each call;
+        // no extra invalidation needed here.
+    }
+
+    public func flushBurstNow() async throws {
+        let hadPending = !pending.isEmpty()
+        if hadPending {
+            let changes = pending.snapshot()
+            // Capture the latest sequence on the burst so cross-Mac merge sees
+            // ordering changes.
+            let op = Op(
+                opId: ULID.generate(),
+                docId: docId, at: Date(),
+                device: device, session: session,
+                kind: .typingBurst,
+                changes: changes,
+                sequence: sequence,
+                provenance: nil)
+            try await opStore.append(op)
+            _opLogMirror.append(op)
+            try await pending.clear()
+        }
+
+        // Annotation maintenance — two separate gates:
+        //
+        // 1. Cache invalidation on `hadPending`: any paragraph text
+        //    change means staleness may have flipped on existing
+        //    annotations whose priorText snapshot no longer matches
+        //    paragraphs[pid]. Refresh the cache so isStale recomputes.
+        //
+        // 2. Sweep on `_pendingOrphanSweep`: only run the orphan archive
+        //    pass when a paragraph was actually dropped from `sequence`
+        //    on this Document instance since the last sweep. This avoids
+        //    transient-Document close (via MCP's withAnnotationDocument
+        //    for list_annotations) from running sweep against a sequence
+        //    reconstructed from disk that's missing in-memory paragraph
+        //    ids the live editor has minted but not yet bursted — which
+        //    falsely archived every paragraph-anchored annotation in the
+        //    process.
+        if _hasAnyAnnotationOps {
+            if hadPending {
+                invalidateAnnotationsCache()
+            }
+            if _pendingOrphanSweep {
+                await sweepOrphanedAnnotations()
+                _pendingOrphanSweep = false
+            }
+        }
     }
 
     public func close() async {
@@ -365,6 +788,8 @@ public final class Document {
                 sequence: nil,
                 provenance: .init(synthesisSource: "disk_at_ingest"))
             try await opStore.append(op)
+            _opLogMirror.append(op)
+            invalidateAnnotationsCache()
             // Update internal state.
             for change in changes {
                 paragraphs[change.paragraphId] = change.next
@@ -387,10 +812,61 @@ public final class Document {
         // Reload the log file (OpLogStore.load dedupes by op_id and sorts).
         let ops = try await opStore.load(docId: docId)
 
-        // Re-derive from the merged log.
+        // Echo guard: every op we ourselves appended is already in
+        // _opLogMirror. If the disk log has no ops we haven't seen, this
+        // is NSFilePresenter firing on our own write — bail out before
+        // doing the destructive re-derivation that re-deriving sequence
+        // from the log would entail. Without this, every addAnnotation /
+        // typingBurst flush would trigger a presenter callback that
+        // re-derived state from disk, clobbered sequence (when the legacy
+        // op log doesn't capture sequence per burst), and triggered the
+        // orphan sweep to mass-archive paragraph-anchored annotations.
+        let mirrorIds = Set(_opLogMirror.map(\.opId))
+        let newOps = ops.filter { !mirrorIds.contains($0.opId) }
+        if newOps.isEmpty {
+            return
+        }
+
+        // Re-derive from the merged log, but PRESERVE the recovered sequence
+        // when the new derivation produces an empty one. The recovery code
+        // in Document.load seeded sequence from the parsed .md file for the
+        // legacy case where typing_burst ops didn't capture sequence; that
+        // recovery happens once at load and would be lost on every external
+        // change otherwise.
         let state = Deriver.derive(ops: ops)
+        let priorSequence = self.sequence
         self.paragraphs = state.paragraphs
-        self.sequence = state.sequence
+        if state.sequence.isEmpty && !state.paragraphs.isEmpty
+           && !self.sequence.isEmpty {
+            // Keep the previously-recovered sequence. The new ops added
+            // paragraphs that aren't in `self.sequence` will appear at the
+            // tail (handled by mutation paths going forward).
+        } else {
+            self.sequence = state.sequence
+        }
+        // External op-log changes (cross-Mac sync) can shrink sequence —
+        // flag a sweep so any annotations on now-removed paragraphs get
+        // auto-archived on the next burst.
+        if !Set(priorSequence).subtracting(Set(self.sequence)).isEmpty {
+            _pendingOrphanSweep = true
+        }
+        self._opLogMirror = ops
+        // Re-derive the sticky flag from the merged log: cross-Mac sync
+        // could deliver annotation ops on a doc that previously had none.
+        self._hasAnyAnnotationOps = ops.contains {
+            Document.isAnnotationOpKind($0.kind)
+        }
+        invalidateAnnotationsCache()
+
+        // Sweep only when a paragraph genuinely disappeared (flagged above
+        // by comparing priorSequence to the merged-state sequence). For
+        // cross-Mac sync that only adds new ops without dropping paragraphs,
+        // no sweep is needed — and avoiding it prevents the false-archive
+        // cascade when sequence reconstruction differs from the live view.
+        if _pendingOrphanSweep {
+            await sweepOrphanedAnnotations()
+            _pendingOrphanSweep = false
+        }
 
         // No conflict UI for log merge. Just publish the new state.
         recomputeDisplayText()
@@ -455,9 +931,20 @@ public final class Document {
             sequence: newSequence,
             provenance: .init(synthesisSource: "use_cloud_resolution"))
         try await opStore.append(op)
+        _opLogMirror.append(op)
+        invalidateAnnotationsCache()
+        let priorSequence = self.sequence
         self.paragraphs = newParagraphs
         self.sequence = newSequence
         self.lastWrittenText = diskMd
+        // Use-cloud conflict resolution can shrink sequence — flag a sweep
+        // for any annotations on paragraphs that disappeared. Run sweep
+        // directly here (it's already at an async boundary).
+        if !Set(priorSequence).subtracting(Set(newSequence)).isEmpty {
+            _pendingOrphanSweep = true
+            await sweepOrphanedAnnotations()
+            _pendingOrphanSweep = false
+        }
         recomputeDisplayText()
     }
 
@@ -482,26 +969,76 @@ public final class Document {
     }
 }
 
-/// Looks up the doc-id for a manuscript path. For now resolves via the
-/// manifest if available; falls back to a deterministic hash of the
-/// relative path. Test helper; real lookup will use ProjectStore.
+/// Looks up the doc-id for a manuscript path. Walks UP the directory tree
+/// until it finds `project.maugham.json`, then resolves the doc against
+/// that project's manifest. Falls back to a deterministic hash of the
+/// path if no manifest is found (test fixtures, headless tooling).
+///
+/// The walk-up matters for nested doc layouts: Novel/Screenplay projects
+/// keep manuscripts at `<project>/manuscript/<file>.md` (2 levels), but
+/// Collection projects put pieces at `<project>/pieces/<piece-folder>/<file>`
+/// (3 levels) and research notes can be deeper still. A fixed
+/// `deletingLastPathComponent().deletingLastPathComponent()` lands inside
+/// the piece folder for Collections and silently triggers the hash fallback,
+/// producing a docId that doesn't match the manifest's StructureItem.id.
+/// Op log files then go to the wrong file, MCP annotations stop resolving,
+/// and the editor's live Document gets a fabricated id no other lookup
+/// can find.
 internal func resolveDocId(for url: URL) throws -> String {
-    let projectURL = url.deletingLastPathComponent()
-        .deletingLastPathComponent()
-    let manifestURL = projectURL
-        .appendingPathComponent("project.maugham.json")
-    let relativePath = url.path
-        .replacingOccurrences(of: projectURL.path + "/", with: "")
-    if let data = try? Data(contentsOf: manifestURL) {
-        let dec = JSONDecoder()
-        dec.dateDecodingStrategy = .iso8601
-        if let manifest = try? dec.decode(ProjectManifest.self, from: data),
-           let item = findItemByPath(relativePath, in: manifest.structure) {
-            return item.id
+    var probe = url.deletingLastPathComponent()
+    let fm = FileManager.default
+    // Cap the walk at 16 ancestors so a malformed URL can't infinite-loop.
+    for _ in 0..<16 {
+        let manifestURL = probe.appendingPathComponent("project.maugham.json")
+        if fm.fileExists(atPath: manifestURL.path) {
+            let relativePath = url.path
+                .replacingOccurrences(of: probe.path + "/", with: "")
+            if let data = try? Data(contentsOf: manifestURL) {
+                let dec = JSONDecoder()
+                dec.dateDecodingStrategy = .iso8601
+                if let manifest = try? dec.decode(
+                    ProjectManifest.self, from: data),
+                   let item = findItemByPath(
+                    relativePath, in: manifest.structure) {
+                    return item.id
+                }
+            }
+            // Found the manifest but couldn't decode or match. Stop walking;
+            // don't keep climbing into an unrelated parent project.
+            let relativeFallback = url.path
+                .replacingOccurrences(of: probe.path + "/", with: "")
+            return "doc-\(relativeFallback.hashValue.magnitude)"
         }
+        let parent = probe.deletingLastPathComponent()
+        if parent.path == probe.path { break }   // hit root
+        probe = parent
     }
-    // Fallback: deterministic id from path. Sufficient for tests.
-    return "doc-\(relativePath.hashValue.magnitude)"
+    // No manifest found — hash-fallback against the basename so test fixtures
+    // still get a stable id.
+    let basename = url.lastPathComponent
+    return "doc-\(basename.hashValue.magnitude)"
+}
+
+/// Walks up the directory tree from a doc's URL until it finds the directory
+/// that contains `project.maugham.json`. Used by Document.load to anchor
+/// `.maugham/ops/<docId>.jsonl` and other project-relative paths. Falls
+/// back to two-level deletion (the legacy behavior) if no manifest is found,
+/// which keeps test fixtures that fake a project structure without writing
+/// a manifest working.
+internal func resolveProjectURL(for url: URL) -> URL {
+    var probe = url.deletingLastPathComponent()
+    let fm = FileManager.default
+    for _ in 0..<16 {
+        if fm.fileExists(atPath:
+            probe.appendingPathComponent("project.maugham.json").path) {
+            return probe
+        }
+        let parent = probe.deletingLastPathComponent()
+        if parent.path == probe.path { break }
+        probe = parent
+    }
+    // Legacy fallback for tests that don't write a manifest: 2 levels up.
+    return url.deletingLastPathComponent().deletingLastPathComponent()
 }
 
 private func findItemByPath(_ path: String, in items: [StructureItem]) -> StructureItem? {

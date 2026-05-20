@@ -28,6 +28,11 @@ struct EditorSurface: NSViewRepresentable {
     /// The handler returns the Markdown ref string; the text view inserts it
     /// at the current cursor position.
     var imagePasteHandler: ((NSImage) -> String?)? = nil
+    /// Resolves a paragraph_id to its NSRange in the current displayText.
+    /// Wired through to the coordinator's paragraphRangeProvider so that
+    /// `.maughamNavigateToParagraph` notifications (fired by clicking an
+    /// annotation row) scroll the textView to the right paragraph.
+    var paragraphRangeProvider: ((String) -> NSRange?)? = nil
 
     func makeCoordinator() -> EditorCoordinator {
         let coordinator = EditorCoordinator(
@@ -41,6 +46,7 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.onCursorChanged = onCursorChanged
         coordinator.wikiLinkResolverForClick = wikiLinkClickResolver
         coordinator.imagePasteHandler = imagePasteHandler
+        coordinator.paragraphRangeProvider = paragraphRangeProvider
         return coordinator
     }
 
@@ -60,6 +66,17 @@ struct EditorSurface: NSViewRepresentable {
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
         textView.isContinuousSpellCheckingEnabled = true
+        // Inline prediction (macOS Sonoma+) rewrites text behind the scenes
+        // via marked-text ranges. It races with our paragraph-anchor parsing
+        // and produces "deleted text after cursor" symptoms when the user
+        // edits in a way that contradicts a pending prediction — AppKit
+        // reverts the user's edit, then we replay our shorter displayText
+        // through applyExternalText and wipe the full content. Turn it off;
+        // focused-writing users want their own words, not an OS-suggested
+        // completion.
+        if #available(macOS 14.0, *) {
+            textView.inlinePredictionType = .no
+        }
         textView.delegate = context.coordinator
         textView.string = text
         // Let the text view fill the scroll view's width; centering happens
@@ -130,6 +147,7 @@ struct EditorSurface: NSViewRepresentable {
             textView.removeGutter()
         }
         context.coordinator.imagePasteHandler = imagePasteHandler
+        context.coordinator.paragraphRangeProvider = paragraphRangeProvider
     }
 }
 

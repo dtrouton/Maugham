@@ -22,6 +22,7 @@ targets:
       - path: Maugham
         excludes:
           - Info.plist
+          - "**/AREA.md"
     info:
       path: Maugham/Info.plist
       properties:

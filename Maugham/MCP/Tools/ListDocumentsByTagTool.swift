@@ -2,8 +2,13 @@ import Foundation
 
 /// `list_documents_by_tag(project_id, tag)` — flat list of manuscript documents
 /// whose tags include `tag` (case-insensitive). Returns id/title/path/tags.
-public enum ListDocumentsByTagTool {
+public enum ListDocumentsByTagTool: MCPTool {
     public static let method = "list_documents_by_tag"
+    public static let description =
+        "List manuscript documents whose tags include the given tag " +
+        "(case-insensitive). Returns id, title, path, tags."
+    public static let inputSchemaJSON =
+        #"{"type":"object","properties":{"project_id":{"type":"string"},"tag":{"type":"string"}},"required":["project_id","tag"]}"#
 
     public struct Params: Codable {
         public let project_id: String

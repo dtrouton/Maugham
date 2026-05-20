@@ -247,6 +247,7 @@ struct ProjectWindow: View {
             selectedItemId: selectedItemId,
             showingCheckpointLabelSheet: $showingCheckpointLabelSheet,
             onSaveFlash: { showSaveFlash() }))
+        .modifier(ParagraphNavModifier(binderSegment: $binderSegment))
         .sheet(isPresented: $showingSyntaxHelp) {
             SyntaxHelpSheet(mode: currentSyntaxHelpMode)
         }
@@ -1102,6 +1103,25 @@ private struct CheckpointModifier: ViewModifier {
         }
         guard let item = find(structure), let path = item.path else { return nil }
         return documentStore.document(for: path)
+    }
+}
+
+// MARK: - ParagraphNavModifier
+
+/// Handles .maughamNavigateToParagraph in its own modifier to stay within
+/// Swift's type-checker expression limit in SessionAndNavigationModifier.
+private struct ParagraphNavModifier: ViewModifier {
+    @Binding var binderSegment: BinderSegment
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(
+                for: .maughamNavigateToParagraph)) { note in
+                // v1: just ensure the manuscript pane is focused.
+                // Anchored scroll-to-paragraph is a follow-up.
+                _ = note.userInfo?["paragraph_id"] as? String
+                binderSegment = .manuscript
+            }
     }
 }
 

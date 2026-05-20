@@ -57,6 +57,10 @@ final class OpTests: XCTestCase {
             ("checkpoint", .checkpoint),
             ("checkpoint_restore", .checkpointRestore),
             ("bootstrap", .bootstrap),
+            ("claude_comment", .claudeComment),
+            ("claude_query", .claudeQuery),
+            ("claude_craft_note", .claudeCraftNote),
+            ("claude_archive", .claudeArchive),
         ]
         for (str, expected) in kinds {
             let json = """
@@ -67,5 +71,30 @@ final class OpTests: XCTestCase {
             let op = try dec.decode(Op.self, from: Data(json.utf8))
             XCTAssertEqual(op.kind, expected, "kind \(str) didn't decode to \(expected)")
         }
+    }
+
+    func test_provenance_encodesAnnotationFields_withSnakeCase() throws {
+        let prov = Op.Provenance(
+            sessionId: "s1",
+            annotationBody: "consider showing instead of telling",
+            sourceAnnotationId: "01HXYZ",
+            userResponse: "tried it; original lands harder")
+        let data = try JSONEncoder().encode(prov)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        XCTAssertEqual(json["annotation_body"] as? String,
+                       "consider showing instead of telling")
+        XCTAssertEqual(json["source_annotation_id"] as? String, "01HXYZ")
+        XCTAssertEqual(json["user_response"] as? String,
+                       "tried it; original lands harder")
+    }
+
+    func test_provenance_decodes_existingLogsWithoutAnnotationFields() throws {
+        let oldJSON = #"{"session_id":"s1"}"#
+        let prov = try JSONDecoder().decode(
+            Op.Provenance.self, from: Data(oldJSON.utf8))
+        XCTAssertNil(prov.annotationBody)
+        XCTAssertNil(prov.sourceAnnotationId)
+        XCTAssertNil(prov.userResponse)
+        XCTAssertEqual(prov.sessionId, "s1")
     }
 }

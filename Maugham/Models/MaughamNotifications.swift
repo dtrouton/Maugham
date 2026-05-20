@@ -39,4 +39,8 @@ extension Notification.Name {
     public static let maughamOpLogChanged = Notification.Name("maughamOpLogChanged")
     /// Posted when `.maugham/checkpoints.jsonl` is added or changed.
     public static let maughamCheckpointAdded = Notification.Name("maughamCheckpointAdded")
+    /// Posted when the AnnotationsPane wants the editor to scroll to/select a paragraph.
+    /// userInfo["paragraph_id"] contains the paragraph id string.
+    public static let maughamNavigateToParagraph = Notification.Name(
+        "maughamNavigateToParagraph")
 }

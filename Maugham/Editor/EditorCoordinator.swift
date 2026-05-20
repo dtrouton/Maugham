@@ -77,6 +77,16 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// Observer token for `maughamEffectiveAppearanceChanged` notifications.
     private var appearanceObserver: NSObjectProtocol?
 
+    /// Observer token for `maughamNavigateToParagraph` notifications, used
+    /// to scroll the textView to the paragraph an annotation is anchored
+    /// to when the user clicks an annotation row.
+    private var paragraphNavigateObserver: NSObjectProtocol?
+
+    /// Closure that maps a paragraph_id to its NSRange in textView.string.
+    /// Set by EditorSurface.updateNSView so the coordinator can resolve
+    /// ranges against the live Document's `displayRange(forParagraphId:)`.
+    var paragraphRangeProvider: ((String) -> NSRange?)?
+
     /// Number of times applyExternalText has been called. Internal so
     /// @testable importers (EditorIntegrationHarness) can assert invariants
     /// about typing not triggering external-text replacement. Production
@@ -150,6 +160,25 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                 self.applyAppearance(theme: self.theme, typography: self.typography)
             }
         }
+        paragraphNavigateObserver = NotificationCenter.default.addObserver(
+            forName: .maughamNavigateToParagraph,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            MainActor.assumeIsolated {
+                guard let self,
+                      let pid = note.userInfo?["paragraph_id"] as? String,
+                      let textView = self.textView,
+                      let provider = self.paragraphRangeProvider,
+                      let range = provider(pid) else { return }
+                let length = (textView.string as NSString).length
+                guard range.location >= 0,
+                      range.location + range.length <= length else { return }
+                textView.setSelectedRange(range)
+                textView.scrollRangeToVisible(range)
+                textView.window?.makeFirstResponder(textView)
+            }
+        }
     }
 
     deinit {
@@ -160,6 +189,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = appearanceObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+        if let token = paragraphNavigateObserver {
             NotificationCenter.default.removeObserver(token)
         }
     }
@@ -675,8 +707,20 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             forGlyphRange: glyphRange, in: textContainer)
         guard let scrollView = textView.enclosingScrollView else { return }
         let visible = scrollView.contentView.documentVisibleRect
-        let targetY = lineRect.midY - visible.height / 2
-        scrollView.contentView.scroll(to: NSPoint(x: 0, y: targetY))
+        // Centering computes negative Y near the top of the document and
+        // overshoots near the bottom; clamp to the legitimate document
+        // range so NSScrollView doesn't round-trip through a clamped value
+        // and produce a visible jump on each keystroke.
+        let documentHeight = scrollView.documentView?.frame.height ?? 0
+        let maxY = max(0, documentHeight - visible.height)
+        let rawTarget = lineRect.midY - visible.height / 2
+        let clampedY = max(0, min(rawTarget, maxY))
+        // Skip the call entirely if we're already within a pixel of the
+        // target — avoids a no-op scroll that NSScrollView still treats
+        // as a relayout event and which can perturb a typing-mid-paragraph
+        // cursor's apparent position.
+        if abs(clampedY - visible.origin.y) < 0.5 { return }
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: clampedY))
         scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 

@@ -24,8 +24,28 @@ public enum MCPToolsCallHandler {
         } else {
             argsData = nil
         }
-        let resultData = try await router.dispatch(
-            method: params.name, paramsJSON: argsData)
+        let resultData: Data
+        do {
+            resultData = try await router.dispatch(
+                method: params.name, paramsJSON: argsData)
+        } catch let MCPError.toolError(payload) {
+            // MCP tool-execution failures: return as a result with
+            // isError=true and the structured payload as the text block.
+            // The agent can then parse the JSON and route on `error` /
+            // `hint` rather than getting a generic "Tool execution
+            // failed" from the JSON-RPC error path.
+            let text = String(data: payload.encodedJSON(), encoding: .utf8) ?? "{}"
+            let envelope = AnyJSON.object([
+                "content": .array([
+                    .object([
+                        "type": .string("text"),
+                        "text": .string(text)
+                    ])
+                ]),
+                "isError": .bool(true)
+            ])
+            return try JSONEncoder().encode(envelope)
+        }
         // Polymorphic wrapping: if the tool already returned an MCP envelope
         // (a JSON object with a top-level `content` array), pass it through.
         // This lets tools emit non-text content blocks (image, etc.) without

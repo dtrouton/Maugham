@@ -72,6 +72,7 @@ struct DetailPaneToggle<Inspector: View>: View {
     private var segmentPicker: some View {
         Picker("Right pane", selection: $segment) {
             Image(systemName: "info.circle").tag(DetailSegment.inspector)
+            Image(systemName: "checklist").tag(DetailSegment.annotations)
             Image(systemName: "doc.text.magnifyingglass").tag(DetailSegment.research)
             if !hideOutline {
                 Image(systemName: "list.bullet.indent").tag(DetailSegment.outline)
@@ -92,6 +93,8 @@ struct DetailPaneToggle<Inspector: View>: View {
         switch segment {
         case .inspector:
             inspectorContent()
+        case .annotations:
+            annotationsPane
         case .research:
             LinkedResearchPane(
                 store: store,
@@ -113,7 +116,7 @@ struct DetailPaneToggle<Inspector: View>: View {
     @ViewBuilder
     private var historyPane: some View {
         if let url = projectURL {
-            CheckpointBrowserPane(
+            HistoryPane(
                 projectURL: url,
                 activeDocId: activeDocId ?? "__no-selection__",
                 allDocIds: allDocIds,
@@ -127,6 +130,21 @@ struct DetailPaneToggle<Inspector: View>: View {
                 "History unavailable",
                 systemImage: "clock.arrow.circlepath"
             )
+        }
+    }
+
+    @ViewBuilder
+    private var annotationsPane: some View {
+        if let ds = documentStore,
+           let docId = activeDocId,
+           docId != "__no-selection__",
+           let doc = ds.document(forDocId: docId) {
+            AnnotationsPane(document: doc)
+        } else {
+            ContentUnavailableView(
+                "Select a document",
+                systemImage: "doc.text",
+                description: Text("Open a manuscript to see and act on annotations."))
         }
     }
 }

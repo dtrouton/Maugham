@@ -3,8 +3,14 @@ import Foundation
 /// `list_research(project_id)` — hierarchical research tree. Mirrors the
 /// shape of get_outline but for `manifest.research`. Lets Claude discover
 /// research items by enumeration instead of guessing internal ids.
-public enum ListResearchTool {
+public enum ListResearchTool: MCPTool {
     public static let method = "list_research"
+    public static let description =
+        "List the project's research tree hierarchically. Each item has id, " +
+        "title, type (group/asset), kind, path. Use this to discover research " +
+        "items before calling find_references or read_document."
+    public static let inputSchemaJSON =
+        #"{"type":"object","properties":{"project_id":{"type":"string"}},"required":["project_id"]}"#
 
     public struct Params: Codable {
         public let project_id: String
