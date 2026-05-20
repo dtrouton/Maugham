@@ -55,6 +55,9 @@ Daily-writing improvements. Reduces friction in the surface you spend hours in.
 **Visual reference:**
 - • Mood board — a board surface for arranging images, swatches, and notes when thinking through a project's visual identity (colour palettes, character looks, locations). Project-level (not per-document). Needs brainstorming on scope: dedicated binder pane vs. new project type vs. extension of the Research browser.
 
+**Right-pane onboarding polish (carry-forward from the editing milestone):**
+- • Annotations vs History pane onboarding affordance — they're sibling right-pane segments with opposite affordances (Annotations = action surface with Accept/Reject/Archive buttons; History = read-only forensic log). Today the segment-picker icons read as a generic "right pane mode" picker without communicating the difference, which led to real confusion during editing-milestone testing. Smallest fix: tooltips on the segment icons. Bigger fix: empty-state hints that point across ("looking for action buttons? Press ⌘⌥A").
+
 ---
 
 ## Group 2 — Claude integration
@@ -63,13 +66,20 @@ AI assist for drafting, transcription, and project understanding.
 
 **Shipped:**
 - ✓ MCP Foundation (2026-05-16) — live-only Unix-socket bridge to Claude Desktop with 14 tools (8 read + list_research + list_documents_by_tag + list_all_links + add_note + link_research + unlink_research), the one-click Set up Claude Desktop sheet, and the Settings toggle. See [ADR 0003](adr/0003-mcp-live-only-unix-socket.md) (transport) and [ADR 0004](adr/0004-mcp-foundation-scope.md) (scope).
+- ✓ Editing — annotations + history viewer (2026-05-19) — Claude-as-collaborative-editor end-to-end. 4 new OpKind cases (claudeComment / claudeQuery / claudeCraftNote / claudeArchive) + 6 new MCP tools (add_comment / add_suggested_change / add_query / add_craft_note / list_annotations / get_annotation; registry grew 14 → 20). New AnnotationsPane (⌘⌥A) with Accept/Reject/Archive/Reply per kind, stale-confirm alert, and reject-reasoning capture. HistoryPane (replaces CheckpointBrowserPane) shows unified op + checkpoint timeline with filter pills (All / Checkpoints / Edits / Annotations / External). Structured MCP error envelopes (`isError: true` with paragraph_not_found / prior_text_capture_failed factories). Tag `milestone-editing`. The "manuscript is yours" membrane held: Claude proposes via the annotation layer; the writer disposes via the UI.
 
 **Open:**
-- • **Manuscript edit proposals** — Claude can read manuscript but not write directly. Needs a brainstorm on the proposal/approval pattern (sibling proposal file vs. structured proposals folder vs. inline review marks). The writer's preferred direction: non-destructive (a copy or annotation, not direct edits).
-- • **Handwritten note import** — drag photos of handwritten pages in, Claude transcribes to `.md` using phone-camera filenames as ordering hints, page-by-page accept/edit/reject UI, automatic placement into manuscript or research.
+- • **Handwritten note import** — drag photos of handwritten pages in, Claude transcribes to `.md` using phone-camera filenames as ordering hints, page-by-page accept/edit/reject UI, automatic placement into manuscript or research. The annotation-layer approval UX from the editing milestone is the model.
 - • **Project-level Claude prompt templates** — curated prompts like "Brainstorm character motivations for this scene" / "Find continuity errors in Chapter 3", pre-wired to MCP read-tools so Claude is grounded.
 - • **Voice notes / Whisper transcription** — drop audio in, Claude transcribes to draft `.md` files (placed in `research/voice-notes/` for review before manuscript placement).
 - • **Read-only Claude Code companion view** — sidebar in Maugham showing Claude responses without leaving the writing context.
+
+**Annotation-layer follow-ups (carry-forwards from the editing milestone):**
+- • **Sub-paragraph range anchors for suggested_change** — today an annotation anchors a whole paragraph; for tight edits ("change this clause") the writer wants character-range precision. Op schema needs a range field; UI needs inline highlight.
+- • **Inline annotation marks in the editor** — gutter glyphs or margin chips next to paragraphs with open annotations, so the writer sees what Claude flagged while editing rather than only in the side pane.
+- • **Bulk annotation operations** — Accept-all / Reject-all from the AnnotationsPane, filtered by kind. Today every annotation is one click.
+- • **Cross-document annotation views** — surface annotations across every doc in a project, not just the active one. Useful when Claude reviews a whole novel and leaves notes per chapter.
+- • **`craft_principles.md` aggregation** — accepted `craft_note` annotations live only in the op log today; future Claude sessions read them via `list_annotations(kind:craft_note, status:accepted)`. A project-level digest file would make them human-readable too and let the writer edit/curate them. See `docs/superpowers/specs/2026-05-19-editing-annotations-history-design.md` §1.4 for the deferred design.
 
 ---
 
@@ -102,7 +112,10 @@ Reliability the writer doesn't think about until it bites. Not glamorous, but ea
 
 **Day-to-day reliability:**
 - ✓ Trash & undo for binder operations — shipped under Group 1's research polish milestone. See [ADR 0006](adr/0006-trash-and-undo.md).
-- • Snapshots — versioned manuscript saves with labels ("before-rewrite", "agent submission")
+- • **History Rewind** — first-class time travel over the op log. The infrastructure already exists (per-doc JSONL op log under `.maugham/ops/`, paragraph-keyed LWW, checkpoint_restore op kind); HistoryPane shows the unified timeline today but only checkpoint rows offer "Revert here…". Two staged designs to brainstorm before scoping:
+  - **Option A — revert to any op as if it were a checkpoint** (small, reuses existing machinery). Each typing_burst / claude_accept / external_edit row in HistoryPane gets a "Revert here…" button. Reverting derives state from `ops` up to (but not including) the target op, applies it as the new in-memory state, and emits a `checkpoint_restore` op for forensic record. Reuses `PartialRestorePicker` for the per-doc-vs-project decision.
+  - **Option B — time-scrub UI** (substantial, the "cool" version). A timeline scrubber across the HistoryPane: drag a slider across recent ops to see the doc state at any moment with read-only preview, then confirm-to-revert. Like git bisect's affordance applied to writing. The op log makes this cheap to compute; the UI surface is the work. Worth scoping its own brainstorm — touches editor read-only state, scrubber UX, range performance.
+- • Snapshots — versioned manuscript saves with labels ("before-rewrite", "agent submission"). Lighter-weight than History Rewind: an explicit named bookmark rather than a scrub-anywhere capability. The two pair well — Snapshots is the user-curated index, History Rewind is the open-ended exploration.
 - • Backup & recovery story — iCloud version-history surfacing, Time Machine compatibility note, cross-session undo
 
 **Future-proofing:**
@@ -129,6 +142,6 @@ Considered and explicitly de-prioritized. Each gets a fresh brainstorm if/when p
 ## Sequencing notes
 
 - **Group 1's screenplay intelligence (Phase 4a)** is the natural next drafting-flow milestone — picks up the inline-autocomplete and slugline-reuse work that was carry-forwarded from 3b/3c.
-- **Group 2's "MCP Write" milestone** is the natural next AI-assist milestone — closes the manuscript-edit loop that the foundation deliberately left open. Needs a brainstorm on the proposal pattern first.
+- **Group 2's manuscript-edit loop is closed** as of the editing milestone (2026-05-19): Claude can propose via the annotation layer; the writer disposes via the AnnotationsPane. The next AI-assist milestones are pickable in any order — Handwritten note import reuses the proposal/approval UX from the editing milestone, so it's the most natural follow-up if AI assist is the priority.
 - **Group 3 (Compile)** is the "I want to send this to my agent" feature. Premature while still drafting; pick it up when there's something to ship.
-- **Group 4 (Foundations)** items are pickable any time. Distribution becomes urgent only when Maugham needs to leave the dev Mac. Schema versioning becomes urgent only when a non-additive manifest change forces it.
+- **Group 4 (Foundations)** items are pickable any time. **History Rewind** is the most interesting new candidate — the op log infrastructure makes it cheap to compute, and the "time travel over your own writing" affordance lands somewhere between Snapshots and the milestone-editing history view. Distribution becomes urgent only when Maugham needs to leave the dev Mac. Schema versioning becomes urgent only when a non-additive manifest change forces it.
