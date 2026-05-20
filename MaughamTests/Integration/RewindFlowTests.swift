@@ -63,6 +63,15 @@ final class RewindFlowTests: XCTestCase {
         return Harness(projectURL: tmp, documentStore: ds, doc: doc)
     }
 
+    /// Convenience wrapper returning a flat tuple (projectURL, documentStore,
+    /// doc, docId) for tests that need direct access to each component.
+    private func makeProjectWithDoc(
+        initialMd: String
+    ) async throws -> (URL, DocumentStore, Document, String) {
+        let h = try await makeDocument(initialMd: initialMd)
+        return (h.projectURL, h.documentStore, h.doc, "doc-x")
+    }
+
     // MARK: - Core behaviour
 
     func test_restoreToPastOp_revertsManuscriptText() async throws {
@@ -234,5 +243,41 @@ final class RewindFlowTests: XCTestCase {
         XCTAssertEqual(result.priorSequenceCount, 4)
         XCTAssertEqual(result.newSequenceCount, 2)
         XCTAssertEqual(result.removedParagraphIds.count, 2)
+    }
+
+    func test_rewindThenForwardCheckpoint_canRestoreToPostRewindState() async throws {
+        let (tmp, _, doc, docId) = try await makeProjectWithDoc(initialMd: "p1\n")
+        let log0 = try await doc.opLog()
+        let bootstrapId = log0[0].opId
+        doc.setFullText("p1\n\np2\n")
+        try await doc.flushBurstNow()
+        let cpAfterP2 = try await CheckpointCapture.run(
+            projectURL: tmp,
+            activeDocId: docId,
+            allDocIds: [docId],
+            device: "d1",
+            session: "s1",
+            label: "after p2")
+        doc.setFullText("p1\n\np2\n\np3\n")
+        try await doc.flushBurstNow()
+        let result1 = try await doc.restoreToOp(opId: bootstrapId)
+        XCTAssertEqual(result1.newSequenceCount, 1)
+        let cpOpId = cpAfterP2.docPointers[docId]
+        XCTAssertNotNil(cpOpId)
+        let logFinal = try await doc.opLog()
+        XCTAssertTrue(logFinal.contains { $0.opId == cpOpId })
+    }
+
+    func test_rewindThenScrubBeforePriorRewind_walksFullHistory() async throws {
+        let (_, _, doc, _) = try await makeProjectWithDoc(initialMd: "p1\n")
+        let log0 = try await doc.opLog()
+        let bootstrapId = log0[0].opId
+        doc.setFullText("p1\n\np2\n")
+        try await doc.flushBurstNow()
+        let log1 = try await doc.opLog()
+        let typingOpId = log1.last(where: { $0.kind == .typingBurst })!.opId
+        _ = try await doc.restoreToOp(opId: bootstrapId)
+        let result2 = try await doc.restoreToOp(opId: typingOpId)
+        XCTAssertEqual(result2.newSequenceCount, 2)
     }
 }
