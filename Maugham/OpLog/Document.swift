@@ -525,6 +525,22 @@ public final class Document {
             case .craftNote:       return .claudeCraftNote
             }
         }()
+        // Validate the paragraph anchor before persisting. For paragraph-
+        // scoped kinds (comment/query/suggested_change), the caller must
+        // supply a paragraph_id that exists in the current sequence. A
+        // stale id (from an old read_document response that the caller
+        // didn't refresh after the user edited) would otherwise silently
+        // persist as an orphan annotation with prior_text=null — the
+        // staleness check has nothing to compare against, the annotation
+        // can never be acted on meaningfully, and the row clutters the
+        // history with no path to recovery.
+        if kind != .craftNote {
+            guard let pid = paragraphId,
+                  paragraphs[pid] != nil else {
+                throw MCPError.invalidArgument(
+                    "paragraph_id '\(paragraphId ?? "<nil>")' not found in current document state. Call read_document again to refresh paragraph anchors; the document may have been edited since the last read.")
+            }
+        }
         let changes: [Op.ParagraphChange] = {
             switch kind {
             case .craftNote:
