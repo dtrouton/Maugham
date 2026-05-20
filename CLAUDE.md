@@ -27,14 +27,11 @@ These are non-negotiable. Violating one is a regression even if tests pass.
 ## Build flow
 
 ```
-./gen.sh                                                                       # xcodegen → Maugham.xcodeproj
+./gen.sh                                                                       # xcodegen → Maugham.xcodeproj (run after every clone + after project.yml edits)
 xcodebuild -project Maugham.xcodeproj -scheme Maugham test CODE_SIGNING_ALLOWED=NO
 ```
 
-- **Never hand-edit `Maugham.xcodeproj/project.pbxproj`.** It's regenerated from `project.yml` via `./gen.sh`. The pbxproj is tracked in git (despite `*.xcodeproj/` being in `.gitignore` — historical state), so regen diffs *are* committed. Rules:
-  - Commit a pbxproj diff **only** when it's exactly what `./gen.sh` produces, and only when it **adds** references for files that exist on disk. Use a `chore: xcodegen pbxproj refresh for <file>` commit, separate from the substantive change.
-  - **Never** commit a regen that orphans references to deleted files — that's what broke `main` previously.
-  - Adding files to `Maugham/` (the app target) usually requires a regen for `xcodebuild` to see them; same for `MaughamTests/`. When in doubt, run `./gen.sh` and commit the diff.
+- **`Maugham.xcodeproj/` is generated, not tracked.** `project.yml` is the source of truth; `./gen.sh` produces the whole `.xcodeproj/` from it. If `xcodebuild` can't find a file you just added, run `./gen.sh`. Never hand-edit `project.pbxproj`, never commit anything under `Maugham.xcodeproj/` — it's all in `.gitignore` for a reason.
 - **SourceKit live diagnostics in IDEs are noise.** They complain about XCTest imports and missing sibling types until Xcode re-opens the regenerated project. Trust `xcodebuild` exclusively — it is the ground truth.
 - **Smoke test format:** launch → New project → Novel → "Smoke" → type a sentence → ⌘Q → relaunch → open from Recents → sentence intact. User runs smoke tests manually; don't claim a feature works until they confirm.
 
