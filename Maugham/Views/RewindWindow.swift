@@ -31,7 +31,6 @@ struct RewindWindow: View {
     @State private var nowState: Deriver.DerivedState = .init(paragraphs: [:], sequence: [])
     @State private var showingSnapshotPrompt: Bool = false
     @State private var showingRestoreConfirm: Bool = false
-    @State private var deriveTask: Task<Void, Never>?
 
     enum PreviewMode: Equatable { case doc, diff }
 
@@ -57,6 +56,12 @@ struct RewindWindow: View {
         }
         .frame(minWidth: 900, minHeight: 640)
         .task { await load() }
+        .onChange(of: cursor) { _, _ in
+            // Drive derive directly off cursor changes — SwiftUI guarantees
+            // this fires after the @State write, so we don't depend on the
+            // scrub() call site dispatching a Task itself.
+            updateDerivedStateNow()
+        }
         .sheet(isPresented: $showingSnapshotPrompt) {
             CheckpointLabelPromptSheet(
                 onConfirm: { label in
@@ -97,12 +102,19 @@ struct RewindWindow: View {
     @ViewBuilder
     private var scrubberSection: some View {
         GeometryReader { geo in
-            let width = geo.size.width - 32
+            let width = max(geo.size.width, 1)
             let ticks = RewindTickLayout.decimate(ticks: rawTicks, width: width)
             ZStack(alignment: .topLeading) {
+                // Background hit-target: full 50pt-tall rectangle so a click
+                // anywhere in the scrubber strip lands on the drag gesture
+                // (not just the 4pt-tall bar). Transparent so visually the
+                // grey bar still reads as the timeline.
+                Rectangle().fill(Color.clear)
+                    .frame(width: width, height: 50)
+                    .contentShape(Rectangle())
                 Rectangle().fill(Color.secondary.opacity(0.15))
                     .frame(height: 4)
-                    .padding(.top, 14)
+                    .offset(y: 23)
                 ForEach(Array(ticks.enumerated()), id: \.offset) { _, tick in
                     let frac = fraction(for: tick.at)
                     let xPos = CGFloat(frac) * width
@@ -110,14 +122,15 @@ struct RewindWindow: View {
                     Rectangle()
                         .fill(color(for: tick.kind))
                         .frame(width: isLandmark ? 3 : 1,
-                               height: isLandmark ? 12 : 8)
-                        .offset(x: xPos, y: isLandmark ? 10 : 12)
+                               height: isLandmark ? 14 : 10)
+                        .offset(x: xPos, y: isLandmark ? 18 : 20)
                 }
                 let curFrac = fraction(for: cursorDate)
                 Rectangle().fill(Color.purple)
-                    .frame(width: 2, height: 24)
-                    .offset(x: CGFloat(curFrac) * width, y: 4)
+                    .frame(width: 2, height: 30)
+                    .offset(x: CGFloat(curFrac) * width, y: 10)
             }
+            .frame(width: width, height: 50)
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -242,14 +255,16 @@ struct RewindWindow: View {
         }
         nowState = Deriver.derive(ops: ops)
         cursor = initialCursor
-        await updateDerivedState()
+        updateDerivedStateNow()
     }
 
-    private func updateDerivedState() async {
-        let snapshot = cursor
-        let newState = Deriver.derive(ops: ops, upTo: snapshot)
-        if Task.isCancelled { return }
-        derivedState = newState
+    /// Recompute derived state synchronously on MainActor. Deriver.derive is
+    /// pure and O(N) on op count — even at 10k ops this completes in <100ms,
+    /// fast enough to run inline on a scrub event without needing a Task.
+    /// Sync also means SwiftUI sees the new derivedState in the same render
+    /// cycle as the cursor change, so the preview never lags a frame.
+    private func updateDerivedStateNow() {
+        derivedState = Deriver.derive(ops: ops, upTo: cursor)
     }
 
     private func scrub(toX x: CGFloat, width: CGFloat) {
@@ -264,9 +279,8 @@ struct RewindWindow: View {
                 < abs($1.at.timeIntervalSince1970 - targetT)
         })
         if let op = nearest {
+            // Setting cursor triggers .onChange(of: cursor) → updateDerivedStateNow.
             cursor = .atOp(opId: op.opId, at: op.at)
-            deriveTask?.cancel()
-            deriveTask = Task { await updateDerivedState() }
         }
     }
 
