@@ -15,6 +15,7 @@ struct OutlinePane: View {
                 } description: {
                     Text("Add chapters or scenes from the Manuscript binder")
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if layout == .table {
                 OutlineTable(
                     items: flattenDocs(store.manifest.structure),
@@ -27,6 +28,7 @@ struct OutlinePane: View {
                     selectedItemId: $selectedItemId)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     private var header: some View {

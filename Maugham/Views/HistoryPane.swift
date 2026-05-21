@@ -196,6 +196,7 @@ struct HistoryPane: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .task { await reload() }
         .onChange(of: activeDocId) { _, _ in Task { await reload() } }
         .onReceive(NotificationCenter.default.publisher(for: .maughamCheckpointAdded)) { _ in

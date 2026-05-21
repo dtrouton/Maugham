@@ -85,6 +85,7 @@ struct AnnotationsPane: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .sheet(item: $rejectSheet) { ann in
             RejectReasoningSheet(annotation: ann) { reason in
                 Task { try? await document.rejectAnnotation(
