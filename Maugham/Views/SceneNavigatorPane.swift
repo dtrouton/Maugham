@@ -36,26 +36,35 @@ struct SceneNavigatorPane: View {
         Button {
             onSelect(scene.range.location)
         } label: {
-            HStack {
+            HStack(spacing: 8) {
                 Text(scene.content)
                     .font(.system(.body, design: .monospaced))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                Spacer(minLength: 8)
-                VStack(alignment: .trailing, spacing: 1) {
-                    Text("p.\(pageNumber(for: scene))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                    Text(lengthLabel(for: scene))
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .monospacedDigit()
-                }
+                Spacer(minLength: 4)
+                Text(rowCaption(for: scene))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .monospacedDigit()
+                    .lineLimit(1)
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    /// Returns the compact "p1 · ¼" trailing caption. Empty when no length info.
+    private func rowCaption(for scene: FountainLine) -> String {
+        let page = pageNumber(for: scene)
+        let length = Self.formatPagesCompact(lengthValue(for: scene))
+        if length.isEmpty {
+            return "p\(page)"
+        }
+        return "p\(page) · \(length)"
+    }
+
+    private func lengthValue(for scene: FountainLine) -> Double {
+        script?.sceneLength(startingAt: scene) ?? 0
     }
 
     private func pageNumber(for scene: FountainLine) -> Int {
@@ -92,5 +101,25 @@ struct SceneNavigatorPane: View {
             return "\(fracGlyph)p"
         }
         return "\(whole)\(fracGlyph)p"
+    }
+
+    /// Compact form of `formatPages` for inline display next to the page
+    /// number. Drops the trailing "p" since the prefix already implies pages.
+    /// Returns "" for ≤0; "¼", "½", "¾", "1" / "1¼" / "2½" otherwise.
+    static func formatPagesCompact(_ pages: Double) -> String {
+        if pages <= 0 { return "" }
+        let quarters = (pages * 4).rounded()
+        let whole = Int(quarters / 4)
+        let frac = Int(quarters.truncatingRemainder(dividingBy: 4))
+        let fracGlyph: String
+        switch frac {
+        case 1: fracGlyph = "¼"
+        case 2: fracGlyph = "½"
+        case 3: fracGlyph = "¾"
+        default: fracGlyph = ""
+        }
+        if whole == 0 && frac == 0 { return "<¼" }
+        if whole == 0 { return fracGlyph }
+        return "\(whole)\(fracGlyph)"
     }
 }
