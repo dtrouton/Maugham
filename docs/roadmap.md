@@ -37,7 +37,7 @@ Daily-writing improvements. Reduces friction in the surface you spend hours in.
   - Research ↔ manuscript linking with click-to-view markdown preview
   - Structure views: Outline (table) + Corkboard (cards) with layout toggle
   - Keyboard cheatsheet tab in ⌘/
-- ✓ History Rewind (2026-05-20) — per-doc time-travel modal: scrubber over every op, Doc/Diff preview, Snapshot or Restore, per-row ↺ button on HistoryPane; SynthesisSource enum refactor + RewindCursor + RewindScope typed contracts; tag `milestone-history-rewind`; ~792 tests passing; carry-forwards: project-scope rewind (multi-doc clock UX), live-update of scrubber during MCP writes, un-archive annotation lifecycle action, scrubber pan/zoom beyond 1k ops.
+- ✓ History Rewind (2026-05-21) — per-doc time-travel modal: scrubber over every op with color-coded legend, Doc/Diff preview, Snapshot or Restore, per-row ↺ button on HistoryPane; SynthesisSource enum refactor + RewindCursor / RewindAction / RewindScope / RewindRestoreResult typed contracts; SweepReason enum→struct carries `cause: SynthesisSource`; multi-window-scoped notification (`object: projectURL`); tag `milestone-history-rewind`; 794 tests passing; carry-forwards: project-scope rewind (multi-doc clock UX), live-update of scrubber during MCP writes, un-archive annotation lifecycle action, scrubber pan/zoom beyond 1k ops, and accuracy on legacy projects whose ops predate the always-capture-sequence-on-burst fix (first-appearance fallback is approximate — can't recover post-burst reorders or deletions).
 
 **Open:**
 
