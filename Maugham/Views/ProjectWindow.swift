@@ -1126,7 +1126,14 @@ private struct RewindModifier: ViewModifier {
         content
             .onReceive(NotificationCenter.default.publisher(
                 for: .maughamOpenRewind)) { note in
-                guard selectedItemId != nil else { return }
+                // Scope to the originating window: HistoryPane posts the
+                // notification with `object: projectURL`. With multiple
+                // ProjectWindows open, this prevents every window's modal
+                // from opening on a single click — only the window whose
+                // projectURL matches the originator presents.
+                guard let originator = note.object as? URL,
+                      originator == store?.url,
+                      selectedItemId != nil else { return }
                 if let opId = note.userInfo?["scrub_op_id"] as? String,
                    let at = note.userInfo?["scrub_op_at"] as? Date {
                     rewindInitialCursor = .atOp(opId: opId, at: at)

@@ -178,7 +178,8 @@ struct HistoryPane: View {
                                         selectedCheckpoint = cp
                                         showingRestorePicker = true
                                     }
-                                })
+                                },
+                                projectURL: projectURL)
                             Divider()
                         }
                     }
@@ -227,7 +228,7 @@ struct HistoryPane: View {
             Button {
                 NotificationCenter.default.post(
                     name: .maughamOpenRewind,
-                    object: nil,
+                    object: projectURL,
                     userInfo: [:])
             } label: {
                 Label("Rewind…", systemImage: "clock.arrow.circlepath")
@@ -285,6 +286,10 @@ private struct HistoryRow: View {
     let onToggle: () -> Void
     let onJump: () -> Void
     let onRevert: () -> Void
+    /// Used as the notification `object` when the per-row Rewind button
+    /// posts `.maughamOpenRewind`, so multi-window setups dispatch the
+    /// modal only on the window that originated the click.
+    let projectURL: URL
 
     /// For lifecycle ops (claudeAccept/claudeReject/claudeArchive) the body
     /// of interest is on the CREATION op (claudeComment/claudeSuggestion/
@@ -332,7 +337,7 @@ private struct HistoryRow: View {
                 Button {
                     NotificationCenter.default.post(
                         name: .maughamOpenRewind,
-                        object: nil,
+                        object: projectURL,
                         userInfo: ["scrub_op_id": op.opId,
                                    "scrub_op_at": op.at])
                 } label: {
