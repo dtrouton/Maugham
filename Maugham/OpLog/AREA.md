@@ -21,6 +21,9 @@ The manuscript op log: append-only event stream of paragraph-level mutations, pa
 - `ShingleMatcher.swift` — k-shingle Jaccard matcher used by RenderFilter and Reconciler.
 - `PendingBuffer.swift` — in-memory buffer between live typing and op-log appends (debounce window).
 - `OpKind.swift` — the closed set of operation types. Adding a new one touches every store and the renderer.
+- `RewindCursor.swift` — typed scrub state (`.now` vs `.atOp(opId, at)`) consumed by `Deriver.derive(ops:upTo:)` and `RewindWindow`.
+- `RewindRestoreResult.swift` — return value of `Document.restoreToOp`.
+- `SynthesisSource.swift` — typed cause of synthesized ops (`paragraph_deleted`, `disk_at_ingest`, `use_cloud_resolution`, `rewind`).
 
 ## Invariants
 
@@ -62,6 +65,9 @@ Failure modes:
 - `MaughamTests/OpLog/` — unit tests for each store + the matchers.
 - `MaughamTests/OpLog/BootstrapWiringTests.swift` — asserts every production manuscript-load path (`Document.load` and `withAnnotationDocument`) runs Bootstrap on an unanchored .md. Touch this whenever you add a new manuscript-load entry point.
 - `MaughamTests/Integration/PresenterRoutingTests.swift` — asserts the echo-guard contracts hold (autosave + keep-mine round-trips don't reingest) and that `SweepReason` keeps MCP annotation writes against a live doc from triggering spurious archives.
+- `MaughamTests/OpLog/DeriverUpToTests.swift` — `derive(ops:upTo:)` semantics.
+- `MaughamTests/Integration/RewindFlowTests.swift` — end-to-end `Document.restoreToOp`.
+- `MaughamTests/Integration/SynthesisSourceMigrationTests.swift` — string raw value on disk decodes into the enum.
 
 Known thin coverage (file an issue before relying on these areas for novel behavior):
 

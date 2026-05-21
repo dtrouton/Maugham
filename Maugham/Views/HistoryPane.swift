@@ -178,7 +178,8 @@ struct HistoryPane: View {
                                         selectedCheckpoint = cp
                                         showingRestorePicker = true
                                     }
-                                })
+                                },
+                                projectURL: projectURL)
                             Divider()
                         }
                     }
@@ -187,6 +188,9 @@ struct HistoryPane: View {
         }
         .task { await reload() }
         .onChange(of: activeDocId) { _, _ in Task { await reload() } }
+        .onReceive(NotificationCenter.default.publisher(for: .maughamCheckpointAdded)) { _ in
+            Task { await reload() }
+        }
         .sheet(isPresented: $showingRestorePicker) {
             if let cp = selectedCheckpoint {
                 PartialRestorePicker(
@@ -221,6 +225,17 @@ struct HistoryPane: View {
                     .font(.caption)
             }
             Spacer()
+            Button {
+                NotificationCenter.default.post(
+                    name: .maughamOpenRewind,
+                    object: projectURL,
+                    userInfo: [:])
+            } label: {
+                Label("Rewind…", systemImage: "clock.arrow.circlepath")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(ops.isEmpty || (ops.count == 1 && ops[0].kind == .bootstrap))
         }
         .padding(.horizontal, 8).padding(.vertical, 6)
     }
@@ -271,6 +286,10 @@ private struct HistoryRow: View {
     let onToggle: () -> Void
     let onJump: () -> Void
     let onRevert: () -> Void
+    /// Used as the notification `object` when the per-row Rewind button
+    /// posts `.maughamOpenRewind`, so multi-window setups dispatch the
+    /// modal only on the window that originated the click.
+    let projectURL: URL
 
     /// For lifecycle ops (claudeAccept/claudeReject/claudeArchive) the body
     /// of interest is on the CREATION op (claudeComment/claudeSuggestion/
@@ -313,6 +332,22 @@ private struct HistoryRow: View {
                 Button("Revert here…", action: onRevert)
                     .controlSize(.small)
                     .buttonStyle(.bordered)
+                    .simultaneousGesture(TapGesture().onEnded { })
+            } else if case .op(let op) = entry, mutatesManuscript(op.kind) {
+                Button {
+                    NotificationCenter.default.post(
+                        name: .maughamOpenRewind,
+                        object: projectURL,
+                        userInfo: ["scrub_op_id": op.opId,
+                                   "scrub_op_at": op.at])
+                } label: {
+                    Label("Rewind to before this…", systemImage: "arrow.uturn.backward")
+                        .labelStyle(.iconOnly)
+                }
+                .controlSize(.small)
+                .buttonStyle(.bordered)
+                .help("Rewind to before this point…")
+                .simultaneousGesture(TapGesture().onEnded { })
             }
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
@@ -320,6 +355,16 @@ private struct HistoryRow: View {
         .onTapGesture(perform: onToggle)
         .simultaneousGesture(
             TapGesture().modifiers(.command).onEnded { _ in onJump() })
+    }
+
+    private func mutatesManuscript(_ kind: OpKind) -> Bool {
+        switch kind {
+        case .typingBurst, .externalEdit, .claudeAccept, .checkpointRestore:
+            return true
+        case .bootstrap, .checkpoint, .claudeComment, .claudeSuggestion,
+             .claudeQuery, .claudeCraftNote, .claudeReject, .claudeArchive:
+            return false
+        }
     }
 
     @ViewBuilder
@@ -379,15 +424,25 @@ private struct HistoryRow: View {
                 // content). Auto-archives from paragraph deletion get
                 // both: body + cause.
                 if let body = resolvedBody(for: op) {
-                    let cause = op.provenance?.synthesisSource == "paragraph_deleted"
-                        ? " · paragraph deleted" : ""
+                    let cause: String = {
+                        switch op.provenance?.synthesisSource {
+                        case .paragraphDeleted: return " · paragraph deleted"
+                        case .rewind:           return " · removed by rewind"
+                        default:                return ""
+                        }
+                    }()
                     Text("\(body)\(cause)")
                         .font(.caption).foregroundStyle(.secondary)
                         .lineLimit(1)
                 } else {
-                    Text(op.provenance?.synthesisSource == "paragraph_deleted"
-                         ? "paragraph deleted" : "archived")
-                        .font(.caption).foregroundStyle(.secondary)
+                    Text({
+                        switch op.provenance?.synthesisSource {
+                        case .paragraphDeleted: return "paragraph deleted"
+                        case .rewind:           return "removed by rewind"
+                        default:                return "archived"
+                        }
+                    }() as String)
+                    .font(.caption).foregroundStyle(.secondary)
                 }
             case .externalEdit:
                 Text("\(op.changes.count) paragraph\(op.changes.count == 1 ? "" : "s") changed externally")
@@ -432,10 +487,12 @@ private struct HistoryRow: View {
                             .font(.caption).italic()
                             .foregroundStyle(.secondary)
                     }
-                    if op.provenance?.synthesisSource == "paragraph_deleted" {
+                    if op.provenance?.synthesisSource == .paragraphDeleted {
                         Text("Auto-archived: paragraph deleted from manuscript.")
-                            .font(.caption2)
-                            .foregroundStyle(.orange)
+                            .font(.caption2).foregroundStyle(.orange)
+                    } else if op.provenance?.synthesisSource == .rewind {
+                        Text("Auto-archived: paragraph removed by rewind.")
+                            .font(.caption2).foregroundStyle(.orange)
                     }
                 }
             } else if let resp = op.provenance?.userResponse {
@@ -462,7 +519,9 @@ private struct HistoryRow: View {
             case .claudeCraftNote: return "Craft"
             case .externalEdit: return "External edit"
             case .checkpoint: return "Checkpoint"
-            case .checkpointRestore: return "Reverted"
+            case .checkpointRestore:
+                return op.provenance?.synthesisSource == .rewind
+                    ? "Rewound" : "Reverted"
             case .bootstrap: return "Initial"
             }
         case .checkpoint:

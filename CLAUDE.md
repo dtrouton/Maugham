@@ -50,6 +50,7 @@ Each is a "do not do X — here's why it broke before." If your situation looks 
 9. **Don't use `.onTapGesture` for clickable rows inside `List(.sidebar)`.** Use `Button(.plain)`. Established SwiftUI workaround for sidebar hit-testing.
 10. **Don't return >1MB from an MCP tool.** Transport cap. Image responses use crop-on-demand (`max_dimension` / `quality` / `region`, default 2048px JPEG q=85). See ADR 0004.
 11. **Don't migrate test data when iterating on data shape.** The user explicitly prefers blowing away test projects: *"if I need to just delete all my test files and start again it's ok here. we don't need to migrate."* Propose deletion, not migration logic, unless asked.
+12. **Don't reintroduce stringly-typed synthesisSource.** `Op.Provenance.synthesisSource` is `SynthesisSource?`. The raw values are the snake_case strings on disk (`paragraph_deleted`, `disk_at_ingest`, `use_cloud_resolution`, `rewind`). Adding a new cause means adding an enum case; emit-sites are exhaustively covered by the compiler.
 
 ## Default workflow
 
@@ -85,6 +86,7 @@ Brief, high-signal callouts. Treat as "things to read or grep before editing in 
 - `Reconciler` external-edit ingestion has integration coverage now via `PresenterRoutingTests` (echo guards) + `EditorIntegrationHarnessTests` (silent-ingest + conflict-surfaces). The Reconciler classifier itself is still unit-only.
 - Echo guard for `.md` writes is `Document.lastDiskEcho: EchoState` — assignable only through the three factories in `EchoState.swift`. Don't introduce a parallel "last text" string. See [ADR 0010](docs/adr/0010-typed-cross-area-seams.md).
 - Orphan-annotation sweep is gated on `Document._pendingSweep: SweepReason?` carrying the *observed* removed paragraph ids. Sweep archives only annotations on those ids — never "anything missing from sequence." Don't reintroduce a bool flag.
+- `RewindCursor.swift` + `RewindRestoreResult.swift` + `SynthesisSource.swift` are the typed contracts for time travel (ADR 0010). `Document.restoreToOp(opId:)` appends a `.checkpointRestore` op with `provenance.synthesisSource = .rewind` and triggers the sweep via `SweepReason.rewind(removed:)`.
 
 ### `Maugham/MCP/` — see [`Maugham/MCP/AREA.md`](Maugham/MCP/AREA.md)
 - Tool registration has a single source of truth: `MCPToolCatalog.all` in `Maugham/MCP/MCPTool.swift`. Implement `MCPTool` on the tool enum (declare `method`/`description`/`inputSchemaJSON`/`handle`) and add the type to `MCPToolCatalog.all`. `MCPToolsListHandler` and `MaughamApp.registerTools` both derive from it; `MCPCatalogConsistencyTests` enforces the contract.
@@ -105,6 +107,7 @@ Brief, high-signal callouts. Treat as "things to read or grep before editing in 
 - `ProjectWindow.swift` uses extracted `ViewModifier`s (`SessionAndNavigationModifier`, `CollectionPieceModifier`, `CheckpointModifier`) to dodge SwiftUI's body type-checker complexity ceiling. **When you hit "the compiler is unable to type-check this expression in reasonable time," extract a ViewModifier** — this is the established pattern.
 - BinderSegment conditional cases (`.trash`, `.find`) auto-coerce back to `.manuscript` when their condition disappears. New conditional segments must do the same.
 - Right-pane mode-swap (Inspector/Research/Outline, ⌘⌥1/2/3) is the established pattern (ADR 0005); mirror it for new right-pane content.
+- `RewindWindow.swift` is the time-travel modal (opened via HistoryPane header "Rewind…" or per-row "↺"). Snapshots the op log at open-time — no live updates during the modal session. Scrubber density via the pure helper `RewindTickLayout.decimate`.
 - Dark-mode propagation to side panes is a known carry-forward (lost twice). Re-check after touching theme code.
 
 ### `Maugham/Models/`
