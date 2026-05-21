@@ -107,4 +107,46 @@ final class DeriverUpToTests: XCTestCase {
         let full = Deriver.derive(ops: ops)
         XCTAssertEqual(unknown, full)
     }
+
+    func test_deriveUpTo_legacyOpsWithoutSequence_synthesizesFromChanges() {
+        // Legacy projects (pre-"always capture sequence on burst" fix) have
+        // typing_burst ops with populated changes but no sequence field.
+        // RewindWindow needs a non-empty sequence to render the preview;
+        // verify the fallback synthesizes one from paragraph_id
+        // first-appearance order in changes.
+        let ops: [Op] = [
+            op("01A", changes: [("aabb", nil, "first")], sequence: nil),
+            op("01B", changes: [("bzcc", nil, "second")], sequence: nil),
+            op("01C", changes: [("dxee", nil, "third")], sequence: nil),
+        ]
+        // Default `derive(ops:)` preserves the pre-fix behaviour for
+        // Document.load's recovery path (which relies on the empty
+        // sequence as a signal to recover from the .md file).
+        let strict = Deriver.derive(ops: ops)
+        XCTAssertEqual(strict.sequence, [])
+        XCTAssertEqual(strict.paragraphs.count, 3)
+        // upTo path uses the fallback so the modal can render.
+        let withFallback = Deriver.derive(ops: ops, upTo: .now)
+        XCTAssertEqual(withFallback.sequence, ["aabb", "bzcc", "dxee"])
+        XCTAssertEqual(withFallback.paragraphs["aabb"], "first")
+        XCTAssertEqual(withFallback.paragraphs["dxee"], "third")
+        // upTo a past op also synthesizes correctly (only paragraphs
+        // touched at or before the cursor appear in the synthesized seq).
+        let atB = Deriver.derive(ops: ops, upTo: .atOp(opId: "01B", at: Date()))
+        XCTAssertEqual(atB.sequence, ["aabb", "bzcc"])
+    }
+
+    func test_deriveUpTo_explicitSequenceWins_overFallback() {
+        // When at least one op carries an explicit sequence, that wins.
+        // The synthesized fallback only activates when no op contributed
+        // a sequence — otherwise the explicit sequence reflects deletions
+        // and reorders that first-appearance synthesis can't see.
+        let ops: [Op] = [
+            op("01A", changes: [("aabb", nil, "a")], sequence: nil),
+            op("01B", changes: [("bzcc", nil, "b")], sequence: ["bzcc"]),
+        ]
+        let result = Deriver.derive(ops: ops, upTo: .now)
+        XCTAssertEqual(result.sequence, ["bzcc"],
+                       "Explicit sequence must override first-appearance synthesis")
+    }
 }

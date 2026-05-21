@@ -253,7 +253,11 @@ struct RewindWindow: View {
             let opStore = OpLogStore(projectURL: projectURL)
             ops = (try? await opStore.load(docId: activeDocId)) ?? []
         }
-        nowState = Deriver.derive(ops: ops)
+        // Use the fallback-aware deriver so legacy projects whose ops
+        // predate the "always capture sequence on burst" fix still get a
+        // usable nowState. Otherwise sequence comes back empty and the
+        // preview / diff collapse to nothing.
+        nowState = Deriver.deriveWithSequenceFallback(ops: ops)
         cursor = initialCursor
         updateDerivedStateNow()
     }
