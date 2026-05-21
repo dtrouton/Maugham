@@ -101,47 +101,73 @@ struct RewindWindow: View {
 
     @ViewBuilder
     private var scrubberSection: some View {
-        GeometryReader { geo in
-            let width = max(geo.size.width, 1)
-            let ticks = RewindTickLayout.decimate(ticks: rawTicks, width: width)
-            ZStack(alignment: .topLeading) {
-                // Background hit-target: full 50pt-tall rectangle so a click
-                // anywhere in the scrubber strip lands on the drag gesture
-                // (not just the 4pt-tall bar). Transparent so visually the
-                // grey bar still reads as the timeline.
-                Rectangle().fill(Color.clear)
-                    .frame(width: width, height: 50)
-                    .contentShape(Rectangle())
-                Rectangle().fill(Color.secondary.opacity(0.15))
-                    .frame(height: 4)
-                    .offset(y: 23)
-                ForEach(Array(ticks.enumerated()), id: \.offset) { _, tick in
-                    let frac = fraction(for: tick.at)
-                    let xPos = CGFloat(frac) * width
-                    let isLandmark = tick.kind == .checkpoint || tick.kind == .checkpointRestore
-                    Rectangle()
-                        .fill(color(for: tick.kind))
-                        .frame(width: isLandmark ? 3 : 1,
-                               height: isLandmark ? 14 : 10)
-                        .offset(x: xPos, y: isLandmark ? 18 : 20)
-                }
-                let curFrac = fraction(for: cursorDate)
-                Rectangle().fill(Color.purple)
-                    .frame(width: 2, height: 30)
-                    .offset(x: CGFloat(curFrac) * width, y: 10)
-            }
-            .frame(width: width, height: 50)
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        scrub(toX: value.location.x, width: width)
+        VStack(alignment: .leading, spacing: 6) {
+            GeometryReader { geo in
+                let width = max(geo.size.width, 1)
+                let ticks = RewindTickLayout.decimate(ticks: rawTicks, width: width)
+                ZStack(alignment: .topLeading) {
+                    // Background hit-target: full 50pt-tall rectangle so a click
+                    // anywhere in the scrubber strip lands on the drag gesture
+                    // (not just the 4pt-tall bar). Transparent so visually the
+                    // grey bar still reads as the timeline.
+                    Rectangle().fill(Color.clear)
+                        .frame(width: width, height: 50)
+                        .contentShape(Rectangle())
+                    Rectangle().fill(Color.secondary.opacity(0.15))
+                        .frame(height: 4)
+                        .offset(y: 23)
+                    ForEach(Array(ticks.enumerated()), id: \.offset) { _, tick in
+                        let frac = fraction(for: tick.at)
+                        let xPos = CGFloat(frac) * width
+                        let isLandmark = tick.kind == .checkpoint || tick.kind == .checkpointRestore
+                        Rectangle()
+                            .fill(color(for: tick.kind))
+                            .frame(width: isLandmark ? 3 : 1,
+                                   height: isLandmark ? 14 : 10)
+                            .offset(x: xPos, y: isLandmark ? 18 : 20)
                     }
-            )
+                    let curFrac = fraction(for: cursorDate)
+                    Rectangle().fill(Color.purple)
+                        .frame(width: 2, height: 30)
+                        .offset(x: CGFloat(curFrac) * width, y: 10)
+                }
+                .frame(width: width, height: 50)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            scrub(toX: value.location.x, width: width)
+                        }
+                )
+            }
+            .frame(height: 50)
+            legend
         }
-        .frame(height: 50)
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+    }
+
+    @ViewBuilder
+    private var legend: some View {
+        HStack(spacing: 14) {
+            legendChip(text: "typed", swatchColor: color(for: .typingBurst))
+            legendChip(text: "checkpoint", swatchColor: color(for: .checkpoint))
+            legendChip(text: "Claude annotation", swatchColor: color(for: .claudeComment))
+            legendChip(text: "external edit", swatchColor: color(for: .externalEdit))
+            Spacer()
+        }
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+    }
+
+    @ViewBuilder
+    private func legendChip(text: String, swatchColor: Color) -> some View {
+        HStack(spacing: 4) {
+            Rectangle()
+                .fill(swatchColor)
+                .frame(width: 8, height: 4)
+            Text(text)
+        }
     }
 
     @ViewBuilder
