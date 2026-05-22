@@ -10,9 +10,7 @@ struct MaughamApp: App {
     @State private var mcpServer: MCPServer?
 
     private var mcpSocketPath: String {
-        let lib = FileManager.default.urls(
-            for: .libraryDirectory, in: .userDomainMask)[0]
-        return lib.appendingPathComponent("Application Support/Maugham/mcp.sock").path
+        BuildVariant.current.mcpSocketPath
     }
 
     init() {
