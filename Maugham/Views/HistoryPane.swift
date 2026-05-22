@@ -237,8 +237,7 @@ struct HistoryPane: View {
                     object: projectURL,
                     userInfo: [:])
             } label: {
-                Label("Rewind…", systemImage: "clock.arrow.circlepath")
-                    .labelStyle(.adaptiveRewindButtonLabel)
+                Image(systemName: "clock.arrow.circlepath")
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
@@ -575,24 +574,3 @@ private struct HistoryRow: View {
     }
 }
 
-/// A `LabelStyle` that shows icon + title at usable widths and icon-only
-/// when the surrounding container is narrow. Uses ViewThatFits so SwiftUI
-/// picks whichever variant fits its current measurement; the icon-only
-/// variant is the fallback when title + icon would otherwise truncate.
-private struct AdaptiveRewindButtonLabelStyle: LabelStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 4) {
-                configuration.icon
-                configuration.title
-            }
-            configuration.icon
-        }
-    }
-}
-
-extension LabelStyle where Self == AdaptiveRewindButtonLabelStyle {
-    static var adaptiveRewindButtonLabel: AdaptiveRewindButtonLabelStyle {
-        AdaptiveRewindButtonLabelStyle()
-    }
-}
