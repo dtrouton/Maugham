@@ -39,3 +39,28 @@ final class UpdateSheetIntegrationTests: XCTestCase {
             "Maugham 0.1.0 is Up to Date")
     }
 }
+
+@MainActor
+final class UpdateMenuCommandTests: XCTestCase {
+    func test_menuTitle_idle()        { XCTAssertEqual(UpdateMenuCommand.menuTitle(for: .idle), "Check for Updates…") }
+    func test_menuTitle_checking()    { XCTAssertEqual(UpdateMenuCommand.menuTitle(for: .checking), "Checking for Updates…") }
+    func test_menuTitle_downloading() {
+        XCTAssertEqual(
+            UpdateMenuCommand.menuTitle(for: .downloading(version: "0.2.0", progress: 0.5)),
+            "Downloading Update…")
+    }
+    func test_menuTitle_ready() {
+        XCTAssertEqual(
+            UpdateMenuCommand.menuTitle(for: .ready(version: "0.2.0",
+                                                    dmgURL: URL(fileURLWithPath: "/x"),
+                                                    releaseNotes: "")),
+            "Install Update…")
+    }
+    func test_menuTitle_error() {
+        XCTAssertEqual(UpdateMenuCommand.menuTitle(for: .error("x")), "Check for Updates…")
+    }
+    func test_menuTitle_upToDate() {
+        XCTAssertEqual(UpdateMenuCommand.menuTitle(for: .upToDate(currentVersion: "0.1.0")),
+                       "Check for Updates…")
+    }
+}
