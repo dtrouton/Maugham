@@ -158,11 +158,14 @@ struct HelpClaudeDesktopSheet: View {
     }
 
     private var snippetText: String {
-        """
+        let key = BuildVariant.current.mcpServerKey
+        let socket = BuildVariant.current.mcpSocketPath
+        return """
         {
           "mcpServers": {
-            "maugham": {
-              "command": "\(binaryPath)"
+            "\(key)": {
+              "command": "\(binaryPath)",
+              "env": { "MAUGHAM_MCP_SOCKET": "\(socket)" }
             }
           }
         }
@@ -175,7 +178,9 @@ struct HelpClaudeDesktopSheet: View {
         errorMessage = nil
         do {
             try ClaudeDesktopConfig.merge(
-                configURL: configURL, maughamBinary: binaryPath)
+                configURL: configURL,
+                maughamBinary: binaryPath,
+                socketPath: BuildVariant.current.mcpSocketPath)
             detect()
         } catch ClaudeDesktopConfig.MergeError.existingConfigCorrupt {
             state = .corrupt
