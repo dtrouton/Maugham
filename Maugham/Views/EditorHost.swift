@@ -59,28 +59,19 @@ struct EditorHost: View {
             if let item = currentItem, item.type == .document, let path = item.path,
                let doc = document, loadedItemId == item.id {
                 EditorSurface(
-                    // The binding's setter is the only path that writes text
-                    // into Document. Document.setFullText writes displayText
-                    // exactly once at the end (T6 invariant), which is what
-                    // keeps the binding-loop race closed (harness test 8).
-                    //
-                    // After the text write, refresh the project-level word-
-                    // count cache and ping SessionTracker. The
-                    // document-first-class refactor (commit b37609a) lost
-                    // these call sites; without them session tracking and
-                    // project word count stay frozen at zero across the
-                    // entire app lifetime.
+                    // The setter writes via Document.setFullText, then routes the
+                    // project-level side-effects through DocumentStore. See
+                    // recordEditorTextWrite's doc-comment for why both steps are
+                    // load-bearing.
                     text: Binding(
                         get: { doc.displayText },
                         set: { newText in
                             doc.setFullText(newText)
-                            let count = WritingModeFactory.mode(for: path)
-                                .metrics(newText).wordCount
-                            store.recordWordCount(
-                                forDocumentId: doc.docId, wordCount: count)
-                            documentStore.recordSessionActivity(
+                            documentStore.recordEditorTextWrite(
                                 documentId: doc.docId,
-                                projectWordCount: store.projectWordCount)
+                                newText: newText,
+                                mode: WritingModeFactory.mode(for: path),
+                                store: store)
                         }
                     ),
                     theme: userPreferences.theme,

@@ -275,6 +275,38 @@ public final class DocumentStore {
             name: .maughamSessionLogChanged, object: nil)
     }
 
+    /// Records all the side-effects that must fire when the editor writes
+    /// new text into a Document. Computes the word count for `newText`,
+    /// updates the project's per-document word-count cache, and pings the
+    /// SessionTracker so live session metrics tick.
+    ///
+    /// **Load-bearing.** This is the single bridge between the editor and
+    /// the project-level word/session bookkeeping. Skipping this call (or
+    /// any of its three operations) means:
+    ///
+    /// - `ProjectStore.projectWordCount` returns stale data.
+    /// - `DocumentStore.sessionTracker.activeSession` never starts.
+    /// - `SessionLog` stays empty (no events appended on idle/quit).
+    /// - The status footer's `wordsToday` and `liveSessionWordsNet` show 0.
+    ///
+    /// The document-first-class refactor (commit `b37609a`, 2026-05-19)
+    /// silently lost these calls when text writes moved from EditorHost
+    /// into `Document.setFullText`; the regression hid for three days. If
+    /// you're considering removing this method or its call site in
+    /// `EditorHost`, the same regression returns.
+    public func recordEditorTextWrite(
+        documentId: String,
+        newText: String,
+        mode: any WritingMode,
+        store: ProjectStore
+    ) {
+        let count = mode.metrics(newText).wordCount
+        store.recordWordCount(forDocumentId: documentId, wordCount: count)
+        recordSessionActivity(
+            documentId: documentId,
+            projectWordCount: store.projectWordCount)
+    }
+
     /// Called by EditorHost on every text change. Records activity with the
     /// SessionTracker and (re)arms the 30-minute idle timer. When the timer
     /// fires without further activity, the session is finalised and appended
