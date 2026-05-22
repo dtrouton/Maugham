@@ -16,6 +16,16 @@ struct MaughamApp: App {
     }
 
     init() {
+        // Fail-fast guardrail: if the compile flag and bundle id drift apart
+        // (e.g. CI config error), this fires immediately in Debug.
+        #if MAUGHAM_DEV_BUILD
+        assert(Bundle.main.bundleIdentifier == "com.maugham.Maugham.dev",
+               "MAUGHAM_DEV_BUILD set but bundle id is \(Bundle.main.bundleIdentifier ?? "nil")")
+        #else
+        assert(Bundle.main.bundleIdentifier == "com.maugham.Maugham",
+               "MAUGHAM_DEV_BUILD not set but bundle id is \(Bundle.main.bundleIdentifier ?? "nil")")
+        #endif
+
         // Best-effort: post a notification on app termination so any open
         // ProjectWindow can synchronously flush its DocumentStore. This is
         // belt-and-suspenders alongside .onDisappear.
