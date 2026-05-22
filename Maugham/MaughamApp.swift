@@ -49,10 +49,12 @@ struct MaughamApp: App {
                     do {
                         try await server.start()
                         mcpServer = server
-                        UpdateChecker.shared.startBackgroundLoop()
                     } catch {
                         print("MCPServer failed to start: \(error)")
                     }
+                    // Updater is independent of MCP — start it regardless of whether
+                    // the MCP socket bound successfully.
+                    UpdateChecker.shared.startBackgroundLoop()
                 }
                 .onReceive(NotificationCenter.default.publisher(
                     for: .maughamAppWillTerminate)) { _ in
