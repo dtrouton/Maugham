@@ -6,6 +6,16 @@ A focus text editor for serious creative writing on macOS. Native Swift + SwiftU
 
 Active development. The current state of what's shipped and what's open lives in [`docs/roadmap.md`](docs/roadmap.md). Architectural decisions taken since the initial design are recorded as ADRs under [`docs/adr/`](docs/adr/); the initial design itself is [`docs/superpowers/specs/2026-05-07-maugham-master-design.md`](docs/superpowers/specs/2026-05-07-maugham-master-design.md).
 
+## Install
+
+Latest release: <https://github.com/dtrouton/Maugham/releases/latest>
+
+Download the `.dmg`, drag `Maugham.app` to `/Applications`, then **right-click → Open** the first time you launch — Maugham is currently unsigned, so Gatekeeper warns about an unidentified developer. After the first open, subsequent launches work normally.
+
+Maugham checks for updates daily in the background and shows a banner across the top of any project window when one is ready. Force a check from the **Maugham → Check for Updates…** menu.
+
+Dev builds from Xcode coexist with the installed stable copy under the name **Maugham Dev** (bundle id `com.maugham.Maugham.dev`); they don't share state or update settings.
+
 ## Build
 
 Requires macOS 14+, Xcode 15+, and `xcodegen`:
