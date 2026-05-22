@@ -1,6 +1,8 @@
 import Foundation
 
-/// Detects (and in T15 will mutate) Claude Desktop's config file.
+/// Detects and mutates Claude Desktop's config file. Variant-aware via the
+/// optional `serverKey` parameter on each entry point — defaults to the
+/// current build variant's MCP server key.
 public enum ClaudeDesktopConfig {
     public enum State: Equatable {
         case missing
@@ -15,13 +17,17 @@ public enum ClaudeDesktopConfig {
         return lib.appendingPathComponent("Application Support/Claude/claude_desktop_config.json")
     }()
 
-    public static func detect(configURL: URL, expectedBinary: String) -> State {
+    public static func detect(
+        configURL: URL,
+        expectedBinary: String,
+        serverKey: String = BuildVariant.current.mcpServerKey
+    ) -> State {
         guard FileManager.default.fileExists(atPath: configURL.path) else { return .missing }
         guard let data = try? Data(contentsOf: configURL) else { return .corrupt }
         guard let any = try? JSONSerialization.jsonObject(with: data),
               let dict = any as? [String: Any] else { return .corrupt }
         let servers = dict["mcpServers"] as? [String: Any] ?? [:]
-        guard let entry = servers["maugham"] as? [String: Any],
+        guard let entry = servers[serverKey] as? [String: Any],
               let cmd = entry["command"] as? String else {
             return .unconfigured
         }
@@ -35,13 +41,19 @@ extension ClaudeDesktopConfig {
         case existingConfigCorrupt
     }
 
-    /// Atomically merge a `maugham` mcpServer entry into the config. Creates
-    /// the file if absent. Throws if the existing file is unparseable JSON
-    /// (we never overwrite content we don't understand).
-    public static func merge(configURL: URL, maughamBinary: String) throws {
+    /// Atomically merge a server entry into the config. Creates the file if
+    /// absent. Throws if the existing file is unparseable JSON.
+    ///
+    /// `socketPath` (if non-nil) is written as `"env": ["MAUGHAM_MCP_SOCKET": <path>]`
+    /// so the embedded binary doesn't rely on its hardcoded default.
+    public static func merge(
+        configURL: URL,
+        maughamBinary: String,
+        serverKey: String = BuildVariant.current.mcpServerKey,
+        socketPath: String? = nil
+    ) throws {
         let parent = configURL.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(
-            at: parent, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
 
         var dict: [String: Any] = [:]
         if FileManager.default.fileExists(atPath: configURL.path) {
@@ -56,7 +68,11 @@ extension ClaudeDesktopConfig {
             }
         }
         var servers = dict["mcpServers"] as? [String: Any] ?? [:]
-        servers["maugham"] = ["command": maughamBinary]
+        var entry: [String: Any] = ["command": maughamBinary]
+        if let socketPath {
+            entry["env"] = ["MAUGHAM_MCP_SOCKET": socketPath]
+        }
+        servers[serverKey] = entry
         dict["mcpServers"] = servers
 
         let out = try JSONSerialization.data(
@@ -66,15 +82,18 @@ extension ClaudeDesktopConfig {
         _ = try FileManager.default.replaceItemAt(configURL, withItemAt: tmpURL)
     }
 
-    /// Remove the `maugham` entry from `mcpServers`, preserving other servers.
-    public static func removeMaughamEntry(configURL: URL) throws {
+    /// Remove this variant's entry from `mcpServers`, preserving other servers.
+    public static func removeMaughamEntry(
+        configURL: URL,
+        serverKey: String = BuildVariant.current.mcpServerKey
+    ) throws {
         let data = try Data(contentsOf: configURL)
         guard let any = try? JSONSerialization.jsonObject(with: data),
               var dict = any as? [String: Any] else {
             throw MergeError.existingConfigCorrupt
         }
         var servers = dict["mcpServers"] as? [String: Any] ?? [:]
-        servers.removeValue(forKey: "maugham")
+        servers.removeValue(forKey: serverKey)
         dict["mcpServers"] = servers
         let out = try JSONSerialization.data(
             withJSONObject: dict, options: [.prettyPrinted, .sortedKeys])
