@@ -13,7 +13,7 @@ final class MCPProtocolHandlersTests: XCTestCase {
         // serverInfo
         guard case .object(let info) = obj["serverInfo"] else { return XCTFail("no serverInfo") }
         guard case .string(let name) = info["name"] else { return XCTFail("no name") }
-        XCTAssertEqual(name, "maugham")
+        XCTAssertEqual(name, BuildVariant.current.mcpServerKey)
         // capabilities.tools
         guard case .object(let caps) = obj["capabilities"] else { return XCTFail("no capabilities") }
         XCTAssertNotNil(caps["tools"])

@@ -35,7 +35,9 @@ public enum MCPInitializeHandler {
         }()
         let result = Result(
             protocolVersion: protocolVersion,
-            serverInfo: ServerInfo(name: "maugham", version: "0.1.0"),
+            serverInfo: ServerInfo(
+                name: BuildVariant.current.mcpServerKey,
+                version: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0-dev"),
             capabilities: Capabilities(tools: ToolsCapability()))
         return try JSONEncoder().encode(result)
     }
