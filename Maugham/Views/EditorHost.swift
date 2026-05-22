@@ -63,9 +63,25 @@ struct EditorHost: View {
                     // into Document. Document.setFullText writes displayText
                     // exactly once at the end (T6 invariant), which is what
                     // keeps the binding-loop race closed (harness test 8).
+                    //
+                    // After the text write, refresh the project-level word-
+                    // count cache and ping SessionTracker. The
+                    // document-first-class refactor (commit b37609a) lost
+                    // these call sites; without them session tracking and
+                    // project word count stay frozen at zero across the
+                    // entire app lifetime.
                     text: Binding(
                         get: { doc.displayText },
-                        set: { doc.setFullText($0) }
+                        set: { newText in
+                            doc.setFullText(newText)
+                            let count = WritingModeFactory.mode(for: path)
+                                .metrics(newText).wordCount
+                            store.recordWordCount(
+                                forDocumentId: doc.docId, wordCount: count)
+                            documentStore.recordSessionActivity(
+                                documentId: doc.docId,
+                                projectWordCount: store.projectWordCount)
+                        }
                     ),
                     theme: userPreferences.theme,
                     typography: ProjectStore.effectiveTypography(
