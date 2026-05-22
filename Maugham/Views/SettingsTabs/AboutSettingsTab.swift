@@ -9,7 +9,7 @@ struct AboutSettingsTab: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            Text("Maugham")
+            Text(BuildVariant.current.displayName)
                 .font(.system(size: 36, weight: .light, design: .serif))
             Text(version)
                 .font(.callout)

@@ -20,7 +20,7 @@ struct WelcomeView: View {
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Maugham")
+            Text(BuildVariant.current.displayName)
                 .font(.system(size: 36, weight: .light, design: .serif))
                 .padding(.bottom, 4)
             Text("A focus text editor for serious creative writing.")
