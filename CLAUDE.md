@@ -35,6 +35,38 @@ xcodebuild -project Maugham.xcodeproj -scheme Maugham test CODE_SIGNING_ALLOWED=
 - **SourceKit live diagnostics in IDEs are noise.** They complain about XCTest imports and missing sibling types until Xcode re-opens the regenerated project. Trust `xcodebuild` exclusively — it is the ground truth.
 - **Smoke test format:** launch → New project → Novel → "Smoke" → type a sentence → ⌘Q → relaunch → open from Recents → sentence intact. User runs smoke tests manually; don't claim a feature works until they confirm.
 
+## Releases
+
+Stable releases are tag-triggered via GitHub Actions. The recipe:
+
+1. Write release notes: `docs/release-notes/v0.X.Y.md` (template at `docs/release-notes/_template.md`).
+2. Commit them on `main`.
+3. `./scripts/cut-release.sh 0.X.Y` — verifies notes exist, tree is clean, tests pass, then
+   creates `v0.X.Y` tag and prints the push command. Pass `--skip-tests` only if you know why.
+4. `git push --tags`. Workflow at `.github/workflows/release.yml` builds Release config,
+   runs tests, packages the `.dmg`, and creates the GitHub Release with the notes file as body.
+5. ~10 minutes later, the stable app's next check picks it up. Menu title goes to
+   "Install Update…"; clicking reveals the `.dmg` in Finder.
+
+**Version is tag-derived.** `project.yml`'s `CFBundleShortVersionString` stays at the placeholder
+`"0.0.0-dev"` for local builds; CI rewrites it from the tag at build time. Don't bump it in
+`project.yml` — bump it via the tag.
+
+**Workflow fails before publish if `docs/release-notes/v0.X.Y.md` is missing.** Tag pattern
+`v[0-9]+.[0-9]+.[0-9]+` triggers the release workflow; milestone tags (`milestone-*`) don't.
+
+**Dev builds don't auto-update.** `BuildVariant.dev` (set by `-DMAUGHAM_DEV_BUILD` in Debug config)
+disables the updater. Stable lives at bundle id `com.maugham.Maugham` in `/Applications`; dev at
+`com.maugham.Maugham.dev` from Xcode. They have separate MCP socket paths and separate Claude
+Desktop config entries (`maugham` vs `maugham-dev`) — see `Maugham/BuildVariant.swift`.
+
+**Builds are currently unsigned** (ad-hoc, `CODE_SIGN_IDENTITY: "-"`). Each downloaded `.dmg`
+requires a one-time right-click → Open on first launch — Gatekeeper's standard "unidentified
+developer" treatment. Switching to Developer ID + notarization is a ~30-min CI change (add cert
++ notarize/staple steps to the release workflow, flip `CODE_SIGN_IDENTITY` and
+`ENABLE_HARDENED_RUNTIME` in `project.yml`). The updater code doesn't change. See
+`docs/superpowers/specs/2026-05-22-production-release-design.md` for the full sequence.
+
 ## Architectural tripwires
 
 Each is a "do not do X — here's why it broke before." If your situation looks superficially different but rhymes with one of these, slow down.
@@ -51,6 +83,7 @@ Each is a "do not do X — here's why it broke before." If your situation looks 
 10. **Don't return >1MB from an MCP tool.** Transport cap. Image responses use crop-on-demand (`max_dimension` / `quality` / `region`, default 2048px JPEG q=85). See ADR 0004.
 11. **Don't migrate test data when iterating on data shape.** The user explicitly prefers blowing away test projects: *"if I need to just delete all my test files and start again it's ok here. we don't need to migrate."* Propose deletion, not migration logic, unless asked.
 12. **Don't reintroduce stringly-typed synthesisSource.** `Op.Provenance.synthesisSource` is `SynthesisSource?`. The raw values are the snake_case strings on disk (`paragraph_deleted`, `disk_at_ingest`, `use_cloud_resolution`, `rewind`). Adding a new cause means adding an enum case; emit-sites are exhaustively covered by the compiler.
+13. **Don't hardcode "maugham", "Maugham", or socket paths.** Six values vary by `BuildVariant`: bundle id, display name, support folder name, MCP socket path, Claude Desktop config key, and MCP `serverInfo.name`. If you add a seventh, route it through `BuildVariant.current` instead. Compile-time check: `grep -n '"maugham"\|"Maugham"' Maugham/` should return zero matches outside `Maugham/BuildVariant.swift` and tests.
 
 ## Default workflow
 
@@ -127,3 +160,6 @@ Brief, high-signal callouts. Treat as "things to read or grep before editing in 
 - "Should this annotation be paragraph- or doc-scoped?" → Both should work and both need a UI surface.
 - "Should I write a migration for this schema change?" → No, unless the user explicitly asks.
 - "Should we ship one feature first or bundle?" → Bundle, default to ambitious.
+- "How do I cut a release?" → see the Releases section above.
+- "Should I bump version in `project.yml`?" → No. The git tag is the source of truth; CI writes the version into the bundle at build time.
+- "Should dev or stable do X?" → see `Maugham/BuildVariant.swift` — one enum, all the seams hang off it.
