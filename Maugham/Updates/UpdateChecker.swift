@@ -86,4 +86,28 @@ public final class UpdateChecker: ObservableObject {
         try FileManager.default.moveItem(at: tmpURL, to: target)
         return target
     }
+
+    private var backgroundTask: Task<Void, Never>?
+    private static let initialDelaySeconds: UInt64 = 60
+    private static let intervalSeconds: UInt64 = 24 * 60 * 60
+
+    /// Start the background poll loop. Idempotent — calling more than once
+    /// is a no-op. Only starts when the current build variant has updater
+    /// enabled.
+    public func startBackgroundLoop() {
+        guard BuildVariant.current.updaterEnabled else { return }
+        guard backgroundTask == nil else { return }
+        backgroundTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.initialDelaySeconds * 1_000_000_000)
+            while !Task.isCancelled {
+                await self?.performCheck(trigger: .background)
+                try? await Task.sleep(nanoseconds: Self.intervalSeconds * 1_000_000_000)
+            }
+        }
+    }
+
+    /// Force a check now (e.g. from the menu item). Bypasses the 24h gate.
+    public func checkNow() async {
+        await performCheck(trigger: .manual)
+    }
 }
