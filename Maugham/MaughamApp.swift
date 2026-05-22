@@ -49,6 +49,7 @@ struct MaughamApp: App {
                     do {
                         try await server.start()
                         mcpServer = server
+                        UpdateChecker.shared.startBackgroundLoop()
                     } catch {
                         print("MCPServer failed to start: \(error)")
                     }
@@ -60,6 +61,7 @@ struct MaughamApp: App {
         }
         .windowResizability(.contentSize)
         .commands {
+            UpdateMenuCommand()
             CommandGroup(replacing: .newItem) {
                 Button("New Project…") {
                     NotificationCenter.default.post(name: .maughamNewProject, object: nil)

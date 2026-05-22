@@ -168,6 +168,9 @@ struct ProjectWindow: View {
             }
         }
         .frame(minWidth: 980, minHeight: 540)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            UpdateBannerView()
+        }
         .background(WindowAccessor(window: $window))
         .task(id: url) { await load() }
         .onDisappear {
