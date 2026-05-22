@@ -26,6 +26,14 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// host can persist per-document cursor positions.
     var onCursorChanged: ((Int) -> Void)?
 
+    /// Fired when the cursor's screenplay element changes. Delivers the gutter
+    /// abbreviation ("CHAR", "SCENE", "DLG", etc.) or nil when no script is
+    /// parsed (prose mode) or the cursor isn't on a classified line. Mirrors
+    /// the same delivery points as onCursorChanged: selection change and after
+    /// every retokenize (text edits can change the element under the cursor
+    /// without moving the selection).
+    var onElementChanged: ((String?) -> Void)?
+
     /// Optional resolver for wiki-link titles. When set, ProseMode underlines
     /// `[[Title]]` tokens whose title resolves to a manuscript document.
     var wikiLinkResolver: ((String) -> Bool)?
@@ -317,6 +325,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // Text changes require re-dim. The textDidChange path delegates here;
         // no separate dim call needed.
         applyFocusDim(in: textView)
+        // Fire element callback: text edits can reclassify the line under the
+        // cursor without moving the selection, so we must fire here too (not
+        // only from textViewDidChangeSelection).
+        onElementChanged?(currentElementAbbreviation(in: textView))
     }
 
     // MARK: - NSTextViewDelegate
@@ -430,6 +442,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // retokenizeAndStyle. Re-dim here.
         applyFocusDim(in: textView)
         onCursorChanged?(textView.selectedRange().location)
+        onElementChanged?(currentElementAbbreviation(in: textView))
     }
 
     // MARK: - Tab/Shift+Tab cycle
@@ -440,6 +453,22 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
 
     private func cycleElementBackward(in textView: NSTextView) {
         cycle(in: textView, direction: .backward)
+    }
+
+    /// Returns the gutter abbreviation (e.g. "CHAR", "SCENE", "DLG") for
+    /// the line containing the current cursor position, or nil when no
+    /// screenplay is parsed (prose mode) or the cursor isn't on a classified
+    /// line with a label.
+    private func currentElementAbbreviation(in textView: NSTextView) -> String? {
+        guard let script = lastParsedScript else { return nil }
+        let cursor = textView.selectedRange().location
+        guard let line = script.lines.first(where: { line in
+            line.range.contains(cursor) ||
+                cursor == NSMaxRange(line.range)
+        }) else {
+            return nil
+        }
+        return ElementGutterView.abbreviation(for: line.element)
     }
 
     private enum CycleDirection { case forward, backward }

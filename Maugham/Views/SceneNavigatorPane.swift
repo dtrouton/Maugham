@@ -71,12 +71,6 @@ struct SceneNavigatorPane: View {
         script?.pageNumber(at: scene) ?? 1
     }
 
-    private func lengthLabel(for scene: FountainLine) -> String {
-        guard let script else { return "" }
-        let pages = script.sceneLength(startingAt: scene)
-        return Self.formatPages(pages)
-    }
-
     /// Formats fractional pages compactly: "0" hidden as "—", "0.25" as "¼p",
     /// "0.5" as "½p", "0.75" as "¾p", whole numbers as "1p" / "2p", and
     /// mixed as "1¼p" / "2½p" using nearest quarter rounding.

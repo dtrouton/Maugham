@@ -308,6 +308,42 @@ public final class Document {
         if let writeErr { throw writeErr }
     }
 
+    /// Returns the paragraph id of the paragraph containing `location` in
+    /// `displayText`, or nil if no `<!-- ¶id -->` comment precedes `location`
+    /// in the current materialized text. The id is recovered by scanning
+    /// backwards from `location` for the nearest preceding inline-comment
+    /// anchor in the materialized (stored) form, which includes the anchors
+    /// that `displayText` strips.
+    ///
+    /// Cost: O(characters up to `location`). Fine at human typing speed
+    /// (a few times per second) even for large manuscripts (~100 KB).
+    public func paragraphId(at location: Int) -> String? {
+        // We need the materialized form (which retains <!-- ¶id --> anchors)
+        // because displayText strips them. Walk the materialized text up to
+        // the corresponding offset and remember the last anchor seen.
+        //
+        // Mapping from displayText offset to materialized offset is
+        // non-trivial, so instead we walk the paragraphs in sequence order —
+        // the same order as displayText — accumulating display-offset to find
+        // which paragraph the cursor is in, then return that paragraph's id.
+        let clamped = max(0, min(location, displayText.count))
+        var offset = 0
+        for id in sequence {
+            guard let text = paragraphs[id] else { continue }
+            let length = text.count
+            // The paragraph covers [offset, offset + length).
+            // The "\n\n" separator is at [offset+length, offset+length+2).
+            // Cursor at offset+length is still "inside" this paragraph
+            // (end of its content, before the separator).
+            if clamped <= offset + length {
+                return id
+            }
+            offset += length + 2  // +2 for "\n\n" separator
+        }
+        // Cursor is past all paragraphs — return the last id if any.
+        return sequence.last
+    }
+
     /// Returns the NSRange within `displayText` covering the paragraph with
     /// the given id, or nil if the id isn't in `sequence`. Used by editor
     /// navigation (e.g., clicking an annotation row jumps the textView to

@@ -15,6 +15,10 @@ struct EditorSurface: NSViewRepresentable {
     var initialCursorLocation: Int? = nil
     /// Fired on every selection change with the new caret location.
     var onCursorChanged: ((Int) -> Void)? = nil
+    /// Fired when the cursor's screenplay element changes (or after retokenize).
+    /// Delivers a gutter abbreviation ("CHAR", "SCENE", "DLG", etc.) or nil
+    /// in prose mode. Omit at call sites that don't need element tracking.
+    var onElementChanged: ((String?) -> Void)? = nil
     /// Optional resolver for wiki-link titles. When set, ProseMode underlines
     /// `[[Title]]` tokens whose title matches a manuscript document.
     var wikiLinkResolver: ((String) -> Bool)? = nil
@@ -44,6 +48,7 @@ struct EditorSurface: NSViewRepresentable {
             wikiLinkResolver: wikiLinkResolver)
         coordinator.initialCursorLocation = initialCursorLocation
         coordinator.onCursorChanged = onCursorChanged
+        coordinator.onElementChanged = onElementChanged
         coordinator.wikiLinkResolverForClick = wikiLinkClickResolver
         coordinator.imagePasteHandler = imagePasteHandler
         coordinator.paragraphRangeProvider = paragraphRangeProvider

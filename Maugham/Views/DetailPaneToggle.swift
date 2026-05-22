@@ -71,13 +71,23 @@ struct DetailPaneToggle<Inspector: View>: View {
     @ViewBuilder
     private var segmentPicker: some View {
         Picker("Right pane", selection: $segment) {
-            Image(systemName: "info.circle").tag(DetailSegment.inspector)
-            Image(systemName: "checklist").tag(DetailSegment.annotations)
-            Image(systemName: "doc.text.magnifyingglass").tag(DetailSegment.research)
+            Image(systemName: "info.circle")
+                .tag(DetailSegment.inspector)
+                .help("Inspector — document metadata, tags, links (⌘⌥1)")
+            Image(systemName: "checklist")
+                .tag(DetailSegment.annotations)
+                .help("Annotations — review Claude's comments and suggested edits (⌘⌥A)")
+            Image(systemName: "doc.text.magnifyingglass")
+                .tag(DetailSegment.research)
+                .help("Linked Research — research notes attached to this document (⌘⌥2)")
             if !hideOutline {
-                Image(systemName: "list.bullet.indent").tag(DetailSegment.outline)
+                Image(systemName: "list.bullet.indent")
+                    .tag(DetailSegment.outline)
+                    .help("Outline — table or corkboard structure view (⌘⌥3)")
             }
-            Image(systemName: "clock.arrow.circlepath").tag(DetailSegment.history)
+            Image(systemName: "clock.arrow.circlepath")
+                .tag(DetailSegment.history)
+                .help("History — read-only timeline of edits, annotations, and checkpoints (⌘⌥4)")
                 .keyboardShortcut("4", modifiers: [.command, .option])
         }
         .pickerStyle(.segmented)

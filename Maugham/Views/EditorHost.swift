@@ -19,6 +19,11 @@ struct EditorHost: View {
     /// Called whenever the document text changes. ProjectWindow uses this
     /// to recompute live metrics for the inspector and goal indicator.
     var onTextChange: ((String) -> Void)? = nil
+    /// Called when the cursor's screenplay element changes. Delivers the gutter
+    /// abbreviation ("CHAR", "SCENE", "DLG", etc.) or nil in prose mode.
+    /// Default is a no-op; only the manuscript call site in ProjectWindow
+    /// supplies this. The research-note call site omits it.
+    var onElementChanged: (String?) -> Void = { _ in }
     var wikiLinkResolver: ((String) -> Bool)? = nil
     var wikiLinkClickResolver: ((String) -> String?)? = nil
     @Environment(UserPreferences.self) private var userPreferences
@@ -58,9 +63,25 @@ struct EditorHost: View {
                     // into Document. Document.setFullText writes displayText
                     // exactly once at the end (T6 invariant), which is what
                     // keeps the binding-loop race closed (harness test 8).
+                    //
+                    // After the text write, refresh the project-level word-
+                    // count cache and ping SessionTracker. The
+                    // document-first-class refactor (commit b37609a) lost
+                    // these call sites; without them session tracking and
+                    // project word count stay frozen at zero across the
+                    // entire app lifetime.
                     text: Binding(
                         get: { doc.displayText },
-                        set: { doc.setFullText($0) }
+                        set: { newText in
+                            doc.setFullText(newText)
+                            let count = WritingModeFactory.mode(for: path)
+                                .metrics(newText).wordCount
+                            store.recordWordCount(
+                                forDocumentId: doc.docId, wordCount: count)
+                            documentStore.recordSessionActivity(
+                                documentId: doc.docId,
+                                projectWordCount: store.projectWordCount)
+                        }
                     ),
                     theme: userPreferences.theme,
                     typography: ProjectStore.effectiveTypography(
@@ -72,6 +93,7 @@ struct EditorHost: View {
                     paragraphFocus: userPreferences.paragraphFocus,
                     initialCursorLocation: doc.cursorLocation,
                     onCursorChanged: { doc.cursorLocation = $0 },
+                    onElementChanged: onElementChanged,
                     wikiLinkResolver: wikiLinkResolver,
                     wikiLinkClickResolver: wikiLinkClickResolver,
                     showElementGutter: store.manifest.showElementGutter ?? true,

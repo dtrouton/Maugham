@@ -45,6 +45,7 @@ struct ProjectWindow: View {
     @State private var mcpBannerDismissTask: Task<Void, Never>?
     @State private var showingCheckpointLabelSheet: Bool = false
     @State private var showingBootstrapNotice: Bool = false
+    @State private var currentElement: String? = nil
     @Environment(UserPreferences.self) private var userPreferences
     @Environment(ProjectRegistry.self) private var mcpRegistry
     @Environment(\.openWindow) private var openWindow
@@ -616,26 +617,26 @@ struct ProjectWindow: View {
     }
 
     private var sessionWordsForFooter: Int {
-        // Reuse the same accessor that powers goalIndicatorState.wordsToday.
-        sessionLog.wordsToday()
+        // Net words added in the currently-active session. `sessionLog` only
+        // captures sessions that have ENDED (30-min idle timeout or app quit),
+        // so during an active session it's stale; pull the live delta from
+        // DocumentStore (which observes `lastKnownProjectWordCount` and so
+        // ticks as the user types).
+        documentStore?.liveSessionWordsNet ?? 0
     }
 
     private var sessionStartForFooter: Date? {
-        // SessionTracker.activeSession is private to DocumentStore;
-        // session-start wiring is a follow-up task.
-        nil
+        documentStore?.currentSessionStart
     }
 
     private var paragraphIdForFooter: String? {
-        // No @State for currentParagraphId exists on ProjectWindow today;
-        // selection-metadata wiring is a follow-up task.
-        nil
+        guard let store, let documentStore else { return nil }
+        return activeDocument(in: store, documentStore: documentStore)
+            .flatMap { $0.paragraphId(at: $0.cursorLocation) }
     }
 
     private var elementLabelForFooter: String? {
-        // No @State for currentElementLabel exists on ProjectWindow today;
-        // selection-metadata wiring is a follow-up task.
-        nil
+        currentElement
     }
 
     @ViewBuilder
@@ -681,6 +682,7 @@ struct ProjectWindow: View {
                 documentStore: documentStore,
                 selectedItemId: selectedItemId,
                 onTextChange: { text in updateMetrics(for: text) },
+                onElementChanged: { currentElement = $0 },
                 wikiLinkResolver: { title in
                     store.resolveDocumentId(forTitle: title) != nil
                 },
@@ -903,7 +905,8 @@ struct ProjectWindow: View {
             docWordTarget: docWordTarget,
             projectWordCount: store.projectWordCount,
             projectWordTarget: store.manifest.targets?.totalWords,
-            wordsToday: sessionLog.wordsToday(),
+            wordsToday: sessionLog.wordsToday()
+                + (documentStore?.liveSessionWordsNet ?? 0),
             readingMinutes: metrics.readingMinutes,
             pageCount: metrics.pageCount,
             pageTarget: store.manifest.type == .collection
