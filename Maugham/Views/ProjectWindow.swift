@@ -621,9 +621,7 @@ struct ProjectWindow: View {
     }
 
     private var sessionStartForFooter: Date? {
-        // SessionTracker.activeSession is private to DocumentStore;
-        // session-start wiring is a follow-up task.
-        nil
+        documentStore?.currentSessionStart
     }
 
     private var paragraphIdForFooter: String? {

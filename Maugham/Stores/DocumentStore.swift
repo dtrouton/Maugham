@@ -26,6 +26,14 @@ public final class DocumentStore {
     /// `recordSessionActivity(...)` and the idle timer below; flushed on
     /// app quit via `flushSessionOnQuit()`.
     private let sessionTracker = SessionTracker()
+
+    /// Start timestamp of the in-memory writing session, or nil if no
+    /// session is active. Consumed by the editor status footer to render
+    /// the session time range (e.g. `session 18:00–19:07`).
+    public var currentSessionStart: Date? {
+        sessionTracker.activeSession?.startedAt
+    }
+
     private var idleTimerToken: DispatchWorkItem?
     /// Snapshot of the most recent project-wide word count seen on a
     /// `recordSessionActivity` call. Used by `flushSessionOnQuit` so the

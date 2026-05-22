@@ -35,13 +35,16 @@ struct EditorStatusFooter: View {
 
     // MARK: - Pure formatters (testable)
 
+    nonisolated static let hhmmFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        return f
+    }()
+
     nonisolated static func leftLabel(sessionWords: Int, sessionStart: Date?) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
-        let now = Date()
-        let nowStr = formatter.string(from: now)
+        let nowStr = hhmmFormatter.string(from: Date())
         if let start = sessionStart {
-            let startStr = formatter.string(from: start)
+            let startStr = hhmmFormatter.string(from: start)
             return "\(sessionWords) words · session \(startStr)–\(nowStr)"
         }
         return "\(sessionWords) words this session"
