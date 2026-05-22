@@ -617,8 +617,12 @@ struct ProjectWindow: View {
     }
 
     private var sessionWordsForFooter: Int {
-        // Reuse the same accessor that powers goalIndicatorState.wordsToday.
-        sessionLog.wordsToday()
+        // Net words added in the currently-active session. `sessionLog` only
+        // captures sessions that have ENDED (30-min idle timeout or app quit),
+        // so during an active session it's stale; pull the live delta from
+        // DocumentStore (which observes `lastKnownProjectWordCount` and so
+        // ticks as the user types).
+        documentStore?.liveSessionWordsNet ?? 0
     }
 
     private var sessionStartForFooter: Date? {
@@ -901,7 +905,8 @@ struct ProjectWindow: View {
             docWordTarget: docWordTarget,
             projectWordCount: store.projectWordCount,
             projectWordTarget: store.manifest.targets?.totalWords,
-            wordsToday: sessionLog.wordsToday(),
+            wordsToday: sessionLog.wordsToday()
+                + (documentStore?.liveSessionWordsNet ?? 0),
             readingMinutes: metrics.readingMinutes,
             pageCount: metrics.pageCount,
             pageTarget: store.manifest.type == .collection
