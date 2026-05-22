@@ -42,7 +42,7 @@ final class BuildVariantTests: XCTestCase {
         XCTAssertTrue(BuildVariant.dev.mcpSocketPath.hasSuffix("Application Support/Maugham Dev/mcp.sock"))
     }
 
-    func test_currentIsStableInTestBuild() {
-        XCTAssertEqual(BuildVariant.current, .stable)
+    func test_currentIsDevInTestBuild() {
+        XCTAssertEqual(BuildVariant.current, .dev)
     }
 }
