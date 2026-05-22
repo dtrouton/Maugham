@@ -1,0 +1,16 @@
+{
+  "url": "https://api.github.com/repos/dtrouton/Maugham/releases/123",
+  "tag_name": "v0.2.0",
+  "name": "Maugham 0.2.0",
+  "body": "## What's new\n\n- Banner update flow\n- Manual Check for Updates menu\n\n## Fixes\n\n- nothing yet\n",
+  "draft": false,
+  "prerelease": false,
+  "assets": [
+    {
+      "name": "Maugham-0.2.0.dmg",
+      "browser_download_url": "https://github.com/dtrouton/Maugham/releases/download/v0.2.0/Maugham-0.2.0.dmg",
+      "size": 12345678,
+      "digest": "sha256:abcd1234"
+    }
+  ]
+}
