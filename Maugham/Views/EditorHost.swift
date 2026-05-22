@@ -19,6 +19,11 @@ struct EditorHost: View {
     /// Called whenever the document text changes. ProjectWindow uses this
     /// to recompute live metrics for the inspector and goal indicator.
     var onTextChange: ((String) -> Void)? = nil
+    /// Called when the cursor's screenplay element changes. Delivers the gutter
+    /// abbreviation ("CHAR", "SCENE", "DLG", etc.) or nil in prose mode.
+    /// Default is a no-op; only the manuscript call site in ProjectWindow
+    /// supplies this. The research-note call site omits it.
+    var onElementChanged: (String?) -> Void = { _ in }
     var wikiLinkResolver: ((String) -> Bool)? = nil
     var wikiLinkClickResolver: ((String) -> String?)? = nil
     @Environment(UserPreferences.self) private var userPreferences
@@ -72,6 +77,7 @@ struct EditorHost: View {
                     paragraphFocus: userPreferences.paragraphFocus,
                     initialCursorLocation: doc.cursorLocation,
                     onCursorChanged: { doc.cursorLocation = $0 },
+                    onElementChanged: onElementChanged,
                     wikiLinkResolver: wikiLinkResolver,
                     wikiLinkClickResolver: wikiLinkClickResolver,
                     showElementGutter: store.manifest.showElementGutter ?? true,

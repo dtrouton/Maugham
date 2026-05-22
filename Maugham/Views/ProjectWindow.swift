@@ -45,6 +45,7 @@ struct ProjectWindow: View {
     @State private var mcpBannerDismissTask: Task<Void, Never>?
     @State private var showingCheckpointLabelSheet: Bool = false
     @State private var showingBootstrapNotice: Bool = false
+    @State private var currentElement: String? = nil
     @Environment(UserPreferences.self) private var userPreferences
     @Environment(ProjectRegistry.self) private var mcpRegistry
     @Environment(\.openWindow) private var openWindow
@@ -625,15 +626,13 @@ struct ProjectWindow: View {
     }
 
     private var paragraphIdForFooter: String? {
-        // No @State for currentParagraphId exists on ProjectWindow today;
-        // selection-metadata wiring is a follow-up task.
-        nil
+        guard let store, let documentStore else { return nil }
+        return activeDocument(in: store, documentStore: documentStore)
+            .flatMap { $0.paragraphId(at: $0.cursorLocation) }
     }
 
     private var elementLabelForFooter: String? {
-        // No @State for currentElementLabel exists on ProjectWindow today;
-        // selection-metadata wiring is a follow-up task.
-        nil
+        currentElement
     }
 
     @ViewBuilder
@@ -679,6 +678,7 @@ struct ProjectWindow: View {
                 documentStore: documentStore,
                 selectedItemId: selectedItemId,
                 onTextChange: { text in updateMetrics(for: text) },
+                onElementChanged: { currentElement = $0 },
                 wikiLinkResolver: { title in
                     store.resolveDocumentId(forTitle: title) != nil
                 },
