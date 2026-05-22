@@ -99,6 +99,63 @@ final class EditorIntegrationHarness {
         }
     }
 
+    /// Secondary initializer for the real-Document harness variant. Accepts a
+    /// pre-built `Binding<String>` so the caller can wire the production-
+    /// equivalent setter (including `recordEditorTextWrite` side-effects) before
+    /// constructing the harness. `projectURL` and `docPath` are already on-disk;
+    /// `initialText` seeds the NSTextStorage only.
+    ///
+    /// Only `EditorIntegrationHarness.withRealDocument` should call this — use
+    /// the plain `init(mode:initialText:cursorLocation:)` for synthetic harnesses.
+    init(
+        mode: any WritingMode,
+        initialText: String,
+        projectURL: URL,
+        docPath: String,
+        boundText: Binding<String>
+    ) {
+        self.projectURL = projectURL
+        self.docPath = docPath
+        self.boundText = initialText  // local mirror; not used when external binding is live
+
+        let storage = NSTextStorage(string: initialText)
+        let layout = NSLayoutManager()
+        storage.addLayoutManager(layout)
+        let container = NSTextContainer(size: NSSize(width: 600, height: 600))
+        layout.addTextContainer(container)
+        let tv = NSTextView(
+            frame: NSRect(x: 0, y: 0, width: 600, height: 600),
+            textContainer: container)
+        tv.isEditable = true
+        tv.isRichText = false
+        tv.allowsUndo = true
+
+        let sv = NSScrollView(
+            frame: NSRect(x: 0, y: 0, width: 600, height: 600))
+        sv.documentView = tv
+        self.scrollView = sv
+        self.textView = tv
+
+        let win = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 600),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        win.contentView = sv
+        self.window = win
+
+        let coord = EditorCoordinator(
+            text: boundText,
+            mode: mode,
+            theme: .light, typography: .defaults,
+            typewriterScroll: false,
+            sentenceFocus: false, paragraphFocus: false)
+        tv.delegate = coord
+        coord.attach(to: tv)
+        self.coordinator = coord
+
+        tv.setSelectedRange(NSRange(
+            location: (initialText as NSString).length, length: 0))
+    }
+
     deinit {
         try? FileManager.default.removeItem(at: projectURL)
     }
@@ -192,5 +249,122 @@ final class EditorIntegrationHarness {
         XCTAssertEqual(after, before,
             "applyExternalText fired during user typing (\(after - before) times) — race condition",
             file: file, line: line)
+    }
+}
+
+// MARK: - Real-Document harness variant
+
+/// Wraps an `EditorIntegrationHarness` that is wired to a real `Document`
+/// and the production-equivalent binding setter (including the
+/// `recordEditorTextWrite` side-effects). Tests interact via `harness` and
+/// assert against `projectStore` / `documentStore`.
+///
+/// Only constructed via `EditorIntegrationHarness.withRealDocument(...)`.
+@MainActor
+final class RealDocumentHarness {
+    let harness: EditorIntegrationHarness
+    let projectStore: ProjectStore
+    let documentStore: DocumentStore
+    let document: Document
+    let docId: String
+    let projectURL: URL
+
+    fileprivate init(
+        harness: EditorIntegrationHarness,
+        projectStore: ProjectStore,
+        documentStore: DocumentStore,
+        document: Document,
+        docId: String,
+        projectURL: URL
+    ) {
+        self.harness = harness
+        self.projectStore = projectStore
+        self.documentStore = documentStore
+        self.document = document
+        self.docId = docId
+        self.projectURL = projectURL
+    }
+}
+
+extension EditorIntegrationHarness {
+
+    /// Builds a harness wired to a real `Document` and the production-equivalent
+    /// binding setter — the same closure `EditorHost` installs — so tests can
+    /// assert end-to-end that typing produces the `recordEditorTextWrite`
+    /// side-effects (project word count refresh, session start,
+    /// `liveSessionWordsNet` accumulation).
+    ///
+    /// Tests interact via `RealDocumentHarness.harness.typeString(...)` and
+    /// assert against the public properties on `projectStore` / `documentStore`.
+    @MainActor
+    static func withRealDocument(
+        mode: any WritingMode = ProseMode(),
+        initialText: String = ""
+    ) async throws -> RealDocumentHarness {
+        // Build a real project on disk via ProjectFactory.
+        let tempDir = TempDirectory()
+        let projectURL = try await ProjectFactory.createNovelProject(
+            named: "EIH-RD-\(UUID().uuidString.prefix(8))",
+            in: tempDir.url)
+
+        let projectStore = try await ProjectStore.load(from: projectURL)
+        let documentStore = try await DocumentStore.open(url: projectURL)
+
+        // Locate the single document item in the manifest.
+        guard let item = projectStore.manifest.structure
+            .first(where: { $0.type == .document }),
+              let docPath = item.path else {
+            throw NSError(domain: "EditorIntegrationHarness",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey:
+                    "ProjectFactory novel has no document item in manifest"])
+        }
+
+        let docId = item.id
+        let docURL = projectURL.appendingPathComponent(docPath)
+
+        // If initialText is non-empty, write it to disk before loading the
+        // Document so Bootstrap sees it and mints ¶id anchors for it.
+        if !initialText.isEmpty {
+            try initialText.data(using: .utf8)!.write(to: docURL, options: .atomic)
+        }
+
+        let document = try await Document.load(
+            url: docURL,
+            device: "test-device",
+            session: "test-session",
+            presenter: documentStore.presenter)
+        documentStore.register(document: document, for: docPath)
+
+        // Build the production-equivalent binding setter. This mirrors the
+        // closure EditorHost installs at EditorHost.swift line 66–75 exactly.
+        // Capturing `document`, `documentStore`, `projectStore`, and `docPath`
+        // by value is safe — they're reference types / value types that outlive
+        // the harness.
+        let binding = Binding<String>(
+            get: { document.displayText },
+            set: { newText in
+                document.setFullText(newText)
+                documentStore.recordEditorTextWrite(
+                    documentId: document.docId,
+                    newText: newText,
+                    mode: WritingModeFactory.mode(for: docPath),
+                    store: projectStore)
+            })
+
+        let harness = EditorIntegrationHarness(
+            mode: mode,
+            initialText: document.displayText,
+            projectURL: projectURL,
+            docPath: docPath,
+            boundText: binding)
+
+        return RealDocumentHarness(
+            harness: harness,
+            projectStore: projectStore,
+            documentStore: documentStore,
+            document: document,
+            docId: docId,
+            projectURL: projectURL)
     }
 }
