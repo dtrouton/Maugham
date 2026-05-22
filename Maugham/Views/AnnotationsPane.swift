@@ -124,6 +124,7 @@ struct AnnotationsPane: View {
             AdaptiveFilterRow(
                 items: KindOption.allCases,
                 selection: $kindFilter)
+                .layoutPriority(1)
             Spacer(minLength: 4)
             Button {
                 showResolved.toggle()

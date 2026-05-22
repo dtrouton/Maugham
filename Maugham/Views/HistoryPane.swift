@@ -229,6 +229,7 @@ struct HistoryPane: View {
             AdaptiveFilterRow(
                 items: HistoryFilter.allCases,
                 selection: $filter)
+                .layoutPriority(1)
             Spacer(minLength: 4)
             Button {
                 NotificationCenter.default.post(
