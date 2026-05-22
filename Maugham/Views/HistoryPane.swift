@@ -31,7 +31,7 @@ public enum HistoryEntry: Identifiable {
     }
 }
 
-public enum HistoryFilter: String, CaseIterable, Identifiable {
+public enum HistoryFilter: String, CaseIterable, Identifiable, FilterRowItem {
     case all, checkpoints, edits, annotations, external
 
     public var id: String { rawValue }
@@ -42,6 +42,16 @@ public enum HistoryFilter: String, CaseIterable, Identifiable {
         case .edits: return "Edits"
         case .annotations: return "Annotations"
         case .external: return "External"
+        }
+    }
+
+    public var symbolName: String {
+        switch self {
+        case .all: return "circle"           // unused (kept-short)
+        case .checkpoints: return "flag.fill"
+        case .edits: return "pencil"
+        case .annotations: return "bubble.left"
+        case .external: return "arrow.down.left"
         }
     }
 
@@ -186,6 +196,7 @@ struct HistoryPane: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .task { await reload() }
         .onChange(of: activeDocId) { _, _ in Task { await reload() } }
         .onReceive(NotificationCenter.default.publisher(for: .maughamCheckpointAdded)) { _ in
@@ -215,26 +226,22 @@ struct HistoryPane: View {
     @ViewBuilder
     private var filterToolbar: some View {
         HStack(spacing: 6) {
-            ForEach(HistoryFilter.allCases) { f in
-                Button(f.label) { filter = f }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 8).padding(.vertical, 2)
-                    .background(f == filter
-                        ? Color.secondary.opacity(0.3) : Color.clear)
-                    .clipShape(Capsule())
-                    .font(.caption)
-            }
-            Spacer()
+            AdaptiveFilterRow(
+                items: HistoryFilter.allCases,
+                selection: $filter)
+                .layoutPriority(1)
+            Spacer(minLength: 4)
             Button {
                 NotificationCenter.default.post(
                     name: .maughamOpenRewind,
                     object: projectURL,
                     userInfo: [:])
             } label: {
-                Label("Rewind…", systemImage: "clock.arrow.circlepath")
+                Image(systemName: "clock.arrow.circlepath")
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
+            .help("Rewind…")
             .disabled(ops.isEmpty || (ops.count == 1 && ops[0].kind == .bootstrap))
         }
         .padding(.horizontal, 8).padding(.vertical, 6)
@@ -566,3 +573,4 @@ private struct HistoryRow: View {
         }
     }
 }
+

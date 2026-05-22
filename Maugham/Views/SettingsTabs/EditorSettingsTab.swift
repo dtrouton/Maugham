@@ -61,7 +61,7 @@ struct EditorSettingsTab: View {
                 Text("Sentence focus, when on, takes precedence over paragraph focus.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Toggle("Show goal indicators",
+                Toggle("Show editor status bar",
                        isOn: $themeManager.goalIndicatorsVisible)
             }
         }

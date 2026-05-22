@@ -588,18 +588,54 @@ struct ProjectWindow: View {
     private func contentColumn(
         store: ProjectStore, documentStore: DocumentStore
     ) -> some View {
-        ZStack(alignment: .bottomTrailing) {
-            editorPane(store: store, documentStore: documentStore)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if userPreferences.goalIndicatorsVisible
-               && (binderSegment == .manuscript || binderSegment == .scenes) {
-                GoalIndicatorView(state: goalIndicatorState)
+        editorPane(store: store, documentStore: documentStore)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if shouldShowStatusFooter {
+                    EditorStatusFooter(
+                        goalState: goalIndicatorState,
+                        sessionWords: sessionWordsForFooter,
+                        sessionStart: sessionStartForFooter,
+                        paragraphId: paragraphIdForFooter,
+                        elementLabel: elementLabelForFooter)
+                }
             }
+            .safeAreaInset(edge: .top) {
+                conflictBanner(documentStore: documentStore)
+            }
+            .navigationSplitViewColumnWidth(min: 480, ideal: 720)
+    }
+
+    private var shouldShowStatusFooter: Bool {
+        guard userPreferences.goalIndicatorsVisible else { return false }
+        guard binderSegment == .manuscript || binderSegment == .scenes else {
+            return false
         }
-        .safeAreaInset(edge: .top) {
-            conflictBanner(documentStore: documentStore)
-        }
-        .navigationSplitViewColumnWidth(min: 480, ideal: 720)
+        if isNoChromeOn { return false }
+        return true
+    }
+
+    private var sessionWordsForFooter: Int {
+        // Reuse the same accessor that powers goalIndicatorState.wordsToday.
+        sessionLog.wordsToday()
+    }
+
+    private var sessionStartForFooter: Date? {
+        // SessionTracker.activeSession is private to DocumentStore;
+        // session-start wiring is a follow-up task.
+        nil
+    }
+
+    private var paragraphIdForFooter: String? {
+        // No @State for currentParagraphId exists on ProjectWindow today;
+        // selection-metadata wiring is a follow-up task.
+        nil
+    }
+
+    private var elementLabelForFooter: String? {
+        // No @State for currentElementLabel exists on ProjectWindow today;
+        // selection-metadata wiring is a follow-up task.
+        nil
     }
 
     @ViewBuilder

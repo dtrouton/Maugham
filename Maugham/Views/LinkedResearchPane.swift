@@ -12,6 +12,7 @@ struct LinkedResearchPane: View {
             Divider()
             content
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .sheet(isPresented: $showingLinkPicker) {
             if let docId = activeDocumentId {
                 ResearchLinkPickerSheet(store: store, documentId: docId)
@@ -73,6 +74,7 @@ struct LinkedResearchPane: View {
             } description: {
                 Text("Select a chapter or scene to see its linked research")
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -94,6 +96,7 @@ struct LinkedResearchPane: View {
                 } description: {
                     Text("Drag research items here, or use the + button.")
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List {
                     ForEach(items) { item in
