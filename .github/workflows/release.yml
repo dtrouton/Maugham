@@ -58,9 +58,12 @@ jobs:
             -configuration Release build CODE_SIGNING_ALLOWED=NO
 
       - name: Test
+        # Tests run in Debug — the scheme's Test action only builds the test
+        # target in Debug. The Release build step above already verifies the
+        # Release-config code path compiles cleanly.
         run: |
           xcodebuild -project Maugham.xcodeproj -scheme Maugham \
-            -configuration Release test CODE_SIGNING_ALLOWED=NO \
+            test CODE_SIGNING_ALLOWED=NO \
             -resultBundlePath TestResults.xcresult
 
       - name: Locate built app
