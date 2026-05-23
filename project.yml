@@ -26,7 +26,8 @@ targets:
     info:
       path: Maugham/Info.plist
       properties:
-        CFBundleDisplayName: Maugham
+        CFBundleDisplayName: $(MAUGHAM_DISPLAY_NAME)
+        CFBundleName: $(MAUGHAM_DISPLAY_NAME)
         CFBundleShortVersionString: "0.0.0-dev"
         CFBundleVersion: "1"
         LSMinimumSystemVersion: "14.0"
@@ -41,8 +42,10 @@ targets:
         Debug:
           PRODUCT_BUNDLE_IDENTIFIER: com.maugham.Maugham.dev
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) MAUGHAM_DEV_BUILD
+          MAUGHAM_DISPLAY_NAME: Maugham Dev
         Release:
           PRODUCT_BUNDLE_IDENTIFIER: com.maugham.Maugham
+          MAUGHAM_DISPLAY_NAME: Maugham
     resources:
       - path: Maugham/Resources
         includes:
