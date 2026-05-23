@@ -123,7 +123,8 @@ Reliability the writer doesn't think about until it bites. Not glamorous, but ea
 - • Performance pass — long-haul project simulation (100k words, 30 chapters): editor responsiveness, Project Statistics, cross-document operations stay O(scale)-aware.
 
 **Distribution & onboarding:**
-- • App icon, version stamping, code-signing, notarization, auto-update — without this, Maugham is "the thing that runs in Xcode"
+- ✓ Production release pipeline (2026-05-23) — first installable Maugham as a `.dmg` from GitHub Releases + Tier 1.5 auto-update (silent background download, banner nudge on each ProjectWindow, state-derived **Maugham → Check for Updates…** menu hosted as a separate Window scene) + tag-triggered CI on `macos-15` with `latest-stable` Xcode + scripts/cut-release.sh local pre-flight + dev/stable variant coexistence (`BuildVariant.current` enum drives bundle id, display name, support folder, MCP socket path, Claude Desktop config key, MCP `serverInfo.name`, and updater on/off — Debug builds run as `Maugham Dev` at `com.maugham.Maugham.dev` with their own state and their own `maugham-dev` MCP entry). Version is tag-derived (CI rewrites `CFBundleShortVersionString` from the tag). Tag `milestone-production-release`; v0.2.0/0.2.1/0.2.2 cut through the pipeline (four shakedown bugs caught + fixed); 873 tests passing.
+- • **Code-signing & notarization (Path A)** — currently builds are ad-hoc / unsigned so each downloaded `.dmg` needs right-click → Open on first launch. Spec §3.5 documents this as a ~30-min CI flip once an Apple Developer Program enrollment exists; updater code is unchanged when flipped.
 - • Welcome experience for new writers / future-you on a new Mac — clearer New Project sheet, better empty states, walkthrough
 - • Project templates — Three-Act Novel, Hero's Journey, Short Story, etc.; pairs with distribution since templates are onboarding-flavored
 
