@@ -81,7 +81,11 @@ jobs:
         run: |
           VERSION="${{ steps.ver.outputs.version }}"
           mkdir -p /tmp/dmg-root
-          cp -R "${{ steps.locate.outputs.app_path }}" /tmp/dmg-root/
+          # ditto preserves macOS bundle metadata (extended attributes, resource
+          # forks, ACLs) that plain `cp -R` strips — important for app bundles
+          # to survive the staging→dmg→install round trip with correct
+          # appearance + asset rendering.
+          ditto "${{ steps.locate.outputs.app_path }}" "/tmp/dmg-root/Maugham.app"
           ln -s /Applications /tmp/dmg-root/Applications
           hdiutil create -volname Maugham -srcfolder /tmp/dmg-root -ov -format UDZO \
             "Maugham-${VERSION}.dmg"
