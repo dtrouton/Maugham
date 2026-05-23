@@ -241,6 +241,15 @@ struct MaughamApp: App {
             SettingsView()
                 .environment(userPreferences)
         }
+
+        // "Check for Updates…" surface. Hosted as its own Window because a
+        // `.sheet(isPresented:)` attached to a Button inside a `Commands` body
+        // has no view-hierarchy host and silently no-ops.
+        Window("Check for Updates", id: updateWindowID) {
+            UpdateWindowContent()
+        }
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
     }
 
     @MainActor
