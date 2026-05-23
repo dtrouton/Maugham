@@ -20,8 +20,10 @@ final class SynthesisSourceMigrationTests: XCTestCase {
           }
         }
         """#.data(using: .utf8)!
+        // Use the production date strategy so the test stays faithful to how
+        // op logs are actually read from disk (fractional-second tolerant).
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = JSONLAppendStore<Op>.dateDecoding
         let op = try decoder.decode(Op.self, from: json)
         XCTAssertEqual(op.provenance?.synthesisSource, .paragraphDeleted)
     }
@@ -37,10 +39,10 @@ final class SynthesisSourceMigrationTests: XCTestCase {
             sequence: ["aabb"],
             provenance: .init(sourceCheckpoint: "01PASTOP00000000000000000A", synthesisSource: .rewind))
         let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
+        encoder.dateEncodingStrategy = JSONLAppendStore<Op>.dateEncoding
         let data = try encoder.encode(original)
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = JSONLAppendStore<Op>.dateDecoding
         let round = try decoder.decode(Op.self, from: data)
         XCTAssertEqual(round.provenance?.synthesisSource, .rewind)
     }
