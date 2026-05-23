@@ -61,6 +61,12 @@ Daily-writing improvements. Reduces friction in the surface you spend hours in.
 **Right-pane onboarding polish (carry-forward from the editing milestone):**
 - • Annotations vs History pane onboarding affordance — they're sibling right-pane segments with opposite affordances (Annotations = action surface with Accept/Reject/Archive buttons; History = read-only forensic log). Today the segment-picker icons read as a generic "right pane mode" picker without communicating the difference, which led to real confusion during editing-milestone testing. Smallest fix: tooltips on the segment icons. Bigger fix: empty-state hints that point across ("looking for action buttons? Press ⌘⌥A").
 
+**Author's IDE — analytical layers (tracking, lookup, lint):**
+
+A new arc of "code-tool-style" author surfaces. Each layer is structured author-owned side-data anchored to paragraph IDs, surfaced as a right-pane mode, op-log derived, and MCP-readable. Tasks ships first as the pathfinder; symbol DB / lint / writing analytics reuse the same architectural shape.
+
+- • **Tasks — the issue-tracker layer** — unified task surface combining three capture paths: inline `- [ ]` markdown checkboxes in any `.md`, Fountain `[[todo: …]]` / `[[done: …]]` boneyards in `.fountain`, and pane-created tasks (no text representation, ops only). One right-pane segment (⌘⌥5) with **Document / Project** scope filter, status filter (Open / Done / Archived / All), drag-and-drop **priority** reorder (rewindable, ops), single-level parent/child nesting (drag-to-nest), in-pane checkbox toggle that **rewrites the underlying text** for inline tasks, click-row-to-navigate, and `+ New task` for pane-created entries. MCP read-only (`list_tasks` / `get_task`). Pathfinder establishes the typed cross-area seam (`TaskKind` / `TaskStatus` / `TaskAnchor`), the op-log derivation pattern (mirrors `AnnotationDeriver`), the synthetic `__project__` doc-id approach for project-scope ops, and the editor-side clickable-checkbox interaction that future analytical layers can reuse.
+
 ---
 
 ## Group 2 — Claude integration
@@ -142,6 +148,7 @@ Considered and explicitly de-prioritized. Each gets a fresh brainstorm if/when p
 
 ## Sequencing notes
 
+- **Group 1's Tasks milestone** is the pathfinder for the analytical-layer arc and an immediately-useful daily-flow improvement; pickable independent of Phase 4a. The three subsequent layers (symbol DB, lint, writing analytics) are not on the roadmap yet — each gets a fresh brainstorm once Tasks is live and the shape is proven.
 - **Group 1's screenplay intelligence (Phase 4a)** is the natural next drafting-flow milestone — picks up the inline-autocomplete and slugline-reuse work that was carry-forwarded from 3b/3c.
 - **Group 2's manuscript-edit loop is closed** as of the editing milestone (2026-05-19): Claude can propose via the annotation layer; the writer disposes via the AnnotationsPane. The next AI-assist milestones are pickable in any order — Handwritten note import reuses the proposal/approval UX from the editing milestone, so it's the most natural follow-up if AI assist is the priority.
 - **Group 3 (Compile)** is the "I want to send this to my agent" feature. Premature while still drafting; pick it up when there's something to ship.
