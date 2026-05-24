@@ -2,6 +2,8 @@
 
 **Status:** Approved 2026-05-23 by user, ready for implementation planning.
 
+> **Naming note (added post-Task-1):** The public Swift type is `WriterTask`, not `Task`. Swift's `_Concurrency.Task` is referenced ubiquitously in this codebase (`Task { ... }`, `Task.sleep`, `Task<Void, Never>`); a top-level `Task` type would shadow it module-wide. All references to `Task` in this spec below — `public struct Task`, `[Task]`, `-> Task`, `Task(...)` constructors — should be read as `WriterTask`. Compound names (`TaskKind`, `TaskStatus`, `TaskAnchor`, `TaskFilter`, `TaskDeriver`, etc.) and Op-related identifiers (`.taskCreate`, `taskId`, `taskBody`, etc.) are unchanged.
+
 **Goal:** Ship a unified task-tracking surface that combines three capture paths into one right-pane segment: inline `- [ ]` markdown checkboxes in any `.md`, Fountain `[[todo: …]]` boneyards in `.fountain`, and pane-created tasks with no text representation. Drag-and-drop priority reorder (rewindable), in-pane status toggle that rewrites the underlying text for inline tasks, single-level parent/child nesting, two scope filters (Document / Project), MCP read-only access.
 
 **Why now:** The writer wants to record todos *in place* while drafting, not just in a separate list app. Inline checkboxes are the natural carrier (no context-switch out of writing); the list view is the triage / prioritization / progress surface. This is also the **pathfinder** for the "Author's IDE — analytical layers" arc on the roadmap: it teaches the architectural shape — structured author-owned side-data anchored to paragraph IDs, op-log derived, surfaced as a right-pane mode, MCP-readable — that the next layers (symbol DB, lint, writing analytics) will reuse.
