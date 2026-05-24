@@ -104,6 +104,32 @@ public final class Document {
 
     /// Hot-path check whether any of the seven annotation-related OpKinds
     /// has ever been observed on this document. Reads the cached flag.
+    /// Whether a paragraph-text delta touches inline-task markup. Used to
+    /// gate the tasks-cache invalidation fast path so non-checkbox typing
+    /// stays off the observable-write hot loop (annotation cache + sweep
+    /// pay the same observation cost and are intentionally deferred to
+    /// burst flush — see setFullText note for the AttributeGraph cycle /
+    /// reentrant-layout history). Two markup syntaxes count:
+    ///
+    /// - Markdown `- [ ]` / `- [x]` (3-char bracket glyph)
+    /// - Fountain `[[todo: …]]` / `[[done: …]]`
+    ///
+    /// True when either prior or next text contains a checkbox/todo
+    /// marker — covers add, remove, and toggle equally. Cheap substring
+    /// scan; no regex needed because the body-hash deriver re-runs on
+    /// the cache rebuild anyway.
+    private static func changeTouchesTaskMarkup(
+        prior: String?, next: String?
+    ) -> Bool {
+        func hasMarkup(_ s: String) -> Bool {
+            return s.contains("- [ ]") || s.contains("- [x]")
+                || s.contains("[[todo:") || s.contains("[[done:")
+        }
+        if let p = prior, hasMarkup(p) { return true }
+        if let n = next, hasMarkup(n) { return true }
+        return false
+    }
+
     private static func isAnnotationOpKind(_ kind: OpKind) -> Bool {
         switch kind {
         case .claudeComment, .claudeSuggestion, .claudeQuery, .claudeCraftNote,
@@ -197,11 +223,20 @@ public final class Document {
         var ops = try await opStore.load(docId: docId)
 
         // Crash recovery: fold any pending changes into a real op.
+        // Capture sequence from the parsed .md — autosave wrote the .md
+        // after the last burst flushed, so its paragraph anchor ordering
+        // is more current than the op log's last-explicit sequence. Without
+        // this the recovered op leaves sequence at whatever the last
+        // bursted op said (often a stale shape from before the user split
+        // / inserted paragraphs), which strands new paragraph ids out of
+        // sequence and collapses displayText to the stale ordering.
         if !pending.isEmpty() {
+            let recoveredSequence = parsed.compactMap(\.id)
             let recovered = Op(
                 opId: ULID.generate(), docId: docId, at: Date(),
                 device: device, session: session, kind: .typingBurst,
-                changes: pending.snapshot())
+                changes: pending.snapshot(),
+                sequence: recoveredSequence.isEmpty ? nil : recoveredSequence)
             try await opStore.append(recovered)
             try await pending.clear()
             ops.append(recovered)
@@ -261,6 +296,39 @@ public final class Document {
                 initial = Deriver.DerivedState(
                     paragraphs: initial.paragraphs,
                     sequence: Array(initial.paragraphs.keys))
+            }
+        }
+
+        // 3. Stale-sequence recovery. The op log's last explicit sequence
+        //    may predate paragraph splits / inserts that autosave wrote
+        //    to .md but the typing burst never captured (e.g., crash
+        //    before flush, or the legacy crash-recovery path above prior
+        //    to its sequence fix). When the parsed .md contains anchored
+        //    paragraph ids that are NOT in `initial.sequence`, the .md is
+        //    the more current source — trust its ordering.
+        //
+        //    Also drop orphan entries from `paragraphs` whose ids the
+        //    new (parsed) sequence doesn't reference. Leaving them in
+        //    place pollutes `tasks(filter:)` (the deriver walks every
+        //    paragraph in `paragraphs`, not just those in `sequence`)
+        //    with stale inline-task derivations.
+        let parsedIds = parsed.compactMap(\.id)
+        if !parsedIds.isEmpty {
+            let parsedIdSet = Set(parsedIds)
+            let sequenceIdSet = Set(initial.sequence)
+            let parsedHasIdsNotInSequence = !parsedIdSet.isSubset(of: sequenceIdSet)
+            let sequenceHasIdsNotInParsed = !sequenceIdSet.isSubset(of: parsedIdSet)
+            if parsedHasIdsNotInSequence || sequenceHasIdsNotInParsed {
+                var freshParagraphs: [String: String] = [:]
+                for p in parsed {
+                    guard let id = p.id else { continue }
+                    // Prefer the op log's text if the op log knows this id
+                    // (it may carry edits autosave hasn't redrawn yet);
+                    // fall back to the parsed text otherwise.
+                    freshParagraphs[id] = initial.paragraphs[id] ?? p.text
+                }
+                initial = Deriver.DerivedState(
+                    paragraphs: freshParagraphs, sequence: parsedIds)
             }
         }
         let lastWritten = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
@@ -683,6 +751,21 @@ public final class Document {
             autosaveScheduler.schedule(())
         }
 
+        // Inline-task fast path. Tasks pane reactivity expects "type
+        // `- [ ]` → row appears" within a keystroke or two. Without this,
+        // the cache only invalidates on burst flush (30s idle), so newly
+        // typed checkboxes don't surface until the user idles or switches
+        // documents. Scan only the affected paragraph deltas — non-
+        // checkbox typing stays off the observable-write hot loop per
+        // the annotation-storm reasoning above.
+        let touchesTasks = changes.contains { change in
+            Self.changeTouchesTaskMarkup(
+                prior: change.prior, next: change.next)
+        }
+        if touchesTasks {
+            invalidateTasksCache()
+        }
+
         // Intentionally NO per-keystroke annotation work here. Earlier
         // attempts to invalidate the annotation cache and schedule a sweep
         // on every keystroke created an observable-write storm: AnnotationsPane
@@ -726,6 +809,16 @@ public final class Document {
         paragraphs[id] = text
         burstScheduler.recordActivity()
         autosaveScheduler.schedule(())
+        // Inline tasks are derived from paragraph text. The pane checkbox
+        // click handler routes through here for status flips, and writers
+        // expect the pane to refresh immediately — not at the 30s burst
+        // boundary. Cheap guard: only invalidate when checkbox markup is
+        // actually touched, keeping non-checkbox typing off the
+        // observable-write hot path (see setFullText note for the cycle
+        // /reentrant-layout history).
+        if Self.changeTouchesTaskMarkup(prior: prior, next: text) {
+            invalidateTasksCache()
+        }
         recomputeDisplayText()
     }
 
