@@ -64,6 +64,69 @@ public final class ProjectStore {
     public internal(set) var searchInProgress: Bool = false
     var searchTask: Task<Void, Never>?
 
+    // MARK: - Project-scope task state (milestone-tasks)
+    //
+    // Cross-project task aggregation cache + the sync mirror of
+    // `.maugham/ops/__project__.jsonl`. Implementation lives in
+    // `ProjectStore+Tasks.swift`; stored properties must live on the class
+    // body because `@Observable` extensions can't synthesize storage.
+    // See `docs/superpowers/specs/2026-05-23-tasks-design.md` §9.
+
+    /// Sync mirror of the project-scope op log. Read-after-write within the
+    /// same actor sees the latest state; the disk append is fire-and-forget
+    /// (mirrors the per-doc task append pattern from Task 3).
+    internal var _projectOpLogMirror: [Op] = []
+
+    /// Set to true once the project op log has been loaded from disk (or
+    /// the first append fires, whichever comes first). Lazy load on first
+    /// `listTasksAcrossProject` / `projectTasksOpLog` call.
+    internal var _projectOpLogLoaded: Bool = false
+
+    /// Version counter for the project op log. Bumped on every append.
+    /// Part of the cross-project cache key per spec §9.5.
+    internal var _projectLogVersion: Int = 0
+
+    /// Cross-project task derivation cache. Invalidated when the cache key
+    /// changes (per-doc tasksVersion sum + closed-doc op-log mtime hash sum
+    /// + project log version).
+    internal var _projectTasksCache: [WriterTask] = []
+    internal var _projectTasksCacheKey: ProjectTasksCacheKey? = nil
+
+    /// SwiftUI-observable version token. Bumped on every append and on every
+    /// rebuild. The pane in Task 8 binds to this. Mutation is only via
+    /// `bumpProjectTasksVersion()` so the set surface is auditable.
+    public internal(set) var projectTasksVersion: Int = 0
+
+    internal func bumpProjectTasksVersion() {
+        projectTasksVersion &+= 1
+    }
+
+    /// Stable device + session identifiers for project-scope ops. The
+    /// per-Document `device` / `session` are not visible here, and project
+    /// ops live in a separate log anyway, so we mint our own per-instance.
+    /// `@ObservationIgnored` because these are computed-once internal
+    /// identifiers, never observed by SwiftUI.
+    @ObservationIgnored internal var projectOpDevice: String = {
+        let name = ProcessInfo.processInfo.hostName
+        return name.isEmpty ? "unknown-host" : name
+    }()
+    @ObservationIgnored internal var projectOpSession: String = UUID().uuidString
+
+    #if DEBUG
+    /// Debug counter for cache-rebuild tests. Increments every time the
+    /// cross-project derivation actually runs. A hit on the cache key leaves
+    /// this unchanged.
+    internal var _debugTasksRebuildCount: Int = 0
+    #endif
+
+    /// Cache-key struct kept on the class so the extension can read/write it.
+    /// Two keys with identical fields compare equal; that's how the cache
+    /// short-circuits.
+    public struct ProjectTasksCacheKey: Equatable {
+        let perDocVersionSum: Int
+        let projectLogVersion: Int
+    }
+
     private init(
         url: URL,
         manifest: ProjectManifest,

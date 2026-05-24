@@ -21,6 +21,7 @@ The persistence and coordination layer: project structure, documents, recents, s
   - `ProjectStore+References.swift` — Collection project-references (Mac-local)
   - `ProjectStore+WikiLink.swift` — `[[…]]` resolution and rename propagation
   - `ProjectStore+Search.swift` — search across the binder
+  - `ProjectStore+Tasks.swift` — project-scope pane-created tasks + cross-project task aggregation
 - `DocumentStore.swift` — project-folder coordinator + Document registry. Owns the NSFilePresenter, manifest IO, session tracking, UI state, rename/copy/move orchestration. Per-doc op-log, autosave, conflict-detection, and echo guard now live on `Document` (post-`milestone-document-first-class`); this file routes external presenter callbacks to the matching Document via the registry.
 - `MaughamSidecarPath.swift` — typed classification of project-relative file URLs into manifest / opLog / checkpoints / sessions / uiState / conflictBackup / scratch / trash / unknownSidecar / otherProjectFile / outsideProject. `presenterDidChangeSubitem` dispatches via a switch on this enum — adding a new sidecar owner is a compile-error workflow. See [ADR 0010](../../docs/adr/0010-typed-cross-area-seams.md).
 - `DebounceScheduler.swift`, `RecentsStore.swift`, `SessionLog.swift`, `TrashStore.swift` — small focused stores, well-bounded. **Use these as the model** for new stores; don't model new things after `ProjectStore`'s size.
@@ -40,6 +41,7 @@ Everything derived lives under `.maugham/` in the project folder. Each subdirect
 | `.maugham/ui-state/` | `ProjectStore` (UI extension) | Window position, last-opened doc, cursor restore |
 | `.maugham/scratch/` | Various | Transient writes; safe to nuke |
 | `.maugham/trash/` | `TrashStore` | 30-day soft-delete; sweep on app launch |
+| `.maugham/ops/__project__.jsonl` | `ProjectStore+Tasks` | Reserved synthetic doc id for project-scope pane-created tasks (milestone-tasks). The op log is real but no manuscript backs it. **Do not allocate a real document with id `__project__`.** |
 
 Don't invent new top-level subdirs without a reason. If you need a new one, the convention is: lowercase noun, plural if it's a collection of records.
 

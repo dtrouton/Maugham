@@ -469,6 +469,17 @@ public final class DocumentStore {
     public func document(forDocId docId: String) -> Document? {
         openDocuments.values.first(where: { $0.docId == docId })
     }
+
+    /// All currently-open `Document` instances. Used by `ProjectStore` for
+    /// cross-project task aggregation (it sums their `tasksVersion`s into
+    /// the aggregation cache key, and calls `tasks(filter:)` on each).
+    /// Closed documents are out-of-scope for this read — their inline tasks
+    /// only surface after the user opens the doc. Pane-created project-scope
+    /// tasks live in `.maugham/ops/__project__.jsonl` and are read via
+    /// `ProjectStore.projectTasksOpLog()` instead.
+    public func allOpenDocuments() -> [Document] {
+        Array(openDocuments.values)
+    }
 }
 
 extension DocumentStore: ProjectFolderPresenterDelegate {
