@@ -110,7 +110,9 @@ public enum Deriver {
              .checkpointRestore, .claudeAccept:
             return true
         case .checkpoint, .claudeSuggestion, .claudeComment,
-             .claudeQuery, .claudeCraftNote, .claudeReject, .claudeArchive:
+             .claudeQuery, .claudeCraftNote, .claudeReject, .claudeArchive,
+             .taskCreate, .taskStatusChange, .taskPriorityChange,
+             .taskParentChange, .taskBodyEdit, .taskArchive:
             return false
         }
     }

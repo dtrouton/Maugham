@@ -369,7 +369,9 @@ private struct HistoryRow: View {
         case .typingBurst, .externalEdit, .claudeAccept, .checkpointRestore:
             return true
         case .bootstrap, .checkpoint, .claudeComment, .claudeSuggestion,
-             .claudeQuery, .claudeCraftNote, .claudeReject, .claudeArchive:
+             .claudeQuery, .claudeCraftNote, .claudeReject, .claudeArchive,
+             .taskCreate, .taskStatusChange, .taskPriorityChange,
+             .taskParentChange, .taskBodyEdit, .taskArchive:
             return false
         }
     }
@@ -456,6 +458,13 @@ private struct HistoryRow: View {
                     .font(.caption).foregroundStyle(.secondary)
             case .checkpoint, .checkpointRestore, .bootstrap:
                 EmptyView()
+            case .taskCreate, .taskStatusChange, .taskPriorityChange,
+                 .taskParentChange, .taskBodyEdit, .taskArchive:
+                if let body = op.provenance?.taskBody {
+                    Text(body).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                } else {
+                    EmptyView()
+                }
             }
         case .checkpoint(let cp):
             Text("\(cp.manuscriptWordCount) words · \(cp.label)")
@@ -530,6 +539,12 @@ private struct HistoryRow: View {
                 return op.provenance?.synthesisSource == .rewind
                     ? "Rewound" : "Reverted"
             case .bootstrap: return "Initial"
+            case .taskCreate: return "Task created"
+            case .taskStatusChange: return "Task status"
+            case .taskPriorityChange: return "Task reorder"
+            case .taskParentChange: return "Task nested"
+            case .taskBodyEdit: return "Task edited"
+            case .taskArchive: return "Task archived"
             }
         case .checkpoint:
             return "Checkpoint"
@@ -550,6 +565,9 @@ private struct HistoryRow: View {
             case .externalEdit: return "arrow.down.doc"
             case .checkpoint, .checkpointRestore: return "flag"
             case .bootstrap: return "circle.dashed"
+            case .taskCreate, .taskStatusChange, .taskPriorityChange,
+                 .taskParentChange, .taskBodyEdit, .taskArchive:
+                return "checklist"
             }
         case .checkpoint: return "flag"
         }
@@ -568,6 +586,9 @@ private struct HistoryRow: View {
             case .claudeCraftNote: return .yellow
             case .externalEdit: return .purple
             case .checkpoint, .checkpointRestore: return .green
+            case .taskCreate, .taskStatusChange, .taskPriorityChange,
+                 .taskParentChange, .taskBodyEdit, .taskArchive:
+                return Color(red: 0.38, green: 0.76, blue: 0.45)
             }
         case .checkpoint: return .green
         }
