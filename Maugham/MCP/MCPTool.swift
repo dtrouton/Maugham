@@ -53,7 +53,9 @@ public enum MCPToolCatalog {
         AddQueryTool.self,
         AddCraftNoteTool.self,
         ListAnnotationsTool.self,
-        GetAnnotationTool.self
+        GetAnnotationTool.self,
+        ListTasksTool.self,
+        GetTaskTool.self
     ]
 
     /// Registers every catalog tool on the given router. Called from
