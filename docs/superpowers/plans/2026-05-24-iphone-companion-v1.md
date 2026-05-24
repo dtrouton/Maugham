@@ -68,14 +68,22 @@ Manual test by dropping a file + JSONL line into `.maugham/inbox/` (either the p
 
 Manual test: drop a `.m4a` into `.maugham/inbox/audio/`, watch transcript appear.
 
+### Phase D0 — iCloud Drive eviction handling (iOS-only infrastructure, prerequisite for D/E/F reads)
+
+Foundational on the iOS side. Spec §3.13. Without it, the Annotations tab silently shows "no annotations" when op-log files are evicted iCloud Drive placeholders.
+
+- `MaughamPhone/Storage/DownloadCoordinator.swift` (new) — `@MainActor actor` tracking per-URL download state (`notDownloaded` / `downloading` / `downloaded` / `failed`), dedupes concurrent requests for the same URL, enforces a 50 MB cold-launch budget for proactive op-log downloads. Lazy `ensureDownloaded(_:)` ignores budget.
+- `MaughamPhone/Storage/CoordinatedFileIO.swift` — gains `download(at:) async throws` helper wrapping `FileManager.startDownloadingUbiquitousItem` + `URLResourceKey.ubiquitousItemDownloadingStatusKey` polling. Cancellation-aware, exponential poll-interval backoff.
+- `MaughamPhone/Storage/RecentsTracker.swift` (new) — `@Observable` owner of `@AppStorage("recentProjectIds")` (last 5 captured-into, FIFO) and `@AppStorage("lastOpenedDates")` (`[ProjectId: Date]`). Derives `recents: Set<ProjectId>` = captures ∪ projects opened within the last 14 days.
+- Manual test: install on phone, capture into a project, force "Offload App" via Settings → iPhone Storage, reinstall. On relaunch the cold-launch sequence (manifests then recents' op logs) runs; Annotations tab shows progress banner; never silently empty.
+
 ### Phase D — iOS app: capture
 
 - New `MaughamPhone` target in `project.yml`. iOS 17 deployment. Privacy strings: mic, speech recognition, camera, photo library, Files.
 - iOS-only `BuildVariantPhone.swift` extension — phone bundle ids (`com.maugham.MaughamPhone[.dev]`) and per-variant bookmark UserDefaults keys. Don't reintroduce hardcoded "maugham" strings (tripwire 13).
 - `MaughamPhone/Storage/ProjectsRoot.swift` — wraps `UIDocumentPicker(forOpeningContentTypes: [.folder])`, persists security-scoped bookmark, checks `isStale` every launch and re-prompts if needed.
-- `MaughamPhone/Storage/ProjectsBrowser.swift` — lists subdirectories containing `project.maugham.json`, decodes `ProjectManifest`.
-- `MaughamPhone/Storage/CoordinatedFileIO.swift` — wraps every read/write in `NSFileCoordinator`. **No iOS `NSFilePresenter`** in v1 — refresh on `.task` and pull-to-refresh, since background presenters require a different app-lifecycle design.
-- `MaughamPhone/Capture/CaptureView.swift` — three buttons: text (TextEditor sheet), photo (`PhotosPicker` / camera), voice (`AVAudioRecorder` → `.m4a`). On commit: write file + append `InboxEntry`. Voice path additionally runs `SFSpeechRecognizer` for an immediate `on_device_draft` transcript.
+- `MaughamPhone/Storage/ProjectsBrowser.swift` — lists subdirectories containing `project.maugham.json`, decodes `ProjectManifest`. Manifest reads route through `DownloadCoordinator.ensureDownloaded` (Phase D0) so an evicted placeholder triggers a fetch instead of silently appearing as "no projects."
+- `MaughamPhone/Capture/CaptureView.swift` — three buttons: text (TextEditor sheet), photo (`PhotosPicker` / camera), voice (`AVAudioRecorder` → `.m4a` with pre-commit playback/transcript-edit screen). On commit: write file + append `InboxEntry`; `RecentsTracker.recordCapture(into:)`. Voice path additionally runs `SFSpeechRecognizer` for an immediate `on_device_draft` transcript.
 - Settings tab: choose-folder, permissions status, build variant indicator.
 
 End-to-end test: capture on phone → file appears in `.maugham/inbox/` → Mac InboxPane shows it → WhisperKit transcribes audio within iCloud sync window + ~10s.
@@ -83,17 +91,17 @@ End-to-end test: capture on phone → file appears in `.maugham/inbox/` → Mac 
 ### Phase E — iOS app: read
 
 - `MaughamPhone/Read/ProjectsListView.swift` → `BinderView.swift` (renders `ProjectManifest.structure: [StructureItem]`) → `DocumentReaderView.swift`.
-- `DocumentReaderView` reads `.md` / `.fountain` directly. Strips `<!-- ¶id -->` anchors before rendering. Markdown via `AttributedString(markdown:)`.
+- `DocumentReaderView.task` calls `DownloadCoordinator.ensureDownloaded` for the doc URL (Phase D0); shows full-screen "Downloading <docname>… <progress>" with Cancel button while it resolves. After: reads `.md` / `.fountain` directly. Strips `<!-- ¶id -->` anchors before rendering. Markdown via `AttributedString(markdown:)`.
 - For `.fountain`: instantiate `FountainTokenizer` from `MaughamCore`, render each `FountainLine` with semantic SwiftUI styling — scene heading bold + uppercased, character bold + centered, dialogue indented, parenthetical italic + indented further, action plain, transition right-aligned. **Cache the parsed `FountainScript` in `@State`, populate via `.task`** — never re-parse in a row body (tripwire 4).
+- Tapping into a project's binder fires `RecentsTracker.recordOpen(_:)` so the recents heuristic learns about read patterns, not just capture patterns.
 - Cross-document search deferred to a later milestone; in-document `String.range(of:)` is fine for v1.
 
 ### Phase F — iOS app: annotation review
 
-- `MaughamPhone/Annotations/AnnotationsListView.swift` — walks every bookmarked project's `.maugham/ops/*.jsonl`, builds derived annotation list via `AnnotationDeriver.derive(ops:paragraphs:)`. To produce `paragraphs:`, share a small `OpReplay.buildState(ops:) -> (paragraphs, sequence)` helper in `MaughamCore` (Mac side already does the same logic inside `Document.load`). Filter to `.open` status, group by project.
-- `AnnotationDetailView.swift` — shows paragraph context (`priorText`, `suggestedText`), body, three buttons (Accept / Reject… / Archive); Reject shows a reason sheet, Query shows a Reply sheet. **Re-derive status on view appearance** to collapse the cross-device race window — if `status != .open`, hide buttons and show "Already resolved on another device."
-- Write path: append `claudeAccept` / `claudeReject` / `claudeArchive` ops directly to `.maugham/ops/<docId>.jsonl` via `JSONLAppendStore<Op>` and coordinated write. Exact JSON shape mirrors `Op.swift` Codable: `op_id` (ULID), `doc_id`, `kind`, `at` (ISO8601 fractional seconds), `device`, `session`, `changes: []`, `provenance: {session_id, source_annotation_id, user_response?}`.
-- **Critical:** `claudeAccept` on a `suggestedChange` must include the creation op's `changes` array verbatim in the accept op (so Mac-side replay re-materializes the manuscript with the accepted text). For `comment` / `query` / `craftNote`, `changes: []` is correct.
-- **Mac-side change required:** confirm or add to `Document.load`'s op replay that `claudeAccept.changes` is applied to `paragraphs[paragraphId]`. Today the Mac path mutates `paragraphs` directly inside `acceptAnnotation`; if replay doesn't already handle the changes array, add a one-line `for change in op.changes { paragraphs[change.paragraphId] = change.next }` to the replay loop. This is the only Mac-side semantic change v1 requires.
+- `MaughamPhone/Annotations/AnnotationsListView.swift` — walks every bookmarked project's per-device op-log files (`.maugham/ops/d_*.jsonl` glob, §3.12), observes `DownloadCoordinator.states` to render the §3.13 progress banner, builds derived annotation list via `AnnotationDeriver.derive(ops:paragraphs:)`. To produce `paragraphs:`, share a small `OpReplay.buildState(ops:) -> (paragraphs, sequence)` helper in `MaughamCore` (Mac side already does the same logic inside `Document.load`). Filter to `.open` status, group by project. Recent projects (cold-launch downloaded) shown first; non-recent projects under "Other projects (tap to load)" trigger lazy download.
+- `AnnotationDetailView.swift` — shows paragraph context (`priorText`, `suggestedText`), body, three buttons (Accept / Reject… / Archive); Reject shows a reason sheet, Query shows a Reply sheet. **Re-derive status on view appearance** to collapse the cross-device race window — if `status != .open`, hide buttons and show "Already resolved on another device." `.onAppear` fires `RecentsTracker.recordOpen(_:)` for the parent project.
+- Write path: append `claudeAccept` / `claudeReject` / `claudeArchive` ops via per-device `JSONLAppendStore<Op>` (`d_<docId>.<ownDeviceSlug>.jsonl`, §3.12) and coordinated write. Exact JSON shape mirrors `Op.swift` Codable: `op_id` (ULID), `doc_id`, `kind`, `at` (ISO8601 fractional seconds), `device`, `session`, `changes: []`, `provenance: {session_id, source_annotation_id, user_response?}`.
+- **Critical:** `claudeAccept` on a `suggestedChange` must include the creation op's `changes` array verbatim in the accept op so Mac-side `Deriver.derive` re-materializes the manuscript on next load. For `comment` / `query` / `craftNote`, `changes: []` is correct. Mac-side replay already handles this (verified 2026-05-24, see spec §3.9) — no Mac code change needed.
 
 End-to-end test: Claude adds a suggestion on the Mac → phone shows it → reject with reason → Mac AnnotationsPane shows rejected + user response within sync window.
 
@@ -140,7 +148,8 @@ iOS releases use a separate tag namespace, workflow, and script — Mac releases
 ## Critical correctness risks
 
 1. **iCloud Drive conflict-twins on multi-writer JSONL.** Without per-device partitioning (Phase B0), phone + Mac concurrent appends to `.maugham/ops/d_<docId>.jsonl` or `.maugham/inbox/inbox.jsonl` produce silent conflict-twin files (`d_<docId> 2.jsonl` etc.) that the loader never opens. Spec §3.12 + ADR 0011. Phase B0 lands before Phase D for exactly this reason.
-2. **Phone-side `AnnotationWriter.claudeAccept` must copy `changes` verbatim** from the creation op for suggestedChange acceptance. Mac-side replay already handles `claudeAccept.changes` (`Deriver.swift:108-117` + `Deriver.swift:26-37` verified 2026-05-24); the failure mode if the phone gets this wrong is "phone-accepted suggestedChanges silently fail to materialize after Mac restart." Regression net is `AnnotationWriterAcceptSuggestedChangeRoundTripTests` (spec §7.1).
+2. **iOS iCloud Drive eviction silently emptying the Annotations tab.** iOS routinely evicts unused iCloud Drive files; without explicit `URLResourceKey.ubiquitousItemDownloadingStatusKey` handling, the Annotations tab shows "no annotations" when the truth is "op-log files are placeholders awaiting download." This is the scenario where the writer most needs the app to work (returning from offline). Phase D0 lands before Phase D for exactly this reason. Spec §3.13.
+3. **Phone-side `AnnotationWriter.claudeAccept` must copy `changes` verbatim** from the creation op for suggestedChange acceptance. Mac-side replay already handles `claudeAccept.changes` (`Deriver.swift:108-117` + `Deriver.swift:26-37` verified 2026-05-24); the failure mode if the phone gets this wrong is "phone-accepted suggestedChanges silently fail to materialize after Mac restart." Regression net is `AnnotationWriterAcceptSuggestedChangeRoundTripTests` (spec §7.1).
 3. **Security-scoped bookmark staleness.** Check `isStale` every launch; surface a clear "Re-pick folder" prompt, not a silent empty list. iCloud-Drive folders are especially prone to bookmark expiration after device restarts or app upgrades.
 4. **InboxStore cross-file last-wins semantics.** Per-device partitioning means multiple manifest files contribute entries for the same id (status transitions). `JSONLAppendStore.dedupKey` keeps first within a file (correct for op log); InboxStore must override at the cross-file merge step so newest createdAt per id wins.
 5. **Inbox file moves.** Promote-to-research must use coordinated writes (NSFileCoordinator); a plain `FileManager.removeItem` on the old inbox copy bypasses the Mac's presenter and risks conflict-bombing.
@@ -206,7 +215,7 @@ This is a several-milestone bundle, not a single feature. Suggested commit/PR rh
 
 - **Milestone 1 — Phase A only.** `MaughamCore` extraction, no behavior change. Highest blast radius, smallest review surface. Tag `milestone-maugham-core`.
 - **Milestone 2 — Phases B0 + B + C.** Per-device JSONL partitioning (foundational; must land before any phone writes), then Mac-side inbox + WhisperKit. Mac is fully usable without a phone yet; you can manually drop files for testing. Tag `milestone-inbox-and-whisper`.
-- **Milestone 3 — Phases D + E + F.** iOS app, all three tabs. Phone gains capture / read / annotation-review in one bundle. Tag `milestone-iphone-companion` (the iOS milestone — `phone-v0.1.0` below is the version tag).
+- **Milestone 3 — Phases D0 + D + E + F.** iOS app: iCloud-eviction download infrastructure (D0) first, then all three tabs. Phone gains capture / read / annotation-review in one bundle. Tag `milestone-iphone-companion` (the iOS milestone — `phone-v0.1.0` below is the version tag).
 - **Milestone 4 — Phase G.** First TestFlight cut. Tag `phone-v0.1.0`.
 
 Each milestone is independently verifiable via the smoke steps above.

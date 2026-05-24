@@ -67,8 +67,10 @@ The dependency direction is clear: `Packages/MaughamCore` is foundational and un
 - `MaughamPhone/MaughamPhoneApp.swift` — `@main` `App` struct. Root view is a four-tab `TabView` (Capture / Read / Annotations / Settings). Owns the `ProjectsRoot` singleton.
 - `MaughamPhone/BuildVariantPhone.swift` — iOS-only extension on `BuildVariant` (the type itself lives in MaughamCore): `phoneBundleId`, `bookmarkUserDefaultsKey`. Keeps `BuildVariant` itself platform-agnostic while letting iOS specialize.
 - `MaughamPhone/Storage/ProjectsRoot.swift` — manages the security-scoped bookmark for the iCloud Drive folder containing projects. On first launch (or stale bookmark), presents `UIDocumentPicker(forOpeningContentTypes: [.folder])`. On resolved URL, calls `startAccessingSecurityScopedResource()` and persists the bookmark bytes under `BuildVariant.current.bookmarkUserDefaultsKey`.
-- `MaughamPhone/Storage/ProjectsBrowser.swift` — given the resolved root URL, lists immediate subdirectories that contain `project.maugham.json`; decodes each into `ProjectManifest` (from MaughamCore).
-- `MaughamPhone/Storage/CoordinatedFileIO.swift` — thin wrapper around `NSFileCoordinator` for every read (anywhere in a project) and every write (only into `.maugham/inbox/*` and `.maugham/ops/*.jsonl`). Same primitive the Mac uses.
+- `MaughamPhone/Storage/ProjectsBrowser.swift` — given the resolved root URL, lists immediate subdirectories that contain `project.maugham.json`; decodes each into `ProjectManifest` (from MaughamCore). Manifest reads route through `DownloadCoordinator` so a not-downloaded placeholder triggers a fetch instead of silently appearing as "no projects" (§3.13).
+- `MaughamPhone/Storage/CoordinatedFileIO.swift` — thin wrapper around `NSFileCoordinator` for every read (anywhere in a project) and every write (only into `.maugham/inbox/*` and `.maugham/ops/*.jsonl`). Same primitive the Mac uses. Plus a `download(at:)` helper for iCloud Drive eviction handling — see §3.13.
+- `MaughamPhone/Storage/DownloadCoordinator.swift` — actor that tracks per-URL download state (`notDownloaded` / `downloading(progress:)` / `downloaded` / `failed`), deduplicates concurrent requests for the same URL, and enforces the 50 MB cold-launch budget for proactive op-log downloads. See §3.13.
+- `MaughamPhone/Storage/RecentsTracker.swift` — observable owner of two `@AppStorage` signals: `recentProjectIds` (last 5 captured-into, FIFO) and `lastOpenedDates` (`[ProjectId: Date]`). Derives `recents: Set<ProjectId>` as the union of the captures plus any project opened within the last 14 days. Drives the cold-launch proactive-download list. See §3.13.
 - `MaughamPhone/Capture/CaptureView.swift` — root view for the Capture tab; three large action buttons (text / photo / voice) routed to dedicated sheet views.
 - `MaughamPhone/Capture/TextCaptureSheet.swift` — `TextEditor` in a sheet, "Save to inbox" / "Cancel" buttons.
 - `MaughamPhone/Capture/PhotoCaptureSheet.swift` — `PhotosPicker` (library) + camera capture; on commit writes the image to `inbox/images/<ulid>.<ext>` and appends an `InboxEntry`.
@@ -366,6 +368,8 @@ final class ProjectsRoot: ObservableObject {
 
 **Why no `NSFilePresenter` on iOS in v1.** A presenter would notify the iOS app when the Mac writes — useful for "annotations refresh while you're looking at the list." But it requires the app to be foregrounded (or to opt into background modes), and the listener lifecycle on iOS is much fussier than on macOS. v1 refreshes on `.task` (per-view-appearance) and pull-to-refresh, which is sufficient for the use cases. NSFilePresenter on iOS is a Phase H item.
 
+**iCloud Drive file eviction.** Reading any file under the bookmarked folder requires explicit eviction-handling — iOS routinely removes local copies of unused files, leaving placeholders that look like the file but read as empty data with no error. Every read site routes through `CoordinatedFileIO.download(at:)` and `DownloadCoordinator` (§3.13) before reading, so a not-downloaded placeholder triggers a fetch + progress UI instead of silently rendering as "empty." Writes are unaffected — the phone's own writes are never evicted while the write is in flight.
+
 ### 3.7 iOS app: capture flow
 
 **Text.** A `TextEditor` in a sheet. On "Save to inbox": generate ULID, write entry to `inbox.jsonl` with `kind: .text`, `inlineText: <body>`, no `sourceFilename`. Coordinated write.
@@ -387,16 +391,18 @@ Permissions: requesting microphone (`AVAudioApplication.requestRecordPermission`
 A pill at the top of the Capture tab shows the currently-selected project name. Tapping the pill opens a project picker sheet — *not* navigation to the Read tab, which would lose the capture context (selected media, transcript-in-progress).
 
 - **Picker sheet contents:** top section "Recent" with the last 5 projects the writer captured into (most-recent first), then "All projects" alphabetically, then a search field that filters across both. Each row shows the project name and (dimmed) project type icon.
-- **Persistence.** Selection is keyed by `ProjectManifest.id` (stable across rename/move within the bookmarked folder), not by file path. `@AppStorage("currentProjectId")` for the active selection, plus `@AppStorage("recentProjectIds")` for the recents list (capped at 5; updated on every successful capture).
+- **Persistence.** Selection is keyed by `ProjectManifest.id` (stable across rename/move within the bookmarked folder), not by file path. `@AppStorage("currentProjectId")` for the active selection. The recents list (capped at 5, updated on every successful capture via `RecentsTracker.recordCapture`) is shared infrastructure — the same tracker feeds the cold-launch proactive-download path in §3.13.
 - **Resolution on launch.** ProjectsBrowser builds the id → URL map by walking bookmarked-folder children and decoding each `project.maugham.json`. The pill resolves the persisted id against this map. If the id is missing (project deleted or moved outside the bookmarked root), the pill shows "Choose project…" and the capture buttons stay disabled until the writer picks again from the sheet.
 - **Empty state.** If no project is currently selected (first launch, or after a deletion), the capture buttons are disabled with an inline hint pointing at the pill: "Tap above to choose a project."
 - **Why not navigate to the Read tab.** Capture flows are time-sensitive — the writer is mid-thought. Forcing a tab switch + navigation + back-button loses the in-progress capture (e.g., a recording paused mid-sentence). The picker sheet keeps the capture context alive.
 
 ### 3.8 iOS app: read
 
-**Markdown rendering.** `.md` files are read via coordinated I/O, stripped of `<!-- ¶id -->` HTML-comment anchors (simple regex: `<!--\s*[0-9a-z]{4}\s*-->`), then rendered via `AttributedString(markdown:)`. This is iOS's built-in Markdown renderer; it handles headings, bold/italic, links, lists, and code blocks well enough for read-only display. No custom theming in v1 — system fonts, system colors. Selectable text via `.textSelection(.enabled)`.
+**Markdown rendering.** `.md` files are read via coordinated I/O *after* `DownloadCoordinator.ensureDownloaded(url)` resolves (§3.13 — files may be evicted iCloud Drive placeholders). Stripped of `<!-- ¶id -->` HTML-comment anchors (simple regex: `<!--\s*[0-9a-z]{4}\s*-->`), then rendered via `AttributedString(markdown:)`. This is iOS's built-in Markdown renderer; it handles headings, bold/italic, links, lists, and code blocks well enough for read-only display. No custom theming in v1 — system fonts, system colors. Selectable text via `.textSelection(.enabled)`.
 
-**Fountain rendering.** Parsing uses `FountainTokenizer` from MaughamCore. The parsed `FountainScript` is cached in `@State` and populated via `.task` per document — explicitly *not* parsed inside a SwiftUI row body (tripwire 4: per-row re-parse killed Phase 3d performance).
+`DocumentReaderView.task` calls `DownloadCoordinator.ensureDownloaded` first; the view shows a full-screen "Downloading <docname>… <progress>" with a Cancel button while it resolves. After download the reader content appears. On failure, an inline retry. The view never shows a blank canvas without explanation. Tapping the same doc later (when it's cached) sees `.current` status and goes straight to rendering. Opening a doc also fires `RecentsTracker.recordOpen(_:)` for the parent project so the recents heuristic learns about read patterns, not just capture patterns.
+
+**Fountain rendering.** Parsing uses `FountainTokenizer` from MaughamCore. The parsed `FountainScript` is cached in `@State` and populated via `.task` per document (after the download resolves) — explicitly *not* parsed inside a SwiftUI row body (tripwire 4: per-row re-parse killed Phase 3d performance).
 
 Per-line styling, by `ScreenplayElement`:
 
@@ -419,7 +425,9 @@ The styling is intentionally not pagination — that requires Courier, fixed let
 
 ### 3.9 iOS app: annotation review write path
 
-**Read side.** `AnnotationsListView` walks every bookmarked project's `.maugham/ops/*.jsonl`, loads each via `JSONLAppendStore<Op>` (shared from MaughamCore; same code the Mac runs), runs `OpReplay.buildState(ops:)` to produce the current `paragraphs` and `sequence`, then `AnnotationDeriver.derive(ops:paragraphs:)` to get the annotation list. Filter to `status == .open`, group by project, sort by paragraph order within doc. The whole pipeline reuses Mac code unchanged — no risk of derivation drift between the two surfaces.
+**Read side.** `AnnotationsListView` walks every bookmarked project's `.maugham/ops/d_*.jsonl` (per-device partitioning, §3.12). Each op-log file is downloaded via `DownloadCoordinator` (§3.13) before being passed through `JSONLAppendStore<Op>` (shared from MaughamCore; same code the Mac runs), `OpReplay.buildState(ops:)` to produce the current `paragraphs` and `sequence`, then `AnnotationDeriver.derive(ops:paragraphs:)` to get the annotation list. Filter to `status == .open`, group by project, sort by paragraph order within doc.
+
+The view observes `DownloadCoordinator.states` and renders a banner reflecting recents' download progress (§3.13 UI table). Recent projects' annotations stream in as their op logs become `.current`; non-recent projects appear as a separate "Other projects (tap to load)" section that triggers lazy download on tap. `AnnotationDetailView.onAppear` calls `RecentsTracker.recordOpen(_:)` for the parent project. The whole derivation pipeline reuses Mac code unchanged — no risk of derivation drift between the two surfaces.
 
 **Write side.** Three lifecycle ops the phone needs to produce: `claudeAccept`, `claudeReject`, `claudeArchive`. The exact JSON shape mirrors the Mac's emit — sourced from `Op.swift` Codable conformance with snake_case CodingKeys.
 
@@ -706,6 +714,135 @@ public func append(_ op: Op) async throws {
 
 **CLAUDE.md.** A new tripwire (#15) lands with the implementation: *"Don't share a single JSONL file across writers via iCloud Drive. Per-device suffix, glob on load, dedupe on opId. Skipping this reintroduces the silent-data-loss path described in spec §3.12."*
 
+### 3.13 iCloud Drive eviction handling (iOS)
+
+iOS aggressively manages on-device iCloud Drive storage: files unused for ~7 days (heuristic), files when free space runs low, or any file when "Optimize iPhone Storage" is enabled (default ON for most devices) can be evicted. The URL still resolves; the file appears to exist; `Data(contentsOf:)` returns empty bytes with no error; `NSFileCoordinator` coordinated reads auto-download but block indefinitely with no progress UI. Without explicit handling, MaughamPhone's Annotations tab silently shows "no annotations" when the writer actually has 47 open — exactly the scenario where the writer most needs the app to work (returning from a weekend offline to triage).
+
+**Detection.** Every read site must check `URLResourceKey.ubiquitousItemDownloadingStatusKey` *before* attempting to read:
+
+| Status | Meaning | Read action |
+|---|---|---|
+| `.current` | Locally present, up-to-date | Read immediately |
+| `.downloaded` | Locally present, may not be current | Read; iOS will catch up in background |
+| `.notDownloaded` | Placeholder only | Trigger download + show "Downloading…" UI; complete read when status reaches `.current` |
+| (download in progress) | `URLResourceKey.ubiquitousItemIsDownloadingKey == true` | Show progress; await completion |
+| (download failed) | `URLResourceKey.ubiquitousItemDownloadingErrorKey` non-nil | Show error + retry affordance |
+
+**The hybrid strategy.** Recent projects (5 most-recently-captured + any project opened in the last 14 days) get **proactive download on launch**, capped at a **50 MB cold-launch budget** for op-log files. Project manifests are always proactively downloaded (tiny, essential for the Read tab to populate). Everything else is **lazy on first access** — manuscripts, research files, op logs for non-recent projects — with explicit per-screen progress UI.
+
+The principle: **never silently render "empty" when the truth is "not yet loaded."** Empty-state UI is for "you have no annotations." A separate "Loading…" state is for in-flight downloads. They must be visually unambiguous.
+
+#### Three new components
+
+**`MaughamPhone/Storage/DownloadCoordinator.swift`** — an actor that owns download state.
+
+```swift
+@MainActor
+actor DownloadCoordinator {
+    enum DownloadState: Equatable {
+        case notDownloaded
+        case downloading(progress: Double)  // 0.0 ... 1.0
+        case downloaded
+        case failed(String)
+    }
+
+    private var inFlight: [URL: Task<Void, Error>] = [:]
+    private(set) var states: [URL: DownloadState] = [:]
+    private(set) var coldLaunchBudgetRemaining: Int64 = 50 * 1024 * 1024  // 50 MB
+
+    /// Idempotent. Multiple callers for the same URL share one download.
+    func ensureDownloaded(_ url: URL) async throws { … }
+
+    /// Used only during the cold-launch proactive pass. Returns false
+    /// (and does NOT start a download) when the budget is exhausted.
+    func ensureDownloadedIfBudgetAllows(_ url: URL, sizeHint: Int64) async -> Bool { … }
+
+    func cancel(_ url: URL) { … }
+    func observe(_ url: URL) -> AsyncStream<DownloadState> { … }
+}
+```
+
+In-flight deduplication is the key invariant. If three views all want the same op log, they share one download and observe the same progress; the coordinator counts only one budget hit.
+
+**`MaughamPhone/Storage/CoordinatedFileIO.swift`** gains a `download(at:)` helper that wraps `FileManager.startDownloadingUbiquitousItem(at:)` + polls via `URLResourceKey.ubiquitousItemDownloadingStatusKey` until `.current`. Cancellation-aware (checks `Task.isCancelled` between polls). Default poll interval 100ms, exponential backoff to 1s for downloads longer than a few seconds. Throws on `ubiquitousItemDownloadingErrorKey` or task cancellation.
+
+**`MaughamPhone/Storage/RecentsTracker.swift`** — derives the recents list from two persisted signals.
+
+```swift
+@MainActor @Observable
+final class RecentsTracker {
+    @AppStorage("recentProjectIds") private var capturedRaw: Data = .init()
+    @AppStorage("lastOpenedDates")  private var openedRaw: Data = .init()
+
+    private var captured: [ProjectId] { /* decode JSON; cap at 5 */ }
+    private var openedDates: [ProjectId: Date] { /* decode JSON */ }
+
+    /// Five most-recently-captured ∪ any project opened in the last 14 days.
+    /// Deduped, no defined ordering across the two sets.
+    var recents: Set<ProjectId> {
+        let opened = openedDates
+            .filter { $0.value > Date().addingTimeInterval(-14 * 24 * 3600) }
+            .map(\.key)
+        return Set(captured).union(opened)
+    }
+
+    func recordCapture(into projectId: ProjectId) { /* prepend, cap at 5 */ }
+    func recordOpen(_ projectId: ProjectId) { /* upsert Date.now */ }
+}
+```
+
+`recordOpen` fires when: writer taps a project in the Read tab (any doc/binder navigation) OR when AnnotationDetailView appears for any annotation in that project. `recordCapture` fires after a successful inbox-write in the capture flow.
+
+#### Cold-launch sequence
+
+Triggered once per app launch, after `ProjectsRoot` resolves the bookmark.
+
+1. **Always: download every project manifest.** Walk bookmarked-folder children; for each candidate `<child>/project.maugham.json` with `.notDownloaded` status, call `DownloadCoordinator.ensureDownloaded`. Manifests are KB-scale; no budget needed. Sequential is fine; usually all-cached by step 2.
+2. **Build the recents set.** `RecentsTracker.recents` resolved against the manifest map (recents pointing at deleted/moved projects are silently dropped).
+3. **For each recent project, in capture-recency order:**
+   - Enumerate `.maugham/ops/d_*.<*>.jsonl` in that project.
+   - Sum byte size (from `URLResourceKey.fileSizeKey`).
+   - Call `ensureDownloadedIfBudgetAllows`. If the budget can accommodate the full set, download all; if it would exceed, skip the rest of this project's op logs (don't partial-download a project's stream).
+4. **Once recents are downloaded (or budget exhausted), the Annotations tab can populate.** The tab observes `DownloadCoordinator.states` and renders a header banner reflecting progress.
+
+Non-recent projects' op logs and all manuscripts/research files are not touched on launch — they wait for explicit tap.
+
+#### UI states per surface
+
+**Read tab project list.** A project whose manifest is `.downloading` shows a row with a small spinner and "Downloading…" subtitle. A project whose manifest has `.failed` shows a row with an inline retry button. The writer can still see and tap rows; tapping a `.notDownloaded` row triggers the download and waits.
+
+**Annotations tab header banner.**
+
+| Coordinator state for recents' op logs | Banner copy | Behavior |
+|---|---|---|
+| All `.current` | (no banner) | Normal annotation list |
+| Some `.downloading` | "Syncing 3 of 5 projects from iCloud…" + progress | Show annotations from already-loaded projects; new ones append as downloads complete |
+| All `.notDownloaded`, none in-flight | "Recent projects need to download from iCloud" + "Sync now" button | Tap to start; otherwise sit and wait for network |
+| All failed | "Couldn't reach iCloud. Try again." + retry | Banner with retry; list shows whatever loaded last session |
+
+**Non-recent projects in the Annotations tab.** Listed below the "Recent" group under a "Other projects (tap to load)" header. Each row shows the project name, manifest-loaded open-annotation count (which is *not* available without the op log, so this is best-effort: shows a placeholder count once tapped, real count after download).
+
+**Document reader.** Tap on a not-downloaded manuscript → full-screen "Downloading <docname>… <progress>" view with a Cancel button. On completion, the reader content appears. On failure, an inline retry. The reader never shows a blank canvas without explanation.
+
+**Research browser.** Same as document reader — lazy download per file on tap.
+
+#### Cancellation + backgrounding
+
+Downloads in flight when the user backgrounds the app continue in iOS's normal "extended task" budget (a few minutes). On foregrounding, the coordinator polls status once for every URL it was tracking and resumes any that are now `.downloading` again. URLs that completed while backgrounded are simply observed as `.downloaded`.
+
+Cancellation via "Cancel" in the document reader stops the polling Task and removes the in-flight entry. The OS may still complete the underlying download; the next view of the doc will see `.current` and skip the download UI.
+
+#### Notes on `setUbiquitousItemDownloadRequestedKey`
+
+There is no documented API for "tell iOS to never evict this file." Apps can request downloads but not retention. The closest is `FileManager.evictUbiquitousItem(at:)` for explicit eviction, which we don't use. Long-term retention of files locally is implicitly handled by frequent reads (recent files don't get evicted as quickly), which the proactive recents-download path already produces.
+
+#### What this explicitly does NOT cover (v1)
+
+- **Background refresh while suspended.** iOS doesn't run the app between launches; we don't subscribe to `NSFilePresenter` on iOS (§3.6). The writer must foreground the app to trigger fresh downloads. A "Background App Refresh" mode is Phase H.
+- **Predictive download** based on time-of-day patterns or location. Recents heuristic + lazy fallback is enough for v1.
+- **Custom budget per device class.** 50 MB is fixed for v1. iPhone Pro with 512 GB free vs iPhone SE 64 GB at 90% full get the same cap. Reasonable in practice; revisit if it shows up as a complaint.
+- **Eviction-during-read recovery.** If iOS evicts a file *while* we're reading it (extremely rare; iOS waits for handles to close), reads may fail mid-stream. Same recovery as any read failure: surface error, retry available.
+
 ---
 
 ## 4. Data flow
@@ -903,6 +1040,20 @@ Partial-write failure (asset file written, manifest append fails) leaves an orph
 
 The asymmetry (TestFlight upload before GH release) is intentional: TestFlight is the artifact users consume; the GH release is documentation. Having the testable build available without the release page is acceptable; the reverse (release page advertising a build that never made it to TestFlight) is not.
 
+### 5.6 iCloud Drive download failures (iOS)
+
+Three failure modes for the eviction-handling code in §3.13.
+
+| Failure | Detection | UI |
+|---|---|---|
+| Network unreachable when read attempted | `NWPathMonitor` reports `.unsatisfied`; download never starts | Banner / row: "Offline — annotations will sync when you reconnect"; retry automatic on `.satisfied` transition |
+| Download starts but fails | `URLResourceKey.ubiquitousItemDownloadingErrorKey` non-nil | Banner / row: "Couldn't download from iCloud. Tap to retry." Manual retry only |
+| Download times out (no progress for >60s) | Polling sees no `progress` change for the window | Same as failure — surface and offer retry |
+
+The principle restated: no surface ever renders an empty-state UI while the truth is "couldn't load yet." Empty state is only for "confirmed empty after successful read."
+
+Cold-launch budget exhaustion is **not** a failure — it's expected. Projects skipped due to budget appear in the "Other projects (tap to load)" group with a normal lazy-download affordance, no error.
+
 ---
 
 ## 6. CLAUDE.md additions
@@ -1041,7 +1192,17 @@ Per-area pointer added to "Per-area pointers":
 - `CoordinatedFileIOTests` — concurrent reads and writes through `NSFileCoordinator`; assert no data races.
 - `FountainSemanticRendererTests` — parse a known `.fountain` fixture; assert each element type styles as expected (font weight, alignment, indent).
 - `AnnotationWriterRejectShapeTests` — build a `claudeReject` op via AnnotationWriter; assert the JSON matches the expected snake_case shape with the right `provenance` keys.
-- `AnnotationWriterAcceptSuggestedChangeTests` — given a `claudeCreate` op with `changes`, build a `claudeAccept` op that includes the changes verbatim. Assert key equality.
+- `AnnotationWriterAcceptSuggestedChangeRoundTripTests` — given a `claudeCreate` op with `changes`, build a `claudeAccept` op via AnnotationWriter; run both through `Deriver.derive` and assert post-replay paragraph text equals `change.next`. Regression net for §3.9.
+
+**iOS download infrastructure (Phase D0):**
+
+- `DownloadCoordinatorDedupTests` — three concurrent callers request the same URL; assert one underlying download is started, all callers complete when it resolves.
+- `DownloadCoordinatorBudgetTests` — exhaust the 50 MB cold-launch budget partway through a recents pass; assert subsequent `ensureDownloadedIfBudgetAllows` calls return false without triggering download. Assert lazy `ensureDownloaded` still works (ignores budget).
+- `DownloadCoordinatorFailurePropagationTests` — simulate `ubiquitousItemDownloadingErrorKey` non-nil; assert `.failed` state is published and observers see it.
+- `RecentsTrackerComputeTests` — seed three captured (oldest first) + four opened (two within 14 days, two beyond); assert `recents` returns the right union, captures are FIFO-capped at 5, expired opened dates drop out.
+- `RecentsTrackerPersistenceTests` — round-trip `recordCapture` / `recordOpen` through `@AppStorage`-backed JSON; assert state survives a fresh tracker init.
+- `CoordinatedFileIODownloadTests` — point at a mock not-downloaded URL (test fixture exposes URLResource extension), call `download(at:)`; assert poll loop completes when status reaches `.current`, throws on simulated error, throws on `Task.cancel`.
+- `AnnotationsListViewBannerTests` (snapshot or behavioral) — render the view with `DownloadCoordinator` in three states (all current / partial downloading / all failed); assert the banner copy matches the §3.13 UI table.
 
 **Cross-cutting:**
 
@@ -1077,6 +1238,7 @@ After milestone 4 ships and `phone-v0.1.0` is live in TestFlight:
 11. Mac: within sync window (~10–30s), AnnotationsPane (⌘⌥2) shows the annotation as rejected with the user response visible.
 12. Race smoke: on Mac, open the same annotation in the AnnotationsPane. On phone, open its detail view. Mac: Archive the annotation. Wait ~30s. Phone: tap Accept. Refresh the list. Annotation should be classified as accepted (later ULID wins); document this in the spec's known-behavior list (Race 1 in §5.3).
 13. Phone: airplane mode on. Tap capture → save text → assert UI shows a "queued" indicator (the file is written locally but iCloud hasn't synced). Disable airplane mode. Within ~30s, Mac sees the entry. (This validates the offline-write path.)
+14. **Eviction smoke.** On the phone, Settings → General → iPhone Storage → "Offload App" the test build (or wait ~7 days unused, or fill the device near capacity to force eviction). Reinstall / relaunch. Open the Annotations tab. Assert: header banner shows "Syncing N of M projects from iCloud…", recents projects' annotations stream in as their op logs download (50 MB cap respected), non-recent projects appear under "Other projects (tap to load)" with no annotations shown until tapped. **The tab never silently shows an empty list while op logs are still downloading.** Then open a manuscript in the Read tab: assert "Downloading <docname>…" view appears, Cancel works, completion renders the doc.
 
 ---
 
@@ -1095,6 +1257,9 @@ After milestone 4 ships and `phone-v0.1.0` is live in TestFlight:
 - **Beta channel / TestFlight external groups beyond the initial set.** Internal testing only at launch (≤100 testers, no Beta App Review delay). External groups can be added later additively.
 - **Live activity / widget / Lock Screen surfaces on iOS.** Not in v1.
 - **Watch app.** Not in v1, probably never.
+- **Background App Refresh / background downloads.** iOS only downloads iCloud Drive files while the app is foregrounded (no NSFilePresenter on iOS in v1, no background-modes opt-in). Writers returning from offline see a brief sync wait on next launch instead of "everything was ready when I opened it." Phase H if it becomes a real complaint.
+- **Per-device cold-launch budget tuning.** 50 MB is a fixed cap for all devices regardless of free space, plan, or device class. Adequate in practice; revisit if heavy-history projects hit it routinely.
+- **`NSURLUbiquitousItemDownloadRequestedKey` pinning.** No documented API for "tell iOS never to evict this file." Recents-driven proactive downloads are the v1 substitute (frequent reads naturally avoid eviction).
 
 ---
 
