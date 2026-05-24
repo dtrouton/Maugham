@@ -79,9 +79,10 @@ The dependency direction is clear: `Packages/MaughamCore` is foundational and un
 - `MaughamPhone/Read/BinderView.swift` — renders `ProjectManifest.structure: [StructureItem]` as a hierarchical list (folders, manuscripts, research entries). Tap routes to the appropriate reader.
 - `MaughamPhone/Read/DocumentReaderView.swift` — reads `.md` / `.fountain` directly. For `.md`: strips `<!-- ¶id -->` anchors, renders via `AttributedString(markdown:)`. For `.fountain`: parses to `FountainScript` once in `.task`, hands off to `FountainSemanticRenderer`.
 - `MaughamPhone/Read/FountainSemanticRenderer.swift` — iterates the cached `FountainScript.lines: [FountainLine]`, styles each by `ScreenplayElement`: scene heading (bold + uppercased), action (plain), character (bold + center-aligned), parenthetical (italic + indented further), dialogue (indented), transition (right-aligned + uppercased), notes (dimmed or hidden by toggle).
-- `MaughamPhone/Annotations/AnnotationsListView.swift` — walks every bookmarked project's `.maugham/ops/*.jsonl`, replays via `OpReplay.buildState`, derives annotations via `AnnotationDeriver.derive`. Filters to `.open`; groups by project; sorts by paragraph order within doc.
+- `MaughamPhone/Annotations/AnnotationsListView.swift` — walks every bookmarked project's `.maugham/ops/*.jsonl`, replays via `OpReplay.buildState`, derives annotations via `AnnotationDeriver.derive`. Filters to `.open`; groups by project; sorts by paragraph order within doc. Consults `LaunchAuthGate.state` on appear — when `.locked`, renders the unlock screen instead of the annotation list (§3.14).
 - `MaughamPhone/Annotations/AnnotationDetailView.swift` — shows paragraph context (`priorText` if suggestedChange, otherwise current paragraph text), body, three buttons (Accept / Reject… / Archive). Re-derives status on `.onAppear` to collapse cross-device race window: if `status != .open`, hides buttons and shows "Already resolved on another device."
-- `MaughamPhone/Annotations/AnnotationWriter.swift` — builds and appends the lifecycle ops via `JSONLAppendStore<Op>` and coordinated writes. Exact op shape covered in §3.9.
+- `MaughamPhone/Annotations/AnnotationWriter.swift` — builds and appends the lifecycle ops via `JSONLAppendStore<Op>` and coordinated writes. Exact op shape covered in §3.9. Phone-written ops populate `provenance.app_version` + `provenance.os_version` (§3.14).
+- `MaughamPhone/Auth/LaunchAuthGate.swift` (new) — opt-in per-launch Face ID gate for the Annotations tab. Default-off Settings toggle, 5-minute background-relock window, fail-open on devices without a passcode set. See §3.14.
 - `MaughamPhone/Settings/SettingsView.swift` — Choose Projects Folder button, current bookmark status, permissions status (mic / speech recognition / camera / photo library), build variant indicator.
 - `MaughamPhone/Info.plist` — `NSMicrophoneUsageDescription`, `NSSpeechRecognitionUsageDescription`, `NSCameraUsageDescription`, `NSPhotoLibraryUsageDescription`, `UIFileSharingEnabled`, `LSSupportsOpeningDocumentsInPlace`.
 - `MaughamPhoneTests/` — test target mirroring `MaughamTests/` shape. Bookmark resolution tests, coordinated-write tests, annotation op-shape round-trip tests.
@@ -89,6 +90,7 @@ The dependency direction is clear: `Packages/MaughamCore` is foundational and un
 ### 2.2 Modified files
 
 - `project.yml` — new `MaughamPhone` and `MaughamPhoneTests` targets; iOS 17 deployment; per-configuration bundle ids (`com.maugham.MaughamPhone[.dev]`); per-configuration `MAUGHAM_DEV_BUILD` flag; both `Maugham` and `MaughamPhone` declare `MaughamCore` as a local package dependency. `CFBundleShortVersionString` placeholder `"0.0.0-dev"` and `CFBundleVersion` placeholder `"1"` for phone — CI rewrites both at build time.
+- `Packages/MaughamCore/Sources/MaughamCore/Op.swift` (post-Phase-A location) — `Op.Provenance` gains two optional `String?` fields: `appVersion` (CodingKey `app_version`) and `osVersion` (CodingKey `os_version`). Populated by phone-written ops only; Mac writes leave nil. Purely additive — existing op logs decode unchanged, `Deriver`/`AnnotationDeriver` ignore the new fields, no migration. See §3.14.
 - `Maugham/Stores/MaughamSidecarPath.swift` — add `case inbox(kind: InboxFileKind, relativePath: String)`; extend `classifySidecar(url:projectURL:)` with branches for `.maugham/inbox/inbox.jsonl` → `.inbox(.manifest, …)`, `.maugham/inbox/text/*` → `.inbox(.text, …)`, `.maugham/inbox/images/*` → `.inbox(.image, …)`, `.maugham/inbox/audio/*` → `.inbox(.audio, …)`.
 - `Maugham/Stores/DocumentStore.swift` — add a `case .inbox(let kind, _):` arm in `presenterDidChangeSubitem` (currently around line 477); posts `Notification.Name.maughamInboxChanged` with `kind` in userInfo. `InboxStore` and `InboxTranscriptionWorker` both subscribe.
 - `Maugham/Views/DetailSegment.swift` — add `case inbox`; mirror in `Maugham/Views/DetailPaneToggle.swift` so the segment picker shows it.
@@ -443,7 +445,9 @@ The view observes `DownloadCoordinator.states` and renders a banner reflecting r
  "changes":[],
  "provenance":{"session_id":"01HQR9F862QYZX3WBCDEFGH7J0",
                "source_annotation_id":"01HQ8K2M9N4P5R6S8T0V2W3X4Y",
-               "user_response":"This sentence works better as-is."}}
+               "user_response":"This sentence works better as-is.",
+               "app_version":"0.1.0",
+               "os_version":"iOS 17.4"}}
 ```
 
 **`claudeAccept` for non-suggestedChange (comment/query/craftNote):**
@@ -473,6 +477,8 @@ The view observes `DownloadCoordinator.states` and renders a banner reflecting r
 ```
 
 The phone's `AnnotationWriter` copies `changes` directly from the creation op (which it already has in its in-memory replay state) — no parsing, no transformation. **This is the only thing that has to be right for phone-accepted suggestedChanges to materialize on the Mac.**
+
+Phone-written ops also populate the new optional `provenance.app_version` and `provenance.os_version` fields (§3.14) for forensic queries. Mac-side replay ignores them — they're metadata, not semantic input. The write path is gated by `LaunchAuthGate` at the view layer (§3.14); `AnnotationWriter.append` itself doesn't re-check, trusting that a rendered view has already passed the gate.
 
 **Mac-side: nothing to change.** `Deriver.appliesToManuscript` at `Deriver.swift:108-117` already includes `.claudeAccept`:
 
@@ -843,6 +849,123 @@ There is no documented API for "tell iOS to never evict this file." Apps can req
 - **Custom budget per device class.** 50 MB is fixed for v1. iPhone Pro with 512 GB free vs iPhone SE 64 GB at 90% full get the same cap. Reasonable in practice; revisit if it shows up as a complaint.
 - **Eviction-during-read recovery.** If iOS evicts a file *while* we're reading it (extremely rare; iOS waits for handles to close), reads may fail mid-stream. Same recovery as any read failure: surface error, retry available.
 
+### 3.14 Phone-side authorization for annotation writes
+
+The phone adds a routine second writer to the op log, which means anyone with the unlocked device can append `claudeAccept` / `claudeReject` / `claudeArchive` ops to any project. The practical attacker populations are small (lost/stolen unlocked phone; curious family member; brief shoulder-surfer) and damage is recoverable via Mac-side rewind, but the bulk-action attack (rejecting 50 open annotations in 30 seconds) destroys real triage work. v1 needs *some* answer beyond "we hope the iOS lock screen catches it."
+
+**Decision: two-layer protection.**
+
+1. **Baseline: iOS device passcode + Face ID.** No app-level auth. The iOS lock screen is the primary gate. >99% of writers have a passcode and biometric set up; the app inherits that protection for free.
+2. **Optional: per-launch Face ID gate (opt-in via Settings).** A Settings toggle "Require Face ID on launch" (default **off**) — when enabled, the app gates entry behind `LAContext.evaluatePolicy(.deviceOwnerAuthentication)` on every cold launch and every foreground-from-suspend after >5 minutes of background time. For writers who want an extra layer; opt-in matches Notes.app norms and avoids friction for casual use.
+
+Both layers protect at the **app entry** boundary, not per-action. The triage flow (the phone's main differentiator) stays fast — no Face ID prompt between every Accept/Reject. Bulk damage from a stolen phone requires either bypassing the lock screen *or* getting past the optional launch gate; the latter is one Face ID failure away from a passcode fallback.
+
+**Scope: annotation writes only.** Inbox writes (capture text/photo/voice) are essentially harmless to anyone but the writer themselves and gating them slows down the "capture before you lose the thought" flow. Read surfaces (Read tab, Annotations list view) are not gated either — viewing draft manuscripts is something the iOS device passcode is expected to cover. The gate strictly protects the path that mutates other devices' state.
+
+#### New component
+
+**`MaughamPhone/Auth/LaunchAuthGate.swift`** — small `@MainActor @Observable` class.
+
+```swift
+@MainActor @Observable
+final class LaunchAuthGate {
+    enum State { case unlocked, locked, evaluating, unavailable }
+    private(set) var state: State = .locked
+
+    @AppStorage("requireFaceIdOnLaunch") private var requireFaceId = false
+    private var lastUnlockTime: Date?
+    private let reLockAfter: TimeInterval = 5 * 60  // 5 minutes background
+
+    func evaluate() async {
+        guard requireFaceId else { state = .unlocked; return }
+        if let last = lastUnlockTime, Date().timeIntervalSince(last) < reLockAfter {
+            state = .unlocked; return
+        }
+        let ctx = LAContext()
+        var err: NSError?
+        guard ctx.canEvaluatePolicy(.deviceOwnerAuthentication, error: &err) else {
+            state = .unavailable; return  // no passcode set on device — fail-open
+        }
+        state = .evaluating
+        do {
+            try await ctx.evaluatePolicy(.deviceOwnerAuthentication,
+                                         localizedReason: "Unlock MaughamPhone to triage annotations")
+            state = .unlocked
+            lastUnlockTime = Date()
+        } catch {
+            state = .locked  // user cancelled or failed — re-prompt available
+        }
+    }
+
+    func onBackground() { lastUnlockTime = nil }  // force re-auth on next foreground
+}
+```
+
+The 5-minute window prevents the gate from firing every time the writer briefly checks another app. After 5 minutes background, next foreground re-prompts.
+
+**Fail-open on `.unavailable`** (no passcode set on device): we don't lock the writer out of their own app because their device security posture is missing. They've already accepted a riskier baseline; we don't punish them further.
+
+#### Integration into the annotation write path
+
+`AnnotationsListView` and `AnnotationDetailView` consult `LaunchAuthGate.state` on appear. When `.locked`, the Annotations tab content is replaced by an unlock screen ("Unlock to triage annotations" + Face ID button). When `.evaluating`, a spinner. When `.unlocked`, normal content.
+
+`AnnotationWriter.append(op:)` does NOT re-check the gate — it trusts the view-level check. This keeps the write path simple and avoids racing the gate state between view-load and tap-confirm. The trust model: if the view is rendered, the gate has already passed.
+
+Capture flow is unaffected by the gate — `CaptureView` and the three capture sheets remain accessible regardless of `state`. Read tab and Settings are also unaffected (writer needs to reach Settings to disable the toggle even if they're locked out of Annotations).
+
+#### Settings UI
+
+A new section in `SettingsView`, after "Voice transcription":
+
+```
+Security
+─────────────────
+[ ] Require Face ID on launch
+
+   When enabled, MaughamPhone asks for Face ID each time you open the
+   app (or return to it after 5 minutes in the background) before you
+   can review annotations. Doesn't affect capture or reading.
+
+   Your data is always protected by your iOS device passcode and
+   Face ID at the lock screen — this is an additional layer.
+```
+
+If `LAContext.canEvaluatePolicy(.deviceOwnerAuthentication)` returns false (no passcode set on device), the toggle renders gray-disabled with hint: "Set a passcode in iOS Settings to enable this option."
+
+#### Audit trail upgrade
+
+`Op.Provenance` gains two optional fields, **populated only by phone-written ops** (Mac writes leave them nil):
+
+```swift
+extension Op.Provenance {
+    public var appVersion: String?  // CodingKey "app_version", e.g. "0.1.0"
+    public var osVersion: String?   // CodingKey "os_version", e.g. "iOS 17.4"
+}
+```
+
+Why: today's `device:` UUID tags ops to a phone install, but doesn't help forensic queries like "which version of MaughamPhone wrote this op?" The two new fields are pure metadata — they don't affect derivation, classification, or replay. Mac-side `Deriver` and `AnnotationDeriver` ignore them; existing op logs decode fine because the fields are optional. Purely additive schema change, backward compatible with no migration.
+
+The Mac doesn't populate these for its own writes — the existing assumption "Mac-written ops come from the current Maugham version, joinable via `device:` + checkpoint history" remains adequate for desktop. Symmetric population is a Phase H follow-up if it ever becomes a real need.
+
+#### UI states summary
+
+| `LaunchAuthGate.state` | Annotations tab UI |
+|---|---|
+| `.unlocked` | Normal annotation list (per §3.13) |
+| `.locked` | Full-tab unlock screen with Face ID button, "Unlock to triage annotations" |
+| `.evaluating` | Spinner overlay on the unlock screen |
+| `.unavailable` | Treated as `.unlocked` (fail-open; no device passcode means iOS-side auth missing) |
+
+#### What this explicitly does NOT do (v1)
+
+- **Per-action biometric prompts.** Would friction the triage flow into uselessness. The launch gate covers the bulk-action attacker without making 50 sequential triage actions a Face-ID nightmare.
+- **HMAC-signed ops + Mac-side per-device authorization.** Cryptographic plumbing for an attacker class (someone who steals the iCloud Drive bytes without the phone) that's unlikely to target a personal writing app. Phase H if a real threat emerges.
+- **Read protection.** Read tab, Annotations list view, document reader are ungated. iOS device passcode is the read-tier protection.
+- **Inbox-write gating.** Capture is friction-sensitive; the inbox is the writer's own input, low damage potential.
+- **Per-project authorization.** All projects share the same gate state. Selective per-project auth would require per-project Keychain entries and a UI to manage them — disproportionate for v1.
+- **Lockout after N failed attempts.** iOS handles this at the LAContext layer (forces passcode fallback after biometric failures). We don't add an app-level counter.
+- **Symmetric Mac-side `Op.Provenance.appVersion` population.** Mac writes continue without these fields. Phone writes carry them. Asymmetry is acknowledged and accepted for v1.
+
 ---
 
 ## 4. Data flow
@@ -1054,6 +1177,22 @@ The principle restated: no surface ever renders an empty-state UI while the trut
 
 Cold-launch budget exhaustion is **not** a failure — it's expected. Projects skipped due to budget appear in the "Other projects (tap to load)" group with a normal lazy-download affordance, no error.
 
+### 5.7 LaunchAuthGate failures (iOS, opt-in only)
+
+When the writer has enabled "Require Face ID on launch" in Settings (§3.14):
+
+| Failure | Behavior |
+|---|---|
+| User cancels the Face ID prompt | `state` stays `.locked`; Annotations tab shows unlock screen with retry button |
+| Face ID fails (5 attempts) | iOS forces passcode fallback automatically via `.deviceOwnerAuthentication` policy |
+| Passcode fallback also fails | `state` stays `.locked`; same retry UX |
+| Device has no passcode set (rare) | `state` is `.unavailable` → treated as `.unlocked` (fail-open); Settings toggle is gray-disabled with hint "Set a passcode in iOS Settings to enable this option" |
+| `LAContext` throws unexpected error | `state` stays `.locked`; surface a one-line error in the unlock screen + retry |
+
+The gate explicitly does **not** lock the writer out of Settings, Read tab, or Capture tab — Settings is the only place to disable the toggle if they get into a Face-ID-broken state, and Capture must stay available (the entire phone is friction-sensitive for the capture flow).
+
+Capture-flow writes (inbox entries) bypass the gate entirely (§3.14 scope decision).
+
 ---
 
 ## 6. CLAUDE.md additions
@@ -1204,6 +1343,15 @@ Per-area pointer added to "Per-area pointers":
 - `CoordinatedFileIODownloadTests` — point at a mock not-downloaded URL (test fixture exposes URLResource extension), call `download(at:)`; assert poll loop completes when status reaches `.current`, throws on simulated error, throws on `Task.cancel`.
 - `AnnotationsListViewBannerTests` (snapshot or behavioral) — render the view with `DownloadCoordinator` in three states (all current / partial downloading / all failed); assert the banner copy matches the §3.13 UI table.
 
+**iOS authorization (Phase F):**
+
+- `LaunchAuthGateToggleOffTests` — toggle off (default); `evaluate()` returns immediately with `.unlocked`. No LAContext invocation.
+- `LaunchAuthGateToggleOnUnlockTests` — toggle on; inject a mock LAContext that succeeds; `evaluate()` transitions `.locked` → `.evaluating` → `.unlocked`; `lastUnlockTime` is set.
+- `LaunchAuthGateToggleOnCancelTests` — toggle on; mock LAContext throws cancellation; `evaluate()` leaves state `.locked` for retry.
+- `LaunchAuthGateUnavailableTests` — toggle on but `canEvaluatePolicy` returns false (no device passcode); `evaluate()` reaches `.unavailable` and is treated as `.unlocked` (fail-open).
+- `LaunchAuthGateRelockWindowTests` — toggle on; unlock; `onBackground()` clears `lastUnlockTime`; next `evaluate()` re-prompts (regardless of elapsed time). And: unlock, do nothing for <5 min, `evaluate()` returns `.unlocked` immediately without re-prompt.
+- `AnnotationWriterProvenanceTests` — append a `claudeReject` op via `AnnotationWriter`; decode the resulting JSON; assert `provenance.app_version` and `provenance.os_version` are populated, that they round-trip through the existing `Op.Codable` path, and that a Mac-side `Deriver.derive` over the op produces unchanged behavior (the new fields are ignored).
+
 **Cross-cutting:**
 
 - `BuildVariantPhoneTests` — `phoneBundleId` and `bookmarkUserDefaultsKey` differ between `.dev` and `.stable`.
@@ -1239,6 +1387,7 @@ After milestone 4 ships and `phone-v0.1.0` is live in TestFlight:
 12. Race smoke: on Mac, open the same annotation in the AnnotationsPane. On phone, open its detail view. Mac: Archive the annotation. Wait ~30s. Phone: tap Accept. Refresh the list. Annotation should be classified as accepted (later ULID wins); document this in the spec's known-behavior list (Race 1 in §5.3).
 13. Phone: airplane mode on. Tap capture → save text → assert UI shows a "queued" indicator (the file is written locally but iCloud hasn't synced). Disable airplane mode. Within ~30s, Mac sees the entry. (This validates the offline-write path.)
 14. **Eviction smoke.** On the phone, Settings → General → iPhone Storage → "Offload App" the test build (or wait ~7 days unused, or fill the device near capacity to force eviction). Reinstall / relaunch. Open the Annotations tab. Assert: header banner shows "Syncing N of M projects from iCloud…", recents projects' annotations stream in as their op logs download (50 MB cap respected), non-recent projects appear under "Other projects (tap to load)" with no annotations shown until tapped. **The tab never silently shows an empty list while op logs are still downloading.** Then open a manuscript in the Read tab: assert "Downloading <docname>…" view appears, Cancel works, completion renders the doc.
+15. **Auth gate smoke.** Settings → toggle "Require Face ID on launch" ON. Suspend the app, wait >5 min, foreground it. Annotations tab shows the unlock screen with Face ID prompt; pass auth → annotations appear. Open another tab, return within 5 min → no re-prompt. Suspend >5 min and return → re-prompt. Capture tab works without prompt throughout. Toggle the setting OFF and confirm no prompts on next launch.
 
 ---
 
@@ -1260,6 +1409,11 @@ After milestone 4 ships and `phone-v0.1.0` is live in TestFlight:
 - **Background App Refresh / background downloads.** iOS only downloads iCloud Drive files while the app is foregrounded (no NSFilePresenter on iOS in v1, no background-modes opt-in). Writers returning from offline see a brief sync wait on next launch instead of "everything was ready when I opened it." Phase H if it becomes a real complaint.
 - **Per-device cold-launch budget tuning.** 50 MB is a fixed cap for all devices regardless of free space, plan, or device class. Adequate in practice; revisit if heavy-history projects hit it routinely.
 - **`NSURLUbiquitousItemDownloadRequestedKey` pinning.** No documented API for "tell iOS never to evict this file." Recents-driven proactive downloads are the v1 substitute (frequent reads naturally avoid eviction).
+- **Per-action biometric prompts.** §3.14 explicitly chooses launch-gate over per-action — preserves the triage flow. If a writer wants per-action protection they can lock the phone between every action; the gate doesn't try to enforce that.
+- **HMAC-signed ops + per-device authorization keys.** The attacker class this defends against (someone who steals the iCloud Drive bytes without the phone) is unlikely to target a personal writing app. Phase H if a real threat emerges.
+- **Read protection on the phone.** Annotations list view, document reader, and research browser are ungated. iOS device passcode is the read-tier protection.
+- **Symmetric Mac-side population of `Op.Provenance.appVersion` / `osVersion`.** Mac writes continue without these fields. Asymmetry acknowledged; Phase H if needed.
+- **Bulk-action affordances on the phone.** No "Reject all open annotations" or "Accept all suggestions" buttons. Bulk-damage from a stolen phone requires per-row taps; an opportunistic attacker gives up.
 
 ---
 
