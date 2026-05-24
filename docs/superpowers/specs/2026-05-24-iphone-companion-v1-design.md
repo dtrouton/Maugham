@@ -275,10 +275,15 @@ Keeping the generic store's per-file behavior intact and overriding the cross-fi
 
 The right-pane mode pattern is established (ADR 0005): the detail pane swaps content based on `currentSegment: DetailSegment`. Existing segments: `.inspector` (⌘⌥1), `.annotations` (⌘⌥2), `.outline` (⌘⌥3), `.history` (⌘⌥4), `.research` (⌘⌥5). New: `.inbox` (⌘⌥6).
 
+**Segment unread badge.** The `.inbox` segment in `DetailPaneToggle` shows a numeric badge with `InboxStore.entries.count` (entries with `status == .new`). The badge is the discoverability signal for "captures came in while you were writing" — without it, ⌘⌥6 is buried six slots deep and the writer would never know to look. Badge cap at "99+" if count exceeds 99 (avoids layout reflow). Disappears at count 0.
+
+This also addresses the broader carry-forward from `milestone-ui-polish-followups`: the three right-pane modes with different write semantics (Annotations action surface, History read-only forensic log, Inbox triage) gain segment-level tooltips so the writer can tell them apart from the picker. See §6 for the tooltip copy.
+
 **Row layout.** Each row shows:
 
 - Leading SF Symbol per kind: `square.and.pencil` (text), `photo` (image), `mic` (audio).
 - Two-line title block: title (or first ~40 chars of inlineText/transcript) and dimmed subtitle (transcript preview if not in title + relative timestamp).
+- **For audio entries:** an inline play/pause button between the icon and the title block. Tapping plays the `.m4a` via `AVAudioPlayer` with a slim progress bar replacing the subtitle during playback (transcript preview returns on stop/pause). Spacebar plays/pauses the focused row (matches Finder's Quick Look muscle memory). Only one row plays at a time — starting playback on a new row stops the previous. The writer can verify the transcript against the audio without leaving InboxPane.
 - Trailing context menu: Promote to research…, Attach to current document, Edit transcript…, Trash. (Edit transcript is for the writer to correct on-device drafts that Whisper hasn't replaced yet.)
 
 **Action wiring.**
@@ -308,7 +313,15 @@ The right-pane mode pattern is established (ADR 0005): the detail pane swaps con
 
 **Model storage path.** `~/Library/Application Support/<BuildVariant.supportFolderName>/WhisperModels/` — variant-scoped so the dev install and stable install can have independent model state, in line with tripwire 13's spirit (every cross-install seam routes through BuildVariant).
 
-**Non-Apple-Silicon Macs.** WhisperKit requires Apple Silicon for CoreML acceleration. On Intel Macs, the worker emits a one-time `os_log` warning, sets state to `.failed` for new audio entries, and surfaces an "Apple Silicon required for local transcription" hint in Settings. The on-device draft from the phone is the only transcript these Macs will get.
+**First-download UX.** "Download on first use" is the right default but the wrong UX without scaffolding — the first voice capture a writer makes shouldn't silently `.failed` because the 150MB model wasn't there yet.
+
+1. **Proactive download on worker start.** When `InboxTranscriptionWorker` initializes and the configured model is not present in the model storage path, it kicks off a background download via `WhisperKit.download(variant:)` if network is `.reachable` (checked via `NWPathMonitor`). No alert, no progress bar — just runs. On networks-unavailable, the worker no-ops the proactive download; the explicit-action paths below handle eventually.
+2. **Settings exposes explicit controls.** A "Voice transcription" section in Settings: "Currently using: base (149 MB) · Replace…" picker, "Download now" button (enabled when model not present), and a progress indicator (download bytes / total bytes) while a download is in flight. Replace ↔ download a different model and delete the previous to reclaim disk.
+3. **First-audio-with-no-model alert.** If an audio entry arrives before the proactive download has completed (cold-launch + first capture within ~60s on a slow network), the worker triggers a one-time HUD alert: "Downloading Whisper model (~150 MB)…" with progress. Non-blocking — the writer can dismiss; the alert returns only on the first audio per session. On completion, queued audio drains.
+4. **Offline-with-no-model row badge.** Audio entries that can't yet transcribe (model missing + no network) show a row-level "Awaiting transcription · Download required" subtitle plus a small Settings shortcut chip. Distinguishes the writer-actionable state ("go online or download model") from `.failed` (corrupt audio, unrecoverable).
+5. **First-use telemetry sanity check.** Manual smoke step: cold-launch on a fresh install, capture a voice note before the proactive download completes. Confirm the HUD appears, model downloads, queue drains, transcript replaces the on-device draft within ~60s of network availability.
+
+**Non-Apple-Silicon Macs.** WhisperKit requires Apple Silicon for CoreML acceleration. On Intel Macs, the worker emits a one-time `os_log` warning, sets state to `.failed` for new audio entries, and surfaces an "Apple Silicon required for local transcription" hint in Settings. The on-device draft from the phone is the only transcript these Macs will get. The proactive-download path no-ops on Intel.
 
 **Long-audio chunking.** Not in v1. WhisperKit handles up to ~5 minutes well; longer recordings degrade. Document the limit in the worker's header. Chunking is a Phase H item.
 
@@ -363,12 +376,21 @@ final class ProjectsRoot: ObservableObject {
 
 1. Tap Record → `AVAudioRecorder` starts writing to a tmp `.m4a` (AAC, 64 kbps mono — good enough for speech, small file size). Simultaneously, `SFSpeechRecognizer` opens a streaming session against the same audio buffer (using `SFSpeechAudioBufferRecognitionRequest`) for the live draft.
 2. Tap Stop → recorder stops, recognizer finalizes, draft transcript is available within ~500ms.
-3. Generate ULID. Move the `.m4a` from tmp into `.maugham/inbox/audio/<ulid>.m4a` (coordinated write).
-4. Append `InboxEntry` with `kind: .audio`, `sourceFilename: "<ulid>.m4a"`, `transcript: <draft>`, `transcriptionState: .onDeviceDraft`.
+3. **Pre-commit confirmation screen.** Stop transitions the sheet to a confirmation view: play/pause button against the just-recorded `.m4a`, the draft transcript as editable text below, "Discard" and "Save to inbox" buttons. Playback uses `AVAudioPlayer` against the tmp file. The writer can hear what they just said before committing — closes the "did it hear me?" loop without waiting for Mac-side sync.
+4. On "Save to inbox": generate ULID. Move the `.m4a` from tmp into `.maugham/inbox/audio/<ulid>.m4a` (coordinated write). Append `InboxEntry` with `kind: .audio`, `sourceFilename: "<ulid>.m4a"`, `transcript: <draft>` (with any pre-commit edits applied), `transcriptionState: .onDeviceDraft`.
+5. On "Discard": delete the tmp file, close the sheet, no manifest entry. (No way to recover; the recording never existed.)
 
 Permissions: requesting microphone (`AVAudioApplication.requestRecordPermission`) and speech recognition (`SFSpeechRecognizer.requestAuthorization`) on first tap of the Record button. If either is denied, surface a clear "Settings → MaughamPhone → permissions" CTA. Without speech recognition the voice flow still works — file is saved, transcript is empty until WhisperKit fills it.
 
-**Project selection.** A pill at the top of the Capture tab shows the current project (selected from the Read tab's project list, persisted in `@AppStorage("currentProjectRelativePath")`). Captures land into that project's `.maugham/inbox/`. If no project is selected, the capture buttons are disabled with a hint pointing at the Read tab.
+**Project selection.**
+
+A pill at the top of the Capture tab shows the currently-selected project name. Tapping the pill opens a project picker sheet — *not* navigation to the Read tab, which would lose the capture context (selected media, transcript-in-progress).
+
+- **Picker sheet contents:** top section "Recent" with the last 5 projects the writer captured into (most-recent first), then "All projects" alphabetically, then a search field that filters across both. Each row shows the project name and (dimmed) project type icon.
+- **Persistence.** Selection is keyed by `ProjectManifest.id` (stable across rename/move within the bookmarked folder), not by file path. `@AppStorage("currentProjectId")` for the active selection, plus `@AppStorage("recentProjectIds")` for the recents list (capped at 5; updated on every successful capture).
+- **Resolution on launch.** ProjectsBrowser builds the id → URL map by walking bookmarked-folder children and decoding each `project.maugham.json`. The pill resolves the persisted id against this map. If the id is missing (project deleted or moved outside the bookmarked root), the pill shows "Choose project…" and the capture buttons stay disabled until the writer picks again from the sheet.
+- **Empty state.** If no project is currently selected (first launch, or after a deletion), the capture buttons are disabled with an inline hint pointing at the pill: "Tap above to choose a project."
+- **Why not navigate to the Read tab.** Capture flows are time-sensitive — the writer is mid-thought. Forcing a tab switch + navigation + back-button loses the in-progress capture (e.g., a recording paused mid-sentence). The picker sheet keeps the capture context alive.
 
 ### 3.8 iOS app: read
 
@@ -954,6 +976,21 @@ New tripwires (#14 and #15) appended:
     and spec §3.12.
 ```
 
+Segment-picker tooltips landed in `ProjectWindow` / `DetailPaneToggle`, closing the
+`milestone-ui-polish-followups` carry-forward about Annotations vs History pane affordance:
+
+```swift
+// DetailPaneToggle row hints
+.help("Annotations · Accept / Reject / Archive Claude's open notes")     // ⌘⌥2
+.help("Outline · Document structure")                                     // ⌘⌥3
+.help("History · Read-only forensic log of every op (rewind from here)")  // ⌘⌥4
+.help("Research · Project research browser")                              // ⌘⌥5
+.help("Inbox · Triage captures from MaughamPhone")                        // ⌘⌥6
+```
+
+The phrasing differentiates **action surfaces** (Annotations, Inbox) from the **read-only
+log** (History) at the picker, before the writer has to click in and discover it.
+
 Per-area pointer added to "Per-area pointers":
 
 ```markdown
@@ -964,6 +1001,8 @@ Per-area pointer added to "Per-area pointers":
   refresh model (no `NSFilePresenter` on iOS — see §3.6 of the spec).
 - Every write coordinated via `CoordinatedFileIO`. Every read coordinated.
 - All shared types from `MaughamCore`. iOS-only knobs in `BuildVariantPhone.swift`.
+- Project selection persisted by `ProjectManifest.id` (not relative path) — stable across
+  rename/move within the bookmarked root. See §3.7.
 - Tripwire 13 extends here: `grep -n '"maugham"\|"Maugham"' MaughamPhone/` must return
   zero matches outside `BuildVariantPhone.swift` and tests.
 - Tripwire 4 extends here: cache `FountainScript` in `@State` populated by `.task`; do
