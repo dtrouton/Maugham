@@ -91,6 +91,86 @@ final class TasksPaneIntegrationTests: XCTestCase {
             "B should appear above A after the reorder")
     }
 
+    // MARK: - 1b. SwiftUI .onMove → handleListMove → reorder
+
+    func test_handleListMove_dragSecondRowToFirst_emitsReorderAbove() async throws {
+        // Mirrors what SwiftUI's `.onMove` produces when the user drags
+        // row 1 (B) above row 0 (A). After the drop, `[B, A]`.
+        let doc = try await makeDocument()
+        let a = doc.createPaneTask(body: "A first", parentTaskId: nil)
+        let b = doc.createPaneTask(body: "B second", parentTaskId: nil)
+
+        let pool = doc.tasks(filter: TaskFilter(
+            scope: .document(docId: doc.docId),
+            statuses: Set(TaskStatus.allCases)))
+        XCTAssertEqual(pool.map(\.id), [a.id, b.id], "pre: A, B")
+
+        let countBefore = doc.opLogMirrorCount
+        let pane = try await makePane(for: doc, registering: doc)
+        // SwiftUI semantic: dragging index 1 (B) to slot 0 means "drop
+        // before the row currently at index 0". destination = 0.
+        pane.handleListMove(
+            from: IndexSet(integer: 1), to: 0, in: pool)
+
+        let newKinds = doc.opLogSnapshot.dropFirst(countBefore).map(\.kind)
+        XCTAssertEqual(newKinds.filter { $0 == .taskPriorityChange }.count, 1,
+            "exactly one .taskPriorityChange expected")
+        let after = doc.tasks(filter: TaskFilter(
+            scope: .document(docId: doc.docId),
+            statuses: [.open]))
+        XCTAssertEqual(after.map(\.id), [b.id, a.id],
+            "B should appear above A after the .onMove")
+    }
+
+    func test_handleListMove_dragFirstRowBelowSecond_emitsReorderBelow() async throws {
+        let doc = try await makeDocument()
+        let a = doc.createPaneTask(body: "A first", parentTaskId: nil)
+        let b = doc.createPaneTask(body: "B second", parentTaskId: nil)
+
+        let pool = doc.tasks(filter: TaskFilter(
+            scope: .document(docId: doc.docId),
+            statuses: Set(TaskStatus.allCases)))
+
+        let countBefore = doc.opLogMirrorCount
+        let pane = try await makePane(for: doc, registering: doc)
+        // SwiftUI semantic: dragging index 0 (A) past index 1 (B) to slot 2.
+        // destination = 2 means "drop at the end" — the row at index 1
+        // becomes the new "above" reference.
+        pane.handleListMove(
+            from: IndexSet(integer: 0), to: 2, in: pool)
+
+        let newKinds = doc.opLogSnapshot.dropFirst(countBefore).map(\.kind)
+        XCTAssertEqual(newKinds.filter { $0 == .taskPriorityChange }.count, 1,
+            "exactly one .taskPriorityChange expected")
+        let after = doc.tasks(filter: TaskFilter(
+            scope: .document(docId: doc.docId),
+            statuses: [.open]))
+        XCTAssertEqual(after.map(\.id), [b.id, a.id],
+            "A should appear below B after the .onMove")
+    }
+
+    func test_handleListMove_dropOnSelf_isNoOp() async throws {
+        let doc = try await makeDocument()
+        let a = doc.createPaneTask(body: "A", parentTaskId: nil)
+        let b = doc.createPaneTask(body: "B", parentTaskId: nil)
+        _ = (a, b)
+
+        let pool = doc.tasks(filter: TaskFilter(
+            scope: .document(docId: doc.docId),
+            statuses: Set(TaskStatus.allCases)))
+        let countBefore = doc.opLogMirrorCount
+        let pane = try await makePane(for: doc, registering: doc)
+        // Drop index 0 onto slot 0 (self): no-op.
+        pane.handleListMove(
+            from: IndexSet(integer: 0), to: 0, in: pool)
+        // Drop index 0 onto slot 1 (right where it already is per
+        // SwiftUI's "insert before slot N" semantics): also no-op.
+        pane.handleListMove(
+            from: IndexSet(integer: 0), to: 1, in: pool)
+        XCTAssertEqual(doc.opLogMirrorCount, countBefore,
+            "no ops should fire for a self-targeted move")
+    }
+
     // MARK: - 2. Inline checkbox click → typingBurst (not taskStatusChange)
 
     func test_paneCheckboxClick_onInlineTask_flipsTextAndEmitsTypingBurst() async throws {
@@ -305,6 +385,18 @@ final class TasksPaneIntegrationTests: XCTestCase {
     /// Construct a TasksPane bound to a real Document + minimal stores.
     /// We never render this view; we call `.apply(...)` on it directly.
     private func makePane(for doc: Document) async throws -> TasksPane {
+        return try await makePane(for: doc, registering: nil)
+    }
+
+    /// Optionally registers `registering` (typically the test document)
+    /// with the pane's `DocumentStore` so `ownerDoc(of:)` lookups
+    /// resolve. Without this, `handleListMove` returns early because the
+    /// pane's stub store doesn't know about externally-created Documents.
+    /// Tests that drive code paths going through `ownerDoc(of:)` need to
+    /// pass `registering: doc`.
+    private func makePane(
+        for doc: Document, registering: Document?
+    ) async throws -> TasksPane {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("PANE-STUB-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
@@ -320,6 +412,9 @@ final class TasksPaneIntegrationTests: XCTestCase {
         let store = try await ProjectStore.load(from: url)
         let ds = try await DocumentStore.open(url: url)
         store.documentStore = ds
+        if let toRegister = registering {
+            ds.register(document: toRegister, for: "stub/\(toRegister.docId).md")
+        }
         return TasksPane(
             store: store,
             documentStore: ds,

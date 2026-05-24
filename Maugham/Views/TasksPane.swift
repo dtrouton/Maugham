@@ -198,8 +198,33 @@ struct TasksPane: View {
                 description: Text("Type `- [ ]` in any paragraph, or press +."))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            List(tasks, selection: $selectedTaskId) { task in
-                row(for: task)
+            // Use `ForEach` + `.onMove` for SwiftUI's built-in macOS row-
+            // drag reorder gesture. The earlier `.draggable` + per-row
+            // `.dropDestination` approach was unreliable inside
+            // `List(.sidebar)` rows — row-internal interactive controls
+            // (Toggle, Menu, .onTapGesture) consumed the press-and-drag
+            // sequence, and the `.dropDestination` payload type matching
+            // wasn't always firing. `.onMove` is the canonical pattern
+            // and integrates with List's selection/click hit-testing
+            // without competing for the gesture.
+            //
+            // Trade-off: `.onMove` is a same-list reorder gesture; it
+            // doesn't surface a "nest under target" affordance. Cross-
+            // parent nesting via drag-and-drop is dropped from this UI
+            // (the apply() classifier still handles `.nestUnder` for
+            // any future control that produces it). The current state
+            // is "drag-to-reorder among siblings works"; a kebab
+            // menu "Move under …" follow-up can restore nesting if the
+            // writer asks for it.
+            List(selection: $selectedTaskId) {
+                ForEach(tasks, id: \.id) { task in
+                    row(for: task)
+                        .tag(task.id)
+                }
+                .onMove { source, destination in
+                    handleListMove(
+                        from: source, to: destination, in: tasks)
+                }
             }
             .listStyle(.sidebar)
         }
@@ -214,25 +239,6 @@ struct TasksPane: View {
             onArchive: { archive(task) },
             onDelete: { deleteIfPaneCreated(task) })
             .padding(.leading, task.parentTaskId == nil ? 0 : 18)
-            .draggable(task.id) {
-                Text(task.body)
-                    .padding(6)
-                    .background(.regularMaterial,
-                                in: RoundedRectangle(cornerRadius: 4))
-            }
-            .dropDestination(for: String.self) { ids, location in
-                guard let draggedId = ids.first else { return false }
-                let rowHeight: CGFloat = 28
-                let yFrac = Double(
-                    min(max(location.y, 0), rowHeight) / rowHeight)
-                let position = TaskDropIntent.position(yFraction: yFrac)
-                let intent = TaskDropIntent.classify(
-                    position: position,
-                    targetId: task.id,
-                    targetParentTaskId: task.parentTaskId)
-                handleDrop(draggedId: draggedId, intent: intent)
-                return true
-            }
     }
 
     // MARK: - Visible tasks
@@ -336,6 +342,55 @@ struct TasksPane: View {
     }
 
     // MARK: - Drag-and-drop
+
+    /// SwiftUI `.onMove` handler. `source` indexes into `visible` (the
+    /// in-pane list order); `destination` is the slot index the dragged
+    /// row should occupy AFTER the move. SwiftUI uses the "insert
+    /// before" convention — destination N means "drop just before the
+    /// task currently at index N", so when N == visible.count the drop
+    /// lands at the end.
+    ///
+    /// Only same-parent reorders are dispatched. Cross-parent moves via
+    /// drag aren't supported by `.onMove` (it's a flat-list gesture)
+    /// and are explicitly out of scope until a follow-up adds a kebab
+    /// "Move under …" affordance.
+    /// Internal access so integration tests can drive the SwiftUI
+    /// `.onMove` semantics without a render harness.
+    func handleListMove(
+        from source: IndexSet, to destination: Int, in visible: [WriterTask]
+    ) {
+        guard let from = source.first,
+              from >= 0, from < visible.count else { return }
+        let dragged = visible[from]
+        guard let doc = ownerDoc(of: dragged) else { return }
+
+        let intent: TaskDropIntent
+        if destination == visible.count {
+            // Dropped past the last row — reorder below the current
+            // bottom row.
+            let last = visible[visible.count - 1]
+            intent = .reorderBelow(
+                targetId: last.id, parentTaskId: last.parentTaskId)
+        } else if destination == from || destination == from + 1 {
+            // No-op move (dropped onto self).
+            return
+        } else if destination < from {
+            // Moving upward: target is the row currently at destination.
+            let target = visible[destination]
+            intent = .reorderAbove(
+                targetId: target.id, parentTaskId: target.parentTaskId)
+        } else {
+            // Moving downward: SwiftUI's destination accounts for the
+            // dragged row being removed first, so the row currently at
+            // (destination - 1) is the new "above" — reorder below that.
+            let aboveIdx = destination - 1
+            let target = visible[aboveIdx]
+            intent = .reorderBelow(
+                targetId: target.id, parentTaskId: target.parentTaskId)
+        }
+
+        apply(intent: intent, dragged: dragged, in: doc, allTasks: visible)
+    }
 
     /// Apply a classified drop intent: emit `.taskPriorityChange` and/or
     /// `.taskParentChange` ops on the appropriate Document. Project-scope
