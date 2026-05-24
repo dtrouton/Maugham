@@ -29,12 +29,53 @@ public enum TaskDeriver {
         docId: String
     ) -> (tasks: [WriterTask], rebalanceOps: [Op]) {
 
+        // 0. Apply rewind semantics: if there is a `.checkpointRestore` with
+        //    `synthesisSource == .rewind`, task ops between its `sourceCheckpoint`
+        //    and the restore op itself are "undone." Replay is: all ops up to
+        //    and including `sourceCheckpoint`, then all ops after the restore op
+        //    (new post-rewind mutations). Multiple nested rewinds are handled by
+        //    folding: the last rewind wins.
+        //
+        //    Only task-lifecycle kinds are excluded from the rewind window (they
+        //    are the only state owned purely by TaskDeriver). Manuscript ops such
+        //    as `.typingBurst` are not excluded here because `paragraphs` is
+        //    already the post-restore text state when `Document.rebuildTasksCache`
+        //    calls us (paragraph state is managed by `Deriver`, not TaskDeriver).
+        let effectiveOps: [Op]
+        if let rewindOp = ops.last(where: {
+            $0.kind == .checkpointRestore
+                && $0.provenance?.synthesisSource == .rewind
+        }),
+           let sourceId = rewindOp.provenance?.sourceCheckpoint,
+           let sourceIdx = ops.firstIndex(where: { $0.opId == sourceId }),
+           let rewindIdx = ops.firstIndex(where: { $0.opId == rewindOp.opId })
+        {
+            // Task-lifecycle op kinds that live in the rewind window and must
+            // be discarded. Non-task ops in the window are also discarded here
+            // for simplicity — `paragraphs` already reflects post-restore text.
+            let taskKinds: Set<OpKind> = [
+                .taskCreate, .taskStatusChange, .taskPriorityChange,
+                .taskParentChange, .taskBodyEdit, .taskArchive
+            ]
+            // Prefix through sourceCheckpoint + suffix after the restore op.
+            let before = Array(ops.prefix(through: sourceIdx))
+            let after   = Array(ops.dropFirst(rewindIdx + 1))
+            // From the window (sourceIdx+1 ..< rewindIdx) keep only non-task ops
+            // (there are currently none, but guard against future additions).
+            let window = ops[(sourceIdx + 1) ..< rewindIdx].filter {
+                !taskKinds.contains($0.kind)
+            }
+            effectiveOps = before + window + after
+        } else {
+            effectiveOps = ops
+        }
+
         // 1. Walk ops once. Build pane-created seeds + lifecycle overrides
         //    for synthetic-id (inline/fountain) targets.
         var panes: [String: PaneSeed] = [:]
         var overrides: [String: InlineOverride] = [:]
 
-        for op in ops {
+        for op in effectiveOps {
             switch op.kind {
             case .taskCreate:
                 guard let id = op.provenance?.taskId,

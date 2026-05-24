@@ -1133,16 +1133,45 @@ public final class Document {
                     sourceCheckpoint: targetOpId,
                     synthesisSource: .rewind))
         } else {
-            // (a) Genuine no-op (target == current). Return without
-            // appending. `restoreOp == nil` signals "log was not extended"
-            // — callers inspecting `result.restoreOp.opId` would otherwise
-            // chase a sentinel empty-string id.
-            return RewindRestoreResult(
-                restoreOp: nil,
-                archivedAnnotationOpIds: [],
-                removedParagraphIds: [],
-                priorSequenceCount: priorCount,
-                newSequenceCount: newCount)
+            // (a) Manuscript text is unchanged (target == current). Check
+            // whether there are any task-lifecycle ops after `targetOpId`.
+            // If so, we still need to append a `.checkpointRestore` marker so
+            // `TaskDeriver` can detect the rewind boundary and exclude those
+            // task ops from derivation. Without this marker, the task cache
+            // would continue to reflect the post-boundary task ops even though
+            // the user rewound past them.
+            let taskKinds: Set<OpKind> = [
+                .taskCreate, .taskStatusChange, .taskPriorityChange,
+                .taskParentChange, .taskBodyEdit, .taskArchive
+            ]
+            let targetIdx = currentOps.firstIndex(where: { $0.opId == targetOpId })
+            let hasTaskOpsAfterTarget = targetIdx.map { idx in
+                currentOps.dropFirst(idx + 1).contains { taskKinds.contains($0.kind) }
+            } ?? false
+
+            guard hasTaskOpsAfterTarget else {
+                // Genuine no-op: no manuscript change, no task ops to rewind.
+                // `restoreOp == nil` signals "log was not extended."
+                return RewindRestoreResult(
+                    restoreOp: nil,
+                    archivedAnnotationOpIds: [],
+                    removedParagraphIds: [],
+                    priorSequenceCount: priorCount,
+                    newSequenceCount: newCount)
+            }
+
+            // Emit a task-rewind marker checkpoint_restore with empty changes
+            // and no sequence change so `TaskDeriver` can slice at this boundary.
+            baseOp = Op(
+                opId: ULID.generate(),
+                docId: docId, at: Date(),
+                device: device, session: session,
+                kind: .checkpointRestore,
+                changes: [],
+                sequence: nil,
+                provenance: .init(
+                    sourceCheckpoint: targetOpId,
+                    synthesisSource: .rewind))
         }
 
         // 4. Stamp the post-restore sequence on the op so cross-Mac merge
