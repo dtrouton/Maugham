@@ -1,0 +1,195 @@
+# Maugham iPhone Companion — v1 plan
+
+## Context
+
+Maugham is a Mac writing app whose primary use is at-the-desk focus work, but the writer wants a phone surface for the things a desk app can't reach:
+
+- **Capture out-and-about** — quick text, photos, and voice notes that would otherwise be lost
+- **Review on the go** — reading manuscripts and research from anywhere
+- **Annotation triage** — accepting / rejecting / archiving Claude's open annotations away from the desk
+- **Future** — when Mac-side human-authored annotations land, the phone is a natural primary surface for them
+
+Maugham's architecture already supports this surprisingly well: the op log is plain JSONL with a documented snake-case schema, iCloud Drive is the existing sync substrate, and the annotation layer + `research/` are exactly the "Claude-shaped" non-manuscript surfaces a phone should write through. The manuscript itself stays Mac-only (Bootstrap / ¶id-anchor minting and the conflict-on-unanchored-edit contract make phone-side editing unsafe).
+
+User decisions baked in:
+- v1 covers all three capabilities (capture + read + annotation review) from day one
+- Captures land in a new `.maugham/inbox/` triage sidecar; Mac surfaces a triage pane
+- Voice: phone records `.m4a` + an immediate on-device `SFSpeechRecognizer` draft; **Mac re-transcribes with WhisperKit (local Apple Silicon, no API keys)** and replaces the draft
+- Sync: iCloud Drive only — `UIDocumentPicker` + security-scoped bookmark + `NSFileCoordinator` on iOS; no shared iCloud container (preserves the "project folder anywhere" invariant)
+- Fountain rendering: semantic tier (existing parser + SwiftUI styling), not pagination
+- Distribution: TestFlight (personal/friends), App Store-eligible but not the immediate target
+
+## Architecture at a glance
+
+Three coordinated changes:
+
+1. **Extract `Packages/MaughamCore`** — a Foundation-only SPM package the Mac and iOS apps share. Houses Op/OpKind/Provenance, JSONLAppendStore, AnnotationDeriver, Materializer, Bootstrap, ParagraphID, ULID, BuildVariant, ProjectManifest, ResearchItem, Slugifier, and the Fountain parser (`FountainTokenizer`, `FountainLine`, `FountainScript`, `ScreenplayElement`). AppKit-bound files (`Document`, `ScreenplayMode`, `ScreenplayLayoutManager`) stay in the Mac target.
+2. **Mac additions** — new `.inbox` case on `MaughamSidecarPath`, `InboxStore`, `InboxPane` right-pane mode (⌘⌥6), WhisperKit-backed `InboxTranscriptionWorker`.
+3. **iOS app** — new `MaughamPhone` target in the same `project.yml`, four-tab SwiftUI app (Capture / Read / Annotations / Settings), reads/writes the bookmarked project folder via `NSFileCoordinator`.
+
+Verified prerequisites (confirmed during planning):
+- Mac app has **no iCloud entitlement** today — projects live at writer-chosen paths. iOS uses `UIDocumentPicker` to bookmark any folder, including iCloud Drive ones. No Mac-side change needed.
+- Fountain parser is Foundation-only (zero AppKit imports). Extractable as-is.
+- `MaughamSidecarPath` is a single classify-site enum; adding `.inbox` is one case + one switch arm in `DocumentStore.presenterDidChangeSubitem`.
+
+## Phased implementation
+
+### Phase A — `MaughamCore` extraction (foundation, highest blast radius)
+
+Create `Packages/MaughamCore/` SPM package. Move the Foundation-only files listed above out of `Maugham/OpLog/`, `Maugham/Editor/Fountain/`, `Maugham/Models/`, and `Maugham/BuildVariant.swift` into the package. Both Mac and iOS targets depend on it. Run `./gen.sh`, fix imports across `Maugham/`, run full `xcodebuild test` + the manual smoke from CLAUDE.md. Do this as one focused PR — don't combine with anything else.
+
+### Phase B — Inbox plumbing (Mac only)
+
+- `Packages/MaughamCore/Sources/MaughamCore/Inbox/InboxEntry.swift` — Codable: `id` (ULID), `createdAt`, `deviceId`, `kind` (text/image/audio), `sourceFilename`, `inlineText`, `transcript`, `transcriptionState` (none / on_device_draft / whisper_final / failed), `title`, `status` (new / promoted / trashed), `resolvedAt`. snake_case keys to match Op convention.
+- `Maugham/Stores/MaughamSidecarPath.swift` — add `case inbox(kind: InboxFileKind, relativePath: String)`; extend `classifySidecar` with `.maugham/inbox/` branches.
+- `Maugham/Stores/DocumentStore.swift` — add a `case .inbox` arm in `presenterDidChangeSubitem` (line 477) that posts `Notification.Name.maughamInboxChanged`.
+- `Maugham/Stores/InboxStore.swift` (new) — owned by `DocumentStore`. Loads `.maugham/inbox/inbox.jsonl` via `JSONLAppendStore<InboxEntry>`, but with **its own last-wins merge** (the generic store's `dedupKey` keeps first; status updates need newest). Methods: `refresh`, `promoteToResearch(_:)` (delegates to `ProjectStore.addResearchAsset`), `trash(_:)`, `attachToCurrentDoc(_:)`, `updateTranscript(id:text:state:)`.
+- `Maugham/Views/InboxPane.swift` (new) — right-pane mode, rows show kind icon + title + transcript preview + timestamp + trailing menu (Promote / Attach / Edit transcript / Trash). Empty state with `ContentUnavailableView` pointing at the phone.
+- Wire ⌘⌥6 in `ProjectWindow.swift` and add `.inbox` to `DetailSegment.swift` + `DetailPaneToggle.swift`.
+
+Manual test by dropping a file + JSONL line into `.maugham/inbox/` directly — no phone code yet.
+
+### Phase C — WhisperKit on the Mac
+
+- Add WhisperKit (`https://github.com/argmaxinc/WhisperKit`) as an SPM dependency on the Mac target only.
+- `Maugham/Stores/InboxTranscriptionWorker.swift` (new) — serial `Task` queue subscribed to `maughamInboxChanged`. On audio entries: run WhisperKit, call `InboxStore.updateTranscript`. Default model `base` (~150MB), settings hook for `small` / `large-v3`. Models live in `~/Library/Application Support/<BuildVariant.supportFolderName>/WhisperModels/`. Failure mode: keep on-device draft, mark `transcriptionState: failed`.
+- Apple Silicon-only; surface a settings hint on Intel.
+
+Manual test: drop a `.m4a` into `.maugham/inbox/audio/`, watch transcript appear.
+
+### Phase D — iOS app: capture
+
+- New `MaughamPhone` target in `project.yml`. iOS 17 deployment. Privacy strings: mic, speech recognition, camera, photo library, Files.
+- iOS-only `BuildVariantPhone.swift` extension — phone bundle ids (`com.maugham.MaughamPhone[.dev]`) and per-variant bookmark UserDefaults keys. Don't reintroduce hardcoded "maugham" strings (tripwire 13).
+- `MaughamPhone/Storage/ProjectsRoot.swift` — wraps `UIDocumentPicker(forOpeningContentTypes: [.folder])`, persists security-scoped bookmark, checks `isStale` every launch and re-prompts if needed.
+- `MaughamPhone/Storage/ProjectsBrowser.swift` — lists subdirectories containing `project.maugham.json`, decodes `ProjectManifest`.
+- `MaughamPhone/Storage/CoordinatedFileIO.swift` — wraps every read/write in `NSFileCoordinator`. **No iOS `NSFilePresenter`** in v1 — refresh on `.task` and pull-to-refresh, since background presenters require a different app-lifecycle design.
+- `MaughamPhone/Capture/CaptureView.swift` — three buttons: text (TextEditor sheet), photo (`PhotosPicker` / camera), voice (`AVAudioRecorder` → `.m4a`). On commit: write file + append `InboxEntry`. Voice path additionally runs `SFSpeechRecognizer` for an immediate `on_device_draft` transcript.
+- Settings tab: choose-folder, permissions status, build variant indicator.
+
+End-to-end test: capture on phone → file appears in `.maugham/inbox/` → Mac InboxPane shows it → WhisperKit transcribes audio within iCloud sync window + ~10s.
+
+### Phase E — iOS app: read
+
+- `MaughamPhone/Read/ProjectsListView.swift` → `BinderView.swift` (renders `ProjectManifest.structure: [StructureItem]`) → `DocumentReaderView.swift`.
+- `DocumentReaderView` reads `.md` / `.fountain` directly. Strips `<!-- ¶id -->` anchors before rendering. Markdown via `AttributedString(markdown:)`.
+- For `.fountain`: instantiate `FountainTokenizer` from `MaughamCore`, render each `FountainLine` with semantic SwiftUI styling — scene heading bold + uppercased, character bold + centered, dialogue indented, parenthetical italic + indented further, action plain, transition right-aligned. **Cache the parsed `FountainScript` in `@State`, populate via `.task`** — never re-parse in a row body (tripwire 4).
+- Cross-document search deferred to a later milestone; in-document `String.range(of:)` is fine for v1.
+
+### Phase F — iOS app: annotation review
+
+- `MaughamPhone/Annotations/AnnotationsListView.swift` — walks every bookmarked project's `.maugham/ops/*.jsonl`, builds derived annotation list via `AnnotationDeriver.derive(ops:paragraphs:)`. To produce `paragraphs:`, share a small `OpReplay.buildState(ops:) -> (paragraphs, sequence)` helper in `MaughamCore` (Mac side already does the same logic inside `Document.load`). Filter to `.open` status, group by project.
+- `AnnotationDetailView.swift` — shows paragraph context (`priorText`, `suggestedText`), body, three buttons (Accept / Reject… / Archive); Reject shows a reason sheet, Query shows a Reply sheet. **Re-derive status on view appearance** to collapse the cross-device race window — if `status != .open`, hide buttons and show "Already resolved on another device."
+- Write path: append `claudeAccept` / `claudeReject` / `claudeArchive` ops directly to `.maugham/ops/<docId>.jsonl` via `JSONLAppendStore<Op>` and coordinated write. Exact JSON shape mirrors `Op.swift` Codable: `op_id` (ULID), `doc_id`, `kind`, `at` (ISO8601 fractional seconds), `device`, `session`, `changes: []`, `provenance: {session_id, source_annotation_id, user_response?}`.
+- **Critical:** `claudeAccept` on a `suggestedChange` must include the creation op's `changes` array verbatim in the accept op (so Mac-side replay re-materializes the manuscript with the accepted text). For `comment` / `query` / `craftNote`, `changes: []` is correct.
+- **Mac-side change required:** confirm or add to `Document.load`'s op replay that `claudeAccept.changes` is applied to `paragraphs[paragraphId]`. Today the Mac path mutates `paragraphs` directly inside `acceptAnnotation`; if replay doesn't already handle the changes array, add a one-line `for change in op.changes { paragraphs[change.paragraphId] = change.next }` to the replay loop. This is the only Mac-side semantic change v1 requires.
+
+End-to-end test: Claude adds a suggestion on the Mac → phone shows it → reject with reason → Mac AnnotationsPane shows rejected + user response within sync window.
+
+### Phase G — CI & release flow
+
+iOS releases use a separate tag namespace, workflow, and script — Mac releases keep working unchanged.
+
+**Tag namespace.** Mac stays on `v0.X.Y`. Phone uses `phone-v0.X.Y`. Both workflows trigger only on their own pattern.
+
+**`./scripts/cut-phone-release.sh 0.X.Y`** (mirrors `cut-release.sh`):
+- Verifies `docs/release-notes/phone/v0.X.Y.md` exists (template at `docs/release-notes/phone/_template.md`)
+- Verifies tree is clean
+- Runs phone test target
+- Creates `phone-v0.X.Y` tag and prints push command
+- `--skip-tests` flag for emergencies
+
+**`.github/workflows/phone-release.yml`** (new):
+- Trigger: `phone-v[0-9]+.[0-9]+.[0-9]+` tags
+- Runner: `macos-latest` (iOS builds require it; ~10× cost of linux but acceptable at release cadence)
+- Steps: checkout → `./gen.sh` → import distribution cert + provisioning profile from secrets → rewrite `CFBundleShortVersionString` from tag, `CFBundleVersion` from `git rev-list --count HEAD` → `xcodebuild archive` → `xcodebuild -exportArchive` → upload to TestFlight via App Store Connect API → create GitHub Release with `docs/release-notes/phone/v0.X.Y.md` as body
+- `project.yml` keeps placeholders: `CFBundleShortVersionString: "0.0.0-dev"`, `CFBundleVersion: "1"` — CI rewrites both at build time. Don't bump in `project.yml` (same rule as Mac).
+
+**GH secrets** (one-time setup):
+- `APPLE_DISTRIBUTION_CERT` (base64 `.p12`) + `APPLE_DISTRIBUTION_CERT_PASSWORD`
+- `PROVISIONING_PROFILE` (base64 `.mobileprovision`)
+- `APP_STORE_CONNECT_KEY_ID` + `APP_STORE_CONNECT_ISSUER_ID` + `APP_STORE_CONNECT_API_KEY` (base64 `.p8`)
+
+**Build numbering.** Apple rejects uploads where `CFBundleVersion` ≤ any prior upload. `git rev-list --count HEAD` is monotonic, never resets, doesn't require coordinating with App Store Connect state. (Avoid GH Actions `run_number` — resets if workflow file is recreated.)
+
+**TestFlight specifics.** Internal testing (≤100 testers on your dev team) skips Beta App Review — first build is usable immediately. External testers require Beta App Review on the first build of each version (1-2 day delay). Privacy disclosures (mic, speech recognition, camera, photo library, iCloud) are mandatory at upload time; missing strings reject the build.
+
+**No in-app updater needed** — TestFlight handles updates via its own app. The Mac's `BuildVariant.dev` updater-disable trick has no iOS analogue.
+
+**Lint guard.** Extend the existing tripwire-13 grep (`"maugham"|"Maugham"` outside `BuildVariant.swift` + tests) to cover the new iOS sources.
+
+### Phase H — Future (not in v1)
+
+- Human-authored annotations from the phone — when Mac-side human-annotation primitives land, the iOS Annotations tab gains a creation surface using the same op-log append mechanism.
+- Cross-project search on the phone.
+- iOS-side `NSFilePresenter` for live updates (requires background-mode rethink).
+- WhisperKit audio chunking for >5min recordings.
+- App Store submission (privacy policy URL, full review, App Store Connect metadata polish).
+
+## Critical correctness risks
+
+1. **`claudeAccept.changes` replay on the Mac.** Verify `Document.load` applies the changes array; add a one-liner if not. Otherwise phone-accepted suggestedChanges silently fail to materialize after Mac restart.
+2. **Security-scoped bookmark staleness.** Check `isStale` every launch; surface a clear "Re-pick folder" prompt, not a silent empty list. iCloud-Drive folders are especially prone to bookmark expiration after device restarts or app upgrades.
+3. **InboxStore last-wins semantics.** `JSONLAppendStore.dedupKey` keeps first occurrence; InboxStore must do its own merge so newer entries override older for the same id.
+4. **Inbox file moves.** Promote-to-research must use coordinated writes (NSFileCoordinator); a plain `FileManager.removeItem` on the old inbox copy bypasses the Mac's presenter and risks conflict-bombing.
+5. **Annotation race window.** If the Mac archives an annotation while the phone has the detail view open, phone-side action would overwrite. Mitigation: re-derive status on view appearance and hide buttons if already resolved. A `claudeAccept` op pointing at a swept paragraph is harmless (Materializer skips paragraphs not in `sequence`) but worth documenting.
+6. **Tripwire 13 (hardcoded "Maugham" strings).** Route all iOS bundle ids and bookmark keys through `BuildVariant`. Lint guard extension covers this.
+7. **Tripwire 4 (per-row re-parse).** Fountain rendering on iOS must cache `FountainScript` per document, never re-parse inside a SwiftUI row body.
+8. **Phase A blast radius.** Moving 16 files into a package is mechanical but pervasive. Run `./gen.sh` + full `xcodebuild test` after every batched move; don't combine with any other change in the same PR.
+
+## Verification (manual smoke for v1)
+
+1. **Bookmark** — install MaughamPhone dev build, tap "Choose Projects Folder", pick an iCloud Drive folder with existing projects. Read tab lists them.
+2. **Text capture** — Capture → quick text → commit. Within ~30s, Mac InboxPane (⌘⌥6) shows the entry.
+3. **Photo capture** — Capture → photo → take photo. Mac InboxPane shows image thumbnail.
+4. **Voice capture** — Capture → voice → record 10s. Phone shows on-device draft instantly. Mac InboxPane initially shows the draft, then WhisperKit transcript replaces it within ~60s (first run includes one-time model download).
+5. **Triage** — On Mac, "Promote to research" on a row → file moves into `research/`, Research pane shows it, InboxPane removes the row.
+6. **Read** — phone opens a manuscript `.md` → Markdown rendering, paragraph anchors stripped. Opens a `.fountain` → semantic styling (scene heading bold + uppercased, character centered + bold, dialogue indented).
+7. **Annotation review** — Claude adds a suggestion via MCP on the Mac → phone Annotations tab shows it → Reject with reason "test rejection" → Mac AnnotationsPane shows `rejected` with that user response within sync window.
+8. **Race smoke** — open same annotation on both, archive on Mac while phone shows detail; phone on next view appearance shows "Already resolved on another device" and hides actions.
+9. **Release dry run** — tag `phone-v0.0.1-dev`, trigger the workflow, confirm TestFlight upload succeeds and the build appears in App Store Connect within 10–15 minutes.
+
+## Critical files
+
+**Modified on the Mac:**
+- `project.yml` — new iOS target + package dep
+- `Maugham/Stores/MaughamSidecarPath.swift` — new `.inbox` case
+- `Maugham/Stores/DocumentStore.swift` — `.inbox` switch arm in `presenterDidChangeSubitem`
+- `Maugham/OpLog/Document.swift` — verify/add `claudeAccept.changes` replay
+- `Maugham/Views/ProjectWindow.swift`, `DetailSegment.swift`, `DetailPaneToggle.swift` — ⌘⌥6 + new pane wiring
+- `scripts/cut-release.sh` referenced; new sibling created
+
+**New on the Mac:**
+- `Maugham/Stores/InboxStore.swift`
+- `Maugham/Stores/InboxTranscriptionWorker.swift`
+- `Maugham/Views/InboxPane.swift`
+- `.github/workflows/phone-release.yml`
+- `scripts/cut-phone-release.sh`
+- `docs/release-notes/phone/_template.md`
+
+**New shared:**
+- `Packages/MaughamCore/Package.swift` + `Sources/MaughamCore/...` (moved files listed in Phase A)
+- `Packages/MaughamCore/Sources/MaughamCore/Inbox/InboxEntry.swift`
+- `Packages/MaughamCore/Sources/MaughamCore/OpReplay.swift` (shared paragraph-state builder)
+
+**New iOS:**
+- `MaughamPhone/MaughamPhoneApp.swift` — TabView root
+- `MaughamPhone/BuildVariantPhone.swift` — iOS-only `BuildVariant` extension
+- `MaughamPhone/Storage/ProjectsRoot.swift`, `ProjectsBrowser.swift`, `CoordinatedFileIO.swift`
+- `MaughamPhone/Capture/CaptureView.swift` + capture subviews
+- `MaughamPhone/Read/ProjectsListView.swift`, `BinderView.swift`, `DocumentReaderView.swift`, `FountainSemanticRenderer.swift`
+- `MaughamPhone/Annotations/AnnotationsListView.swift`, `AnnotationDetailView.swift`
+- `MaughamPhone/Settings/SettingsView.swift`
+- `MaughamPhone/Info.plist` privacy strings
+- `MaughamPhoneTests/...`
+
+## Notes on chunking the work
+
+This is a several-milestone bundle, not a single feature. Suggested commit/PR rhythm:
+
+- **Milestone 1 — Phase A only.** `MaughamCore` extraction, no behavior change. Highest blast radius, smallest review surface. Tag `milestone-maugham-core`.
+- **Milestone 2 — Phases B + C.** Mac-side inbox + WhisperKit. Mac is fully usable without a phone yet; you can manually drop files for testing. Tag `milestone-inbox-and-whisper`.
+- **Milestone 3 — Phases D + E + F.** iOS app, all three tabs. Phone gains capture / read / annotation-review in one bundle. Tag `milestone-phone-v1`.
+- **Milestone 4 — Phase G.** First TestFlight cut. Tag `phone-v0.1.0`.
+
+Each milestone is independently verifiable via the smoke steps above.
