@@ -89,6 +89,10 @@ struct DetailPaneToggle<Inspector: View>: View {
                 .tag(DetailSegment.history)
                 .help("History — read-only timeline of edits, annotations, and checkpoints (⌘⌥4)")
                 .keyboardShortcut("4", modifiers: [.command, .option])
+            Image(systemName: "checklist.checked")
+                .tag(DetailSegment.tasks)
+                .help("Tasks — todos in this document and across the project (⌘⌥5)")
+                .keyboardShortcut("5", modifiers: [.command, .option])
         }
         .pickerStyle(.segmented)
         .labelsHidden()
@@ -120,6 +124,8 @@ struct DetailPaneToggle<Inspector: View>: View {
             }
         case .history:
             historyPane
+        case .tasks:
+            tasksPane
         }
     }
 
@@ -155,6 +161,21 @@ struct DetailPaneToggle<Inspector: View>: View {
                 "Select a document",
                 systemImage: "doc.text",
                 description: Text("Open a manuscript to see and act on annotations."))
+        }
+    }
+
+    @ViewBuilder
+    private var tasksPane: some View {
+        if let _ = documentStore {
+            ContentUnavailableView(
+                "Tasks",
+                systemImage: "checklist",
+                description: Text("Tasks pane lands in the next commit."))
+        } else {
+            ContentUnavailableView(
+                "Open a project",
+                systemImage: "checklist",
+                description: Text("Tasks track todos across a project."))
         }
     }
 }
