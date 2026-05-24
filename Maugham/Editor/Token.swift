@@ -15,6 +15,11 @@ public struct Token: Equatable, Sendable {
         case syntaxPunctuation
         case plain
         case fountainElement(ScreenplayElement, isForced: Bool)
+        /// `- [ ]` / `- [x]` markdown checkbox glyph. The `range` on the
+        /// containing `Token` covers exactly the 3 chars of `[ ]`/`[x]`.
+        /// The line prefix (`(\s*)- `) is emitted as `.syntaxPunctuation`
+        /// alongside; the body is left to fill-with-plain.
+        case checkbox(checked: Bool)
     }
 
     public let range: NSRange

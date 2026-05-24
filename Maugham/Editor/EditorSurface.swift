@@ -37,6 +37,13 @@ struct EditorSurface: NSViewRepresentable {
     /// `.maughamNavigateToParagraph` notifications (fired by clicking an
     /// annotation row) scroll the textView to the right paragraph.
     var paragraphRangeProvider: ((String) -> NSRange?)? = nil
+    /// Resolves a doc-wide UTF-16 location to (paragraphId, offset) within
+    /// that paragraph. Used by the markdown-checkbox click path.
+    var paragraphLocator: ((Int) -> (paragraphId: String, offsetWithinParagraph: Int)?)? = nil
+    /// Invoked when the user clicks a markdown checkbox bracket. The host
+    /// wires this to `Document.setParagraph(id:text:)` with the flipped
+    /// bracket text — see `MarkdownCheckboxScanner.flipBracket`.
+    var checkboxToggleHandler: ((String, Int) -> Void)? = nil
 
     func makeCoordinator() -> EditorCoordinator {
         let coordinator = EditorCoordinator(
@@ -52,6 +59,8 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.wikiLinkResolverForClick = wikiLinkClickResolver
         coordinator.imagePasteHandler = imagePasteHandler
         coordinator.paragraphRangeProvider = paragraphRangeProvider
+        coordinator.paragraphLocator = paragraphLocator
+        coordinator.checkboxToggleHandler = checkboxToggleHandler
         return coordinator
     }
 
@@ -153,6 +162,8 @@ struct EditorSurface: NSViewRepresentable {
         }
         context.coordinator.imagePasteHandler = imagePasteHandler
         context.coordinator.paragraphRangeProvider = paragraphRangeProvider
+        context.coordinator.paragraphLocator = paragraphLocator
+        context.coordinator.checkboxToggleHandler = checkboxToggleHandler
     }
 }
 
@@ -178,6 +189,14 @@ private final class MaughamTextView: NSTextView {
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let charIndex = characterIndexForInsertion(at: point)
+        // Markdown checkbox click → flip the bracket. Routed through the
+        // host's wiring of Document.setParagraph (standard typing-burst
+        // path), NOT through applyExternalText — see tripwire #7.
+        if let hit = coordinator?.checkboxHitTest(atCharacterIndex: charIndex),
+           let toggle = coordinator?.checkboxToggleHandler {
+            toggle(hit.paragraphId, hit.offsetWithinParagraph)
+            return
+        }
         if let title = coordinator?.wikiLinkTitle(atCharacterIndex: charIndex),
            let resolver = coordinator?.wikiLinkResolverForClick,
            let id = resolver(title) {

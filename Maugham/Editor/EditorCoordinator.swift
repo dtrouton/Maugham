@@ -95,6 +95,22 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// ranges against the live Document's `displayRange(forParagraphId:)`.
     var paragraphRangeProvider: ((String) -> NSRange?)?
 
+    /// Resolves a doc-wide UTF-16 location to the containing paragraph_id
+    /// and the offset (in the same UTF-16 space) within that paragraph's
+    /// text. Wired by EditorHost from `Document.paragraphId(at:)` +
+    /// `displayRange(forParagraphId:)`. Used by the checkbox click path.
+    var paragraphLocator: ((Int) -> (paragraphId: String, offsetWithinParagraph: Int)?)?
+
+    /// Closure invoked when the user clicks a markdown checkbox glyph
+    /// (`- [ ]` / `- [x]`). Delivers the paragraph id containing the click
+    /// and the UTF-16 offset of the opening `[` within that paragraph's
+    /// text. The host wires this to `Document.setParagraph(id:text:)` via
+    /// `MarkdownCheckboxScanner.flipBracket(in:atUTF16Offset:)`. Routing
+    /// the flip through `setParagraph` keeps the mutation on the standard
+    /// `.typingBurst` path and out of the cloud-conflict-only
+    /// `applyExternalText` channel (see tripwire #7 / area #2).
+    var checkboxToggleHandler: ((String, Int) -> Void)?
+
     /// Number of times applyExternalText has been called. Internal so
     /// @testable importers (EditorIntegrationHarness) can assert invariants
     /// about typing not triggering external-text replacement. Production
@@ -285,6 +301,30 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             }
         }
         return nil
+    }
+
+    /// Returns the (paragraphId, offsetWithinParagraph) for the bracket
+    /// glyph at the given character index, or nil if the index is not on
+    /// a markdown checkbox bracket. Reads `MaughamCheckboxAttr` from the
+    /// text storage so painted bracket regions are recognized without a
+    /// fresh tokenization pass. The paragraph mapping uses
+    /// `paragraphLocator` (wired by EditorHost via `Document`).
+    func checkboxHitTest(
+        atCharacterIndex index: Int
+    ) -> (paragraphId: String, offsetWithinParagraph: Int)? {
+        guard let textView,
+              let storage = textView.textStorage,
+              index >= 0, index < storage.length else { return nil }
+        let raw = storage.attribute(MaughamCheckboxAttr, at: index,
+                                    effectiveRange: nil)
+        guard let marker = raw as? MaughamCheckboxMarker else { return nil }
+        // Use the marker's authoritative bracket location (the stamp time)
+        // rather than `index` so a click anywhere within the 3-char glyph
+        // still resolves to the bracket start.
+        guard let mapping = paragraphLocator?(marker.bracketLocation) else {
+            return nil
+        }
+        return mapping
     }
 
     private func retokenizeAndStyle() {

@@ -117,6 +117,29 @@ public struct MarkdownTokenizer: Sendable {
                 return [Token(range: outer, kind: .wikiLink(title: title))]
             }
 
+        // Checkbox: ^(\s*)- \[( |x)\] — emit the `-` as listMarker and the
+        // 3-char `[ ]`/`[x]` glyph as `.checkbox(checked:)`. Must run before
+        // the generic list-marker pass so the bracket region is claimed
+        // before another rule (e.g. wiki-link, link) could overlap. The body
+        // text is left for `fillGapsWithPlain` to coat as `.plain`.
+        addMatches(
+            in: nsText, fullRange: fullRange,
+            pattern: #"(?m)^(\s*)- \[( |x)\] "#,
+            into: &tokens) { match in
+                let dashRange = NSRange(
+                    location: match.range(at: 1).location + match.range(at: 1).length,
+                    length: 1)  // the "-"
+                let bracketChar = match.range(at: 2)
+                let bracketRange = NSRange(
+                    location: bracketChar.location - 1,
+                    length: 3)  // covers "[ ]" or "[x]"
+                let checked = nsText.substring(with: bracketChar) == "x"
+                return [
+                    Token(range: dashRange, kind: .listMarker),
+                    Token(range: bracketRange, kind: .checkbox(checked: checked)),
+                ]
+            }
+
         // List marker: ^(\s*)([-*+]|\d+\.)\s
         addMatches(
             in: nsText, fullRange: fullRange,

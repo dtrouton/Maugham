@@ -80,6 +80,19 @@ public struct ProseMode: WritingMode {
                     attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue
                 }
                 storage.addAttributes(attrs, range: token.range)
+            } else if case .checkbox(let checked) = token.kind {
+                // Stamp the marker that mouseDown's hit-test reads back.
+                // Bracket stays in the punctuation palette so it reads as
+                // syntax, but gains a hand cursor so the click affordance
+                // is visible.
+                let marker = MaughamCheckboxMarker(
+                    bracketLocation: token.range.location, checked: checked)
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .foregroundColor: palette.syntaxPunctuation,
+                    .cursor: NSCursor.pointingHand,
+                    MaughamCheckboxAttr: marker,
+                ]
+                storage.addAttributes(attrs, range: token.range)
             } else {
                 let attrs = attributes(
                     for: token.kind, palette: palette, baseFont: baseFont)
@@ -192,6 +205,12 @@ public struct ProseMode: WritingMode {
         case .fountainElement:
             // ProseMode never produces fountain element tokens, but the
             // exhaustive switch must handle the case.
+            return [:]
+
+        case .checkbox:
+            // Handled inline in applyTypography (stamps MaughamCheckboxAttr +
+            // hand cursor). This branch is dead code per the dispatch above,
+            // but keeps the switch exhaustive.
             return [:]
         }
     }

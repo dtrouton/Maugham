@@ -340,6 +340,15 @@ public final class Document {
     ///
     /// Cost: O(characters up to `location`). Fine at human typing speed
     /// (a few times per second) even for large manuscripts (~100 KB).
+    /// Returns the current text of the paragraph with the given id, or nil
+    /// if the id isn't in `sequence`. Read-only; mutation goes through
+    /// `setParagraph(id:text:)`. Used by editor click handlers (e.g.,
+    /// markdown-checkbox toggle) to read the in-memory paragraph before
+    /// writing a flipped variant back.
+    public func paragraph(id: String) -> String? {
+        return paragraphs[id]
+    }
+
     public func paragraphId(at location: Int) -> String? {
         // We need the materialized form (which retains <!-- ¶id --> anchors)
         // because displayText strips them. Walk the materialized text up to

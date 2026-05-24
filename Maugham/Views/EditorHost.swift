@@ -90,6 +90,23 @@ struct EditorHost: View {
                     showElementGutter: store.manifest.showElementGutter ?? true,
                     paragraphRangeProvider: { paragraphId in
                         doc.displayRange(forParagraphId: paragraphId)
+                    },
+                    paragraphLocator: { location in
+                        guard let pid = doc.paragraphId(at: location),
+                              let range = doc.displayRange(forParagraphId: pid)
+                        else { return nil }
+                        return (paragraphId: pid,
+                                offsetWithinParagraph: location - range.location)
+                    },
+                    checkboxToggleHandler: { paragraphId, offset in
+                        // Mirror wiki-link click wiring: the flip goes through
+                        // Document.setParagraph, the standard mutation path.
+                        // Tripwire #7: this is NOT applyExternalText.
+                        guard let para = doc.paragraph(id: paragraphId) else { return }
+                        let flipped = MarkdownCheckboxScanner.flipBracket(
+                            in: para, atUTF16Offset: offset)
+                        guard flipped != para else { return }
+                        doc.setParagraph(id: paragraphId, text: flipped)
                     }
                 )
                 .id(path)
