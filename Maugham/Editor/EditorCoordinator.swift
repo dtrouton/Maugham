@@ -101,15 +101,17 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// `displayRange(forParagraphId:)`. Used by the checkbox click path.
     var paragraphLocator: ((Int) -> (paragraphId: String, offsetWithinParagraph: Int)?)?
 
-    /// Closure invoked when the user clicks a markdown checkbox glyph
-    /// (`- [ ]` / `- [x]`). Delivers the paragraph id containing the click
-    /// and the UTF-16 offset of the opening `[` within that paragraph's
-    /// text. The host wires this to `Document.setParagraph(id:text:)` via
-    /// `MarkdownCheckboxScanner.flipBracket(in:atUTF16Offset:)`. Routing
-    /// the flip through `setParagraph` keeps the mutation on the standard
-    /// `.typingBurst` path and out of the cloud-conflict-only
-    /// `applyExternalText` channel (see tripwire #7 / area #2).
-    var checkboxToggleHandler: ((String, Int) -> Void)?
+    /// Closure invoked when the user clicks a checkbox glyph — either the
+    /// 3-char markdown `- [ ]` / `- [x]` bracket or the 5-char Fountain
+    /// `[[todo:]]` / `[[done:]]` prefix. Delivers the paragraph id, the
+    /// UTF-16 offset within that paragraph's text, and the marker kind
+    /// (so the host can dispatch to `flipBracket` for `.markdown` or
+    /// `flipTodoDone` for `.fountain`). The host wires this to
+    /// `Document.setParagraph(id:text:)`. Routing the flip through
+    /// `setParagraph` keeps the mutation on the standard `.typingBurst`
+    /// path and out of the cloud-conflict-only `applyExternalText` channel
+    /// (see tripwire #7 / area #2).
+    var checkboxToggleHandler: ((String, Int, MaughamCheckboxKind) -> Void)?
 
     /// Number of times applyExternalText has been called. Internal so
     /// @testable importers (EditorIntegrationHarness) can assert invariants
@@ -303,15 +305,18 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         return nil
     }
 
-    /// Returns the (paragraphId, offsetWithinParagraph) for the bracket
-    /// glyph at the given character index, or nil if the index is not on
-    /// a markdown checkbox bracket. Reads `MaughamCheckboxAttr` from the
+    /// Returns the (paragraphId, offsetWithinParagraph, kind) for the
+    /// bracket glyph at the given character index, or nil if the index
+    /// is not on a checkbox bracket. Reads `MaughamCheckboxAttr` from the
     /// text storage so painted bracket regions are recognized without a
     /// fresh tokenization pass. The paragraph mapping uses
-    /// `paragraphLocator` (wired by EditorHost via `Document`).
+    /// `paragraphLocator` (wired by EditorHost via `Document`). The `kind`
+    /// flags whether the click landed on a 3-char markdown `[ ]`/`[x]`
+    /// glyph or a 5-char Fountain `todo:`/`done:` prefix so the host
+    /// dispatches to the correct flipper.
     func checkboxHitTest(
         atCharacterIndex index: Int
-    ) -> (paragraphId: String, offsetWithinParagraph: Int)? {
+    ) -> (paragraphId: String, offsetWithinParagraph: Int, kind: MaughamCheckboxKind)? {
         guard let textView,
               let storage = textView.textStorage,
               index >= 0, index < storage.length else { return nil }
@@ -319,12 +324,14 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                                     effectiveRange: nil)
         guard let marker = raw as? MaughamCheckboxMarker else { return nil }
         // Use the marker's authoritative bracket location (the stamp time)
-        // rather than `index` so a click anywhere within the 3-char glyph
-        // still resolves to the bracket start.
+        // rather than `index` so a click anywhere within the glyph resolves
+        // to the bracket start.
         guard let mapping = paragraphLocator?(marker.bracketLocation) else {
             return nil
         }
-        return mapping
+        return (paragraphId: mapping.paragraphId,
+                offsetWithinParagraph: mapping.offsetWithinParagraph,
+                kind: marker.kind)
     }
 
     private func retokenizeAndStyle() {

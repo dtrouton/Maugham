@@ -98,13 +98,20 @@ struct EditorHost: View {
                         return (paragraphId: pid,
                                 offsetWithinParagraph: location - range.location)
                     },
-                    checkboxToggleHandler: { paragraphId, offset in
+                    checkboxToggleHandler: { paragraphId, offset, kind in
                         // Mirror wiki-link click wiring: the flip goes through
                         // Document.setParagraph, the standard mutation path.
                         // Tripwire #7: this is NOT applyExternalText.
                         guard let para = doc.paragraph(id: paragraphId) else { return }
-                        let flipped = MarkdownCheckboxScanner.flipBracket(
-                            in: para, atUTF16Offset: offset)
+                        let flipped: String
+                        switch kind {
+                        case .markdown:
+                            flipped = MarkdownCheckboxScanner.flipBracket(
+                                in: para, atUTF16Offset: offset)
+                        case .fountain:
+                            flipped = FountainBoneyardScanner.flipTodoDone(
+                                in: para, atUTF16Offset: offset)
+                        }
                         guard flipped != para else { return }
                         doc.setParagraph(id: paragraphId, text: flipped)
                     }

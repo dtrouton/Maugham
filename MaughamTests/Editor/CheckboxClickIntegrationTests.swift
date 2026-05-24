@@ -60,17 +60,26 @@ final class CheckboxClickIntegrationTests: XCTestCase {
         guard let hit else { return }
         XCTAssertEqual(hit.paragraphId, pid)
         XCTAssertEqual(hit.offsetWithinParagraph, 2)
+        XCTAssertEqual(hit.kind, .markdown)
 
         // Invoke the toggle handler the way EditorSurface.mouseDown would.
         // Wire the handler the same way EditorHost does so we're testing
         // the production path, not a synthetic flip.
-        coord.checkboxToggleHandler = { paragraphId, offset in
+        coord.checkboxToggleHandler = { paragraphId, offset, kind in
             guard let para = doc.paragraph(id: paragraphId) else { return }
-            let flipped = MarkdownCheckboxScanner.flipBracket(
-                in: para, atUTF16Offset: offset)
+            let flipped: String
+            switch kind {
+            case .markdown:
+                flipped = MarkdownCheckboxScanner.flipBracket(
+                    in: para, atUTF16Offset: offset)
+            case .fountain:
+                flipped = FountainBoneyardScanner.flipTodoDone(
+                    in: para, atUTF16Offset: offset)
+            }
             doc.setParagraph(id: paragraphId, text: flipped)
         }
-        coord.checkboxToggleHandler?(hit.paragraphId, hit.offsetWithinParagraph)
+        coord.checkboxToggleHandler?(
+            hit.paragraphId, hit.offsetWithinParagraph, hit.kind)
 
         // Tripwire #7: applyExternalText must NOT have fired.
         XCTAssertEqual(

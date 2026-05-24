@@ -39,20 +39,39 @@ public extension MarkdownCheckboxScanner {
 /// `MaughamCheckboxMarker`.
 public let MaughamCheckboxAttr = NSAttributedString.Key("maugham.checkbox")
 
+/// Discriminator for the two syntaxes that paint `MaughamCheckboxAttr`.
+/// `.markdown` covers the 3-char `[ ]` / `[x]` glyph emitted by prose-mode
+/// `- [ ]` list items. `.fountain` covers the 5-char `todo:` / `done:`
+/// prefix inside a Fountain `[[ ... ]]` note. The toggle handler in
+/// `EditorHost` reads this to dispatch to the correct flipper.
+public enum MaughamCheckboxKind: String, Sendable {
+    case markdown
+    case fountain
+}
+
 /// Payload for `MaughamCheckboxAttr`. Identifies the bracket's location in
 /// the doc and its current state. Wrapped in a class (NSObject) because
 /// `NSAttributedString` attribute values must be reference-comparable for
 /// NSLayoutManager's effective-range bookkeeping.
 public final class MaughamCheckboxMarker: NSObject {
-    /// UTF-16 offset of the opening `[` within the doc-wide string the
-    /// tokenizer ran against. The hit-test reads this back rather than
-    /// the effective-range start so it survives an intra-line shift.
+    /// UTF-16 offset within the doc-wide string the tokenizer ran against
+    /// of the first character of the bracket glyph. For `.markdown` this is
+    /// the opening `[`; for `.fountain` this is the `t` of `todo:` (or `d`
+    /// of `done:`). The hit-test reads this back rather than the effective-
+    /// range start so a click anywhere within the glyph still resolves to
+    /// the bracket start.
     public let bracketLocation: Int
     public let checked: Bool
+    public let kind: MaughamCheckboxKind
 
-    public init(bracketLocation: Int, checked: Bool) {
+    public init(
+        bracketLocation: Int,
+        checked: Bool,
+        kind: MaughamCheckboxKind = .markdown
+    ) {
         self.bracketLocation = bracketLocation
         self.checked = checked
+        self.kind = kind
         super.init()
     }
 }

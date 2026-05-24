@@ -75,4 +75,67 @@ public enum FountainBoneyardScanner {
             return Match(done: kind == "done", body: body)
         }
     }
+
+    /// Range-bearing match for a single `[[todo: ...]]` / `[[done: ...]]`
+    /// inside `text`. `prefixRange` covers the 5-char `todo:`/`done:` glyph
+    /// (used by the click-paint pass to stamp `MaughamCheckboxAttr`).
+    /// `bodyRange` covers the contents between the prefix and the closing
+    /// `]]`, trimmed of the marker but not of inner whitespace. Returns the
+    /// first occurrence in source order, or nil if no match exists.
+    public static func matchTodo(
+        _ content: String
+    ) -> (done: Bool, prefixRange: NSRange, bodyRange: NSRange)? {
+        matchTodoAll(content).first
+    }
+
+    /// All `[[todo: ...]]` / `[[done: ...]]` occurrences with prefix and body
+    /// NSRanges, in source order. Returned ranges are in the same UTF-16
+    /// space as `content` (NSString-indexed).
+    public static func matchTodoAll(
+        _ content: String
+    ) -> [(done: Bool, prefixRange: NSRange, bodyRange: NSRange)] {
+        let ns = content as NSString
+        let range = NSRange(location: 0, length: ns.length)
+        let matches = regex.matches(in: content, range: range)
+        return matches.compactMap { m in
+            guard m.numberOfRanges == 3 else { return nil }
+            let kindRange = m.range(at: 1)         // "todo" or "done" (4 chars)
+            let bodyCapture = m.range(at: 2)
+            let kind = ns.substring(with: kindRange)
+            // Prefix is the 5 chars "todo:" / "done:" — kindRange + the
+            // following colon.
+            let prefixRange = NSRange(
+                location: kindRange.location,
+                length: kindRange.length + 1)
+            return (done: kind == "done",
+                    prefixRange: prefixRange,
+                    bodyRange: bodyCapture)
+        }
+    }
+
+    /// Flip the 5-char `todo:` or `done:` glyph at the given UTF-16 offset.
+    /// Returns the paragraph string with the swap applied. If the offset
+    /// doesn't point to a valid `todo:` or `done:` prefix the string is
+    /// returned unchanged. The offset is the location of the first letter
+    /// of the prefix (`t` for `todo:`, `d` for `done:`) — i.e., the
+    /// `prefixRange.location` returned by `matchTodo`.
+    public static func flipTodoDone(
+        in paragraph: String,
+        atUTF16Offset utf16Offset: Int
+    ) -> String {
+        let ns = paragraph as NSString
+        guard utf16Offset >= 0, utf16Offset + 5 <= ns.length else {
+            return paragraph
+        }
+        let glyph = ns.substring(with: NSRange(location: utf16Offset, length: 5))
+        let replacement: String
+        switch glyph {
+        case "todo:": replacement = "done:"
+        case "done:": replacement = "todo:"
+        default:      return paragraph
+        }
+        return ns.replacingCharacters(
+            in: NSRange(location: utf16Offset, length: 5),
+            with: replacement)
+    }
 }
