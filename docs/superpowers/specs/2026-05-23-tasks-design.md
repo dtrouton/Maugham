@@ -117,8 +117,11 @@ public struct TaskFilter: Sendable, Equatable {
 ### 3.2 Identity
 
 - **Pane-created tasks:** `id` = the `opId` of the `.taskCreate` op that produced them. Stable across rederives.
-- **Inline tasks:** synthetic `id` = `"inline:\(docId):\(¶id):\(lineIndex)"`. Stable across rederives as long as `¶id` is stable and the line's position within its paragraph doesn't shift. (Risk note in §10.)
-- **Fountain `[[todo:]]` tasks:** synthetic `id` = `"fountain:\(docId):\(¶id):\(rangeStartInParagraph)"`. Same stability profile.
+- **Inline tasks:** synthetic `id` = `"inline:\(docId):\(¶id):\(bodyHash)"` where `bodyHash` is the first 8 hex chars of SHA-256 over the *normalized* body — trim leading/trailing whitespace, lowercase, collapse internal runs of whitespace to a single space. Stable across reorder within a paragraph (adding `- [ ]` above an existing one does not shift the hash), stable across cosmetic edits captured by the normalization, stable across rederives. Loses identity on a substantive body edit (typo fix → new hash) — accepted; substantive body edits are rare and a writer "rewriting" a task is arguably a new task. The normalization is the deliberate ergonomic concession to typo fixes.
+- **Fountain `[[todo:]]` tasks:** synthetic `id` = `"fountain:\(docId):\(¶id):\(bodyHash)"` with identical normalization-then-hash. The bracket location within the paragraph is not part of the id.
+- **Collision within a paragraph:** if a writer types the same normalized body twice in one paragraph (e.g., `- [ ] fix this` on two separate lines), both lines collapse to one task in the deriver. Acceptable — semantically duplicate todos are duplicates regardless of whether the writer noticed; the second checkbox glyph still renders, but pane state is single-row. Documented in code comment.
+
+The single `bodyHash` helper lives on `TaskDeriver` (`bodyHash(normalized body: String) -> String`) and is exhaustively unit-tested for stability across the normalization classes above.
 
 ### 3.3 Priority representation: fractional `Double`
 
@@ -183,15 +186,19 @@ Pure function. Same shape as `AnnotationDeriver.derive`. Pseudocode:
 2. Line-scan paragraphs.
    For each paragraph (¶id, text):
        split into lines; for each line matching ^(\s*)- \[( |x)\] (.*)$:
-           id = "inline:\(docId):\(¶id):\(lineIndex)"
+           body = captureGroup3
+           id = "inline:\(docId):\(¶id):\(bodyHash(body))"   // hash of normalized body
+           if seenIds.contains(id) { continue }              // collision dedupe
            seed Task(id, kind: .inlineMarkdown, anchor: (docId, ¶id),
-                     body: captureGroup3, status: x ? .done : .open,
+                     body: body, status: x ? .done : .open,
                      priority: defaultTail(docId), parentTaskId: nil)
            apply inlineOverrides[id] if present (priority / parent / archive).
 
 3. Same for Fountain boneyards.
    Within each paragraph, scan for [[(todo|done):\s*(.*?)]] occurrences:
-       id = "fountain:\(docId):\(¶id):\(rangeStart)"
+       body = captureGroup2
+       id = "fountain:\(docId):\(¶id):\(bodyHash(body))"
+       if seenIds.contains(id) { continue }
        seed Task with kind: .fountainBoneyard, status from todo/done, body from capture.
        apply inlineOverrides[id] if present.
 
@@ -447,6 +454,33 @@ The `__project__` doc id is **reserved** going forward. Document this in `Maugha
 
 None. The manifest schema is untouched.
 
+### 9.5 Cross-project aggregation cache
+
+`ProjectStore.listTasksAcrossProject(filter:)` walks every doc in the manifest plus the `__project__` op log. On a 50-document project this would otherwise re-derive 51 op-logs on every pane refresh, status-filter flip, or `tasksVersion` bump.
+
+Cache shape on `ProjectStore`:
+
+```swift
+private struct ProjectTasksCacheKey: Equatable {
+    let perDocVersionSum: Int    // Σ over open docs of doc.tasksVersion
+    let projectLogVersion: Int   // bumped on appendProjectTaskOp / project-log reconcile
+}
+
+private var _projectTasksCache: [Task] = []
+private var _projectTasksCacheKey: ProjectTasksCacheKey? = nil
+public private(set) var projectTasksVersion: Int = 0   // SwiftUI-observable
+```
+
+Invariant: `listTasksAcrossProject(filter:)` computes the current `ProjectTasksCacheKey` first; if it matches `_projectTasksCacheKey`, return the cached array filtered through `filter`. If it differs, rebuild from scratch and update both.
+
+- **Per-doc version sum.** Sum (with `&+`) over `documentStore.openDocuments.map(\.tasksVersion)`. Closed docs contribute zero — but their on-disk op logs *can* still produce tasks. The aggregation must also load closed docs' op logs; their effective version is "log file mtime hashed to Int." (A closed doc's op log can only change via reconcile-from-disk, which already bumps the open doc's `tasksVersion`; for *never-opened* docs the mtime hash is sufficient.)
+- **Project log version.** Local counter on `ProjectStore`, incremented in `appendProjectTaskOp` and in the project-log reconcile path. Also bumped on cross-Mac merge.
+- **SwiftUI observability.** `projectTasksVersion` is `@Published`-equivalent (or however `ProjectStore` already publishes — match existing pattern). Bumped after every cache rebuild and after every project-log append, even on cache hit when the project log appended. `TasksPane` observes it in Project scope; in Document scope, it observes the open Document's `tasksVersion` instead.
+
+The cache is in-memory only — invalidated on `ProjectStore` deinit. Not persisted; rebuilding is O(N docs × ops-per-doc) which is fine on a cold open (the first pane refresh after launch).
+
+A property test (`ProjectStoreTasksTests.test_aggregationCache_hit_doesNotRederive`) asserts that two back-to-back `listTasksAcrossProject` calls with no intervening mutation share a result-identity (or that a derive-counter doesn't tick twice).
+
 ---
 
 ## 10. MCP read tools
@@ -533,7 +567,7 @@ Captured to make the boundary explicit:
 
 - **Fractional priority precision drift.** Worst-case adversarial sequence exhausts after ~53 halvings; realistic worst case in a single drafting session is ~20 inserts between the same two anchors. The `< 1e-9` rebalance trigger has ~30 halvings of headroom and rewrites the affected sibling chunk transparently. Property-tested.
 
-- **Inline-task synthetic-id stability.** `inline:<docId>:<¶id>:<lineIndex>` shifts if the writer inserts a `- [ ]` *above* an existing one inside the same paragraph. Acceptable: priority/parent ops keyed to the old `(¶id, lineIndex)` are silently ignored, displaced task drops to default tail priority. Document in code comment. Re-keying on a stable per-task body hash is a deferred refinement (`inline:<docId>:<¶id>:<bodyHash>`); not in scope.
+- **Inline-task synthetic-id stability.** Resolved by body-hash keying (see §3.2). Adding `- [ ]` above an existing one no longer shifts the id; priority/parent ops survive reorder within a paragraph. The remaining sharp edge — substantive body edits losing identity — is documented in §3.2 and accepted (rare in practice; a substantively rewritten task is arguably a new task).
 
 - **First MCP call after restart flake** (carry-forward from `memory/project_deferred_mcp_first_call.md`). Tasks tools inherit this and don't make it worse. The known stderr-logging fix in the CLI bridge would benefit annotations and tasks alike — out of scope here.
 
