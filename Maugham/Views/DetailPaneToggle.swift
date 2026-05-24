@@ -166,11 +166,12 @@ struct DetailPaneToggle<Inspector: View>: View {
 
     @ViewBuilder
     private var tasksPane: some View {
-        if let _ = documentStore {
-            ContentUnavailableView(
-                "Tasks",
-                systemImage: "checklist",
-                description: Text("Tasks pane lands in the next commit."))
+        if let ds = documentStore {
+            TasksPane(
+                store: store,
+                documentStore: ds,
+                activeDocId: activeDocId,
+                projectURL: projectURL)
         } else {
             ContentUnavailableView(
                 "Open a project",
