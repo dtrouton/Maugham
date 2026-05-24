@@ -21,16 +21,18 @@ User decisions baked in:
 
 ## Architecture at a glance
 
-Three coordinated changes:
+Four coordinated changes:
 
 1. **Extract `Packages/MaughamCore`** — a Foundation-only SPM package the Mac and iOS apps share. Houses Op/OpKind/Provenance, JSONLAppendStore, AnnotationDeriver, Materializer, Bootstrap, ParagraphID, ULID, BuildVariant, ProjectManifest, ResearchItem, Slugifier, and the Fountain parser (`FountainTokenizer`, `FountainLine`, `FountainScript`, `ScreenplayElement`). AppKit-bound files (`Document`, `ScreenplayMode`, `ScreenplayLayoutManager`) stay in the Mac target.
-2. **Mac additions** — new `.inbox` case on `MaughamSidecarPath`, `InboxStore`, `InboxPane` right-pane mode (⌘⌥6), WhisperKit-backed `InboxTranscriptionWorker`.
-3. **iOS app** — new `MaughamPhone` target in the same `project.yml`, four-tab SwiftUI app (Capture / Read / Annotations / Settings), reads/writes the bookmarked project folder via `NSFileCoordinator`.
+2. **Per-device JSONL partitioning** — `OpLogStore` and the new `InboxStore` write to per-device files (`d_<docId>.<deviceSlug>.jsonl`, `inbox.<deviceSlug>.jsonl`) and merge on load. Prevents iCloud Drive conflict-twins from silently dropping ops when both phone and Mac write simultaneously. Spec §3.12 + ADR 0011.
+3. **Mac additions** — new `.inbox` case on `MaughamSidecarPath`, `InboxStore`, `InboxPane` right-pane mode (⌘⌥6), WhisperKit-backed `InboxTranscriptionWorker`.
+4. **iOS app** — new `MaughamPhone` target in the same `project.yml`, four-tab SwiftUI app (Capture / Read / Annotations / Settings), reads/writes the bookmarked project folder via `NSFileCoordinator`.
 
 Verified prerequisites (confirmed during planning):
 - Mac app has **no iCloud entitlement** today — projects live at writer-chosen paths. iOS uses `UIDocumentPicker` to bookmark any folder, including iCloud Drive ones. No Mac-side change needed.
 - Fountain parser is Foundation-only (zero AppKit imports). Extractable as-is.
 - `MaughamSidecarPath` is a single classify-site enum; adding `.inbox` is one case + one switch arm in `DocumentStore.presenterDidChangeSubitem`.
+- `Deriver.appliesToManuscript` already includes `.claudeAccept` (`Deriver.swift:108-117`). Phone-written accept ops materialize on Mac restart with zero Mac code change — provided the phone copies the creation op's `changes` array verbatim. Resolved during planning; not a Phase F open question.
 
 ## Phased implementation
 
@@ -38,16 +40,25 @@ Verified prerequisites (confirmed during planning):
 
 Create `Packages/MaughamCore/` SPM package. Move the Foundation-only files listed above out of `Maugham/OpLog/`, `Maugham/Editor/Fountain/`, `Maugham/Models/`, and `Maugham/BuildVariant.swift` into the package. Both Mac and iOS targets depend on it. Run `./gen.sh`, fix imports across `Maugham/`, run full `xcodebuild test` + the manual smoke from CLAUDE.md. Do this as one focused PR — don't combine with anything else.
 
+### Phase B0 — Per-device JSONL partitioning (Mac only, prerequisite for any phone writes)
+
+Foundational. Must land before Phase D so the phone never writes to a shared file. Spec §3.12 + ADR 0011.
+
+- `Maugham/OpLog/OpLogStore.swift` — `load(docId:)` globs `.maugham/ops/d_<docId>*.jsonl` (matches legacy `d_<docId>.jsonl` + new `d_<docId>.<deviceSlug>.jsonl`), reads each via `JSONLAppendStore`, merges with opId dedupe + opId sort. `append(_:)` targets the writer's own per-device file.
+- `Maugham/Stores/ProjectFolderPresenter.swift` — verify directory-level subscription on `.maugham/ops/` so new per-device sibling files trigger `presenterDidChangeSubitem` the first time they appear. If not, broaden.
+- Backward compat — existing `d_<docId>.jsonl` files are included in the glob. No migration logic (CLAUDE.md tripwire 11).
+- Manual test: write to a project from one device, then synthesize a "second device" file (`d_<docId>.fake.jsonl` with a few ops) by hand; confirm Mac merges both on next load, opIds sort correctly, derived state matches.
+
 ### Phase B — Inbox plumbing (Mac only)
 
 - `Packages/MaughamCore/Sources/MaughamCore/Inbox/InboxEntry.swift` — Codable: `id` (ULID), `createdAt`, `deviceId`, `kind` (text/image/audio), `sourceFilename`, `inlineText`, `transcript`, `transcriptionState` (none / on_device_draft / whisper_final / failed), `title`, `status` (new / promoted / trashed), `resolvedAt`. snake_case keys to match Op convention.
-- `Maugham/Stores/MaughamSidecarPath.swift` — add `case inbox(kind: InboxFileKind, relativePath: String)`; extend `classifySidecar` with `.maugham/inbox/` branches.
+- `Maugham/Stores/MaughamSidecarPath.swift` — add `case inbox(kind: InboxFileKind, relativePath: String)`; extend `classifySidecar` with `.maugham/inbox/` branches (matches `inbox.jsonl` + `inbox.<slug>.jsonl`).
 - `Maugham/Stores/DocumentStore.swift` — add a `case .inbox` arm in `presenterDidChangeSubitem` (line 477) that posts `Notification.Name.maughamInboxChanged`.
-- `Maugham/Stores/InboxStore.swift` (new) — owned by `DocumentStore`. Loads `.maugham/inbox/inbox.jsonl` via `JSONLAppendStore<InboxEntry>`, but with **its own last-wins merge** (the generic store's `dedupKey` keeps first; status updates need newest). Methods: `refresh`, `promoteToResearch(_:)` (delegates to `ProjectStore.addResearchAsset`), `trash(_:)`, `attachToCurrentDoc(_:)`, `updateTranscript(id:text:state:)`.
+- `Maugham/Stores/InboxStore.swift` (new) — owned by `DocumentStore`. Globs `.maugham/inbox/inbox.*.jsonl` (per-device partitioning, same pattern as OpLogStore from Phase B0). Writes go to the Mac's own `inbox.<deviceSlug>.jsonl`. Two-layer merge: per-file via `JSONLAppendStore` first-wins, cross-file via InboxStore last-wins (newest createdAt per id). Methods: `refresh`, `promoteToResearch(_:)` (delegates to `ProjectStore.addResearchAsset`), `trash(_:)`, `attachToCurrentDoc(_:)`, `updateTranscript(id:text:state:)`.
 - `Maugham/Views/InboxPane.swift` (new) — right-pane mode, rows show kind icon + title + transcript preview + timestamp + trailing menu (Promote / Attach / Edit transcript / Trash). Empty state with `ContentUnavailableView` pointing at the phone.
 - Wire ⌘⌥6 in `ProjectWindow.swift` and add `.inbox` to `DetailSegment.swift` + `DetailPaneToggle.swift`.
 
-Manual test by dropping a file + JSONL line into `.maugham/inbox/` directly — no phone code yet.
+Manual test by dropping a file + JSONL line into `.maugham/inbox/` (either the per-device file or the legacy unsuffixed name) — no phone code yet.
 
 ### Phase C — WhisperKit on the Mac
 
@@ -128,14 +139,15 @@ iOS releases use a separate tag namespace, workflow, and script — Mac releases
 
 ## Critical correctness risks
 
-1. **`claudeAccept.changes` replay on the Mac.** Verify `Document.load` applies the changes array; add a one-liner if not. Otherwise phone-accepted suggestedChanges silently fail to materialize after Mac restart.
-2. **Security-scoped bookmark staleness.** Check `isStale` every launch; surface a clear "Re-pick folder" prompt, not a silent empty list. iCloud-Drive folders are especially prone to bookmark expiration after device restarts or app upgrades.
-3. **InboxStore last-wins semantics.** `JSONLAppendStore.dedupKey` keeps first occurrence; InboxStore must do its own merge so newer entries override older for the same id.
-4. **Inbox file moves.** Promote-to-research must use coordinated writes (NSFileCoordinator); a plain `FileManager.removeItem` on the old inbox copy bypasses the Mac's presenter and risks conflict-bombing.
-5. **Annotation race window.** If the Mac archives an annotation while the phone has the detail view open, phone-side action would overwrite. Mitigation: re-derive status on view appearance and hide buttons if already resolved. A `claudeAccept` op pointing at a swept paragraph is harmless (Materializer skips paragraphs not in `sequence`) but worth documenting.
-6. **Tripwire 13 (hardcoded "Maugham" strings).** Route all iOS bundle ids and bookmark keys through `BuildVariant`. Lint guard extension covers this.
-7. **Tripwire 4 (per-row re-parse).** Fountain rendering on iOS must cache `FountainScript` per document, never re-parse inside a SwiftUI row body.
-8. **Phase A blast radius.** Moving 16 files into a package is mechanical but pervasive. Run `./gen.sh` + full `xcodebuild test` after every batched move; don't combine with any other change in the same PR.
+1. **iCloud Drive conflict-twins on multi-writer JSONL.** Without per-device partitioning (Phase B0), phone + Mac concurrent appends to `.maugham/ops/d_<docId>.jsonl` or `.maugham/inbox/inbox.jsonl` produce silent conflict-twin files (`d_<docId> 2.jsonl` etc.) that the loader never opens. Spec §3.12 + ADR 0011. Phase B0 lands before Phase D for exactly this reason.
+2. **Phone-side `AnnotationWriter.claudeAccept` must copy `changes` verbatim** from the creation op for suggestedChange acceptance. Mac-side replay already handles `claudeAccept.changes` (`Deriver.swift:108-117` + `Deriver.swift:26-37` verified 2026-05-24); the failure mode if the phone gets this wrong is "phone-accepted suggestedChanges silently fail to materialize after Mac restart." Regression net is `AnnotationWriterAcceptSuggestedChangeRoundTripTests` (spec §7.1).
+3. **Security-scoped bookmark staleness.** Check `isStale` every launch; surface a clear "Re-pick folder" prompt, not a silent empty list. iCloud-Drive folders are especially prone to bookmark expiration after device restarts or app upgrades.
+4. **InboxStore cross-file last-wins semantics.** Per-device partitioning means multiple manifest files contribute entries for the same id (status transitions). `JSONLAppendStore.dedupKey` keeps first within a file (correct for op log); InboxStore must override at the cross-file merge step so newest createdAt per id wins.
+5. **Inbox file moves.** Promote-to-research must use coordinated writes (NSFileCoordinator); a plain `FileManager.removeItem` on the old inbox copy bypasses the Mac's presenter and risks conflict-bombing.
+6. **Annotation race window.** If the Mac archives an annotation while the phone has the detail view open, phone-side action would overwrite. Mitigation: re-derive status on view appearance and hide buttons if already resolved. A `claudeAccept` op pointing at a swept paragraph is harmless to the manuscript (Materializer skips paragraphs not in `sequence`) but flips the deriver's lifecycle classification from `archived` back to `accepted` — documented in spec §5.3 Race 2 as acceptable for v1.
+7. **Tripwire 13 (hardcoded "Maugham" strings).** Route all iOS bundle ids and bookmark keys through `BuildVariant`. Lint guard extension covers this.
+8. **Tripwire 4 (per-row re-parse).** Fountain rendering on iOS must cache `FountainScript` per document, never re-parse inside a SwiftUI row body.
+9. **Phase A blast radius.** Moving 16 files into a package is mechanical but pervasive. Run `./gen.sh` + full `xcodebuild test` after every batched move; don't combine with any other change in the same PR.
 
 ## Verification (manual smoke for v1)
 
@@ -153,11 +165,16 @@ iOS releases use a separate tag namespace, workflow, and script — Mac releases
 
 **Modified on the Mac:**
 - `project.yml` — new iOS target + package dep
+- `Maugham/OpLog/OpLogStore.swift` — per-device file partitioning (Phase B0): glob + merge on load, per-device write on append
+- `Maugham/Stores/ProjectFolderPresenter.swift` — verify directory-level subscription scope (Phase B0)
 - `Maugham/Stores/MaughamSidecarPath.swift` — new `.inbox` case
 - `Maugham/Stores/DocumentStore.swift` — `.inbox` switch arm in `presenterDidChangeSubitem`
-- `Maugham/OpLog/Document.swift` — verify/add `claudeAccept.changes` replay
 - `Maugham/Views/ProjectWindow.swift`, `DetailSegment.swift`, `DetailPaneToggle.swift` — ⌘⌥6 + new pane wiring
 - `scripts/cut-release.sh` referenced; new sibling created
+
+**Unchanged on the Mac (explicit non-scope):**
+- `Maugham/OpLog/Document.swift` — replay path already handles `claudeAccept.changes` (verified 2026-05-24); no change required.
+- `Maugham/OpLog/Deriver.swift` — `.claudeAccept` already in `appliesToManuscript`; no change required.
 
 **New on the Mac:**
 - `Maugham/Stores/InboxStore.swift`
@@ -188,8 +205,8 @@ iOS releases use a separate tag namespace, workflow, and script — Mac releases
 This is a several-milestone bundle, not a single feature. Suggested commit/PR rhythm:
 
 - **Milestone 1 — Phase A only.** `MaughamCore` extraction, no behavior change. Highest blast radius, smallest review surface. Tag `milestone-maugham-core`.
-- **Milestone 2 — Phases B + C.** Mac-side inbox + WhisperKit. Mac is fully usable without a phone yet; you can manually drop files for testing. Tag `milestone-inbox-and-whisper`.
-- **Milestone 3 — Phases D + E + F.** iOS app, all three tabs. Phone gains capture / read / annotation-review in one bundle. Tag `milestone-phone-v1`.
+- **Milestone 2 — Phases B0 + B + C.** Per-device JSONL partitioning (foundational; must land before any phone writes), then Mac-side inbox + WhisperKit. Mac is fully usable without a phone yet; you can manually drop files for testing. Tag `milestone-inbox-and-whisper`.
+- **Milestone 3 — Phases D + E + F.** iOS app, all three tabs. Phone gains capture / read / annotation-review in one bundle. Tag `milestone-iphone-companion` (the iOS milestone — `phone-v0.1.0` below is the version tag).
 - **Milestone 4 — Phase G.** First TestFlight cut. Tag `phone-v0.1.0`.
 
 Each milestone is independently verifiable via the smoke steps above.

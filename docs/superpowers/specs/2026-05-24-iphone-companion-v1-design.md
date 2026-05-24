@@ -91,8 +91,9 @@ The dependency direction is clear: `Packages/MaughamCore` is foundational and un
 - `Maugham/Stores/DocumentStore.swift` — add a `case .inbox(let kind, _):` arm in `presenterDidChangeSubitem` (currently around line 477); posts `Notification.Name.maughamInboxChanged` with `kind` in userInfo. `InboxStore` and `InboxTranscriptionWorker` both subscribe.
 - `Maugham/Views/DetailSegment.swift` — add `case inbox`; mirror in `Maugham/Views/DetailPaneToggle.swift` so the segment picker shows it.
 - `Maugham/Views/ProjectWindow.swift` — bind ⌘⌥6 to `.inbox` (the existing slot mapping: 1 inspector, 2 annotations, 3 outline, 4 history, 5 research, 6 inbox). Mount `InboxPane()` in the detail-pane host when `currentSegment == .inbox`.
-- `Maugham/OpLog/Document.swift` — `load`'s op-replay loop already calls `pending.recordChange(...)` for changes ops; verify or add that `.claudeAccept` ops with a non-empty `changes` array also update `paragraphs[change.paragraphId] = change.next`. Today the Mac-side `acceptAnnotation` mutates `paragraphs` synchronously *outside* the replay loop, so a phone-written accept op would not re-materialize after a Mac restart unless replay handles its `changes` array. Single-line addition; see §3.9.
-- `CLAUDE.md` — new "iPhone companion" section between "Releases" and "Architectural tripwires"; three additions to "Questions you do not need to ask"; new tripwire (#14, see §6). Per-area pointer for `MaughamPhone/`.
+- `Maugham/OpLog/OpLogStore.swift` — `load(docId:)` globs all per-device op-log files (`d_<docId>.jsonl` + `d_<docId>.<deviceSlug>.jsonl`), merges via `JSONLAppendStore`'s existing opId-dedupe + opId-sort. `append(_:)` targets the writer's own per-device file. See §3.12 for the multi-writer partitioning rationale; the change is the only place that needs to know files are partitioned — every downstream consumer (`Deriver`, `Document.load`, `RewindWindow`) still sees a single `[Op]`.
+- `Maugham/Stores/ProjectFolderPresenter.swift` — confirm directory-level subscription to `.maugham/ops/`. New per-device files appear at runtime; the presenter must fire `presenterDidChangeSubitem` for siblings it has never seen before. If today's implementation watches a fixed set of paths, broaden to directory-level. (Likely already directory-level; needs verification at Phase B0.)
+- `CLAUDE.md` — new "iPhone companion" section between "Releases" and "Architectural tripwires"; three additions to "Questions you do not need to ask"; two new tripwires (#14 and #15, see §6). Per-area pointer for `MaughamPhone/`.
 - Files moved (not deleted-and-recreated) into `Packages/MaughamCore/Sources/MaughamCore/`:
   - From `Maugham/OpLog/`: `Op.swift`, `OpKind.swift`, `Annotation.swift`, `AnnotationDeriver.swift`, `Bootstrap.swift`, `JSONLAppendStore.swift`, `Materializer.swift`, `OpLogStore.swift`, `ParagraphID.swift`, `ParagraphParser.swift`, `Reconciler.swift`, `ShingleMatcher.swift`, `SweepReason.swift`, `SynthesisSource.swift`, `ULID.swift`, `Checkpoint.swift`, `CheckpointStore.swift`. All confirmed Foundation-only.
   - From `Maugham/Editor/Fountain/`: `FountainTokenizer.swift`, `FountainLine.swift`, `FountainScript.swift`, `ScreenplayElement.swift`. All confirmed `import Foundation` only.
@@ -101,8 +102,9 @@ The dependency direction is clear: `Packages/MaughamCore` is foundational and un
 
 ### 2.3 Files explicitly not changed (non-scope)
 
-- `Maugham/OpLog/Document.swift` — only the one-line replay addition described above. No changes to Bootstrap funnel, no changes to autosave debouncing, no changes to echo guard.
-- `Maugham/OpLog/Reconciler.swift` — phone writes append to `.maugham/ops/*.jsonl`; existing external-edit ingestion picks them up as it would any other external append. No classifier changes.
+- `Maugham/OpLog/Document.swift` — unchanged. The replay path already handles `claudeAccept.changes` (see §3.9). No changes to Bootstrap funnel, no changes to autosave debouncing, no changes to echo guard.
+- `Maugham/OpLog/Deriver.swift` — unchanged. `Deriver.appliesToManuscript` already includes `.claudeAccept` (verified at `Deriver.swift:108-117`); `Deriver.derive(ops:)` already applies `change.next` for any op whose kind passes that gate. The phone-written accept op materializes on Mac restart with zero Mac code change.
+- `Maugham/OpLog/Reconciler.swift` — phone writes append to per-device op-log files; existing external-edit ingestion picks them up as it would any other external append. No classifier changes.
 - `Maugham/Editor/` — no editor changes. The phone does not edit manuscripts.
 - Op log schema — no new `OpKind` cases. Phone writes `claudeAccept` / `claudeReject` / `claudeArchive` with the existing shape. `Provenance.synthesisSource` gets no new cases; phone-originated ops carry no synthesisSource (it's optional; phone ops are not synthesized, they're user-driven).
 - MCP tool surface — no new MCP tools. Phone reads ops via direct JSONL read, writes ops via direct JSONL append. MCP and the iPhone companion are parallel surfaces, not nested.
@@ -155,9 +157,11 @@ Tests in `MaughamTests/` that reference the moved types stay where they are — 
 
 ### 3.2 Inbox sidecar format
 
-A new directory `<projectRoot>/.maugham/inbox/` with three kind-scoped subdirs (`text/`, `images/`, `audio/`) and one stream manifest (`inbox.jsonl`). All four locations are owned by `InboxStore` on the Mac and `MaughamPhone`'s capture flow on the phone; no other code touches them.
+A new directory `<projectRoot>/.maugham/inbox/` with three kind-scoped subdirs (`text/`, `images/`, `audio/`) and **one manifest stream per writer** (`inbox.<deviceSlug>.jsonl`). All four locations are owned by `InboxStore` on the Mac and `MaughamPhone`'s capture flow on the phone; no other code touches them.
 
-**Why a separate manifest stream rather than per-file sidecars:** the manifest is append-only JSONL like the op log, so it cooperates with iCloud Drive's last-writer-wins semantics without per-file conflicts. Each status transition (e.g., new → promoted) appends a new `InboxEntry` row with the same `id` and updated fields; the Mac-side load pass collapses through a last-wins merge keyed by id. This means a phone "create" and a Mac "promote" written within seconds of each other both survive — last write wins, but neither is silently lost.
+**Per-writer file partitioning.** Each device writes to its own manifest file (`inbox.<deviceSlug>.jsonl`); on load, `InboxStore` globs all `inbox.*.jsonl` siblings (plus legacy `inbox.jsonl` if present) and merges. This is the inbox flavour of the op-log partitioning approach detailed in §3.12 — the rationale (iCloud Drive cannot reconcile multi-writer JSONL safely) is the same. Each device's manifest has exactly one writer, so iCloud never has to reconcile divergent versions of the same file and conflict-twins are impossible by construction.
+
+**Why a separate manifest stream rather than per-file sidecars:** the manifest is append-only JSONL like the op log, so loading and merging are uniform across stores. Each status transition (e.g., new → promoted) appends a new `InboxEntry` row with the same `id` and updated fields; the load pass collapses through a **last-wins merge keyed by id** (newest wins for the same `id` across all merged files). This means a phone "create" and a Mac "promote" written within seconds of each other both survive — newest wins per `id`, but neither file's writes are silently lost.
 
 **Filenames** use ULID-prefixed names so they sort chronologically and never collide across devices: `01HQR8YN…J9.m4a`. The InboxEntry's `sourceFilename` field carries the exact filename so the Mac can locate the asset deterministically.
 
@@ -208,24 +212,45 @@ case .inbox(let kind, _):
 
 `InboxStore` subscribes for all kinds (triggers `refresh()`); `InboxTranscriptionWorker` subscribes filtered to `kind == .audio`. The `object: self` carrier lets multiple project windows coexist without crosstalk.
 
-**`InboxStore` shape:**
+**`InboxStore` shape (with per-device partitioning — see §3.12):**
 
 ```swift
 @MainActor @Observable
 final class InboxStore {
     var entries: [InboxEntry] = []
     private(set) var version: Int = 0
-    private let store: JSONLAppendStore<InboxEntry>
+    private let inboxDir: URL
+    private let deviceSlug: String  // this Mac's own slug; writes go here
 
-    init(projectRoot: URL) {
-        self.store = JSONLAppendStore<InboxEntry>(
-            url: projectRoot.appending(path: ".maugham/inbox/inbox.jsonl"),
+    init(projectRoot: URL, deviceSlug: String) {
+        self.inboxDir = projectRoot.appending(path: ".maugham/inbox")
+        self.deviceSlug = deviceSlug
+    }
+
+    private var ownStore: JSONLAppendStore<InboxEntry> {
+        JSONLAppendStore<InboxEntry>(
+            fileURL: inboxDir.appending(path: "inbox.\(deviceSlug).jsonl"),
             dedupKey: \.id)
     }
 
     func refresh() async {
-        let raw = (try? await store.load()) ?? []
-        // Last-wins merge: walk in order, keep newest entry per id.
+        // Glob all per-device manifests + the legacy unsuffixed file.
+        let urls = (try? FileManager.default.contentsOfDirectory(at: inboxDir,
+                       includingPropertiesForKeys: nil)) ?? []
+        let manifestURLs = urls.filter {
+            let n = $0.lastPathComponent
+            return n == "inbox.jsonl" || (n.hasPrefix("inbox.") && n.hasSuffix(".jsonl"))
+        }
+        var raw: [InboxEntry] = []
+        for url in manifestURLs {
+            let store = JSONLAppendStore<InboxEntry>(fileURL: url, dedupKey: \.id)
+            raw.append(contentsOf: (try? await store.load()) ?? [])
+        }
+        // Last-wins merge across all sources: walk in opId order, keep newest per id.
+        // Because InboxEntry.id is a ULID and each transition appends a new row
+        // with the same id, sorting by createdAt then taking the last writer
+        // per id collapses correctly across files.
+        raw.sort { $0.createdAt < $1.createdAt }
         var byId: [String: InboxEntry] = [:]
         for e in raw { byId[e.id] = e }
         entries = byId.values
@@ -233,11 +258,18 @@ final class InboxStore {
             .sorted { $0.createdAt > $1.createdAt }
         version &+= 1
     }
+
+    // All mutations target ownStore (this device's own file).
     // … promoteToResearch / trash / attachToCurrentDoc / updateTranscript
 }
 ```
 
-The last-wins merge in `refresh()` is the corrective for `JSONLAppendStore`'s first-wins `dedupKey` semantics. Keeping the generic store's behavior intact (first-wins is correct for the op log, where ops are immutable) and overriding in the InboxStore is cheaper than parameterizing `JSONLAppendStore` itself.
+Two layered merge semantics are in play:
+
+1. **Within a single file:** `JSONLAppendStore.dedupKey: \.id` keeps the **first** occurrence (the generic store's behavior, correct for the op log where ops are immutable).
+2. **Across the union of files:** InboxStore overrides to **last** wins per id (newest createdAt across all merged sources). This is what makes status transitions work — a phone-written `new` entry plus a Mac-written `promoted` row for the same id end up with `promoted` winning.
+
+Keeping the generic store's per-file behavior intact and overriding the cross-file merge in InboxStore is cheaper than parameterizing `JSONLAppendStore`.
 
 ### 3.4 Mac-side triage UI
 
@@ -410,24 +442,21 @@ The styling is intentionally not pagination — that requires Courier, fixed let
                "user_response":null}}
 ```
 
-The phone's `AnnotationWriter` copies `changes` directly from the creation op (which it already has in its in-memory replay state) — no parsing, no transformation.
+The phone's `AnnotationWriter` copies `changes` directly from the creation op (which it already has in its in-memory replay state) — no parsing, no transformation. **This is the only thing that has to be right for phone-accepted suggestedChanges to materialize on the Mac.**
 
-**Mac-side change required for this to work.** Today, Mac-side `Document.acceptAnnotation` for a suggestedChange mutates `paragraphs` synchronously *and* appends the `claudeAccept` op (`Document.swift:643–710`). Replay on next load relies on `paragraphs` being already-mutated by the time the changes op runs, *not* on the accept op's `changes` array. A phone-written accept op would therefore not re-materialize the change after a Mac restart.
-
-The fix is a one-line addition to `Document.load`'s op replay loop: when processing a `claudeAccept` op, apply its `changes` array to `paragraphs`. This is idempotent — the Mac's accept already mutates `paragraphs` synchronously, so on replay the change is applied again with identical input, no-op result. Phone-written accepts then materialize identically.
-
-Pseudocode for the addition (in `Document.load`'s replay):
+**Mac-side: nothing to change.** `Deriver.appliesToManuscript` at `Deriver.swift:108-117` already includes `.claudeAccept`:
 
 ```swift
-case .claudeAccept:
-    for change in op.changes {
-        paragraphs[change.paragraphId] = change.next
-    }
+case .typingBurst, .bootstrap, .externalEdit,
+     .checkpointRestore, .claudeAccept:   // ← already in the manuscript-apply set
+    return true
 ```
 
-This is internal to `Document` and changes no public contract. Verify during Phase F whether this loop already exists in some form; if so, the change is "confirmed working" and the spec marks it satisfied with no code change.
+And `Deriver.derive(ops:)` at `Deriver.swift:26-37` applies `change.next` for any op whose kind passes that gate. The Mac's synchronous `paragraphs` mutation inside `Document.acceptAnnotation` (`Document.swift:683-691`) is anticipation of what replay will do on next load — *not* a substitute for it. A phone-written `claudeAccept` op carrying the creation op's `changes` array verbatim re-materializes the manuscript on Mac restart through the existing replay path. Confirmed by reading the code, 2026-05-24.
 
-**Coordinated write.** Phone's `AnnotationWriter.append(op:)` opens an `NSFileCoordinator` writing-coordination on `.maugham/ops/<docId>.jsonl`, calls `JSONLAppendStore<Op>.append(op)` from MaughamCore, releases coordination. Mac-side `ProjectFolderPresenter` notices the write and Reconciler ingests it as it would any other external append.
+The regression net for this is **phone-side**: `AnnotationWriterAcceptSuggestedChangeRoundTripTests` constructs a creation op, builds an accept op via AnnotationWriter, runs both through `Deriver.derive`, and asserts the post-replay paragraph text equals `change.next`. If the phone ever stops copying `changes` verbatim, this test catches it.
+
+**Coordinated write.** Phone's `AnnotationWriter.append(op:)` opens an `NSFileCoordinator` writing-coordination on the phone's per-device op-log file (`.maugham/ops/d_<docId>.<deviceSlug>.jsonl`, see §3.12), calls `JSONLAppendStore<Op>.append(op)` from MaughamCore, releases coordination. Mac-side `ProjectFolderPresenter` notices the new sibling file, `OpLogStore.load(docId:)` picks it up on the next merge, and `Document.handleExternalLogChange` re-derives. Reconciler ingests it as it would any other external append.
 
 ### 3.10 BuildVariant on iOS
 
@@ -566,6 +595,94 @@ jobs:
 - Privacy disclosures (mic, speech recognition, camera, photo library, iCloud) are mandatory at upload time; missing `Info.plist` strings or App Store Connect privacy nutrition label entries reject the build.
 
 **App Store eligibility.** This pipeline is App-Store-shaped (signed Distribution build, archive, export, upload). Going from TestFlight to App Store later requires a privacy policy URL, App Store metadata (screenshots, description), and a normal App Review submission. The signing/build/upload code path is unchanged.
+
+### 3.12 Per-device JSONL file partitioning
+
+The problem this section addresses is the most load-bearing single decision in v1: how do multiple devices safely append to shared JSONL files when iCloud Drive is the sync substrate? Without it, the inbox manifest and the op log would silently lose writes under realistic phone/Mac concurrency.
+
+**The problem.** `NSFileCoordinator` serializes writes within a single device — that's its scope. It does not coordinate across devices through iCloud Drive: iCloud's reconciler (`bird`/`cloudd`) runs at daemon level and is oblivious to NSFileCoordinator semantics on the other device. When two devices both append to the same file within an iCloud sync window:
+
+1. iCloud detects divergence (both devices have a "newer than the last common version" file).
+2. The reconciler resolves by *whole-file replace*, not line-merge.
+3. The loser's copy lands as a conflict-named twin alongside the canonical file: `d_<docId> 2.jsonl`, `d_<docId> (iPhone).jsonl`, or similar (iCloud's exact naming convention varies).
+4. Today's `OpLogStore.load(docId:)` opens exactly one path. Twin files are invisible. The loser's ops are silently lost.
+
+This is also a **latent bug today** in Mac↔Mac sync — but rarely triggered because two Macs aren't usually edited by the same user at the same instant. Adding a phone makes simultaneous writes routine: voice capture on phone while paragraph-deletion sweep runs on Mac; reject on phone while accept on Mac; `claudeArchive` on Mac while phone tries to `claudeReject`.
+
+Maugham already acknowledges iCloud conflict creation for `.md` files (`Document.swift:1030-1037`, `writeConflictBackup`). The JSONL story was never specced because there was only one writer per file. Adding a second writer requires fixing this.
+
+**The decision.** Each device writes to its own file; readers glob and merge.
+
+| Today | After |
+|---|---|
+| `.maugham/ops/d_<docId>.jsonl` (one file, all writers) | `.maugham/ops/d_<docId>.<deviceSlug>.jsonl` (one file per writer) + legacy `d_<docId>.jsonl` continues to load |
+| `.maugham/inbox/inbox.jsonl` (one file, all writers) | `.maugham/inbox/inbox.<deviceSlug>.jsonl` (one file per writer) + legacy `inbox.jsonl` continues to load |
+
+Two devices can never target the same file path, so iCloud never has to reconcile divergent versions and conflict-twins are impossible by construction. Files are only touched by their owning device; other devices see them as read-only siblings to fold into their merge.
+
+**`deviceSlug` derivation.** `Document.device` already exists (`Document.swift:106`) as the canonical per-install identifier. The slug is a sanitized form suitable for filenames — UUID dashes stripped, lowercased, optionally truncated to keep filenames manageable. Exact form to be decided at implementation time but stable per install (so a device's files stay addressable to itself across launches).
+
+**Source of truth — unchanged.** The logical op log remains "the merged, opId-sorted, opId-deduped set of all ops." It's just assembled from multiple files at load time instead of being identified with one file. Per the existing `OpLogStore.swift:5-7` comment: *"Dedupes by `op_id` and sorts by `op_id` (timestamp-prefixed ULID gives deterministic cross-device order)."* Cross-device order is already the contract — partitioning extends it from "across writes by the same Mac across sessions" to "across writes by all devices across sessions."
+
+**Why this works without further design.** ULID does the heavy lifting:
+
+- ULID = `[48 bits ms-since-epoch][80 bits cryptographic randomness]`. Lexically sortable, globally unique.
+- Sort any set of ops by `opId` → same total order regardless of which file each came from.
+- `Deriver.derive(ops:)` already folds in opId order and doesn't care where ops were stored.
+- `RewindCursor.atOp(opId, at)` uses opId as identity; "fold up to opId X" works for any op regardless of source file.
+- The deriver's paragraph-level last-writer-wins (where "writer order" = opId order) is the existing convergence semantics. CRDTs were *designed* for this — physical storage layout shouldn't affect convergence.
+
+**ULID time semantics.** First 48 bits are UTC epoch-ms. Timezone-agnostic. Travel, DST, and OS-displayed-timezone changes do not affect ordering. Manual clock tampering (Settings → Date & Time → Set Automatically OFF, then set wrong) would, but is out of scope as a user-fault condition equivalent to manually corrupting an op log file. NTP corrections are sub-second and irrelevant at Maugham's human-paced op cadence.
+
+**Late-arrival semantics.** Phone offline for a week → ops come back stamped from a week ago, fold into the past at their original ULID position when sync resumes. Rewind history can "grow backwards" when this happens — state at cursor X is deterministic *given the ops the load knew about*; it can become more-informed than yesterday but never inconsistent. This is the same behavior as today's Mac↔Mac late sync, just more frequent with a phone.
+
+**Code changes (compact).**
+
+```swift
+// Maugham/OpLog/OpLogStore.swift
+public func load(docId: String) async throws -> [Op] {
+    let dir = projectURL.appendingPathComponent(".maugham/ops")
+    let urls = (try? FileManager.default.contentsOfDirectory(at: dir,
+                   includingPropertiesForKeys: nil)) ?? []
+    let prefix = "\(docId)"   // matches d_<id>.jsonl + d_<id>.<deviceSlug>.jsonl
+    let matches = urls.filter {
+        let n = $0.lastPathComponent
+        return n == "\(prefix).jsonl" ||
+            (n.hasPrefix("\(prefix).") && n.hasSuffix(".jsonl"))
+    }
+    var merged: [Op] = []
+    for url in matches {
+        merged.append(contentsOf: try await JSONLAppendStore<Op>(
+            fileURL: url, presenter: presenter,
+            dedupKey: { $0.opId },
+            sortedBy: { $0.opId < $1.opId }).load())
+    }
+    // Each file is already deduped + opId-sorted by JSONLAppendStore; merge
+    // by re-sorting and re-deduping across the union.
+    var seen = Set<String>()
+    return merged.sorted { $0.opId < $1.opId }.filter { seen.insert($0.opId).inserted }
+}
+
+public func append(_ op: Op) async throws {
+    try await store(forDocId: op.docId, deviceSlug: ownDeviceSlug).append(op)
+}
+```
+
+`Document.handleExternalLogChange` is unchanged — it already re-runs `opStore.load`, which now globs. `RewindWindow` is unchanged — it reads ops via `doc.opLog()` and operates on `[Op]`, unaware of how the array was assembled. `Deriver` and `Materializer` are unchanged.
+
+**Presenter scope.** `ProjectFolderPresenter` must subscribe at directory level so that new files (a phone's first-write creates a file the Mac has never seen) trigger `presenterDidChangeSubitem`. CLAUDE.md tripwire #7 implies the existing presenter is directory-scoped; verify during Phase B0 before committing to the spec contract. If the existing implementation watches a fixed file set, broaden it.
+
+**Backward compat.** The legacy `d_<docId>.jsonl` (no device suffix) file is one of the files included in the glob. Existing op logs continue to load with zero migration. New writes go to per-device files. Per CLAUDE.md tripwire 11, no migration logic — the legacy file is left alone and continues to be one of the merge sources forever (or until it's empty and stable, at which point it could be deleted manually).
+
+**File count growth.** One file per (device, doc) pair. For a writer using one Mac + one phone, that's two files per doc. For a writer with N devices over the project's lifetime (counting devices replaced/retired), N files per doc — bounded by realistic device count, not by op rate. No directory-blowup risk.
+
+**Checkpoints are unchanged.** Per-project, live in `.maugham/checkpoints/`, single writer (the Mac that initiates the checkpoint). No partitioning needed; only the per-doc op log and per-project inbox need it.
+
+**What this does NOT solve.** Annotation race semantics (§5.3 Races 1 and 2) are about deriver-level interpretation of overlapping lifecycle ops, not about file-level conflicts. Partitioning makes both ops survive the file system; the deriver still has to decide which lifecycle state wins. Races 1 and 2 remain as documented.
+
+**ADR.** This decision is recorded in `docs/adr/0011-per-device-jsonl-partitioning.md` so future code reviewers have one document to point at rather than a section of an iPhone spec.
+
+**CLAUDE.md.** A new tripwire (#15) lands with the implementation: *"Don't share a single JSONL file across writers via iCloud Drive. Per-device suffix, glob on load, dedupe on opId. Skipping this reintroduces the silent-data-loss path described in spec §3.12."*
 
 ---
 
@@ -740,7 +857,9 @@ Behavior on Mac replay: `paragraphs[change.paragraphId] = change.next` stores te
 Mitigation: not in v1; document in InboxStore and AnnotationDetailView headers. The harm is low (no data loss, no manuscript corruption); the user can re-trigger the sweep by re-deleting the paragraph (a no-op) which will append a fresh archive op. A more principled fix is a deriver rule: `claudeAccept` for suggestedChange against a paragraph not in `sequence` is treated as a no-op. Single-line rule in deriver, but it changes Mac-side derivation behavior and deserves its own ADR — leave for Phase H.
 
 **Race 3 — Phone and Mac both act simultaneously.**
-Both append lifecycle ops within the same iCloud sync window. iCloud Drive resolves the JSONL file via last-writer-wins (one side's append may temporarily clobber the other, then both versions reconcile). `JSONLAppendStore.load` dedupes by `op_id`, so neither op is lost; both are present after reconciliation. Deriver collapses to the later-ULID op. Behavior is consistent and recoverable; the only user-visible artifact is that one of the actions "won" and the other was overridden.
+At the file system layer this can no longer cause data loss: per-device file partitioning (§3.12) ensures the phone and Mac write to different files. iCloud Drive never has to reconcile two writers of the same path; conflict-twins are impossible by construction. Both ops survive into the merged stream.
+
+At the deriver layer, the same paragraph-level last-writer-wins semantics that already govern Mac↔Mac concurrency apply: both ops are folded in by opId order, and `AnnotationDeriver.derive` collapses lifecycle to the latest-ULID op for that `source_annotation_id`. The "winner" is the action with the later ULID, which approximates "the action the user took last" (modulo sub-second clock skew, which is below the granularity at which a human can perform two annotation actions). Behavior is consistent and recoverable; the only user-visible artifact is that the action with the later ULID prevails.
 
 ### 5.4 Coordinated file write failures
 
@@ -807,17 +926,32 @@ Additions to "Questions you do not need to ask":
 - "Should we share an iCloud container between Mac and iOS?" → No. Mac uses arbitrary folder paths; iOS uses UIDocumentPicker for the same flexibility.
 - "Should we cloud-transcribe voice notes?" → No. On-device draft (phone) + WhisperKit (Mac) cover the quality/latency tradeoff without third-party API calls.
 
-New tripwire (#14) appended:
+New tripwires (#14 and #15) appended:
 
 ```markdown
-14. **Don't write to manuscript `.md` files from the iOS app.** The phone writes only to
-    `.maugham/inbox/*` (capture) and `.maugham/ops/*.jsonl` (annotation lifecycle). Mac-side
-    echo guard (`Document.lastDiskEcho: EchoState`) is byte-equality on `.md` writes only —
-    phone writes can never masquerade as Mac echoes because they don't target `.md`. If
-    you find yourself wanting to "just patch this paragraph from the phone," that's a
-    Bootstrap/¶id problem: the phone has no Bootstrap funnel, and the conflict-on-
-    unanchored-edit contract makes phone-side manuscript edits unsafe. Route the intent
-    through an annotation instead.
+14. **Don't write to manuscript `.md` files from the iOS app.** The phone writes only
+    annotation lifecycle ops (to its own per-device `.maugham/ops/d_<docId>.<deviceSlug>.jsonl`)
+    and inbox sidecar entries (to its own `.maugham/inbox/inbox.<deviceSlug>.jsonl`).
+    Mac-side echo guard (`Document.lastDiskEcho: EchoState`) is byte-equality on `.md`
+    writes only — phone writes can never masquerade as Mac echoes because they don't
+    target `.md`. Manuscript content changes only via the user accepting a Claude-authored
+    suggestedChange that already encoded the change in its `changes` array — the phone
+    appends `claudeAccept` with `changes` copied verbatim from the creation op; Mac-side
+    `Deriver.derive` applies them on next load. If you find yourself wanting to "just
+    patch this paragraph from the phone" outside that path, that's a Bootstrap/¶id
+    problem: the phone has no Bootstrap funnel, and the conflict-on-unanchored-edit
+    contract makes phone-side manuscript edits unsafe. Route the intent through an
+    annotation instead.
+
+15. **Don't share a single JSONL file across writers via iCloud Drive.** The op log
+    (`.maugham/ops/*.jsonl`) and inbox manifest (`.maugham/inbox/inbox.*.jsonl`) are
+    per-device-partitioned: each device writes to its own `*.<deviceSlug>.jsonl` file,
+    readers glob and merge by opId (op log) or id last-wins (inbox). NSFileCoordinator
+    serializes only within one device — iCloud Drive's reconciler can't merge concurrent
+    appends to the same path and produces silent conflict-twins (`d_x 2.jsonl`,
+    `d_x (iPhone).jsonl`) that the loader never opens. If you add a new multi-writer
+    JSONL surface, partition it the same way. See [ADR 0011](docs/adr/0011-per-device-jsonl-partitioning.md)
+    and spec §3.12.
 ```
 
 Per-area pointer added to "Per-area pointers":
@@ -847,11 +981,15 @@ Per-area pointer added to "Per-area pointers":
 - `OpReplayTests` — replay an op sequence with create/append/changeApply/claudeAccept ops; assert resulting `paragraphs` and `sequence` match `Document.load`'s output on the same input.
 - `InboxEntryCodableTests` — round-trip a known InboxEntry through JSON; assert snake_case keys; assert optional fields encode as `null` not omitted (matches existing project convention).
 
-**Mac inbox (Phase B):**
+**Mac inbox + partitioning (Phase B / B0):**
 
-- `MaughamSidecarPathInboxTests` — classify `.maugham/inbox/inbox.jsonl`, `.maugham/inbox/text/01HQR….md`, `.maugham/inbox/images/01HQR….jpg`, `.maugham/inbox/audio/01HQR….m4a`. Each routes to the right `InboxFileKind`.
-- `InboxStoreLastWinsTests` — append three entries with the same id (status: new → promoted → trashed); assert `refresh()` collapses to the last and filters from `entries` (only `new` shows).
+- `MaughamSidecarPathInboxTests` — classify `.maugham/inbox/inbox.jsonl`, `.maugham/inbox/inbox.<slug>.jsonl`, `.maugham/inbox/text/01HQR….md`, `.maugham/inbox/images/01HQR….jpg`, `.maugham/inbox/audio/01HQR….m4a`. Each routes to the right `InboxFileKind`.
+- `InboxStoreLastWinsTests` — append three entries with the same id (status: new → promoted → trashed) split across two per-device manifest files; assert `refresh()` collapses to the last (newest createdAt across both files wins) and filters from `entries` (only `new` shows).
 - `InboxStoreNotificationTests` — write a manifest entry, post `maughamInboxChanged`, assert `InboxStore.refresh()` fires and `entries` updates.
+- `OpLogStorePartitioningWriteTests` — append three ops via `OpLogStore.append`; assert the writes land in `d_<docId>.<ownDeviceSlug>.jsonl`, not in a shared `d_<docId>.jsonl`.
+- `OpLogStorePartitioningLoadTests` — seed three files (`d_<docId>.jsonl` legacy, `d_<docId>.macA.jsonl`, `d_<docId>.phoneB.jsonl`) each with ops carrying distinct opIds; assert `OpLogStore.load(docId:)` returns the merged-sorted-deduped set in opId order, with no missing ops and no duplicates.
+- `OpLogStoreBackwardCompatTests` — load a project that has only the legacy unsuffixed file (no per-device siblings); assert behavior is byte-identical to today's single-file loader.
+- `OpLogStorePartitioningParityTests` — for a given input set of ops, assert `Deriver.derive(ops:)` over the merged-from-N-files result equals `Deriver.derive(ops:)` over the same ops in a single file. (Storage representation must not change derivation output.)
 
 **WhisperKit worker (Phase C):**
 
@@ -925,7 +1063,8 @@ After milestone 4 ships and `phone-v0.1.0` is live in TestFlight:
 
 None blocking. Items to confirm during planning:
 
-- **`Document.load` op replay for `claudeAccept.changes`.** Spec §3.9 calls for confirming whether the existing replay loop applies `claudeAccept.changes` to `paragraphs`. If yes: no Mac code change needed; the spec is satisfied as-is. If no: one-line addition. To be verified in Phase F or earlier; not blocking Phase A.
+- **`ProjectFolderPresenter` subscription scope.** §3.12 assumes directory-level subscription to `.maugham/ops/` and `.maugham/inbox/` so that brand-new per-device files trigger `presenterDidChangeSubitem`. CLAUDE.md tripwire #7 implies this is already the case, but verify in Phase B0 before committing the partitioning contract.
+- **`deviceSlug` exact form.** `Document.device` already exists as a per-install identifier; the slug is a sanitized filename-safe form (likely lowercased UUID-no-dashes, optionally truncated). Decide exact form at implementation time. Constraint: stable per install across launches so a device's own files stay addressable.
 - **WhisperKit model default.** Spec defaults to `openai_whisper-base` (~150MB) for first-run quality/size tradeoff. Worth a one-time A/B between `base` and `small` to confirm the default is right. Either is one-line in Settings.
 - **TestFlight upload mechanism.** Spec uses `xcrun altool --upload-app`, but `altool` is being deprecated in favor of `notarytool` and direct App Store Connect API calls. Confirm during Phase G which is current in the chosen Xcode version on `macos-14`.
 - **Coordinated-write deadline tuning.** `NSFileCoordinator` writes have an implicit timeout; iCloud Drive folders under heavy sync can occasionally be slow. Decide whether to set a custom `purposeIdentifier` to group coordinated operations. Default is fine for v1; revisit if writes time out in real use.
