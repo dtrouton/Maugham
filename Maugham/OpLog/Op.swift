@@ -118,4 +118,15 @@ public struct Op: Codable, Equatable, Sendable {
         self.sequence = sequence
         self.provenance = provenance
     }
+
+    /// Returns a copy of this op with `opId` replaced. All other fields are
+    /// preserved identically. Used by `Document.rebuildTasksCache` to rewrite
+    /// `TaskDeriver`'s placeholder rebalance op ids (`rebalance_<task_id>`)
+    /// into the project's standard `ULID.generate()` format before appending.
+    public func withReplacedOpId(_ newOpId: String) -> Op {
+        Op(
+            opId: newOpId, docId: docId, at: at, device: device,
+            session: session, kind: kind, changes: changes,
+            sequence: sequence, provenance: provenance)
+    }
 }

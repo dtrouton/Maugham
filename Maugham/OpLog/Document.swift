@@ -47,6 +47,23 @@ public final class Document {
     private var _annotationsCacheValid: Bool = false
     public private(set) var annotationsVersion: Int = 0
 
+    // Task cache mirrors the annotation cache pattern. Invalidated alongside
+    // every annotation invalidation site so paragraph mutations, lifecycle
+    // ops, and external-log merges all refresh task derivation too.
+    // See `docs/superpowers/specs/2026-05-23-tasks-design.md` §6.
+    private var _tasksCache: [WriterTask] = []
+    private var _tasksCacheValid: Bool = false
+    public private(set) var tasksVersion: Int = 0
+
+    /// Re-entrancy guard for `rebuildTasksCache`. Appending rebalance ops
+    /// triggers `invalidateTasksCache()` (rebalance ops are
+    /// `.taskPriorityChange`, an invalidating kind). Without this guard the
+    /// next `tasks(filter:)` call would rebuild again. The rebalance is
+    /// mathematically idempotent (next derive emits zero rebalance ops since
+    /// priorities are now well-spaced), so this guard makes the invariant
+    /// *enforceable in tests* — not because there's a correctness hole.
+    private var _isRebuildingTasks: Bool = false
+
     /// Mirror of every op append for synchronous annotation derivation.
     /// Populated at load(...) with the result of opStore.load, then kept
     /// in sync by every mutation path that calls opStore.append.
@@ -54,6 +71,12 @@ public final class Document {
 
     /// Diagnostic accessor: size of the in-memory op log mirror.
     public var opLogMirrorCount: Int { _opLogMirror.count }
+
+    /// Synchronous read of the in-memory op log mirror. Distinct from
+    /// `opLog()` (the disk-backed async accessor) — this reads what's been
+    /// observed by every in-process mutation path. Used by tests + the task
+    /// cache to derive tasks without an async hop.
+    public var opLogSnapshot: [Op] { _opLogMirror }
 
     /// Sticky flag: true once the doc has ever had an annotation op
     /// (creation OR lifecycle). Lets the hot typing path short-circuit
@@ -405,6 +428,197 @@ public final class Document {
         _annotationsCacheValid = true
     }
 
+    // MARK: - Task read API
+
+    /// Project the current op log + paragraph map into the filtered task
+    /// list. Same caching pattern as `annotations(filter:)`. Inline-task
+    /// status is text-is-state (read from paragraph contents); pane-created
+    /// task lifecycle rides the op log. See spec §6.
+    public func tasks(filter: TaskFilter) -> [WriterTask] {
+        if !_tasksCacheValid { rebuildTasksCache() }
+        return _tasksCache.filter { task in
+            guard filter.statuses.contains(task.status) else { return false }
+            switch filter.scope {
+            case .document(let scopeDocId):
+                return task.anchor?.docId == scopeDocId
+            case .project:
+                return true
+            }
+        }
+    }
+
+    fileprivate func invalidateTasksCache() {
+        _tasksCacheValid = false
+        tasksVersion &+= 1
+    }
+
+    private func rebuildTasksCache() {
+        guard !_isRebuildingTasks else {
+            // Re-entrancy guard: rebalance op append triggers
+            // invalidateTasksCache; we're already mid-rebuild and the derive
+            // result is in-flight. The rebalance is mathematically idempotent
+            // (priorities are now well-spaced, so the next derive emits zero
+            // rebalance ops), but recursing here would still be a bug.
+            assertionFailure(
+                "rebuildTasksCache re-entered — rebalance shouldn't recurse")
+            return
+        }
+        _isRebuildingTasks = true
+        defer { _isRebuildingTasks = false }
+
+        let (tasks, rebalanceOps) = TaskDeriver.derive(
+            ops: _opLogMirror, paragraphs: paragraphs, docId: docId)
+        _tasksCache = tasks
+        _tasksCacheValid = true
+
+        // TaskDeriver returns rebalance ops with placeholder ids
+        // ("rebalance_<task_id>") for determinism inside the pure projection.
+        // Rewrite each to a freshly-minted ULID and append via the standard
+        // path. The rebalance is mathematically idempotent (next derive
+        // emits zero rebalance ops since priorities are now well-spaced),
+        // so the re-invalidation triggered by the appends is harmless.
+        for op in rebalanceOps {
+            let standardized = op.withReplacedOpId(ULID.generate())
+            appendTaskOpInternal(standardized)
+        }
+    }
+
+    /// Sync helper for task-lifecycle and rebalance ops. Updates the
+    /// in-memory mirror immediately so the next `tasks(filter:)` reflects
+    /// the change without waiting for the async disk append. Fires a
+    /// fire-and-forget `opStore.append` so the op also lands in
+    /// `.maugham/ops/<docId>.jsonl`. JSONLAppendStore dedupes by opId, so
+    /// even pathological re-entry is safe on disk.
+    private func appendTaskOpInternal(_ op: Op) {
+        _opLogMirror.append(op)
+        invalidateTasksCache()
+        // Annotation cache only invalidates for annotation ops — task ops
+        // don't change annotation derivation, so skip the bump.
+        let store = opStore
+        Task { @MainActor in
+            try? await store.append(op)
+        }
+    }
+
+    // MARK: - Task mutation API
+
+    /// Create a new pane-anchored task on this document. Returns a synthetic
+    /// preview `WriterTask`; the real derived task lands via the deriver on
+    /// the next `tasks(filter:)` call (and matches this preview field-for-
+    /// field by construction).
+    @discardableResult
+    public func createPaneTask(body: String, parentTaskId: String?) -> WriterTask {
+        let opId = ULID.generate()
+        let priority = lowestPriorityForDoc() + 1.0
+        let parentField: String? = parentTaskId
+        let op = Op(
+            opId: opId,
+            docId: docId, at: Date(),
+            device: device, session: session,
+            kind: .taskCreate,
+            changes: [], sequence: nil,
+            provenance: Op.Provenance(
+                sessionId: session,
+                taskId: opId,
+                taskBody: body,
+                taskPriority: priority,
+                taskParentId: parentField,
+                taskKind: TaskKind.paneCreated.rawValue))
+        appendTaskOpInternal(op)
+        return WriterTask(
+            id: opId, kind: .paneCreated,
+            anchor: TaskAnchor(docId: docId, paragraphId: nil),
+            body: body, status: .open, priority: priority,
+            parentTaskId: parentTaskId,
+            createdAt: op.at,
+            createdBySession: session)
+    }
+
+    public func setTaskStatus(id: String, status: TaskStatus) {
+        let op = Op(
+            opId: ULID.generate(),
+            docId: docId, at: Date(),
+            device: device, session: session,
+            kind: .taskStatusChange,
+            changes: [], sequence: nil,
+            provenance: Op.Provenance(
+                sessionId: session,
+                taskId: id,
+                taskStatus: status.rawValue))
+        appendTaskOpInternal(op)
+    }
+
+    public func setTaskPriority(id: String, priority: Double) {
+        let op = Op(
+            opId: ULID.generate(),
+            docId: docId, at: Date(),
+            device: device, session: session,
+            kind: .taskPriorityChange,
+            changes: [], sequence: nil,
+            provenance: Op.Provenance(
+                sessionId: session,
+                taskId: id,
+                taskPriority: priority))
+        appendTaskOpInternal(op)
+    }
+
+    public func setTaskParent(id: String, parentTaskId: String?) {
+        // "" sentinel clears parent (matches TaskDeriver convention); any
+        // non-empty value sets it. The deriver maps "" → nil on read.
+        let parentField = parentTaskId ?? ""
+        let op = Op(
+            opId: ULID.generate(),
+            docId: docId, at: Date(),
+            device: device, session: session,
+            kind: .taskParentChange,
+            changes: [], sequence: nil,
+            provenance: Op.Provenance(
+                sessionId: session,
+                taskId: id,
+                taskParentId: parentField))
+        appendTaskOpInternal(op)
+    }
+
+    public func editPaneTaskBody(id: String, body: String) {
+        let op = Op(
+            opId: ULID.generate(),
+            docId: docId, at: Date(),
+            device: device, session: session,
+            kind: .taskBodyEdit,
+            changes: [], sequence: nil,
+            provenance: Op.Provenance(
+                sessionId: session,
+                taskId: id,
+                taskBody: body))
+        appendTaskOpInternal(op)
+    }
+
+    public func archiveTask(id: String) {
+        let op = Op(
+            opId: ULID.generate(),
+            docId: docId, at: Date(),
+            device: device, session: session,
+            kind: .taskArchive,
+            changes: [], sequence: nil,
+            provenance: Op.Provenance(
+                sessionId: session,
+                taskId: id))
+        appendTaskOpInternal(op)
+    }
+
+    /// Lowest priority across the doc's currently-derived tasks. Pane-created
+    /// tasks get `lowest + 1.0` so they land at the head of the list (the
+    /// user's most-recent-first reading default). Returns 0.0 when there are
+    /// no tasks yet.
+    private func lowestPriorityForDoc() -> Double {
+        // Use the cached projection; build it if necessary.
+        if !_tasksCacheValid { rebuildTasksCache() }
+        let priorities = _tasksCache
+            .filter { $0.anchor?.docId == docId }
+            .map(\.priority)
+        return priorities.min() ?? 0.0
+    }
+
     // === Mutation API (Task 6) ===
     public func setFullText(_ text: String) {
         // Build the next stored form by running restoreComments against
@@ -637,6 +851,7 @@ public final class Document {
         _opLogMirror.append(op)
         _hasAnyAnnotationOps = true
         invalidateAnnotationsCache()
+        invalidateTasksCache()
         return op.opId
     }
 
@@ -691,6 +906,7 @@ public final class Document {
         }
 
         invalidateAnnotationsCache()
+        invalidateTasksCache()   // accept may have changed paragraph text → inline tasks
     }
 
     public func rejectAnnotation(
@@ -731,6 +947,7 @@ public final class Document {
         _opLogMirror.append(op)
         _hasAnyAnnotationOps = true
         invalidateAnnotationsCache()
+        invalidateTasksCache()
     }
 
     /// Merge a fresh sweep reason into any pending one. The merge unions
@@ -799,6 +1016,11 @@ public final class Document {
             try await opStore.append(op)
             _opLogMirror.append(op)
             try await pending.clear()
+            // Inline tasks are derived from paragraph text — any pending
+            // typing change may have added/removed/toggled a `- [ ]` line.
+            // Invalidate unconditionally on burst; the cache rebuilds lazily
+            // on the next `tasks(filter:)` read.
+            invalidateTasksCache()
         }
 
         // Annotation maintenance — two separate gates:
@@ -941,6 +1163,7 @@ public final class Document {
         // doesn't create annotation ops; the sweep below does that only
         // when there are removed paragraphs with open annotations on them.
         invalidateAnnotationsCache()
+        invalidateTasksCache()   // rewind changed paragraph text → re-derive inline tasks
 
         // 6. Schedule an autosave so the .md on disk reflects the rewind.
         autosaveScheduler.schedule(())
@@ -1020,6 +1243,7 @@ public final class Document {
             try await opStore.append(op)
             _opLogMirror.append(op)
             invalidateAnnotationsCache()
+            invalidateTasksCache()   // silent ingest changed paragraph text → re-derive inline tasks
             // Update internal state.
             for change in changes {
                 paragraphs[change.paragraphId] = change.next
@@ -1088,6 +1312,7 @@ public final class Document {
             Document.isAnnotationOpKind($0.kind)
         }
         invalidateAnnotationsCache()
+        invalidateTasksCache()   // log merge may have added task ops
 
         // Sweep only when a paragraph genuinely disappeared (flagged above
         // by comparing priorSequence to the merged-state sequence). For
@@ -1164,6 +1389,7 @@ public final class Document {
         try await opStore.append(op)
         _opLogMirror.append(op)
         invalidateAnnotationsCache()
+        invalidateTasksCache()   // use-cloud resolution rewrote paragraph text
         let priorSequence = self.sequence
         self.paragraphs = newParagraphs
         self.sequence = newSequence
