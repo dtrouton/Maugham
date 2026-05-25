@@ -4,6 +4,9 @@ import XCTest
 final class UIStateMigrationTests: XCTestCase {
 
     func test_v1JSON_upgradesToV2_withDefaultSegment() throws {
+        // v1 JSONs in the wild carried `scrollLine` (removed in v0.3.1). The
+        // unknown-key path silently discards it — that's the forward-compat
+        // contract this test pins.
         let v1JSON = """
         {
           "schemaVersion": 1,
@@ -21,7 +24,6 @@ final class UIStateMigrationTests: XCTestCase {
         XCTAssertEqual(loaded.schemaVersion, UIState.currentSchemaVersion)
         XCTAssertEqual(loaded.selectedItemId, "doc-1")
         XCTAssertTrue(loaded.isNoChromeOn)
-        XCTAssertEqual(loaded.scrollLine, 42)
         XCTAssertEqual(loaded.binderSegment, .manuscript)
     }
 
@@ -30,7 +32,6 @@ final class UIStateMigrationTests: XCTestCase {
             schemaVersion: 2,
             selectedItemId: "doc-9",
             isNoChromeOn: false,
-            scrollLine: 0,
             binderSegment: .research)
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString + ".json")
@@ -44,7 +45,7 @@ final class UIStateMigrationTests: XCTestCase {
 
     func test_unknownFutureSchema_returnsEmpty() throws {
         let v999JSON = """
-        { "schemaVersion": 999, "selectedItemId": null, "isNoChromeOn": false, "scrollLine": 0 }
+        { "schemaVersion": 999, "selectedItemId": null, "isNoChromeOn": false }
         """
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString + ".json")

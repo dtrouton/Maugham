@@ -8,7 +8,6 @@ public struct UIState: Codable, Equatable, Sendable {
     public var schemaVersion: Int
     public var selectedItemId: String?
     public var isNoChromeOn: Bool
-    public var scrollLine: Int
     public var binderSegment: BinderSegment
     public var researchPreviewVisible: Bool
     public var detailSegment: DetailSegment
@@ -18,7 +17,6 @@ public struct UIState: Codable, Equatable, Sendable {
         schemaVersion: Int = UIState.currentSchemaVersion,
         selectedItemId: String? = nil,
         isNoChromeOn: Bool = false,
-        scrollLine: Int = 0,
         binderSegment: BinderSegment = .manuscript,
         researchPreviewVisible: Bool = false,
         detailSegment: DetailSegment = .inspector,
@@ -27,7 +25,6 @@ public struct UIState: Codable, Equatable, Sendable {
         self.schemaVersion = schemaVersion
         self.selectedItemId = selectedItemId
         self.isNoChromeOn = isNoChromeOn
-        self.scrollLine = scrollLine
         self.binderSegment = binderSegment
         self.researchPreviewVisible = researchPreviewVisible
         self.detailSegment = detailSegment
@@ -37,7 +34,7 @@ public struct UIState: Codable, Equatable, Sendable {
     public static let empty = UIState()
 
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, selectedItemId, isNoChromeOn, scrollLine, binderSegment,
+        case schemaVersion, selectedItemId, isNoChromeOn, binderSegment,
              researchPreviewVisible, detailSegment, outlineLayout
     }
 
@@ -46,15 +43,15 @@ public struct UIState: Codable, Equatable, Sendable {
         self.schemaVersion = try c.decode(Int.self, forKey: .schemaVersion)
         self.selectedItemId = try c.decodeIfPresent(String.self, forKey: .selectedItemId)
         self.isNoChromeOn = (try? c.decode(Bool.self, forKey: .isNoChromeOn)) ?? false
-        self.scrollLine = (try? c.decode(Int.self, forKey: .scrollLine)) ?? 0
         self.binderSegment = (try? c.decode(BinderSegment.self, forKey: .binderSegment)) ?? .manuscript
         self.researchPreviewVisible = (try? c.decode(Bool.self, forKey: .researchPreviewVisible)) ?? false
         self.detailSegment = (try? c.decode(DetailSegment.self, forKey: .detailSegment)) ?? .inspector
         self.outlineLayout = (try? c.decode(OutlineLayout.self, forKey: .outlineLayout)) ?? .table
-        // hasShownOpLogBootstrapNotice was removed in v0.3.1 (the dead-code
-        // sweep after Tasks shipped). Existing on-disk JSONs may still have
-        // the key — JSON decoding ignores unknown keys silently, so old
-        // ui-state.json files load fine.
+        // `scrollLine` and `hasShownOpLogBootstrapNotice` were removed in
+        // v0.3.1 (dead-code sweep). JSONDecoder ignores unknown keys, so old
+        // ui-state.json files load cleanly. Cursor restore actually flows
+        // through `Document.cursorLocation` (per-doc) — UIState never owned
+        // scroll position in any production code path.
     }
 
     /// Load from disk; return `.empty` if file is missing, malformed, or has

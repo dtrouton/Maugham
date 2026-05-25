@@ -31,14 +31,13 @@ final class DocumentStoreOpenCloseTests: XCTestCase {
         try FileManager.default.createDirectory(
             at: dotDir, withIntermediateDirectories: true)
         let state = UIState(schemaVersion: 1, selectedItemId: "doc-x",
-                            isNoChromeOn: true, scrollLine: 12)
+                            isNoChromeOn: true)
         try JSONEncoder().encode(state).write(
             to: dotDir.appendingPathComponent("ui-state.json"))
 
         let store = try await DocumentStore.open(url: url)
         XCTAssertEqual(store.uiState.selectedItemId, "doc-x")
         XCTAssertTrue(store.uiState.isNoChromeOn)
-        XCTAssertEqual(store.uiState.scrollLine, 12)
         await store.close()
     }
 
