@@ -715,7 +715,7 @@ Pane kebab gets a new menu item. Iterates current scope's done tasks, calls `arc
 - Edit: `Maugham/Views/TasksPane.swift`
 - Edit: `MaughamTests/Integration/TasksPaneIntegrationTests.swift`
 
-- [ ] **Step 8.1: Write failing test**
+- [x] **Step 8.1: Write failing test**
 
 ```swift
 func test_archiveAllDone_archivesEveryDoneTaskInScope() async throws {
@@ -737,7 +737,7 @@ func test_archiveAllDone_archivesEveryDoneTaskInScope() async throws {
 }
 ```
 
-- [ ] **Step 8.2: Add `archiveAllDone(in scope:)` to TasksPane**
+- [x] **Step 8.2: Add `archiveAllDone(in scope:)` to TasksPane**
 
 ```swift
 internal func archiveAllDone(in scope: TaskFilter.Scope) {
@@ -757,7 +757,7 @@ Menu {
 } label: { ... }
 ```
 
-- [ ] **Step 8.3: Commit**
+- [x] **Step 8.3: Commit**
 
 ---
 

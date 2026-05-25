@@ -390,6 +390,47 @@ final class TasksPaneIntegrationTests: XCTestCase {
             "pane-created task status must not change")
     }
 
+    // MARK: - Task 8: Bulk "Archive all done"
+
+    func test_archiveAllDone_archivesEveryDoneTaskInScope() async throws {
+        let doc = try await makeDocument(initialMd: "Hello.")
+        let pid = try await firstParagraphId(of: doc)
+        doc.setParagraph(id: pid, text: """
+        - [x] done one
+        - [x] done two
+        - [ ] still open
+        """)
+        let pane = try await makePane(for: doc, registering: doc)
+        pane.archiveAllDone(in: .document)
+        let remaining = doc.tasks(filter: TaskFilter(
+            scope: .document(docId: doc.docId),
+            statuses: [.open, .done]))
+        XCTAssertEqual(remaining.count, 1)
+        XCTAssertEqual(remaining[0].body, "still open")
+    }
+
+    func test_archiveAllDone_emptyList_noOps() async throws {
+        let doc = try await makeDocument()
+        let pane = try await makePane(for: doc, registering: doc)
+        let countBefore = doc.opLogMirrorCount
+        pane.archiveAllDone(in: .document)
+        XCTAssertEqual(doc.opLogMirrorCount, countBefore,
+            "no done tasks → no ops")
+    }
+
+    func test_archiveAllDone_paneCreatedDone_archivesOpOnly() async throws {
+        let doc = try await makeDocument()
+        let task = doc.createPaneTask(body: "pane thing", parentTaskId: nil)
+        doc.setTaskStatus(id: task.id, status: .done)
+        let pane = try await makePane(for: doc, registering: doc)
+        pane.archiveAllDone(in: .document)
+        let archived = doc.tasks(filter: TaskFilter(
+            scope: .document(docId: doc.docId),
+            statuses: [.archived]))
+        XCTAssertTrue(archived.contains(where: { $0.id == task.id }),
+            "pane-created done task should be archived by bulk action")
+    }
+
     // MARK: - Helpers
 
     /// Construct a TasksPane bound to a real Document + minimal stores.

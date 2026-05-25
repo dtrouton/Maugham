@@ -173,6 +173,17 @@ struct TasksPane: View {
             }
             .help("New task")
             .disabled(newTaskButtonDisabled)
+
+            Menu {
+                Button("Archive all done") {
+                    archiveAllDone(in: scope)
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Bulk actions")
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -323,6 +334,56 @@ struct TasksPane: View {
         guard task.kind == .paneCreated,
               let doc = ownerDoc(of: task) else { return }
         doc.archiveTask(id: task.id)
+    }
+
+    /// Archive every Done task currently visible in the given scope.
+    /// Snapshots the done list before iterating so cache invalidations
+    /// on each `archiveTask` call don't mutate the iteration set.
+    /// Project-scope: tasks in closed (unregistered) documents are skipped
+    /// with a console log — open the document to archive them individually.
+    internal func archiveAllDone(in scopeChoice: ScopeChoice) {
+        // Snapshot now; archiveTask invalidates the cache on each call.
+        let allVisible: [WriterTask]
+        switch scopeChoice {
+        case .document:
+            guard let doc = activeDoc() else { return }
+            allVisible = doc.tasks(filter: TaskFilter(
+                scope: .document(docId: doc.docId),
+                statuses: [.done]))
+        case .project:
+            allVisible = store.listTasksAcrossProject(filter: TaskFilter(
+                scope: .project,
+                statuses: [.done]))
+        }
+
+        var skippedCount = 0
+        for task in allVisible {
+            guard let anchor = task.anchor else { continue }
+            if anchor.docId == ProjectStore.projectTasksDocId {
+                // Project pane-created task: emit .taskArchive op directly
+                // via the project op log (no Document actor involved).
+                let op = Op(
+                    opId: ULID.generate(),
+                    docId: ProjectStore.projectTasksDocId,
+                    at: Date(),
+                    device: store.projectOpDevice,
+                    session: store.projectOpSession,
+                    kind: .taskArchive,
+                    changes: [], sequence: nil,
+                    provenance: Op.Provenance(
+                        sessionId: store.projectOpSession,
+                        taskId: task.id))
+                store.appendProjectTaskOp(op)
+            } else if let doc = documentStore.document(forDocId: anchor.docId) {
+                doc.archiveTask(id: task.id)
+            } else {
+                // Closed document — skip for V1.
+                skippedCount += 1
+            }
+        }
+        if skippedCount > 0 {
+            print("[TasksPane] Skipping \(skippedCount) Done task(s) in closed documents — open them to archive individually.")
+        }
     }
 
     // MARK: - Navigation
