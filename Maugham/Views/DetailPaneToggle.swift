@@ -74,7 +74,7 @@ struct DetailPaneToggle<Inspector: View>: View {
             Image(systemName: "info.circle")
                 .tag(DetailSegment.inspector)
                 .help("Inspector — document metadata, tags, links (⌘⌥1)")
-            Image(systemName: "checklist")
+            Image(systemName: "text.bubble")
                 .tag(DetailSegment.annotations)
                 .help("Annotations — review Claude's comments and suggested edits (⌘⌥A)")
             Image(systemName: "doc.text.magnifyingglass")
