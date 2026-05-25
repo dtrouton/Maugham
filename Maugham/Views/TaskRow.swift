@@ -34,17 +34,14 @@ struct TaskRow: View {
             kebabMenu
         }
         .contentShape(Rectangle())
-        // Double-click to jump to the source paragraph. `.onTapGesture`
-        // claims exclusivity over the click, so even
-        // `.onTapGesture(count: 2)` ate single clicks (waiting for a
-        // possible second tap before forwarding) — that blocked List's
-        // selection binding AND `.onMove`'s drag initiation.
-        // `.simultaneousGesture` lets the click reach both the gesture
-        // recognizer and the List, so single-click selects the row
-        // (and starts a drag if the user moves), double-click jumps.
-        .simultaneousGesture(
-            TapGesture(count: 2).onEnded { onJump() }
-        )
+        // No row-wide tap gesture. Earlier `.simultaneousGesture(TapGesture
+        // (count: 2))` made SwiftUI wait to see if a press would resolve
+        // as a double-click, eating drag initiation throughout the row
+        // interior — the writer could only drag from the row padding
+        // (above/below the body), not from the body text. Jump-to-source
+        // moved to the source-badge icon (single click); double-click on
+        // the body text also jumps as a redundant affordance via
+        // `body_`'s own gesture.
     }
 
     @ViewBuilder
@@ -54,7 +51,9 @@ struct TaskRow: View {
             .lineLimit(2)
         switch task.kind {
         case .inlineMarkdown, .fountainBoneyard:
-            text.help("Edit the document text to change this task.")
+            text
+                .help("Edit the document text to change this task. Double-click to jump to source.")
+                .onTapGesture(count: 2) { onJump() }
         case .paneCreated:
             text
         }
@@ -62,19 +61,32 @@ struct TaskRow: View {
 
     @ViewBuilder
     private var sourceBadge: some View {
+        // Single-click jumps to the source paragraph. Pane-created tasks
+        // have no paragraph anchor; the badge stays non-interactive for
+        // them (clicking is a no-op via the disabled button style).
         switch task.kind {
         case .inlineMarkdown:
-            Image(systemName: "doc.text")
-                .foregroundStyle(.secondary)
-                .help("Inline markdown task")
+            Button {
+                onJump()
+            } label: {
+                Image(systemName: "doc.text")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .help("Jump to source paragraph")
         case .fountainBoneyard:
-            Image(systemName: "film")
-                .foregroundStyle(.secondary)
-                .help("Fountain boneyard task")
+            Button {
+                onJump()
+            } label: {
+                Image(systemName: "film")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .help("Jump to source paragraph")
         case .paneCreated:
             Image(systemName: "square.dashed")
                 .foregroundStyle(.secondary)
-                .help("Pane-created task")
+                .help("Pane-created task — no source to jump to")
         }
     }
 

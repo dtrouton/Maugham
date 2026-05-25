@@ -208,7 +208,17 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                 let length = (textView.string as NSString).length
                 guard range.location >= 0,
                       range.location + range.length <= length else { return }
-                textView.setSelectedRange(range)
+                // Position a cursor (length 0) at paragraph start rather
+                // than selecting the whole paragraph. Selecting the entire
+                // range was disorienting when navigating from the Tasks
+                // pane — the writer's "jump to this task" became "select
+                // the whole containing paragraph including unrelated
+                // text." A future refinement could thread an
+                // intra-paragraph offset through the notification to land
+                // exactly on the task line; for now, paragraph start is
+                // close enough and avoids the surprising selection.
+                let cursor = NSRange(location: range.location, length: 0)
+                textView.setSelectedRange(cursor)
                 textView.scrollRangeToVisible(range)
                 textView.window?.makeFirstResponder(textView)
             }
