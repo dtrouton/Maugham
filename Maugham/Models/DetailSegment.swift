@@ -7,4 +7,5 @@ public enum DetailSegment: String, Codable, Equatable, Sendable {
     case research
     case outline
     case history
+    case tasks      // milestone-tasks
 }

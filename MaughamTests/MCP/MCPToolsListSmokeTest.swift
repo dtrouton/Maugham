@@ -12,6 +12,6 @@ final class MCPToolsListSmokeTest: XCTestCase {
             "add_comment", "add_suggested_change", "add_query",
             "add_craft_note", "list_annotations", "get_annotation"
         ]))
-        XCTAssertEqual(tools.count, 20)
+        XCTAssertEqual(tools.count, 22)
     }
 }

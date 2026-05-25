@@ -411,6 +411,9 @@ struct RewindWindow: View {
         case .claudeComment, .claudeQuery, .claudeCraftNote,
              .claudeSuggestion, .claudeAccept, .claudeReject, .claudeArchive:
             return Color(red: 1.0, green: 0.66, blue: 0.25)
+        case .taskCreate, .taskStatusChange, .taskPriorityChange,
+             .taskParentChange, .taskBodyEdit, .taskArchive:
+            return Color(red: 0.38, green: 0.76, blue: 0.45)
         }
     }
 }

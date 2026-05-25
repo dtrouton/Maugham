@@ -15,6 +15,22 @@ public struct Token: Equatable, Sendable {
         case syntaxPunctuation
         case plain
         case fountainElement(ScreenplayElement, isForced: Bool)
+        /// `- [ ]` / `- [x]` markdown checkbox glyph. The `range` on the
+        /// containing `Token` covers exactly the 3 chars of `[ ]`/`[x]`.
+        /// The line prefix (`(\s*)- `) is emitted as `.syntaxPunctuation`
+        /// alongside; the body is left to fill-with-plain.
+        case checkbox(checked: Bool)
+
+        /// Body text of an inline task (`- [ ] body` or `[[todo: body]]`).
+        /// The range covers only the body content — not the bracket glyph,
+        /// list marker, or anchor span. `done` signals checked state so
+        /// painters can apply strikethrough.
+        case taskBody(done: Bool)
+
+        /// `<!--t-XXXXXX-->` task-anchor span (optionally with a leading
+        /// space for markdown line tasks). Painted fully transparent so the
+        /// anchor lives in NSTextStorage without being visible to the writer.
+        case invisibleAnchor
     }
 
     public let range: NSRange

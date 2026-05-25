@@ -80,6 +80,41 @@ public struct ProseMode: WritingMode {
                     attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue
                 }
                 storage.addAttributes(attrs, range: token.range)
+            } else if case .checkbox(let checked) = token.kind {
+                // Stamp the marker that mouseDown's hit-test reads back.
+                // Bracket stays in the punctuation palette so it reads as
+                // syntax, but gains a hand cursor so the click affordance
+                // is visible.
+                let marker = MaughamCheckboxMarker(
+                    bracketLocation: token.range.location, checked: checked)
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .foregroundColor: palette.syntaxPunctuation,
+                    .cursor: NSCursor.pointingHand,
+                    MaughamCheckboxAttr: marker,
+                ]
+                storage.addAttributes(attrs, range: token.range)
+            } else if case .taskBody(let done) = token.kind {
+                // Distinct styling for task body text — secondary color signals
+                // "you're in a task" without being garish. Inherits the base
+                // font from the full-range setAttributes above.
+                // Strikethrough on done state mirrors the pane's visual
+                // treatment of completed tasks.
+                var attrs: [NSAttributedString.Key: Any] = [
+                    .foregroundColor: palette.syntaxPunctuation,
+                ]
+                if done {
+                    attrs[.strikethroughStyle] =
+                        NSUnderlineStyle.single.rawValue
+                    attrs[.strikethroughColor] = palette.syntaxPunctuation
+                }
+                storage.addAttributes(attrs, range: token.range)
+            } else if case .invisibleAnchor = token.kind {
+                // Fully transparent — anchor must remain in NSTextStorage for
+                // the setFullText round-trip but must be invisible to the writer.
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .foregroundColor: NSColor.clear,
+                ]
+                storage.addAttributes(attrs, range: token.range)
             } else {
                 let attrs = attributes(
                     for: token.kind, palette: palette, baseFont: baseFont)
@@ -192,6 +227,21 @@ public struct ProseMode: WritingMode {
         case .fountainElement:
             // ProseMode never produces fountain element tokens, but the
             // exhaustive switch must handle the case.
+            return [:]
+
+        case .checkbox:
+            // Handled inline in applyTypography (stamps MaughamCheckboxAttr +
+            // hand cursor). This branch is dead code per the dispatch above,
+            // but keeps the switch exhaustive.
+            return [:]
+
+        case .taskBody:
+            // Handled inline in applyTypography. Return [:] here to keep the
+            // switch exhaustive; the paint pass calls addAttributes directly.
+            return [:]
+
+        case .invisibleAnchor:
+            // Handled inline in applyTypography. Return [:] here.
             return [:]
         }
     }

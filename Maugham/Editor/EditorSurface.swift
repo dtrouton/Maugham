@@ -15,6 +15,10 @@ struct EditorSurface: NSViewRepresentable {
     var initialCursorLocation: Int? = nil
     /// Fired on every selection change with the new caret location.
     var onCursorChanged: ((Int) -> Void)? = nil
+    /// Fired inside `textDidChange` just before the binding setter writes
+    /// new text. Delivers the post-edit caret position so the host can
+    /// thread it into Document's V2 task-anchor alignment.
+    var onPostEditCursor: ((Int) -> Void)? = nil
     /// Fired when the cursor's screenplay element changes (or after retokenize).
     /// Delivers a gutter abbreviation ("CHAR", "SCENE", "DLG", etc.) or nil
     /// in prose mode. Omit at call sites that don't need element tracking.
@@ -37,6 +41,15 @@ struct EditorSurface: NSViewRepresentable {
     /// `.maughamNavigateToParagraph` notifications (fired by clicking an
     /// annotation row) scroll the textView to the right paragraph.
     var paragraphRangeProvider: ((String) -> NSRange?)? = nil
+    /// Resolves a doc-wide UTF-16 location to (paragraphId, offset) within
+    /// that paragraph. Used by the markdown-checkbox click path.
+    var paragraphLocator: ((Int) -> (paragraphId: String, offsetWithinParagraph: Int)?)? = nil
+    /// Invoked when the user clicks a checkbox bracket — markdown `- [ ]`
+    /// or Fountain `[[todo:]]`. The host wires this to
+    /// `Document.setParagraph(id:text:)` with the flipped bracket text,
+    /// dispatching by `MaughamCheckboxKind` to `MarkdownCheckboxScanner.flipBracket`
+    /// or `FountainBoneyardScanner.flipTodoDone`.
+    var checkboxToggleHandler: ((String, Int, MaughamCheckboxKind) -> Void)? = nil
 
     func makeCoordinator() -> EditorCoordinator {
         let coordinator = EditorCoordinator(
@@ -48,10 +61,13 @@ struct EditorSurface: NSViewRepresentable {
             wikiLinkResolver: wikiLinkResolver)
         coordinator.initialCursorLocation = initialCursorLocation
         coordinator.onCursorChanged = onCursorChanged
+        coordinator.onPostEditCursor = onPostEditCursor
         coordinator.onElementChanged = onElementChanged
         coordinator.wikiLinkResolverForClick = wikiLinkClickResolver
         coordinator.imagePasteHandler = imagePasteHandler
         coordinator.paragraphRangeProvider = paragraphRangeProvider
+        coordinator.paragraphLocator = paragraphLocator
+        coordinator.checkboxToggleHandler = checkboxToggleHandler
         return coordinator
     }
 
@@ -153,6 +169,8 @@ struct EditorSurface: NSViewRepresentable {
         }
         context.coordinator.imagePasteHandler = imagePasteHandler
         context.coordinator.paragraphRangeProvider = paragraphRangeProvider
+        context.coordinator.paragraphLocator = paragraphLocator
+        context.coordinator.checkboxToggleHandler = checkboxToggleHandler
     }
 }
 
@@ -178,6 +196,15 @@ private final class MaughamTextView: NSTextView {
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let charIndex = characterIndexForInsertion(at: point)
+        // Checkbox click (markdown `- [ ]` or Fountain `[[todo:]]`) → flip
+        // the bracket. Routed through the host's wiring of
+        // Document.setParagraph (standard typing-burst path), NOT through
+        // applyExternalText — see tripwire #7.
+        if let hit = coordinator?.checkboxHitTest(atCharacterIndex: charIndex),
+           let toggle = coordinator?.checkboxToggleHandler {
+            toggle(hit.paragraphId, hit.offsetWithinParagraph, hit.kind)
+            return
+        }
         if let title = coordinator?.wikiLinkTitle(atCharacterIndex: charIndex),
            let resolver = coordinator?.wikiLinkResolverForClick,
            let id = resolver(title) {

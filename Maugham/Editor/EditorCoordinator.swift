@@ -26,6 +26,14 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// host can persist per-document cursor positions.
     var onCursorChanged: ((Int) -> Void)?
 
+    /// Fired inside `textDidChange` just before the binding setter writes
+    /// the new text. Delivers the post-edit caret position so that
+    /// Document's V2 task-anchor alignment can see where the cursor ended
+    /// up after the keystroke that produced this change. nil when not
+    /// wired (legacy / test surfaces — alignment degrades to per-paragraph
+    /// per spec §2.4.3).
+    var onPostEditCursor: ((Int) -> Void)?
+
     /// Fired when the cursor's screenplay element changes. Delivers the gutter
     /// abbreviation ("CHAR", "SCENE", "DLG", etc.) or nil when no script is
     /// parsed (prose mode) or the cursor isn't on a classified line. Mirrors
@@ -94,6 +102,24 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// Set by EditorSurface.updateNSView so the coordinator can resolve
     /// ranges against the live Document's `displayRange(forParagraphId:)`.
     var paragraphRangeProvider: ((String) -> NSRange?)?
+
+    /// Resolves a doc-wide UTF-16 location to the containing paragraph_id
+    /// and the offset (in the same UTF-16 space) within that paragraph's
+    /// text. Wired by EditorHost from `Document.paragraphId(at:)` +
+    /// `displayRange(forParagraphId:)`. Used by the checkbox click path.
+    var paragraphLocator: ((Int) -> (paragraphId: String, offsetWithinParagraph: Int)?)?
+
+    /// Closure invoked when the user clicks a checkbox glyph — either the
+    /// 3-char markdown `- [ ]` / `- [x]` bracket or the 5-char Fountain
+    /// `[[todo:]]` / `[[done:]]` prefix. Delivers the paragraph id, the
+    /// UTF-16 offset within that paragraph's text, and the marker kind
+    /// (so the host can dispatch to `flipBracket` for `.markdown` or
+    /// `flipTodoDone` for `.fountain`). The host wires this to
+    /// `Document.setParagraph(id:text:)`. Routing the flip through
+    /// `setParagraph` keeps the mutation on the standard `.typingBurst`
+    /// path and out of the cloud-conflict-only `applyExternalText` channel
+    /// (see tripwire #7 / area #2).
+    var checkboxToggleHandler: ((String, Int, MaughamCheckboxKind) -> Void)?
 
     /// Number of times applyExternalText has been called. Internal so
     /// @testable importers (EditorIntegrationHarness) can assert invariants
@@ -182,7 +208,17 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                 let length = (textView.string as NSString).length
                 guard range.location >= 0,
                       range.location + range.length <= length else { return }
-                textView.setSelectedRange(range)
+                // Position a cursor (length 0) at paragraph start rather
+                // than selecting the whole paragraph. Selecting the entire
+                // range was disorienting when navigating from the Tasks
+                // pane — the writer's "jump to this task" became "select
+                // the whole containing paragraph including unrelated
+                // text." A future refinement could thread an
+                // intra-paragraph offset through the notification to land
+                // exactly on the task line; for now, paragraph start is
+                // close enough and avoids the surprising selection.
+                let cursor = NSRange(location: range.location, length: 0)
+                textView.setSelectedRange(cursor)
                 textView.scrollRangeToVisible(range)
                 textView.window?.makeFirstResponder(textView)
             }
@@ -285,6 +321,35 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             }
         }
         return nil
+    }
+
+    /// Returns the (paragraphId, offsetWithinParagraph, kind) for the
+    /// bracket glyph at the given character index, or nil if the index
+    /// is not on a checkbox bracket. Reads `MaughamCheckboxAttr` from the
+    /// text storage so painted bracket regions are recognized without a
+    /// fresh tokenization pass. The paragraph mapping uses
+    /// `paragraphLocator` (wired by EditorHost via `Document`). The `kind`
+    /// flags whether the click landed on a 3-char markdown `[ ]`/`[x]`
+    /// glyph or a 5-char Fountain `todo:`/`done:` prefix so the host
+    /// dispatches to the correct flipper.
+    func checkboxHitTest(
+        atCharacterIndex index: Int
+    ) -> (paragraphId: String, offsetWithinParagraph: Int, kind: MaughamCheckboxKind)? {
+        guard let textView,
+              let storage = textView.textStorage,
+              index >= 0, index < storage.length else { return nil }
+        let raw = storage.attribute(MaughamCheckboxAttr, at: index,
+                                    effectiveRange: nil)
+        guard let marker = raw as? MaughamCheckboxMarker else { return nil }
+        // Use the marker's authoritative bracket location (the stamp time)
+        // rather than `index` so a click anywhere within the glyph resolves
+        // to the bracket start.
+        guard let mapping = paragraphLocator?(marker.bracketLocation) else {
+            return nil
+        }
+        return (paragraphId: mapping.paragraphId,
+                offsetWithinParagraph: mapping.offsetWithinParagraph,
+                kind: marker.kind)
     }
 
     private func retokenizeAndStyle() {
@@ -399,6 +464,11 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // cycle() will reset it before the async block fires.
         let skipCursorRestore = isApplyingTabCycle
         let postEditSelection = textView.selectedRange()
+        // Notify the host of the post-edit caret position so Document's
+        // V2 task-anchor alignment can read it inside the immediately-
+        // following setFullText call. Must fire BEFORE binding-set so the
+        // host has a chance to stash the value on the Document.
+        onPostEditCursor?(postEditSelection.location)
         binding.wrappedValue = textView.string
         retokenizeAndStyle()
         // Autocomplete trigger deferred — see milestone-3b notes.

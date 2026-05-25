@@ -17,11 +17,56 @@ public struct ScreenplayMode: WritingMode {
     public func tokenize(_ text: String) -> [Token] {
         guard !text.isEmpty else { return [] }
         let script = parser.parse(text)
-        return script.lines.map { line in
+        var tokens: [Token] = script.lines.map { line in
             Token(
                 range: line.range,
                 kind: .fountainElement(line.element, isForced: line.isForced))
         }
+        // Inline `[[todo:]]` / `[[done:]]` boneyard discriminator. Each
+        // occurrence emits a `.checkbox` token over the 5-char `todo:` /
+        // `done:` prefix; the paint pass in `applyTypography` stamps
+        // `MaughamCheckboxAttr` over that range so mouseDown's hit-test
+        // can fire without re-scanning. The body and surrounding `[[ ]]`
+        // continue to render under the existing `.note` line-element /
+        // inline-note span path.
+        let ns = text as NSString
+        for line in script.lines {
+            guard line.range.length > 0,
+                  NSMaxRange(line.range) <= ns.length else { continue }
+            let lineText = ns.substring(with: line.range)
+            for hit in FountainBoneyardScanner.matchTodoAllFull(lineText) {
+                // Shift ranges from lineText-local to doc-wide UTF-16 space.
+                let docPrefix = NSRange(
+                    location: line.range.location + hit.prefixRange.location,
+                    length: hit.prefixRange.length)
+                guard NSMaxRange(docPrefix) <= ns.length else { continue }
+                tokens.append(Token(
+                    range: docPrefix,
+                    kind: .checkbox(checked: hit.done)))
+
+                // taskBody: covers the body inside [[ ]] (after "todo:/done:")
+                if hit.bodyRange.length > 0 {
+                    let docBody = NSRange(
+                        location: line.range.location + hit.bodyRange.location,
+                        length: hit.bodyRange.length)
+                    if NSMaxRange(docBody) <= ns.length {
+                        tokens.append(Token(
+                            range: docBody, kind: .taskBody(done: hit.done)))
+                    }
+                }
+
+                // invisibleAnchor: the `<!--t-XXXXXX-->` span glued after `]]`
+                if hit.anchorRange.location != NSNotFound {
+                    let docAnchor = NSRange(
+                        location: line.range.location + hit.anchorRange.location,
+                        length: hit.anchorRange.length)
+                    if NSMaxRange(docAnchor) <= ns.length {
+                        tokens.append(Token(range: docAnchor, kind: .invisibleAnchor))
+                    }
+                }
+            }
+        }
+        return tokens
     }
 
     public func smartTypographyTransform(
@@ -137,6 +182,51 @@ public struct ScreenplayMode: WritingMode {
             palette: palette,
             baseFont: baseFont,
             typography: typography)
+
+        // Fifth pass — paint `MaughamCheckboxAttr` over each `[[todo:]]` /
+        // `[[done:]]` prefix found in tokens. CRITICAL: this must run AFTER
+        // the full-storage `setAttributes` at the top (which clears all
+        // attributes) so the marker survives the re-paint. `addAttributes`
+        // here is purely additive — it does not disturb the per-element
+        // foregroundColor / paragraphStyle already painted above. See
+        // CLAUDE.md tripwire: ScreenplayMode.applyTypography uses full-
+        // storage setAttributes and any range-specific attribute embedded
+        // in that dictionary would be wiped on the next retokenize.
+        for token in tokens {
+            guard case .checkbox(let checked) = token.kind else { continue }
+            guard NSMaxRange(token.range) <= storage.length else { continue }
+            let marker = MaughamCheckboxMarker(
+                bracketLocation: token.range.location,
+                checked: checked,
+                kind: .fountain)
+            let attrs: [NSAttributedString.Key: Any] = [
+                .cursor: NSCursor.pointingHand,
+                MaughamCheckboxAttr: marker,
+            ]
+            storage.addAttributes(attrs, range: token.range)
+        }
+
+        // Sixth pass — task body and anchor styling. Applied post-setAttributes
+        // (mirrors the checkbox pass above) so these attributes survive the
+        // full-storage wipe. No race risk: addAttributes is purely additive.
+        for token in tokens {
+            guard NSMaxRange(token.range) <= storage.length else { continue }
+            if case .taskBody(let done) = token.kind {
+                var attrs: [NSAttributedString.Key: Any] = [
+                    .foregroundColor: palette.syntaxPunctuation,
+                ]
+                if done {
+                    attrs[.strikethroughStyle] =
+                        NSUnderlineStyle.single.rawValue
+                    attrs[.strikethroughColor] = palette.syntaxPunctuation
+                }
+                storage.addAttributes(attrs, range: token.range)
+            } else if case .invisibleAnchor = token.kind {
+                storage.addAttributes(
+                    [.foregroundColor: NSColor.clear],
+                    range: token.range)
+            }
+        }
 
         storage.endEditing()
     }

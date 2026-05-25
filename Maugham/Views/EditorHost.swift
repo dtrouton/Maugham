@@ -83,13 +83,44 @@ struct EditorHost: View {
                     sentenceFocus: userPreferences.sentenceFocus,
                     paragraphFocus: userPreferences.paragraphFocus,
                     initialCursorLocation: doc.cursorLocation,
-                    onCursorChanged: { doc.cursorLocation = $0 },
+                    onCursorChanged: { offset in
+                        doc.cursorLocation = offset
+                        // Stash the latest cursor position so Document's V2
+                        // task-anchor alignment in setFullText can read it
+                        // as the pre-edit cursor input.
+                        doc.recordCursorAt(offset)
+                    },
+                    onPostEditCursor: { doc.recordPostEditCursor($0) },
                     onElementChanged: onElementChanged,
                     wikiLinkResolver: wikiLinkResolver,
                     wikiLinkClickResolver: wikiLinkClickResolver,
                     showElementGutter: store.manifest.showElementGutter ?? true,
                     paragraphRangeProvider: { paragraphId in
                         doc.displayRange(forParagraphId: paragraphId)
+                    },
+                    paragraphLocator: { location in
+                        guard let pid = doc.paragraphId(at: location),
+                              let range = doc.displayRange(forParagraphId: pid)
+                        else { return nil }
+                        return (paragraphId: pid,
+                                offsetWithinParagraph: location - range.location)
+                    },
+                    checkboxToggleHandler: { paragraphId, offset, kind in
+                        // Mirror wiki-link click wiring: the flip goes through
+                        // Document.setParagraph, the standard mutation path.
+                        // Tripwire #7: this is NOT applyExternalText.
+                        guard let para = doc.paragraph(id: paragraphId) else { return }
+                        let flipped: String
+                        switch kind {
+                        case .markdown:
+                            flipped = MarkdownCheckboxScanner.flipBracket(
+                                in: para, atUTF16Offset: offset)
+                        case .fountain:
+                            flipped = FountainBoneyardScanner.flipTodoDone(
+                                in: para, atUTF16Offset: offset)
+                        }
+                        guard flipped != para else { return }
+                        doc.setParagraph(id: paragraphId, text: flipped)
                     }
                 )
                 .id(path)

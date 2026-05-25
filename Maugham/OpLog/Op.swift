@@ -43,6 +43,14 @@ public struct Op: Codable, Equatable, Sendable {
         public let sourceAnnotationId: String?
         public let userResponse: String?
 
+        // Task semantics — populated only on task_* ops.
+        public let taskId: String?
+        public let taskBody: String?
+        public let taskStatus: String?
+        public let taskPriority: Double?
+        public let taskParentId: String?
+        public let taskKind: String?
+
         enum CodingKeys: String, CodingKey {
             case sessionId = "session_id"
             case prompt
@@ -53,6 +61,12 @@ public struct Op: Codable, Equatable, Sendable {
             case annotationBody = "annotation_body"
             case sourceAnnotationId = "source_annotation_id"
             case userResponse = "user_response"
+            case taskId = "task_id"
+            case taskBody = "task_body"
+            case taskStatus = "task_status"
+            case taskPriority = "task_priority"
+            case taskParentId = "task_parent_id"
+            case taskKind = "task_kind"
         }
 
         public init(
@@ -60,7 +74,10 @@ public struct Op: Codable, Equatable, Sendable {
             toolArgs: String? = nil, sourceCheckpoint: String? = nil,
             synthesisSource: SynthesisSource? = nil, orphanRecoveryMethod: String? = nil,
             annotationBody: String? = nil, sourceAnnotationId: String? = nil,
-            userResponse: String? = nil
+            userResponse: String? = nil,
+            taskId: String? = nil, taskBody: String? = nil,
+            taskStatus: String? = nil, taskPriority: Double? = nil,
+            taskParentId: String? = nil, taskKind: String? = nil
         ) {
             self.sessionId = sessionId
             self.prompt = prompt
@@ -71,6 +88,12 @@ public struct Op: Codable, Equatable, Sendable {
             self.annotationBody = annotationBody
             self.sourceAnnotationId = sourceAnnotationId
             self.userResponse = userResponse
+            self.taskId = taskId
+            self.taskBody = taskBody
+            self.taskStatus = taskStatus
+            self.taskPriority = taskPriority
+            self.taskParentId = taskParentId
+            self.taskKind = taskKind
         }
     }
 
@@ -94,5 +117,16 @@ public struct Op: Codable, Equatable, Sendable {
         self.changes = changes
         self.sequence = sequence
         self.provenance = provenance
+    }
+
+    /// Returns a copy of this op with `opId` replaced. All other fields are
+    /// preserved identically. Used by `Document.rebuildTasksCache` to rewrite
+    /// `TaskDeriver`'s placeholder rebalance op ids (`rebalance_<task_id>`)
+    /// into the project's standard `ULID.generate()` format before appending.
+    public func withReplacedOpId(_ newOpId: String) -> Op {
+        Op(
+            opId: newOpId, docId: docId, at: at, device: device,
+            session: session, kind: kind, changes: changes,
+            sequence: sequence, provenance: provenance)
     }
 }
