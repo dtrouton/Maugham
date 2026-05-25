@@ -158,6 +158,40 @@ public struct MarkdownTokenizer: Sendable {
         // Append taskBody / invisibleAnchor tokens directly — they must be in
         // the stream for ProseMode's paint pass even when the body range is
         // partially occupied by inline tokens from earlier passes.
+
+        // Fountain-style inline tasks `[[todo: …]]` / `[[done: …]]` in prose.
+        // Writers use this syntax to drop mid-paragraph todos without
+        // splitting prose paragraphs. The tasks pane already derives them
+        // via FountainBoneyardScanner regardless of writing mode; the
+        // editor needs to mirror that by emitting checkbox/taskBody/
+        // invisibleAnchor tokens so the body gets distinct styling
+        // (and strikethrough on `[[done: …]]`).
+        for hit in FountainBoneyardScanner.matchTodoAllFull(nsText as String) {
+            let prefix = NSRange(
+                location: hit.prefixRange.location,
+                length: hit.prefixRange.length)
+            taskBodyTokens.append(Token(
+                range: prefix,
+                kind: .checkbox(checked: hit.done)))
+            if hit.bodyRange.length > 0 {
+                let body = NSRange(
+                    location: hit.bodyRange.location,
+                    length: hit.bodyRange.length)
+                taskBodyTokens.append(Token(
+                    range: body,
+                    kind: .taskBody(done: hit.done)))
+            }
+            if hit.anchorRange.location != NSNotFound,
+               hit.anchorRange.length > 0 {
+                let anchor = NSRange(
+                    location: hit.anchorRange.location,
+                    length: hit.anchorRange.length)
+                taskBodyTokens.append(Token(
+                    range: anchor,
+                    kind: .invisibleAnchor))
+            }
+        }
+
         // List marker: ^(\s*)([-*+]|\d+\.)\s
         addMatches(
             in: nsText, fullRange: fullRange,
