@@ -331,6 +331,30 @@ public final class Document {
                     paragraphs: freshParagraphs, sequence: parsedIds)
             }
         }
+
+        // 4. Orphan-paragraph drop. Even when sequence and parsed agree,
+        //    `paragraphs` can still carry entries for ids the writer
+        //    split / merged away in earlier sessions (typing_burst doesn't
+        //    delete entries from the deriver's accumulator, only updates
+        //    them; once a paragraph_id is dropped from `sequence` its
+        //    last-known text lingers forever in the in-memory map).
+        //    These orphans poison the inline-task deriver (it walks every
+        //    paragraph, not just sequence) — surfacing phantom checkbox
+        //    rows in the Tasks pane that have no matching paragraph in
+        //    the .md. Restrict `paragraphs` to keys in `sequence`.
+        if !initial.sequence.isEmpty {
+            let sequenceIdSet = Set(initial.sequence)
+            let paragraphsHasOrphans = initial.paragraphs.keys.contains {
+                !sequenceIdSet.contains($0)
+            }
+            if paragraphsHasOrphans {
+                let trimmed = initial.paragraphs.filter {
+                    sequenceIdSet.contains($0.key)
+                }
+                initial = Deriver.DerivedState(
+                    paragraphs: trimmed, sequence: initial.sequence)
+            }
+        }
         let lastWritten = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
         let initialEcho = EchoState.initialLoad(bytes: lastWritten)
 

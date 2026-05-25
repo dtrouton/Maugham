@@ -34,11 +34,15 @@ struct TaskRow: View {
             kebabMenu
         }
         .contentShape(Rectangle())
-        // Tripwire #9 caveat: `TasksPane` uses `.listStyle(.sidebar)`, but
-        // the spec explicitly notes the row is a List item (not a literal
-        // sidebar row) — `.onTapGesture` is the documented choice here.
-        // Fall back to `Button(.plain)` only if hit-testing breaks.
-        .onTapGesture { onJump() }
+        // Double-click to jump to the source paragraph. Single-click is
+        // reserved for row selection / drag initiation — SwiftUI's
+        // `.onMove` gesture (wired on the List in TasksPane) requires
+        // the press-and-move sequence to start cleanly from the row;
+        // an `.onTapGesture` with count=1 here ate the press and forced
+        // the writer to grab the row's padding margin to drag, which
+        // was confusing. Double-click is the standard macOS "open this"
+        // gesture and composes correctly with `.onMove`.
+        .onTapGesture(count: 2) { onJump() }
     }
 
     @ViewBuilder
