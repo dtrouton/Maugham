@@ -26,12 +26,18 @@ struct BinderRow: View {
                     .focused($isRenameFieldFocused)
                     .onAppear {
                         draftTitle = item.title
-                        // Defer to the next runloop tick — SwiftUI hasn't
-                        // installed the field in the responder chain yet
-                        // when .onAppear fires, so focus assigned now is
-                        // dropped. Same pattern as the 1e cursor-restore fix.
-                        DispatchQueue.main.async {
-                            isRenameFieldFocused = true
+                        claimFocus()
+                    }
+                    // When `renamingItemId` flips to this row but the if-
+                    // branch was already in place (e.g., the user invoked
+                    // Rename from the context menu while this row was
+                    // visible), `.onAppear` doesn't fire again. `.onChange`
+                    // covers that path. The two paths are idempotent —
+                    // either one alone wires focus correctly.
+                    .onChange(of: renamingItemId) { _, new in
+                        if new == item.id {
+                            draftTitle = item.title
+                            claimFocus()
                         }
                     }
                     .onExitCommand { renamingItemId = nil }
@@ -92,5 +98,24 @@ struct BinderRow: View {
             onRename(item.id, trimmed)
         }
         renamingItemId = nil
+    }
+
+    /// Claim focus for the rename TextField with enough deferral that
+    /// SwiftUI has installed the field in the responder chain AND
+    /// `List(selection:)` has finished its own selection-claim pass.
+    /// A single DispatchQueue.main.async tick wasn't always enough when
+    /// the row had just been added by `addStructureItem`; the List's
+    /// selection focus and the TextField's focus claim raced, and the
+    /// selection claim sometimes won, leaving the user with a selected-
+    /// but-not-editing row.
+    private func claimFocus() {
+        Task { @MainActor in
+            // Two short hops give the responder chain time to settle.
+            // The first yields back to the runloop; the second waits
+            // out List(selection:)'s focus claim. Empirically reliable
+            // across "add via context menu" and "add via menubar."
+            try? await Task.sleep(for: .milliseconds(30))
+            isRenameFieldFocused = true
+        }
     }
 }
