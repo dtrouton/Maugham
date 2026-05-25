@@ -103,6 +103,7 @@ Delivery, sharing, and mixed-media compilation.
 - • Compile UI — assemble manuscript into Word / EPUB / PDF / plain text
 - • Markdown manuscript export for novels — Shunn standard (Times New Roman 12pt, double-spaced, 1" margins) for short-fiction submissions
 - • EPUB cover image handling
+- • **Clean export to `Exports/`** — "Export → Clean Markdown" / "Export → Clean Fountain" action generates anchor-stripped copies of `.md` / `.fountain` files into an `Exports/` directory next to the project. Removes paragraph anchors (`<!-- ¶XXXXXX -->`) AND task anchors (`<!--t-XXXXXX-->`) so the output is portable to any text editor. Writer-selectable filters: include/exclude `- [x]` done items, include/exclude `[[todo: …]]` segments. Provides a clean handoff to collaborators, version-control diffs, or production pipelines that don't speak Maugham's anchor convention.
 
 **Screenplay-specific production polish:**
 - • FDX export and import (Final Draft binary format)
