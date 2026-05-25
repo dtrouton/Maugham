@@ -821,6 +821,14 @@ public final class Document {
     }
 
     public func archiveTask(id: String) {
+        // Capture body + kind BEFORE archiving so the .taskArchive op
+        // carries enough info for the deriver to synthesize an entry in
+        // the Archived filter. Inline tasks become derive-invisible after
+        // archive (the anchor is spliced out of paragraph text); without
+        // this metadata they'd vanish from the pane entirely, losing the
+        // audit trail.
+        let archived = _tasksCache.first(where: { $0.id == id })
+
         // Emit the .taskArchive op first so the lifecycle event lands in the
         // op log even when no anchor can be located (pane-created tasks, or
         // an inline anchor that's already been spliced out of the .md).
@@ -832,7 +840,9 @@ public final class Document {
             changes: [], sequence: nil,
             provenance: Op.Provenance(
                 sessionId: session,
-                taskId: id))
+                taskId: id,
+                taskBody: archived?.body,
+                taskKind: archived?.kind.rawValue))
         appendTaskOpInternal(op)
 
         // Extract the anchor id from the synth-id. Pane-created tasks have

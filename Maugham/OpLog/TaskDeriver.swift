@@ -301,6 +301,41 @@ public enum TaskDeriver {
             }
         }
 
+        // 2c. Archived inline tasks (text gone, op log remembers).
+        //     Inline tasks vanish from the text scan once their anchor is
+        //     spliced out by archive. To keep them in the Archived filter,
+        //     synthesize entries from `.taskArchive` ops whose taskId has
+        //     the `inline:` prefix AND whose synth-id isn't represented in
+        //     the live `inlines` array we just built. `Document.archiveTask`
+        //     captures the task's body + kind in the op provenance for
+        //     exactly this purpose.
+        let livePresentIds = Set(inlines.map(\.id))
+        for op in effectiveOps where op.kind == .taskArchive {
+            guard let tid = op.provenance?.taskId,
+                  tid.hasPrefix("inline:"),
+                  !livePresentIds.contains(tid),
+                  let body = op.provenance?.taskBody,
+                  let kindRaw = op.provenance?.taskKind,
+                  let kind = TaskKind(rawValue: kindRaw)
+            else { continue }
+            // Preserve doc identity for the doc-scope filter. The synth-id
+            // shape is `inline:<docId>:<anchorId>`; extract docId so the
+            // pane's Document-scope archive filter can still find it.
+            // paragraphId is nil — the anchor's been spliced out of text.
+            let parts = tid.split(separator: ":")
+            let extractedDocId = parts.count >= 3 ? String(parts[1]) : docId
+            inlines.append(WriterTask(
+                id: tid,
+                kind: kind,
+                anchor: TaskAnchor(docId: extractedDocId, paragraphId: nil),
+                body: body,
+                status: .archived,
+                priority: 0,
+                parentTaskId: nil,
+                createdAt: op.at,
+                createdBySession: op.provenance?.sessionId))
+        }
+
         // 3. Merge inlines + pane-created. Pane order: by createdAt then id
         //    so output is stable.
         var all: [WriterTask] = inlines

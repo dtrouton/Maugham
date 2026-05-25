@@ -317,15 +317,38 @@ struct TasksPane: View {
             // project pane tasks DO support status toggle via the future
             // ProjectStore mutation API. For now we leave it as a NOP and
             // surface the tooltip / no-op.)
-        case .inlineMarkdown, .fountainBoneyard:
-            // Text-is-state: rewrite the paragraph to flip the checkbox.
+        case .inlineMarkdown:
+            // Markdown: flip the `[ ]` ↔ `[x]` bracket in the paragraph.
             guard let doc = ownerDoc(of: task),
                   let pid = task.anchor?.paragraphId,
                   let current = doc.paragraph(id: pid) else { return }
             let flipped = flipInlineCheckbox(current)
             guard flipped != current else { return }
             doc.setParagraph(id: pid, text: flipped)
+        case .fountainBoneyard:
+            // Fountain: flip the specific `[[todo:` / `[[done:` segment
+            // whose closing anchor matches this task's id. Paragraphs
+            // may contain multiple inline Fountain todos; we MUST flip
+            // only the one tied to this task's anchor.
+            guard let doc = ownerDoc(of: task),
+                  let pid = task.anchor?.paragraphId,
+                  let current = doc.paragraph(id: pid),
+                  let anchorId = extractAnchorId(from: task.id)
+            else { return }
+            let flipped = flipFountainTodoDone(in: current, anchorId: anchorId)
+            guard flipped != current else { return }
+            doc.setParagraph(id: pid, text: flipped)
         }
+    }
+
+    /// Extract the 6-char anchor id from a task synth-id
+    /// `inline:<docId>:<anchorId>`. Returns nil for pane-created task
+    /// ids (which are op-ids, not synth-ids with the `inline:` prefix).
+    private func extractAnchorId(from taskId: String) -> String? {
+        guard taskId.hasPrefix("inline:") else { return nil }
+        let parts = taskId.split(separator: ":")
+        guard parts.count >= 3 else { return nil }
+        return String(parts.last!)
     }
 
     private func archive(_ task: WriterTask) {
@@ -588,6 +611,43 @@ func flipInlineCheckbox(_ text: String) -> String {
         return t
     }
     return t
+}
+
+/// Flip the Fountain `[[todo:` / `[[done:` segment whose closing
+/// `<!--t-XXXXXX-->` anchor matches `anchorId`. Returns the paragraph
+/// text with that specific segment's prefix toggled. Other Fountain
+/// todo/done segments in the same paragraph are left untouched —
+/// critical for paragraphs that carry multiple inline tasks.
+@MainActor
+func flipFountainTodoDone(in text: String, anchorId: String) -> String {
+    let anchorSpan = "<!--t-\(anchorId)-->"
+    let ns = text as NSString
+    let anchorRange = ns.range(of: anchorSpan)
+    guard anchorRange.location != NSNotFound else { return text }
+    // Walk backward from the anchor to find the matching `[[todo:` or
+    // `[[done:` opening. The closing `]]` must immediately precede the
+    // anchor (no whitespace per the spec format).
+    let beforeAnchor = ns.substring(to: anchorRange.location)
+    let beforeAnchorNS = beforeAnchor as NSString
+    // Find the leftmost `[[(todo|done):` that's followed by `]]` right
+    // before the anchor location. Easiest: regex over `beforeAnchor`
+    // looking for the last bracketed segment.
+    guard let regex = try? NSRegularExpression(
+        pattern: #"\[\[(todo|done):"#)
+    else { return text }
+    let openMatches = regex.matches(
+        in: beforeAnchor,
+        range: NSRange(location: 0, length: beforeAnchorNS.length))
+    // We want the closing `]]` to be flush against the anchor — so the
+    // last open match before the anchor whose body closes at
+    // (anchorRange.location - 2) is the one to flip.
+    guard let lastMatch = openMatches.last else { return text }
+    let prefixRange = lastMatch.range(at: 1)  // "todo" or "done"
+    let prefix = beforeAnchorNS.substring(with: prefixRange)
+    let flippedPrefix = (prefix == "todo") ? "done" : "todo"
+    let result = NSMutableString(string: text)
+    result.replaceCharacters(in: prefixRange, with: flippedPrefix)
+    return result as String
 }
 
 // MARK: - New task sheet
