@@ -34,15 +34,17 @@ struct TaskRow: View {
             kebabMenu
         }
         .contentShape(Rectangle())
-        // Double-click to jump to the source paragraph. Single-click is
-        // reserved for row selection / drag initiation — SwiftUI's
-        // `.onMove` gesture (wired on the List in TasksPane) requires
-        // the press-and-move sequence to start cleanly from the row;
-        // an `.onTapGesture` with count=1 here ate the press and forced
-        // the writer to grab the row's padding margin to drag, which
-        // was confusing. Double-click is the standard macOS "open this"
-        // gesture and composes correctly with `.onMove`.
-        .onTapGesture(count: 2) { onJump() }
+        // Double-click to jump to the source paragraph. `.onTapGesture`
+        // claims exclusivity over the click, so even
+        // `.onTapGesture(count: 2)` ate single clicks (waiting for a
+        // possible second tap before forwarding) — that blocked List's
+        // selection binding AND `.onMove`'s drag initiation.
+        // `.simultaneousGesture` lets the click reach both the gesture
+        // recognizer and the List, so single-click selects the row
+        // (and starts a drag if the user moves), double-click jumps.
+        .simultaneousGesture(
+            TapGesture(count: 2).onEnded { onJump() }
+        )
     }
 
     @ViewBuilder

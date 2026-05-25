@@ -118,8 +118,25 @@ extension ProjectStore {
     private func currentAggregationKey() -> ProjectTasksCacheKey {
         let openSum = (documentStore?.allOpenDocuments() ?? [])
             .reduce(0) { $0 &+ $1.tasksVersion }
+        // Fold closed-doc op log mtimes into the key so the cache
+        // re-derives when a closed doc's tasks change (cross-Mac sync,
+        // external edit, or a doc that was open earlier in the session
+        // and has since been unloaded).
+        var closedSum: Int = 0
+        let openDocIds = Set((documentStore?.allOpenDocuments() ?? [])
+            .map(\.docId))
+        for item in Self.collectDocuments(in: manifest.structure) {
+            if openDocIds.contains(item.id) { continue }
+            let opLogURL = url.appendingPathComponent(
+                ".maugham/ops/\(item.id).jsonl")
+            if let attrs = try? FileManager.default.attributesOfItem(
+                atPath: opLogURL.path),
+               let mtime = attrs[.modificationDate] as? Date {
+                closedSum &+= Int(mtime.timeIntervalSince1970 * 1000)
+            }
+        }
         return .init(
-            perDocVersionSum: openSum,
+            perDocVersionSum: openSum &+ closedSum,
             projectLogVersion: _projectLogVersion)
     }
 
@@ -133,17 +150,64 @@ extension ProjectStore {
 
         var all: [WriterTask] = []
 
-        // 1. Per-doc tasks (every status, so the cached array can serve any
-        //    follow-up filter without re-derive).
+        // 1a. Open-doc tasks (every status, so the cached array can serve
+        //     any follow-up filter without re-derive).
         let allStatuses = Set(TaskStatus.allCases)
+        var openDocIds: Set<String> = []
         if let ds = documentStore {
             for doc in ds.allOpenDocuments() {
+                openDocIds.insert(doc.docId)
                 let docTasks = doc.tasks(
                     filter: TaskFilter(
                         scope: .document(docId: doc.docId),
                         statuses: allStatuses))
                 all.append(contentsOf: docTasks)
             }
+        }
+
+        // 1b. Closed-doc tasks. Walk every document in the manifest that
+        //     isn't currently open; read its op log + .md directly without
+        //     instantiating a full `Document` actor. This keeps the Tasks
+        //     pane's Project scope honest — every chapter contributes,
+        //     not just whatever's loaded in the editor right now.
+        //
+        //     Sync disk reads here are deliberate: the project-pane
+        //     refresh shouldn't block on async actor initialization for
+        //     every doc, and per-doc op logs are small. The aggregation
+        //     cache key folds each closed doc's op-log mtime so we
+        //     re-derive only when something on disk changes.
+        for item in Self.collectDocuments(in: manifest.structure) {
+            if openDocIds.contains(item.id) { continue }
+            guard let path = item.path else { continue }
+            let fileURL = url.appendingPathComponent(path)
+            let opLogURL = url.appendingPathComponent(
+                ".maugham/ops/\(item.id).jsonl")
+            // Read paragraphs from the .md (the autosave-canonical source
+            // for ordering and live paragraph text).
+            let mdText = (try? String(contentsOf: fileURL, encoding: .utf8)) ?? ""
+            let parsed = ParagraphParser.parse(mdText)
+            var paragraphs: [String: String] = [:]
+            for p in parsed {
+                guard let pid = p.id else { continue }
+                paragraphs[pid] = p.text
+            }
+            // Read ops from the op log JSONL.
+            var ops: [Op] = []
+            if FileManager.default.fileExists(atPath: opLogURL.path),
+               let data = try? Data(contentsOf: opLogURL),
+               let text = String(data: data, encoding: .utf8) {
+                let dec = JSONDecoder()
+                dec.dateDecodingStrategy = JSONLAppendStore<Op>.dateDecoding
+                for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+                    guard let lineData = String(line).data(using: .utf8),
+                          let op = try? dec.decode(Op.self, from: lineData)
+                    else { continue }
+                    ops.append(op)
+                }
+            }
+            let (closedTasks, _) = TaskDeriver.derive(
+                ops: ops, paragraphs: paragraphs, docId: item.id)
+            all.append(contentsOf: closedTasks)
         }
 
         // 2. Project-scope pane-created tasks. Derive from the synthetic

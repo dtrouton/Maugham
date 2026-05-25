@@ -765,6 +765,20 @@ public final class Document {
         if let reason = SweepReason.userTyped(removed: removedIds) {
             flagSweep(reason)
         }
+        // Prune `paragraphs` entries whose ids left `sequence` — without
+        // this, merging two paragraphs (or any edit that drops a
+        // paragraph_id) leaves its last-known text lingering in the map.
+        // The inline-task deriver walks every paragraph entry (not just
+        // sequence members) so an orphan paragraph would surface as a
+        // phantom task in the Tasks pane until the next reload. Same
+        // invariant we enforce at load time (`paragraphs.keys ⊆ sequence`)
+        // applied live during editing. Annotations sweep is already
+        // gated on `removedIds` via the SweepReason above, so this is
+        // safe — annotations attached to removed paragraphs flow through
+        // their own archive path.
+        for orphanId in removedIds {
+            newParagraphs.removeValue(forKey: orphanId)
+        }
         self.paragraphs = newParagraphs
         self.sequence = newSequence
 
@@ -786,7 +800,12 @@ public final class Document {
             Self.changeTouchesTaskMarkup(
                 prior: change.prior, next: change.next)
         }
-        if touchesTasks {
+        // Also invalidate when a paragraph was REMOVED — its inline
+        // tasks vanish even though no `change` exists for the removed
+        // id (setFullText only emits changes for parsed paragraphs).
+        // Without this, merging two checkbox paragraphs leaves the
+        // pre-merge inline tasks frozen in the cache.
+        if touchesTasks || !removedIds.isEmpty {
             invalidateTasksCache()
         }
 
