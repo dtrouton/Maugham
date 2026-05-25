@@ -29,7 +29,7 @@ Mechanical: a 6-char alphabet-restricted anchor ID mint + comment-format helpers
 - Create: `Maugham/OpLog/TaskAnchorID.swift`
 - Create: `MaughamTests/TaskAnchorIDTests.swift`
 
-- [ ] **Step 1.1: Write failing tests**
+- [x] **Step 1.1: Write failing tests**
 
 ```swift
 import XCTest
@@ -68,8 +68,8 @@ final class TaskAnchorIDTests: XCTestCase {
 }
 ```
 
-- [ ] **Step 1.2: Run, expect FAIL** (type undefined)
-- [ ] **Step 1.3: Create `Maugham/OpLog/TaskAnchorID.swift`**
+- [x] **Step 1.2: Run, expect FAIL** (type undefined)
+- [x] **Step 1.3: Create `Maugham/OpLog/TaskAnchorID.swift`**
 
 ```swift
 import Foundation
@@ -105,14 +105,14 @@ public enum TaskAnchorID {
 }
 ```
 
-- [ ] **Step 1.4: Run tests, expect PASS**
-- [ ] **Step 1.5: Full suite green**
+- [x] **Step 1.4: Run tests, expect PASS**
+- [x] **Step 1.5: Full suite green**
 
 ```bash
 xcodebuild -project Maugham.xcodeproj -scheme Maugham test CODE_SIGNING_ALLOWED=NO 2>&1 | tail -5
 ```
 
-- [ ] **Step 1.6: Commit**
+- [x] **Step 1.6: Commit**
 
 ```bash
 git add Maugham/OpLog/TaskAnchorID.swift MaughamTests/TaskAnchorIDTests.swift
