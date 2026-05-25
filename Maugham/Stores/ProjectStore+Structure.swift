@@ -379,6 +379,18 @@ extension ProjectStore {
         let newPath = parentPath.isEmpty ? newFilename : "\(parentPath)/\(newFilename)"
         let newURL = url.appendingPathComponent(newPath)
 
+        // Close the open Document (if any) at the OLD path before moving.
+        // Otherwise its 750ms autosave would re-create the file at the old
+        // path after the move — leaving a phantom file behind under the
+        // pre-rename name. close() flushes any pending burst + autosave
+        // first so no unsaved typing is lost; unregister() removes it
+        // from the presenter registry so external-change callbacks don't
+        // fire against the now-moved path.
+        if let ds = documentStore, let openDoc = ds.document(for: oldPath) {
+            await openDoc.close()
+            ds.unregister(path: oldPath)
+        }
+
         // Move on disk
         do {
             try fm.moveItem(at: url.appendingPathComponent(oldPath), to: newURL)
@@ -754,6 +766,17 @@ extension ProjectStore {
         let parentId = findParentId(of: id, in: manifest.structure, parent: nil)
         let index = currentIndex(of: id, parentId: parentId)
         let metadata = try JSONEncoder().encode(item)
+
+        // Close the open Document (if any) before moving the file to trash.
+        // The 750ms autosave on the open doc would otherwise re-create the
+        // file at the original manuscript/ path after we move it — leaving
+        // a phantom alongside the trashed copy.
+        if !path.isEmpty,
+           let ds = documentStore,
+           let openDoc = ds.document(for: path) {
+            await openDoc.close()
+            ds.unregister(path: path)
+        }
 
         let entry = try await trashStore.moveToTrash(
             fileRelativePath: path,
