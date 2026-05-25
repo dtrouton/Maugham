@@ -269,7 +269,7 @@ final class TaskRewindTests: XCTestCase {
                 taskId: "orphan-child-id",
                 taskParentId: nonExistentParentId))
 
-        let (derived, _) = TaskDeriver.derive(
+        let (derived, _, _) = TaskDeriver.derive(
             ops: [childCreateOp, parentChangeOp],
             paragraphs: [:],
             docId: doc.docId)

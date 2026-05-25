@@ -567,7 +567,7 @@ public final class Document {
         _isRebuildingTasks = true
         defer { _isRebuildingTasks = false }
 
-        let (tasks, rebalanceOps) = TaskDeriver.derive(
+        let (tasks, rebalanceOps, _) = TaskDeriver.derive(
             ops: _opLogMirror, paragraphs: paragraphs, docId: docId)
         _tasksCache = tasks
         _tasksCacheValid = true

@@ -205,14 +205,14 @@ extension ProjectStore {
                     ops.append(op)
                 }
             }
-            let (closedTasks, _) = TaskDeriver.derive(
+            let (closedTasks, _, _) = TaskDeriver.derive(
                 ops: ops, paragraphs: paragraphs, docId: item.id)
             all.append(contentsOf: closedTasks)
         }
 
         // 2. Project-scope pane-created tasks. Derive from the synthetic
         //    op log directly. No paragraphs (this log never references any).
-        let (projectTasks, _) = TaskDeriver.derive(
+        let (projectTasks, _, _) = TaskDeriver.derive(
             ops: _projectOpLogMirror,
             paragraphs: [:],
             docId: Self.projectTasksDocId)
@@ -240,7 +240,7 @@ extension ProjectStore {
     /// tasks. New project pane tasks get `lowest + 1.0` so they land at the
     /// head of the list. Mirrors `Document.lowestPriorityForDoc`.
     private func lowestProjectTaskPriority() -> Double {
-        let (projectTasks, _) = TaskDeriver.derive(
+        let (projectTasks, _, _) = TaskDeriver.derive(
             ops: _projectOpLogMirror,
             paragraphs: [:],
             docId: Self.projectTasksDocId)

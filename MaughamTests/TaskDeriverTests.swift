@@ -28,19 +28,33 @@ final class TaskDeriverTests: XCTestCase {
             provenance: provenance)
     }
 
+    /// Regex pattern for the synthetic id form `inline:<docId>:<6-char anchor>`.
+    /// Used in assertions where the anchor id is fresh-minted (not literal).
+    private static let anchorAlphabet = "0123456789abcdefghjkmnpqrstvwxyz"
+
+    private func isMintedInlineId(_ id: String, docId: String) -> Bool {
+        let expectedPrefix = "inline:\(docId):"
+        guard id.hasPrefix(expectedPrefix) else { return false }
+        let anchor = String(id.dropFirst(expectedPrefix.count))
+        guard anchor.count == 6 else { return false }
+        return anchor.allSatisfy { Self.anchorAlphabet.contains($0) }
+    }
+
     // MARK: - 1. Empty inputs
 
     func test_derive_emptyOpsAndParagraphs_returnsEmpty() {
-        let (tasks, rebal) = TaskDeriver.derive(ops: [], paragraphs: [:], docId: "doc_test")
+        let (tasks, rebal, mints) = TaskDeriver.derive(
+            ops: [], paragraphs: [:], docId: "doc_test")
         XCTAssertTrue(tasks.isEmpty)
         XCTAssertTrue(rebal.isEmpty)
+        XCTAssertTrue(mints.isEmpty)
     }
 
     // MARK: - 2. Inline markdown checkbox: open
 
     func test_derive_singleInlineCheckbox_returnsOpenTask() {
         let pid = "abcd"
-        let (tasks, _) = TaskDeriver.derive(
+        let (tasks, _, mints) = TaskDeriver.derive(
             ops: [],
             paragraphs: [pid: "- [ ] foo"],
             docId: "doc_test")
@@ -50,13 +64,15 @@ final class TaskDeriverTests: XCTestCase {
         XCTAssertEqual(tasks[0].body, "foo")
         XCTAssertEqual(tasks[0].anchor?.docId, "doc_test")
         XCTAssertEqual(tasks[0].anchor?.paragraphId, pid)
+        XCTAssertTrue(isMintedInlineId(tasks[0].id, docId: "doc_test"))
+        XCTAssertEqual(mints.count, 1, "unanchored line triggers a mint")
     }
 
     // MARK: - 3. Inline checked: done
 
     func test_derive_inlineCheckedBox_returnsDoneTask() {
         let pid = "bcde"
-        let (tasks, _) = TaskDeriver.derive(
+        let (tasks, _, _) = TaskDeriver.derive(
             ops: [],
             paragraphs: [pid: "- [x] done thing"],
             docId: "doc_test")
@@ -77,7 +93,7 @@ final class TaskDeriverTests: XCTestCase {
                 taskBody: "revise act 2",
                 taskPriority: 1.0,
                 taskKind: "pane_created"))
-        let (tasks, _) = TaskDeriver.derive(
+        let (tasks, _, _) = TaskDeriver.derive(
             ops: [createOp],
             paragraphs: [:],
             docId: "doc_test")
@@ -89,24 +105,27 @@ final class TaskDeriverTests: XCTestCase {
         XCTAssertEqual(tasks[0].priority, 1.0)
     }
 
-    // MARK: - 5. Priority override on inline (synthetic id)
+    // MARK: - 5. Priority override on inline (anchor id)
 
     func test_derive_priorityOpOverridesDefault() {
         let pid = "cdef"
         let docId = "doc_test"
-        let synthId = "inline:\(docId):\(pid):\(TaskDeriver.bodyHash("foo"))"
+        // Use an anchored line so the synth id is deterministic.
+        let synthId = "inline:\(docId):aaaaaa"
         let prioOp = makeOp(
             opId: "op_prio_1",
             kind: .taskPriorityChange,
             provenance: Op.Provenance(
                 taskId: synthId,
                 taskPriority: 42.5))
-        let (tasks, _) = TaskDeriver.derive(
+        let (tasks, _, mints) = TaskDeriver.derive(
             ops: [prioOp],
-            paragraphs: [pid: "- [ ] foo"],
+            paragraphs: [pid: "- [ ] foo <!--t-aaaaaa-->"],
             docId: docId)
         XCTAssertEqual(tasks.count, 1)
+        XCTAssertEqual(tasks[0].id, synthId)
         XCTAssertEqual(tasks[0].priority, 42.5)
+        XCTAssertTrue(mints.isEmpty, "anchored line does not trigger a mint")
     }
 
     // MARK: - 6. Parent change nests child
@@ -122,7 +141,7 @@ final class TaskDeriverTests: XCTestCase {
                 taskKind: "pane_created"))
         let pid = "dfgh"
         let docId = "doc_test"
-        let childSynth = "inline:\(docId):\(pid):\(TaskDeriver.bodyHash("child thing"))"
+        let childSynth = "inline:\(docId):bbbbbb"
         let parentOp = makeOp(
             opId: "op_parent_change",
             kind: .taskParentChange,
@@ -130,9 +149,9 @@ final class TaskDeriverTests: XCTestCase {
                 taskId: childSynth,
                 taskParentId: "op_parent"))
 
-        let (tasks, _) = TaskDeriver.derive(
+        let (tasks, _, _) = TaskDeriver.derive(
             ops: [parentCreate, parentOp],
-            paragraphs: [pid: "- [ ] child thing"],
+            paragraphs: [pid: "- [ ] child thing <!--t-bbbbbb-->"],
             docId: docId)
         XCTAssertEqual(tasks.count, 2)
         // Parent then child interleave
@@ -157,7 +176,7 @@ final class TaskDeriverTests: XCTestCase {
             opId: "op_arch",
             kind: .taskArchive,
             provenance: Op.Provenance(taskId: "op_a"))
-        let (tasks, _) = TaskDeriver.derive(
+        let (tasks, _, _) = TaskDeriver.derive(
             ops: [createOp, archiveOp],
             paragraphs: [:],
             docId: "doc_test")
@@ -184,7 +203,7 @@ final class TaskDeriverTests: XCTestCase {
             opId: "op_arch",
             kind: .taskArchive,
             provenance: Op.Provenance(taskId: "op_ar"))
-        let (tasks, _) = TaskDeriver.derive(
+        let (tasks, _, _) = TaskDeriver.derive(
             ops: openOp + [createA, archOp],
             paragraphs: [p1: "- [ ] open one", p2: "- [x] done one"],
             docId: "doc_test")
@@ -207,7 +226,7 @@ final class TaskDeriverTests: XCTestCase {
     func test_derive_filterByDocScope_excludesOtherDocs() {
         // Deriver is called per-doc; verify anchor docId matches caller arg.
         let pidA = "vwxy"
-        let (tasksA, _) = TaskDeriver.derive(
+        let (tasksA, _, _) = TaskDeriver.derive(
             ops: [],
             paragraphs: [pidA: "- [ ] from doc a"],
             docId: "doc_a")
@@ -215,7 +234,7 @@ final class TaskDeriverTests: XCTestCase {
         XCTAssertEqual(tasksA[0].anchor?.docId, "doc_a")
 
         let pidB = "z023"
-        let (tasksB, _) = TaskDeriver.derive(
+        let (tasksB, _, _) = TaskDeriver.derive(
             ops: [],
             paragraphs: [pidB: "- [ ] from doc b"],
             docId: "doc_b")
@@ -236,7 +255,7 @@ final class TaskDeriverTests: XCTestCase {
                 taskBody: "project task",
                 taskPriority: 1.0,
                 taskKind: "pane_created"))
-        let (tasks, _) = TaskDeriver.derive(
+        let (tasks, _, _) = TaskDeriver.derive(
             ops: [createOp],
             paragraphs: [:],
             docId: "__project__")
@@ -265,7 +284,7 @@ final class TaskDeriverTests: XCTestCase {
                 taskBody: "task two",
                 taskPriority: 1.0 + 1e-12, // way under 1e-9 delta
                 taskKind: "pane_created"))
-        let (tasks, rebal) = TaskDeriver.derive(
+        let (tasks, rebal, _) = TaskDeriver.derive(
             ops: [create1, create2],
             paragraphs: [:],
             docId: "doc_test")
@@ -286,7 +305,7 @@ final class TaskDeriverTests: XCTestCase {
     func test_derive_unknownParent_isParentLess() {
         let pid = "1234"
         let docId = "doc_test"
-        let childSynth = "inline:\(docId):\(pid):\(TaskDeriver.bodyHash("orphan child"))"
+        let childSynth = "inline:\(docId):cccccc"
         // Parent never exists; only a parentChange op.
         let parentOp = makeOp(
             opId: "op_pc",
@@ -294,9 +313,9 @@ final class TaskDeriverTests: XCTestCase {
             provenance: Op.Provenance(
                 taskId: childSynth,
                 taskParentId: "op_nonexistent"))
-        let (tasks, _) = TaskDeriver.derive(
+        let (tasks, _, _) = TaskDeriver.derive(
             ops: [parentOp],
-            paragraphs: [pid: "- [ ] orphan child"],
+            paragraphs: [pid: "- [ ] orphan child <!--t-cccccc-->"],
             docId: docId)
         XCTAssertEqual(tasks.count, 1)
         XCTAssertNil(tasks[0].parentTaskId,
@@ -307,7 +326,7 @@ final class TaskDeriverTests: XCTestCase {
 
     func test_derive_fountainTodoBoneyard_returnsOpenTask() {
         let pid = "5678"
-        let (tasks, _) = TaskDeriver.derive(
+        let (tasks, _, _) = TaskDeriver.derive(
             ops: [],
             paragraphs: [pid: "Some scene description [[todo: revise dialog]] more text"],
             docId: "doc_test")
@@ -321,7 +340,7 @@ final class TaskDeriverTests: XCTestCase {
 
     func test_derive_fountainDoneBoneyard_returnsDoneTask() {
         let pid = "9abc"
-        let (tasks, _) = TaskDeriver.derive(
+        let (tasks, _, _) = TaskDeriver.derive(
             ops: [],
             paragraphs: [pid: "Action line [[done: fixed it]] continuing"],
             docId: "doc_test")
@@ -331,59 +350,141 @@ final class TaskDeriverTests: XCTestCase {
         XCTAssertEqual(tasks[0].body, "fixed it")
     }
 
-    // MARK: - 15. bodyHash stable across normalization
+    // MARK: - 15. Anchored inline id survives line reorder
 
-    func test_bodyHash_stableAcrossNormalization() {
-        let h1 = TaskDeriver.bodyHash("  Foo Bar  ")
-        let h2 = TaskDeriver.bodyHash("foo  bar")
-        let h3 = TaskDeriver.bodyHash("FOO BAR")
-        XCTAssertEqual(h1, h2)
-        XCTAssertEqual(h2, h3)
-        XCTAssertEqual(h1.count, 8, "bodyHash returns first 8 hex chars")
-    }
-
-    // MARK: - 16. bodyHash distinct for distinct bodies
-
-    func test_bodyHash_distinct_forDistinctBodies() {
-        XCTAssertNotEqual(TaskDeriver.bodyHash("foo"), TaskDeriver.bodyHash("bar"))
-    }
-
-    // MARK: - 17. inline id is body-hash keyed, not line-index
-
-    func test_derive_inlineId_isBodyHashKeyed_notLineIndex() {
+    func test_derive_anchoredInlineId_survivesReorder() {
         let pid = "dghj"
         let docId = "doc_test"
-        // Priority op keyed to bodyHash("foo")
-        let synthFoo = "inline:\(docId):\(pid):\(TaskDeriver.bodyHash("foo"))"
+        // Anchor `ddddde` is keyed on the persistent anchor, not body or position.
+        let synthFoo = "inline:\(docId):ddddde"
         let prioOp = makeOp(
             opId: "op_prio_foo",
             kind: .taskPriorityChange,
             provenance: Op.Provenance(
                 taskId: synthFoo,
                 taskPriority: 99.0))
-        // Initially paragraph has "- [ ] foo\n- [ ] bar"
-        // Then we insert "- [ ] zzz" above. Op is still keyed to bodyHash("foo").
-        let (tasks, _) = TaskDeriver.derive(
+        // Paragraph re-ordered; the anchored "foo" line is now in the middle.
+        let (tasks, _, _) = TaskDeriver.derive(
             ops: [prioOp],
-            paragraphs: [pid: "- [ ] zzz\n- [ ] foo\n- [ ] bar"],
+            paragraphs: [pid: "- [ ] zzz\n- [ ] foo <!--t-ddddde-->\n- [ ] bar"],
             docId: docId)
         XCTAssertEqual(tasks.count, 3)
         let fooTask = tasks.first(where: { $0.body == "foo" })
         XCTAssertNotNil(fooTask)
         XCTAssertEqual(fooTask?.priority, 99.0,
-            "Priority op survives reorder because it keys on body-hash")
+            "Priority op survives reorder because anchor id is stable")
     }
 
-    // MARK: - 18. Duplicate inline body collapses to one task
+    // MARK: - 16. Duplicate inline bodies — distinct anchors yield distinct tasks
 
-    func test_derive_duplicateInlineBody_collapsesToOneTask() {
+    func test_derive_duplicateInlineBody_doesNotCollapse_whenAnchoredDistinctly() {
         let pid = "kmnp"
-        let (tasks, _) = TaskDeriver.derive(
+        let (tasks, _, _) = TaskDeriver.derive(
             ops: [],
-            paragraphs: [pid: "- [ ] foo\n- [ ] foo"],
+            paragraphs: [pid: "- [ ] foo <!--t-aaaaaa-->\n- [ ] foo <!--t-bbbbbb-->"],
             docId: "doc_test")
-        XCTAssertEqual(tasks.count, 1,
-            "Duplicate normalized bodies collapse per spec §3.2")
-        XCTAssertEqual(tasks[0].body, "foo")
+        XCTAssertEqual(tasks.count, 2,
+            "two anchored duplicates must be distinct tasks")
+        XCTAssertEqual(Set(tasks.map(\.id)),
+            ["inline:doc_test:aaaaaa", "inline:doc_test:bbbbbb"])
+    }
+
+    // MARK: - 17. Unanchored inline task mints an anchor (plan Step 4.2)
+
+    func test_derive_unanchoredInlineTask_mintsAnchor() {
+        let paraId = "mpqr"  // 4-char paragraph id (Tripwire #8)
+        let paragraphs = [paraId: "- [ ] foo"]
+        let result = TaskDeriver.derive(
+            ops: [], paragraphs: paragraphs, docId: "doc-x")
+        XCTAssertEqual(result.tasks.count, 1)
+        XCTAssertEqual(result.mintedAnchors.count, 1)
+        let minted = result.mintedAnchors[0]
+        XCTAssertEqual(minted.paragraphId, paraId)
+        XCTAssertEqual(minted.body, "foo")
+        XCTAssertEqual(minted.anchorId.count, 6)
+        XCTAssertEqual(result.tasks[0].id, "inline:doc-x:\(minted.anchorId)")
+    }
+
+    // MARK: - 18. Anchored inline task preserves its anchor
+
+    func test_derive_anchoredInlineTask_preservesAnchor() {
+        let paraId = "nptq"
+        let paragraphs = [paraId: "- [ ] foo <!--t-9k2x6a-->"]
+        let result = TaskDeriver.derive(
+            ops: [], paragraphs: paragraphs, docId: "doc-x")
+        XCTAssertEqual(result.tasks.count, 1)
+        XCTAssertEqual(result.tasks[0].id, "inline:doc-x:9k2x6a")
+        XCTAssertTrue(result.mintedAnchors.isEmpty,
+            "anchored tasks should NOT trigger minting")
+    }
+
+    // MARK: - 19. Duplicate-body anchored distinctly → two tasks
+
+    func test_derive_duplicateBodyAnchoredDistinctly_yieldsTwoTasks() {
+        let paraId = "pqrs"
+        let paragraphs = [paraId: """
+        - [ ] foo <!--t-aaaaaa-->
+        - [ ] foo <!--t-bbbbbb-->
+        """]
+        let result = TaskDeriver.derive(
+            ops: [], paragraphs: paragraphs, docId: "doc-x")
+        XCTAssertEqual(result.tasks.count, 2,
+            "two anchored duplicates must be distinct tasks")
+        XCTAssertEqual(Set(result.tasks.map(\.id)),
+            ["inline:doc-x:aaaaaa", "inline:doc-x:bbbbbb"])
+    }
+
+    // MARK: - 20. MintedAnchor.lineIndex on markdown line tasks
+
+    func test_derive_unanchoredMarkdownTask_mintedAnchorHasCorrectLineIndex() {
+        let pid = "qrst"
+        let paragraphs = [pid: "- [ ] alpha\n- [ ] beta"]
+        let result = TaskDeriver.derive(
+            ops: [], paragraphs: paragraphs, docId: "doc-x")
+        XCTAssertEqual(result.mintedAnchors.count, 2)
+        let alpha = result.mintedAnchors.first(where: { $0.body == "alpha" })
+        let beta = result.mintedAnchors.first(where: { $0.body == "beta" })
+        XCTAssertEqual(alpha?.lineIndex, 0)
+        XCTAssertEqual(beta?.lineIndex, 1)
+        XCTAssertEqual(alpha?.kind, .inlineMarkdown)
+        XCTAssertNil(alpha?.intraLineOffset, "markdown line-style is whole-line")
+    }
+
+    // MARK: - 21. MintedAnchor.intraLineOffset on Fountain inline tasks
+
+    func test_derive_unanchoredFountainTodo_mintedAnchorHasIntraLineOffset() {
+        let pid = "rstv"
+        let paragraphs = [pid: "Anna walked [[todo: tighten]] across the room."]
+        let result = TaskDeriver.derive(
+            ops: [], paragraphs: paragraphs, docId: "doc-x")
+        XCTAssertEqual(result.mintedAnchors.count, 1)
+        let mint = result.mintedAnchors[0]
+        XCTAssertEqual(mint.kind, .fountainBoneyard)
+        XCTAssertEqual(mint.body, "tighten")
+        XCTAssertEqual(mint.lineIndex, 0)
+        XCTAssertNotNil(mint.intraLineOffset,
+            "Fountain inline form needs intra-line offset for Task 5 splice")
+        // The closing `]]` is at position 28 (0-based, just past "tighten]]").
+        // intraLineOffset is the offset immediately after `]]` relative to the
+        // start of the line — which equals the absolute UTF-16 offset here.
+        // "Anna walked [[todo: tighten]]" is 29 UTF-16 chars; offset after ]] = 29.
+        XCTAssertEqual(mint.intraLineOffset, 29)
+    }
+
+    // MARK: - 22. Mixed anchored + unanchored — only unanchored mint
+
+    func test_derive_mixedAnchoredAndUnanchored_onlyUnanchoredAreMinted() {
+        let pid = "stvw"
+        let paragraphs = [pid: """
+        - [ ] anchored <!--t-aaaaaa-->
+        - [ ] fresh
+        """]
+        let result = TaskDeriver.derive(
+            ops: [], paragraphs: paragraphs, docId: "doc-x")
+        XCTAssertEqual(result.tasks.count, 2)
+        XCTAssertEqual(result.mintedAnchors.count, 1)
+        XCTAssertEqual(result.mintedAnchors[0].body, "fresh")
+        XCTAssertEqual(result.mintedAnchors[0].lineIndex, 1)
+        XCTAssertTrue(result.tasks.contains { $0.id == "inline:doc-x:aaaaaa" })
     }
 }

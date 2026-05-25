@@ -350,11 +350,11 @@ The deriver moves from `inline:<docId>:<paraId>:<bodyHash>` to `inline:<docId>:<
 - Edit: `Maugham/OpLog/TaskDeriver.swift`
 - Edit: `MaughamTests/TaskDeriverTests.swift` (extend; some prior assertions about `bodyHash`-based ids must update)
 
-- [ ] **Step 4.1: Update existing TaskDeriverTests for new id shape**
+- [x] **Step 4.1: Update existing TaskDeriverTests for new id shape**
 
 Every existing test that asserts an `id` field of an inline task currently uses `inline:<docId>:<paraId>:<bodyHash>`. Update to expect `inline:<docId>:<anchorId>` where `<anchorId>` matches `[a-z0-9]{6}`. Use regex assertions or capture-the-id helpers since the minted value is random.
 
-- [ ] **Step 4.2: Add new minting tests**
+- [x] **Step 4.2: Add new minting tests**
 
 ```swift
 func test_derive_unanchoredInlineTask_mintsAnchor() {
@@ -397,7 +397,7 @@ func test_derive_duplicateBodyAnchoredDistinctly_yieldsTwoTasks() {
 }
 ```
 
-- [ ] **Step 4.3: Extend `TaskDeriver.derive` return type**
+- [x] **Step 4.3: Extend `TaskDeriver.derive` return type**
 
 Currently returns `(tasks: [WriterTask], rebalanceOps: [Op])`. Add `mintedAnchors: [MintedAnchor]`:
 
@@ -416,7 +416,7 @@ public static func derive(
 ) -> (tasks: [WriterTask], rebalanceOps: [Op], mintedAnchors: [MintedAnchor])
 ```
 
-- [ ] **Step 4.4: Update inline-task derivation loop**
+- [x] **Step 4.4: Update inline-task derivation loop**
 
 For each `MarkdownCheckboxScanner.match` and `FountainBoneyardScanner.matchAll` result:
 - If `match.anchorId` is non-nil: use it as the synth-id suffix
@@ -424,12 +424,12 @@ For each `MarkdownCheckboxScanner.match` and `FountainBoneyardScanner.matchAll` 
 
 Drop the body-hash dedupe (each anchor is unique by construction).
 
-- [ ] **Step 4.5: Update all callers of `TaskDeriver.derive`**
+- [x] **Step 4.5: Update all callers of `TaskDeriver.derive`**
 
 `Document.rebuildTasksCache`, `Document.lowestPriorityForDoc`, `ProjectStore+Tasks.lowestProjectTaskPriority`, and `ProjectStore+Tasks.rebuildAggregationCache` — all destructure the tuple return. The caller in `Document.rebuildTasksCache` will USE `mintedAnchors` (Task 5); others can ignore via `_`.
 
-- [ ] **Step 4.6: Run tests, iterate to green**
-- [ ] **Step 4.7: Commit**
+- [x] **Step 4.6: Run tests, iterate to green**
+- [x] **Step 4.7: Commit**
 
 ```bash
 git add Maugham/OpLog/TaskDeriver.swift MaughamTests/TaskDeriverTests.swift

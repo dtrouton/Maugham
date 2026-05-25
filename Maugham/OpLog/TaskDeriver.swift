@@ -1,12 +1,51 @@
 import Foundation
-import CryptoKit
 
 /// Pure projection from an op log + current paragraph map to a list of
 /// `WriterTask`. Mirrors `AnnotationDeriver` shape; no I/O, no `Document`
 /// reference. Same inputs → same output.
 ///
-/// See `docs/superpowers/specs/2026-05-23-tasks-design.md` §5.
+/// See `docs/superpowers/specs/2026-05-23-tasks-design.md` §5 and
+/// `docs/superpowers/specs/2026-05-25-task-anchors-and-lifecycle.md` §2.3.
 public enum TaskDeriver {
+
+    // MARK: - MintedAnchor side-channel
+
+    /// Side-channel record describing a freshly-minted task anchor that the
+    /// caller (Document) must persist back into paragraph text. Each value
+    /// names the paragraph and intra-paragraph location where the anchor
+    /// span should be spliced in.
+    ///
+    /// Task 5 consumes this to rewrite `paragraphs[paragraphId]`; Task 4
+    /// only emits it.
+    public struct MintedAnchor: Equatable, Sendable {
+        public let paragraphId: String
+        /// Post-scan body (anchor-free, exactly what the scanner returned —
+        /// no whitespace normalization).
+        public let body: String
+        /// Freshly minted 6-char anchor id (alphabet matches ParagraphID).
+        public let anchorId: String
+        /// 0-based line index within the paragraph. For markdown line tasks
+        /// this is the line containing the `- [ ]`; for Fountain inline
+        /// tasks it is the line containing the `[[todo:…]]` segment.
+        public let lineIndex: Int
+        /// Optional intra-line UTF-16 offset for Fountain inline tasks,
+        /// pointing immediately after the closing `]]` of the matched
+        /// segment. `nil` for markdown line-style tasks (whole-line append).
+        public let intraLineOffset: Int?
+        public let kind: TaskKind
+
+        public init(
+            paragraphId: String, body: String, anchorId: String,
+            lineIndex: Int, intraLineOffset: Int?, kind: TaskKind
+        ) {
+            self.paragraphId = paragraphId
+            self.body = body
+            self.anchorId = anchorId
+            self.lineIndex = lineIndex
+            self.intraLineOffset = intraLineOffset
+            self.kind = kind
+        }
+    }
 
     // MARK: - Public entry point
 
@@ -20,14 +59,15 @@ public enum TaskDeriver {
     ///     for the project log (no manuscript-backed inline tasks).
     ///   - docId: The doc this derive is for; appears in `TaskAnchor.docId`
     ///     and in synthetic inline/fountain task ids.
-    /// - Returns: The sorted task list (parent-then-child interleave) and a
-    ///   side-channel of rebalance ops that the caller should append to its
-    ///   op log so the rebalanced priorities persist.
+    /// - Returns: The sorted task list (parent-then-child interleave), a
+    ///   side-channel of rebalance ops, and a side-channel of
+    ///   freshly-minted task anchors that the caller should persist back
+    ///   into paragraph text.
     public static func derive(
         ops: [Op],
         paragraphs: [String: String],
         docId: String
-    ) -> (tasks: [WriterTask], rebalanceOps: [Op]) {
+    ) -> (tasks: [WriterTask], rebalanceOps: [Op], mintedAnchors: [MintedAnchor]) {
 
         // 0. Apply rewind semantics: if there is a `.checkpointRestore` with
         //    `synthesisSource == .rewind`, task ops between its `sourceCheckpoint`
@@ -144,10 +184,14 @@ public enum TaskDeriver {
         }
 
         // 2. Scan paragraphs for inline markdown checkboxes + Fountain
-        //    `[[todo:]]`/`[[done:]]`. Both produce synthetic, body-hash-keyed
-        //    ids. Duplicate-body collapse via `seenIds`.
+        //    `[[todo:]]`/`[[done:]]`. Both produce synth ids keyed on the
+        //    per-task `<!--t-XXXXXX-->` anchor in the .md. Tasks without
+        //    anchors get one minted on the spot; the side-channel
+        //    `mintedAnchors` lets the caller persist them back into
+        //    paragraph text. No more body-hash dedupe — each anchor is
+        //    unique by construction.
         var inlines: [WriterTask] = []
-        var seenIds: Set<String> = []
+        var mintedAnchors: [MintedAnchor] = []
         var inlineTailIndex = 0
 
         // Deterministic order across rederives: sort paragraph ids.
@@ -158,33 +202,89 @@ public enum TaskDeriver {
 
             // 2a. Markdown checkboxes — line-scan.
             let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-            for line in lines {
-                if let match = MarkdownCheckboxScanner.match(String(line)) {
-                    let synth = "inline:\(docId):\(pid):\(bodyHash(match.body))"
-                    if seenIds.contains(synth) { continue }
-                    seenIds.insert(synth)
-                    inlineTailIndex += 1
-                    var task = WriterTask(
-                        id: synth,
-                        kind: .inlineMarkdown,
-                        anchor: TaskAnchor(docId: docId, paragraphId: pid),
+            for (lineIndex, line) in lines.enumerated() {
+                guard let match = MarkdownCheckboxScanner.match(String(line))
+                else { continue }
+                let anchorId: String
+                if let existing = match.anchorId {
+                    anchorId = existing
+                } else {
+                    let fresh = TaskAnchorID.mint()
+                    anchorId = fresh
+                    mintedAnchors.append(MintedAnchor(
+                        paragraphId: pid,
                         body: match.body,
-                        status: match.checked ? .done : .open,
-                        priority: defaultTailPriority(index: inlineTailIndex),
-                        parentTaskId: nil,
-                        createdAt: Date.distantPast,
-                        createdBySession: nil)
-                    task = applyOverride(task, overrides[synth])
-                    inlines.append(task)
+                        anchorId: fresh,
+                        lineIndex: lineIndex,
+                        intraLineOffset: nil,
+                        kind: .inlineMarkdown))
                 }
+                let synth = "inline:\(docId):\(anchorId)"
+                inlineTailIndex += 1
+                var task = WriterTask(
+                    id: synth,
+                    kind: .inlineMarkdown,
+                    anchor: TaskAnchor(docId: docId, paragraphId: pid),
+                    body: match.body,
+                    status: match.checked ? .done : .open,
+                    priority: defaultTailPriority(index: inlineTailIndex),
+                    parentTaskId: nil,
+                    createdAt: Date.distantPast,
+                    createdBySession: nil)
+                task = applyOverride(task, overrides[synth])
+                inlines.append(task)
             }
 
             // 2b. Fountain boneyards — scan across the whole paragraph.
+            //     Use both `matchAll` (carries Match metadata incl. anchorId)
+            //     and `matchTodoAll` (carries NSRange positions). Both come
+            //     from the same regex, in source order, so zipping is safe.
             let bones = FountainBoneyardScanner.matchAll(text)
-            for bone in bones {
-                let synth = "fountain:\(docId):\(pid):\(bodyHash(bone.body))"
-                if seenIds.contains(synth) { continue }
-                seenIds.insert(synth)
+            let positions = FountainBoneyardScanner.matchTodoAll(text)
+            let ns = text as NSString
+            for (bone, pos) in zip(bones, positions) {
+                let anchorId: String
+                // Compute lineIndex and intraLineOffset from the position.
+                // lineIndex = count of "\n" chars in [0, prefixRange.location).
+                // intraLineOffset = bodyRange.upperBound + 2 (the `]]` glyph),
+                // expressed relative to the START OF THE LINE, not absolute.
+                let prefixLoc = pos.prefixRange.location
+                let bodyUpper = pos.bodyRange.location + pos.bodyRange.length
+                // Find the absolute position immediately after `]]`.
+                let afterCloseAbs = bodyUpper + 2
+                // Walk back to find the start of the line containing prefix.
+                var lineIndex = 0
+                var lineStartAbs = 0
+                if prefixLoc > 0 {
+                    let prefixHead = ns.substring(
+                        with: NSRange(location: 0, length: prefixLoc))
+                    let nsPrefixHead = prefixHead as NSString
+                    // Count newlines.
+                    var i = 0
+                    while i < nsPrefixHead.length {
+                        let ch = nsPrefixHead.character(at: i)
+                        if ch == 0x0A {
+                            lineIndex += 1
+                            lineStartAbs = i + 1
+                        }
+                        i += 1
+                    }
+                }
+                let intraLineOffset = afterCloseAbs - lineStartAbs
+                if let existing = bone.anchorId {
+                    anchorId = existing
+                } else {
+                    let fresh = TaskAnchorID.mint()
+                    anchorId = fresh
+                    mintedAnchors.append(MintedAnchor(
+                        paragraphId: pid,
+                        body: bone.body,
+                        anchorId: fresh,
+                        lineIndex: lineIndex,
+                        intraLineOffset: intraLineOffset,
+                        kind: .fountainBoneyard))
+                }
+                let synth = "inline:\(docId):\(anchorId)"
                 inlineTailIndex += 1
                 var task = WriterTask(
                     id: synth,
@@ -245,24 +345,7 @@ public enum TaskDeriver {
         // 6. Sort parent-then-child interleave.
         let sorted = sortParentInterleaved(balanced)
 
-        return (sorted, rebalanceOps)
-    }
-
-    // MARK: - bodyHash (spec §3.2)
-
-    /// Normalized SHA-256 prefix. Trim → lowercase → collapse internal
-    /// whitespace → SHA-256 → first 8 hex chars (= first 4 bytes hex-encoded).
-    /// `internal` (not `private`) so synthetic-id tests can pin it without
-    /// re-running the full derive.
-    internal static func bodyHash(_ body: String) -> String {
-        let normalized = body
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-        let digest = SHA256.hash(data: Data(normalized.utf8))
-        return digest.prefix(4).map { String(format: "%02x", $0) }.joined()
+        return (sorted, rebalanceOps, mintedAnchors)
     }
 
     // MARK: - Internals
