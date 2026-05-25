@@ -18,6 +18,17 @@ The NSTextView-backed editing surface: text storage, tokenization, styling, curs
 - `Tokenizer/` — prose-side tokenizer + style application.
 - `CharacterAutocompleter.swift` — **DEAD CODE**. `updateAutocomplete` is defined but never called. NSPopover was abandoned in 3b ("too brittle, blocks input"). Don't wire it back without redesigning the UX (popover → inline ghost-text or sheet, TBD).
 
+## Task anchor styling
+
+Two new `Token.Kind` values were added in the task-anchors milestone:
+
+- `Token.Kind.taskBody` — paints the checkbox body text distinctly (currently `palette.syntaxPunctuation`) so the writer can see the boundary between task text and surrounding prose.
+- `Token.Kind.invisibleAnchor` — paints `NSColor.clear` so the `<!--t-XXXXXX-->` span is present in NSTextStorage (required for the strip/restore round-trip via `RenderFilter`) but invisible to the writer.
+
+Both the Markdown and Fountain tokenizers emit these kinds for anchored inline tasks. `ScreenplayMode` adds the invisible-anchor attributes **after** its full-storage `setAttributes` call — consistent with the existing race-window discipline (don't add work *inside* `applyTypography`).
+
+`EditorCoordinator` records cursor position to `Document.recordCursorAt(_:)` on selection changes. `Document.setFullText` reads the recorded cursor as `preEditCursor` for V2 cross-paragraph alignment, which detects cut/paste of anchored task lines between paragraphs.
+
 ## The binding contract
 
 ```

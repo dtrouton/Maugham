@@ -769,11 +769,11 @@ Small docs update reflecting the architectural shift.
 - Edit: `Maugham/OpLog/AREA.md`
 - Edit: `Maugham/Editor/AREA.md`
 
-- [ ] **Step 9.1: Note in `Maugham/OpLog/AREA.md`** that task anchors join paragraph anchors as the "first-class inline identity" pattern; reference ADR 0011.
+- [x] **Step 9.1: Note in `Maugham/OpLog/AREA.md`** that task anchors join paragraph anchors as the "first-class inline identity" pattern; reference ADR 0011.
 
-- [ ] **Step 9.2: Note in `Maugham/Editor/AREA.md`** that `Token.Kind.taskBody` gets distinct styling and `.invisibleAnchor` paints transparent.
+- [x] **Step 9.2: Note in `Maugham/Editor/AREA.md`** that `Token.Kind.taskBody` gets distinct styling and `.invisibleAnchor` paints transparent.
 
-- [ ] **Step 9.3: Commit**
+- [x] **Step 9.3: Commit**
 
 ---
 
