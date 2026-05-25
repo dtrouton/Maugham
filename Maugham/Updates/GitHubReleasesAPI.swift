@@ -60,6 +60,16 @@ public enum GitHubReleasesAPI {
         let url = URL(string: "https://api.github.com/repos/\(owner)/\(repo)/releases/latest")!
         var req = URLRequest(url: url)
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        // Always fetch fresh — without this the URLSession URLCache holds
+        // the first response for the lifetime of the app session, so
+        // "Check for Updates" mid-session returns the stale "you're up
+        // to date" answer even though CI has published a newer release.
+        // The background 24h poll already throttles request volume; we
+        // don't need URLCache piling on. Belt-and-braces: send the HTTP
+        // no-cache header AND set the URLRequest cache policy so any
+        // intermediate CDN revalidates.
+        req.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        req.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
         let (data, response) = try await session.data(for: req)
         if let http = response as? HTTPURLResponse, http.statusCode != 200 {
             throw Error.http(status: http.statusCode)
