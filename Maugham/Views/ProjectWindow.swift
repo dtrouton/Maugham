@@ -704,11 +704,13 @@ struct ProjectWindow: View {
                 ContentUnavailableView(
                     "Select an item to preview",
                     systemImage: "doc.text.magnifyingglass")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         case .trash:
             ContentUnavailableView(
                 "Trash",
                 systemImage: "trash")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -838,11 +840,13 @@ struct ProjectWindow: View {
                 ContentUnavailableView(
                     "Select an item",
                     systemImage: "info.circle")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         case .trash:
             ContentUnavailableView(
                 "No selection",
                 systemImage: "trash")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

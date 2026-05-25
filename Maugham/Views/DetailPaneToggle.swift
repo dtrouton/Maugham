@@ -147,6 +147,7 @@ struct DetailPaneToggle<Inspector: View>: View {
                 "History unavailable",
                 systemImage: "clock.arrow.circlepath"
             )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -162,6 +163,7 @@ struct DetailPaneToggle<Inspector: View>: View {
                 "Select a document",
                 systemImage: "doc.text",
                 description: Text("Open a manuscript to see and act on annotations."))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -178,6 +180,7 @@ struct DetailPaneToggle<Inspector: View>: View {
                 "Open a project",
                 systemImage: "checklist",
                 description: Text("Tasks track todos across a project."))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }

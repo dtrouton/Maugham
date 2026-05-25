@@ -17,6 +17,7 @@ struct ImagePreview: View {
                 "Image unavailable",
                 systemImage: "photo.fill",
                 description: Text(fileURL.lastPathComponent))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }

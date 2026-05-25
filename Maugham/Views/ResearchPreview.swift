@@ -45,5 +45,6 @@ struct ResearchPreview: View {
         ContentUnavailableView(
             "Select an item to preview",
             systemImage: "doc.text.magnifyingglass")
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

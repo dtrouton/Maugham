@@ -9,10 +9,28 @@ struct BinderView: View {
     @State private var showingTidyConfirmation: Bool = false
 
     var body: some View {
-        List(selection: $selectedItemId) {
-            outline(items: store.manifest.structure)
+        Group {
+            if store.manifest.structure.isEmpty {
+                emptyState
+            } else {
+                List(selection: $selectedItemId) {
+                    outline(items: store.manifest.structure)
+                }
+                .listStyle(.sidebar)
+            }
         }
-        .listStyle(.sidebar)
+        // Root context menu — attached at the binder level so it's
+        // available even when the structure is empty (right-clicking
+        // a row gives the per-row menu instead, no overlap).
+        .contextMenu {
+            let ext = store.manifest.type == .screenplay ? "fountain" : "md"
+            Button("New Document") {
+                Task { await addItem(parent: nil, kind: .document(extension: ext)) }
+            }
+            Button("New Group") {
+                Task { await addItem(parent: nil, kind: .group) }
+            }
+        }
         .alert("Couldn't update project",
                isPresented: Binding(
                 get: { pendingError != nil },
@@ -99,8 +117,11 @@ struct BinderView: View {
 
     // MARK: - Actions
 
-    private func addItem(parent: StructureItem, kind: StructureItemKind) async {
-        let parentId: String? = parent.type == .group ? parent.id : findParentId(of: parent.id)
+    private func addItem(parent: StructureItem?, kind: StructureItemKind) async {
+        let parentId: String? = {
+            guard let parent else { return nil }
+            return parent.type == .group ? parent.id : findParentId(of: parent.id)
+        }()
         let title: String
         switch kind {
         case .document: title = "New Document"
@@ -114,6 +135,47 @@ struct BinderView: View {
         } catch {
             pendingError = error.localizedDescription
         }
+    }
+
+    /// Empty-state shown when `store.manifest.structure` has zero items.
+    /// The parent `.contextMenu` on the Group covers right-click; this
+    /// view gives the writer a discoverable button-driven alternative.
+    private var emptyState: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "doc.text")
+                .imageScale(.large)
+                .foregroundStyle(.secondary)
+            Text("No documents yet")
+                .font(.headline)
+            Text(
+                store.manifest.type == .screenplay
+                ? "Add your first screenplay."
+                : "Add your first chapter or scene.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            let ext = store.manifest.type == .screenplay ? "fountain" : "md"
+            HStack(spacing: 8) {
+                Button {
+                    Task {
+                        await addItem(
+                            parent: nil, kind: .document(extension: ext))
+                    }
+                } label: {
+                    Label("New Document", systemImage: "doc.badge.plus")
+                }
+                .buttonStyle(.borderedProminent)
+                Button {
+                    Task { await addItem(parent: nil, kind: .group) }
+                } label: {
+                    Label("New Group", systemImage: "folder.badge.plus")
+                }
+                .buttonStyle(.bordered)
+            }
+            .padding(.top, 4)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func rename(id: String, to newTitle: String) async {
