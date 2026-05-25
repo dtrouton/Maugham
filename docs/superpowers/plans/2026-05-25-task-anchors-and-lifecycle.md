@@ -278,7 +278,7 @@ Extend `MarkdownCheckboxScanner.match` and `FountainBoneyardScanner.matchTodo` (
 - Edit: `Maugham/OpLog/InlineTaskScanners.swift`
 - Create: `MaughamTests/InlineTaskScannerAnchorTests.swift`
 
-- [ ] **Step 3.1: Write failing tests**
+- [x] **Step 3.1: Write failing tests**
 
 ```swift
 final class InlineTaskScannerAnchorTests: XCTestCase {
@@ -327,13 +327,13 @@ final class InlineTaskScannerAnchorTests: XCTestCase {
 }
 ```
 
-- [ ] **Step 3.2: Run, expect FAIL**
-- [ ] **Step 3.3: Extend `MarkdownCheckboxScanner.Match` + `FountainBoneyardScanner.Match`**
+- [x] **Step 3.2: Run, expect FAIL**
+- [x] **Step 3.3: Extend `MarkdownCheckboxScanner.Match` + `FountainBoneyardScanner.Match`**
 
 Add `anchorId: String?` to each Match struct. Extend regexes to capture an optional `\s+<!--t-([a-z0-9]{6})-->` group at the end of the body region.
 
-- [ ] **Step 3.4: Run tests, iterate to green**
-- [ ] **Step 3.5: Full suite green + commit**
+- [x] **Step 3.4: Run tests, iterate to green**
+- [x] **Step 3.5: Full suite green + commit**
 
 ```bash
 git add Maugham/OpLog/InlineTaskScanners.swift MaughamTests/InlineTaskScannerAnchorTests.swift

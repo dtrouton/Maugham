@@ -1,53 +1,73 @@
 import Foundation
 
-/// Scanner for markdown checkbox list items: `- [ ] body` / `- [x] body`.
-/// Returns the line's checked state and body text. The full bracket-range /
+/// Scanner for markdown checkbox list items: `- [ ] body` / `- [x] body`,
+/// optionally followed by a trailing task anchor `<!--t-XXXXXX-->`.
+/// Returns the line's checked state, body text (anchor-free, no trailing
+/// space), and optional 6-char anchor id. The full bracket-range /
 /// click-route surface is added in Task 5 as an extension in `Maugham/Editor/`.
 public enum MarkdownCheckboxScanner {
 
     public struct Match: Equatable {
         public let checked: Bool
         public let body: String
+        public let anchorId: String?
 
-        public init(checked: Bool, body: String) {
+        public init(checked: Bool, body: String, anchorId: String? = nil) {
             self.checked = checked
             self.body = body
+            self.anchorId = anchorId
         }
     }
 
     private static let regex: NSRegularExpression = {
-        // `^\s*- \[( |x)\] (.*)$` — leading whitespace + bullet + bracket + body.
-        return try! NSRegularExpression(pattern: #"^\s*- \[( |x)\] (.*)$"#)
+        // `^\s*- \[( |x)\] (.+?)(?:\s+<!--t-([alphabet]{6})-->)?$`
+        // Non-greedy body capture so the optional trailing anchor group can
+        // bite. If the line ends with a well-formed anchor preceded by a
+        // single whitespace gap, group 3 captures the id; otherwise group 3's
+        // range is NSNotFound and the entire body string is whatever follows
+        // the bracket.
+        return try! NSRegularExpression(
+            pattern: #"^\s*- \[( |x)\] (.+?)(?:\s+<!--t-([0123456789abcdefghjkmnpqrstvwxyz]{6})-->)?$"#)
     }()
 
     public static func match(_ line: String) -> Match? {
         let ns = line as NSString
         let range = NSRange(location: 0, length: ns.length)
         guard let m = regex.firstMatch(in: line, range: range),
-              m.numberOfRanges == 3 else { return nil }
+              m.numberOfRanges == 4 else { return nil }
         let checked = ns.substring(with: m.range(at: 1)) == "x"
         let body = ns.substring(with: m.range(at: 2))
-        return Match(checked: checked, body: body)
+        let anchorRange = m.range(at: 3)
+        let anchorId: String? = anchorRange.location == NSNotFound
+            ? nil
+            : ns.substring(with: anchorRange)
+        return Match(checked: checked, body: body, anchorId: anchorId)
     }
 }
 
 /// Scanner for Fountain `[[todo: ...]]` / `[[done: ...]]` boneyards within a
-/// paragraph. Multiple occurrences per paragraph are returned in source order.
+/// paragraph, optionally followed by a glued task anchor `<!--t-XXXXXX-->`
+/// (no whitespace between `]]` and the anchor). Multiple occurrences per
+/// paragraph are returned in source order.
 public enum FountainBoneyardScanner {
 
     public struct Match: Equatable {
         public let done: Bool
         public let body: String
+        public let anchorId: String?
 
-        public init(done: Bool, body: String) {
+        public init(done: Bool, body: String, anchorId: String? = nil) {
             self.done = done
             self.body = body
+            self.anchorId = anchorId
         }
     }
 
     private static let regex: NSRegularExpression = {
-        // `\[\[(todo|done):\s*(.*?)\]\]` — non-greedy body capture.
-        return try! NSRegularExpression(pattern: #"\[\[(todo|done):\s*(.*?)\]\]"#)
+        // `\[\[(todo|done):\s*(.*?)\]\](?:<!--t-([alphabet]{6})-->)?`
+        // The anchor is glued to the closing `]]` with no whitespace.
+        return try! NSRegularExpression(
+            pattern: #"\[\[(todo|done):\s*(.*?)\]\](?:<!--t-([0123456789abcdefghjkmnpqrstvwxyz]{6})-->)?"#)
     }()
 
     /// Single-match convenience (first occurrence in line). Used by the
@@ -56,10 +76,14 @@ public enum FountainBoneyardScanner {
         let ns = line as NSString
         let range = NSRange(location: 0, length: ns.length)
         guard let m = regex.firstMatch(in: line, range: range),
-              m.numberOfRanges == 3 else { return nil }
+              m.numberOfRanges == 4 else { return nil }
         let kind = ns.substring(with: m.range(at: 1))
         let body = ns.substring(with: m.range(at: 2))
-        return Match(done: kind == "done", body: body)
+        let anchorRange = m.range(at: 3)
+        let anchorId: String? = anchorRange.location == NSNotFound
+            ? nil
+            : ns.substring(with: anchorRange)
+        return Match(done: kind == "done", body: body, anchorId: anchorId)
     }
 
     /// All `[[todo:]]` / `[[done:]]` occurrences in source order across the
@@ -69,10 +93,14 @@ public enum FountainBoneyardScanner {
         let range = NSRange(location: 0, length: ns.length)
         let matches = regex.matches(in: text, range: range)
         return matches.compactMap { m in
-            guard m.numberOfRanges == 3 else { return nil }
+            guard m.numberOfRanges == 4 else { return nil }
             let kind = ns.substring(with: m.range(at: 1))
             let body = ns.substring(with: m.range(at: 2))
-            return Match(done: kind == "done", body: body)
+            let anchorRange = m.range(at: 3)
+            let anchorId: String? = anchorRange.location == NSNotFound
+                ? nil
+                : ns.substring(with: anchorRange)
+            return Match(done: kind == "done", body: body, anchorId: anchorId)
         }
     }
 
@@ -98,7 +126,7 @@ public enum FountainBoneyardScanner {
         let range = NSRange(location: 0, length: ns.length)
         let matches = regex.matches(in: content, range: range)
         return matches.compactMap { m in
-            guard m.numberOfRanges == 3 else { return nil }
+            guard m.numberOfRanges == 4 else { return nil }
             let kindRange = m.range(at: 1)         // "todo" or "done" (4 chars)
             let bodyCapture = m.range(at: 2)
             let kind = ns.substring(with: kindRange)
