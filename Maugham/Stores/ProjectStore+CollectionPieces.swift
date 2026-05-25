@@ -631,6 +631,17 @@ extension ProjectStore {
         let oldFolderURL = url.appendingPathComponent(oldFolderRel)
         let newFolderURL = url.appendingPathComponent(newFolderRel)
 
+        // Close the open Document (if any) at the OLD piece path before
+        // moving the enclosing folder. Same race fix as
+        // `renameStructureItem` for Novel/Screenplay docs: the open
+        // doc's 750ms autosave would otherwise re-create the file at
+        // its known path right after we move the folder out from
+        // under it, leaving phantom files behind.
+        if let ds = documentStore, let openDoc = ds.document(for: oldPath) {
+            await openDoc.close()
+            ds.unregister(path: oldPath)
+        }
+
         // 1. Move the parent folder.
         if oldFolderURL.path != newFolderURL.path {
             try fm.moveItem(at: oldFolderURL, to: newFolderURL)

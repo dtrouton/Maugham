@@ -24,8 +24,18 @@ struct PieceRow: View {
                     .focused($isRenameFieldFocused)
                     .onAppear {
                         draftTitle = piece.title
-                        DispatchQueue.main.async {
-                            isRenameFieldFocused = true
+                        claimFocus()
+                    }
+                    // Cover the case where `renamingItemId` flips to this
+                    // row while it was already visible (e.g., context-menu
+                    // Rename). `.onAppear` only fires when the if-branch
+                    // first creates the rename subtree; `.onChange` covers
+                    // the in-place flip. Same belt-and-braces approach as
+                    // BinderRow.
+                    .onChange(of: renamingItemId) { _, new in
+                        if new == piece.id {
+                            draftTitle = piece.title
+                            claimFocus()
                         }
                     }
                     .onExitCommand { renamingItemId = nil }
@@ -94,5 +104,17 @@ struct PieceRow: View {
             onRename(piece.id, trimmed)
         }
         renamingItemId = nil
+    }
+
+    /// Claim TextField focus with enough deferral that SwiftUI has installed
+    /// the field in the responder chain AND `List(selection:)` has finished
+    /// its own selection-claim. A single `DispatchQueue.main.async` tick
+    /// sometimes lost to the selection focus pass, leaving the new row
+    /// selected but not editing. See BinderRow.claimFocus for the same fix.
+    private func claimFocus() {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(30))
+            isRenameFieldFocused = true
+        }
     }
 }
