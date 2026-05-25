@@ -20,6 +20,17 @@ public enum Bootstrap {
                 paragraphIds: parsed.compactMap(\.id))
         }
 
+        // Empty .md: nothing to bootstrap. Earlier builds emitted a
+        // junk bootstrap op with empty `changes` and empty `sequence`
+        // here, which then clobbered downstream state when folded by
+        // the deriver. The empty .md case happens transiently when a
+        // new doc is created (before first autosave) or when the
+        // user has just deleted everything. In both cases there's no
+        // useful work for bootstrap to do — return without emitting.
+        if parsed.isEmpty {
+            return Result(bootstrapped: false, paragraphIds: [])
+        }
+
         // Mint new ids for any missing.
         var sequence: [String] = []
         var paragraphMap: [String: String] = [:]

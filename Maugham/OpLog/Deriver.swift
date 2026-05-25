@@ -32,6 +32,20 @@ public enum Deriver {
                 }
             }
             if let s = op.sequence {
+                // Defensive: ignore empty-sequence bootstrap ops. Earlier
+                // builds emitted a junk bootstrap with `sequence: []` and
+                // `changes: []` when a doc was opened against a momentarily-
+                // empty .md mid-session. Folding such an op clobbered the
+                // accumulated sequence to [], corrupting the display until
+                // load-time recovery ran. The emission path is now guarded
+                // (Bootstrap.run + Document.load) but existing op logs in
+                // the wild still carry these junk ops; this defensive
+                // filter heals them transparently. Legitimate empty
+                // sequence (writer deleted all paragraphs) only happens
+                // via typing_burst, which is unaffected.
+                if op.kind == .bootstrap && s.isEmpty {
+                    continue
+                }
                 sequence = s
             }
         }

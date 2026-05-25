@@ -222,7 +222,14 @@ public final class Document {
         let logExists = FileManager.default.fileExists(atPath: opLogPath.path)
         let storedBytes = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
         let parsed = ParagraphParser.parse(storedBytes)
-        let needsBootstrap = !logExists || parsed.allSatisfy { $0.id == nil }
+        // `parsed.isEmpty` (empty .md) used to satisfy `allSatisfy { id == nil }`
+        // vacuously, triggering bootstrap that emitted a junk op with empty
+        // changes + empty sequence. Filter empty .md out explicitly. The
+        // empty case happens transiently for newly-created docs before
+        // first autosave; there's nothing to bootstrap. Bootstrap.run also
+        // has its own empty-parsed guard, so this is belt-and-braces.
+        let needsBootstrap = (!logExists || parsed.allSatisfy { $0.id == nil })
+            && !parsed.isEmpty
 
         if needsBootstrap {
             _ = try await Bootstrap.run(
