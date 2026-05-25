@@ -13,7 +13,6 @@ public struct UIState: Codable, Equatable, Sendable {
     public var researchPreviewVisible: Bool
     public var detailSegment: DetailSegment
     public var outlineLayout: OutlineLayout
-    public var hasShownOpLogBootstrapNotice: Bool
 
     public init(
         schemaVersion: Int = UIState.currentSchemaVersion,
@@ -23,8 +22,7 @@ public struct UIState: Codable, Equatable, Sendable {
         binderSegment: BinderSegment = .manuscript,
         researchPreviewVisible: Bool = false,
         detailSegment: DetailSegment = .inspector,
-        outlineLayout: OutlineLayout = .table,
-        hasShownOpLogBootstrapNotice: Bool = false
+        outlineLayout: OutlineLayout = .table
     ) {
         self.schemaVersion = schemaVersion
         self.selectedItemId = selectedItemId
@@ -34,14 +32,13 @@ public struct UIState: Codable, Equatable, Sendable {
         self.researchPreviewVisible = researchPreviewVisible
         self.detailSegment = detailSegment
         self.outlineLayout = outlineLayout
-        self.hasShownOpLogBootstrapNotice = hasShownOpLogBootstrapNotice
     }
 
     public static let empty = UIState()
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, selectedItemId, isNoChromeOn, scrollLine, binderSegment,
-             researchPreviewVisible, detailSegment, outlineLayout, hasShownOpLogBootstrapNotice
+             researchPreviewVisible, detailSegment, outlineLayout
     }
 
     public init(from decoder: Decoder) throws {
@@ -54,7 +51,10 @@ public struct UIState: Codable, Equatable, Sendable {
         self.researchPreviewVisible = (try? c.decode(Bool.self, forKey: .researchPreviewVisible)) ?? false
         self.detailSegment = (try? c.decode(DetailSegment.self, forKey: .detailSegment)) ?? .inspector
         self.outlineLayout = (try? c.decode(OutlineLayout.self, forKey: .outlineLayout)) ?? .table
-        self.hasShownOpLogBootstrapNotice = (try? c.decode(Bool.self, forKey: .hasShownOpLogBootstrapNotice)) ?? false
+        // hasShownOpLogBootstrapNotice was removed in v0.3.1 (the dead-code
+        // sweep after Tasks shipped). Existing on-disk JSONs may still have
+        // the key — JSON decoding ignores unknown keys silently, so old
+        // ui-state.json files load fine.
     }
 
     /// Load from disk; return `.empty` if file is missing, malformed, or has

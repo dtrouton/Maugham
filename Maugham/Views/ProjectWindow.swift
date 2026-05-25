@@ -143,13 +143,6 @@ struct ProjectWindow: View {
                         onCancel: { showingCheckpointLabelSheet = false }
                     )
                 }
-                .sheet(isPresented: Binding(
-                    get: { !documentStore.uiState.hasShownOpLogBootstrapNotice },
-                    set: { _ in })) {
-                    BootstrapNoticeSheet {
-                        documentStore.updateUIState { $0.hasShownOpLogBootstrapNotice = true }
-                    }
-                }
             } else if let loadError {
                 VStack(spacing: 12) {
                     Image(systemName: "exclamationmark.triangle")
