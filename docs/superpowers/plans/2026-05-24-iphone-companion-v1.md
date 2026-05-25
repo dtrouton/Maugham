@@ -223,3 +223,5 @@ This is a several-milestone bundle, not a single feature. Suggested commit/PR rh
 - **Milestone 4 — Phase G.** First TestFlight cut. Tag `phone-v0.1.0`.
 
 Each milestone is independently verifiable via the smoke steps above.
+
+**Alternatives considered.** Splitting M3 into M3a (D0+D+E, capture-and-read) and M3b (F, annotations) was discussed and rejected. The split would have de-risked Phase F's correctness work by isolating it, but the user explicitly prefers ambitious bundling here — the "phone v1" story is capture + read + triage as one shippable thing, not staged half-products. Phase F's correctness still earns dual-reviewer treatment (fresh-implementer + spec-reviewer + code-quality-reviewer per CLAUDE.md workflow) inside the bundled milestone.
