@@ -19,6 +19,7 @@ struct ScreenplayPieceInspector: View {
             }
         } else {
             ContentUnavailableView("Select a piece", systemImage: "film")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

@@ -55,6 +55,7 @@ struct DetailPaneToggle<Inspector: View>: View {
             Divider()
             segmentContent
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onChange(of: segment) { _, newValue in
             store.documentStore?.updateUIState { $0.detailSegment = newValue }
         }

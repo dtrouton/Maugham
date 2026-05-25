@@ -18,49 +18,56 @@ struct CollectionPiecesPane: View {
                 } description: {
                     Text("Add your first piece. Use the + button.")
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List(selection: $selectedItemId) {
-                    ForEach(store.manifest.structure) { piece in
-                        PieceRow(
-                            piece: piece,
-                            renamingItemId: $renamingItemId,
-                            onRename: { id, newTitle in
-                                Task {
-                                    try? await store.renamePiece(
-                                        pieceId: id, newTitle: newTitle)
-                                }
-                            },
-                            onDrop: { draggedId, position in
-                                handleDrop(
-                                    draggedId: draggedId,
-                                    targetId: piece.id,
-                                    position: position)
-                            })
-                            .tag(piece.id as String?)
-                            .contextMenu {
-                                Button("Rename") {
-                                    renamingItemId = piece.id
-                                }
-                                if piece.pieceKind == .loose {
-                                    Button("Promote to Standalone Project…") {
-                                        NotificationCenter.default.post(
-                                            name: .maughamPromotePiece,
-                                            object: nil,
-                                            userInfo: ["piece_id": piece.id])
-                                    }
-                                }
-                                Divider()
-                                Button("Delete", role: .destructive) {
-                                    Task {
-                                        try? await store.deleteStructureItem(id: piece.id)
-                                    }
-                                }
-                            }
-                    }
-                }
-                .listStyle(.sidebar)
+                pieceList
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    @ViewBuilder
+    private var pieceList: some View {
+        List(selection: $selectedItemId) {
+            ForEach(store.manifest.structure) { piece in
+                PieceRow(
+                    piece: piece,
+                    renamingItemId: $renamingItemId,
+                    onRename: { id, newTitle in
+                        Task {
+                            try? await store.renamePiece(
+                                pieceId: id, newTitle: newTitle)
+                        }
+                    },
+                    onDrop: { draggedId, position in
+                        handleDrop(
+                            draggedId: draggedId,
+                            targetId: piece.id,
+                            position: position)
+                    })
+                    .tag(piece.id as String?)
+                    .contextMenu {
+                        Button("Rename") {
+                            renamingItemId = piece.id
+                        }
+                        if piece.pieceKind == .loose {
+                            Button("Promote to Standalone Project…") {
+                                NotificationCenter.default.post(
+                                    name: .maughamPromotePiece,
+                                    object: nil,
+                                    userInfo: ["piece_id": piece.id])
+                            }
+                        }
+                        Divider()
+                        Button("Delete", role: .destructive) {
+                            Task {
+                                try? await store.deleteStructureItem(id: piece.id)
+                            }
+                        }
+                    }
+            }
+        }
+        .listStyle(.sidebar)
     }
 
     // MARK: - Drag-reorder

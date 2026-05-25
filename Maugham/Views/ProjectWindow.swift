@@ -815,6 +815,7 @@ struct ProjectWindow: View {
             }
         } else {
             ContentUnavailableView("Select a piece", systemImage: "doc.text")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
