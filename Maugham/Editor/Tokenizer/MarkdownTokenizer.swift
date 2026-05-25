@@ -144,7 +144,8 @@ public struct MarkdownTokenizer: Sendable {
                 let bodyRange = match.range(at: 3)
                 let anchorCapture = match.range(at: 4)
                 if bodyRange.location != NSNotFound && bodyRange.length > 0 {
-                    taskBodyTokens.append(Token(range: bodyRange, kind: .taskBody))
+                    taskBodyTokens.append(Token(
+                        range: bodyRange, kind: .taskBody(done: checked)))
                 }
                 if anchorCapture.location != NSNotFound && anchorCapture.length > 0 {
                     taskBodyTokens.append(Token(range: anchorCapture, kind: .invisibleAnchor))

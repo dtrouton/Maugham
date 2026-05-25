@@ -502,10 +502,19 @@ public final class Document {
     /// display form — anchors aren't visible there — and to the structure
     /// that `recomputeDisplayText` produces: paragraphs joined by "\n\n".
     public func displayRange(forParagraphId paragraphId: String) -> NSRange? {
+        // Compute offsets against the STRIPPED form (what the editor shows).
+        // `paragraphs[id]` carries `<!--t-XXXXXX-->` task anchors that don't
+        // appear in displayText. Using raw lengths here drifted every
+        // paragraph's offset by the cumulative anchor-character count of
+        // prior paragraphs — the last paragraph was most wrong, which is
+        // why "click last task" missed the target paragraph (Bug 1) and
+        // earlier clicks landed a few characters past paragraph start
+        // (Bug 3).
         var offset = 0
         for id in sequence {
             guard let text = paragraphs[id] else { continue }
-            let length = (text as NSString).length
+            let stripped = RenderFilter.stripTaskAnchorsInline(text)
+            let length = (stripped as NSString).length
             if id == paragraphId {
                 return NSRange(location: offset, length: length)
             }

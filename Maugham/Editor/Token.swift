@@ -23,8 +23,9 @@ public struct Token: Equatable, Sendable {
 
         /// Body text of an inline task (`- [ ] body` or `[[todo: body]]`).
         /// The range covers only the body content — not the bracket glyph,
-        /// list marker, or anchor span.
-        case taskBody
+        /// list marker, or anchor span. `done` signals checked state so
+        /// painters can apply strikethrough.
+        case taskBody(done: Bool)
 
         /// `<!--t-XXXXXX-->` task-anchor span (optionally with a leading
         /// space for markdown line tasks). Painted fully transparent so the

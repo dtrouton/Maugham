@@ -93,13 +93,20 @@ public struct ProseMode: WritingMode {
                     MaughamCheckboxAttr: marker,
                 ]
                 storage.addAttributes(attrs, range: token.range)
-            } else if case .taskBody = token.kind {
+            } else if case .taskBody(let done) = token.kind {
                 // Distinct styling for task body text — secondary color signals
                 // "you're in a task" without being garish. Inherits the base
                 // font from the full-range setAttributes above.
-                let attrs: [NSAttributedString.Key: Any] = [
+                // Strikethrough on done state mirrors the pane's visual
+                // treatment of completed tasks.
+                var attrs: [NSAttributedString.Key: Any] = [
                     .foregroundColor: palette.syntaxPunctuation,
                 ]
+                if done {
+                    attrs[.strikethroughStyle] =
+                        NSUnderlineStyle.single.rawValue
+                    attrs[.strikethroughColor] = palette.syntaxPunctuation
+                }
                 storage.addAttributes(attrs, range: token.range)
             } else if case .invisibleAnchor = token.kind {
                 // Fully transparent — anchor must remain in NSTextStorage for

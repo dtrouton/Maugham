@@ -50,7 +50,8 @@ public struct ScreenplayMode: WritingMode {
                         location: line.range.location + hit.bodyRange.location,
                         length: hit.bodyRange.length)
                     if NSMaxRange(docBody) <= ns.length {
-                        tokens.append(Token(range: docBody, kind: .taskBody))
+                        tokens.append(Token(
+                            range: docBody, kind: .taskBody(done: hit.done)))
                     }
                 }
 
@@ -210,10 +211,16 @@ public struct ScreenplayMode: WritingMode {
         // full-storage wipe. No race risk: addAttributes is purely additive.
         for token in tokens {
             guard NSMaxRange(token.range) <= storage.length else { continue }
-            if case .taskBody = token.kind {
-                storage.addAttributes(
-                    [.foregroundColor: palette.syntaxPunctuation],
-                    range: token.range)
+            if case .taskBody(let done) = token.kind {
+                var attrs: [NSAttributedString.Key: Any] = [
+                    .foregroundColor: palette.syntaxPunctuation,
+                ]
+                if done {
+                    attrs[.strikethroughStyle] =
+                        NSUnderlineStyle.single.rawValue
+                    attrs[.strikethroughColor] = palette.syntaxPunctuation
+                }
+                storage.addAttributes(attrs, range: token.range)
             } else if case .invisibleAnchor = token.kind {
                 storage.addAttributes(
                     [.foregroundColor: NSColor.clear],
