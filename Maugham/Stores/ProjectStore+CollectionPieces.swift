@@ -544,6 +544,27 @@ extension ProjectStore {
             updatedPieces.append(copy)
         }
 
+        // Close any open Documents whose piece folders are about to move.
+        // Without this, the doc's 750ms autosave would race with the
+        // two-phase folder move and re-create the file at the old path
+        // (or worse, fail because the path no longer exists). Same race
+        // class as renamePiece / renameStructureItem.
+        if let ds = documentStore {
+            for rewrite in folderRewrites {
+                // Find the piece by old folder; close its doc at the old
+                // path if open.
+                if let piece = reordered.first(where: {
+                    guard let p = $0.path else { return false }
+                    return (p as NSString).deletingLastPathComponent
+                        == rewrite.oldRel
+                }), let oldPath = piece.path,
+                   let openDoc = ds.document(for: oldPath) {
+                    await openDoc.close()
+                    ds.unregister(path: oldPath)
+                }
+            }
+        }
+
         // 3. Move folders on disk. Use a two-phase rename via temp names to
         //    avoid collisions when pieces swap positions (e.g. swap 01 and 02
         //    would have moveItem fail because the destination exists).

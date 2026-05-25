@@ -356,6 +356,20 @@ public final class DocumentStore {
     public func executeRenamePlan(_ plan: RenamePlan) async throws {
         guard !plan.steps.isEmpty else { return }
 
+        // Close any open Documents at the paths the plan is about to move.
+        // The 750ms autosave on an open Document would otherwise race the
+        // coordinated move and re-create the file at the OLD path — same
+        // race class as renameStructureItem / renamePiece, surfaced here
+        // when a binder reorder renumbers multiple siblings at once. The
+        // doc re-loads via EditorHost.loadDocumentIfNeeded after the move
+        // when the writer re-selects it.
+        for step in plan.steps {
+            if let openDoc = openDocuments[step.oldRelativePath] {
+                await openDoc.close()
+                openDocuments.removeValue(forKey: step.oldRelativePath)
+            }
+        }
+
         let scratchDir = projectURL.appendingPathComponent(".maugham/scratch")
         try FileManager.default.createDirectory(
             at: scratchDir, withIntermediateDirectories: true)

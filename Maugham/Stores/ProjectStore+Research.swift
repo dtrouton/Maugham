@@ -530,6 +530,11 @@ extension ProjectStore {
         let index = currentResearchIndex(of: id, parentId: parentId)
 
         if let path = item.path, !path.isEmpty {
+            // Flush any pending research-note autosave before trashing. A
+            // queued save would otherwise land on the original path moments
+            // after the trash move, re-creating the file. Same race fix as
+            // the deleteStructureItem manuscript close.
+            try? await documentStore?.flushPendingSave()
             let metadata = try JSONEncoder().encode(item)
             let entry = try await trashStore.moveToTrash(
                 fileRelativePath: path,
@@ -637,6 +642,14 @@ extension ProjectStore {
         var newPathForRenamed: String?
         var childPathRewrites: [(String, String)] = []
         if let newTitle = title, newTitle != oldItem.title {
+            // Flush any pending research-note autosave before the disk
+            // move. Research notes save via `DocumentStore.scheduleFileSave`
+            // on a 750ms debounce; if a save is pending it'd land on the
+            // OLD path moments after our move, re-creating a phantom file.
+            // Same race-class as the manuscript Document close-before-FS
+            // pattern, but research notes don't have a Document handle to
+            // close — instead we flush the path-keyed scheduler.
+            try? await documentStore?.flushPendingSave()
             if let result = try renameResearchPath(
                 item: oldItem, oldTitle: oldItem.title, newTitle: newTitle) {
                 newPathForRenamed = result.newPath

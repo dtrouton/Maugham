@@ -30,12 +30,18 @@ struct ResearchRow: View {
                     .focused($isRenameFieldFocused)
                     .onAppear {
                         draftTitle = item.title
-                        // Defer to the next runloop tick — SwiftUI hasn't
-                        // installed the field in the responder chain yet
-                        // when .onAppear fires, so focus assigned now is
-                        // dropped. Same pattern as the 1e cursor-restore fix.
-                        DispatchQueue.main.async {
-                            isRenameFieldFocused = true
+                        claimFocus()
+                    }
+                    // Cover the context-menu Rename path where the row was
+                    // already visible and the if-branch flips in place.
+                    // `.onAppear` only fires when the rename subtree is
+                    // freshly created (Add-new-item path); `.onChange`
+                    // catches the in-place flip. Same belt-and-braces
+                    // approach as BinderRow / PieceRow.
+                    .onChange(of: renamingItemId) { _, new in
+                        if new == item.id {
+                            draftTitle = item.title
+                            claimFocus()
                         }
                     }
                     .onExitCommand { renamingItemId = nil }
@@ -109,5 +115,16 @@ struct ResearchRow: View {
             onRename(item.id, trimmed)
         }
         renamingItemId = nil
+    }
+
+    /// Claim TextField focus with enough deferral that List(selection:)'s
+    /// own focus-claim pass settles first. See BinderRow.claimFocus for
+    /// the rationale — same fix applied to keep all three rename rows
+    /// (BinderRow, PieceRow, ResearchRow) consistent.
+    private func claimFocus() {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(30))
+            isRenameFieldFocused = true
+        }
     }
 }
