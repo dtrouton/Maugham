@@ -209,33 +209,18 @@ struct TasksPane: View {
                 description: Text("Type `- [ ]` in any paragraph, or press +."))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            // Use `ForEach` + `.onMove` for SwiftUI's built-in macOS row-
-            // drag reorder gesture. The earlier `.draggable` + per-row
-            // `.dropDestination` approach was unreliable inside
-            // `List(.sidebar)` rows — row-internal interactive controls
-            // (Toggle, Menu, .onTapGesture) consumed the press-and-drag
-            // sequence, and the `.dropDestination` payload type matching
-            // wasn't always firing. `.onMove` is the canonical pattern
-            // and integrates with List's selection/click hit-testing
-            // without competing for the gesture.
-            //
-            // Trade-off: `.onMove` is a same-list reorder gesture; it
-            // doesn't surface a "nest under target" affordance. Cross-
-            // parent nesting via drag-and-drop is dropped from this UI
-            // (the apply() classifier still handles `.nestUnder` for
-            // any future control that produces it). The current state
-            // is "drag-to-reorder among siblings works"; a kebab
-            // menu "Move under …" follow-up can restore nesting if the
-            // writer asks for it.
-            List(selection: $selectedTaskId) {
-                ForEach(tasks, id: \.id) { task in
-                    row(for: task)
-                        .tag(task.id)
-                }
-                .onMove { source, destination in
-                    handleListMove(
-                        from: source, to: destination, in: tasks)
-                }
+            // `.draggable` + per-row `.dropDestination` mirroring BinderRow.
+            // Earlier attempt to use `ForEach.onMove` didn't actually fire
+            // on macOS in `List(.sidebar)` — even though SwiftUI documents
+            // it as the canonical reorder gesture. BinderRow proves the
+            // older `.draggable`/`.dropDestination` pattern works inside
+            // this exact list style. The trade-off is that row-internal
+            // interactive controls (Toggle on the left, Menu on the right)
+            // capture pointer events in their immediate area; the writer
+            // initiates drag from the body-text region or the row padding.
+            List(tasks, id: \.id, selection: $selectedTaskId) { task in
+                row(for: task)
+                    .tag(task.id)
             }
             .listStyle(.sidebar)
         }
@@ -250,6 +235,27 @@ struct TasksPane: View {
             onArchive: { archive(task) },
             onDelete: { deleteIfPaneCreated(task) })
             .padding(.leading, task.parentTaskId == nil ? 0 : 18)
+            .draggable(task.id) {
+                Text(task.body)
+                    .padding(6)
+                    .background(.regularMaterial,
+                                in: RoundedRectangle(cornerRadius: 4))
+            }
+            .dropDestination(for: String.self) { ids, location in
+                guard let draggedId = ids.first else { return false }
+                // Row height varies with body length + theme; 28 is a
+                // sensible default close to the typical sidebar row.
+                let rowHeight: CGFloat = 28
+                let yFrac = Double(
+                    min(max(location.y, 0), rowHeight) / rowHeight)
+                let position = TaskDropIntent.position(yFraction: yFrac)
+                let intent = TaskDropIntent.classify(
+                    position: position,
+                    targetId: task.id,
+                    targetParentTaskId: task.parentTaskId)
+                handleDrop(draggedId: draggedId, intent: intent)
+                return true
+            }
     }
 
     // MARK: - Visible tasks

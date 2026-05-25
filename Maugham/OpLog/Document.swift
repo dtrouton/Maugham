@@ -410,7 +410,13 @@ public final class Document {
         for id in sequence {
             guard let text = paragraphs[id] else { continue }
             if !rendered.isEmpty { rendered.append("\n\n") }
-            rendered.append(text)
+            // Strip per-task `<!--t-XXXXXX-->` anchors from each paragraph
+            // for editor display. The anchors are intentionally kept in
+            // `paragraphs[id]` so V2 alignment can round-trip them through
+            // `setFullText`; they only matter on disk + in op-log derivation,
+            // never as visible glyphs in the editor. Mirror of how paragraph
+            // anchors live in the .md but never in `displayText`.
+            rendered.append(RenderFilter.stripTaskAnchorsInline(text))
         }
         displayText = rendered
     }
