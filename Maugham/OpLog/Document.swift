@@ -808,6 +808,9 @@ public final class Document {
     }
 
     public func archiveTask(id: String) {
+        // Emit the .taskArchive op first so the lifecycle event lands in the
+        // op log even when no anchor can be located (pane-created tasks, or
+        // an inline anchor that's already been spliced out of the .md).
         let op = Op(
             opId: ULID.generate(),
             docId: docId, at: Date(),
@@ -818,7 +821,210 @@ public final class Document {
                 sessionId: session,
                 taskId: id))
         appendTaskOpInternal(op)
+
+        // Extract the anchor id from the synth-id. Pane-created tasks have
+        // `id == opId` (no `inline:` prefix) and never carry inline text —
+        // op-only archive is sufficient.
+        guard let anchorId = Self.extractAnchorId(fromTaskId: id) else { return }
+        guard let location = locateTaskAnchor(anchorId: anchorId) else {
+            // Anchor isn't in any paragraph — already spliced out or never
+            // present (e.g. stale tasks pane row). Op-only archive.
+            return
+        }
+
+        guard let para = paragraphs[location.paragraphId] else { return }
+        let mutated = Self.spliceArchivedTask(
+            from: para,
+            anchorRangeInLine: location.anchorRangeInLine,
+            lineIndex: location.lineIndex)
+        if mutated.isEmpty {
+            // Sole task in the paragraph → paragraph collapses. The sweep
+            // reason carries the removed id so annotations on it archive
+            // through the normal path.
+            deleteParagraph(id: location.paragraphId)
+        } else {
+            setParagraph(id: location.paragraphId, text: mutated)
+        }
     }
+
+    /// Extract the 6-char anchor id from a task synth-id of the form
+    /// `inline:<docId>:<anchorId>`. Returns nil for pane-created task ids
+    /// (which are bare ULIDs with no `inline:` prefix).
+    internal static func extractAnchorId(fromTaskId id: String) -> String? {
+        guard id.hasPrefix("inline:") else { return nil }
+        // docId can itself be arbitrary, but task synth-ids always end with
+        // `:<anchorId>` and anchorId never contains `:`. Trailing component.
+        guard let lastColon = id.lastIndex(of: ":") else { return nil }
+        let anchor = String(id[id.index(after: lastColon)...])
+        return TaskAnchorID.parseComment(TaskAnchorID.formatComment(anchor))
+    }
+
+    /// Find a task anchor across all paragraphs in `paragraphs` (not just
+    /// those in `sequence` — defensive against orphan paragraphs that haven't
+    /// been pruned yet). Returns the (paragraphId, 0-based line index within
+    /// that paragraph, NSRange of the anchor span within that line).
+    internal func locateTaskAnchor(
+        anchorId: String
+    ) -> (paragraphId: String, lineIndex: Int, anchorRangeInLine: NSRange)? {
+        let target = TaskAnchorID.formatComment(anchorId)
+        // Walk in sequence order first so the result is deterministic when
+        // an orphan paragraph also happens to contain the anchor.
+        var visited = Set<String>()
+        for pid in sequence {
+            visited.insert(pid)
+            if let hit = Self.locateAnchor(target, in: paragraphs[pid] ?? "") {
+                return (pid, hit.lineIndex, hit.range)
+            }
+        }
+        for (pid, text) in paragraphs where !visited.contains(pid) {
+            if let hit = Self.locateAnchor(target, in: text) {
+                return (pid, hit.lineIndex, hit.range)
+            }
+        }
+        return nil
+    }
+
+    private static func locateAnchor(
+        _ target: String, in paragraph: String
+    ) -> (lineIndex: Int, range: NSRange)? {
+        let lines = paragraph.components(separatedBy: "\n")
+        for (idx, line) in lines.enumerated() {
+            let ns = line as NSString
+            let r = ns.range(of: target)
+            if r.location != NSNotFound {
+                return (idx, r)
+            }
+        }
+        return nil
+    }
+
+    /// Splice an archived task out of its paragraph text per spec §2.7.
+    ///
+    /// - Line-style (`- [ ] body <!--t-XXXXXX-->`): delete the whole line +
+    ///   its terminating `\n` (or the leading `\n` if last line). If only
+    ///   one line existed, returns "" so the caller can collapse the
+    ///   paragraph.
+    /// - Inline (`[[todo: body]]<!--t-XXXXXX-->` mid-prose): splice the
+    ///   bracketed segment + its anchor; collapse one adjacent whitespace
+    ///   when both sides are whitespace-bordered. When only one side is
+    ///   whitespace, splice the segment + that one whitespace. When neither
+    ///   side is whitespace (word-glue, rare), splice only the segment.
+    internal static func spliceArchivedTask(
+        from paragraph: String,
+        anchorRangeInLine: NSRange,
+        lineIndex: Int
+    ) -> String {
+        let lines = paragraph.components(separatedBy: "\n")
+        guard lineIndex >= 0, lineIndex < lines.count else { return paragraph }
+        let line = lines[lineIndex]
+        let ns = line as NSString
+
+        // Decide line-style vs inline by whether the line — once stripped of
+        // the anchor — matches the markdown checkbox shape. The anchor sits
+        // at the very end of a line-style task: anything between `]` and
+        // the anchor is whitespace + body + optional trailing space.
+        let checkboxPrefix = try! NSRegularExpression(
+            pattern: #"^\s*- \[(?: |x)\] "#)
+        let prefixMatch = checkboxPrefix.firstMatch(
+            in: line, range: NSRange(location: 0, length: ns.length))
+        let anchorAtLineEnd = (anchorRangeInLine.location
+            + anchorRangeInLine.length == ns.length)
+        let isLineStyle: Bool = {
+            guard let m = prefixMatch else { return false }
+            guard anchorAtLineEnd else { return false }
+            // The anchor must be the only `<!--t-…-->` span on this line for
+            // line-style treatment — multiple-anchors-per-line falls through
+            // to the inline splice path. (Multi-anchor lines are unusual for
+            // checkbox lines but possible if a writer types one inline.)
+            let countRegex = try! NSRegularExpression(
+                pattern: #"<!--t-[0123456789abcdefghjkmnpqrstvwxyz]{6}-->"#)
+            let count = countRegex.numberOfMatches(
+                in: line, range: NSRange(location: 0, length: ns.length))
+            _ = m  // suppress unused-warning when count != 1
+            return count == 1
+        }()
+
+        if isLineStyle {
+            // Delete the entire line, plus one surrounding `\n`. Joining the
+            // remaining lines with "\n" handles both:
+            //   - middle / first line: leading `\n` of next line is dropped
+            //     implicitly by the join.
+            //   - last line: the trailing `\n` before this line is dropped
+            //     because we remove the array element before joining.
+            var mutated = lines
+            mutated.remove(at: lineIndex)
+            return mutated.joined(separator: "\n")
+        }
+
+        // Inline splice. Find the full bracketed segment + anchor span. The
+        // anchor span ends at `anchorRangeInLine.upperBound`; the segment
+        // start is the leftmost `[[` before the anchor whose matched
+        // `[[(todo|done): …]]<!--t-XXXXXX-->` ends exactly at the anchor.
+        let segmentPattern = #"\[\[(?:todo|done):\s*.*?\]\]<!--t-[0123456789abcdefghjkmnpqrstvwxyz]{6}-->"#
+        // swiftlint:disable:next force_try
+        let segmentRegex = try! NSRegularExpression(pattern: segmentPattern)
+        let fullRange = NSRange(location: 0, length: ns.length)
+        let matches = segmentRegex.matches(in: line, range: fullRange)
+        guard let segment = matches.first(where: { match in
+            // Match ends exactly at the anchor's end → this is the bracketed
+            // segment that owns the target anchor.
+            match.range.location + match.range.length
+                == anchorRangeInLine.location + anchorRangeInLine.length
+        }) else {
+            // Couldn't pair a `[[…]]` to this anchor (malformed inline; e.g.
+            // glued anchor with no preceding `[[`). Conservative: drop only
+            // the anchor span itself.
+            let mutatedLine = ns.replacingCharacters(
+                in: anchorRangeInLine, with: "")
+            return Self.replaceLine(lines, at: lineIndex, with: mutatedLine)
+        }
+
+        let segRange = segment.range
+        let before = segRange.location == 0
+            ? ""
+            : ns.substring(with: NSRange(
+                location: segRange.location - 1, length: 1))
+        let afterStart = segRange.location + segRange.length
+        let after = afterStart >= ns.length
+            ? ""
+            : ns.substring(with: NSRange(location: afterStart, length: 1))
+        let leftIsWS = !before.isEmpty
+            && before.rangeOfCharacter(from: .whitespaces) != nil
+        let rightIsWS = !after.isEmpty
+            && after.rangeOfCharacter(from: .whitespaces) != nil
+
+        var spliceStart = segRange.location
+        var spliceLength = segRange.length
+        if leftIsWS && rightIsWS {
+            // Both sides whitespace → consume the LEADING whitespace char
+            // (collapses "X _seg_ Y" to "X Y").
+            spliceStart -= 1
+            spliceLength += 1
+        } else if leftIsWS && !rightIsWS {
+            // Only left whitespace → consume it (trailing-of-paragraph case
+            // "X _seg_$" → "X$").
+            spliceStart -= 1
+            spliceLength += 1
+        } else if !leftIsWS && rightIsWS {
+            // Only right whitespace → consume it (start-of-paragraph case
+            // "^_seg_ X" → "X").
+            spliceLength += 1
+        }
+        // else: neither side whitespace (word-glue) → splice only the segment
+
+        let spliceRange = NSRange(location: spliceStart, length: spliceLength)
+        let mutatedLine = ns.replacingCharacters(in: spliceRange, with: "")
+        return Self.replaceLine(lines, at: lineIndex, with: mutatedLine)
+    }
+
+    private static func replaceLine(
+        _ lines: [String], at index: Int, with newLine: String
+    ) -> String {
+        var mutated = lines
+        mutated[index] = newLine
+        return mutated.joined(separator: "\n")
+    }
+
 
     /// Lowest priority across the doc's currently-derived tasks. Pane-created
     /// tasks get `lowest + 1.0` so they land at the head of the list (the

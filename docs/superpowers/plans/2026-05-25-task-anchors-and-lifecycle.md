@@ -670,8 +670,8 @@ Implements the archive action's text mutation per spec §2.7 case-by-case:
 - Edit: `Maugham/OpLog/Document.swift`
 - Create: `MaughamTests/DocumentArchiveTextMutationTests.swift`
 
-- [ ] **Step 7.1: Write tests for each §2.7 case (2.1 through 2.7 in spec)**
-- [ ] **Step 7.2: Extend `archiveTask(id:)` to perform the text mutation**
+- [x] **Step 7.1: Write tests for each §2.7 case (2.1 through 2.7 in spec)**
+- [x] **Step 7.2: Extend `archiveTask(id:)` to perform the text mutation**
 
 ```swift
 public func archiveTask(id: String) {
@@ -694,7 +694,7 @@ public func archiveTask(id: String) {
 }
 ```
 
-- [ ] **Step 7.3: Helpers: `locateAnchor` and `spliceOutAnchoredSegment`**
+- [x] **Step 7.3: Helpers: `locateAnchor` and `spliceOutAnchoredSegment`**
 
 `locateAnchor(anchorId:)` scans `paragraphs` for `<!--t-XXXXXX-->`, returns `(paragraphId, NSRange)`.
 
@@ -703,7 +703,7 @@ public func archiveTask(id: String) {
   - Line-style: walk backward to `\n` or start, forward to `\n` or end, delete the line + one `\n`
   - Inline: walk backward through optional whitespace and `[[(todo|done): …]]` to find the segment start; the anchor is the segment end. Apply whitespace-collapse rule.
 
-- [ ] **Step 7.4: Iterate to green + commit**
+- [x] **Step 7.4: Iterate to green + commit**
 
 ---
 
