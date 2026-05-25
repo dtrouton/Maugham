@@ -129,7 +129,7 @@ The critical seam. Property: `restoreComments(stripComments(x)) == x` for any an
 - Edit: `Maugham/OpLog/RenderFilter.swift`
 - Create: `MaughamTests/RenderFilterTaskAnchorTests.swift`
 
-- [ ] **Step 2.1: Write failing tests**
+- [x] **Step 2.1: Write failing tests**
 
 ```swift
 final class RenderFilterTaskAnchorTests: XCTestCase {
@@ -216,8 +216,8 @@ final class RenderFilterTaskAnchorTests: XCTestCase {
 }
 ```
 
-- [ ] **Step 2.2: Run, expect FAIL** (helper not yet defined)
-- [ ] **Step 2.3: Extend `RenderFilter` with task-anchor strip + restore**
+- [x] **Step 2.2: Run, expect FAIL** (helper not yet defined)
+- [x] **Step 2.3: Extend `RenderFilter` with task-anchor strip + restore**
 
 The existing `RenderFilter.stripComments` strips paragraph anchors via a regex. Add a second regex pass for task anchors:
 
@@ -257,11 +257,11 @@ internal static func restoreLineByLine(
 }
 ```
 
-- [ ] **Step 2.4: Iterate to green**
+- [x] **Step 2.4: Iterate to green**
 
 The body-match + LCS implementation has subtleties. Iterate against the test cases until green. Likely needs 1–2 rounds.
 
-- [ ] **Step 2.5: Full suite green + commit**
+- [x] **Step 2.5: Full suite green + commit**
 
 ```bash
 git add Maugham/OpLog/RenderFilter.swift MaughamTests/RenderFilterTaskAnchorTests.swift
