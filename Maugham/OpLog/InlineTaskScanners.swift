@@ -141,6 +141,45 @@ public enum FountainBoneyardScanner {
         }
     }
 
+    /// All `[[todo: ...]]` / `[[done: ...]]` occurrences with prefix, body,
+    /// and optional anchor NSRanges, in source order. `anchorRange` covers the
+    /// full `<!--t-XXXXXX-->` span (no leading space — Fountain anchors are
+    /// glued immediately after `]]`). Returns NSRange with location == NSNotFound
+    /// when no anchor is present for a given match.
+    public static func matchTodoAllFull(
+        _ content: String
+    ) -> [(done: Bool, prefixRange: NSRange, bodyRange: NSRange, anchorRange: NSRange)] {
+        let ns = content as NSString
+        let range = NSRange(location: 0, length: ns.length)
+        let matches = regex.matches(in: content, range: range)
+        return matches.compactMap { m in
+            guard m.numberOfRanges == 4 else { return nil }
+            let kindRange = m.range(at: 1)
+            let bodyCapture = m.range(at: 2)
+            let anchorIdRange = m.range(at: 3)
+            let kind = ns.substring(with: kindRange)
+            let prefixRange = NSRange(
+                location: kindRange.location,
+                length: kindRange.length + 1)
+            // Anchor range: if anchorId was captured, reconstruct the full
+            // `<!--t-XXXXXX-->` span. The anchor id is 6 chars; the full span
+            // is `<!--t-` (6) + 6 + `-->` (3) = 15 chars, starting 3 chars
+            // before anchorId (past `<!--t-`).
+            let anchorRange: NSRange
+            if anchorIdRange.location != NSNotFound {
+                anchorRange = NSRange(
+                    location: anchorIdRange.location - 6,
+                    length: 15)  // `<!--t-` + 6 id chars + `-->` = 15
+            } else {
+                anchorRange = NSRange(location: NSNotFound, length: 0)
+            }
+            return (done: kind == "done",
+                    prefixRange: prefixRange,
+                    bodyRange: bodyCapture,
+                    anchorRange: anchorRange)
+        }
+    }
+
     /// Flip the 5-char `todo:` or `done:` glyph at the given UTF-16 offset.
     /// Returns the paragraph string with the swap applied. If the offset
     /// doesn't point to a valid `todo:` or `done:` prefix the string is

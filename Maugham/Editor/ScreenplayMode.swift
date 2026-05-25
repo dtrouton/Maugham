@@ -34,9 +34,8 @@ public struct ScreenplayMode: WritingMode {
             guard line.range.length > 0,
                   NSMaxRange(line.range) <= ns.length else { continue }
             let lineText = ns.substring(with: line.range)
-            for hit in FountainBoneyardScanner.matchTodoAll(lineText) {
-                // matchTodoAll returns the prefix range inside `lineText`
-                // (the substring); shift to doc-wide UTF-16 space.
+            for hit in FountainBoneyardScanner.matchTodoAllFull(lineText) {
+                // Shift ranges from lineText-local to doc-wide UTF-16 space.
                 let docPrefix = NSRange(
                     location: line.range.location + hit.prefixRange.location,
                     length: hit.prefixRange.length)
@@ -44,6 +43,26 @@ public struct ScreenplayMode: WritingMode {
                 tokens.append(Token(
                     range: docPrefix,
                     kind: .checkbox(checked: hit.done)))
+
+                // taskBody: covers the body inside [[ ]] (after "todo:/done:")
+                if hit.bodyRange.length > 0 {
+                    let docBody = NSRange(
+                        location: line.range.location + hit.bodyRange.location,
+                        length: hit.bodyRange.length)
+                    if NSMaxRange(docBody) <= ns.length {
+                        tokens.append(Token(range: docBody, kind: .taskBody))
+                    }
+                }
+
+                // invisibleAnchor: the `<!--t-XXXXXX-->` span glued after `]]`
+                if hit.anchorRange.location != NSNotFound {
+                    let docAnchor = NSRange(
+                        location: line.range.location + hit.anchorRange.location,
+                        length: hit.anchorRange.length)
+                    if NSMaxRange(docAnchor) <= ns.length {
+                        tokens.append(Token(range: docAnchor, kind: .invisibleAnchor))
+                    }
+                }
             }
         }
         return tokens
@@ -184,6 +203,22 @@ public struct ScreenplayMode: WritingMode {
                 MaughamCheckboxAttr: marker,
             ]
             storage.addAttributes(attrs, range: token.range)
+        }
+
+        // Sixth pass — task body and anchor styling. Applied post-setAttributes
+        // (mirrors the checkbox pass above) so these attributes survive the
+        // full-storage wipe. No race risk: addAttributes is purely additive.
+        for token in tokens {
+            guard NSMaxRange(token.range) <= storage.length else { continue }
+            if case .taskBody = token.kind {
+                storage.addAttributes(
+                    [.foregroundColor: palette.syntaxPunctuation],
+                    range: token.range)
+            } else if case .invisibleAnchor = token.kind {
+                storage.addAttributes(
+                    [.foregroundColor: NSColor.clear],
+                    range: token.range)
+            }
         }
 
         storage.endEditing()

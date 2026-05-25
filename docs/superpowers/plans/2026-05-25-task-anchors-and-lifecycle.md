@@ -626,7 +626,7 @@ Add `Token.Kind.taskBody` (styled distinctly) and `Token.Kind.invisibleAnchor` (
 - Edit: `Maugham/Editor/ScreenplayMode.swift`
 - Create: `MaughamTests/EditorTaskAnchorVisibilityTests.swift`
 
-- [ ] **Step 6.1: Write failing styling tests**
+- [x] **Step 6.1: Write failing styling tests**
 
 ```swift
 func test_taskBodyToken_emittedForMarkdownCheckbox() {
@@ -642,14 +642,14 @@ func test_taskBodyToken_emittedForFountainBoneyardTodo() {
 }
 ```
 
-- [ ] **Step 6.2: Add `Token.Kind.taskBody` and `Token.Kind.invisibleAnchor`**
-- [ ] **Step 6.3: Update tokenizers to emit the new kinds**
-- [ ] **Step 6.4: Update ProseMode + ScreenplayMode `attributes(for:)` and `applyTypography`**
+- [x] **Step 6.2: Add `Token.Kind.taskBody` and `Token.Kind.invisibleAnchor`**
+- [x] **Step 6.3: Update tokenizers to emit the new kinds**
+- [x] **Step 6.4: Update ProseMode + ScreenplayMode `attributes(for:)` and `applyTypography`**
 
 For `.taskBody`: distinct color — try `palette.secondary` or a custom hue from the theme. Italic optional.
 For `.invisibleAnchor`: `foregroundColor: NSColor.clear` and `kern: -anchor.length` (or full transparent without kerning if NSAttributedString supports that cleanly).
 
-- [ ] **Step 6.5: Commit**
+- [x] **Step 6.5: Commit**
 
 ```bash
 git add Maugham/Editor/ MaughamTests/EditorTaskAnchorVisibilityTests.swift

@@ -93,6 +93,21 @@ public struct ProseMode: WritingMode {
                     MaughamCheckboxAttr: marker,
                 ]
                 storage.addAttributes(attrs, range: token.range)
+            } else if case .taskBody = token.kind {
+                // Distinct styling for task body text — secondary color signals
+                // "you're in a task" without being garish. Inherits the base
+                // font from the full-range setAttributes above.
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .foregroundColor: palette.syntaxPunctuation,
+                ]
+                storage.addAttributes(attrs, range: token.range)
+            } else if case .invisibleAnchor = token.kind {
+                // Fully transparent — anchor must remain in NSTextStorage for
+                // the setFullText round-trip but must be invisible to the writer.
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .foregroundColor: NSColor.clear,
+                ]
+                storage.addAttributes(attrs, range: token.range)
             } else {
                 let attrs = attributes(
                     for: token.kind, palette: palette, baseFont: baseFont)
@@ -211,6 +226,15 @@ public struct ProseMode: WritingMode {
             // Handled inline in applyTypography (stamps MaughamCheckboxAttr +
             // hand cursor). This branch is dead code per the dispatch above,
             // but keeps the switch exhaustive.
+            return [:]
+
+        case .taskBody:
+            // Handled inline in applyTypography. Return [:] here to keep the
+            // switch exhaustive; the paint pass calls addAttributes directly.
+            return [:]
+
+        case .invisibleAnchor:
+            // Handled inline in applyTypography. Return [:] here.
             return [:]
         }
     }
