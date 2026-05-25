@@ -86,6 +86,20 @@ public final class Document {
     /// flipped — annotations are append-only, so the flag only ratchets up.
     private var _hasAnyAnnotationOps: Bool = false
 
+    /// Last observed cursor position from the editor's selection-change
+    /// notifications. Updated via `recordCursorAt(_:)`. Used by `setFullText`
+    /// as the pre-edit cursor input to V2 task-anchor alignment when an
+    /// explicit value isn't passed by the caller (e.g., legacy code paths
+    /// and tests that don't thread cursor info).
+    private var _lastSeenCursor: Int? = nil
+
+    /// Pending post-edit cursor position, captured by the editor coordinator
+    /// inside `textDidChange` just before the binding setter fires. Consumed
+    /// by the next `setFullText` call (cleared in the process). When unset,
+    /// V2 alignment degrades to per-paragraph (no cross-paragraph cut/paste
+    /// detection) — see spec §2.4.3.
+    private var _pendingPostEditCursor: Int? = nil
+
     /// Pending orphan-annotation sweep carrying the *exact* paragraph ids
     /// observed disappearing since the last sweep. Replaces the older
     /// `_pendingOrphanSweep: Bool` flag — see `SweepReason.swift` for the
@@ -556,21 +570,52 @@ public final class Document {
     private func rebuildTasksCache() {
         guard !_isRebuildingTasks else {
             // Re-entrancy guard: rebalance op append triggers
-            // invalidateTasksCache; we're already mid-rebuild and the derive
-            // result is in-flight. The rebalance is mathematically idempotent
-            // (priorities are now well-spaced, so the next derive emits zero
-            // rebalance ops), but recursing here would still be a bug.
-            assertionFailure(
-                "rebuildTasksCache re-entered — rebalance shouldn't recurse")
+            // invalidateTasksCache, AND so does the .taskCreate op emitted
+            // per minted anchor in this same rebuild. Both arrive during
+            // an in-flight derive whose result is mathematically idempotent
+            // for the next call (rebalance has well-spaced priorities, mints
+            // have anchored bodies that the deriver leaves alone). Returning
+            // early here is the correct outcome — the freshly invalidated
+            // cache will lazily rebuild on the next external `tasks(filter:)`
+            // call.
             return
         }
         _isRebuildingTasks = true
         defer { _isRebuildingTasks = false }
 
-        let (tasks, rebalanceOps, _) = TaskDeriver.derive(
+        let (tasks, rebalanceOps, mintedAnchors) = TaskDeriver.derive(
             ops: _opLogMirror, paragraphs: paragraphs, docId: docId)
         _tasksCache = tasks
         _tasksCacheValid = true
+
+        // Persist minted anchors back into paragraph text so autosave writes
+        // the anchored .md on the next 750ms cycle. The mutation to
+        // `paragraphs` is silent: we don't invalidate the tasks cache (we
+        // already have the derive result — and the next derive against the
+        // newly anchored paragraphs would produce zero new mints). The
+        // .taskCreate ops we emit per mint give cross-Mac merge an
+        // authoritative creation timestamp + session id; appendTaskOpInternal
+        // does invalidate the cache but the re-entrancy guard catches that
+        // and short-circuits, which is exactly the intended behavior.
+        if !mintedAnchors.isEmpty {
+            applyMintedAnchors(mintedAnchors)
+            for mint in mintedAnchors {
+                let synth = "inline:\(docId):\(mint.anchorId)"
+                let op = Op(
+                    opId: ULID.generate(),
+                    docId: docId, at: Date(),
+                    device: device, session: session,
+                    kind: .taskCreate,
+                    changes: [], sequence: nil,
+                    provenance: Op.Provenance(
+                        sessionId: session,
+                        taskId: synth,
+                        taskBody: mint.body,
+                        taskKind: mint.kind.rawValue))
+                appendTaskOpInternal(op)
+            }
+            autosaveScheduler.schedule(())
+        }
 
         // TaskDeriver returns rebalance ops with placeholder ids
         // ("rebalance_<task_id>") for determinism inside the pure projection.
@@ -581,6 +626,74 @@ public final class Document {
         for op in rebalanceOps {
             let standardized = op.withReplacedOpId(ULID.generate())
             appendTaskOpInternal(standardized)
+        }
+    }
+
+    /// Splice freshly-minted task anchors back into paragraph text. Each
+    /// `MintedAnchor` carries the paragraph id, line index, and (for
+    /// Fountain inline tasks) an intra-line UTF-16 offset for the anchor
+    /// span insertion point. Markdown line-style tasks get the anchor
+    /// appended at end-of-line with a separating space.
+    ///
+    /// Mutates `paragraphs` directly and records the new text in the
+    /// pending buffer so the next `typingBurst` op captures the anchored
+    /// form — without this, the .md on disk would carry anchors but the
+    /// op log would replay the un-anchored prior text and clobber them
+    /// on reload (Deriver folds typing_burst into the paragraph map,
+    /// taking precedence over disk parse). Does NOT invalidate the tasks
+    /// cache; the caller — `rebuildTasksCache` — already holds the
+    /// post-mint derive result.
+    private func applyMintedAnchors(_ mints: [TaskDeriver.MintedAnchor]) {
+        // Group by paragraph so we apply all mints to a paragraph in one
+        // splice pass (line indices remain stable when we walk lines once).
+        var byParagraph: [String: [TaskDeriver.MintedAnchor]] = [:]
+        for mint in mints {
+            byParagraph[mint.paragraphId, default: []].append(mint)
+        }
+        for (pid, group) in byParagraph {
+            guard let current = paragraphs[pid] else { continue }
+            var lines = current.split(
+                separator: "\n", omittingEmptySubsequences: false
+            ).map(String.init)
+            // Sort mints within a line by descending intraLineOffset so the
+            // earlier insertion doesn't shift offsets for later ones on the
+            // same line. Cross-line ordering doesn't matter because each
+            // line is mutated independently.
+            let sorted = group.sorted { a, b in
+                if a.lineIndex != b.lineIndex { return a.lineIndex < b.lineIndex }
+                let aOff = a.intraLineOffset ?? Int.max
+                let bOff = b.intraLineOffset ?? Int.max
+                return aOff > bOff
+            }
+            for mint in sorted {
+                guard mint.lineIndex >= 0, mint.lineIndex < lines.count else {
+                    continue
+                }
+                let comment = TaskAnchorID.formatComment(mint.anchorId)
+                let line = lines[mint.lineIndex]
+                if let intra = mint.intraLineOffset {
+                    // Fountain inline: splice anchor at the UTF-16 offset.
+                    let ns = line as NSString
+                    if intra >= 0 && intra <= ns.length {
+                        let head = ns.substring(with: NSRange(location: 0, length: intra))
+                        let tail = ns.substring(from: intra)
+                        lines[mint.lineIndex] = head + comment + tail
+                    }
+                } else {
+                    // Markdown line-style: append at end-of-line with a space
+                    // separator (matches the format the deriver expects).
+                    lines[mint.lineIndex] = "\(line) \(comment)"
+                }
+            }
+            let priorText = paragraphs[pid]
+            let nextText = lines.joined(separator: "\n")
+            paragraphs[pid] = nextText
+            // Record into pending so the next typing_burst carries the
+            // anchored form. Without this, reload-from-log replays the
+            // un-anchored prior text into paragraphs and strips the anchor.
+            pending.recordChange(
+                paragraphId: pid, prior: priorText, next: nextText)
+            burstScheduler.recordActivity()
         }
     }
 
@@ -720,8 +833,31 @@ public final class Document {
         return priorities.min() ?? 0.0
     }
 
+    // MARK: - Cursor side-channel for V2 task-anchor alignment
+
+    /// Record the latest selection-change cursor offset. Called by the
+    /// editor coordinator's `textViewDidChangeSelection` so V2 alignment in
+    /// `setFullText` knows where the caret was *before* a text edit. Plain
+    /// storage — no version bump, no cache invalidation, no observable
+    /// surface. Cheap to call on every selection change.
+    public func recordCursorAt(_ offset: Int) {
+        _lastSeenCursor = offset
+    }
+
+    /// Record the post-edit cursor position captured by the editor
+    /// coordinator inside `textDidChange`, just before the binding setter
+    /// fires. Consumed by the next `setFullText` call. Like
+    /// `recordCursorAt(_:)`, this is plain storage — no observation.
+    public func recordPostEditCursor(_ offset: Int) {
+        _pendingPostEditCursor = offset
+    }
+
     // === Mutation API (Task 6) ===
-    public func setFullText(_ text: String) {
+    public func setFullText(
+        _ text: String,
+        preEditCursor: Int? = nil,
+        postEditCursor: Int? = nil
+    ) {
         // Build the next stored form by running restoreComments against
         // the current materialized state. This is the same parse+diff
         // that EditorHost used to do; relocating it to Document.
@@ -738,17 +874,43 @@ public final class Document {
             if let id = p.id { priorById[id] = p.text }
         }
 
-        // Collect changes and the new sequence.
+        // V2 task-anchor alignment (spec §2.4.1). Inputs:
+        //   - priorById[id] is the *anchored* prior paragraph text.
+        //   - nextParsed[*].text is the *anchor-free* new paragraph text
+        //     (restoreComments parses the displayEdited form which strips
+        //     task anchors).
+        // The aligner re-injects task anchors per paragraph, runs a
+        // cross-paragraph correlation pass to detect cut/paste with
+        // cursor bias, and reports anchors that couldn't be paired —
+        // those become .taskArchive ops at the end of this method.
+        let effectivePre = preEditCursor ?? _lastSeenCursor
+        let effectivePost = postEditCursor ?? _pendingPostEditCursor
+        _pendingPostEditCursor = nil
+        let alignment = TaskAnchorAlignment.align(
+            priorById: priorById,
+            nextParagraphs: nextParsed.compactMap { p -> (id: String, text: String)? in
+                guard let id = p.id else { return nil }
+                return (id, p.text)
+            },
+            priorSequence: sequence,
+            nextSequence: nextParsed.compactMap(\.id),
+            preEditCursor: effectivePre,
+            postEditCursor: effectivePost)
+
+        // Collect changes and the new sequence. Use the V2-restored
+        // (anchor-bearing) paragraph text rather than the raw nextParsed
+        // text so the on-disk .md keeps its anchors across the round-trip.
         var changes: [Op.ParagraphChange] = []
         var newSequence: [String] = []
         for p in nextParsed {
             guard let id = p.id else { continue }
             newSequence.append(id)
+            let restored = alignment.restoredById[id] ?? p.text
             let prior = priorById[id]
-            if prior != p.text {
-                changes.append(.init(paragraphId: id, prior: prior, next: p.text))
+            if prior != restored {
+                changes.append(.init(paragraphId: id, prior: prior, next: restored))
                 pending.recordChange(
-                    paragraphId: id, prior: prior, next: p.text)
+                    paragraphId: id, prior: prior, next: restored)
             }
         }
 
@@ -805,8 +967,30 @@ public final class Document {
         // id (setFullText only emits changes for parsed paragraphs).
         // Without this, merging two checkbox paragraphs leaves the
         // pre-merge inline tasks frozen in the cache.
-        if touchesTasks || !removedIds.isEmpty {
+        if touchesTasks || !removedIds.isEmpty
+            || !alignment.archivedAnchors.isEmpty {
             invalidateTasksCache()
+        }
+
+        // V2 alignment Pass 3: emit .taskArchive ops for every prior task
+        // anchor that couldn't be paired with a new line. The cause is
+        // recorded in `provenance.userResponse = "user-deleted"` so the
+        // history pane can distinguish writer-deleted-the-line from explicit
+        // kebab-Archive. These ops route through appendTaskOpInternal which
+        // invalidates the cache (already done above, idempotent).
+        for archived in alignment.archivedAnchors {
+            let synth = "inline:\(docId):\(archived.anchorId)"
+            let op = Op(
+                opId: ULID.generate(),
+                docId: docId, at: Date(),
+                device: device, session: session,
+                kind: .taskArchive,
+                changes: [], sequence: nil,
+                provenance: Op.Provenance(
+                    sessionId: session,
+                    userResponse: "user-deleted",
+                    taskId: synth))
+            appendTaskOpInternal(op)
         }
 
         // Intentionally NO per-keystroke annotation work here. Earlier

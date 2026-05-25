@@ -83,7 +83,17 @@ public enum RenderFilter {
 
         var unmatchedById: [String: String] = [:]
         for p in storedParsed {
-            if let id = p.id { unmatchedById[id] = p.text }
+            // Strip task anchors from the prior text before pairing.
+            // The displayed text comes in anchor-stripped (the editor
+            // surface never carries `<!--t-XXXX-->` in displayText), so
+            // comparing raw-anchored prior against anchor-free displayed
+            // would push paragraph-pairing into the char-bigram fallback
+            // for any anchored paragraph. Symmetric strip → exact-match
+            // works again; the anchor itself is re-injected later by
+            // `TaskAnchorAlignment`.
+            if let id = p.id {
+                unmatchedById[id] = stripTaskAnchorsInline(p.text)
+            }
         }
 
         var pairs: [(String, String)] = []

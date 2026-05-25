@@ -196,9 +196,19 @@ final class TasksPaneIntegrationTests: XCTestCase {
         doc.setParagraph(id: pid, text: flipped)
         try await doc.flushBurstNow()
 
-        XCTAssertEqual(flipped, "- [x] inline thing")
-        XCTAssertEqual(doc.paragraph(id: pid), "- [x] inline thing",
+        // After the V2 mint pass, the paragraph now carries a task anchor
+        // span (`<!--t-XXXXXX-->`); the bracket flip preserves it. Compare
+        // by the anchor-stripped form to keep the assertion focused on
+        // checkbox state.
+        XCTAssertEqual(
+            RenderFilter.stripTaskAnchorsInline(flipped),
+            "- [x] inline thing")
+        XCTAssertEqual(
+            RenderFilter.stripTaskAnchorsInline(doc.paragraph(id: pid) ?? ""),
+            "- [x] inline thing",
             "paragraph text should now reflect a flipped checkbox")
+        XCTAssertTrue(flipped.contains("<!--t-"),
+            "task anchor must survive the bracket flip")
         let newKinds = doc.opLogSnapshot.dropFirst(countBefore).map(\.kind)
         XCTAssertTrue(newKinds.contains(.typingBurst),
             "inline checkbox toggle must emit a typingBurst")

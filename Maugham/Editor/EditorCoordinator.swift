@@ -26,6 +26,14 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// host can persist per-document cursor positions.
     var onCursorChanged: ((Int) -> Void)?
 
+    /// Fired inside `textDidChange` just before the binding setter writes
+    /// the new text. Delivers the post-edit caret position so that
+    /// Document's V2 task-anchor alignment can see where the cursor ended
+    /// up after the keystroke that produced this change. nil when not
+    /// wired (legacy / test surfaces — alignment degrades to per-paragraph
+    /// per spec §2.4.3).
+    var onPostEditCursor: ((Int) -> Void)?
+
     /// Fired when the cursor's screenplay element changes. Delivers the gutter
     /// abbreviation ("CHAR", "SCENE", "DLG", etc.) or nil when no script is
     /// parsed (prose mode) or the cursor isn't on a classified line. Mirrors
@@ -446,6 +454,11 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // cycle() will reset it before the async block fires.
         let skipCursorRestore = isApplyingTabCycle
         let postEditSelection = textView.selectedRange()
+        // Notify the host of the post-edit caret position so Document's
+        // V2 task-anchor alignment can read it inside the immediately-
+        // following setFullText call. Must fire BEFORE binding-set so the
+        // host has a chance to stash the value on the Document.
+        onPostEditCursor?(postEditSelection.location)
         binding.wrappedValue = textView.string
         retokenizeAndStyle()
         // Autocomplete trigger deferred — see milestone-3b notes.

@@ -15,6 +15,10 @@ struct EditorSurface: NSViewRepresentable {
     var initialCursorLocation: Int? = nil
     /// Fired on every selection change with the new caret location.
     var onCursorChanged: ((Int) -> Void)? = nil
+    /// Fired inside `textDidChange` just before the binding setter writes
+    /// new text. Delivers the post-edit caret position so the host can
+    /// thread it into Document's V2 task-anchor alignment.
+    var onPostEditCursor: ((Int) -> Void)? = nil
     /// Fired when the cursor's screenplay element changes (or after retokenize).
     /// Delivers a gutter abbreviation ("CHAR", "SCENE", "DLG", etc.) or nil
     /// in prose mode. Omit at call sites that don't need element tracking.
@@ -57,6 +61,7 @@ struct EditorSurface: NSViewRepresentable {
             wikiLinkResolver: wikiLinkResolver)
         coordinator.initialCursorLocation = initialCursorLocation
         coordinator.onCursorChanged = onCursorChanged
+        coordinator.onPostEditCursor = onPostEditCursor
         coordinator.onElementChanged = onElementChanged
         coordinator.wikiLinkResolverForClick = wikiLinkClickResolver
         coordinator.imagePasteHandler = imagePasteHandler

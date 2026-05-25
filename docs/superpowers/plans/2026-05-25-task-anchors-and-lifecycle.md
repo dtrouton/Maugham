@@ -451,7 +451,7 @@ This is the largest task in the milestone. Has two distinct sub-parts:
 - Create: `MaughamTests/DocumentTaskAnchorPersistTests.swift`
 - Create: `MaughamTests/DocumentTaskAlignmentTests.swift`
 
-- [ ] **Step 5.1: Write failing persistence tests**
+- [x] **Step 5.1: Write failing persistence tests**
 
 ```swift
 final class DocumentTaskAnchorPersistTests: XCTestCase {
@@ -477,7 +477,7 @@ final class DocumentTaskAnchorPersistTests: XCTestCase {
 }
 ```
 
-- [ ] **Step 5.2: Add minting persistence in `rebuildTasksCache`**
+- [x] **Step 5.2: Add minting persistence in `rebuildTasksCache`**
 
 After deriver returns:
 
@@ -518,7 +518,7 @@ if !mintedAnchors.isEmpty {
 
 `Self.injectAnchor` is a static helper: for the given paragraph text, split by `\n`, find the target line, append ` <!--t-XXXXXX-->` (or splice after `]]` for Fountain), rejoin.
 
-- [ ] **Step 5.3: Write failing alignment tests**
+- [x] **Step 5.3: Write failing alignment tests**
 
 The big one. Test cases mirroring spec §2.4:
 
@@ -572,7 +572,7 @@ final class DocumentTaskAlignmentTests: XCTestCase {
 }
 ```
 
-- [ ] **Step 5.4: Implement V2 alignment in `setFullText`**
+- [x] **Step 5.4: Implement V2 alignment in `setFullText`**
 
 Thread `preEditCursor` and `postEditCursor` through `setFullText`. Run three-pass alignment per spec §2.4.1:
 - Pass 1: per-paragraph body-match + LCS
@@ -591,7 +591,7 @@ public func setFullText(
 )
 ```
 
-- [ ] **Step 5.5: Update `EditorHost` binding setter to thread cursor**
+- [x] **Step 5.5: Update `EditorHost` binding setter to thread cursor**
 
 The binding `Binding(get: { doc.displayText }, set: { doc.setFullText($0) })` doesn't have cursor info. We need to thread it. Options:
 - Capture pre-edit cursor in a `@State` on EditorHost, updated by NSTextView delegate
@@ -601,11 +601,11 @@ Simpler: add `Document.recordCursorAt(_ offset: Int)` that EditorCoordinator cal
 
 Implementation detail decided during work; test cases validate the end-to-end behavior either way.
 
-- [ ] **Step 5.6: Iterate to green**
+- [x] **Step 5.6: Iterate to green**
 
 Expect 2–4 rounds. Alignment subtleties around duplicate body lines and cross-paragraph correlation will need careful pass.
 
-- [ ] **Step 5.7: Commit**
+- [x] **Step 5.7: Commit**
 
 ```bash
 git add Maugham/OpLog/Document.swift MaughamTests/DocumentTaskAnchor* MaughamTests/DocumentTaskAlignment*

@@ -83,7 +83,14 @@ struct EditorHost: View {
                     sentenceFocus: userPreferences.sentenceFocus,
                     paragraphFocus: userPreferences.paragraphFocus,
                     initialCursorLocation: doc.cursorLocation,
-                    onCursorChanged: { doc.cursorLocation = $0 },
+                    onCursorChanged: { offset in
+                        doc.cursorLocation = offset
+                        // Stash the latest cursor position so Document's V2
+                        // task-anchor alignment in setFullText can read it
+                        // as the pre-edit cursor input.
+                        doc.recordCursorAt(offset)
+                    },
+                    onPostEditCursor: { doc.recordPostEditCursor($0) },
                     onElementChanged: onElementChanged,
                     wikiLinkResolver: wikiLinkResolver,
                     wikiLinkClickResolver: wikiLinkClickResolver,
