@@ -327,10 +327,10 @@ public struct FountainTokenizer: Sendable {
             isForced: false)
     }
 
-    /// Returns (cueText, hasTrailingCaret) — strips a single trailing `^`
-    /// (and any spaces immediately before it) when present. The Fountain
-    /// dual-dialogue marker is the LAST `^` on the cue line; double-caret
-    /// `^^` is treated as one marker + a literal `^` left in the content.
+    /// Returns (cue, isDualSecond) — strips a single trailing `^` (and any
+    /// spaces immediately before it) when present. The Fountain dual-dialogue
+    /// marker is the LAST `^` on the cue line; double-caret `^^` is treated
+    /// as one marker + a literal `^` left in the content.
     private static func extractDualMarker(from line: String) -> (cue: String, isDualSecond: Bool) {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         guard trimmed.hasSuffix("^") else { return (line, false) }
