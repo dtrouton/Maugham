@@ -124,8 +124,14 @@ public struct ScreenplayMode: WritingMode {
             // Skip titlePage elements (handled by applyTitlePageStyling).
             if case .titlePage = element { continue }
 
+            // Look up isDualSecond from the parsed script by range match.
+            let isDualSecond = script.lines.first(where: {
+                $0.range.location == token.range.location
+            })?.isDualSecond ?? false
+
             var attrs = self.attributes(
                 for: element,
+                isDualSecond: isDualSecond,
                 palette: palette,
                 baseFont: baseFont,
                 charWidth: charWidth,
@@ -293,6 +299,7 @@ public struct ScreenplayMode: WritingMode {
 
     private func attributes(
         for element: ScreenplayElement,
+        isDualSecond: Bool,
         palette: ThemePalette,
         baseFont: NSFont,
         charWidth: CGFloat,
@@ -307,20 +314,26 @@ public struct ScreenplayMode: WritingMode {
                 size: baseFont.pointSize) ?? baseFont
             return [.font: font]
         case .character:
+            let head: CGFloat = isDualSecond ? charWidth * 42 : charWidth * 22
+            let tail: CGFloat = charWidth * 60
             return [.paragraphStyle: paragraphStyle(
-                head: charWidth * 22, tail: charWidth * 60,
+                head: head, tail: tail,
                 alignment: .left, typography: typography, baseFont: baseFont)]
         case .dialogue:
+            let head: CGFloat = isDualSecond ? charWidth * 32 : charWidth * 10
+            let tail: CGFloat = isDualSecond ? charWidth * 58 : charWidth * 45
             return [.paragraphStyle: paragraphStyle(
-                head: charWidth * 10, tail: charWidth * 45,
+                head: head, tail: tail,
                 alignment: .left, typography: typography, baseFont: baseFont)]
         case .parenthetical:
             let italic = NSFont(
                 descriptor: baseFont.fontDescriptor.withSymbolicTraits(.italic),
                 size: baseFont.pointSize) ?? baseFont
+            let head: CGFloat = isDualSecond ? charWidth * 37 : charWidth * 15
+            let tail: CGFloat = isDualSecond ? charWidth * 53 : charWidth * 35
             return [
                 .paragraphStyle: paragraphStyle(
-                    head: charWidth * 15, tail: charWidth * 35,
+                    head: head, tail: tail,
                     alignment: .left, typography: typography, baseFont: baseFont),
                 .font: italic]
         case .transition:
@@ -540,6 +553,24 @@ public struct ScreenplayMode: WritingMode {
                 }
             default:
                 break
+            }
+        }
+
+        // Trailing ^ marker for dual-dialogue second cue. Fades the ^ and any
+        // single space immediately before it. Applies to both forced (@steve ^)
+        // and unforced (STEVE ^) cues.
+        if line.element == .character && line.isDualSecond {
+            // Search for the LAST ^ in the trimmed line text, then map back
+            // to the line range in storage.
+            if let caretIdx = trimmed.lastIndex(of: "^") {
+                let caretOffset = trimmed.distance(from: trimmed.startIndex, to: caretIdx)
+                let caretNSLocation = lineStart + caretOffset
+                // Include a single trailing space before the ^ in the fade range.
+                let includeSpace = caretOffset > 0
+                    && trimmed[trimmed.index(before: caretIdx)] == " "
+                let fadeStart = caretNSLocation - (includeSpace ? 1 : 0)
+                let fadeLength = 1 + (includeSpace ? 1 : 0)
+                ranges.append(NSRange(location: fadeStart, length: fadeLength))
             }
         }
 

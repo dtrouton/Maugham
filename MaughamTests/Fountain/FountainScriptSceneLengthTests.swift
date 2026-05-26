@@ -61,4 +61,29 @@ final class FountainScriptSceneLengthTests: XCTestCase {
         XCTAssertEqual(SceneNavigatorPane.formatPages(2.5), "2½p")
         XCTAssertEqual(SceneNavigatorPane.formatPages(3.75), "3¾p")
     }
+
+    func test_sceneLength_includesDualPairAdjustment() {
+        let parser = FountainTokenizer()
+        let source = """
+        INT. BAR - NIGHT
+
+        BRICK
+        Long line one here that wraps.
+        Long line two here that wraps.
+        Long line three here that wraps.
+
+        STEVE ^
+        Hi.
+        """
+        let script = parser.parse(source)
+        guard let scene = script.lines.first(where: {
+            $0.element == .sceneHeading
+        }) else {
+            XCTFail("Scene heading not found"); return
+        }
+        // Scene heading: 2 lines. BRICK block: 4. STEVE block: 2.
+        // Raw: 2+4+2 = 8. Adjustment: min(4,2)=2. Net: 6.
+        XCTAssertEqual(script.sceneLength(startingAt: scene),
+                       6.0 / 55.0, accuracy: 0.001)
+    }
 }

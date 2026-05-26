@@ -75,4 +75,93 @@ final class FountainScriptPageCountTests: XCTestCase {
         // Allow ±0.5 pages tolerance as a regression baseline.
         XCTAssertEqual(script.estimatedPageCount, 0.82, accuracy: 0.5)
     }
+
+    // MARK: - Dual dialogue
+
+    func test_dualPair_countsAsMaxNotSum() {
+        // First block: BRICK + 3 lines of dialogue = 4 lines.
+        // Second block: STEVE ^ + 1 line of dialogue = 2 lines.
+        // Raw = 4 + 2 = 6. Adjustment = min(4,2) = 2. Net = 4.
+        let source = """
+        BRICK
+        Line one of long dialogue here.
+        Line two of long dialogue here.
+        Line three of long dialogue here.
+
+        STEVE ^
+        Hi.
+        """
+        let script = parser.parse(source)
+        // 55 lines per page; 4 lines / 55 ≈ 0.0727
+        XCTAssertEqual(script.estimatedPageCount, 4.0 / 55.0, accuracy: 0.001)
+    }
+
+    func test_multipleDualPairs_accumulate() {
+        // Two dual pairs separated by action.
+        let source = """
+        A
+        Hello.
+
+        B ^
+        Hi.
+
+        Some action here.
+
+        C
+        Bye.
+
+        D ^
+        Bye.
+        """
+        let script = parser.parse(source)
+        // Pair 1: A+dialogue (2 lines) | B+dialogue (2 lines). max=2. saved=2.
+        // Action: 1 line.
+        // Pair 2: C+dialogue (2 lines) | D+dialogue (2 lines). max=2. saved=2.
+        // Raw: 2+2+1+2+2 = 9. Adjustment: 2+2 = 4. Net: 5.
+        XCTAssertEqual(script.estimatedPageCount, 5.0 / 55.0, accuracy: 0.001)
+    }
+
+    func test_soloDialogue_unchanged() {
+        // Regression: no ^ markers means no adjustment.
+        let source = """
+        BRICK
+        Hello.
+
+        STEVE
+        Hi.
+        """
+        let script = parser.parse(source)
+        // Raw: BRICK(1) + dialogue(1) + STEVE(1) + dialogue(1) = 4. No adjustment.
+        XCTAssertEqual(script.estimatedPageCount, 4.0 / 55.0, accuracy: 0.001)
+    }
+
+    func test_danglingDualSecond_noAdjustment() {
+        // ^-marked cue with no preceding cue — no pair formed.
+        let source = """
+        STEVE ^
+        Hi.
+        """
+        let script = parser.parse(source)
+        XCTAssertEqual(script.estimatedPageCount, 2.0 / 55.0, accuracy: 0.001)
+    }
+
+    func test_chainOfThreeCues_greedyPairing() {
+        // Cue 1 (no ^), Cue 2 (^), Cue 3 (^).
+        // Greedy pairing: (cue1, cue2) form a pair. Cue 3 stands alone.
+        let source = """
+        A
+        Hello.
+
+        B ^
+        Hi.
+
+        C ^
+        Bye.
+        """
+        let script = parser.parse(source)
+        // Block A: 2 lines. Block B: 2 lines. Block C: 2 lines.
+        // Pair (A,B): adjustment min(2,2)=2. Block C: solo, no adjustment.
+        // Raw: 2+2+2 = 6. Adjustment: 2. Net: 4.
+        XCTAssertEqual(script.estimatedPageCount, 4.0 / 55.0, accuracy: 0.001)
+    }
 }
