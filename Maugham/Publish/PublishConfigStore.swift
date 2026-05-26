@@ -34,3 +34,23 @@ public actor PublishConfigStore {
         _ = try FileManager.default.replaceItemAt(fileURL, withItemAt: tmp)
     }
 }
+
+public struct ApplyPatchResult: Sendable {
+    public let config: PublishConfig
+    public let errors: [PublishConfigValidator.ValidationError]
+}
+
+extension PublishConfigStore {
+    public func applyPatch(_ patch: Data) throws -> ApplyPatchResult {
+        let current = try load() ?? PublishConfig()
+        let currentData = try JSONEncoder().encode(current)
+        let mergedData = try JSONMergePatch.apply(patch: patch, to: currentData)
+        let merged = try JSONDecoder().decode(PublishConfig.self, from: mergedData)
+
+        let errs = PublishConfigValidator.validate(merged)
+        if errs.isEmpty {
+            try save(merged)
+        }
+        return ApplyPatchResult(config: merged, errors: errs)
+    }
+}

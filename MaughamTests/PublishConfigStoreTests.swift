@@ -49,4 +49,44 @@ final class PublishConfigStoreTests: XCTestCase {
             isDirectory: &isDir))
         XCTAssertTrue(isDir.boolValue)
     }
+
+    func testApplyPatch_mergesIntoExistingConfig() async throws {
+        let store = PublishConfigStore(projectURL: tmp)
+        var initial = PublishConfig()
+        initial.metadata.title = "Initial"
+        initial.metadata.author = "A"
+        try await store.save(initial)
+
+        let patch = #"{"metadata":{"title":"Updated","keywords":["x","y"]}}"#
+        let result = try await store.applyPatch(Data(patch.utf8))
+
+        XCTAssertEqual(result.config.metadata.title, "Updated")
+        XCTAssertEqual(result.config.metadata.author, "A")
+        XCTAssertEqual(result.config.metadata.keywords, ["x", "y"])
+        XCTAssertTrue(result.errors.isEmpty)
+
+        let reloaded = try await store.load()
+        XCTAssertEqual(reloaded?.metadata.title, "Updated")
+    }
+
+    func testApplyPatch_loadsFromNothing_usesDefaults() async throws {
+        let store = PublishConfigStore(projectURL: tmp)
+        let patch = #"{"metadata":{"title":"Created","author":"X"}}"#
+        let result = try await store.applyPatch(Data(patch.utf8))
+        XCTAssertEqual(result.config.metadata.title, "Created")
+        XCTAssertEqual(result.config.schemaVersion, 1)
+    }
+
+    func testApplyPatch_reportsValidationErrors_andDoesNotSave() async throws {
+        let store = PublishConfigStore(projectURL: tmp)
+        try await store.save(PublishConfig(metadata: .init(title: "Good", author: "Y")))
+
+        let patch = #"{"metadata":{"title":""}}"#
+        let result = try await store.applyPatch(Data(patch.utf8))
+        XCTAssertFalse(result.errors.isEmpty)
+        XCTAssertEqual(result.errors.first?.field, "metadata.title")
+
+        let reloaded = try await store.load()
+        XCTAssertEqual(reloaded?.metadata.title, "Good") // unchanged
+    }
 }
