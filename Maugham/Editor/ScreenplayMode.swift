@@ -124,8 +124,14 @@ public struct ScreenplayMode: WritingMode {
             // Skip titlePage elements (handled by applyTitlePageStyling).
             if case .titlePage = element { continue }
 
+            // Look up isDualSecond from the parsed script by range match.
+            let isDualSecond = script.lines.first(where: {
+                $0.range.location == token.range.location
+            })?.isDualSecond ?? false
+
             var attrs = self.attributes(
                 for: element,
+                isDualSecond: isDualSecond,
                 palette: palette,
                 baseFont: baseFont,
                 charWidth: charWidth,
@@ -293,6 +299,7 @@ public struct ScreenplayMode: WritingMode {
 
     private func attributes(
         for element: ScreenplayElement,
+        isDualSecond: Bool,
         palette: ThemePalette,
         baseFont: NSFont,
         charWidth: CGFloat,
@@ -307,20 +314,26 @@ public struct ScreenplayMode: WritingMode {
                 size: baseFont.pointSize) ?? baseFont
             return [.font: font]
         case .character:
+            let head: CGFloat = isDualSecond ? charWidth * 42 : charWidth * 22
+            let tail: CGFloat = charWidth * 60
             return [.paragraphStyle: paragraphStyle(
-                head: charWidth * 22, tail: charWidth * 60,
+                head: head, tail: tail,
                 alignment: .left, typography: typography, baseFont: baseFont)]
         case .dialogue:
+            let head: CGFloat = isDualSecond ? charWidth * 32 : charWidth * 10
+            let tail: CGFloat = isDualSecond ? charWidth * 58 : charWidth * 45
             return [.paragraphStyle: paragraphStyle(
-                head: charWidth * 10, tail: charWidth * 45,
+                head: head, tail: tail,
                 alignment: .left, typography: typography, baseFont: baseFont)]
         case .parenthetical:
             let italic = NSFont(
                 descriptor: baseFont.fontDescriptor.withSymbolicTraits(.italic),
                 size: baseFont.pointSize) ?? baseFont
+            let head: CGFloat = isDualSecond ? charWidth * 37 : charWidth * 15
+            let tail: CGFloat = isDualSecond ? charWidth * 53 : charWidth * 35
             return [
                 .paragraphStyle: paragraphStyle(
-                    head: charWidth * 15, tail: charWidth * 35,
+                    head: head, tail: tail,
                     alignment: .left, typography: typography, baseFont: baseFont),
                 .font: italic]
         case .transition:

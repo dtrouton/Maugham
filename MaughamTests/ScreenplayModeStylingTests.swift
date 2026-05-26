@@ -146,6 +146,47 @@ final class ScreenplayModeStylingTests: XCTestCase {
                        "trailing ^ on dual-second cue should fade to syntaxPunctuation color")
     }
 
+    func test_dualSecondCharacter_paragraphStyle_hasOffsetHead() {
+        let storage = style("BRICK\nHi.\n\nSTEVE ^\nHi.")
+        let charWidth = ScreenplayModeStylingTests.charWidth(typography: .screenplayDefaults)
+        // STEVE ^ cue starts after "BRICK\nHi.\n\n" (12 UTF-16 units).
+        let stevLoc = ("BRICK\nHi.\n\n" as NSString).length
+        let style = paragraphStyle(at: stevLoc, in: storage)
+        XCTAssertEqual(style?.firstLineHeadIndent ?? 0, charWidth * 42, accuracy: 1.0)
+        XCTAssertEqual(style?.headIndent ?? 0, charWidth * 42, accuracy: 1.0)
+        XCTAssertEqual(style?.tailIndent ?? 0, charWidth * 60, accuracy: 1.0)
+    }
+
+    func test_dualSecondDialogue_paragraphStyle_hasNarrowerColumn() {
+        let storage = style("BRICK\nHi.\n\nSTEVE ^\nHi back.")
+        let charWidth = ScreenplayModeStylingTests.charWidth(typography: .screenplayDefaults)
+        // Dialogue after STEVE: "BRICK\nHi.\n\nSTEVE ^\n" prefix length.
+        let dialogueLoc = ("BRICK\nHi.\n\nSTEVE ^\n" as NSString).length
+        let style = paragraphStyle(at: dialogueLoc, in: storage)
+        XCTAssertEqual(style?.firstLineHeadIndent ?? 0, charWidth * 32, accuracy: 1.0)
+        XCTAssertEqual(style?.tailIndent ?? 0, charWidth * 58, accuracy: 1.0)
+    }
+
+    func test_dualSecondParenthetical_paragraphStyle_hasNarrowerColumn() {
+        let storage = style("BRICK\nHi.\n\nSTEVE ^\n(quietly)\nHi back.")
+        let charWidth = ScreenplayModeStylingTests.charWidth(typography: .screenplayDefaults)
+        // Parenthetical after STEVE: "BRICK\nHi.\n\nSTEVE ^\n" prefix length.
+        let parenLoc = ("BRICK\nHi.\n\nSTEVE ^\n" as NSString).length
+        let style = paragraphStyle(at: parenLoc, in: storage)
+        XCTAssertEqual(style?.firstLineHeadIndent ?? 0, charWidth * 37, accuracy: 1.0)
+        XCTAssertEqual(style?.tailIndent ?? 0, charWidth * 53, accuracy: 1.0)
+    }
+
+    func test_normalDialogue_afterDualPair_paragraphStyleUnchanged() {
+        // Regression: a normal cue after a dual pair must NOT inherit offset.
+        let storage = style("BRICK\nHi.\n\nSTEVE ^\nHi back.\n\nALICE\nCheers.")
+        let charWidth = ScreenplayModeStylingTests.charWidth(typography: .screenplayDefaults)
+        let aliceDialogueLoc = ("BRICK\nHi.\n\nSTEVE ^\nHi back.\n\nALICE\n" as NSString).length
+        let style = paragraphStyle(at: aliceDialogueLoc, in: storage)
+        XCTAssertEqual(style?.firstLineHeadIndent ?? 0, charWidth * 10, accuracy: 1.0,
+                       "ALICE's dialogue must use normal dialogue indent (10ch), not dual-second (32ch)")
+    }
+
     /// Compute monospace character width for a typography setting,
     /// matching the math in ScreenplayMode.charWidth.
     static func charWidth(typography: TypographySettings) -> CGFloat {
