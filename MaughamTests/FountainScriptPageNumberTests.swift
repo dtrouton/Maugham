@@ -57,4 +57,55 @@ final class FountainScriptPageNumberTests: XCTestCase {
         let script = parser.parse(blob)
         XCTAssertEqual(script.estimatedPageCount, 0.98, accuracy: 0.05)
     }
+
+    func test_pageNumber_beforePair_unaffected() {
+        // Manufacture a long pre-pair section to force the next page boundary
+        // to fall AFTER the dual pair.
+        var source = ""
+        for _ in 0..<60 {
+            source += "An action line that wraps somewhere in the middle.\n\n"
+        }
+        let preCueIndex = source.count
+        source += """
+        BRICK
+        Hi.
+
+        STEVE ^
+        Hi.
+        """
+        let script = parser.parse(source)
+        // Find the line that starts at preCueIndex (BRICK cue).
+        guard let brick = script.lines.first(where: { $0.range.location == preCueIndex }) else {
+            XCTFail("BRICK line not found"); return
+        }
+        // BRICK is BEFORE any pair closes — page number unchanged by adjustment.
+        // The first 60 action lines = 60 lines / 55 lines per page ≈ page 2.
+        XCTAssertEqual(script.pageNumber(at: brick), 2)
+    }
+
+    func test_pageNumber_afterPair_appliesAdjustment() {
+        // Pair (3-line first, 1-line second). After the pair closes, the
+        // next cue's page number is computed using the adjusted total.
+        let source = """
+        BRICK
+        Line one.
+        Line two.
+        Line three.
+
+        STEVE ^
+        Hi.
+
+        ALICE
+        Cheers.
+        """
+        let script = parser.parse(source)
+        guard let alice = script.lines.first(where: {
+            $0.element == .character && $0.content == "ALICE"
+        }) else {
+            XCTFail("ALICE cue not found"); return
+        }
+        // BRICK block: 4 lines. STEVE block: 2 lines.
+        // Raw before ALICE: 4+2 = 6. Adjustment: min(4,2)=2. Net: 4 → page 1.
+        XCTAssertEqual(script.pageNumber(at: alice), 1)
+    }
 }
