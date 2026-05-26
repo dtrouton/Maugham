@@ -26,8 +26,19 @@ public struct UpdateSheet: View {
         .padding(24)
         .frame(maxWidth: 480)
         .task {
-            if case .idle = checker.state {
+            // Run a fresh check whenever the sheet opens, unless an active
+            // download/install is mid-flight. Earlier code gated on
+            // `state == .idle`, but after the first background poll the
+            // state becomes `.upToDate(currentVersion: …)` and stays
+            // there — so manual "Check for Updates" would just show the
+            // cached up-to-date message and never re-fetch. v0.3.1's
+            // URLCache-bypass fix was correct but irrelevant because the
+            // fetch wasn't being invoked at all.
+            switch checker.state {
+            case .idle, .upToDate, .error:
                 await checker.checkNow()
+            case .checking, .downloading, .ready:
+                break  // already doing something; don't restart it
             }
         }
     }
