@@ -2,7 +2,7 @@
 
 Maugham's screenplay mode uses [Fountain](https://fountain.io) — a plain-text screenplay format readable by Final Draft, Highland, Slugline, FountainJS, and other screenwriting tools. This page documents what Maugham specifically recognizes and how it renders each element.
 
-The underlying parser is `FountainTokenizer.swift`. The styling pipeline is `ScreenplayMode.applyTypography`. Layout follows the Cole & Haag standard (Hollywood spec): 60-character page width at 10cpi, scene heading bold, character cue at column 22, dialogue indented at column 10 with 35-char width, parenthetical at column 15 with 20-char width, transition right-aligned. Maugham's screenplay text container is fixed at 60 characters wide regardless of your prose-mode page-width setting.
+The underlying parser is `FountainTokenizer.swift`. The styling pipeline is `ScreenplayMode.applyTypography`. Layout follows the Cole & Haag standard (Hollywood spec): 60-character page width at 10cpi, scene heading bold, character cue at column 22, dialogue indented at column 10 with 35-char width, parenthetical at column 15 with 20-char width, transition right-aligned. Maugham's screenplay text container is fixed at 60 characters wide regardless of your prose-mode page-width setting. Dual-dialogue second blocks render with deeper indents to mark the simultaneous-speech pair visually.
 
 ## The basics
 
@@ -142,6 +142,24 @@ BARRY
 You ever wonder if we made the right call?
 ```
 
+### Dual dialogue
+
+For simultaneous speech — two characters talking at once, or interrupting each other — add a trailing `^` to the **second** character cue. The pair renders stacked in the editor, with the `^`-marked block offset visually to the right:
+
+```
+BRICK
+Screw retirement.
+
+STEVE ^
+Screw retirement.
+```
+
+The `^` itself fades to dim, like other forced-syntax markers. Page count treats the pair as the height of the longer block (Final Draft semantics), not the sum — so a dual pair won't inflate your page count.
+
+**Asymmetric layout.** Maugham renders dual dialogue as **stacked + visually offset** rather than true side-by-side columns. The first block sits at the normal cue position; the second block is pushed right. The on-disk `.fountain` file is standard Fountain — opens correctly in Highland, Slugline, FountainJS, and other tools that may render true columns. A future print/PDF export milestone may upgrade Maugham's on-screen layout to true columns too.
+
+**Pairing.** Maugham pairs blocks two-at-a-time, greedily. A chain like `A`, `B^`, `C^` pairs (A,B) and leaves C standing alone. Multi-speaker chains are exotic; if you actually need them, file an issue.
+
 ### Transition
 
 An ALL CAPS line preceded by a blank, ending in `TO:`, renders right-aligned and bold:
@@ -263,7 +281,7 @@ Task anchors don't count toward the page count and don't affect element classifi
 
 ## Page count
 
-Maugham computes page count using the standard Final Draft heuristic: 55 lines per page, with element-specific wrap widths. Action wraps at 60 characters per line, dialogue at 35, parenthetical at 20. Scene headings count as 2 lines (heading + implicit blank above). Sections, synopses, boneyard, notes, and page breaks don't count.
+Maugham computes page count using the standard Final Draft heuristic: 55 lines per page, with element-specific wrap widths. Action wraps at 60 characters per line, dialogue at 35, parenthetical at 20. Scene headings count as 2 lines (heading + implicit blank above). Sections, synopses, boneyard, notes, and page breaks don't count. Dual-dialogue pairs count as the height of the longer block (matching Final Draft's side-by-side semantics), not the sum.
 
 For a typical feature screenplay (action-heavy with normal dialogue ratios), Maugham's estimate is within ~5% of Final Draft's pagination. Short fixtures and outline-heavy drafts may diverge more — page count is a guidance number, not a production-fidelity figure.
 
