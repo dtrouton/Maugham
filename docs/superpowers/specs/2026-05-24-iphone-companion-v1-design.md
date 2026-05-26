@@ -97,7 +97,7 @@ The dependency direction is clear: `Packages/MaughamCore` is foundational and un
 - `Maugham/Views/ProjectWindow.swift` — bind ⌘⌥6 to `.inbox` (the existing slot mapping: 1 inspector, 2 annotations, 3 outline, 4 history, 5 research, 6 inbox). Mount `InboxPane()` in the detail-pane host when `currentSegment == .inbox`.
 - `Maugham/OpLog/OpLogStore.swift` — `load(docId:)` globs all per-device op-log files (`d_<docId>.jsonl` + `d_<docId>.<deviceSlug>.jsonl`), merges via `JSONLAppendStore`'s existing opId-dedupe + opId-sort. `append(_:)` targets the writer's own per-device file. See §3.12 for the multi-writer partitioning rationale; the change is the only place that needs to know files are partitioned — every downstream consumer (`Deriver`, `Document.load`, `RewindWindow`) still sees a single `[Op]`.
 - `Maugham/Stores/ProjectFolderPresenter.swift` — confirm directory-level subscription to `.maugham/ops/`. New per-device files appear at runtime; the presenter must fire `presenterDidChangeSubitem` for siblings it has never seen before. If today's implementation watches a fixed set of paths, broaden to directory-level. (Likely already directory-level; needs verification at Phase B0.)
-- `CLAUDE.md` — new "iPhone companion" section between "Releases" and "Architectural tripwires"; three additions to "Questions you do not need to ask"; two new tripwires (#14 and #15, see §6). Per-area pointer for `MaughamPhone/`.
+- `CLAUDE.md` — new "iPhone companion" section between "Releases" and "Architectural tripwires"; three additions to "Questions you do not need to ask"; two new tripwires (#16 and #17, see §6 — main has already taken #14 and #15). Per-area pointer for `MaughamPhone/`.
 - Files moved (not deleted-and-recreated) into `Packages/MaughamCore/Sources/MaughamCore/`:
   - From `Maugham/OpLog/`: `Op.swift`, `OpKind.swift`, `Annotation.swift`, `AnnotationDeriver.swift`, `Bootstrap.swift`, `JSONLAppendStore.swift`, `Materializer.swift`, `OpLogStore.swift`, `ParagraphID.swift`, `ParagraphParser.swift`, `Reconciler.swift`, `ShingleMatcher.swift`, `SweepReason.swift`, `SynthesisSource.swift`, `ULID.swift`, `Checkpoint.swift`, `CheckpointStore.swift`. All confirmed Foundation-only.
   - From `Maugham/Editor/Fountain/`: `FountainTokenizer.swift`, `FountainLine.swift`, `FountainScript.swift`, `ScreenplayElement.swift`. All confirmed `import Foundation` only.
@@ -716,9 +716,9 @@ public func append(_ op: Op) async throws {
 
 **What this does NOT solve.** Annotation race semantics (§5.3 Races 1 and 2) are about deriver-level interpretation of overlapping lifecycle ops, not about file-level conflicts. Partitioning makes both ops survive the file system; the deriver still has to decide which lifecycle state wins. Races 1 and 2 remain as documented.
 
-**ADR.** This decision is recorded in `docs/adr/0011-per-device-jsonl-partitioning.md` so future code reviewers have one document to point at rather than a section of an iPhone spec.
+**ADR.** This decision is recorded in `docs/adr/0012-per-device-jsonl-partitioning.md` so future code reviewers have one document to point at rather than a section of an iPhone spec.
 
-**CLAUDE.md.** A new tripwire (#15) lands with the implementation: *"Don't share a single JSONL file across writers via iCloud Drive. Per-device suffix, glob on load, dedupe on opId. Skipping this reintroduces the silent-data-loss path described in spec §3.12."*
+**CLAUDE.md.** A new tripwire (#17) lands with the implementation: *"Don't share a single JSONL file across writers via iCloud Drive. Per-device suffix, glob on load, dedupe on opId. Skipping this reintroduces the silent-data-loss path described in spec §3.12."* (Main has taken tripwires #14 and #15 since this spec was written; the iPhone-companion tripwires renumber to #16 and #17.)
 
 ### 3.13 iCloud Drive eviction handling (iOS)
 
@@ -1238,10 +1238,10 @@ Additions to "Questions you do not need to ask":
 - "Should we share an iCloud container between Mac and iOS?" → No. Mac uses arbitrary folder paths; iOS uses UIDocumentPicker for the same flexibility.
 - "Should we cloud-transcribe voice notes?" → No. On-device draft (phone) + WhisperKit (Mac) cover the quality/latency tradeoff without third-party API calls.
 
-New tripwires (#14 and #15) appended:
+New tripwires (#16 and #17) appended:
 
 ```markdown
-14. **Don't write to manuscript `.md` files from the iOS app.** The phone writes only
+16. **Don't write to manuscript `.md` files from the iOS app.** The phone writes only
     annotation lifecycle ops (to its own per-device `.maugham/ops/d_<docId>.<deviceSlug>.jsonl`)
     and inbox sidecar entries (to its own `.maugham/inbox/inbox.<deviceSlug>.jsonl`).
     Mac-side echo guard (`Document.lastDiskEcho: EchoState`) is byte-equality on `.md`
@@ -1255,14 +1255,14 @@ New tripwires (#14 and #15) appended:
     contract makes phone-side manuscript edits unsafe. Route the intent through an
     annotation instead.
 
-15. **Don't share a single JSONL file across writers via iCloud Drive.** The op log
+17. **Don't share a single JSONL file across writers via iCloud Drive.** The op log
     (`.maugham/ops/*.jsonl`) and inbox manifest (`.maugham/inbox/inbox.*.jsonl`) are
     per-device-partitioned: each device writes to its own `*.<deviceSlug>.jsonl` file,
     readers glob and merge by opId (op log) or id last-wins (inbox). NSFileCoordinator
     serializes only within one device — iCloud Drive's reconciler can't merge concurrent
     appends to the same path and produces silent conflict-twins (`d_x 2.jsonl`,
     `d_x (iPhone).jsonl`) that the loader never opens. If you add a new multi-writer
-    JSONL surface, partition it the same way. See [ADR 0011](docs/adr/0011-per-device-jsonl-partitioning.md)
+    JSONL surface, partition it the same way. See [ADR 0012](docs/adr/0012-per-device-jsonl-partitioning.md)
     and spec §3.12.
 ```
 

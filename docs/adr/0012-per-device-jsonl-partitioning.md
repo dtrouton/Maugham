@@ -1,4 +1,4 @@
-# 0011 — Per-device JSONL file partitioning for multi-writer sidecars
+# 0012 — Per-device JSONL file partitioning for multi-writer sidecars
 
 **Status:** Accepted
 **Date:** 2026-05-24
@@ -35,7 +35,7 @@ Two devices can never target the same file path, so iCloud never has to reconcil
 
 **Source of truth is unchanged.** The logical op log remains "the merged, opId-sorted, opId-deduped set of all ops." It's just assembled from multiple files at load time instead of being identified with one file. Per the existing `OpLogStore.swift:5-7` comment: *"Dedupes by `op_id` and sorts by `op_id` (timestamp-prefixed ULID gives deterministic cross-device order)."* Cross-device order is already the contract — partitioning extends it from "across writes by the same Mac across sessions" to "across writes by all devices across sessions."
 
-**ULID is load-bearing.** ULID = `[48 bits ms-since-epoch UTC][80 bits cryptographic randomness]`. Lexically sortable, globally unique. Sort any set of ops by `opId` → same total order regardless of source file. `Deriver.derive(ops:)` already folds in opId order and doesn't care where ops came from. Swapping ULID for any non-timestamp-prefixed identifier (UUID v4, sequential int) would break this convergence; ADR 0011 commits us to ULID as cornerstone infrastructure.
+**ULID is load-bearing.** ULID = `[48 bits ms-since-epoch UTC][80 bits cryptographic randomness]`. Lexically sortable, globally unique. Sort any set of ops by `opId` → same total order regardless of source file. `Deriver.derive(ops:)` already folds in opId order and doesn't care where ops came from. Swapping ULID for any non-timestamp-prefixed identifier (UUID v4, sequential int) would break this convergence; ADR 0012 commits us to ULID as cornerstone infrastructure.
 
 **Backward compatibility.** The legacy unsuffixed file (`d_<docId>.jsonl` / `inbox.jsonl`) is one of the files included in the glob. Existing op logs and inbox manifests continue to load with zero migration. New writes go to per-device files. Per CLAUDE.md tripwire 11, no migration logic — the legacy file is left alone and continues as one of the merge sources indefinitely (or until empty and stable, at which point it could be deleted manually).
 
@@ -47,12 +47,12 @@ Two devices can never target the same file path, so iCloud never has to reconcil
 - **No schema change.** Op records are byte-identical; only the file naming changes.
 - **Storage-layout-only change.** `OpLogStore.load`/`append` and the analogous InboxStore methods are the only seams that know about partitioning. Every consumer (`Deriver`, `Document.load`, `Document.handleExternalLogChange`, `RewindWindow`, `AnnotationDeriver`) still sees a single `[Op]` array and is unchanged.
 - **Free for the iCloud sync layer.** iCloud now only has to sync files with single writers — its native semantics.
-- **Path forward for future multi-writer sidecars.** Anyone adding a new shared JSONL surface follows the same pattern by default (now codified in CLAUDE.md tripwire #15).
+- **Path forward for future multi-writer sidecars.** Anyone adding a new shared JSONL surface follows the same pattern by default (now codified in CLAUDE.md tripwire #17).
 
 ### Negative
 
 - **File count grows linearly with device count.** One file per (device, doc) pair. For a writer with N devices over a project's lifetime (counting retired/replaced devices), N files per doc. Bounded by realistic device count, not by op rate — no directory blowup risk, but the ops directory becomes less tidy than before. Acceptable for v1; cleanup heuristics ("legacy files empty for >30 days can be archived") deferred.
-- **ULID becomes cornerstone infrastructure.** Today it's documented as the basis for "cross-Mac log merge"; partitioning makes it the basis for "merge per-device files" as well. Anyone tempted to swap it for a different ID scheme has to reason about both. Documented in the decision section above and in CLAUDE.md tripwire #15.
+- **ULID becomes cornerstone infrastructure.** Today it's documented as the basis for "cross-Mac log merge"; partitioning makes it the basis for "merge per-device files" as well. Anyone tempted to swap it for a different ID scheme has to reason about both. Documented in the decision section above and in CLAUDE.md tripwire #17.
 - **`ProjectFolderPresenter` scope requirement.** New per-device files appear at runtime (a phone's first write creates a file the Mac has never seen). The presenter must subscribe at directory level for `presenterDidChangeSubitem` to fire. CLAUDE.md tripwire #7 implies this is already the case; verified during Phase B0 implementation.
 - **Late-arriving ops fold into the past.** Phone offline for a week → ops come back stamped from a week ago, fold into the past at their original ULID position. Rewind history can "grow backwards." This is a property of opId-ordered convergence, not specific to partitioning; partitioning just makes it more frequent because per-device files now arrive at iCloud-propagation cadence rather than being absent entirely. State at cursor X is deterministic *given the ops the load knew about* — can become more-informed than yesterday but never inconsistent.
 
@@ -60,7 +60,7 @@ Two devices can never target the same file path, so iCloud never has to reconcil
 
 - **Annotation race semantics** (spec §5.3 Races 1 and 2) — about deriver-level interpretation of overlapping lifecycle ops, not file-level conflicts. Partitioning makes both ops survive the file system; the deriver still has to decide which lifecycle state wins.
 - **Authorization for phone-side writes.** Anyone with the unlocked phone can append ops. Per-device partitioning doesn't change that. Biometric-gate-on-action is a separate concern, possibly Phase H.
-- **Multi-user concurrent editing.** Maugham is single-user; ADR 0011 doesn't address shared projects between writers. iCloud Drive folder sharing is a separate scope question.
+- **Multi-user concurrent editing.** Maugham is single-user; ADR 0012 doesn't address shared projects between writers. iCloud Drive folder sharing is a separate scope question.
 
 ## Compile-time / runtime enforcement
 
@@ -73,5 +73,5 @@ Two devices can never target the same file path, so iCloud never has to reconcil
 ## Related
 
 - Spec §3.12 of `docs/superpowers/specs/2026-05-24-iphone-companion-v1-design.md` is the detailed implementation reference; this ADR is the durable decision record.
-- CLAUDE.md tripwire #15 (added with the implementation) restates the rule for at-a-glance reference: *"Don't share a single JSONL file across writers via iCloud Drive."*
+- CLAUDE.md tripwire #17 (added with the implementation) restates the rule for at-a-glance reference: *"Don't share a single JSONL file across writers via iCloud Drive."*
 - ADR 0010 (typed cross-area seams) — `MaughamSidecarPath` already classifies sidecar files; the partitioning pattern fits cleanly because adding a new per-device variant doesn't add a new sidecar owner, just adds new files under existing owners.
