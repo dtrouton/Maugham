@@ -165,6 +165,22 @@ final class EditorIntegrationHarnessTests: XCTestCase {
             "doc-switch close() must flush the pending typing_burst op")
     }
 
+    func test_typingCaretIntoCharacterCue_doesNotFireApplyExternalText() {
+        // Regression net for dual-dialogue cue entry (Editor AREA.md tripwire 7).
+        // Typing "^" after a character name produces a dual-dialogue cue; the
+        // tokenizer strips the caret from content but must not trigger
+        // applyExternalText (which is reserved for cloud-conflict resolution).
+        let rig = EditorIntegrationHarness(
+            mode: ScreenplayMode(),
+            initialText: "BRICK\nHello.\n\n")
+
+        rig.assertNoApplyExternalText {
+            for ch in "STEVE ^\nHi." {
+                rig.typeCharacter(ch)
+            }
+        }
+    }
+
     func test_burst_appendOnceAtIdleThreshold() async throws {
         // Short thresholds via the internal Document.load overload so the
         // test doesn't have to wait 30 seconds.
