@@ -266,4 +266,76 @@ final class FountainTokenizerTests: XCTestCase {
         XCTAssertEqual(script.lines[0].element, .boneyard)
         XCTAssertEqual(script.lines[1].element, .action)
     }
+
+    // MARK: - Dual dialogue
+
+    func test_characterCue_trailingCaret_marksIsDualSecond() {
+        let script = parser.parse("BRICK\nHi.\n\nSTEVE ^\nHi.")
+        // Lines: [BRICK, Hi., blank, STEVE ^, Hi.]
+        XCTAssertEqual(script.lines.count, 5)
+        XCTAssertEqual(script.lines[0].element, .character)
+        XCTAssertFalse(script.lines[0].isDualSecond)
+        XCTAssertEqual(script.lines[3].element, .character)
+        XCTAssertTrue(script.lines[3].isDualSecond)
+    }
+
+    func test_dualSecond_propagatesToFollowingDialogueAndParenthetical() {
+        let script = parser.parse("BRICK\nHi.\n\nSTEVE ^\n(quietly)\nHi back.")
+        // Lines: [BRICK, Hi., blank, STEVE ^, (quietly), Hi back.]
+        XCTAssertEqual(script.lines[3].element, .character)
+        XCTAssertTrue(script.lines[3].isDualSecond)
+        XCTAssertEqual(script.lines[4].element, .parenthetical)
+        XCTAssertTrue(script.lines[4].isDualSecond)
+        XCTAssertEqual(script.lines[5].element, .dialogue)
+        XCTAssertTrue(script.lines[5].isDualSecond)
+    }
+
+    func test_dualSecond_doesNotPropagatePastBlankLine() {
+        let script = parser.parse("BRICK\nHi.\n\nSTEVE ^\nHi.\n\nALICE\nCheers.")
+        // After the blank line following STEVE's "Hi.", ALICE is a fresh cue.
+        XCTAssertEqual(script.lines.count, 8)
+        XCTAssertEqual(script.lines[6].element, .character)
+        XCTAssertEqual(script.lines[6].content, "ALICE")
+        XCTAssertFalse(script.lines[6].isDualSecond)
+        XCTAssertEqual(script.lines[7].element, .dialogue)
+        XCTAssertFalse(script.lines[7].isDualSecond)
+    }
+
+    func test_doubleCaret_treatedAsSingleMarker() {
+        // Only the trailing single ^ is consumed; the rest stays in content.
+        let script = parser.parse("BRICK\nHi.\n\nSTEVE ^^\nHi.")
+        XCTAssertEqual(script.lines[3].element, .character)
+        XCTAssertTrue(script.lines[3].isDualSecond)
+        // The leading ^ remains in the cue text (content is "STEVE ^").
+        XCTAssertEqual(script.lines[3].content, "STEVE ^")
+    }
+
+    func test_leadingCaret_notRecognizedAsDualMarker() {
+        // ^STEVE has the caret at the start; not the trailing marker.
+        let script = parser.parse("BRICK\nHi.\n\n^STEVE\nHi.")
+        XCTAssertEqual(script.lines[3].element, .character)
+        XCTAssertFalse(script.lines[3].isDualSecond)
+    }
+
+    func test_forcedCharacter_withCaret_setsBothFlags() {
+        let script = parser.parse("BRICK\nHi.\n\n@steve ^\nHi.")
+        XCTAssertEqual(script.lines[3].element, .character)
+        XCTAssertTrue(script.lines[3].isForced)
+        XCTAssertTrue(script.lines[3].isDualSecond)
+    }
+
+    func test_danglingDualSecond_noPriorCue_stillFlagsCue() {
+        // Document opens with a ^-marked cue — no prior block.
+        // Parser stays permissive; pairing is a page-count concern.
+        let script = parser.parse("STEVE ^\nHi.")
+        XCTAssertEqual(script.lines[0].element, .character)
+        XCTAssertTrue(script.lines[0].isDualSecond)
+    }
+
+    func test_caretInActionLine_isNotDualMarker() {
+        // Caret in prose action text must not be misinterpreted.
+        let script = parser.parse("The cursor ^^ blinks.")
+        XCTAssertEqual(script.lines[0].element, .action)
+        XCTAssertFalse(script.lines[0].isDualSecond)
+    }
 }

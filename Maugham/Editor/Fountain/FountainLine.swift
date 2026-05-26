@@ -21,6 +21,12 @@ public struct FountainLine: Equatable, Sendable {
     /// to apply display-uppercase.
     public let isForced: Bool
 
+    /// True when this line is the `^`-marked second half of a dual-dialogue
+    /// pair, OR a dialogue / parenthetical line that follows such a cue in
+    /// the same block. The renderer uses this to apply deeper paragraph
+    /// indents; the page-count helper uses it to pair adjacent blocks.
+    public let isDualSecond: Bool
+
     /// Casing of `content`. Used by the styler to decide whether display-
     /// uppercase substitution is needed.
     public let sourceCase: SourceCase
@@ -34,6 +40,7 @@ public struct FountainLine: Equatable, Sendable {
         content: String,
         isForced: Bool,
         sourceCase: SourceCase,
+        isDualSecond: Bool = false,
         inlineSpans: [FountainInlineSpan] = []
     ) {
         self.range = range
@@ -41,6 +48,7 @@ public struct FountainLine: Equatable, Sendable {
         self.content = content
         self.isForced = isForced
         self.sourceCase = sourceCase
+        self.isDualSecond = isDualSecond
         self.inlineSpans = inlineSpans
     }
 }

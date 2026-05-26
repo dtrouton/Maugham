@@ -24,6 +24,7 @@ public struct FountainTokenizer: Sendable {
         var lines: [FountainLine] = []
         var prevBlank = true
         var prevElement: ScreenplayElement = .action
+        var prevWasDualSecond = false
         var blockState: BlockState = .normal
 
         nsText.enumerateSubstrings(in: fullRange, options: .byLines) {
@@ -60,6 +61,7 @@ public struct FountainTokenizer: Sendable {
                 if trimmed.contains("*/") { blockState = .normal }
                 prevBlank = false
                 prevElement = .boneyard
+                prevWasDualSecond = false
                 return
             case .noteBlock:
                 lines.append(FountainLine(
@@ -71,6 +73,7 @@ public struct FountainTokenizer: Sendable {
                 if trimmed.contains("]]") { blockState = .normal }
                 prevBlank = false
                 prevElement = .note
+                prevWasDualSecond = false
                 return
             case .normal:
                 break
@@ -85,6 +88,7 @@ public struct FountainTokenizer: Sendable {
                     sourceCase: .neutral))
                 prevBlank = true
                 prevElement = .action
+                prevWasDualSecond = false
                 return
             }
 
@@ -101,6 +105,7 @@ public struct FountainTokenizer: Sendable {
                     sourceCase: Self.sourceCase(of: trimmed)))
                 prevBlank = false
                 prevElement = .boneyard
+                prevWasDualSecond = false
                 return
             }
 
@@ -117,6 +122,7 @@ public struct FountainTokenizer: Sendable {
                     sourceCase: Self.sourceCase(of: trimmed)))
                 prevBlank = false
                 prevElement = .note
+                prevWasDualSecond = false
                 return
             }
 
@@ -133,15 +139,33 @@ public struct FountainTokenizer: Sendable {
                 rawLine: raw,
                 nsText: nsText)
 
+            // Compute isDualSecond for this line.
+            var lineIsDualSecond = false
+            var emittedContent = classified.content
+
+            if classified.element == .character {
+                // Detect trailing ^ on the cue, strip it from content.
+                let (strippedCue, isDual) = Self.extractDualMarker(from: classified.content)
+                if isDual {
+                    lineIsDualSecond = true
+                    emittedContent = strippedCue
+                }
+            } else if classified.element == .dialogue || classified.element == .parenthetical {
+                // Inherit from the preceding line's dual-second state.
+                lineIsDualSecond = prevWasDualSecond
+            }
+
             lines.append(FountainLine(
                 range: enclosingRange,
                 element: classified.element,
-                content: classified.content,
+                content: emittedContent,
                 isForced: classified.isForced,
-                sourceCase: Self.sourceCase(of: classified.content),
+                sourceCase: Self.sourceCase(of: emittedContent),
+                isDualSecond: lineIsDualSecond,
                 inlineSpans: inlineSpans))
             prevBlank = false
             prevElement = classified.element
+            prevWasDualSecond = lineIsDualSecond
         }
 
         // Trailing empty line: if the source text ends with "\n", emit a
@@ -301,6 +325,21 @@ public struct FountainTokenizer: Sendable {
             element: .action,
             content: line,
             isForced: false)
+    }
+
+    /// Returns (cueText, hasTrailingCaret) — strips a single trailing `^`
+    /// (and any spaces immediately before it) when present. The Fountain
+    /// dual-dialogue marker is the LAST `^` on the cue line; double-caret
+    /// `^^` is treated as one marker + a literal `^` left in the content.
+    private static func extractDualMarker(from line: String) -> (cue: String, isDualSecond: Bool) {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasSuffix("^") else { return (line, false) }
+        // Strip exactly one trailing ^ and any whitespace immediately before it.
+        var stripped = String(trimmed.dropLast())
+        while stripped.last == " " || stripped.last == "\t" {
+            stripped = String(stripped.dropLast())
+        }
+        return (stripped, true)
     }
 
     private static func isAllCapsCueCandidate(_ line: String) -> Bool {
