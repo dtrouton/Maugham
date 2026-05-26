@@ -1,0 +1,13 @@
+% Prose environment. Maugham's body emitter wraps each prose section in
+% \begin{prose}{Section Title}...\end{prose}. Inside, paragraphs are plain
+% LaTeX; scene breaks emit \scenebreak; emphasis is \emph{...}, strong is
+% \textbf{...}, wiki-links are \wikilink{target}{display}.
+
+\newenvironment{prose}[1]
+  {\section{#1}}
+  {}
+
+% A plain centered asterism. Claude can replace with an ornament/glyph,
+% a horizontal rule, blank space, anything.
+\newcommand{\scenebreak}{%
+  \par\vspace{1em}\centering * * *\vspace{1em}\par\noindent}

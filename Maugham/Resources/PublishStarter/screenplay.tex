@@ -1,0 +1,34 @@
+% Screenplay environment. Body emitter wraps each fountain section in
+% \begin{screenplay}{Section Title}...\end{screenplay}. Inside it uses:
+%   \scene{INT. KITCHEN - DAY}
+%   \action{Aaron pours coffee.}
+%   \character{AARON}
+%   \dialogue{Morning.}
+%   \parenthetical{(quietly)}
+%   \transition{CUT TO:}
+%   \dualdialogue{leftBlock}{rightBlock}
+%
+% Barebones rendering is Courier 12, monospaced. Margins are tight; this is
+% NOT industry-WGA-grade — it just renders correctly.
+
+\usepackage{environ}
+
+\NewEnviron{screenplay}[1]{%
+  \section{#1}%
+  \begingroup
+  \fontfamily{cmtt}\selectfont
+  \BODY
+  \endgroup
+}
+
+\newcommand{\scene}[1]{\par\vspace{1em}\textbf{\MakeUppercase{#1}}\par}
+\newcommand{\action}[1]{\par #1\par}
+\newcommand{\character}[1]{\par\hspace*{2in}\MakeUppercase{#1}\par}
+\newcommand{\dialogue}[1]{\par\hspace*{1in}\begin{minipage}{4in}#1\end{minipage}\par}
+\newcommand{\parenthetical}[1]{\par\hspace*{1.5in}\textit{#1}\par}
+\newcommand{\transition}[1]{\par\hfill\MakeUppercase{#1}\par}
+\newcommand{\dualdialogue}[2]{%
+  \par\noindent
+  \begin{minipage}[t]{0.45\textwidth}#1\end{minipage}\hfill
+  \begin{minipage}[t]{0.45\textwidth}#2\end{minipage}\par
+}

@@ -23,6 +23,9 @@ targets:
         excludes:
           - Info.plist
           - "**/AREA.md"
+          - "Resources/PublishStarter/**"
+      - path: Maugham/Resources/PublishStarter
+        type: folder
     info:
       path: Maugham/Info.plist
       properties:

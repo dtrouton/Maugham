@@ -1,0 +1,22 @@
+% Barebones publish template.
+% This is the working reference implementation of Maugham's body-emission
+% contract. It renders correctly but is DELIBERATELY plain — Computer
+% Modern, no drop caps, no ornaments — so it explicitly invites redesign.
+% Claude is expected to rewrite this and the partials below to give each
+% project its own typographic identity.
+
+\documentclass[11pt,letterpaper]{article}
+
+\input{preamble}
+\input{prose}
+\input{screenplay}
+
+\begin{document}
+
+\input{frontmatter}
+
+\input{build/body}
+
+\input{backmatter}
+
+\end{document}

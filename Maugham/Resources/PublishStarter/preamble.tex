@@ -1,0 +1,31 @@
+% Packages and metadata. Claude can rewrite this entirely.
+
+\usepackage[utf8]{inputenc}
+\usepackage{geometry}
+\geometry{margin=1in}
+\usepackage{titling}
+\usepackage{titlesec}
+\usepackage{hyperref}
+\hypersetup{
+  pdftitle={\Title},
+  pdfauthor={\Author},
+  pdfsubject={\Subtitle},
+  pdfkeywords={\Keywords},
+  pdfproducer={Maugham via tectonic},
+  pdfcreator={Maugham}
+}
+
+% Maugham injects these from config.json before compilation.
+\providecommand{\Title}{Untitled}
+\providecommand{\Subtitle}{}
+\providecommand{\Author}{}
+\providecommand{\Copyright}{}
+\providecommand{\Keywords}{}
+\providecommand{\MaughamVersion}{0.1}
+\providecommand{\MaughamLabel}{}
+\providecommand{\MaughamCheckpointID}{}
+\providecommand{\MaughamCompiledAt}{}
+
+% Wiki link in prose: rendered as plain bold display text (no hyperlink
+% target; wiki targets resolve inside Maugham, not in the PDF).
+\newcommand{\wikilink}[2]{\textbf{#2}}
