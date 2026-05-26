@@ -535,6 +535,8 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
             }
 
         case .sessionLog, .uiState, .conflictBackup, .scratch, .trash,
+             .publishTemplate, .publishStyles, .publishConfig, .publishAsset,
+             .publishBuild, .publicationsLog, .publicationSnapshot,
              .unknownSidecar, .outsideProject:
             // No presenter routing today. Each case has a named owner in
             // `Maugham/Stores/AREA.md`; wiring one up is "add a case branch"

@@ -43,6 +43,30 @@ internal enum MaughamSidecarPath: Equatable {
     /// `.maugham/trash/*` — owned by `TrashStore`. No presenter routing today.
     case trash(relativePath: String)
 
+    /// `.maugham/publish/template.tex` + all `.tex` partials. The Claude-authored
+    /// LaTeX template artifact.
+    case publishTemplate(relativePath: String)
+
+    /// `.maugham/publish/styles.css` + any css partials. The EPUB stylesheet.
+    case publishStyles(relativePath: String)
+
+    /// `.maugham/publish/config.json`. Structured, schema-validated, MCP-mutable.
+    case publishConfig
+
+    /// `.maugham/publish/cover.{jpg,png}`, `fonts/*`, or any other non-tex/non-css
+    /// non-config file under the publish dir. Binary or unknown content.
+    case publishAsset(relativePath: String)
+
+    /// `.maugham/publish/build/*` — transient body emission + tectonic aux files.
+    /// Routing intent: ignore (write-only by the compile pipeline).
+    case publishBuild(relativePath: String)
+
+    /// `.maugham/publications.jsonl` — append-only publication log.
+    case publicationsLog
+
+    /// `.maugham/publications/<id>.json` — per-publication snapshot blob.
+    case publicationSnapshot(relativePath: String)
+
     /// A path under `.maugham/` that doesn't match any known subdir.
     /// Includes `.pending.jsonl` companions for `PendingBuffer`. Routing
     /// intent: ignore.
@@ -117,6 +141,31 @@ internal enum MaughamSidecarPath: Equatable {
 
         if relativePath.hasPrefix(".maugham/trash/") {
             return .trash(relativePath: relativePath)
+        }
+
+        if relativePath.hasPrefix(".maugham/publish/build/") {
+            return .publishBuild(relativePath: relativePath)
+        }
+
+        if relativePath.hasPrefix(".maugham/publish/") {
+            if relativePath == ".maugham/publish/config.json" {
+                return .publishConfig
+            }
+            if relativePath.hasSuffix(".tex") {
+                return .publishTemplate(relativePath: relativePath)
+            }
+            if relativePath.hasSuffix(".css") {
+                return .publishStyles(relativePath: relativePath)
+            }
+            return .publishAsset(relativePath: relativePath)
+        }
+
+        if relativePath == ".maugham/publications.jsonl" {
+            return .publicationsLog
+        }
+
+        if relativePath.hasPrefix(".maugham/publications/") {
+            return .publicationSnapshot(relativePath: relativePath)
         }
 
         return .unknownSidecar(relativePath: relativePath)
