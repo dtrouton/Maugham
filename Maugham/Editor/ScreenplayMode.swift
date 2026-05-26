@@ -543,6 +543,24 @@ public struct ScreenplayMode: WritingMode {
             }
         }
 
+        // Trailing ^ marker for dual-dialogue second cue. Fades the ^ and any
+        // single space immediately before it. Applies to both forced (@steve ^)
+        // and unforced (STEVE ^) cues.
+        if line.element == .character && line.isDualSecond {
+            // Search for the LAST ^ in the trimmed line text, then map back
+            // to the line range in storage.
+            if let caretIdx = trimmed.lastIndex(of: "^") {
+                let caretOffset = trimmed.distance(from: trimmed.startIndex, to: caretIdx)
+                let caretNSLocation = lineStart + caretOffset
+                // Include a single trailing space before the ^ in the fade range.
+                let includeSpace = caretOffset > 0
+                    && trimmed[trimmed.index(before: caretIdx)] == " "
+                let fadeStart = caretNSLocation - (includeSpace ? 1 : 0)
+                let fadeLength = 1 + (includeSpace ? 1 : 0)
+                ranges.append(NSRange(location: fadeStart, length: fadeLength))
+            }
+        }
+
         // Section: 1-6 leading # followed by a space.
         if case .section = line.element {
             var hashCount = 0

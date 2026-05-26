@@ -127,6 +127,25 @@ final class ScreenplayModeStylingTests: XCTestCase {
         XCTAssertNotEqual(bodyColor, noteColor)
     }
 
+    func test_dualSecondCharacter_trailingCaretFadedToSyntaxPunctuation() {
+        let storage = style("BRICK\nHi.\n\nSTEVE ^\nHi.")
+        // Locate the ^ inside the storage. The string contains "STEVE ^" —
+        // the ^ is the LAST character of that line.
+        let full = storage.string as NSString
+        let stevLineStart = full.range(of: "STEVE ^").location
+        XCTAssertNotEqual(stevLineStart, NSNotFound)
+        let caretLocation = stevLineStart + ("STEVE " as NSString).length
+        // Sanity check: the character at caretLocation is "^".
+        XCTAssertEqual(full.substring(with: NSRange(location: caretLocation, length: 1)), "^")
+
+        // syntaxPunctuation comes from Theme.light's resolved palette.
+        let expectedFade = Theme.light.resolved(systemAppearanceIsDark: false)
+            .palette.syntaxPunctuation
+        let actual = storage.attributes(at: caretLocation, effectiveRange: nil)[.foregroundColor] as? NSColor
+        XCTAssertEqual(actual, expectedFade,
+                       "trailing ^ on dual-second cue should fade to syntaxPunctuation color")
+    }
+
     /// Compute monospace character width for a typography setting,
     /// matching the math in ScreenplayMode.charWidth.
     static func charWidth(typography: TypographySettings) -> CGFloat {
