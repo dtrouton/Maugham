@@ -31,6 +31,15 @@ public actor CompileJobManager {
         jobs[jobID]
     }
 
+    /// All jobs currently in `.inProgress`, oldest first. Used by
+    /// `CompileTool` to hand back a `job_id` when `wait_seconds` elapses
+    /// before the orchestrator completes.
+    public func allInProgress() -> [CompileJob] {
+        jobs.values
+            .filter { if case .inProgress = $0.status { return true }; return false }
+            .sorted(by: { $0.startedAt < $1.startedAt })
+    }
+
     public func updatePhase(jobID: String, phase: CompileJob.Phase) {
         guard var job = jobs[jobID] else { return }
         job.status = .inProgress(phase: phase)

@@ -1,0 +1,325 @@
+import Foundation
+
+// MARK: - shared response encoding
+
+enum CompileResponseEncoder {
+    static func encodeCompleted(_ pub: Publication) throws -> Data {
+        var obj: [String: Any] = [
+            "status": "completed",
+            "version": pub.version,
+            "format": pub.format.rawValue,
+            "output_path": pub.outputPath,
+            "checkpoint_id": pub.checkpointID,
+            "warnings": [],
+            "errors": []
+        ]
+        if let label = pub.label { obj["label"] = label }
+        return try JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys])
+    }
+
+    static func encodeFailed(
+        errors: [TectonicLogParser.Diagnostic], logExcerpt: String
+    ) throws -> Data {
+        try JSONSerialization.data(withJSONObject: [
+            "status": "failed",
+            "errors": errors.map { encode(diag: $0) },
+            "log_excerpt": String(logExcerpt.prefix(4000))
+        ], options: [.sortedKeys])
+    }
+
+    static func encodeOutcome(_ outcome: CompileOrchestrator.Outcome) throws -> Data {
+        switch outcome {
+        case .completed(let pub):
+            return try encodeCompleted(pub)
+        case .failed(let errors, let log):
+            return try encodeFailed(errors: errors, logExcerpt: log)
+        }
+    }
+
+    static func inProgress(
+        jobID: String, phase: CompileJob.Phase, startedAt: Date
+    ) throws -> Data {
+        try JSONSerialization.data(withJSONObject: [
+            "status": "in_progress",
+            "job_id": jobID,
+            "phase": phase.rawValue,
+            "started_at": ISO8601DateFormatter().string(from: startedAt)
+        ], options: [.sortedKeys])
+    }
+
+    static func encode(diag: TectonicLogParser.Diagnostic) -> [String: Any] {
+        var obj: [String: Any] = [
+            "level": diag.level.rawValue,
+            "message": diag.message,
+            "context_lines": diag.contextLines
+        ]
+        if let line = diag.line { obj["line"] = line }
+        if let file = diag.file { obj["file"] = file }
+        return obj
+    }
+
+    /// Read the current `inProgress` phase from a job status, defaulting
+    /// to `.compiling` if the status isn't actually in-progress. (Defensive
+    /// — callers should only invoke this with an inProgress job.)
+    static func phase(of job: CompileJob) -> CompileJob.Phase {
+        if case .inProgress(let p) = job.status { return p }
+        return .compiling
+    }
+}
+
+// MARK: - compile
+
+public enum CompileTool: MCPTool {
+    public static let method = "compile"
+    public static let description =
+    "Full PDF or EPUB compile. wait_seconds blocks up to that long for completion; if it elapses, returns {status: in_progress, job_id, phase}. Creates a Publication checkpoint on success."
+    public static let inputSchemaJSON = """
+    {"type":"object","properties":{"project_id":{"type":"string"},"format":{"type":"string","enum":["pdf","epub"]},"label":{"type":"string"},"wait_seconds":{"type":"integer","default":60}},"required":["project_id","format"]}
+    """
+
+    struct Params: Codable {
+        let projectID: String
+        let format: PublishConfig.Format
+        let label: String?
+        let waitSeconds: Int?
+        enum CodingKeys: String, CodingKey {
+            case projectID = "project_id"
+            case format, label
+            case waitSeconds = "wait_seconds"
+        }
+    }
+
+    @MainActor
+    public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
+        guard let json = paramsJSON else {
+            throw MCPError.invalidArgument("missing params")
+        }
+        let params = try JSONDecoder().decode(Params.self, from: json)
+        guard let entry = registry.lookup(id: params.projectID) else {
+            throw MCPError.invalidArgument("unknown project_id")
+        }
+        let store = entry.store
+        let projectURL = entry.url
+        let stores = PublishingStores.sharedFor(
+            projectID: params.projectID, projectURL: projectURL)
+        let astSource = ProjectStoreASTSource(projectStore: store)
+        let orch = CompileOrchestrator(
+            projectURL: projectURL,
+            astSource: astSource,
+            configStore: stores.configStore,
+            publicationStore: stores.publicationStore,
+            snapshotStore: stores.snapshotStore,
+            jobManager: stores.jobManager,
+            maughamVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0",
+            tectonicVersion: "0.15.0")
+
+        let wait = TimeInterval(params.waitSeconds ?? 60)
+        let format = params.format
+        let label = params.label
+        let task = Task { try await orch.compile(format: format, label: label) }
+        do {
+            let outcome = try await withTimeout(seconds: wait) { try await task.value }
+            return try CompileResponseEncoder.encodeOutcome(outcome)
+        } catch is TimeoutError {
+            // Defer to job_id polling. The compile keeps running.
+            // Give the orchestrator's first await a chance to register
+            // its job before we look for it — without this sleep, a
+            // wait_seconds=0 call may race the orchestrator's `register`
+            // and see an empty inProgress list.
+            try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+            let jobs = await stores.jobManager.allInProgress()
+            if let job = jobs.last {
+                return try CompileResponseEncoder.inProgress(
+                    jobID: job.jobID,
+                    phase: CompileResponseEncoder.phase(of: job),
+                    startedAt: job.startedAt)
+            }
+            // The compile may have already finished between timeout and
+            // the inProgress lookup (fast compiles + small wait_seconds).
+            // Await its outcome rather than fabricating an in_progress
+            // for a job that no longer exists.
+            let outcome = try await task.value
+            return try CompileResponseEncoder.encodeOutcome(outcome)
+        }
+    }
+}
+
+// MARK: - preview_compile
+
+public enum PreviewCompileTool: MCPTool {
+    public static let method = "preview_compile"
+    public static let description =
+    "Fast subset compile. section_ids = list of piece IDs to include (omit for whole project). Does NOT create a Publication or bump version."
+    public static let inputSchemaJSON = """
+    {"type":"object","properties":{"project_id":{"type":"string"},"format":{"type":"string","enum":["pdf","epub"]},"section_ids":{"type":"array","items":{"type":"string"}},"max_pages":{"type":"integer"},"wait_seconds":{"type":"integer","default":30}},"required":["project_id","format"]}
+    """
+
+    struct Params: Codable {
+        let projectID: String
+        let format: PublishConfig.Format
+        let sectionIDs: [String]?
+        let maxPages: Int?
+        let waitSeconds: Int?
+        enum CodingKeys: String, CodingKey {
+            case projectID = "project_id"
+            case format
+            case sectionIDs = "section_ids"
+            case maxPages = "max_pages"
+            case waitSeconds = "wait_seconds"
+        }
+    }
+
+    @MainActor
+    public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
+        guard let json = paramsJSON else {
+            throw MCPError.invalidArgument("missing params")
+        }
+        let params = try JSONDecoder().decode(Params.self, from: json)
+        guard let entry = registry.lookup(id: params.projectID) else {
+            throw MCPError.invalidArgument("unknown project_id")
+        }
+        let store = entry.store
+        let projectURL = entry.url
+        let stores = PublishingStores.sharedFor(
+            projectID: params.projectID, projectURL: projectURL)
+        let preview = PreviewCompiler(
+            projectURL: projectURL,
+            astSource: ProjectStoreASTSource(projectStore: store),
+            configStore: stores.configStore,
+            jobManager: stores.jobManager,
+            maughamVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0",
+            tectonicVersion: "0.15.0")
+        let result = try await preview.preview(
+            format: params.format,
+            sectionIDs: params.sectionIDs,
+            maxPages: params.maxPages)
+        if !result.errors.isEmpty {
+            return try JSONSerialization.data(withJSONObject: [
+                "status": "failed",
+                "errors": result.errors.map { CompileResponseEncoder.encode(diag: $0) }
+            ], options: [.sortedKeys])
+        }
+        return try JSONSerialization.data(withJSONObject: [
+            "status": "completed",
+            "format": params.format.rawValue,
+            "output_path": result.outputPath,
+            "warnings": result.warnings.map { CompileResponseEncoder.encode(diag: $0) },
+            "errors": []
+        ], options: [.sortedKeys])
+    }
+}
+
+// MARK: - compile_status
+
+public enum CompileStatusTool: MCPTool {
+    public static let method = "compile_status"
+    public static let description =
+    "Poll a compile job's status. Returns the same shape as compile()."
+    public static let inputSchemaJSON = """
+    {"type":"object","properties":{"project_id":{"type":"string"},"job_id":{"type":"string"}},"required":["project_id","job_id"]}
+    """
+
+    struct Params: Codable {
+        let projectID: String
+        let jobID: String
+        enum CodingKeys: String, CodingKey {
+            case projectID = "project_id"
+            case jobID = "job_id"
+        }
+    }
+
+    @MainActor
+    public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
+        guard let json = paramsJSON else {
+            throw MCPError.invalidArgument("missing params")
+        }
+        let params = try JSONDecoder().decode(Params.self, from: json)
+        guard let entry = registry.lookup(id: params.projectID) else {
+            throw MCPError.invalidArgument("unknown project_id")
+        }
+        let stores = PublishingStores.sharedFor(
+            projectID: params.projectID, projectURL: entry.url)
+        guard let job = await stores.jobManager.get(jobID: params.jobID) else {
+            return try JSONSerialization.data(withJSONObject: [
+                "status": "not_found"
+            ], options: [.sortedKeys])
+        }
+        switch job.status {
+        case .inProgress(let phase):
+            return try CompileResponseEncoder.inProgress(
+                jobID: job.jobID, phase: phase, startedAt: job.startedAt)
+        case .completed(let path, let warnings, let errors):
+            return try JSONSerialization.data(withJSONObject: [
+                "status": "completed",
+                "output_path": path,
+                "warnings": warnings.map { CompileResponseEncoder.encode(diag: $0) },
+                "errors": errors.map { CompileResponseEncoder.encode(diag: $0) }
+            ], options: [.sortedKeys])
+        case .failed(let errors, let log):
+            return try CompileResponseEncoder.encodeFailed(
+                errors: errors, logExcerpt: log)
+        case .cancelled:
+            return try JSONSerialization.data(withJSONObject: [
+                "status": "cancelled"
+            ], options: [.sortedKeys])
+        }
+    }
+}
+
+// MARK: - compile_cancel
+
+public enum CompileCancelTool: MCPTool {
+    public static let method = "compile_cancel"
+    public static let description =
+    "Cancel an in-flight compile."
+    public static let inputSchemaJSON = CompileStatusTool.inputSchemaJSON
+
+    @MainActor
+    public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
+        guard let json = paramsJSON else {
+            throw MCPError.invalidArgument("missing params")
+        }
+        let params = try JSONDecoder().decode(CompileStatusTool.Params.self, from: json)
+        guard let entry = registry.lookup(id: params.projectID) else {
+            throw MCPError.invalidArgument("unknown project_id")
+        }
+        let stores = PublishingStores.sharedFor(
+            projectID: params.projectID, projectURL: entry.url)
+        let result = await stores.jobManager.cancel(jobID: params.jobID)
+        let statusString: String
+        switch result {
+        case .cancelled:        statusString = "cancelled"
+        case .alreadyCompleted: statusString = "already_completed"
+        case .alreadyFailed:    statusString = "already_failed"
+        case .notFound:         statusString = "not_found"
+        }
+        return try JSONSerialization.data(
+            withJSONObject: ["status": statusString], options: [.sortedKeys])
+    }
+}
+
+// MARK: - timeout helper
+
+struct TimeoutError: Error {}
+
+func withTimeout<T: Sendable>(
+    seconds: TimeInterval,
+    operation: @escaping @Sendable () async throws -> T
+) async throws -> T {
+    try await withThrowingTaskGroup(of: T.self) { group in
+        group.addTask { try await operation() }
+        if seconds > 0 {
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                throw TimeoutError()
+            }
+        } else {
+            group.addTask {
+                throw TimeoutError()
+            }
+        }
+        let result = try await group.next()!
+        group.cancelAll()
+        return result
+    }
+}
