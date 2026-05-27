@@ -95,7 +95,41 @@ public enum ImageResponseBuilder {
         let rendered = try render(
             at: url, region: region,
             requestedMax: requestedMax, quality: clampedQuality)
+        return encodeEnvelope(rendered: rendered, requestedMax: requestedMax)
+    }
 
+    /// Render an in-memory NSImage with the same budget pipeline. Used by
+    /// tools that synthesize images (e.g. rasterized PDF pages) rather than
+    /// reading them from disk.
+    public static func render(
+        nsImage source: NSImage, region: Region?, requestedMax: Int, quality: Int
+    ) throws -> Rendered {
+        if let region { try validateRegion(region) }
+        let clampedMax = clampDimension(requestedMax)
+        let clampedQuality = clampQuality(quality)
+        return try renderImageWithBudget(
+            source: source, region: region,
+            requestedMax: clampedMax, quality: clampedQuality)
+    }
+
+    /// Convenience: render an in-memory NSImage and return an MCP `content`
+    /// envelope ready to JSONEncode. Same fallback behaviour as the URL
+    /// variant.
+    public static func encodeEnvelope(
+        nsImage source: NSImage, region: Region?,
+        maxDimension: Int?, quality: Int?
+    ) throws -> Data {
+        let requestedMax = clampDimension(maxDimension ?? defaultMaxDimension)
+        let clampedQuality = clampQuality(quality ?? defaultJPEGQuality)
+        let rendered = try render(
+            nsImage: source, region: region,
+            requestedMax: requestedMax, quality: clampedQuality)
+        return encodeEnvelope(rendered: rendered, requestedMax: requestedMax)
+    }
+
+    private static func encodeEnvelope(
+        rendered: Rendered, requestedMax: Int
+    ) -> Data {
         let imageBlock: AnyJSON = .object([
             "type": .string("image"),
             "data": .string(rendered.jpeg.base64EncodedString()),
@@ -111,7 +145,7 @@ public enum ImageResponseBuilder {
         }
         blocks.append(imageBlock)
         let envelope = AnyJSON.object(["content": .array(blocks)])
-        return try JSONEncoder().encode(envelope)
+        return (try? JSONEncoder().encode(envelope)) ?? Data("{\"content\":[]}".utf8)
     }
 
     public static func clampDimension(_ d: Int) -> Int {
@@ -142,6 +176,14 @@ public enum ImageResponseBuilder {
             throw MCPError.invalidArgument(
                 "Could not decode image at '\(url.path)' as a recognized format")
         }
+        return try renderImageWithBudget(
+            source: source, region: region,
+            requestedMax: requestedMax, quality: quality)
+    }
+
+    private static func renderImageWithBudget(
+        source: NSImage, region: Region?, requestedMax: Int, quality: Int
+    ) throws -> Rendered {
         let sourceSize = source.size
         guard sourceSize.width > 0, sourceSize.height > 0 else {
             throw MCPError.invalidArgument("image has zero dimensions")
