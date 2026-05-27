@@ -11,6 +11,13 @@
 \input{prose}
 \input{screenplay}
 
+% Compile-time metadata overrides (\Title, \Author, \MaughamVersion, ...)
+% written by Maugham's PDFCompiler into build/metadata.tex. The
+% \renewcommand entries override preamble.tex's \providecommand defaults.
+% \InputIfFileExists keeps the template renderable when compiling by hand
+% without going through Maugham.
+\InputIfFileExists{build/metadata}{}{}
+
 \begin{document}
 
 \input{frontmatter}
