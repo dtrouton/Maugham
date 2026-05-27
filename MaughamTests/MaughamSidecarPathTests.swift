@@ -75,4 +75,37 @@ final class MaughamSidecarPathTests: XCTestCase {
             .publicationSnapshot(relativePath: ".maugham/publications/snap-abc123.json")
         )
     }
+
+    func testPublishStoreRoundTrip_doesNotPolluteUnknownSidecar() async throws {
+        let store = await PublicationStore(projectURL: projectURL)
+        try await store.append(Publication(
+            publicationID: "pub_x", version: "0.1", label: nil,
+            format: .pdf, outputPath: "Exports/x.pdf",
+            snapshotID: "snap_x", checkpointID: "chk", republishedFrom: nil,
+            compiledAt: Date(), maughamVersion: "0",
+            tectonicVersion: "0.15.0"))
+
+        let url = projectURL.appendingPathComponent(".maugham/publications.jsonl")
+        XCTAssertEqual(
+            MaughamSidecarPath.classify(url: url, projectURL: projectURL),
+            .publicationsLog
+        )
+    }
+
+    func testSnapshotFile_classifiesAsPublicationSnapshot() async throws {
+        let store = PublicationSnapshotStore(projectURL: projectURL)
+        let snap = PublicationSnapshot(
+            snapshotID: "snap-cls",
+            createdAt: Date(),
+            publishFiles: [],
+            config: PublishConfig(metadata: .init(title: "X", author: "Y")),
+            maughamVersion: "0", tectonicVersion: "0.15.0")
+        try await store.save(snap)
+
+        let url = projectURL.appendingPathComponent(".maugham/publications/snap-cls.json")
+        XCTAssertEqual(
+            MaughamSidecarPath.classify(url: url, projectURL: projectURL),
+            .publicationSnapshot(relativePath: ".maugham/publications/snap-cls.json")
+        )
+    }
 }
