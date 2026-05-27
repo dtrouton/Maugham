@@ -101,6 +101,13 @@ public struct CompileOrchestrator {
             compiledAt: Date(),
             maughamVersion: maughamVersion,
             tectonicVersion: tectonicVersion)
+        // TODO: transactional commit. If `configStore.save` throws after
+        // `publicationStore.append` succeeds, the next compile reuses the same
+        // version → two Publications at the same version. Swapping order moves
+        // the failure mode to "version burned, no Publication" (visible gap).
+        // Both shapes are non-corrupting but confusing; a real fix needs a
+        // two-phase commit or a "pending publication" record promoted on
+        // success of both writes.
         try await publicationStore.append(pub)
 
         // Bump version in config.
