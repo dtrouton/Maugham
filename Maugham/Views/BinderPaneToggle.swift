@@ -52,6 +52,14 @@ struct BinderPaneToggle: View {
                     ProjectSearchView(store: store, isActive: $findActive)
                 }
             }
+            // Show the Exports footer alongside manuscript / scenes only —
+            // it's a publishing-pipeline surface, not relevant to Research /
+            // Trash / Find.
+            if (segment == .manuscript || segment == .scenes)
+                && PublishStarter.isInitialized(in: store.url) {
+                Divider()
+                ExportsListView(projectURL: store.url)
+            }
         }
         .onChange(of: store.trashEntries.count) { _, newValue in
             if newValue == 0 && segment == .trash {

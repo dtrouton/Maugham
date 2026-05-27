@@ -110,6 +110,14 @@ public struct CompileOrchestrator {
         // success of both writes.
         try await publicationStore.append(pub)
 
+        // Notify in-app surfaces (e.g. ExportsListView) that a new publication
+        // landed so they can refresh. Posted unconditionally — observers
+        // filter by project URL if they care. NotificationCenter is
+        // thread-safe; SwiftUI's `.onReceive` hops to main internally.
+        NotificationCenter.default.post(
+            name: .maughamPublicationCompleted,
+            object: pub.publicationID)
+
         // Bump version in config.
         var nextConfig = config
         nextConfig.nextVersion = PublishConfigValidator.bumpedNextVersion(
