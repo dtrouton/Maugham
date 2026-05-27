@@ -47,6 +47,75 @@ final class PublicationSnapshotStoreTests: XCTestCase {
         XCTAssertEqual(loaded.publishFiles.count, 1)
     }
 
+    func testExtract_rejects_parentEscape_relativePath() async throws {
+        let snap = PublicationSnapshot(
+            snapshotID: "snap-evil",
+            createdAt: Date(),
+            publishFiles: [
+                .init(relativePath: "../outside.tex",
+                      textContent: "should not land", base64Content: nil),
+            ],
+            config: PublishConfig(metadata: .init(title: "T", author: "A")),
+            maughamVersion: "0", tectonicVersion: "0.15.0")
+
+        let dest = tmp.appendingPathComponent("extract-escape-\(UUID().uuidString)")
+        do {
+            try PublicationSnapshotStore.extract(snap, into: dest)
+            XCTFail("expected pathTraversal error")
+        } catch PublicationSnapshotStore.Error.pathTraversal(let rel) {
+            XCTAssertEqual(rel, "../outside.tex")
+        }
+        let outside = dest.deletingLastPathComponent()
+            .appendingPathComponent("outside.tex")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outside.path),
+                       "file escaped destination")
+    }
+
+    func testExtract_rejects_absolutePath() async throws {
+        let snap = PublicationSnapshot(
+            snapshotID: "snap-abs",
+            createdAt: Date(),
+            publishFiles: [
+                .init(relativePath: "/tmp/owned.tex",
+                      textContent: "no", base64Content: nil)
+            ],
+            config: PublishConfig(metadata: .init(title: "T", author: "A")),
+            maughamVersion: "0", tectonicVersion: "0.15.0")
+        let dest = tmp.appendingPathComponent("extract-abs-\(UUID().uuidString)")
+        XCTAssertThrowsError(try PublicationSnapshotStore.extract(snap, into: dest)) { err in
+            guard case PublicationSnapshotStore.Error.pathTraversal = err else {
+                XCTFail("unexpected error \(err)")
+                return
+            }
+        }
+    }
+
+    func testLoad_rejects_traversalSnapshotID() async throws {
+        let store = PublicationSnapshotStore(projectURL: tmp)
+        do {
+            _ = try await store.load(id: "../../etc/passwd")
+            XCTFail("expected invalidSnapshotID")
+        } catch PublicationSnapshotStore.Error.invalidSnapshotID(let id) {
+            XCTAssertEqual(id, "../../etc/passwd")
+        }
+    }
+
+    func testSave_rejects_traversalSnapshotID() async throws {
+        let snap = PublicationSnapshot(
+            snapshotID: "../escapes",
+            createdAt: Date(),
+            publishFiles: [],
+            config: PublishConfig(metadata: .init(title: "X", author: "Y")),
+            maughamVersion: "0", tectonicVersion: "0.15.0")
+        let store = PublicationSnapshotStore(projectURL: tmp)
+        do {
+            try await store.save(snap)
+            XCTFail("expected invalidSnapshotID")
+        } catch PublicationSnapshotStore.Error.invalidSnapshotID(let id) {
+            XCTAssertEqual(id, "../escapes")
+        }
+    }
+
     func testExtract_writesAllFiles_intoDestination() async throws {
         let snap = PublicationSnapshot(
             snapshotID: "snap-extract",

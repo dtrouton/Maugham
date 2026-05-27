@@ -1,6 +1,12 @@
 import Foundation
 
 public actor PublicationSnapshotStore {
+
+    public enum Error: Swift.Error, Equatable {
+        case invalidSnapshotID(String)
+        case pathTraversal(relativePath: String)
+    }
+
     nonisolated public let projectURL: URL
 
     public init(projectURL: URL) {
@@ -13,6 +19,22 @@ public actor PublicationSnapshotStore {
 
     nonisolated public func snapshotURL(id: String) -> URL {
         snapshotsDir.appendingPathComponent("\(id).json")
+    }
+
+    /// Rejects snapshot IDs that could escape `snapshotsDir` (path separators,
+    /// `..` segments, leading `.`, empty). Snapshot IDs are minted by `capture()`
+    /// in the form `snap-<uuid-lowercase>`, but snapshots arrive on disk and via
+    /// iCloud/MCP, so any path-shaped input is treated as adversarial.
+    nonisolated internal static func validate(snapshotID id: String) throws {
+        if id.isEmpty
+            || id.contains("/")
+            || id.contains("\\")
+            || id.contains("\0")
+            || id.hasPrefix(".")
+            || id.split(separator: "/").contains("..")
+        {
+            throw Error.invalidSnapshotID(id)
+        }
     }
 
     /// Capture the current `.maugham/publish/` contents into a snapshot value.
@@ -35,6 +57,7 @@ public actor PublicationSnapshotStore {
     }
 
     nonisolated public func save(_ snap: PublicationSnapshot) throws {
+        try Self.validate(snapshotID: snap.snapshotID)
         try FileManager.default.createDirectory(
             at: snapshotsDir, withIntermediateDirectories: true)
         let url = snapshotURL(id: snap.snapshotID)
@@ -45,6 +68,7 @@ public actor PublicationSnapshotStore {
     }
 
     nonisolated public func load(id: String) throws -> PublicationSnapshot {
+        try Self.validate(snapshotID: id)
         let url = snapshotURL(id: id)
         let data = try Data(contentsOf: url)
         let decoder = JSONDecoder()
@@ -53,13 +77,31 @@ public actor PublicationSnapshotStore {
     }
 
     /// Extract a snapshot's `publishFiles` into a destination directory.
+    ///
+    /// Validates that each `file.relativePath` resolves inside `destination`.
+    /// Snapshots are JSON files that can be edited, synced via iCloud, or arrive
+    /// from MCP callers; their `publishFiles` entries are untrusted input.
     public static func extract(
         _ snap: PublicationSnapshot, into destination: URL
     ) throws {
         try FileManager.default.createDirectory(
             at: destination, withIntermediateDirectories: true)
+        let destPrefix = destination.standardizedFileURL.path + "/"
         for file in snap.publishFiles {
-            let dst = destination.appendingPathComponent(file.relativePath)
+            let rel = file.relativePath
+            // Reject absolute / parent-escape / hidden-root paths before joining.
+            if rel.isEmpty
+                || rel.hasPrefix("/")
+                || rel.hasPrefix("~")
+                || rel.contains("\0")
+                || rel.split(separator: "/").contains("..")
+            {
+                throw Error.pathTraversal(relativePath: rel)
+            }
+            let dst = destination.appendingPathComponent(rel).standardizedFileURL
+            guard dst.path.hasPrefix(destPrefix) else {
+                throw Error.pathTraversal(relativePath: rel)
+            }
             try FileManager.default.createDirectory(
                 at: dst.deletingLastPathComponent(),
                 withIntermediateDirectories: true)
