@@ -1,0 +1,150 @@
+import Foundation
+
+public struct PDFCompiler {
+
+    public struct Result {
+        public let outputPath: String         // absolute path
+        public let warnings: [TectonicLogParser.Diagnostic]
+        public let errors:   [TectonicLogParser.Diagnostic]
+        public let logExcerpt: String
+    }
+
+    public let projectURL: URL
+    public let astSource: ProjectASTBuilder.Source
+    public let config: PublishConfig
+    public let jobManager: CompileJobManager
+    public let maughamVersion: String
+    public let jobID: String?
+
+    public init(
+        projectURL: URL,
+        astSource: ProjectASTBuilder.Source,
+        config: PublishConfig,
+        jobManager: CompileJobManager,
+        maughamVersion: String,
+        jobID: String? = nil
+    ) throws {
+        self.projectURL = projectURL
+        self.astSource = astSource
+        self.config = config
+        self.jobManager = jobManager
+        self.maughamVersion = maughamVersion
+        self.jobID = jobID
+    }
+
+    /// Full PDF compile.
+    public func compile(label: String?) async throws -> Result {
+        let publish = projectURL.appendingPathComponent(".maugham/publish",
+                                                        isDirectory: true)
+        let build = publish.appendingPathComponent("build", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: build, withIntermediateDirectories: true)
+
+        // Phase: rendering body.
+        if let id = jobID {
+            await jobManager.updatePhase(jobID: id, phase: .renderingBody)
+        }
+        let ast = ProjectASTBuilder.build(from: astSource)
+        let body = LaTeXBodyEmitter.emit(ast)
+        let bodyURL = build.appendingPathComponent("body.tex")
+        try body.write(to: bodyURL, atomically: true, encoding: .utf8)
+
+        // Inject metadata as \renewcommand overrides. template.tex
+        // \InputIfFileExists{build/metadata}{}{} picks this up.
+        let metaURL = build.appendingPathComponent("metadata.tex")
+        let m = config.metadata
+        let metaTex = """
+        \\renewcommand{\\Title}{\(LaTeXEscape.escape(m.title))}
+        \\renewcommand{\\Subtitle}{\(LaTeXEscape.escape(m.subtitle ?? ""))}
+        \\renewcommand{\\Author}{\(LaTeXEscape.escape(m.author))}
+        \\renewcommand{\\Copyright}{\(LaTeXEscape.escape(m.copyright ?? ""))}
+        \\renewcommand{\\Keywords}{\(LaTeXEscape.escape(m.keywords.joined(separator: ", ")))}
+        \\renewcommand{\\MaughamVersion}{\(LaTeXEscape.escape(config.nextVersion))}
+        \\renewcommand{\\MaughamLabel}{\(LaTeXEscape.escape(label ?? ""))}
+        """
+        try metaTex.write(to: metaURL, atomically: true, encoding: .utf8)
+
+        // Phase: compiling.
+        if let id = jobID {
+            await jobManager.updatePhase(jobID: id, phase: .compiling)
+        }
+
+        let binary = try locateTectonic()
+        let cache = try TectonicCache.ensureCacheExists()
+        let invoker = TectonicInvoker(binaryURL: binary, cacheURL: cache)
+
+        let templateURL = publish.appendingPathComponent("template.tex")
+        let invocationResult = try await invoker.compile(
+            texFile: templateURL,
+            workingDirectory: publish,
+            outputFormat: .pdf
+        )
+
+        let diagnostics = TectonicLogParser.parse(log: invocationResult.combinedLog)
+        let errors = diagnostics.filter { $0.level == .error }
+        let warnings = diagnostics.filter { $0.level == .warning }
+
+        if invocationResult.exitCode != 0 {
+            return Result(
+                outputPath: "",
+                warnings: warnings, errors: errors,
+                logExcerpt: invocationResult.combinedLog)
+        }
+
+        // Phase: writing output.
+        if let id = jobID {
+            await jobManager.updatePhase(jobID: id, phase: .writingOutput)
+        }
+
+        let generated = publish.appendingPathComponent("template.pdf")
+        let filename = makeOutputFilename(format: .pdf, label: label)
+        let exports = projectURL.appendingPathComponent(config.outputs.directory,
+                                                       isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: exports, withIntermediateDirectories: true)
+        let dest = exports.appendingPathComponent(filename)
+        if FileManager.default.fileExists(atPath: dest.path) {
+            try FileManager.default.removeItem(at: dest)
+        }
+        try FileManager.default.moveItem(at: generated, to: dest)
+
+        return Result(
+            outputPath: dest.path,
+            warnings: warnings, errors: errors,
+            logExcerpt: invocationResult.combinedLog)
+    }
+
+    // MARK: - helpers
+
+    private func makeOutputFilename(
+        format: PublishConfig.Format, label: String?
+    ) -> String {
+        var title = config.metadata.title
+        if config.outputs.sanitizeSpaces {
+            title = title.replacingOccurrences(of: " ", with: "-")
+        }
+        let labelSuffix = label.map { "-\($0)" } ?? ""
+        return config.outputs.filenameTemplate
+            .replacingOccurrences(of: "{title}",        with: title)
+            .replacingOccurrences(of: "{version}",      with: config.nextVersion)
+            .replacingOccurrences(of: "{label_suffix}", with: labelSuffix)
+            .replacingOccurrences(of: "{ext}",          with: format.rawValue)
+    }
+
+    /// Locates `tectonic` either from the running app bundle or, in XCTest,
+    /// from the host app bundle (which sits at `.../Maugham.app` outside the
+    /// test bundle's `Contents/PlugIns/MaughamTests.xctest`).
+    private func locateTectonic() throws -> URL {
+        if let url = try? TectonicLocator.locate() { return url }
+        // XCTest fallback: walk up from the test bundle to find the host app.
+        let testBundlePath = Bundle(for: TectonicLocatorHostBundleProbe.self).bundlePath
+        let appPath = testBundlePath.replacingOccurrences(
+            of: "/Contents/PlugIns/MaughamTests.xctest", with: "")
+        return try TectonicLocator.locateInBundle(at: URL(fileURLWithPath: appPath))
+    }
+}
+
+/// Marker class for `Bundle(for:)` to look up the test bundle from PDFCompiler.
+/// `Bundle.main` in XCTest returns the runner, not the host app, so we use
+/// a real class declared in this module to anchor the lookup.
+final class TectonicLocatorHostBundleProbe {}
