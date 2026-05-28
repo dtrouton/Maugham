@@ -1,7 +1,7 @@
 # Body emitter overhaul — handoff for a new session
 
 **Date:** 2026-05-28
-**Branch:** `worktree-publishing-pipeline-design` (in `.claude/worktrees/publishing-pipeline-design/`)
+**Branch:** `feat/publishing-pipeline` — `git checkout` directly from the main repo. (Developed in a git worktree through 2026-05-28; folded back to a regular branch at session end.)
 **Status:** All scaffolding + small bundle items landed. Body emission is the critical remaining bug, and it's a real architectural reshape.
 
 This is the most significant bug surfaced by external testing during the publishing pipeline milestone, and it's the work that turns "compiles cleanly into unreadable PDF" into "compiles into something a reader can actually read." All prior handoffs in this directory (`2026-05-27-publishing-pipeline-handoff.md`, `2026-05-27-publishing-pipeline-handoff-2.md`) remain valid for everything that isn't body emission.
@@ -205,7 +205,7 @@ The page-break-default and ToC-same-page findings should automatically resolve h
 
 ## What's already done (so the next session doesn't redo it)
 
-All landed on `worktree-publishing-pipeline-design` since the last handoff (`a44b8f0`):
+All landed on `feat/publishing-pipeline` since the last handoff (`a44b8f0`):
 
 | Commit | Subject |
 |---|---|
@@ -239,35 +239,65 @@ These remain unresolved but are independent of body emission. Don't conflate the
 ## How to start the new session
 
 ```
-You are picking up the body-emitter overhaul described in
-docs/superpowers/notes/2026-05-28-body-emitter-overhaul-handoff.md.
+You are picking up the publishing pipeline body-emitter overhaul on
+the feat/publishing-pipeline branch of the Maugham repo. Orient there.
 
-Read in order:
-1. That handoff (the body emitter restructure plan, this file)
+Required reading, in order:
+
+1. docs/superpowers/notes/2026-05-28-body-emitter-overhaul-handoff.md
+   — the AST restructure plan, what to do and what NOT to do, and the
+   success criteria the external tester will re-validate against.
+
 2. docs/superpowers/notes/2026-05-27-publishing-pipeline-handoff.md
-   (gotchas 1-10 still apply: CWD guard, SourceKit noise, etc.)
-3. docs/superpowers/notes/2026-05-27-publishing-pipeline-handoff-2.md
-   (Phase 6+ context — API drift table, _resetForTesting pattern)
-4. Existing source:
-   - Maugham/Publish/ProjectASTBuilder.swift  (the parser to overhaul)
-   - Maugham/Publish/ProjectAST.swift          (the type to restructure)
-   - Maugham/Publish/LaTeXBodyEmitter.swift    (consumer #1)
-   - Maugham/Publish/XHTMLBodyEmitter.swift    (consumer #2)
-   - MaughamTests/LaTeXBodyEmitterTests.swift
-   - MaughamTests/XHTMLBodyEmitterTests.swift
-   - MaughamTests/ProjectASTTests.swift
+   — Maugham conventions for this milestone. Gotchas 1-10 still apply
+   (trust xcodebuild over SourceKit noise, ./gen.sh after project.yml
+   edits, MaughamTests is flat, skip dual review for trivial tasks).
+   The CWD-guard section is obsolete now that work is on a branch, not
+   a worktree.
 
-Then execute Phases 1-7 in order. Phase 1 is one-line and
-independently shippable; ship it first to unblock the
-screenplay-leaked-markers bug. Then the AST restructure (Phases 2-5).
-Then emitter tests (Phase 6). Then hand back to tester (Phase 7).
+3. docs/superpowers/notes/2026-05-27-publishing-pipeline-handoff-2.md
+   — API drift table that downstream tests rely on (MCPError.toolError
+   shape, registry.lookup, PublishingStores._resetForTesting pattern).
+
+4. CLAUDE.md — project conventions and hard invariants.
+
+Then execute Phases 1-7 from the body-emitter handoff in order:
+
+- Phase 1 is one line — add stripAnchors(text) at the top of
+  parseFountain in Maugham/Publish/ProjectASTBuilder.swift, write a
+  test asserting that a <!-- ¶abcd --> anchor doesn't leak into a
+  fountain action node, ship it as its own commit. Do this before the
+  AST restructure so the screenplay-leaked-markers symptom unblocks.
+
+- Phases 2-5 are the real AST work (Inline type, paragraph carries
+  [Inline], heading + blockquote nodes, both emitters updated,
+  deprecated cases removed).
+
+- Phase 6 rewrites the emitter tests.
+
+- Phase 7 hands back to the external tester for re-validation against
+  the Playlist project.
+
+Don't dispatch subagents in parallel (they conflict on git state).
+Test files go at MaughamTests/ root, not in subdirectories.
+
+When the overhaul is done, the external tester re-runs a compile
+against Playlist (3 pieces: two prose, one screenplay) and checks the
+five success criteria at the end of the body-emitter handoff. Don't
+declare victory until that re-validation passes — the bug only shows
+up in the rendered PDF, not in unit tests.
 ```
 
-The working directory is the worktree at:
-`/Users/denver/src/Maugham/.claude/worktrees/publishing-pipeline-design/`
+Files most relevant to the overhaul (no need to read upfront — the
+handoff above tells you which when):
 
-CWD guard from handoff #1 still applies: every Bash command needs
-`cd /Users/denver/src/Maugham/.claude/worktrees/publishing-pipeline-design && ` prefix because subagents inherit the main worktree's CWD.
+- `Maugham/Publish/ProjectASTBuilder.swift` — the parser to overhaul
+- `Maugham/Publish/ProjectAST.swift` — the type to restructure
+- `Maugham/Publish/LaTeXBodyEmitter.swift` — consumer #1
+- `Maugham/Publish/XHTMLBodyEmitter.swift` — consumer #2
+- `MaughamTests/LaTeXBodyEmitterTests.swift`
+- `MaughamTests/XHTMLBodyEmitterTests.swift`
+- `MaughamTests/ProjectASTTests.swift`
 
 ---
 
