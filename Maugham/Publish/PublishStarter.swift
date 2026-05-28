@@ -37,6 +37,7 @@ public enum PublishStarter {
         try FileManager.default.createDirectory(
             at: pub, withIntermediateDirectories: true)
 
+        let now = Date()
         for (resource, destination) in files {
             guard let src = Bundle.main.url(
                 forResource: resource,
@@ -50,6 +51,12 @@ public enum PublishStarter {
                 try FileManager.default.removeItem(at: dst)
             }
             try FileManager.default.copyItem(at: src, to: dst)
+            // copyItem preserves source mtime — the bundle's build time —
+            // which makes every freshly-init'd file look stale. Touch with
+            // wall-clock so `modified_at` reflects "when did THIS project's
+            // copy get installed" rather than "when was Maugham.app built".
+            try? FileManager.default.setAttributes(
+                [.modificationDate: now], ofItemAtPath: dst.path)
         }
 
         // High-water-mark guard. The starter's default-config.json carries

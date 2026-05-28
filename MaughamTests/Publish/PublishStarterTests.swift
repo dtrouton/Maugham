@@ -113,6 +113,28 @@ final class PublishStarterTests: XCTestCase {
         XCTAssertEqual(cfg?.nextVersion, "0.1")
     }
 
+    func testInstall_setsWallClockMtime_notBundleMtime() async throws {
+        let before = Date()
+        try await PublishStarter.install(into: tmp, force: false)
+        let after = Date()
+        for name in [
+            "template.tex", "preamble.tex", "frontmatter.tex",
+            "prose.tex", "screenplay.tex", "backmatter.tex",
+            "styles.css", "config.json"
+        ] {
+            let url = tmp.appendingPathComponent(".maugham/publish/\(name)")
+            let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
+            guard let mod = attrs[.modificationDate] as? Date else {
+                XCTFail("no modification date for \(name)")
+                continue
+            }
+            XCTAssertGreaterThanOrEqual(mod.timeIntervalSince(before), -1,
+                                        "\(name) mtime is before install started — copyItem mtime leaked through")
+            XCTAssertLessThanOrEqual(mod.timeIntervalSince(after), 1,
+                                     "\(name) mtime is in the future — \(mod) vs \(after)")
+        }
+    }
+
     func testInstall_ignoresNonNumericPublicationVersions() async throws {
         // Republish records use non-numeric versions like "0.3-r5f7a". Those
         // aren't candidates for next_version comparison and must not poison
