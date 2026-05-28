@@ -147,3 +147,17 @@ these two fixes in Playlist, either:
 
 The body-emitter fixes (criteria 1–8 above) DO reach Playlist immediately —
 they're in the app's compile path, not the on-disk template.
+
+### Screenplay font + dialogue-splitting (diagnosed by compiling + reading the log)
+
+| Commit | Fix | Reaches Playlist? |
+|---|---|---|
+| `fc850a9` | **Monospace font.** `screenplay.tex` selected `\fontfamily{cmtt}`, but tectonic = XeTeX with Unicode (`TU`) encoding, where `cmtt` has no font shape → silent serif substitution (log: `Font shape 'TU/cmtt/m/n' undefined ... defaults substituted`). Switched to `\ttfamily` (Latin Modern Mono, exists under TU). | **No** — template, new projects only. Apply to Playlist's `screenplay.tex` or force re-init. |
+| `7de0246` | **Dialogue/action coalescing.** `parseFountain` emitted one node per source line, so a hard-wrapped speech became several `\dialogue{}` minipages. Consecutive dialogue lines now coalesce into one speech block; action likewise. | **Yes** — builder, in the app. |
+
+On the overflow specifically: I compiled a screenplay with a long single-line
+speech and a hard-wrapped speech in true monospace and saw **no overfull
+`\hbox`** — the 3.5″ minipage wraps fine. So the column "escape" was the
+split-into-many-minipages, not a width bug. If overflow persists after both
+fixes + the template update, send the actual `.fountain` source — there may be
+a long unbreakable token or a content shape I haven't reproduced.
