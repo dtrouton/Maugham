@@ -45,6 +45,15 @@ public enum LaTeXBodyEmitter {
         switch prose {
         case .paragraph(let inlines):
             out.append(emitInline(inlines))
+            out.append("")   // blank line → \par so paragraphs don't run together
+        case .heading(let level, let inlines):
+            let cmd = ["section", "subsection", "subsubsection"][min(max(level - 1, 0), 2)]
+            out.append("\\\(cmd)*{\(emitInline(inlines))}")
+            out.append("\\addcontentsline{toc}{\(cmd)}{\(plainText(inlines))}")
+        case .blockquote(let nodes):
+            out.append("\\begin{quote}")
+            for n in nodes { emit(prose: n, into: &out) }
+            out.append("\\end{quote}")
         case .sceneBreak:
             out.append("\\scenebreak")
         case .emphasis(let s):  out.append("\\emph{\(LaTeXEscape.escape(s))}")
@@ -65,6 +74,22 @@ public enum LaTeXBodyEmitter {
             case .wikiLink(let target, let display):
                 return "\\wikilink{\(LaTeXEscape.escape(target))}{\(LaTeXEscape.escape(display))}"
             case .lineBreak:        return "\\\\"
+            }
+        }.joined()
+    }
+
+    /// Flatten inline runs to escaped plain text (no formatting commands) for
+    /// `\addcontentsline` — running `\emph`/`\textbf` through the ToC entry is
+    /// fragile, so headings appear unformatted in the contents.
+    private static func plainText(_ inlines: [ProjectAST.Inline]) -> String {
+        inlines.map { inline -> String in
+            switch inline {
+            case .text(let s):              return LaTeXEscape.escape(s)
+            case .emphasis(let xs):         return plainText(xs)
+            case .strong(let xs):           return plainText(xs)
+            case .code(let s):              return LaTeXEscape.escape(s)
+            case .wikiLink(_, let display): return LaTeXEscape.escape(display)
+            case .lineBreak:                return " "
             }
         }.joined()
     }

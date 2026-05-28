@@ -36,6 +36,14 @@ public enum XHTMLBodyEmitter {
         switch prose {
         case .paragraph(let inlines):
             out.append("<p>\(emitInline(inlines))</p>")
+        case .heading(let level, let inlines):
+            // Reserve <h1> for the section title; markdown `#` starts at <h2>.
+            let tag = "h\(min(level + 1, 6))"
+            out.append("<\(tag)>\(emitInline(inlines))</\(tag)>")
+        case .blockquote(let nodes):
+            out.append("<blockquote>")
+            for n in nodes { emit(prose: n, into: &out) }
+            out.append("</blockquote>")
         case .sceneBreak:
             out.append("<hr class=\"scene-break\"/>")
         case .emphasis(let s):

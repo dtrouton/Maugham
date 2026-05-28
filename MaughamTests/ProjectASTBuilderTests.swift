@@ -58,6 +58,72 @@ final class ProjectASTBuilderTests: XCTestCase {
         XCTAssertEqual(ast.sections[0].nodes, [.paragraph("Hello.")])
     }
 
+    // MARK: - block parsing (headings, blockquotes, multi-line paragraphs)
+
+    func testProseHeading_atxBecomesHeadingNode() {
+        let src = FixtureSource(pieces: [
+            (id: "p1", title: "C", mode: .prose, text: "## Day 1/3\n\nMorning.")
+        ])
+        let ast = ProjectASTBuilder.build(from: src)
+        XCTAssertEqual(ast.sections[0].nodes, [
+            .heading(level: 2, [.text("Day 1/3")]),
+            .paragraph([.text("Morning.")]),
+        ])
+    }
+
+    func testProseHeading_levelCountedFromHashes() {
+        let src = FixtureSource(pieces: [
+            (id: "p1", title: "C", mode: .prose, text: "# Top\n\n### Deep")
+        ])
+        let ast = ProjectASTBuilder.build(from: src)
+        XCTAssertEqual(ast.sections[0].nodes, [
+            .heading(level: 1, [.text("Top")]),
+            .heading(level: 3, [.text("Deep")]),
+        ])
+    }
+
+    func testBareHashes_areSceneBreakNotHeading() {
+        // `###` with no space + content is an ornament, not a heading.
+        let src = FixtureSource(pieces: [
+            (id: "p1", title: "C", mode: .prose, text: "Before.\n\n###\n\nAfter.")
+        ])
+        let ast = ProjectASTBuilder.build(from: src)
+        XCTAssertEqual(ast.sections[0].nodes, [
+            .paragraph([.text("Before.")]), .sceneBreak, .paragraph([.text("After.")]),
+        ])
+    }
+
+    func testProseBlockquote_nestsParagraph() {
+        let src = FixtureSource(pieces: [
+            (id: "p1", title: "C", mode: .prose, text: "> Quoted line.\n> Still quoted.")
+        ])
+        let ast = ProjectASTBuilder.build(from: src)
+        XCTAssertEqual(ast.sections[0].nodes, [
+            .blockquote([.paragraph([.text("Quoted line. Still quoted.")])]),
+        ])
+    }
+
+    func testProseParagraph_softLineBreakJoinsWithSpace() {
+        let src = FixtureSource(pieces: [
+            (id: "p1", title: "C", mode: .prose, text: "Line one\nline two")
+        ])
+        let ast = ProjectASTBuilder.build(from: src)
+        XCTAssertEqual(ast.sections[0].nodes, [.paragraph([.text("Line one line two")])])
+    }
+
+    func testProseParagraph_inlineEmphasisParsed() {
+        let src = FixtureSource(pieces: [
+            (id: "p1", title: "C", mode: .prose, text: "A *word* and **bold**.")
+        ])
+        let ast = ProjectASTBuilder.build(from: src)
+        XCTAssertEqual(ast.sections[0].nodes, [
+            .paragraph([
+                .text("A "), .emphasis([.text("word")]),
+                .text(" and "), .strong([.text("bold")]), .text("."),
+            ]),
+        ])
+    }
+
     func testFountainStripsAnchors_fromAction() {
         // Fountain manuscripts carry the same inline <!-- ¶XXXX --> op-log
         // anchors as prose. They must never leak into a rendered screenplay

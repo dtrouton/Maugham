@@ -39,7 +39,9 @@ public struct ProjectAST: Equatable, Sendable {
     }
 
     public enum ProseNode: Equatable, Sendable {
-        case paragraph([Inline])      // a run of inline content
+        case paragraph([Inline])              // a run of inline content
+        case heading(level: Int, [Inline])    // ATX `## Day 1/3` — section title
+        indirect case blockquote([ProseNode]) // `> …` markdown blockquote
         case sceneBreak
 
         // Deprecated top-level cases — retained only while the emitters and
@@ -79,6 +81,10 @@ public struct ProjectAST: Equatable, Sendable {
 public extension ProjectAST.Node {
     static func paragraph(_ inlines: [ProjectAST.Inline]) -> Self { .prose(.paragraph(inlines)) }
     static func paragraph(_ s: String) -> Self { .prose(.paragraph([.text(s)])) }
+    static func heading(level: Int, _ inlines: [ProjectAST.Inline]) -> Self {
+        .prose(.heading(level: level, inlines))
+    }
+    static func blockquote(_ nodes: [ProjectAST.ProseNode]) -> Self { .prose(.blockquote(nodes)) }
     static func emphasis(_ s: String)  -> Self { .prose(.emphasis(s)) }
     static func strong(_ s: String)    -> Self { .prose(.strong(s)) }
     static func wikiLink(target: String, display: String) -> Self {
