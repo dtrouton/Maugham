@@ -18,10 +18,14 @@
 % land at the standard US-screenplay positions on US Letter:
 %   action/scene 1.5"  dialogue 2.5"  parenthetical 3.0"  character 3.7"
 % (i.e. add the 1in margin: indent-from-margin = position - 1in).
+% \ttfamily (not \fontfamily{cmtt}): tectonic runs XeTeX with Unicode (TU)
+% font encoding, where the legacy `cmtt` family has no font shape and LaTeX
+% silently falls back to the serif default. \ttfamily resolves through the
+% configured monospace font (Latin Modern Mono), which exists under TU.
 \NewEnviron{screenplay}[1]{%
   \section{#1}%
   \begingroup
-  \fontfamily{cmtt}\fontsize{12pt}{14pt}\selectfont
+  \ttfamily\fontsize{12pt}{14pt}\selectfont
   \setlength{\parindent}{0pt}%
   \BODY
   \endgroup
