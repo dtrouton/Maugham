@@ -39,11 +39,28 @@ public struct ProjectAST: Equatable, Sendable {
     }
 
     public enum ProseNode: Equatable, Sendable {
-        case paragraph(String)        // plain text, no inline markers
-        case emphasis(String)         // italics
+        case paragraph([Inline])      // a run of inline content
+        case sceneBreak
+
+        // Deprecated top-level cases — retained only while the emitters and
+        // tests migrate to the `Inline`-carrying paragraph shape. Inline
+        // emphasis/strong now live inside `paragraph([Inline])` via `Inline`
+        // below. Deleted in the body-emitter overhaul's Phase 5.
+        case emphasis(String)
         case strong(String)
         case wikiLink(target: String, display: String)
-        case sceneBreak
+    }
+
+    /// Inline content within a prose paragraph. Nestable so real markdown
+    /// like `**bold _italic_**` and `*em with **strong** inside*` round-trips:
+    /// a single `String` payload can't represent nesting, an `[Inline]` can.
+    public enum Inline: Equatable, Sendable {
+        case text(String)
+        case emphasis([Inline])               // *italic* / _italic_
+        case strong([Inline])                 // **bold**
+        case code(String)                     // `inline code` — never nests
+        case wikiLink(target: String, display: String)
+        case lineBreak                        // explicit "  \n" hard break
     }
 
     public enum FountainNode: Equatable, Sendable {
@@ -60,7 +77,8 @@ public struct ProjectAST: Equatable, Sendable {
 // Convenience constructors so tests/builders can write
 //   .paragraph("foo")  instead of  .prose(.paragraph("foo"))
 public extension ProjectAST.Node {
-    static func paragraph(_ s: String) -> Self { .prose(.paragraph(s)) }
+    static func paragraph(_ inlines: [ProjectAST.Inline]) -> Self { .prose(.paragraph(inlines)) }
+    static func paragraph(_ s: String) -> Self { .prose(.paragraph([.text(s)])) }
     static func emphasis(_ s: String)  -> Self { .prose(.emphasis(s)) }
     static func strong(_ s: String)    -> Self { .prose(.strong(s)) }
     static func wikiLink(target: String, display: String) -> Self {

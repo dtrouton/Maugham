@@ -43,14 +43,30 @@ public enum LaTeXBodyEmitter {
 
     private static func emit(prose: ProjectAST.ProseNode, into out: inout [String]) {
         switch prose {
-        case .paragraph(let s): out.append(LaTeXEscape.escape(s))
+        case .paragraph(let inlines):
+            out.append(emitInline(inlines))
+        case .sceneBreak:
+            out.append("\\scenebreak")
         case .emphasis(let s):  out.append("\\emph{\(LaTeXEscape.escape(s))}")
         case .strong(let s):    out.append("\\textbf{\(LaTeXEscape.escape(s))}")
         case .wikiLink(let target, let display):
             out.append("\\wikilink{\(LaTeXEscape.escape(target))}{\(LaTeXEscape.escape(display))}")
-        case .sceneBreak:
-            out.append("\\scenebreak")
         }
+    }
+
+    /// Render a run of inline nodes into a single LaTeX string.
+    private static func emitInline(_ inlines: [ProjectAST.Inline]) -> String {
+        inlines.map { inline -> String in
+            switch inline {
+            case .text(let s):     return LaTeXEscape.escape(s)
+            case .emphasis(let xs): return "\\emph{\(emitInline(xs))}"
+            case .strong(let xs):   return "\\textbf{\(emitInline(xs))}"
+            case .code(let s):      return "\\texttt{\(LaTeXEscape.escape(s))}"
+            case .wikiLink(let target, let display):
+                return "\\wikilink{\(LaTeXEscape.escape(target))}{\(LaTeXEscape.escape(display))}"
+            case .lineBreak:        return "\\\\"
+            }
+        }.joined()
     }
 
     private static func emit(fountain: ProjectAST.FountainNode, into out: inout [String]) {

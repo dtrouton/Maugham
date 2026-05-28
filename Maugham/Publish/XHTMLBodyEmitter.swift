@@ -34,8 +34,10 @@ public enum XHTMLBodyEmitter {
 
     private static func emit(prose: ProjectAST.ProseNode, into out: inout [String]) {
         switch prose {
-        case .paragraph(let s):
-            out.append("<p>\(XHTMLEscape.escape(s))</p>")
+        case .paragraph(let inlines):
+            out.append("<p>\(emitInline(inlines))</p>")
+        case .sceneBreak:
+            out.append("<hr class=\"scene-break\"/>")
         case .emphasis(let s):
             out.append("<p><em>\(XHTMLEscape.escape(s))</em></p>")
         case .strong(let s):
@@ -45,9 +47,23 @@ public enum XHTMLBodyEmitter {
                 "<p><span class=\"wiki-link\" data-target=\"\(XHTMLEscape.attribute(target))\">"
                 + XHTMLEscape.escape(display)
                 + "</span></p>")
-        case .sceneBreak:
-            out.append("<hr class=\"scene-break\"/>")
         }
+    }
+
+    /// Render a run of inline nodes into a single XHTML string.
+    private static func emitInline(_ inlines: [ProjectAST.Inline]) -> String {
+        inlines.map { inline -> String in
+            switch inline {
+            case .text(let s):      return XHTMLEscape.escape(s)
+            case .emphasis(let xs): return "<em>\(emitInline(xs))</em>"
+            case .strong(let xs):   return "<strong>\(emitInline(xs))</strong>"
+            case .code(let s):      return "<code>\(XHTMLEscape.escape(s))</code>"
+            case .wikiLink(let target, let display):
+                return "<span class=\"wiki-link\" data-target=\"\(XHTMLEscape.attribute(target))\">"
+                    + XHTMLEscape.escape(display) + "</span>"
+            case .lineBreak:        return "<br/>"
+            }
+        }.joined()
     }
 
     private static func emit(fountain: ProjectAST.FountainNode, into out: inout [String]) {

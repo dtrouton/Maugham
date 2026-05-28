@@ -53,7 +53,7 @@ public enum ProjectASTBuilder {
 
         return blocks.map { block -> ProjectAST.Node in
             if isSceneBreakLine(block) { return .sceneBreak }
-            return .paragraph(block)
+            return .paragraph(InlineParser.parse(block))
         }
     }
 

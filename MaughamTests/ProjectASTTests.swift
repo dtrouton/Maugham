@@ -24,7 +24,7 @@ final class ProjectASTTests: XCTestCase {
 
     func testProseNodes_haveExpectedCases() {
         let nodes: [ProjectAST.ProseNode] = [
-            .paragraph("plain"),
+            .paragraph([.text("plain")]),
             .emphasis("italic"),
             .strong("bold"),
             .wikiLink(target: "Aaron", display: "him"),

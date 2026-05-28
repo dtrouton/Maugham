@@ -11,7 +11,7 @@ final class LaTeXBodyEmitterTests: XCTestCase {
     func testEmits_proseSection_environment() {
         let ast = ProjectAST(sections: [
             .init(pieceID: "p1", title: "Chapter 1", mode: .prose,
-                  nodes: [.prose(.paragraph("Hello."))])
+                  nodes: [.paragraph("Hello.")])
         ])
         let body = LaTeXBodyEmitter.emit(ast)
         XCTAssertTrue(body.contains("\\begin{prose}{Chapter 1}"))
@@ -22,9 +22,9 @@ final class LaTeXBodyEmitterTests: XCTestCase {
     func testEmits_emphasisAndStrong() {
         let ast = ProjectAST(sections: [
             .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
-                .prose(.paragraph("plain ")),
+                .paragraph("plain "),
                 .prose(.emphasis("italic")),
-                .prose(.paragraph(" ")),
+                .paragraph(" "),
                 .prose(.strong("bold"))
             ])
         ])
@@ -54,7 +54,7 @@ final class LaTeXBodyEmitterTests: XCTestCase {
     func testEscapes_specialChars_inProseText() {
         let ast = ProjectAST(sections: [
             .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
-                .prose(.paragraph("50% off & $5 #1"))
+                .paragraph("50% off & $5 #1")
             ])
         ])
         let body = LaTeXBodyEmitter.emit(ast)
