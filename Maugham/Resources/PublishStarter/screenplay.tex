@@ -13,20 +13,26 @@
 
 \usepackage{environ}
 
+% Screenplay body is 12pt Courier with no paragraph indentation (block
+% formatting). Element indents are measured from the 1in page margin so they
+% land at the standard US-screenplay positions on US Letter:
+%   action/scene 1.5"  dialogue 2.5"  parenthetical 3.0"  character 3.7"
+% (i.e. add the 1in margin: indent-from-margin = position - 1in).
 \NewEnviron{screenplay}[1]{%
   \section{#1}%
   \begingroup
-  \fontfamily{cmtt}\selectfont
+  \fontfamily{cmtt}\fontsize{12pt}{14pt}\selectfont
+  \setlength{\parindent}{0pt}%
   \BODY
   \endgroup
 }
 
-\newcommand{\scene}[1]{\par\vspace{1em}\textbf{\MakeUppercase{#1}}\par}
-\newcommand{\action}[1]{\par #1\par}
-\newcommand{\character}[1]{\par\hspace*{2in}\MakeUppercase{#1}\par}
-\newcommand{\dialogue}[1]{\par\hspace*{1in}\begin{minipage}{4in}#1\end{minipage}\par}
-\newcommand{\parenthetical}[1]{\par\hspace*{1.5in}\textit{#1}\par}
-\newcommand{\transition}[1]{\par\hfill\MakeUppercase{#1}\par}
+\newcommand{\scene}[1]{\par\vspace{\baselineskip}\noindent\textbf{\MakeUppercase{#1}}\par\vspace{0.5\baselineskip}}
+\newcommand{\action}[1]{\par\noindent #1\par\vspace{0.5\baselineskip}}
+\newcommand{\character}[1]{\par\vspace{0.5\baselineskip}\hspace*{2.7in}\MakeUppercase{#1}\par}
+\newcommand{\parenthetical}[1]{\par\hspace*{2in}#1\par}
+\newcommand{\dialogue}[1]{\par\hspace*{1.5in}\begin{minipage}[t]{3.5in}#1\end{minipage}\par}
+\newcommand{\transition}[1]{\par\vspace{0.5\baselineskip}\hfill\MakeUppercase{#1}\par\vspace{0.5\baselineskip}}
 \newcommand{\dualdialogue}[2]{%
   \par\noindent
   \begin{minipage}[t]{0.45\textwidth}#1\end{minipage}\hfill
