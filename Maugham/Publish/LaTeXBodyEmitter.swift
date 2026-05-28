@@ -72,6 +72,7 @@ public enum LaTeXBodyEmitter {
             case .text(let s):     return LaTeXEscape.escape(s)
             case .emphasis(let xs): return "\\emph{\(emitInline(xs))}"
             case .strong(let xs):   return "\\textbf{\(emitInline(xs))}"
+            case .underline(let xs): return "\\underline{\(emitInline(xs))}"
             case .code(let s):      return "\\texttt{\(LaTeXEscape.escape(s))}"
             case .wikiLink(let target, let display):
                 return "\\wikilink{\(LaTeXEscape.escape(target))}{\(LaTeXEscape.escape(display))}"
@@ -89,6 +90,7 @@ public enum LaTeXBodyEmitter {
             case .text(let s):              return LaTeXEscape.escape(s)
             case .emphasis(let xs):         return plainText(xs)
             case .strong(let xs):           return plainText(xs)
+            case .underline(let xs):        return plainText(xs)
             case .code(let s):              return LaTeXEscape.escape(s)
             case .wikiLink(_, let display): return LaTeXEscape.escape(display)
             case .lineBreak:                return " "
@@ -99,10 +101,10 @@ public enum LaTeXBodyEmitter {
     private static func emit(fountain: ProjectAST.FountainNode, into out: inout [String]) {
         switch fountain {
         case .sceneHeading(let s):  out.append("\\scene{\(LaTeXEscape.escape(s))}")
-        case .action(let s):        out.append("\\action{\(LaTeXEscape.escape(s))}")
+        case .action(let xs):       out.append("\\action{\(emitInline(xs))}")
         case .character(let s):     out.append("\\character{\(LaTeXEscape.escape(s))}")
-        case .dialogue(let s):      out.append("\\dialogue{\(LaTeXEscape.escape(s))}")
-        case .parenthetical(let s): out.append("\\parenthetical{\(LaTeXEscape.escape(s))}")
+        case .dialogue(let xs):     out.append("\\dialogue{\(emitInline(xs))}")
+        case .parenthetical(let xs): out.append("\\parenthetical{\(emitInline(xs))}")
         case .transition(let s):    out.append("\\transition{\(LaTeXEscape.escape(s))}")
         case .dualDialogue(let left, let right):
             var leftLines: [String] = []

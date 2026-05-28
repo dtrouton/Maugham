@@ -191,6 +191,20 @@ final class LaTeXBodyEmitterTests: XCTestCase {
         XCTAssertTrue(body.contains("\\end{screenplay}"))
     }
 
+    func testEmits_fountainInlineEmphasis_inActionAndDialogue() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.action([.text("She runs "), .emphasis([.text("fast")])])),
+                .fountain(.dialogue([.strong([.text("Now")]), .text("!")])),
+                .fountain(.parenthetical([.underline([.text("sotto")])])),
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("\\action{She runs \\emph{fast}}"))
+        XCTAssertTrue(body.contains("\\dialogue{\\textbf{Now}!}"))
+        XCTAssertTrue(body.contains("\\parenthetical{\\underline{sotto}}"))
+    }
+
     func testEmits_dualDialogue_command() {
         let ast = ProjectAST(sections: [
             .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [

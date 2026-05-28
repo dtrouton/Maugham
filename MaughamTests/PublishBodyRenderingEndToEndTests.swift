@@ -46,7 +46,7 @@ final class PublishBodyRenderingEndToEndTests: XCTestCase {
                           > Quotedline inside a blockquote.
                           """),
                     .init(pieceID: "p2", title: "Good Luck Babe", mode: .fountain,
-                          displayText: "<!-- ¶abcd -->Aaron pours coffee."),
+                          displayText: "<!-- ¶abcd -->Aaron pours coffee *hurriedly*."),
                 ]
             }
         }
@@ -71,6 +71,7 @@ final class PublishBodyRenderingEndToEndTests: XCTestCase {
         XCTAssertTrue(text.contains("Dayheading"), "heading content missing")
         XCTAssertTrue(text.contains("Quotedline"), "blockquote content missing")
         XCTAssertTrue(text.contains("Aaron pours coffee"), "screenplay action missing")
+        XCTAssertTrue(text.contains("hurriedly"), "screenplay inline emphasis content missing")
 
         // Raw syntax never leaks into the rendered artifact.
         XCTAssertFalse(text.contains("*"), "literal asterisk leaked: \(text)")

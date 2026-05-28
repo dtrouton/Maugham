@@ -53,8 +53,9 @@ public struct ProjectAST: Equatable, Sendable {
     /// a single `String` payload can't represent nesting, an `[Inline]` can.
     public enum Inline: Equatable, Sendable {
         case text(String)
-        case emphasis([Inline])               // *italic* / _italic_
+        case emphasis([Inline])               // *italic* / _italic_ (prose)
         case strong([Inline])                 // **bold**
+        case underline([Inline])              // _underline_ (fountain)
         case code(String)                     // `inline code` — never nests
         case wikiLink(target: String, display: String)
         case lineBreak                        // explicit "  \n" hard break
@@ -62,12 +63,12 @@ public struct ProjectAST: Equatable, Sendable {
 
     public enum FountainNode: Equatable, Sendable {
         case sceneHeading(String)
-        case action(String)
+        case action([Inline])                 // emphasis-bearing
         case character(String)
-        case dialogue(String)
-        case parenthetical(String)
+        case dialogue([Inline])               // emphasis-bearing
+        case parenthetical([Inline])          // emphasis-bearing
         case transition(String)
-        case dualDialogue(left: [FountainNode], right: [FountainNode])
+        indirect case dualDialogue(left: [FountainNode], right: [FountainNode])
     }
 }
 
@@ -81,4 +82,13 @@ public extension ProjectAST.Node {
     }
     static func blockquote(_ nodes: [ProjectAST.ProseNode]) -> Self { .prose(.blockquote(nodes)) }
     static var sceneBreak: Self { .prose(.sceneBreak) }
+}
+
+// String convenience for the emphasis-bearing fountain nodes so callers and
+// tests can write `.action("plain")` for unformatted text; the builder uses
+// the `[Inline]` cases directly via `FountainInline.parse`.
+public extension ProjectAST.FountainNode {
+    static func action(_ s: String) -> Self { .action([.text(s)]) }
+    static func dialogue(_ s: String) -> Self { .dialogue([.text(s)]) }
+    static func parenthetical(_ s: String) -> Self { .parenthetical([.text(s)]) }
 }

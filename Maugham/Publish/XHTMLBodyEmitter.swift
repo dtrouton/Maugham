@@ -56,6 +56,7 @@ public enum XHTMLBodyEmitter {
             case .text(let s):      return XHTMLEscape.escape(s)
             case .emphasis(let xs): return "<em>\(emitInline(xs))</em>"
             case .strong(let xs):   return "<strong>\(emitInline(xs))</strong>"
+            case .underline(let xs): return "<u>\(emitInline(xs))</u>"
             case .code(let s):      return "<code>\(XHTMLEscape.escape(s))</code>"
             case .wikiLink(let target, let display):
                 return "<span class=\"wiki-link\" data-target=\"\(XHTMLEscape.attribute(target))\">"
@@ -68,10 +69,10 @@ public enum XHTMLBodyEmitter {
     private static func emit(fountain: ProjectAST.FountainNode, into out: inout [String]) {
         switch fountain {
         case .sceneHeading(let s):  out.append("<p class=\"scene-heading\">\(XHTMLEscape.escape(s))</p>")
-        case .action(let s):        out.append("<p class=\"action\">\(XHTMLEscape.escape(s))</p>")
+        case .action(let xs):       out.append("<p class=\"action\">\(emitInline(xs))</p>")
         case .character(let s):     out.append("<p class=\"character\">\(XHTMLEscape.escape(s))</p>")
-        case .dialogue(let s):      out.append("<p class=\"dialogue\">\(XHTMLEscape.escape(s))</p>")
-        case .parenthetical(let s): out.append("<p class=\"parenthetical\">\(XHTMLEscape.escape(s))</p>")
+        case .dialogue(let xs):     out.append("<p class=\"dialogue\">\(emitInline(xs))</p>")
+        case .parenthetical(let xs): out.append("<p class=\"parenthetical\">\(emitInline(xs))</p>")
         case .transition(let s):    out.append("<p class=\"transition\">\(XHTMLEscape.escape(s))</p>")
         case .dualDialogue(let left, let right):
             out.append("<div class=\"dual-dialogue\">")

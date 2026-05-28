@@ -146,6 +146,20 @@ final class XHTMLBodyEmitterTests: XCTestCase {
         XCTAssertTrue(xhtml.contains("<p class=\"transition\">CUT TO:</p>"))
     }
 
+    func testEmits_fountainInlineEmphasis_inActionAndDialogue() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.action([.text("She runs "), .emphasis([.text("fast")])])),
+                .fountain(.dialogue([.strong([.text("Now")]), .text("!")])),
+                .fountain(.parenthetical([.underline([.text("sotto")])])),
+            ])
+        ])
+        let xhtml = XHTMLBodyEmitter.emit(ast)
+        XCTAssertTrue(xhtml.contains("<p class=\"action\">She runs <em>fast</em></p>"))
+        XCTAssertTrue(xhtml.contains("<p class=\"dialogue\"><strong>Now</strong>!</p>"))
+        XCTAssertTrue(xhtml.contains("<p class=\"parenthetical\"><u>sotto</u></p>"))
+    }
+
     func testEmits_dualDialogue_wrappedInDiv() {
         let ast = ProjectAST(sections: [
             .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [

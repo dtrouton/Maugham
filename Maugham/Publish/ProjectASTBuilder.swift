@@ -202,17 +202,17 @@ public enum ProjectASTBuilder {
                     let next = lines[i + 1].trimmingCharacters(in: .whitespaces)
                     if next.isEmpty { break }
                     if next.hasPrefix("(") && next.hasSuffix(")") {
-                        nodes.append(.parenthetical(next))
+                        nodes.append(.parenthetical(FountainInline.parse(next)))
                     } else if isCharacter(next) || isSceneHeading(next)
                                 || transitionText(next) != nil {
                         break
                     } else {
-                        nodes.append(.dialogue(next))
+                        nodes.append(.dialogue(FountainInline.parse(next)))
                     }
                     i += 1
                 }
             } else {
-                nodes.append(.action(line))
+                nodes.append(.action(FountainInline.parse(line)))
             }
         }
 

@@ -185,6 +185,34 @@ final class ProjectASTBuilderTests: XCTestCase {
         XCTAssertEqual(ast.sections[0].nodes, [.fountain(.transition("Fade to black."))])
     }
 
+    func testFountainAction_parsesInlineEmphasis() {
+        let src = FixtureSource(pieces: [
+            (id: "p1", title: "S", mode: .fountain, text: "She runs *fast* and **hard**.")
+        ])
+        let ast = ProjectASTBuilder.build(from: src)
+        XCTAssertEqual(ast.sections[0].nodes, [
+            .fountain(.action([
+                .text("She runs "), .emphasis([.text("fast")]),
+                .text(" and "), .strong([.text("hard")]), .text("."),
+            ]))
+        ])
+    }
+
+    func testFountainDialogue_parsesInlineEmphasis() {
+        let text = """
+        AARON
+        I said *no*.
+        """
+        let src = FixtureSource(pieces: [
+            (id: "p1", title: "S", mode: .fountain, text: text)
+        ])
+        let ast = ProjectASTBuilder.build(from: src)
+        XCTAssertEqual(ast.sections[0].nodes, [
+            .fountain(.character("AARON")),
+            .fountain(.dialogue([.text("I said "), .emphasis([.text("no")]), .text(".")])),
+        ])
+    }
+
     func testMixedPieces_preserveOrder() {
         let src = FixtureSource(pieces: [
             (id: "p1", title: "First", mode: .prose, text: "Hello."),
