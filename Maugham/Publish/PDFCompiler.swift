@@ -77,6 +77,7 @@ public struct PDFCompiler {
         let invocationResult = try await invoker.compile(
             texFile: templateURL,
             workingDirectory: publish,
+            outputDirectory: build,
             outputFormat: .pdf
         )
 
@@ -96,7 +97,8 @@ public struct PDFCompiler {
             await jobManager.updatePhase(jobID: id, phase: .writingOutput)
         }
 
-        let generated = publish.appendingPathComponent("template.pdf")
+        // tectonic emitted template.pdf into build/, not publish root.
+        let generated = build.appendingPathComponent("template.pdf")
         let filename = makeOutputFilename(format: .pdf, label: label)
         let exports = projectURL.appendingPathComponent(config.outputs.directory,
                                                        isDirectory: true)

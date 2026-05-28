@@ -23,13 +23,20 @@ public final class TectonicInvoker {
         self.cacheURL = cacheURL
     }
 
-    /// Compile `texFile`. The compile runs in `workingDirectory` with output
-    /// placed alongside the input file.
+    /// Compile `texFile`. The compile runs in `workingDirectory` (which
+    /// controls `\input` resolution). Output and intermediates land in
+    /// `outputDirectory` if given, otherwise `workingDirectory` — callers
+    /// should pass an `outputDirectory` distinct from the project root to
+    /// keep tectonic's `.aux`/`.log`/`.out`/`.toc` files from polluting it.
     public func compile(
         texFile: URL,
         workingDirectory: URL,
+        outputDirectory: URL? = nil,
         outputFormat: OutputFormat = .pdf
     ) async throws -> Result {
+        let outdir = outputDirectory ?? workingDirectory
+        try FileManager.default.createDirectory(
+            at: outdir, withIntermediateDirectories: true)
         let process = Process()
         process.executableURL = binaryURL
         process.currentDirectoryURL = workingDirectory
@@ -37,7 +44,7 @@ public final class TectonicInvoker {
             "-X", "compile",
             "--keep-intermediates",
             "--keep-logs",
-            "--outdir", workingDirectory.path,
+            "--outdir", outdir.path,
             texFile.path
         ]
         var env = ProcessInfo.processInfo.environment
