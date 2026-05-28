@@ -121,16 +121,7 @@ public struct PDFCompiler {
     private func makeOutputFilename(
         format: PublishConfig.Format, label: String?
     ) -> String {
-        var title = config.metadata.title
-        if config.outputs.sanitizeSpaces {
-            title = title.replacingOccurrences(of: " ", with: "-")
-        }
-        let labelSuffix = label.map { "-\($0)" } ?? ""
-        return config.outputs.filenameTemplate
-            .replacingOccurrences(of: "{title}",        with: title)
-            .replacingOccurrences(of: "{version}",      with: config.nextVersion)
-            .replacingOccurrences(of: "{label_suffix}", with: labelSuffix)
-            .replacingOccurrences(of: "{ext}",          with: format.rawValue)
+        OutputFilenameBuilder.make(config: config, format: format, label: label)
     }
 
     /// Locates `tectonic` either from the running app bundle or, in XCTest,
