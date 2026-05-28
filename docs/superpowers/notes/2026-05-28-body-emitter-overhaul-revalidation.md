@@ -92,3 +92,21 @@ the **rendered PDF** (not just compile success — it always compiled):
   swallow a `\clearpage`.
 
 If all five pass, this is ready to fold into the publishing-pipeline milestone.
+
+---
+
+## Follow-up: two fountain-parser fixes (post-handoff, same branch)
+
+Surfaced after the overhaul landed. Both shipped with tests.
+
+| Commit | Fix |
+|---|---|
+| `28d3656` | **Transitions classified correctly.** `transitionText()` runs before `isCharacter()` in `parseFountain`. The old order made the transition branch dead code (`CUT TO:` is all-caps with no period → `isCharacter` claimed it and ate the next line as dialogue). Now an all-caps line ending in `TO:`, or a line forced with a leading `>`, is a `.transition`. |
+| `64666e0` | **Inline emphasis in screenplay text.** `action`/`dialogue`/`parenthetical` now carry `[Inline]` and parse `*italic*`/`**bold**`/`***bold-italic***`/`_underline_` (new `FountainInline` parser, fountain semantics — `_` is underline, not italic — with `\` escaping). Previously these leaked as literal asterisks/underscores, the same class of bug as the prose `*italic*` leak. |
+
+Extra re-validation checks for the screenplay (Good Luck Babe):
+
+6. ☐ A transition line (`CUT TO:`, or `> FADE OUT`) renders as a right-aligned
+   transition, not as a character cue.
+7. ☐ `*italic*` / `**bold**` inside action or dialogue render as formatting,
+   not literal asterisks.
