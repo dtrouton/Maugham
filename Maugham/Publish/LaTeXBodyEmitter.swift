@@ -56,10 +56,6 @@ public enum LaTeXBodyEmitter {
             out.append("\\end{quote}")
         case .sceneBreak:
             out.append("\\scenebreak")
-        case .emphasis(let s):  out.append("\\emph{\(LaTeXEscape.escape(s))}")
-        case .strong(let s):    out.append("\\textbf{\(LaTeXEscape.escape(s))}")
-        case .wikiLink(let target, let display):
-            out.append("\\wikilink{\(LaTeXEscape.escape(target))}{\(LaTeXEscape.escape(display))}")
         }
     }
 

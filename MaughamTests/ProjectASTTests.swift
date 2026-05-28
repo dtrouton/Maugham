@@ -25,12 +25,28 @@ final class ProjectASTTests: XCTestCase {
     func testProseNodes_haveExpectedCases() {
         let nodes: [ProjectAST.ProseNode] = [
             .paragraph([.text("plain")]),
-            .emphasis("italic"),
-            .strong("bold"),
-            .wikiLink(target: "Aaron", display: "him"),
+            .heading(level: 2, [.text("Day 1/3")]),
+            .blockquote([.paragraph([.text("quoted")])]),
             .sceneBreak,
         ]
-        XCTAssertEqual(nodes.count, 5)
+        XCTAssertEqual(nodes.count, 4)
+    }
+
+    func testInline_haveExpectedCases() {
+        let inlines: [ProjectAST.Inline] = [
+            .text("plain"),
+            .emphasis([.text("italic")]),
+            .strong([.text("bold")]),
+            .code("x"),
+            .wikiLink(target: "Aaron", display: "him"),
+            .lineBreak,
+        ]
+        XCTAssertEqual(inlines.count, 6)
+    }
+
+    func testInline_nests() {
+        let nested: ProjectAST.Inline = .strong([.text("bold "), .emphasis([.text("italic")])])
+        XCTAssertEqual(nested, .strong([.text("bold "), .emphasis([.text("italic")])]))
     }
 
     func testFountainNodes_haveExpectedCases() {

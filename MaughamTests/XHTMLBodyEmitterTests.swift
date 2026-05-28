@@ -20,16 +20,89 @@ final class XHTMLBodyEmitterTests: XCTestCase {
         XCTAssertTrue(xhtml.contains("</section>"))
     }
 
-    func testEmits_emphasis_and_strong_inline() {
+    // MARK: - inline content
+
+    func testEmits_inlineEmphasisAndStrong_insideParagraph() {
         let ast = ProjectAST(sections: [
             .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
-                .emphasis("italic"), .strong("bold")
+                .paragraph([
+                    .text("a "), .emphasis([.text("italic")]),
+                    .text(" b "), .strong([.text("bold")]),
+                ])
             ])
         ])
         let xhtml = XHTMLBodyEmitter.emit(ast)
-        XCTAssertTrue(xhtml.contains("<em>italic</em>"))
-        XCTAssertTrue(xhtml.contains("<strong>bold</strong>"))
+        XCTAssertTrue(xhtml.contains("<p>a <em>italic</em> b <strong>bold</strong></p>"))
     }
+
+    func testEmits_nestedEmphasis() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .paragraph([.strong([.text("bold "), .emphasis([.text("italic")])])])
+            ])
+        ])
+        let xhtml = XHTMLBodyEmitter.emit(ast)
+        XCTAssertTrue(xhtml.contains("<strong>bold <em>italic</em></strong>"))
+    }
+
+    func testEmits_inlineCode_doesNotInterpretInside() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .paragraph([.code("**not bold**")])
+            ])
+        ])
+        let xhtml = XHTMLBodyEmitter.emit(ast)
+        XCTAssertTrue(xhtml.contains("<code>**not bold**</code>"))
+        XCTAssertFalse(xhtml.contains("<strong>not bold</strong>"))
+    }
+
+    func testEmits_hardLineBreak() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .paragraph([.text("a"), .lineBreak, .text("b")])
+            ])
+        ])
+        let xhtml = XHTMLBodyEmitter.emit(ast)
+        XCTAssertTrue(xhtml.contains("<p>a<br/>b</p>"))
+    }
+
+    func testEmits_inlineWikiLink_asSpan() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .paragraph([.wikiLink(target: "Aaron", display: "him")])
+            ])
+        ])
+        let xhtml = XHTMLBodyEmitter.emit(ast)
+        XCTAssertTrue(xhtml.contains("<span class=\"wiki-link\" data-target=\"Aaron\">him</span>"))
+    }
+
+    // MARK: - headings + blockquote
+
+    func testEmits_heading_asHTag_reservingH1() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .heading(level: 1, [.text("Top")]),
+                .heading(level: 2, [.text("Day 1/3")]),
+            ])
+        ])
+        let xhtml = XHTMLBodyEmitter.emit(ast)
+        XCTAssertTrue(xhtml.contains("<h2>Top</h2>"))
+        XCTAssertTrue(xhtml.contains("<h3>Day 1/3</h3>"))
+    }
+
+    func testEmits_blockquote_wrapsNestedParagraph() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .blockquote([.paragraph([.text("Quoted.")])])
+            ])
+        ])
+        let xhtml = XHTMLBodyEmitter.emit(ast)
+        XCTAssertTrue(xhtml.contains("<blockquote>"))
+        XCTAssertTrue(xhtml.contains("<p>Quoted.</p>"))
+        XCTAssertTrue(xhtml.contains("</blockquote>"))
+    }
+
+    // MARK: - scene break + escaping
 
     func testEmits_sceneBreak_asHR() {
         let ast = ProjectAST(sections: [
@@ -37,16 +110,6 @@ final class XHTMLBodyEmitterTests: XCTestCase {
         ])
         let xhtml = XHTMLBodyEmitter.emit(ast)
         XCTAssertTrue(xhtml.contains("<hr class=\"scene-break\"/>"))
-    }
-
-    func testEmits_wikiLink_asSpan() {
-        let ast = ProjectAST(sections: [
-            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
-                .wikiLink(target: "Aaron", display: "him")
-            ])
-        ])
-        let xhtml = XHTMLBodyEmitter.emit(ast)
-        XCTAssertTrue(xhtml.contains("<span class=\"wiki-link\" data-target=\"Aaron\">him</span>"))
     }
 
     func testEscapes_specialChars() {
@@ -59,6 +122,8 @@ final class XHTMLBodyEmitterTests: XCTestCase {
         XCTAssertTrue(xhtml.contains("<h1>Tom &amp; Jerry</h1>"))
         XCTAssertTrue(xhtml.contains("a&lt;b&gt;c &amp; d"))
     }
+
+    // MARK: - fountain (unchanged)
 
     func testEmits_fountainSection_classedParagraphs() {
         let ast = ProjectAST(sections: [

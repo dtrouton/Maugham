@@ -46,15 +46,6 @@ public enum XHTMLBodyEmitter {
             out.append("</blockquote>")
         case .sceneBreak:
             out.append("<hr class=\"scene-break\"/>")
-        case .emphasis(let s):
-            out.append("<p><em>\(XHTMLEscape.escape(s))</em></p>")
-        case .strong(let s):
-            out.append("<p><strong>\(XHTMLEscape.escape(s))</strong></p>")
-        case .wikiLink(let target, let display):
-            out.append(
-                "<p><span class=\"wiki-link\" data-target=\"\(XHTMLEscape.attribute(target))\">"
-                + XHTMLEscape.escape(display)
-                + "</span></p>")
         }
     }
 

@@ -43,14 +43,9 @@ public struct ProjectAST: Equatable, Sendable {
         case heading(level: Int, [Inline])    // ATX `## Day 1/3` — section title
         indirect case blockquote([ProseNode]) // `> …` markdown blockquote
         case sceneBreak
-
-        // Deprecated top-level cases — retained only while the emitters and
-        // tests migrate to the `Inline`-carrying paragraph shape. Inline
-        // emphasis/strong now live inside `paragraph([Inline])` via `Inline`
-        // below. Deleted in the body-emitter overhaul's Phase 5.
-        case emphasis(String)
-        case strong(String)
-        case wikiLink(target: String, display: String)
+        // Inline emphasis/strong/code/wiki-links live inside
+        // `paragraph([Inline])` via the `Inline` enum below — they are not
+        // standalone block nodes.
     }
 
     /// Inline content within a prose paragraph. Nestable so real markdown
@@ -85,10 +80,5 @@ public extension ProjectAST.Node {
         .prose(.heading(level: level, inlines))
     }
     static func blockquote(_ nodes: [ProjectAST.ProseNode]) -> Self { .prose(.blockquote(nodes)) }
-    static func emphasis(_ s: String)  -> Self { .prose(.emphasis(s)) }
-    static func strong(_ s: String)    -> Self { .prose(.strong(s)) }
-    static func wikiLink(target: String, display: String) -> Self {
-        .prose(.wikiLink(target: target, display: display))
-    }
     static var sceneBreak: Self { .prose(.sceneBreak) }
 }

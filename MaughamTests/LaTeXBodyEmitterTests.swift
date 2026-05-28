@@ -19,33 +19,131 @@ final class LaTeXBodyEmitterTests: XCTestCase {
         XCTAssertTrue(body.contains("\\end{prose}"))
     }
 
-    func testEmits_emphasisAndStrong() {
+    // MARK: - inline content
+
+    func testEmits_inlineEmphasisAndStrong_insideParagraph() {
         let ast = ProjectAST(sections: [
             .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
-                .paragraph("plain "),
-                .prose(.emphasis("italic")),
-                .paragraph(" "),
-                .prose(.strong("bold"))
+                .paragraph([
+                    .text("a "), .emphasis([.text("italic")]),
+                    .text(" b "), .strong([.text("bold")]),
+                ])
             ])
         ])
         let body = LaTeXBodyEmitter.emit(ast)
-        XCTAssertTrue(body.contains("\\emph{italic}"))
-        XCTAssertTrue(body.contains("\\textbf{bold}"))
+        // Emphasis/strong render INSIDE the paragraph, not as separate blocks.
+        XCTAssertTrue(body.contains("a \\emph{italic} b \\textbf{bold}"))
     }
 
-    func testEmits_wikiLink_command() {
+    func testEmits_nestedEmphasis() {
         let ast = ProjectAST(sections: [
             .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
-                .prose(.wikiLink(target: "Aaron", display: "him"))
+                .paragraph([.strong([.text("bold "), .emphasis([.text("italic")])])])
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("\\textbf{bold \\emph{italic}}"))
+    }
+
+    func testEmits_inlineCode_asTexttt_andDoesNotInterpretInside() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .paragraph([.code("**not bold**")])
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("\\texttt{**not bold**}"))
+        XCTAssertFalse(body.contains("\\textbf{not bold}"))
+    }
+
+    func testEmits_hardLineBreak() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .paragraph([.text("a"), .lineBreak, .text("b")])
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("a\\\\b"))
+    }
+
+    func testEmits_inlineWikiLink_command() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .paragraph([.wikiLink(target: "Aaron", display: "him")])
             ])
         ])
         let body = LaTeXBodyEmitter.emit(ast)
         XCTAssertTrue(body.contains("\\wikilink{Aaron}{him}"))
     }
 
+    // MARK: - paragraph separation
+
+    func testParagraphs_separatedByBlankLine_forPar() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .paragraph("One."), .paragraph("Two.")
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        // A blank line must sit between the two paragraphs so LaTeX makes a \par.
+        XCTAssertTrue(body.contains("One.\n\nTwo."))
+    }
+
+    // MARK: - headings
+
+    func testEmits_heading_sectionStarAndTocLine() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .heading(level: 2, [.text("Day 1/3")])
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("\\subsection*{Day 1/3}"))
+        XCTAssertTrue(body.contains("\\addcontentsline{toc}{subsection}{Day 1/3}"))
+    }
+
+    func testEmits_heading_levelOne_isSection() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .heading(level: 1, [.text("Top")])
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("\\section*{Top}"))
+        XCTAssertTrue(body.contains("\\addcontentsline{toc}{section}{Top}"))
+    }
+
+    func testEmits_heading_tocEntryIsPlainText() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .heading(level: 2, [.strong([.text("Bold")]), .text(" title")])
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        // Heading itself keeps formatting; ToC entry is flattened to plain text.
+        XCTAssertTrue(body.contains("\\subsection*{\\textbf{Bold} title}"))
+        XCTAssertTrue(body.contains("\\addcontentsline{toc}{subsection}{Bold title}"))
+    }
+
+    // MARK: - blockquote
+
+    func testEmits_blockquote_quoteEnvironment() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .blockquote([.paragraph([.text("Quoted.")])])
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("\\begin{quote}"))
+        XCTAssertTrue(body.contains("Quoted."))
+        XCTAssertTrue(body.contains("\\end{quote}"))
+    }
+
+    // MARK: - scene break + escaping
+
     func testEmits_sceneBreak_command() {
         let ast = ProjectAST(sections: [
-            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [.prose(.sceneBreak)])
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [.sceneBreak])
         ])
         let body = LaTeXBodyEmitter.emit(ast)
         XCTAssertTrue(body.contains("\\scenebreak"))
@@ -68,6 +166,8 @@ final class LaTeXBodyEmitterTests: XCTestCase {
         let body = LaTeXBodyEmitter.emit(ast)
         XCTAssertTrue(body.contains("\\begin{prose}{Tom \\& Jerry}"))
     }
+
+    // MARK: - fountain (unchanged)
 
     func testEmits_fountainSection_environment_andAllCommands() {
         let ast = ProjectAST(sections: [
