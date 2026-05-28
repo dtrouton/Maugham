@@ -58,6 +58,18 @@ final class ProjectASTBuilderTests: XCTestCase {
         XCTAssertEqual(ast.sections[0].nodes, [.paragraph("Hello.")])
     }
 
+    func testFountainStripsAnchors_fromAction() {
+        // Fountain manuscripts carry the same inline <!-- ¶XXXX --> op-log
+        // anchors as prose. They must never leak into a rendered screenplay
+        // (regression: Good Luck Babe's PDF showed raw <!-- ¶XXXX --> text).
+        let src = FixtureSource(pieces: [
+            (id: "p1", title: "Scene 1", mode: .fountain,
+             text: "<!-- ¶abcd -->Aaron pours coffee.")
+        ])
+        let ast = ProjectASTBuilder.build(from: src)
+        XCTAssertEqual(ast.sections[0].nodes, [.fountain(.action("Aaron pours coffee."))])
+    }
+
     func testFountainSection_parsesElements() {
         let text = """
         INT. KITCHEN - DAY

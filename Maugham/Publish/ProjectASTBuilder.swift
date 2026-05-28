@@ -87,8 +87,12 @@ public enum ProjectASTBuilder {
         // Maugham/Editor's existing FountainParser, which v1's builder
         // bridges through in production (see Task 31). For tests with
         // fixture text, we use this inline classifier.
+        // Strip inline <!-- ¶XXXX --> anchors before parsing, exactly as
+        // parseProse does — otherwise op-log join keys leak into rendered
+        // screenplay output (action/dialogue text).
+        let stripped = stripAnchors(text)
         var nodes: [ProjectAST.FountainNode] = []
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        let lines = stripped.split(separator: "\n", omittingEmptySubsequences: false)
             .map(String.init)
 
         var i = 0
