@@ -110,3 +110,15 @@ Extra re-validation checks for the screenplay (Good Luck Babe):
    transition, not as a character cue.
 7. ☐ `*italic*` / `**bold**` inside action or dialogue render as formatting,
    not literal asterisks.
+
+| Commit | Fix |
+|---|---|
+| `5f114fb` | **Fountain title-page block renders on its own page.** A `.fountain` piece opening with `Title:`/`Credit:`/`Author:`/`Source:`/`Draft date:`/`Contact:`/`Copyright:` was leaking those lines as literal `Title: …` action text. Now `parseFountain` detects the head block (same rule as the editor's tokenizer) into `FountainNode.titlePage`, and LaTeX renders a centered title block pushed down the page + `\clearpage` (its own page, industry standard); XHTML emits `<header class="title-page">`. Standard-LaTeX-only, so it compiles against your existing project template. |
+
+8. ☐ A screenplay piece whose source begins with a `Title:`/`Author:` block
+   shows a centered title page on its own page (not literal `Title: …` text).
+   Note: the piece's binder title still appears as the section heading, and
+   the book's own front-matter title page is unchanged — so a single-
+   screenplay project may show both the book title page and the script's
+   title page. Flag if that double-up is unwanted; suppressing one is a
+   config/template decision, not a body-emitter one.
