@@ -10,15 +10,21 @@ public enum LaTeXBodyEmitter {
 
     public static func emit(_ ast: ProjectAST) -> String {
         var lines: [String] = []
-        for section in ast.sections {
-            emit(section: section, into: &lines)
+        for (index, section) in ast.sections.enumerated() {
+            emit(section: section, isFirst: index == 0, into: &lines)
         }
         return lines.joined(separator: "\n")
     }
 
     // MARK: - section
 
-    private static func emit(section: ProjectAST.Section, into out: inout [String]) {
+    private static func emit(section: ProjectAST.Section, isFirst: Bool,
+                             into out: inout [String]) {
+        // Each piece starts on a fresh page. The first piece follows the
+        // frontmatter (which already broke the page) so it's skipped to avoid
+        // a leading blank page. This is what makes pieces start on their own
+        // pages without any per-section start_on configuration.
+        if !isFirst { out.append("\\clearpage") }
         let title = LaTeXEscape.escape(section.title)
         switch section.mode {
         case .prose:

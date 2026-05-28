@@ -216,4 +216,20 @@ final class LaTeXBodyEmitterTests: XCTestCase {
         let secondIdx = body.range(of: "Second")!.lowerBound
         XCTAssertLessThan(firstIdx, secondIdx)
     }
+
+    func testSubsequentSections_clearPage_firstDoesNot() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "First", mode: .prose, nodes: []),
+            .init(pieceID: "p2", title: "Second", mode: .prose, nodes: [])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        // Exactly one \clearpage — before the second piece, not the first, so
+        // pieces start on their own pages with no leading blank page.
+        XCTAssertEqual(body.components(separatedBy: "\\clearpage").count - 1, 1)
+        let clearIdx = body.range(of: "\\clearpage")!.lowerBound
+        let firstIdx = body.range(of: "First")!.lowerBound
+        let secondIdx = body.range(of: "Second")!.lowerBound
+        XCTAssertLessThan(firstIdx, clearIdx)
+        XCTAssertLessThan(clearIdx, secondIdx)
+    }
 }
