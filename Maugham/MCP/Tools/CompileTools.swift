@@ -3,14 +3,18 @@ import Foundation
 // MARK: - shared response encoding
 
 enum CompileResponseEncoder {
-    static func encodeCompleted(_ pub: Publication) throws -> Data {
+    static func encodeCompleted(
+        _ pub: Publication,
+        warnings: [TectonicLogParser.Diagnostic]
+    ) throws -> Data {
         var obj: [String: Any] = [
             "status": "completed",
             "version": pub.version,
             "format": pub.format.rawValue,
             "output_path": pub.outputPath,
             "checkpoint_id": pub.checkpointID,
-            "warnings": [],
+            "log_path": "build/compile.log",
+            "warnings": warnings.map { encode(diag: $0) },
             "errors": []
         ]
         if let label = pub.label { obj["label"] = label }
@@ -23,14 +27,15 @@ enum CompileResponseEncoder {
         try JSONSerialization.data(withJSONObject: [
             "status": "failed",
             "errors": errors.map { encode(diag: $0) },
-            "log_excerpt": String(logExcerpt.prefix(4000))
+            "log_excerpt": String(logExcerpt.prefix(4000)),
+            "log_path": "build/compile.log"
         ], options: [.sortedKeys])
     }
 
     static func encodeOutcome(_ outcome: CompileOrchestrator.Outcome) throws -> Data {
         switch outcome {
-        case .completed(let pub):
-            return try encodeCompleted(pub)
+        case .completed(let pub, let warnings):
+            return try encodeCompleted(pub, warnings: warnings)
         case .failed(let errors, let log):
             return try encodeFailed(errors: errors, logExcerpt: log)
         }
@@ -252,6 +257,7 @@ public enum CompileStatusTool: MCPTool {
             return try JSONSerialization.data(withJSONObject: [
                 "status": "completed",
                 "output_path": path,
+                "log_path": "build/compile.log",
                 "warnings": warnings.map { CompileResponseEncoder.encode(diag: $0) },
                 "errors": errors.map { CompileResponseEncoder.encode(diag: $0) }
             ], options: [.sortedKeys])

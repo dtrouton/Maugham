@@ -47,7 +47,7 @@ final class CompileOrchestratorTests: XCTestCase {
 
         let result = try await orch.compile(format: .pdf, label: nil)
         switch result {
-        case .completed(let pub):
+        case .completed(let pub, _):
             XCTAssertEqual(pub.version, "0.1")
             XCTAssertEqual(pub.format, .pdf)
         default:
@@ -56,7 +56,7 @@ final class CompileOrchestratorTests: XCTestCase {
 
         // Verify next compile bumps to 0.2.
         let r2 = try await orch.compile(format: .pdf, label: nil)
-        if case .completed(let pub) = r2 {
+        if case .completed(let pub, _) = r2 {
             XCTAssertEqual(pub.version, "0.2")
         } else {
             XCTFail("expected completed")

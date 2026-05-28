@@ -3,7 +3,7 @@ import Foundation
 public struct CompileOrchestrator {
 
     public enum Outcome: Sendable {
-        case completed(Publication)
+        case completed(Publication, warnings: [TectonicLogParser.Diagnostic])
         case failed(errors: [TectonicLogParser.Diagnostic], logExcerpt: String)
     }
 
@@ -156,7 +156,7 @@ public struct CompileOrchestrator {
         await jobManager.complete(
             jobID: jobID, outputPath: outputPath,
             warnings: warnings, errors: errors)
-        return .completed(pub)
+        return .completed(pub, warnings: warnings)
     }
 
     private func relativePath(_ abs: String, from root: URL) -> String {

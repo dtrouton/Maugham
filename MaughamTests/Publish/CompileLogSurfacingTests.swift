@@ -42,6 +42,35 @@ final class CompileLogSurfacingTests: XCTestCase {
 
     // MARK: - compile.log surfacing
 
+    func test_completedResponse_surfacesWarningsAndLogPath() throws {
+        let pub = Publication(
+            publicationID: "pub-abc123",
+            version: "0.1",
+            label: nil,
+            format: .pdf,
+            outputPath: "Exports/test.pdf",
+            snapshotID: "snap-xyz",
+            checkpointID: "",
+            republishedFrom: nil,
+            compiledAt: Date(),
+            maughamVersion: "0.0.0-test",
+            tectonicVersion: "0.15.0")
+        let warning = TectonicLogParser.Diagnostic(
+            level: .warning,
+            file: "prose.tex",
+            line: 3,
+            message: "Overfull \\hbox",
+            contextLines: [])
+        let data = try CompileResponseEncoder.encodeCompleted(pub, warnings: [warning])
+        let obj = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(obj["status"] as? String, "completed")
+        XCTAssertEqual(obj["log_path"] as? String, "build/compile.log")
+        let warnings = try XCTUnwrap(obj["warnings"] as? [[String: Any]])
+        XCTAssertEqual(warnings.count, 1)
+        XCTAssertEqual(warnings.first?["message"] as? String, "Overfull \\hbox")
+    }
+
     func testCompile_writesCompileLogToBuildDirectory() async throws {
         // Run a real PDF compile (template already installed by ProjectFactory).
         let pdfData = try await CompileTool.handle(

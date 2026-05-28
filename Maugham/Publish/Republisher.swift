@@ -118,7 +118,7 @@ public struct Republisher {
 
         await jobManager.complete(jobID: jobID, outputPath: dest.path,
                                   warnings: warnings, errors: errors)
-        return .completed(pub)
+        return .completed(pub, warnings: warnings)
     }
 
     private func relativePath(_ abs: String, from root: URL) -> String {

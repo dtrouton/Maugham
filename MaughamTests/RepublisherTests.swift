@@ -43,7 +43,7 @@ final class RepublisherTests: XCTestCase {
             jobManager: CompileJobManager(),
             maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0")
         let initial = try await orch.compile(format: .pdf, label: nil)
-        guard case .completed(let initialPub) = initial else {
+        guard case .completed(let initialPub, _) = initial else {
             XCTFail("initial failed: \(initial)")
             return
         }
@@ -67,7 +67,7 @@ final class RepublisherTests: XCTestCase {
             snapshotID: initialPub.snapshotID,
             format: .pdf, label: nil)
         switch outcome {
-        case .completed(let pub):
+        case .completed(let pub, _):
             XCTAssertEqual(pub.republishedFrom, "0.1")
         case .failed(let errors, let log):
             XCTFail("republish failed: errors=\(errors.map(\.message)) log=\(log.prefix(300))")
