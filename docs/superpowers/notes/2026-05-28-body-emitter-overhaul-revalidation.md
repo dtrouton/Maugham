@@ -122,3 +122,28 @@ Extra re-validation checks for the screenplay (Good Luck Babe):
    screenplay project may show both the book title page and the script's
    title page. Flag if that double-up is unwanted; suppressing one is a
    config/template decision, not a body-emitter one.
+
+---
+
+## Starter-template fixes (NOT auto-applied to existing projects)
+
+| Commit | Fix |
+|---|---|
+| `f1432d1` | **Hyperref red link boxes** — `preamble.tex` now loads `hyperref` with `hidelinks`, so ToC entries and section links render black instead of in red boxes. **Screenplay column alignment** — `screenplay.tex` set to 12pt Courier, no paragraph indent, and standard US-screenplay positions (action 1.5″, dialogue 2.5″×3.5″, parenthetical 3.0″, character 3.7″, transition right-aligned); parentheticals are no longer italic. |
+
+**Important:** these two live in the bundled *starter* template
+(`Maugham/Resources/PublishStarter/`), which only seeds **newly initialized**
+projects. Playlist already has its own copies under
+`<project>/.maugham/publish/preamble.tex` and `screenplay.tex` from when it was
+initialized — so re-compiling Playlist as-is will NOT pick them up. To see
+these two fixes in Playlist, either:
+
+- apply the same two edits to Playlist's on-disk `preamble.tex` /
+  `screenplay.tex` (one-line `hidelinks`; the screenplay element `\newcommand`
+  block), or
+- re-run `initialize_publish_template` with `force` (clobbers any per-project
+  template customizations — only if Playlist's template is still the stock
+  starter).
+
+The body-emitter fixes (criteria 1–8 above) DO reach Playlist immediately —
+they're in the app's compile path, not the on-disk template.
