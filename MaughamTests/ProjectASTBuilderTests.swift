@@ -157,6 +157,34 @@ final class ProjectASTBuilderTests: XCTestCase {
         XCTAssertTrue(nodes.contains(.fountain(.dialogue("Morning."))))
     }
 
+    func testFountainTransition_contextualTO_notMisreadAsCharacter() {
+        // "CUT TO:" is all-caps with no period, so the old classifier mislabeled
+        // it a character cue (and swallowed the next line as dialogue).
+        let text = """
+        Aaron leaves.
+
+        CUT TO:
+
+        INT. HALL - DAY
+        """
+        let src = FixtureSource(pieces: [
+            (id: "p1", title: "S", mode: .fountain, text: text)
+        ])
+        let ast = ProjectASTBuilder.build(from: src)
+        let nodes = ast.sections[0].nodes
+        XCTAssertTrue(nodes.contains(.fountain(.transition("CUT TO:"))),
+                      "CUT TO: should be a transition, got \(nodes)")
+        XCTAssertFalse(nodes.contains(.fountain(.character("CUT TO:"))))
+    }
+
+    func testFountainTransition_forcedWithLeadingAngle() {
+        let src = FixtureSource(pieces: [
+            (id: "p1", title: "S", mode: .fountain, text: "> Fade to black.")
+        ])
+        let ast = ProjectASTBuilder.build(from: src)
+        XCTAssertEqual(ast.sections[0].nodes, [.fountain(.transition("Fade to black."))])
+    }
+
     func testMixedPieces_preserveOrder() {
         let src = FixtureSource(pieces: [
             (id: "p1", title: "First", mode: .prose, text: "Hello."),

@@ -191,6 +191,10 @@ public enum ProjectASTBuilder {
 
             if isSceneHeading(line) {
                 nodes.append(.sceneHeading(line))
+            } else if let transition = transitionText(line) {
+                // Checked before isCharacter: "CUT TO:" is all-caps with no
+                // period, so isCharacter would otherwise claim it.
+                nodes.append(.transition(transition))
             } else if isCharacter(line) {
                 nodes.append(.character(line))
                 // Look ahead for parenthetical + dialogue.
@@ -199,15 +203,14 @@ public enum ProjectASTBuilder {
                     if next.isEmpty { break }
                     if next.hasPrefix("(") && next.hasSuffix(")") {
                         nodes.append(.parenthetical(next))
-                    } else if isCharacter(next) || isSceneHeading(next) {
+                    } else if isCharacter(next) || isSceneHeading(next)
+                                || transitionText(next) != nil {
                         break
                     } else {
                         nodes.append(.dialogue(next))
                     }
                     i += 1
                 }
-            } else if line.uppercased() == line && line.hasSuffix("TO:") {
-                nodes.append(.transition(line))
             } else {
                 nodes.append(.action(line))
             }
@@ -221,6 +224,20 @@ public enum ProjectASTBuilder {
         return upper.hasPrefix("INT.") || upper.hasPrefix("EXT.") ||
                upper.hasPrefix("INT ")  || upper.hasPrefix("EXT ")  ||
                upper.hasPrefix("INT/EXT") || upper.hasPrefix("I/E")
+    }
+
+    /// Fountain transition: an all-caps line ending in "TO:" (`CUT TO:`,
+    /// `DISSOLVE TO:`), or a line forced with a leading `>` that is not a
+    /// `>centered<` line. Returns the transition text with any forced marker
+    /// stripped, else nil.
+    private static func transitionText(_ line: String) -> String? {
+        if line.hasPrefix(">") && !line.hasSuffix("<") {
+            return String(line.dropFirst()).trimmingCharacters(in: .whitespaces)
+        }
+        let letters = line.filter { $0.isLetter }
+        guard !letters.isEmpty, letters == letters.uppercased(),
+              line.uppercased().hasSuffix("TO:") else { return nil }
+        return line
     }
 
     private static func isCharacter(_ line: String) -> Bool {
