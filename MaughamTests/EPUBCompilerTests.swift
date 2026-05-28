@@ -5,11 +5,11 @@ final class EPUBCompilerTests: XCTestCase {
 
     var tmp: URL!
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
         tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("EPUBCompilerTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
-        try PublishStarter.install(into: tmp, force: false)
+        try await PublishStarter.install(into: tmp, force: false)
     }
 
     override func tearDownWithError() throws {

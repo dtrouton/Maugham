@@ -39,7 +39,7 @@ public enum InitializePublishTemplateTool: MCPTool {
             throw MCPError.invalidArgument("unknown project_id")
         }
         do {
-            try PublishStarter.install(
+            try await PublishStarter.install(
                 into: entry.url, force: params.force ?? false)
         } catch PublishStarter.Error.alreadyInitialized {
             throw MCPError.invalidArgument(

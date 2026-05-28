@@ -44,6 +44,35 @@ public struct CompileOrchestrator {
             return .failed(errors: [], logExcerpt: "no config")
         }
 
+        // D3c: pre-compile collision guard. `PublishStarter.install` (D3a)
+        // reconciles `next_version` past existing publications, but a writer
+        // can still manually set it backward via set_publish_config. Refuse
+        // to compile into an already-used version so we don't mint two
+        // publications at the same version string — they'd be unaddressable
+        // apart via the `version` query (publication_id query works, but the
+        // collision is still a bug we should surface explicitly).
+        let existingPublications = try await publicationStore.load()
+        if existingPublications.contains(where: { $0.version == config.nextVersion }) {
+            let next = PublishConfigValidator.bumpedNextVersion(
+                from: config.nextVersion)
+            let diag = TectonicLogParser.Diagnostic(
+                level: .error,
+                file: nil, line: nil,
+                message: "Publication v\(config.nextVersion) already exists; refusing to compile a colliding version.",
+                contextLines: [
+                    "config.next_version is '\(config.nextVersion)', which matches an existing Publication.",
+                    "Bump next_version to '\(next)' (or higher) via set_publish_config, then retry.",
+                    "Or use republish if you want a new compile from a prior snapshot."
+                ])
+            await jobManager.fail(
+                jobID: jobID,
+                errors: [diag],
+                logExcerpt: "version_collision: \(config.nextVersion)")
+            return .failed(
+                errors: [diag],
+                logExcerpt: "version_collision: \(config.nextVersion)")
+        }
+
         // Capture snapshot BEFORE compile so it reflects the source state used.
         let snap = try snapshotStore.capture(
             config: config, maughamVersion: maughamVersion,

@@ -240,4 +240,134 @@ final class PublicationToolsTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(afterPubs.count, 2)
         XCTAssertEqual(afterPubs.last?["republished_from"] as? String, priorVersion)
     }
+
+    // MARK: - D3b: publication_id addressing
+
+    /// Seed two publications at the same version (the version-collision case
+    /// surfaced by external testing) and verify publication_id can address
+    /// them apart.
+    private func seedCollidingPublications() async throws -> (older: Publication, newer: Publication) {
+        let stores = PublishingStores.sharedFor(
+            projectID: pid!, projectURL: projectURL)
+        let older = Publication(
+            publicationID: "pub-older-test",
+            version: "0.1", label: "first", format: .pdf,
+            outputPath: "Exports/older.pdf",
+            snapshotID: "snap-older", checkpointID: "",
+            republishedFrom: nil,
+            compiledAt: Date(timeIntervalSinceNow: -3600),
+            maughamVersion: "0.0.0-test",
+            tectonicVersion: "0.15.0")
+        let newer = Publication(
+            publicationID: "pub-newer-test",
+            version: "0.1", label: "second", format: .pdf,
+            outputPath: "Exports/newer.pdf",
+            snapshotID: "snap-newer", checkpointID: "",
+            republishedFrom: nil,
+            compiledAt: Date(),
+            maughamVersion: "0.0.0-test",
+            tectonicVersion: "0.15.0")
+        try await stores.publicationStore.append(older)
+        try await stores.publicationStore.append(newer)
+        return (older, newer)
+    }
+
+    func testList_filtersByPublicationID() async throws {
+        let (older, _) = try await seedCollidingPublications()
+        let data = try await ListPublicationsTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","publication_id":"\#(older.publicationID)"}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        let pubs = resp["publications"] as? [[String: Any]] ?? []
+        XCTAssertEqual(pubs.count, 1)
+        XCTAssertEqual(pubs.first?["publication_id"] as? String, older.publicationID)
+    }
+
+    func testList_filtersByVersion_returnsAllColliding() async throws {
+        // Behaviour preserved from before publication_id addressing was added:
+        // version filter returns ALL matching publications. Agents that want
+        // exactly one should use publication_id.
+        _ = try await seedCollidingPublications()
+        let data = try await ListPublicationsTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","version":"0.1"}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        let pubs = resp["publications"] as? [[String: Any]] ?? []
+        XCTAssertEqual(pubs.count, 2,
+                       "version filter must return both colliding publications")
+    }
+
+    func testReadPage_acceptsPublicationID_resolvesUnambiguously() async throws {
+        // Write a minimal PDF for each colliding publication so the rasterizer
+        // can actually open them. Hand-craft is overkill — borrow from the
+        // testReadPage_returnsImageEnvelope fixture path by running a compile.
+        // Simpler: seed publications that point at the SAME existing PDF (the
+        // baseline produced by setUp's compile step, if any). For this test
+        // we just verify the *addressing path* works: the tool resolves to the
+        // requested publication_id and either succeeds or fails with an error
+        // that names the specific publication, not the wrong one.
+        let (older, newer) = try await seedCollidingPublications()
+
+        // Both pubs point at nonexistent PDFs — read_publication_page will
+        // fail to open. What matters is which one it TRIED — the error
+        // message must reference the requested publication's path, proving
+        // addressing-by-publication-id resolved to the right record.
+        do {
+            _ = try await ReadPublicationPageTool.handle(
+                paramsJSON: Data(#"{"project_id":"\#(pid!)","publication_id":"\#(older.publicationID)","page_number":1}"#.utf8),
+                registry: registry)
+            XCTFail("expected throw — fixture has no PDF on disk")
+        } catch let MCPError.internalError(msg) {
+            XCTAssertTrue(msg.contains("older.pdf"),
+                          "expected error to reference older.pdf (the older publication's outputPath), got: \(msg)")
+            XCTAssertFalse(msg.contains("newer.pdf"))
+        }
+
+        // Inverse: request the newer one, must reference newer.pdf.
+        do {
+            _ = try await ReadPublicationPageTool.handle(
+                paramsJSON: Data(#"{"project_id":"\#(pid!)","publication_id":"\#(newer.publicationID)","page_number":1}"#.utf8),
+                registry: registry)
+            XCTFail("expected throw")
+        } catch let MCPError.internalError(msg) {
+            XCTAssertTrue(msg.contains("newer.pdf"),
+                          "expected error to reference newer.pdf, got: \(msg)")
+        }
+    }
+
+    func testReadPage_unknownPublicationID_throws() async throws {
+        do {
+            _ = try await ReadPublicationPageTool.handle(
+                paramsJSON: Data(#"{"project_id":"\#(pid!)","publication_id":"pub-does-not-exist","page_number":1}"#.utf8),
+                registry: registry)
+            XCTFail("expected throw")
+        } catch let MCPError.invalidArgument(msg) {
+            XCTAssertTrue(msg.contains("pub-does-not-exist"))
+        }
+    }
+
+    func testReadPage_publicationIDAndVersionDisagree_throws() async throws {
+        let (older, _) = try await seedCollidingPublications()
+        do {
+            _ = try await ReadPublicationPageTool.handle(
+                paramsJSON: Data(#"{"project_id":"\#(pid!)","publication_id":"\#(older.publicationID)","version":"9.9","page_number":1}"#.utf8),
+                registry: registry)
+            XCTFail("expected throw — version='9.9' does not match older.version='0.1'")
+        } catch let MCPError.invalidArgument(msg) {
+            XCTAssertTrue(msg.contains("9.9"))
+            XCTAssertTrue(msg.contains("0.1"))
+        }
+    }
+
+    func testReadPage_neitherPublicationIDNorVersion_throws() async throws {
+        do {
+            _ = try await ReadPublicationPageTool.handle(
+                paramsJSON: Data(#"{"project_id":"\#(pid!)","page_number":1}"#.utf8),
+                registry: registry)
+            XCTFail("expected throw — neither addressing key provided")
+        } catch let MCPError.invalidArgument(msg) {
+            XCTAssertTrue(msg.lowercased().contains("publication_id")
+                          || msg.lowercased().contains("version"))
+        }
+    }
 }

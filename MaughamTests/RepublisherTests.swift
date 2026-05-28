@@ -10,7 +10,7 @@ final class RepublisherTests: XCTestCase {
         tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("RepubTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
-        try PublishStarter.install(into: tmp, force: false)
+        try await PublishStarter.install(into: tmp, force: false)
     }
 
     override func tearDown() async throws {

@@ -7,18 +7,20 @@ import AppKit
 public enum ListPublicationsTool: MCPTool {
     public static let method = "list_publications"
     public static let description =
-    "List publications recorded for a project. Optional filters: version, format, limit (default 50, takes the most recent N)."
+    "List publications recorded for a project. Optional filters: publication_id (exact, the unique key — prefer this when you need to address one specific publication), version (non-unique when init has reset the counter past a prior publication), format, limit (default 50, takes the most recent N). When multiple publications share a version, all are returned by the version filter; use publication_id to disambiguate."
     public static let inputSchemaJSON = """
-    {"type":"object","properties":{"project_id":{"type":"string"},"version":{"type":"string"},"format":{"type":"string","enum":["pdf","epub"]},"limit":{"type":"integer","default":50}},"required":["project_id"]}
+    {"type":"object","properties":{"project_id":{"type":"string"},"publication_id":{"type":"string"},"version":{"type":"string"},"format":{"type":"string","enum":["pdf","epub"]},"limit":{"type":"integer","default":50}},"required":["project_id"]}
     """
 
     struct Params: Codable {
         let projectID: String
+        let publicationID: String?
         let version: String?
         let format: PublishConfig.Format?
         let limit: Int?
         enum CodingKeys: String, CodingKey {
             case projectID = "project_id"
+            case publicationID = "publication_id"
             case version, format, limit
         }
     }
@@ -35,6 +37,7 @@ public enum ListPublicationsTool: MCPTool {
         let stores = PublishingStores.sharedFor(
             projectID: params.projectID, projectURL: entry.url)
         var pubs = try await stores.publicationStore.load()
+        if let pid = params.publicationID { pubs = pubs.filter { $0.publicationID == pid } }
         if let v = params.version { pubs = pubs.filter { $0.version == v } }
         if let f = params.format  { pubs = pubs.filter { $0.format == f } }
         let limit = params.limit ?? 50
@@ -55,20 +58,22 @@ public enum ListPublicationsTool: MCPTool {
 public enum ReadPublicationPageTool: MCPTool {
     public static let method = "read_publication_page"
     public static let description =
-    "Rasterize one page of a publication's PDF as a JPEG, with optional max_dimension/quality/region (region is normalized 0–1, top-left origin). Returns the same image-response envelope as read_document. Pages are 1-indexed."
+    "Rasterize one page of a publication's PDF as a JPEG. Address the publication by either publication_id (unique, preferred) or version (non-unique when init has reset the counter past a prior publication — first-write-wins). At least one must be provided. Optional max_dimension/quality/region (region is normalized 0–1, top-left origin). Returns the same image-response envelope as read_document. Pages are 1-indexed."
     public static let inputSchemaJSON = #"""
-    {"type":"object","properties":{"project_id":{"type":"string"},"version":{"type":"string"},"page_number":{"type":"integer"},"max_dimension":{"type":"integer","description":"Longest-edge cap (256–4096, default 2048)."},"quality":{"type":"integer","description":"JPEG quality 10–100 (default 85)."},"region":{"type":"object","description":"Optional crop, normalized 0–1, top-left origin.","properties":{"x":{"type":"number"},"y":{"type":"number"},"width":{"type":"number"},"height":{"type":"number"}},"required":["x","y","width","height"]}},"required":["project_id","version","page_number"]}
+    {"type":"object","properties":{"project_id":{"type":"string"},"publication_id":{"type":"string","description":"Unique publication identifier (preferred). Mutually informative with version: if both given, must refer to the same publication."},"version":{"type":"string","description":"Version string (e.g. \"0.1\"). First-write-wins when ambiguous."},"page_number":{"type":"integer"},"max_dimension":{"type":"integer","description":"Longest-edge cap (256–4096, default 2048)."},"quality":{"type":"integer","description":"JPEG quality 10–100 (default 85)."},"region":{"type":"object","description":"Optional crop, normalized 0–1, top-left origin.","properties":{"x":{"type":"number"},"y":{"type":"number"},"width":{"type":"number"},"height":{"type":"number"}},"required":["x","y","width","height"]}},"required":["project_id","page_number"]}
     """#
 
     struct Params: Codable {
         let projectID: String
-        let version: String
+        let publicationID: String?
+        let version: String?
         let pageNumber: Int
         let maxDimension: Int?
         let quality: Int?
         let region: ImageResponseBuilder.Region?
         enum CodingKeys: String, CodingKey {
             case projectID = "project_id"
+            case publicationID = "publication_id"
             case version
             case pageNumber = "page_number"
             case maxDimension = "max_dimension"
@@ -89,11 +94,38 @@ public enum ReadPublicationPageTool: MCPTool {
         let stores = PublishingStores.sharedFor(
             projectID: params.projectID, projectURL: projectURL)
         let pubs = try await stores.publicationStore.load()
-        guard let pub = pubs.first(where: {
-            $0.version == params.version && $0.format == .pdf
-        }) else {
+
+        // Resolution: publication_id is the unique key; version is a non-
+        // unique display string. Prefer publication_id; fall back to version
+        // with first-write-wins tiebreak; refuse if neither given.
+        let pub: Publication
+        if let pid = params.publicationID {
+            guard let match = pubs.first(where: { $0.publicationID == pid }) else {
+                throw MCPError.invalidArgument(
+                    "no publication with publication_id='\(pid)'")
+            }
+            // If version is also given, it must agree.
+            if let v = params.version, match.version != v {
+                throw MCPError.invalidArgument(
+                    "publication_id='\(pid)' has version='\(match.version)', not the requested version='\(v)'")
+            }
+            // Format must be PDF (only PDFs are rasterizable).
+            guard match.format == .pdf else {
+                throw MCPError.invalidArgument(
+                    "publication '\(pid)' is format=\(match.format.rawValue); only PDF publications can be rasterized")
+            }
+            pub = match
+        } else if let v = params.version {
+            guard let match = pubs.first(where: {
+                $0.version == v && $0.format == .pdf
+            }) else {
+                throw MCPError.invalidArgument(
+                    "no PDF publication with version='\(v)'")
+            }
+            pub = match
+        } else {
             throw MCPError.invalidArgument(
-                "no PDF publication with version='\(params.version)'")
+                "either publication_id or version must be provided")
         }
 
         // Resolve to absolute path; outputPath is stored relative to the project root.

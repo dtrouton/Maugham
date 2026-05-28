@@ -61,7 +61,7 @@ public enum ProjectFactory {
             try manifestData.write(to: projectURL.appendingPathComponent(manifestFilename))
 
             // Publishing: copy barebones starter so new projects can publish immediately.
-            PublishStarter.installIfMissing(into: projectURL)
+            await PublishStarter.installIfMissing(into: projectURL)
         } catch let error as ProjectFactoryError {
             throw error
         } catch {
@@ -131,7 +131,7 @@ public enum ProjectFactory {
             try writeManifest(manifest, to: projectURL)
 
             // Publishing: copy barebones starter so new projects can publish immediately.
-            PublishStarter.installIfMissing(into: projectURL)
+            await PublishStarter.installIfMissing(into: projectURL)
         } catch let e as ProjectFactoryError {
             try? fm.removeItem(at: projectURL)
             throw e
@@ -196,7 +196,7 @@ public enum ProjectFactory {
             try writeManifest(manifest, to: projectURL)
 
             // Publishing: copy barebones starter so new projects can publish immediately.
-            PublishStarter.installIfMissing(into: projectURL)
+            await PublishStarter.installIfMissing(into: projectURL)
         } catch let e as ProjectFactoryError {
             try? fm.removeItem(at: projectURL)
             throw e
