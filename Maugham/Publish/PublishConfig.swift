@@ -1,5 +1,24 @@
 import Foundation
 
+// MARK: - Encoding helper
+
+/// `encodeIfPresent` (Swift's default for `Optional`) omits nil fields,
+/// which makes `config.json` shrink on every compile round-trip — the
+/// starter ships explicit nulls for documentation purposes, and the
+/// default encoder silently strips them. `encodeAlways` emits `null`
+/// for nil so the file's shape stays stable across writes.
+extension KeyedEncodingContainer {
+    mutating func encodeAlways<T: Encodable>(
+        _ value: T?, forKey key: Key
+    ) throws {
+        if let value {
+            try encode(value, forKey: key)
+        } else {
+            try encodeNil(forKey: key)
+        }
+    }
+}
+
 /// Per-project publishing configuration. Persisted as
 /// `.maugham/publish/config.json`. Small, schema-validated, MCP-mutable.
 ///
@@ -48,6 +67,26 @@ public struct PublishConfig: Codable, Equatable, Sendable {
             self.language = language
             self.keywords = keywords
         }
+
+        // Custom encode: optional fields are emitted as explicit null
+        // rather than omitted, so round-tripping config.json keeps shape.
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(title, forKey: .title)
+            try c.encodeAlways(subtitle, forKey: .subtitle)
+            try c.encode(author, forKey: .author)
+            try c.encodeAlways(copyright, forKey: .copyright)
+            try c.encodeAlways(isbn, forKey: .isbn)
+            try c.encodeAlways(publisher, forKey: .publisher)
+            try c.encodeAlways(year, forKey: .year)
+            try c.encode(language, forKey: .language)
+            try c.encode(keywords, forKey: .keywords)
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case title, subtitle, author, copyright, isbn
+            case publisher, year, language, keywords
+        }
     }
 
     public struct Outputs: Codable, Equatable, Sendable {
@@ -90,6 +129,12 @@ public struct PublishConfig: Codable, Equatable, Sendable {
             self.epubSpecificPath = epubSpecificPath
         }
 
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encodeAlways(path, forKey: .path)
+            try c.encodeAlways(epubSpecificPath, forKey: .epubSpecificPath)
+        }
+
         enum CodingKeys: String, CodingKey {
             case path
             case epubSpecificPath = "epub_specific_path"
@@ -109,6 +154,13 @@ public struct PublishConfig: Codable, Equatable, Sendable {
             self.titleOverride = titleOverride
             self.startOn = startOn
             self.includeInToc = includeInToc
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encodeAlways(titleOverride, forKey: .titleOverride)
+            try c.encode(startOn, forKey: .startOn)
+            try c.encode(includeInToc, forKey: .includeInToc)
         }
 
         enum CodingKeys: String, CodingKey {
@@ -132,6 +184,16 @@ public struct PublishConfig: Codable, Equatable, Sendable {
             self.metadata = metadata
             self.cover = cover
         }
+
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(metadata, forKey: .metadata)
+            try c.encodeAlways(cover, forKey: .cover)
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case metadata, cover
+        }
     }
 
     public init(
@@ -152,6 +214,18 @@ public struct PublishConfig: Codable, Equatable, Sendable {
         self.epubOverrides = epubOverrides
         self.nextVersion = nextVersion
         self.activeLabelHint = activeLabelHint
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(schemaVersion, forKey: .schemaVersion)
+        try c.encode(metadata, forKey: .metadata)
+        try c.encode(outputs, forKey: .outputs)
+        try c.encode(cover, forKey: .cover)
+        try c.encode(sections, forKey: .sections)
+        try c.encode(epubOverrides, forKey: .epubOverrides)
+        try c.encode(nextVersion, forKey: .nextVersion)
+        try c.encodeAlways(activeLabelHint, forKey: .activeLabelHint)
     }
 
     enum CodingKeys: String, CodingKey {

@@ -82,4 +82,38 @@ final class PublishConfigTests: XCTestCase {
         )
         XCTAssertEqual(outputs.formatsEnabled, [.pdf, .epub])
     }
+
+    // MARK: - encoder emits explicit nulls (shape preservation)
+
+    func testEncoder_emitsExplicitNullsForOptionalMetadata() throws {
+        // External tester surfaced config.json shrinking by ~134 B on
+        // every compile because the default Codable encoder omitted nil
+        // fields. With encodeAlways, all optional fields stay present
+        // (as null) in the output JSON.
+        let cfg = PublishConfig()   // defaults — all optional fields nil
+        let data = try JSONEncoder().encode(cfg)
+        let s = String(data: data, encoding: .utf8) ?? ""
+        for key in [
+            "\"subtitle\":null",
+            "\"copyright\":null",
+            "\"isbn\":null",
+            "\"publisher\":null",
+            "\"year\":null",
+            "\"active_label_hint\":null",
+        ] {
+            XCTAssertTrue(s.contains(key),
+                          "missing explicit null for \(key) in: \(s)")
+        }
+    }
+
+    func testEncoder_preservesShape_acrossRoundTrip() throws {
+        let cfg = PublishConfig()
+        let encoded = try JSONEncoder().encode(cfg)
+        let dict = try JSONSerialization.jsonObject(with: encoded) as? [String: Any] ?? [:]
+        let meta = dict["metadata"] as? [String: Any] ?? [:]
+        XCTAssertTrue(meta.keys.contains("subtitle"))
+        XCTAssertTrue(meta["subtitle"] is NSNull)
+        XCTAssertTrue(meta.keys.contains("year"))
+        XCTAssertTrue(meta["year"] is NSNull)
+    }
 }
