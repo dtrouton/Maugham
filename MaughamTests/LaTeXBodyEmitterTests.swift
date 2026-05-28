@@ -205,6 +205,24 @@ final class LaTeXBodyEmitterTests: XCTestCase {
         XCTAssertTrue(body.contains("\\parenthetical{\\underline{sotto}}"))
     }
 
+    func testEmits_fountainTitlePage_centeredOnOwnPage() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.titlePage([
+                    .init(key: "Title", value: "Good Luck Babe"),
+                    .init(key: "Author", value: "Chappell Roan"),
+                ]))
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("\\begin{center}"))
+        XCTAssertTrue(body.contains("{\\Large\\textbf{Good Luck Babe}}\\par"))
+        XCTAssertTrue(body.contains("Chappell Roan\\par"))
+        XCTAssertTrue(body.contains("\\end{center}"))
+        // Its own page.
+        XCTAssertTrue(body.contains("\\clearpage"))
+    }
+
     func testEmits_dualDialogue_command() {
         let ast = ProjectAST(sections: [
             .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [

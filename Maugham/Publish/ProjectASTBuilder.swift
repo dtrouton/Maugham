@@ -184,6 +184,11 @@ public enum ProjectASTBuilder {
             .map(String.init)
 
         var i = 0
+        // A Fountain title-page block, if present, occupies the document head.
+        if let (fields, consumed) = parseTitlePage(lines) {
+            nodes.append(.titlePage(fields))
+            i = consumed
+        }
         while i < lines.count {
             let line = lines[i].trimmingCharacters(in: .whitespaces)
             defer { i += 1 }
@@ -217,6 +222,79 @@ public enum ProjectASTBuilder {
         }
 
         return nodes.map { ProjectAST.Node.fountain($0) }
+    }
+
+    private static let titlePageKeyMap: [String: String] = [
+        "title": "Title", "credit": "Credit", "author": "Author",
+        "authors": "Author", "source": "Source", "notes": "Notes",
+        "draft date": "Draft date", "contact": "Contact", "copyright": "Copyright",
+    ]
+
+    private static func canonicalTitleKey(_ raw: String) -> String? {
+        titlePageKeyMap[raw.lowercased()]
+    }
+
+    /// "Key: ..." → the key (trimmed), else nil if no colon / empty key.
+    private static func parseTitleKey(_ line: String) -> String? {
+        guard let colon = line.firstIndex(of: ":") else { return nil }
+        let key = String(line[..<colon]).trimmingCharacters(in: .whitespaces)
+        return key.isEmpty ? nil : key
+    }
+
+    /// Parse the Fountain title-page block at the head of `lines`. Recognized
+    /// only when the first non-empty line is a canonical `Key: Value` (mirrors
+    /// the editor's `FountainTokenizer.parseTitlePage`). Indented lines (≥3
+    /// spaces or a tab) continue the previous field; a blank line or a
+    /// non-key, non-indented line ends the block. Returns the parsed fields
+    /// and the absolute line index where the body begins, or nil if absent.
+    private static func parseTitlePage(
+        _ lines: [String]
+    ) -> (fields: [ProjectAST.TitleField], consumed: Int)? {
+        var first = 0
+        while first < lines.count,
+              lines[first].trimmingCharacters(in: .whitespaces).isEmpty { first += 1 }
+        guard first < lines.count,
+              let firstKey = parseTitleKey(lines[first].trimmingCharacters(in: .whitespaces)),
+              canonicalTitleKey(firstKey) != nil else { return nil }
+
+        var fields: [ProjectAST.TitleField] = []
+        var currentKey: String?
+        var currentValue: [String] = []
+        func flush() {
+            guard let key = currentKey else { return }
+            fields.append(.init(key: key, value: currentValue.joined(separator: "\n")))
+            currentKey = nil
+            currentValue = []
+        }
+
+        var i = first
+        while i < lines.count {
+            let raw = lines[i]
+            let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty {
+                flush()
+                return (fields, i + 1)   // consume the closing blank line
+            }
+            let leading = raw.prefix { $0 == " " || $0 == "\t" }.count
+            let indented = leading >= 3 || raw.hasPrefix("\t")
+            if let key = parseTitleKey(trimmed), !indented {
+                flush()
+                currentKey = canonicalTitleKey(key) ?? key
+                if let colon = trimmed.firstIndex(of: ":") {
+                    let v = String(trimmed[trimmed.index(after: colon)...])
+                        .trimmingCharacters(in: .whitespaces)
+                    currentValue = v.isEmpty ? [] : [v]
+                }
+            } else if currentKey != nil && indented {
+                currentValue.append(trimmed)
+            } else {
+                flush()
+                return (fields, i)       // body starts at this line
+            }
+            i += 1
+        }
+        flush()
+        return (fields, lines.count)
     }
 
     private static func isSceneHeading(_ line: String) -> Bool {

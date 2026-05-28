@@ -74,6 +74,19 @@ public enum XHTMLBodyEmitter {
         case .dialogue(let xs):     out.append("<p class=\"dialogue\">\(emitInline(xs))</p>")
         case .parenthetical(let xs): out.append("<p class=\"parenthetical\">\(emitInline(xs))</p>")
         case .transition(let s):    out.append("<p class=\"transition\">\(XHTMLEscape.escape(s))</p>")
+        case .titlePage(let fields):
+            out.append("<header class=\"title-page\">")
+            for field in fields {
+                let value = XHTMLEscape.escape(field.value)
+                    .replacingOccurrences(of: "\n", with: "<br/>")
+                if field.key == "Title" {
+                    out.append("<h1 class=\"title\">\(value)</h1>")
+                } else {
+                    let cls = field.key.lowercased().replacingOccurrences(of: " ", with: "-")
+                    out.append("<p class=\"\(XHTMLEscape.attribute(cls))\">\(value)</p>")
+                }
+            }
+            out.append("</header>")
         case .dualDialogue(let left, let right):
             out.append("<div class=\"dual-dialogue\">")
             out.append("<div class=\"left\">")

@@ -213,6 +213,43 @@ final class ProjectASTBuilderTests: XCTestCase {
         ])
     }
 
+    func testFountainTitlePage_parsedAsStructuredNode() {
+        let text = """
+        Title: Good Luck Babe
+        Credit: Written by
+        Author: Chappell Roan
+
+        INT. CLUB - NIGHT
+
+        Aaron enters.
+        """
+        let src = FixtureSource(pieces: [
+            (id: "p1", title: "S", mode: .fountain, text: text)
+        ])
+        let ast = ProjectASTBuilder.build(from: src)
+        let nodes = ast.sections[0].nodes
+        XCTAssertEqual(nodes.first, .fountain(.titlePage([
+            .init(key: "Title", value: "Good Luck Babe"),
+            .init(key: "Credit", value: "Written by"),
+            .init(key: "Author", value: "Chappell Roan"),
+        ])))
+        // The title-page keys do not leak into the body as action lines.
+        XCTAssertTrue(nodes.contains(.fountain(.sceneHeading("INT. CLUB - NIGHT"))))
+        XCTAssertFalse(nodes.contains(.fountain(.action([.text("Title: Good Luck Babe")]))))
+    }
+
+    func testFountainNoTitlePage_whenFirstLineIsNotATitleKey() {
+        let src = FixtureSource(pieces: [
+            (id: "p1", title: "S", mode: .fountain, text: "INT. CLUB - NIGHT\n\nAaron enters.")
+        ])
+        let ast = ProjectASTBuilder.build(from: src)
+        let hasTitlePage = ast.sections[0].nodes.contains {
+            if case .fountain(.titlePage) = $0 { return true }
+            return false
+        }
+        XCTAssertFalse(hasTitlePage)
+    }
+
     func testMixedPieces_preserveOrder() {
         let src = FixtureSource(pieces: [
             (id: "p1", title: "First", mode: .prose, text: "Hello."),

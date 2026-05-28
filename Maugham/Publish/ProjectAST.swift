@@ -68,7 +68,21 @@ public struct ProjectAST: Equatable, Sendable {
         case dialogue([Inline])               // emphasis-bearing
         case parenthetical([Inline])          // emphasis-bearing
         case transition(String)
+        case titlePage([TitleField])          // Fountain title-page block
         indirect case dualDialogue(left: [FountainNode], right: [FountainNode])
+    }
+
+    /// One key/value pair from a Fountain title-page block. Keys are
+    /// canonicalized (Title, Credit, Author, Source, Draft date, Contact,
+    /// Copyright, Notes); unknown keys are preserved as-typed. Multi-line
+    /// values join with "\n".
+    public struct TitleField: Equatable, Sendable {
+        public let key: String
+        public let value: String
+        public init(key: String, value: String) {
+            self.key = key
+            self.value = value
+        }
     }
 }
 

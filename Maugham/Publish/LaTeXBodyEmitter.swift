@@ -106,6 +106,7 @@ public enum LaTeXBodyEmitter {
         case .dialogue(let xs):     out.append("\\dialogue{\(emitInline(xs))}")
         case .parenthetical(let xs): out.append("\\parenthetical{\(emitInline(xs))}")
         case .transition(let s):    out.append("\\transition{\(LaTeXEscape.escape(s))}")
+        case .titlePage(let fields): emitTitlePage(fields, into: &out)
         case .dualDialogue(let left, let right):
             var leftLines: [String] = []
             var rightLines: [String] = []
@@ -117,5 +118,31 @@ public enum LaTeXBodyEmitter {
             out.append(rightLines.joined(separator: "\n"))
             out.append("}")
         }
+    }
+
+    /// A Fountain title page, rendered on its own page (industry standard):
+    /// the title pushed down and centered, supporting fields centered below
+    /// it, then a page break. Standard LaTeX only — no custom command — so it
+    /// compiles against any project's template.
+    private static func emitTitlePage(_ fields: [ProjectAST.TitleField],
+                                      into out: inout [String]) {
+        func escapeMultiline(_ s: String) -> String {
+            s.split(separator: "\n", omittingEmptySubsequences: false)
+                .map { LaTeXEscape.escape(String($0)) }
+                .joined(separator: "\\\\")
+        }
+        out.append("\\begin{center}")
+        out.append("\\vspace*{1.5in}")
+        for field in fields {
+            let value = escapeMultiline(field.value)
+            if field.key == "Title" {
+                out.append("{\\Large\\textbf{\(value)}}\\par")
+                out.append("\\vspace{1.5em}")
+            } else {
+                out.append("\(value)\\par")
+            }
+        }
+        out.append("\\end{center}")
+        out.append("\\clearpage")
     }
 }

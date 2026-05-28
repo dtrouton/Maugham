@@ -160,6 +160,22 @@ final class XHTMLBodyEmitterTests: XCTestCase {
         XCTAssertTrue(xhtml.contains("<p class=\"parenthetical\"><u>sotto</u></p>"))
     }
 
+    func testEmits_fountainTitlePage_asHeader() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.titlePage([
+                    .init(key: "Title", value: "Good Luck Babe"),
+                    .init(key: "Draft date", value: "2026-05-28"),
+                ]))
+            ])
+        ])
+        let xhtml = XHTMLBodyEmitter.emit(ast)
+        XCTAssertTrue(xhtml.contains("<header class=\"title-page\">"))
+        XCTAssertTrue(xhtml.contains("<h1 class=\"title\">Good Luck Babe</h1>"))
+        XCTAssertTrue(xhtml.contains("<p class=\"draft-date\">2026-05-28</p>"))
+        XCTAssertTrue(xhtml.contains("</header>"))
+    }
+
     func testEmits_dualDialogue_wrappedInDiv() {
         let ast = ProjectAST(sections: [
             .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
