@@ -8,7 +8,7 @@ import Foundation
 /// starter provides working defaults.
 public enum LaTeXBodyEmitter {
 
-    public static func emit(_ ast: ProjectAST) -> String {
+    public static func emit(_ ast: ProjectAST, config: PublishConfig = PublishConfig()) -> String {
         var lines: [String] = []
         for (index, section) in ast.sections.enumerated() {
             emit(section: section, isFirst: index == 0, into: &lines)

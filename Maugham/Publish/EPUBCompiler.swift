@@ -45,7 +45,7 @@ public struct EPUBCompiler {
                 id: "s\(i + 1)",
                 filename: String(format: "section-%03d.xhtml", i + 1),
                 title: s.title,
-                xhtmlBody: XHTMLBodyEmitter.emit(ProjectAST(sections: [s])))
+                xhtmlBody: XHTMLBodyEmitter.emit(ProjectAST(sections: [s]), config: config))
         }
 
         let cssURL = publish.appendingPathComponent("styles.css")

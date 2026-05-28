@@ -5,7 +5,7 @@ import Foundation
 /// and stitches into the spine.
 public enum XHTMLBodyEmitter {
 
-    public static func emit(_ ast: ProjectAST) -> String {
+    public static func emit(_ ast: ProjectAST, config: PublishConfig = PublishConfig()) -> String {
         var lines: [String] = []
         for section in ast.sections {
             emit(section: section, into: &lines)

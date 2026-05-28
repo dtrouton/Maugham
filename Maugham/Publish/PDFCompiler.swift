@@ -45,7 +45,7 @@ public struct PDFCompiler {
             await jobManager.updatePhase(jobID: id, phase: .renderingBody)
         }
         let ast = ProjectASTBuilder.build(from: astSource)
-        let body = LaTeXBodyEmitter.emit(ast)
+        let body = LaTeXBodyEmitter.emit(ast, config: config)
         let bodyURL = build.appendingPathComponent("body.tex")
         try body.write(to: bodyURL, atomically: true, encoding: .utf8)
 
