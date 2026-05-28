@@ -71,34 +71,89 @@ public enum ListPublishFilesTool: MCPTool {
         let publishRoot = entry.url
             .appendingPathComponent(".maugham/publish", isDirectory: true)
         var files: [[String: Any]] = []
-        if FileManager.default.fileExists(atPath: publishRoot.path),
+
+        // Diagnostic instrumentation: emits per-call internal state alongside
+        // the result so external testers can correlate what the enumerator
+        // returned against what's actually on disk. The bug report we're
+        // hunting (2026-05-28) is "listing returns a strict subset of disk
+        // truth" — instrumenting at the source is the only way to settle
+        // whether (a) the enumerator never yielded the missing items or
+        // (b) something filtered them after yield.
+        var diagnosticEvents: [String] = []
+        var diagnosticItems: [[String: Any]] = []
+        diagnosticEvents.append("publishRoot=\(publishRoot.path)")
+        let rootExists = FileManager.default.fileExists(atPath: publishRoot.path)
+        diagnosticEvents.append("publishRoot_exists=\(rootExists)")
+        var enumeratorYieldedCount = 0
+
+        if rootExists,
            let enumerator = FileManager.default.enumerator(
             at: publishRoot,
             includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey],
             options: [.skipsHiddenFiles]) {
+            diagnosticEvents.append("enumerator=created")
             let rootPath = publishRoot.standardizedFileURL.path + "/"
             let iso = ISO8601DateFormatter()
             while let item = enumerator.nextObject() as? URL {
-                let res = try item.resourceValues(forKeys: [
-                    .fileSizeKey, .contentModificationDateKey, .isRegularFileKey])
-                guard res.isRegularFile == true else { continue }
+                enumeratorYieldedCount += 1
                 let abs = item.standardizedFileURL.path
-                guard abs.hasPrefix(rootPath) else { continue }
-                let rel = String(abs.dropFirst(rootPath.count))
-                if rel.hasPrefix("build/") { continue }
-                let mod = res.contentModificationDate.map { iso.string(from: $0) } ?? ""
-                files.append([
-                    "path": rel,
-                    "size": res.fileSize ?? 0,
-                    "modified_at": mod
-                ])
+                let rel = abs.hasPrefix(rootPath)
+                    ? String(abs.dropFirst(rootPath.count))
+                    : "<outside_root:\(abs)>"
+                var itemDiag: [String: Any] = ["rel": rel]
+                var action = "kept"
+                var size: Int = 0
+                var modString = ""
+                var isRegular = false
+                do {
+                    let res = try item.resourceValues(forKeys: [
+                        .fileSizeKey, .contentModificationDateKey, .isRegularFileKey])
+                    isRegular = res.isRegularFile ?? false
+                    size = res.fileSize ?? 0
+                    modString = res.contentModificationDate.map { iso.string(from: $0) } ?? ""
+                    itemDiag["isRegularFile"] = isRegular
+                    itemDiag["size"] = size
+                } catch {
+                    itemDiag["resourceValuesError"] = "\(error)"
+                    action = "skipped:resource_values_error"
+                }
+                if action == "kept" {
+                    if !isRegular {
+                        action = "skipped:not_regular"
+                    } else if !abs.hasPrefix(rootPath) {
+                        action = "skipped:outside_root"
+                    } else if rel.hasPrefix("build/") {
+                        action = "skipped:build"
+                    } else {
+                        files.append([
+                            "path": rel,
+                            "size": size,
+                            "modified_at": modString
+                        ])
+                    }
+                }
+                itemDiag["action"] = action
+                diagnosticItems.append(itemDiag)
             }
+            diagnosticEvents.append("enumerator_yielded=\(enumeratorYieldedCount)")
+        } else if !rootExists {
+            diagnosticEvents.append("enumerator=skipped:root_missing")
+        } else {
+            diagnosticEvents.append("enumerator=nil")
         }
         files.sort {
             ($0["path"] as? String ?? "") < ($1["path"] as? String ?? "")
         }
         return try JSONSerialization.data(
-            withJSONObject: ["files": files], options: [.sortedKeys])
+            withJSONObject: [
+                "files": files,
+                "_diagnostic": [
+                    "events": diagnosticEvents,
+                    "enumerator_items": diagnosticItems,
+                    "kept_count": files.count
+                ]
+            ],
+            options: [.sortedKeys])
     }
 }
 
