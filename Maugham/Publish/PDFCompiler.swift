@@ -85,6 +85,12 @@ public struct PDFCompiler {
         let errors = diagnostics.filter { $0.level == .error }
         let warnings = diagnostics.filter { $0.level == .warning }
 
+        // Persist the full tectonic log on every compile (success and failure)
+        // so Claude Desktop can read it via read_publish_file build/compile.log.
+        // try? — failing to write the log must never fail a compile.
+        let logURL = build.appendingPathComponent("compile.log")
+        try? invocationResult.combinedLog.write(to: logURL, atomically: true, encoding: .utf8)
+
         if invocationResult.exitCode != 0 {
             return Result(
                 outputPath: "",
