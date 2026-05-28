@@ -39,9 +39,32 @@ enum PublishPath {
         return candidate
     }
 
-    /// Files the user-facing publish workflow assumes are present. Delete
-    /// refuses these without `force=true`.
-    static let protected: Set<String> = ["template.tex", "config.json", "styles.css"]
+    /// Returns true when the given relative path identifies a "load-bearing"
+    /// publish file that delete should refuse without `force=true`.
+    ///
+    /// The original rule was a small hardcoded set (`template.tex`,
+    /// `config.json`, `styles.css`) — but compile actually depends on more
+    /// than that: `preamble.tex`, `frontmatter.tex`, `backmatter.tex`,
+    /// `prose.tex`, `screenplay.tex` are all `\input`-ed by `template.tex`
+    /// and silently break every PDF render when missing. External testing
+    /// surfaced this gap (2026-05-28): `delete_publish_file preamble.tex`
+    /// succeeded without `force` and made subsequent compiles fail with
+    /// cryptic LaTeX errors.
+    ///
+    /// New rule: any `*.tex`, `*.css`, or `*.json` file DIRECTLY under
+    /// `.maugham/publish/` (not in `build/`, not in `fonts/`, not in any
+    /// nested user dir) is protected. That covers all eight starter files
+    /// plus any partials Claude adds (e.g. a hand-crafted `dropcaps.tex`).
+    /// Force still bypasses; deletes under nested dirs stay unprotected.
+    static func isProtected(relativePath: String) -> Bool {
+        // Reject if the path has any directory component.
+        let components = relativePath.split(separator: "/", omittingEmptySubsequences: false)
+        guard components.count == 1 else { return false }
+        let lower = relativePath.lowercased()
+        return lower.hasSuffix(".tex")
+            || lower.hasSuffix(".css")
+            || lower.hasSuffix(".json")
+    }
 }
 
 // MARK: - list_publish_files
@@ -346,9 +369,9 @@ public enum DeletePublishFileTool: MCPTool {
         guard let entry = registry.lookup(id: params.projectID) else {
             throw MCPError.invalidArgument("unknown project_id")
         }
-        if PublishPath.protected.contains(params.path) && !(params.force ?? false) {
+        if PublishPath.isProtected(relativePath: params.path) && !(params.force ?? false) {
             throw MCPError.invalidArgument(
-                "\(params.path) is protected; pass force=true to delete")
+                "\(params.path) is protected (any .tex/.css/.json directly under .maugham/publish/ — these are load-bearing for compile). Pass force=true to delete anyway.")
         }
         let url = try PublishPath.validateAndResolve(
             relativePath: params.path, in: entry.url)
