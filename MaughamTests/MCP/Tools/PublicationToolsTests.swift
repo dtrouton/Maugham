@@ -105,8 +105,8 @@ final class PublicationToolsTests: XCTestCase {
                 paramsJSON: Data(#"{"project_id":"proj_notreal"}"#.utf8),
                 registry: registry)
             XCTFail("expected throw")
-        } catch let MCPError.invalidArgument(msg) {
-            XCTAssertTrue(msg.contains("unknown project_id"))
+        } catch let MCPError.toolError(payload) {
+            XCTAssertEqual(payload.error, "unknown_project_id")
         }
     }
 
@@ -130,8 +130,8 @@ final class PublicationToolsTests: XCTestCase {
                 paramsJSON: Data(#"{"project_id":"proj_notreal","version":"0.1","page_number":1}"#.utf8),
                 registry: registry)
             XCTFail("expected throw")
-        } catch let MCPError.invalidArgument(msg) {
-            XCTAssertTrue(msg.contains("unknown project_id"))
+        } catch let MCPError.toolError(payload) {
+            XCTAssertEqual(payload.error, "unknown_project_id")
         }
     }
 
@@ -199,8 +199,8 @@ final class PublicationToolsTests: XCTestCase {
                 paramsJSON: Data(#"{"project_id":"proj_notreal","snapshot_id":"snap-x"}"#.utf8),
                 registry: registry)
             XCTFail("expected throw")
-        } catch let MCPError.invalidArgument(msg) {
-            XCTAssertTrue(msg.contains("unknown project_id"))
+        } catch let MCPError.toolError(payload) {
+            XCTAssertEqual(payload.error, "unknown_project_id")
         }
     }
 

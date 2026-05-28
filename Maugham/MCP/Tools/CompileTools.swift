@@ -72,7 +72,7 @@ enum CompileResponseEncoder {
 public enum CompileTool: MCPTool {
     public static let method = "compile"
     public static let description =
-    "Full PDF or EPUB compile. wait_seconds blocks up to that long for completion; if it elapses, returns {status: in_progress, job_id, phase}. Creates a Publication checkpoint on success."
+    "Full PDF or EPUB compile. wait_seconds blocks up to that long for completion; if it elapses, returns {status: in_progress, job_id, phase}. On success creates a Publication record referencing the captured PublicationSnapshot (template + config + styles bytes, frozen at compile time). Note: the Publication.checkpoint_id field is reserved for a follow-up milestone — it's empty in v1, and reproducibility is via snapshot_id (which republish uses)."
     public static let inputSchemaJSON = """
     {"type":"object","properties":{"project_id":{"type":"string"},"format":{"type":"string","enum":["pdf","epub"]},"label":{"type":"string"},"wait_seconds":{"type":"integer","default":60}},"required":["project_id","format"]}
     """
@@ -96,7 +96,7 @@ public enum CompileTool: MCPTool {
         }
         let params = try JSONDecoder().decode(Params.self, from: json)
         guard let entry = registry.lookup(id: params.projectID) else {
-            throw MCPError.invalidArgument("unknown project_id")
+            throw MCPError.unknownProjectID(params.projectID)
         }
         let store = entry.store
         let projectURL = entry.url
@@ -176,7 +176,7 @@ public enum PreviewCompileTool: MCPTool {
         }
         let params = try JSONDecoder().decode(Params.self, from: json)
         guard let entry = registry.lookup(id: params.projectID) else {
-            throw MCPError.invalidArgument("unknown project_id")
+            throw MCPError.unknownProjectID(params.projectID)
         }
         let store = entry.store
         let projectURL = entry.url
@@ -235,7 +235,7 @@ public enum CompileStatusTool: MCPTool {
         }
         let params = try JSONDecoder().decode(Params.self, from: json)
         guard let entry = registry.lookup(id: params.projectID) else {
-            throw MCPError.invalidArgument("unknown project_id")
+            throw MCPError.unknownProjectID(params.projectID)
         }
         let stores = PublishingStores.sharedFor(
             projectID: params.projectID, projectURL: entry.url)
@@ -281,7 +281,7 @@ public enum CompileCancelTool: MCPTool {
         }
         let params = try JSONDecoder().decode(CompileStatusTool.Params.self, from: json)
         guard let entry = registry.lookup(id: params.projectID) else {
-            throw MCPError.invalidArgument("unknown project_id")
+            throw MCPError.unknownProjectID(params.projectID)
         }
         let stores = PublishingStores.sharedFor(
             projectID: params.projectID, projectURL: entry.url)

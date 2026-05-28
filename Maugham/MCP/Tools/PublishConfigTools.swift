@@ -16,7 +16,7 @@ public enum GetPublishConfigTool: MCPTool {
         guard let json = paramsJSON else { throw MCPError.invalidArgument("missing params") }
         let params = try JSONDecoder().decode(Params.self, from: json)
         guard let entry = registry.lookup(id: params.projectID) else {
-            throw MCPError.invalidArgument("unknown project_id")
+            throw MCPError.unknownProjectID(params.projectID)
         }
         let cfgStore = PublishConfigStore(projectURL: entry.url)
         let persisted = try await cfgStore.load()
@@ -56,7 +56,7 @@ public enum SetPublishConfigTool: MCPTool {
             throw MCPError.invalidArgument("patch required")
         }
         guard let entry = registry.lookup(id: projectID) else {
-            throw MCPError.invalidArgument("unknown project_id")
+            throw MCPError.unknownProjectID(projectID)
         }
         let patchData = try JSONSerialization.data(withJSONObject: patchObj, options: [])
         let cfgStore = PublishConfigStore(projectURL: entry.url)

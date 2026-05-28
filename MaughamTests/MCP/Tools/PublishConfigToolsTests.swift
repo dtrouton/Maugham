@@ -44,8 +44,8 @@ final class PublishConfigToolsTests: XCTestCase {
                 paramsJSON: Data(#"{"project_id":"proj_notreal"}"#.utf8),
                 registry: registry)
             XCTFail("expected throw")
-        } catch let MCPError.invalidArgument(message) {
-            XCTAssertTrue(message.contains("unknown project_id"))
+        } catch let MCPError.toolError(payload) {
+            XCTAssertEqual(payload.error, "unknown_project_id")
         }
     }
 
@@ -126,8 +126,8 @@ final class PublishConfigToolsTests: XCTestCase {
                 paramsJSON: Data(#"{"project_id":"proj_notreal","patch":{}}"#.utf8),
                 registry: registry)
             XCTFail("expected throw")
-        } catch let MCPError.invalidArgument(message) {
-            XCTAssertTrue(message.contains("unknown project_id"))
+        } catch let MCPError.toolError(payload) {
+            XCTAssertEqual(payload.error, "unknown_project_id")
         }
     }
 

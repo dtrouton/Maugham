@@ -32,7 +32,7 @@ public enum ListPublicationsTool: MCPTool {
         }
         let params = try JSONDecoder().decode(Params.self, from: json)
         guard let entry = registry.lookup(id: params.projectID) else {
-            throw MCPError.invalidArgument("unknown project_id")
+            throw MCPError.unknownProjectID(params.projectID)
         }
         let stores = PublishingStores.sharedFor(
             projectID: params.projectID, projectURL: entry.url)
@@ -88,7 +88,7 @@ public enum ReadPublicationPageTool: MCPTool {
         }
         let params = try JSONDecoder().decode(Params.self, from: json)
         guard let entry = registry.lookup(id: params.projectID) else {
-            throw MCPError.invalidArgument("unknown project_id")
+            throw MCPError.unknownProjectID(params.projectID)
         }
         let projectURL = entry.url
         let stores = PublishingStores.sharedFor(
@@ -195,7 +195,7 @@ public enum RepublishTool: MCPTool {
         }
         let params = try JSONDecoder().decode(Params.self, from: json)
         guard let entry = registry.lookup(id: params.projectID) else {
-            throw MCPError.invalidArgument("unknown project_id")
+            throw MCPError.unknownProjectID(params.projectID)
         }
         let store = entry.store
         let projectURL = entry.url
