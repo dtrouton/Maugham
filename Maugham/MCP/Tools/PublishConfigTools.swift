@@ -3,7 +3,7 @@ import Foundation
 public enum GetPublishConfigTool: MCPTool {
     public static let method = "get_publish_config"
     public static let description =
-    "Return the project's current PublishConfig as JSON. If .maugham/publish/config.json doesn't exist yet, returns the default config."
+    "Return the project's current PublishConfig as JSON. Response includes a `source` discriminator: \"persisted\" means the config was read from .maugham/publish/config.json; \"defaults\" means the file doesn't exist yet and the returned shape is the bundled default — a preview of what initialize_publish_template will write. Tools that need to know whether a project is configured should branch on `source`."
     public static let inputSchemaJSON = """
     {"type":"object","properties":{"project_id":{"type":"string"}},"required":["project_id"]}
     """
@@ -19,13 +19,19 @@ public enum GetPublishConfigTool: MCPTool {
             throw MCPError.invalidArgument("unknown project_id")
         }
         let cfgStore = PublishConfigStore(projectURL: entry.url)
-        let cfg = (try await cfgStore.load()) ?? PublishConfig()
+        let persisted = try await cfgStore.load()
+        let cfg = persisted ?? PublishConfig()
+        let source = persisted == nil ? "defaults" : "persisted"
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let cfgData = try encoder.encode(cfg)
         let cfgObj = try JSONSerialization.jsonObject(with: cfgData)
         return try JSONSerialization.data(
-            withJSONObject: ["config": cfgObj], options: [.sortedKeys])
+            withJSONObject: [
+                "config": cfgObj,
+                "source": source
+            ],
+            options: [.sortedKeys])
     }
 }
 

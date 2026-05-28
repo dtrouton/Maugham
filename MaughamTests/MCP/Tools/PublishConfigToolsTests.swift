@@ -62,6 +62,26 @@ final class PublishConfigToolsTests: XCTestCase {
         let meta = cfg?["metadata"] as? [String: Any]
         // Default title from PublishConfig.Metadata.init()
         XCTAssertEqual(meta?["title"] as? String, "Untitled")
+        // source discriminator must report "defaults" since no file exists.
+        XCTAssertEqual(resp?["source"] as? String, "defaults",
+                       "expected source=defaults when config.json absent")
+    }
+
+    func testGet_configFile_returnsPersistedDiscriminator() async throws {
+        // Persist a config, then ensure get reports source=persisted.
+        let configStore = PublishConfigStore(projectURL: projectURL)
+        var cfg = PublishConfig()
+        cfg.metadata.title = "Saved"
+        try await configStore.save(cfg)
+
+        let data = try await GetPublishConfigTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(projectID!)"}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(resp?["source"] as? String, "persisted",
+                       "expected source=persisted when config.json is on disk")
+        let meta = (resp?["config"] as? [String: Any])?["metadata"] as? [String: Any]
+        XCTAssertEqual(meta?["title"] as? String, "Saved")
     }
 
     // MARK: - SetPublishConfigTool
