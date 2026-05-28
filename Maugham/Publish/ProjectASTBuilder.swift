@@ -202,22 +202,44 @@ public enum ProjectASTBuilder {
                 nodes.append(.transition(transition))
             } else if isCharacter(line) {
                 nodes.append(.character(line))
-                // Look ahead for parenthetical + dialogue.
+                // Look ahead for parenthetical + dialogue. Consecutive
+                // dialogue lines coalesce into one speech block (one
+                // \dialogue/minipage) so a hard-wrapped speech doesn't split
+                // into one minipage per source line. A parenthetical flushes
+                // the buffered dialogue and stands as its own node.
+                var dialogueBuffer: [String] = []
+                func flushDialogue() {
+                    guard !dialogueBuffer.isEmpty else { return }
+                    nodes.append(.dialogue(
+                        FountainInline.parse(dialogueBuffer.joined(separator: " "))))
+                    dialogueBuffer = []
+                }
                 while i + 1 < lines.count {
                     let next = lines[i + 1].trimmingCharacters(in: .whitespaces)
                     if next.isEmpty { break }
+                    if isCharacter(next) || isSceneHeading(next)
+                        || transitionText(next) != nil { break }
                     if next.hasPrefix("(") && next.hasSuffix(")") {
+                        flushDialogue()
                         nodes.append(.parenthetical(FountainInline.parse(next)))
-                    } else if isCharacter(next) || isSceneHeading(next)
-                                || transitionText(next) != nil {
-                        break
                     } else {
-                        nodes.append(.dialogue(FountainInline.parse(next)))
+                        dialogueBuffer.append(next)
                     }
                     i += 1
                 }
+                flushDialogue()
             } else {
-                nodes.append(.action(FountainInline.parse(line)))
+                // Coalesce consecutive action lines into one paragraph.
+                var actionBuffer = [line]
+                while i + 1 < lines.count {
+                    let next = lines[i + 1].trimmingCharacters(in: .whitespaces)
+                    if next.isEmpty || isSceneHeading(next) || isCharacter(next)
+                        || transitionText(next) != nil { break }
+                    actionBuffer.append(next)
+                    i += 1
+                }
+                nodes.append(.action(
+                    FountainInline.parse(actionBuffer.joined(separator: " "))))
             }
         }
 

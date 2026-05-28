@@ -250,6 +250,62 @@ final class ProjectASTBuilderTests: XCTestCase {
         XCTAssertFalse(hasTitlePage)
     }
 
+    func testFountainDialogue_multipleLinesCoalesceIntoOneNode() {
+        // A hard-wrapped speech must render as ONE dialogue block, not one
+        // \dialogue{} (one minipage) per source line.
+        let text = """
+        AARON
+        First line of the speech
+        second line of the same speech.
+        """
+        let src = FixtureSource(pieces: [
+            (id: "p1", title: "S", mode: .fountain, text: text)
+        ])
+        let ast = ProjectASTBuilder.build(from: src)
+        XCTAssertEqual(ast.sections[0].nodes, [
+            .fountain(.character("AARON")),
+            .fountain(.dialogue([.text("First line of the speech second line of the same speech.")])),
+        ])
+    }
+
+    func testFountainDialogue_parentheticalSplitsSpeech() {
+        let text = """
+        AARON
+        Before the beat.
+        (beat)
+        After the beat.
+        """
+        let src = FixtureSource(pieces: [
+            (id: "p1", title: "S", mode: .fountain, text: text)
+        ])
+        let ast = ProjectASTBuilder.build(from: src)
+        XCTAssertEqual(ast.sections[0].nodes, [
+            .fountain(.character("AARON")),
+            .fountain(.dialogue([.text("Before the beat.")])),
+            .fountain(.parenthetical([.text("(beat)")])),
+            .fountain(.dialogue([.text("After the beat.")])),
+        ])
+    }
+
+    func testFountainAction_multipleLinesCoalesceIntoOneParagraph() {
+        let text = """
+        Aaron crosses the room
+        and opens the window.
+
+        BETH
+        Hello.
+        """
+        let src = FixtureSource(pieces: [
+            (id: "p1", title: "S", mode: .fountain, text: text)
+        ])
+        let ast = ProjectASTBuilder.build(from: src)
+        XCTAssertEqual(ast.sections[0].nodes, [
+            .fountain(.action([.text("Aaron crosses the room and opens the window.")])),
+            .fountain(.character("BETH")),
+            .fountain(.dialogue([.text("Hello.")])),
+        ])
+    }
+
     func testMixedPieces_preserveOrder() {
         let src = FixtureSource(pieces: [
             (id: "p1", title: "First", mode: .prose, text: "Hello."),
