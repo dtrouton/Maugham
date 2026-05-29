@@ -32,18 +32,19 @@ final class DocumentStoreConflictManifestTests: XCTestCase {
         let manifestURL = url.appendingPathComponent("project.maugham.json")
         try externalData.write(to: manifestURL, options: [.atomic])
 
-        // Wait for presenter callback. Use polling for robustness.
-        let conflictsDir = url.appendingPathComponent(".maugham/conflicts")
-        let start = Date()
-        while Date().timeIntervalSince(start) < 3 {
-            let files = (try? FileManager.default
-                .contentsOfDirectory(atPath: conflictsDir.path)) ?? []
-            if files.contains(where: { $0.hasPrefix("manifest-") }) {
-                break
-            }
-            try await Task.sleep(for: .milliseconds(100))
-        }
+        // Drive the presenter-routing entry point DIRECTLY rather than waiting
+        // for the OS NSFilePresenter callback to fire. The callback's delivery
+        // is nondeterministic and unreliable in a headless CI run loop (this
+        // test flaked the v0.4.0 release on a fresh runner: the event never
+        // arrived inside the old 3s poll). `presenterDidChangeSubitem(at:)` is
+        // exactly what `ProjectFolderPresenter` calls, so this still exercises
+        // the real classify → manifest → archive-when-newer logic — only the
+        // OS event delivery (Apple's behavior, not ours) is removed from the
+        // test. `archiveManifestForConflict` writes synchronously, so the
+        // backup exists immediately after the call.
+        store.presenterDidChangeSubitem(at: manifestURL)
 
+        let conflictsDir = url.appendingPathComponent(".maugham/conflicts")
         let files = (try? FileManager.default
             .contentsOfDirectory(atPath: conflictsDir.path)) ?? []
         XCTAssertTrue(files.contains { $0.hasPrefix("manifest-") },
