@@ -63,3 +63,27 @@ Not yet done — needs the user. Suggested:
 3. `set_piece_style` on one piece with a small `\renewcommand{\pieceheading}[1]{\section{#1}}` → compile → confirm that piece is numbered and others aren't; overwrite it → confirm the prior version is in trash.
 4. Set a piece `include_in_toc:false` and `start_on:recto` via `set_publish_config` → compile → confirm ToC omission + recto placement.
 5. Compile with a tectonic warning → confirm `warnings` + `log_path` appear in the response.
+
+## Follow-up round (2026-05-29, later) — "fail loudly" hardening
+
+During live Claude-Desktop validation, the milestone *appeared* broken for several rounds: per-section overrides and `style_file` were "stored but ignored," `body.tex` unchanged. **Root cause was NOT the code** — it was a cross-server piece-ID namespace mismatch. The client had cached `doc-XXXX` ids from the *live* `maugham` server (`~/Documents/Maugham/Playlist`) and reused them against `maugham-dev` (`~/Documents/Maugham Tests/Playlist`), which has its own id namespace. Config was keyed by ids the dev emitter never mints; the emitter looked up its own (correct) ids, found nothing, emitted defaults. A reproduction on the real path (`StyleFileProductionPathTests`, `a450a81`) proved the emitter consumes config correctly when ids match — the "couldn't reproduce" was the true signal. Verified end-to-end once correct ids were used: all five markers (`\begingroup`/`\input{pieces/…}`/`[notoc]`/`\cleardoublepage`/`\endgroup`) emit correctly, scope reverts before the next piece.
+
+The unifying defect across this and the `tool_search` confusion: **the surface silently no-ops and returns a success-shaped response instead of objecting.** Fixes shipped (all "fail loudly / authoritative surface"):
+
+| Commit | Fix |
+|---|---|
+| `c21a640` | (earlier) partial section-patch decodes with defaults; broadened warning parsing |
+| `9999870` | **`set_piece_style` hard-rejects an unknown `piece_id`** (`"no piece <id> in this project; call get_outline"`) — would have stopped the whole chase at the first call. Also: default filename now slugs the piece **title**, not the `doc-XXXX` id. Existing tests migrated from synthetic ids to real manifest ids. |
+| `369dff6` | **`set_publish_config` returns `warnings: [String]`** naming any section key matching no real piece in the project (warn-and-proceed, doesn't reject the patch). |
+| `573f930` | **`list_maugham_tools`** — flat, unranked, complete catalog (name+description) + `server.{name, build_variant, version, tool_count}` identity block + optional `name_contains` substring filter. One call authoritatively answers "what tools exist" and "which build am I on." Catalog 39 → **40**. |
+
+Suite green at **1417 tests, 0 failures**. Valid piece ids are `ProjectStore.collectDocuments(in: store.manifest.structure).map(\.id)` — the same set `get_outline` exposes and `ProjectStoreASTSource` uses.
+
+**Carry-forward (NOT ours to fix):** the highest-leverage discoverability fixes — `tool_search` total-match count, exact-name-match priority, a client-side flat tool list — live in the MCP **host (Claude Desktop)** and the **MCP protocol**, not this repo. Worth raising upstream (Claude Desktop feedback / `modelcontextprotocol` GitHub). `list_maugham_tools` is the local mitigation; it only helps once a client thinks to call it.
+
+## Updated smoke (this round)
+
+6. On `maugham-dev`, ALWAYS get piece ids from `maugham-dev:get_outline` for THIS project — never reuse ids from the `maugham` server (separate namespace).
+7. `set_piece_style` with a bogus `piece_id` → confirm it now ERRORS with the get_outline hint (not silent).
+8. `set_publish_config` with a section key for a non-existent piece → confirm `warnings` names it.
+9. `list_maugham_tools` → confirm 40 tools incl. `set_piece_style`/`clear_piece_style`, and `server.build_variant == "dev"` / expected version.
