@@ -1,5 +1,38 @@
 # Maugham iPhone Companion — v1 plan
 
+> ## 🚦 STATUS (2026-05-29) — read this first
+>
+> **Phases A, B0, B, C are SHIPPED and merged to `main`** (merge `98128d1`,
+> "Milestone 2 — MaughamCore + inbox + WhisperKit"; ~1463 tests; smoke Tiers 1–3
+> verified). See `memory/project_milestone_iphone_companion_mac.md`.
+>
+> **The remaining work is the iOS app itself: Phases D0 → D → E → F → G.** Start
+> at **Phase D0** (iCloud-eviction download infra) before any read tabs.
+>
+> **Settled facts for the iOS session — read the shipped types, don't re-derive:**
+> - `Packages/MaughamCore` is the Foundation-only shared package; the new
+>   `MaughamPhone` target (Phase D, doesn't exist yet) depends on it. WhisperKit
+>   is a **Mac-target-only** dep — do **not** add it to MaughamPhone.
+> - **`InboxEntry`** (`MaughamCore/Sources/MaughamCore/Inbox/InboxEntry.swift`)
+>   is the capture schema the phone writes. It gained two fields beyond this
+>   plan's original §B bullet: **`writtenAt`** (row-write time; the phone MUST
+>   stamp it — it orders the last-wins merge, and it must be **monotonic per id**
+>   to survive phone/Mac clock skew, see the clock-skew fix) and
+>   `transcriptionState.userEdited`. The phone writes rows + assets to
+>   `.maugham/inbox/` (inline text; `images/`; `audio/`) and its **own**
+>   `inbox.<deviceSlug>.jsonl`.
+> - **Op log is per-device partitioned** (`d_<docId>.<deviceSlug>.jsonl`, ADR
+>   0012 — implemented). The phone writes annotation-lifecycle ops to its **own**
+>   per-device file (Phase F). Shared helpers in MaughamCore: `OpLogStore`
+>   (`opLogFileURLs`/`loadSyncMerged`), `DeviceSlug.make`.
+> - **`ProjectManifest.id`** (minted ULID) exists — key project selection on it.
+> - Inbox MCP surface is read+promote (`list_inbox`/`read_inbox_entry`/
+>   `promote_inbox_entry`); catalog is 43 tools.
+> - Deferred Mac-side (won't block the phone): InboxPane attach-to-document;
+>   WhisperKit proactive-download/HUD/offline-chip/auto-retry/long-audio-chunking.
+> - The Phase D–G bullets below predate some implementation detail — when they
+>   conflict with a shipped MaughamCore type, the **shipped type wins**.
+
 ## Context
 
 > **Validation update (2026-05-29).** Re-checked against `main` after the tasks + publishing
@@ -49,13 +82,13 @@ Verified prerequisites (confirmed during planning):
 
 ## Phased implementation
 
-### Phase A — `MaughamCore` extraction (foundation, highest blast radius)
+### Phase A — `MaughamCore` extraction (foundation, highest blast radius) — ✅ SHIPPED (@98128d1)
 
 Create `Packages/MaughamCore/` SPM package. Move the Foundation-only files listed above out of `Maugham/OpLog/`, `Maugham/Editor/Fountain/`, `Maugham/Models/`, and `Maugham/BuildVariant.swift` into the package. Both Mac and iOS targets depend on it. Run `./gen.sh`, fix imports across `Maugham/`, run full `xcodebuild test` + the manual smoke from CLAUDE.md. Do this as one focused PR — don't combine with anything else.
 
 **One non-mechanical addition** (the lone behavior change permitted in this phase, kept small): `ProjectManifest` has no stable identifier today — projects are addressed by folder path, and collection links (`CollectionLinkFile`) use a security-scoped bookmark + absolute path. The phone needs a logical id that survives rename/move within the bookmarked root (capture selection + recents key on it). Add `public var id: String?` (a minted ULID) to `ProjectManifest` and mint-on-load when nil in `ProjectStore.load` so both new projects (ProjectFactory writes id-less, load backfills) and existing projects acquire an id on next open. **Schema stays 1** — this follows the established convention (1d added the optional `typography` field without a version bump because older Maugham tolerates unknown fields). Additive and backward-compatible — old manifests decode with `id == nil`, no migration (CLAUDE.md tripwire 11). `ProjectManifestIdTests` asserts decode-nil-when-absent, Codable round-trip, and that the minted id persists to disk and is **stable across reloads** (not re-minted). Manifest `modified` is left untouched by the backfill (an id mint is not a content edit), preserving the milestone-1a ISO8601 whole-second round-trip.
 
-### Phase B0 — Per-device JSONL partitioning (Mac only, prerequisite for any phone writes)
+### Phase B0 — Per-device JSONL partitioning (Mac only, prerequisite for any phone writes) — ✅ SHIPPED (@98128d1)
 
 Foundational. Must land before Phase D so the phone never writes to a shared file. Spec §3.12 + ADR 0012.
 
@@ -64,7 +97,7 @@ Foundational. Must land before Phase D so the phone never writes to a shared fil
 - Backward compat — existing `d_<docId>.jsonl` files are included in the glob. No migration logic (CLAUDE.md tripwire 11).
 - Manual test: write to a project from one device, then synthesize a "second device" file (`d_<docId>.fake.jsonl` with a few ops) by hand; confirm Mac merges both on next load, opIds sort correctly, derived state matches.
 
-### Phase B — Inbox plumbing (Mac only)
+### Phase B — Inbox plumbing (Mac only) — ✅ SHIPPED (@98128d1)
 
 - `Packages/MaughamCore/Sources/MaughamCore/Inbox/InboxEntry.swift` — Codable: `id` (ULID), `createdAt`, `deviceId`, `kind` (text/image/audio), `sourceFilename`, `inlineText`, `transcript`, `transcriptionState` (none / on_device_draft / whisper_final / failed), `title`, `status` (new / promoted / trashed), `resolvedAt`. snake_case keys to match Op convention.
 - `Maugham/Stores/MaughamSidecarPath.swift` — add `case inbox(kind: InboxFileKind, relativePath: String)`; extend `classifySidecar` with `.maugham/inbox/` branches (matches `inbox.jsonl` + `inbox.<slug>.jsonl`).
@@ -75,7 +108,7 @@ Foundational. Must land before Phase D so the phone never writes to a shared fil
 
 Manual test by dropping a file + JSONL line into `.maugham/inbox/` (either the per-device file or the legacy unsuffixed name) — no phone code yet.
 
-### Phase C — WhisperKit on the Mac
+### Phase C — WhisperKit on the Mac — ✅ SHIPPED (@98128d1; detailed plan in `2026-05-29-phone-phase-c-whisperkit.md`)
 
 Refined in the 2026-05-29 brainstorm (spec §3.5): protocol seam + "Middle"
 download UX + `.userEdited` edit protection. Built as **two commits** so the
