@@ -1,6 +1,6 @@
 # iPhone Companion — Capture, Read, Annotation Review
 
-**Status:** Approved 2026-05-24 by user, ready for implementation planning.
+**Status:** Approved 2026-05-24 by user, ready for implementation planning. Re-validated against `main` 2026-05-29 (post tasks + publishing milestones) — see the plan's "Validation update" banner for the full diff. Material correction folded in: `ProjectManifest` has **no `id` field**, so Phase A now adds a minted `id` (additive optional field, schema stays 1 per the `typography` precedent) and the project-selection design (§3.7) keys on it. **Shipped on `feat/maugham-core-extraction`:** the extraction is complete and green (1442 tests, 0 failures) and the minted `id` + mint-on-load is implemented with `ProjectManifestIdTests`.
 
 **Goal:** Ship a Maugham iPhone companion app that complements (not replaces) the Mac. Three capabilities in one bundle: (1) **Capture inbox** — text, photo, and voice notes land in a new `.maugham/inbox/` sidecar synced via iCloud Drive; voice captures get an immediate on-device `SFSpeechRecognizer` draft transcript that the Mac later replaces with a higher-quality WhisperKit transcript. (2) **Read** — projects/binders/manuscripts/research browsable from the phone; Markdown rendered native, Fountain rendered semantically (line-type-aware styling, not pagination). (3) **Annotation review** — Claude's open annotations (`comment`/`query`/`suggestedChange`/`craftNote`) listed across all bookmarked projects; Accept / Reject / Archive append the exact same op-log entries the Mac writes. Distribution is TestFlight (personal/friends), not App Store; signing + a separate `phone-v0.X.Y` tag namespace + GH Actions release pipeline come with it.
 
@@ -56,7 +56,9 @@ The dependency direction is clear: `Packages/MaughamCore` is foundational and un
 **Mac-only:**
 
 - `Maugham/Stores/InboxStore.swift` — `@Observable` class owned by `DocumentStore`, one per project window. Loads `.maugham/inbox/inbox.jsonl` via `JSONLAppendStore<InboxEntry>` but with a last-wins merge in its own load pass (the generic store's `dedupKey` keeps first occurrence — InboxStore needs newest to win for status transitions). Methods: `refresh()`, `promoteToResearch(_:)`, `trash(_:)`, `attachToCurrentDoc(_:)`, `updateTranscript(id:text:state:)`. Each mutating method appends a new InboxEntry with the same id and updated fields; the next `refresh()` collapses them through the last-wins merge.
-- `Maugham/Stores/InboxTranscriptionWorker.swift` — serial-queue background worker subscribed to `Notification.Name.maughamInboxChanged` events with `kind == .audio`. Pulls the entry by id, loads the corresponding `.m4a` from `.maugham/inbox/audio/`, runs WhisperKit, calls `InboxStore.updateTranscript(id:text:state: .whisperFinal)`. One transcription in flight at a time (WhisperKit is compute-heavy; competing jobs would thrash). Models live in `~/Library/Application Support/<BuildVariant.supportFolderName>/WhisperModels/`, downloaded lazily on first use.
+- `Packages/MaughamCore/Sources/MaughamCore/Transcriber.swift` — Foundation-only `protocol Transcriber { func transcribe(_ audio: URL, model: String) async throws -> String }`. The worker depends on this, not on WhisperKit (see §3.5).
+- `Maugham/Stores/WhisperKitTranscriber.swift` — the production `Transcriber` conformer wrapping WhisperKit. Added in an isolated final commit (the only step with external-fetch risk).
+- `Maugham/Stores/InboxTranscriptionWorker.swift` — serial-queue background worker subscribed to `Notification.Name.maughamInboxChanged` events with `kind == .audio`. Re-scans for eligible audio (`transcriptionState ∈ {.none, .onDeviceDraft}`), loads the corresponding `.m4a` from `.maugham/inbox/audio/`, runs its injected `Transcriber`, calls `InboxStore.updateTranscript(id:text:state: .whisperFinal)`. One transcription in flight at a time (WhisperKit is compute-heavy; competing jobs would thrash). Models live in `~/Library/Application Support/<BuildVariant.supportFolderName>/WhisperModels/`, downloaded lazily on first job. Tested against a `MockTranscriber`. See §3.5.
 - `Maugham/Views/InboxPane.swift` — right-pane mode mounted into `ProjectWindow`'s detail-pane host. Rows: kind icon (SF Symbol: `square.and.pencil` / `photo` / `mic`), title (user-set or first ~40 chars of text/transcript), subtitle (transcript preview + relative timestamp), trailing menu (Promote to research / Attach to current doc / Edit transcript / Trash). Empty state via `ContentUnavailableView("Nothing in the inbox", systemImage: "tray", description: "Capture from MaughamPhone — text, photo, or voice — appears here.")`.
 - `.github/workflows/phone-release.yml` — tag-triggered macOS-runner workflow for the iOS app. Trigger pattern `phone-v[0-9]+.[0-9]+.[0-9]+`. Steps: checkout → setup Xcode → install xcodegen → import distribution cert + provisioning profile from secrets → sync version from tag + build number from `git rev-list --count HEAD` → `./gen.sh` → build Release for iOS → run phone tests → archive + export `.ipa` → upload to TestFlight via App Store Connect API → create GitHub Release with `docs/release-notes/phone/v0.X.Y.md` as body.
 - `scripts/cut-phone-release.sh` — mirror of `cut-release.sh` for the phone. Verifies `docs/release-notes/phone/v0.X.Y.md` exists, tree is clean, phone test target passes, creates `phone-v0.X.Y` tag, prints push command. `--skip-tests` flag for emergencies.
@@ -92,26 +94,26 @@ The dependency direction is clear: `Packages/MaughamCore` is foundational and un
 - `project.yml` — new `MaughamPhone` and `MaughamPhoneTests` targets; iOS 17 deployment; per-configuration bundle ids (`com.maugham.MaughamPhone[.dev]`); per-configuration `MAUGHAM_DEV_BUILD` flag; both `Maugham` and `MaughamPhone` declare `MaughamCore` as a local package dependency. `CFBundleShortVersionString` placeholder `"0.0.0-dev"` and `CFBundleVersion` placeholder `"1"` for phone — CI rewrites both at build time.
 - `Packages/MaughamCore/Sources/MaughamCore/Op.swift` (post-Phase-A location) — `Op.Provenance` gains two optional `String?` fields: `appVersion` (CodingKey `app_version`) and `osVersion` (CodingKey `os_version`). Populated by phone-written ops only; Mac writes leave nil. Purely additive — existing op logs decode unchanged, `Deriver`/`AnnotationDeriver` ignore the new fields, no migration. See §3.14.
 - `Maugham/Stores/MaughamSidecarPath.swift` — add `case inbox(kind: InboxFileKind, relativePath: String)`; extend `classifySidecar(url:projectURL:)` with branches for `.maugham/inbox/inbox.jsonl` → `.inbox(.manifest, …)`, `.maugham/inbox/text/*` → `.inbox(.text, …)`, `.maugham/inbox/images/*` → `.inbox(.image, …)`, `.maugham/inbox/audio/*` → `.inbox(.audio, …)`.
-- `Maugham/Stores/DocumentStore.swift` — add a `case .inbox(let kind, _):` arm in `presenterDidChangeSubitem` (currently around line 477); posts `Notification.Name.maughamInboxChanged` with `kind` in userInfo. `InboxStore` and `InboxTranscriptionWorker` both subscribe.
+- `Maugham/Stores/DocumentStore.swift` — add a `case .inbox(let kind, _):` arm in `presenterDidChangeSubitem` (currently lines 501–546); posts `Notification.Name.maughamInboxChanged` with `kind` in userInfo. `InboxStore` and `InboxTranscriptionWorker` both subscribe.
 - `Maugham/Views/DetailSegment.swift` — add `case inbox`; mirror in `Maugham/Views/DetailPaneToggle.swift` so the segment picker shows it.
-- `Maugham/Views/ProjectWindow.swift` — bind ⌘⌥6 to `.inbox` (the existing slot mapping: 1 inspector, 2 annotations, 3 outline, 4 history, 5 research, 6 inbox). Mount `InboxPane()` in the detail-pane host when `currentSegment == .inbox`.
+- `Maugham/Views/DetailPaneToggle.swift` — add a `.inbox` picker image with `.keyboardShortcut("6", …)`. **Real current mapping** (verified against code 2026-05-29): ⌘⌥1 inspector, ⌘⌥2 *research*, ⌘⌥3 outline, ⌘⌥4 history, ⌘⌥5 tasks, ⌘⌥A annotations. The history/tasks (and now inbox) shortcuts live on the **`DetailPaneToggle` picker images**, not the `MaughamApp` menu commands — the first validation pass only grepped `MaughamApp.swift` and wrongly concluded history/tasks were unbound. Inbox takes the next free **⌘⌥6**; no `MaughamApp` change (it follows the history/tasks picker-shortcut pattern). `DocumentStore` owns the `InboxStore` (MainActor lazy var); `DetailPaneToggle.inboxPane` mounts `InboxPane(store: ds.inboxStore)`.
 - `Maugham/OpLog/OpLogStore.swift` — `load(docId:)` globs all per-device op-log files (`d_<docId>.jsonl` + `d_<docId>.<deviceSlug>.jsonl`), merges via `JSONLAppendStore`'s existing opId-dedupe + opId-sort. `append(_:)` targets the writer's own per-device file. See §3.12 for the multi-writer partitioning rationale; the change is the only place that needs to know files are partitioned — every downstream consumer (`Deriver`, `Document.load`, `RewindWindow`) still sees a single `[Op]`.
 - `Maugham/Stores/ProjectFolderPresenter.swift` — confirm directory-level subscription to `.maugham/ops/`. New per-device files appear at runtime; the presenter must fire `presenterDidChangeSubitem` for siblings it has never seen before. If today's implementation watches a fixed set of paths, broaden to directory-level. (Likely already directory-level; needs verification at Phase B0.)
-- `CLAUDE.md` — new "iPhone companion" section between "Releases" and "Architectural tripwires"; three additions to "Questions you do not need to ask"; two new tripwires (#16 and #17, see §6 — main has already taken #14 and #15). Per-area pointer for `MaughamPhone/`.
+- `CLAUDE.md` — new "iPhone companion" section between "Releases" and "Architectural tripwires"; three additions to "Questions you do not need to ask"; two new tripwires (#17 and #18, see §6 — main is already through #16). Per-area pointer for `MaughamPhone/`.
 - Files moved (not deleted-and-recreated) into `Packages/MaughamCore/Sources/MaughamCore/`:
   - From `Maugham/OpLog/`: `Op.swift`, `OpKind.swift`, `Annotation.swift`, `AnnotationDeriver.swift`, `Bootstrap.swift`, `JSONLAppendStore.swift`, `Materializer.swift`, `OpLogStore.swift`, `ParagraphID.swift`, `ParagraphParser.swift`, `Reconciler.swift`, `ShingleMatcher.swift`, `SweepReason.swift`, `SynthesisSource.swift`, `ULID.swift`, `Checkpoint.swift`, `CheckpointStore.swift`. All confirmed Foundation-only.
   - From `Maugham/Editor/Fountain/`: `FountainTokenizer.swift`, `FountainLine.swift`, `FountainScript.swift`, `ScreenplayElement.swift`. All confirmed `import Foundation` only.
   - From `Maugham/`: `BuildVariant.swift`. Used by both targets; iOS-only knobs added via `BuildVariantPhone.swift` extension on the iOS side.
-  - From `Maugham/Models/`: `ProjectManifest.swift`, `ResearchItem.swift`, `ProjectType.swift`, `PieceKind.swift`, `StructureItem.swift`, `Slugifier.swift`, `FileNaming.swift`. All Foundation-only.
+  - From `Maugham/Models/`: `ProjectManifest.swift`, `ResearchItem.swift`, `ProjectType.swift`, `PieceKind.swift`, `StructureItem.swift`, `Slugifier.swift`, `FileNaming.swift`. All Foundation-only. (`ProjectManifest` additionally gains a minted `id: String?` in Phase A — additive optional field, schema stays 1, mint-on-load in `ProjectStore.load`; see §3.7. This is the one non-mechanical change in the otherwise pure-move Phase A.)
 
 ### 2.3 Files explicitly not changed (non-scope)
 
 - `Maugham/OpLog/Document.swift` — unchanged. The replay path already handles `claudeAccept.changes` (see §3.9). No changes to Bootstrap funnel, no changes to autosave debouncing, no changes to echo guard.
-- `Maugham/OpLog/Deriver.swift` — unchanged. `Deriver.appliesToManuscript` already includes `.claudeAccept` (verified at `Deriver.swift:108-117`); `Deriver.derive(ops:)` already applies `change.next` for any op whose kind passes that gate. The phone-written accept op materializes on Mac restart with zero Mac code change.
+- `Maugham/OpLog/Deriver.swift` — unchanged. `Deriver.appliesToManuscript` already includes `.claudeAccept` (verified at `Deriver.swift:121-132`); `Deriver.derive(ops:)` already applies `change.next` for any op whose kind passes that gate. The phone-written accept op materializes on Mac restart with zero Mac code change.
 - `Maugham/OpLog/Reconciler.swift` — phone writes append to per-device op-log files; existing external-edit ingestion picks them up as it would any other external append. No classifier changes.
 - `Maugham/Editor/` — no editor changes. The phone does not edit manuscripts.
 - Op log schema — no new `OpKind` cases. Phone writes `claudeAccept` / `claudeReject` / `claudeArchive` with the existing shape. `Provenance.synthesisSource` gets no new cases; phone-originated ops carry no synthesisSource (it's optional; phone ops are not synthesized, they're user-driven).
-- MCP tool surface — no new MCP tools. Phone reads ops via direct JSONL read, writes ops via direct JSONL append. MCP and the iPhone companion are parallel surfaces, not nested.
+- MCP tool surface — *the **phone** adds no MCP tools*: it reads ops via direct JSONL read and writes via direct JSONL append (MCP and the phone are parallel surfaces, not nested). **However** (decided 2026-05-29, post-original-spec): the **Mac-side** MCP surface gains three inbox tools for Claude Desktop — `list_inbox`, `read_inbox_entry`, `promote_inbox_entry` (read + promote only; no add/trash). These let Claude triage captures into `research/` (its existing librarian role; non-destructive). They read/write only `.maugham/inbox/` + `research/`, never the manuscript. Catalog 40 → 43; `MCPProtocolHandlersTests`/`MCPToolsListSmokeTest` counts updated.
 - Existing iCloud handling — the Mac app has no iCloud entitlement today and won't get one. Project folders live at writer-chosen paths; iCloud Drive happens to sync them if they're inside it. iOS uses `UIDocumentPicker` for the same arbitrary-path access, no shared container.
 
 ---
@@ -202,9 +204,9 @@ The audio file itself moves from `.maugham/inbox/audio/01HQR…J9.m4a` into `res
 
 ### 3.3 Mac-side inbox plumbing
 
-**`MaughamSidecarPath` extension.** The enum currently has 11 cases routed by a single `classifySidecar(url:projectURL:)` method. Adding `case inbox(kind: InboxFileKind, relativePath: String)` is a one-case addition; the classifier branches on `.maugham/inbox/` prefix and the second path component to determine kind. Per CLAUDE.md and ADR 0010, this enum is the canonical owner-classification for `.maugham/` subdirs — getting routing right here is what makes the rest of the pipeline ride for free.
+**`MaughamSidecarPath` extension.** The enum currently has 18 cases (publishing added 7 — `publishTemplate`/`publishStyles`/`publishConfig`/`publishAsset`/`publishBuild`/`publicationsLog`/`publicationSnapshot` — none colliding with `.maugham/inbox/`) routed by a single `classifySidecar(relativePath:)` method. Adding `case inbox(kind: InboxFileKind, relativePath: String)` is a one-case addition; the classifier branches on `.maugham/inbox/` prefix and the second path component to determine kind. Per CLAUDE.md and ADR 0010, this enum is the canonical owner-classification for `.maugham/` subdirs — getting routing right here is what makes the rest of the pipeline ride for free.
 
-**`DocumentStore.presenterDidChangeSubitem`.** The existing switch (currently around line 477) gains:
+**`DocumentStore.presenterDidChangeSubitem`.** The existing switch (currently lines 501–546) gains:
 
 ```swift
 case .inbox(let kind, _):
@@ -277,9 +279,9 @@ Keeping the generic store's per-file behavior intact and overriding the cross-fi
 
 ### 3.4 Mac-side triage UI
 
-The right-pane mode pattern is established (ADR 0005): the detail pane swaps content based on `currentSegment: DetailSegment`. Existing segments: `.inspector` (⌘⌥1), `.annotations` (⌘⌥2), `.outline` (⌘⌥3), `.history` (⌘⌥4), `.research` (⌘⌥5). New: `.inbox` (⌘⌥6).
+The right-pane mode pattern is established (ADR 0005): the detail pane swaps content based on `segment: DetailSegment` in `DetailPaneToggle`. Existing segments (verified against code 2026-05-29): `.inspector` (⌘⌥1), `.research` (⌘⌥2), `.outline` (⌘⌥3), `.history` (⌘⌥4), `.tasks` (⌘⌥5), `.annotations` (⌘⌥A). New: `.inbox` (⌘⌥6).
 
-**Segment unread badge.** The `.inbox` segment in `DetailPaneToggle` shows a numeric badge with `InboxStore.entries.count` (entries with `status == .new`). The badge is the discoverability signal for "captures came in while you were writing" — without it, ⌘⌥6 is buried six slots deep and the writer would never know to look. Badge cap at "99+" if count exceeds 99 (avoids layout reflow). Disappears at count 0.
+**Segment unread badge.** The `.inbox` segment in `DetailPaneToggle` shows a numeric badge with `InboxStore.entries.count` (entries with `status == .new`). The badge is the discoverability signal for "captures came in while you were writing" — without it, the inbox segment is buried in the picker and the writer would never know to look. Badge cap at "99+" if count exceeds 99 (avoids layout reflow). Disappears at count 0.
 
 This also addresses the broader carry-forward from `milestone-ui-polish-followups`: the three right-pane modes with different write semantics (Annotations action surface, History read-only forensic log, Inbox triage) gain segment-level tooltips so the writer can tell them apart from the picker. See §6 for the tooltip copy.
 
@@ -301,33 +303,54 @@ This also addresses the broader carry-forward from `milestone-ui-polish-followup
 
 ### 3.5 WhisperKit transcription worker
 
-**Dependency.** [WhisperKit](https://github.com/argmaxinc/WhisperKit) is the Apple-Silicon-optimized Swift package wrapper around whisper.cpp. SPM-friendly, MIT license, model download is lazy on first use, runs on CoreML. Chosen over: whisper.cpp Swift bindings directly (more setup, less polished), MLX-Whisper (still beta), cloud APIs (privacy + key management).
+> **Refined 2026-05-29 (brainstorm).** Decisions baked in: a `Transcriber`
+> protocol seam (WhisperKit is not a direct dependency of the worker); "Middle"
+> download UX (lazy download-then-transcribe + Settings model picker with
+> progress + a row-level "awaiting transcription" state; **no** proactive-launch
+> download or HUD alert — those are deferred, see end of section); and a
+> `.userEdited` transcription state so the worker never clobbers a manual edit.
 
-**Worker lifecycle.** `InboxTranscriptionWorker` is owned by `DocumentStore` (one per project window), started in `DocumentStore.init` after the inbox subdir exists, stopped when the project window closes. It owns a serial `Task` — one transcription at a time — to keep WhisperKit from thrashing under multi-audio bursts. Notifications enqueue; the queue drains in arrival order.
+**Dependency, behind a seam.** [WhisperKit](https://github.com/argmaxinc/WhisperKit) is the Apple-Silicon-optimized Swift package wrapper around whisper.cpp (SPM-friendly, MIT, CoreML, lazy model download). Chosen over whisper.cpp bindings (more setup), MLX-Whisper (beta), and cloud APIs (privacy + keys). **The worker does not depend on WhisperKit directly.** It depends on a Foundation-only protocol in MaughamCore:
+
+```swift
+public protocol Transcriber {
+    func transcribe(_ audio: URL, model: String) async throws -> String
+}
+```
+
+`WhisperKitTranscriber` (Mac) is the production conformer; tests inject a `MockTranscriber`. This (a) keeps worker logic decoupled and unit-testable, and (b) **quarantines the external WhisperKit fetch** — a multi-hundred-MB CoreML package — into a single final build step, so a fetch failure degrades to "the real transcriber isn't wired yet," not "the project doesn't build." (Same spirit as the git-tracked tectonic binary avoiding a fetch in the build path.)
+
+**Worker lifecycle.** `InboxTranscriptionWorker` is owned by `DocumentStore` (one per project window), started after the inbox subdir exists, injected with a `Transcriber`. It owns a serial `Task` — one transcription at a time — so WhisperKit doesn't thrash under multi-audio bursts. Notifications enqueue; the queue drains in arrival order.
 
 **Per-job flow.**
 
 1. Receive `Notification.maughamInboxChanged` with `kind == .audio`.
-2. Pull the entry by deriving id from the changed file's name (`01HQR…J9.m4a` → id `01HQR…J9`).
-3. If `transcriptionState == .whisperFinal`, skip (already done, this is a status-only update).
-4. Load the audio file path: `.maugham/inbox/audio/<id>.m4a`.
-5. Ensure model is available — download on first use. Model identifier from a `@AppStorage("whisperModel")` setting; default `openai_whisper-base` (~150MB). Hint in Settings to upgrade to `openai_whisper-small` (~500MB) or `openai_whisper-large-v3` (~3GB) for higher quality.
-6. Run transcription. On success, `InboxStore.updateTranscript(id:text:state: .whisperFinal)`.
-7. On failure (model unavailable, audio corrupt, non-Apple-Silicon Mac), `InboxStore.updateTranscript(id:text:state: .failed)` — the on-device draft text from the phone is preserved.
+2. Re-scan inbox entries for **eligible** audio: `transcriptionState ∈ {.none, .onDeviceDraft}`. This skips `.whisperFinal` (already done) and `.userEdited` (the writer owns it) — and doubles as the retry path (a previously-`.failed` entry is *not* eligible by default; see below).
+3. Load the audio at `.maugham/inbox/audio/<id>.m4a`.
+4. Ensure the model is present; if absent, download it then transcribe **in the same background job** (no UI block — the draft shows meanwhile). Model from `@AppStorage("whisperModel")`, default `openai_whisper-base` (~150MB).
+5. On success → `InboxStore.updateTranscript(id:text:state: .whisperFinal)`.
+6. On failure (model download failed, audio corrupt, non-Apple-Silicon) → `.failed`; **the on-device draft is preserved** — the worst case is "the Mac didn't improve on the draft," never "the transcript is lost."
 
-**Model storage path.** `~/Library/Application Support/<BuildVariant.supportFolderName>/WhisperModels/` — variant-scoped so the dev install and stable install can have independent model state, in line with tripwire 13's spirit (every cross-install seam routes through BuildVariant).
+**Eligibility & retry.** Eligible = `.none`/`.onDeviceDraft`. A `.failed` entry isn't auto-retried on every notification (avoids hammering a corrupt file); the Settings "Download now" action (model case) and re-dropping audio cover recovery. `.userEdited` and `.whisperFinal` are terminal for the worker.
 
-**First-download UX.** "Download on first use" is the right default but the wrong UX without scaffolding — the first voice capture a writer makes shouldn't silently `.failed` because the 150MB model wasn't there yet.
+**Edit protection.** `InboxEntry.TranscriptionState` gains `.userEdited` (raw `user_edited`). `InboxPane`'s Edit Transcript sets it; the worker's eligibility filter then leaves the entry untouched, so a manual correction made in the gap before Whisper finishes is never overwritten.
 
-1. **Proactive download on worker start.** When `InboxTranscriptionWorker` initializes and the configured model is not present in the model storage path, it kicks off a background download via `WhisperKit.download(variant:)` if network is `.reachable` (checked via `NWPathMonitor`). No alert, no progress bar — just runs. On networks-unavailable, the worker no-ops the proactive download; the explicit-action paths below handle eventually.
-2. **Settings exposes explicit controls.** A "Voice transcription" section in Settings: "Currently using: base (149 MB) · Replace…" picker, "Download now" button (enabled when model not present), and a progress indicator (download bytes / total bytes) while a download is in flight. Replace ↔ download a different model and delete the previous to reclaim disk.
-3. **First-audio-with-no-model alert.** If an audio entry arrives before the proactive download has completed (cold-launch + first capture within ~60s on a slow network), the worker triggers a one-time HUD alert: "Downloading Whisper model (~150 MB)…" with progress. Non-blocking — the writer can dismiss; the alert returns only on the first audio per session. On completion, queued audio drains.
-4. **Offline-with-no-model row badge.** Audio entries that can't yet transcribe (model missing + no network) show a row-level "Awaiting transcription · Download required" subtitle plus a small Settings shortcut chip. Distinguishes the writer-actionable state ("go online or download model") from `.failed` (corrupt audio, unrecoverable).
-5. **First-use telemetry sanity check.** Manual smoke step: cold-launch on a fresh install, capture a voice note before the proactive download completes. Confirm the HUD appears, model downloads, queue drains, transcript replaces the on-device draft within ~60s of network availability.
+**Model storage path.** `~/Library/Application Support/<BuildVariant.supportFolderName>/WhisperModels/` — variant-scoped so dev and stable installs have independent model state (tripwire 13 spirit).
 
-**Non-Apple-Silicon Macs.** WhisperKit requires Apple Silicon for CoreML acceleration. On Intel Macs, the worker emits a one-time `os_log` warning, sets state to `.failed` for new audio entries, and surfaces an "Apple Silicon required for local transcription" hint in Settings. The on-device draft from the phone is the only transcript these Macs will get. The proactive-download path no-ops on Intel.
+**Settings — "Voice transcription" section.** Model picker (`base` ~150MB / `small` ~500MB / `large-v3` ~3GB) with a **live download progress** indicator, current-model status line, and a manual "Download now" (enabled when the model is absent). Replacing a model downloads the new one and deletes the previous to reclaim disk.
 
-**Long-audio chunking.** Not in v1. WhisperKit handles up to ~5 minutes well; longer recordings degrade. Document the limit in the worker's header. Chunking is a Phase H item.
+**Row-level state.** `InboxPane` shows an "Awaiting transcription" subtitle for an audio entry whose model is downloading/absent — distinct from `.failed` (unrecoverable) and from a present draft.
+
+**Non-Apple-Silicon Macs.** WhisperKit needs Apple-Silicon CoreML. On Intel, the worker marks new audio `.failed`, emits a one-time `os_log`, and Settings shows an "Apple Silicon required for local transcription" hint. The on-device draft is the only transcript these Macs get.
+
+**Deferred — potential future enhancements (not in v1).** Recorded here rather than dropped, since the on-device draft is always the fallback that makes them non-urgent:
+
+- **Proactive model download on worker start** (NWPathMonitor-gated) — pre-fetch so the first capture never waits. v1 downloads lazily on the first job instead.
+- **First-audio-with-no-model HUD alert** with progress — v1 relies on the Settings progress + the row-level "awaiting transcription" state.
+- **Offline-with-no-model row chip** (a Settings shortcut affordance beyond the plain "awaiting transcription" subtitle).
+- **Auto-retry of `.failed` entries** on reconnect / model-arrival (beyond the manual Settings action).
+- **Long-audio chunking (>5 min)** — WhisperKit degrades past ~5 minutes; document the limit in the worker header. (Already a Phase H item.)
+- **First-use telemetry smoke** as an automated check.
 
 ### 3.6 iOS file access via `UIDocumentPicker`
 
@@ -393,7 +416,7 @@ Permissions: requesting microphone (`AVAudioApplication.requestRecordPermission`
 A pill at the top of the Capture tab shows the currently-selected project name. Tapping the pill opens a project picker sheet — *not* navigation to the Read tab, which would lose the capture context (selected media, transcript-in-progress).
 
 - **Picker sheet contents:** top section "Recent" with the last 5 projects the writer captured into (most-recent first), then "All projects" alphabetically, then a search field that filters across both. Each row shows the project name and (dimmed) project type icon.
-- **Persistence.** Selection is keyed by `ProjectManifest.id` (stable across rename/move within the bookmarked folder), not by file path. `@AppStorage("currentProjectId")` for the active selection. The recents list (capped at 5, updated on every successful capture via `RecentsTracker.recordCapture`) is shared infrastructure — the same tracker feeds the cold-launch proactive-download path in §3.13.
+- **Persistence.** Selection is keyed by `ProjectManifest.id` (stable across rename/move within the bookmarked folder), not by file path. **Note:** this `id` does not exist on `main` — `ProjectManifest` has no identifier today (projects are addressed by folder path; collection links use a bookmark + path). Phase A adds `id: String?` as a minted ULID (schema stays 1, mint-on-load when nil, additive/no-migration); resolve `id == nil` defensively for any manifest the Mac hasn't re-opened yet. `@AppStorage("currentProjectId")` for the active selection. The recents list (capped at 5, updated on every successful capture via `RecentsTracker.recordCapture`) is shared infrastructure — the same tracker feeds the cold-launch proactive-download path in §3.13.
 - **Resolution on launch.** ProjectsBrowser builds the id → URL map by walking bookmarked-folder children and decoding each `project.maugham.json`. The pill resolves the persisted id against this map. If the id is missing (project deleted or moved outside the bookmarked root), the pill shows "Choose project…" and the capture buttons stay disabled until the writer picks again from the sheet.
 - **Empty state.** If no project is currently selected (first launch, or after a deletion), the capture buttons are disabled with an inline hint pointing at the pill: "Tap above to choose a project."
 - **Why not navigate to the Read tab.** Capture flows are time-sensitive — the writer is mid-thought. Forcing a tab switch + navigation + back-button loses the in-progress capture (e.g., a recording paused mid-sentence). The picker sheet keeps the capture context alive.
@@ -480,7 +503,7 @@ The phone's `AnnotationWriter` copies `changes` directly from the creation op (w
 
 Phone-written ops also populate the new optional `provenance.app_version` and `provenance.os_version` fields (§3.14) for forensic queries. Mac-side replay ignores them — they're metadata, not semantic input. The write path is gated by `LaunchAuthGate` at the view layer (§3.14); `AnnotationWriter.append` itself doesn't re-check, trusting that a rendered view has already passed the gate.
 
-**Mac-side: nothing to change.** `Deriver.appliesToManuscript` at `Deriver.swift:108-117` already includes `.claudeAccept`:
+**Mac-side: nothing to change.** `Deriver.appliesToManuscript` at `Deriver.swift:121-132` already includes `.claudeAccept`:
 
 ```swift
 case .typingBurst, .bootstrap, .externalEdit,
@@ -488,7 +511,7 @@ case .typingBurst, .bootstrap, .externalEdit,
     return true
 ```
 
-And `Deriver.derive(ops:)` at `Deriver.swift:26-37` applies `change.next` for any op whose kind passes that gate. The Mac's synchronous `paragraphs` mutation inside `Document.acceptAnnotation` (`Document.swift:683-691`) is anticipation of what replay will do on next load — *not* a substitute for it. A phone-written `claudeAccept` op carrying the creation op's `changes` array verbatim re-materializes the manuscript on Mac restart through the existing replay path. Confirmed by reading the code, 2026-05-24.
+And `Deriver.derive(ops:)` at `Deriver.swift:25-32` applies `change.next` for any op whose kind passes that gate. The Mac's synchronous `paragraphs` mutation inside `Document.acceptAnnotation` (`Document.swift:1425-1473`, mutation at ~1466) is anticipation of what replay will do on next load — *not* a substitute for it. A phone-written `claudeAccept` op carrying the creation op's `changes` array verbatim re-materializes the manuscript on Mac restart through the existing replay path. Confirmed by reading the code, 2026-05-24.
 
 The regression net for this is **phone-side**: `AnnotationWriterAcceptSuggestedChangeRoundTripTests` constructs a creation op, builds an accept op via AnnotationWriter, runs both through `Deriver.derive`, and asserts the post-replay paragraph text equals `change.next`. If the phone ever stops copying `changes` verbatim, this test catches it.
 
@@ -718,7 +741,7 @@ public func append(_ op: Op) async throws {
 
 **ADR.** This decision is recorded in `docs/adr/0012-per-device-jsonl-partitioning.md` so future code reviewers have one document to point at rather than a section of an iPhone spec.
 
-**CLAUDE.md.** A new tripwire (#17) lands with the implementation: *"Don't share a single JSONL file across writers via iCloud Drive. Per-device suffix, glob on load, dedupe on opId. Skipping this reintroduces the silent-data-loss path described in spec §3.12."* (Main has taken tripwires #14 and #15 since this spec was written; the iPhone-companion tripwires renumber to #16 and #17.)
+**CLAUDE.md.** A new tripwire (#18) lands with the implementation: *"Don't share a single JSONL file across writers via iCloud Drive. Per-device suffix, glob on load, dedupe on opId. Skipping this reintroduces the silent-data-loss path described in spec §3.12."* (Main is through tripwire #16 as of 2026-05-29; the iPhone-companion tripwires are #17 and #18.)
 
 ### 3.13 iCloud Drive eviction handling (iOS)
 
@@ -1052,7 +1075,7 @@ MAC
        (dedupKey on op_id collapses the new op as a clean append)
     → AnnotationDeriver re-runs; annotation [a01HQ8M…] now status .rejected
        with userResponse: "This sentence works better as-is."
-  AnnotationsPane (⌘⌥2) shows the annotation as rejected with the user's response.
+  AnnotationsPane (⌘⌥A) shows the annotation as rejected with the user's response.
 ```
 
 ### 4.3 TestFlight build flow
@@ -1238,10 +1261,10 @@ Additions to "Questions you do not need to ask":
 - "Should we share an iCloud container between Mac and iOS?" → No. Mac uses arbitrary folder paths; iOS uses UIDocumentPicker for the same flexibility.
 - "Should we cloud-transcribe voice notes?" → No. On-device draft (phone) + WhisperKit (Mac) cover the quality/latency tradeoff without third-party API calls.
 
-New tripwires (#16 and #17) appended:
+New tripwires (#17 and #18) appended:
 
 ```markdown
-16. **Don't write to manuscript `.md` files from the iOS app.** The phone writes only
+17. **Don't write to manuscript `.md` files from the iOS app.** The phone writes only
     annotation lifecycle ops (to its own per-device `.maugham/ops/d_<docId>.<deviceSlug>.jsonl`)
     and inbox sidecar entries (to its own `.maugham/inbox/inbox.<deviceSlug>.jsonl`).
     Mac-side echo guard (`Document.lastDiskEcho: EchoState`) is byte-equality on `.md`
@@ -1255,7 +1278,7 @@ New tripwires (#16 and #17) appended:
     contract makes phone-side manuscript edits unsafe. Route the intent through an
     annotation instead.
 
-17. **Don't share a single JSONL file across writers via iCloud Drive.** The op log
+18. **Don't share a single JSONL file across writers via iCloud Drive.** The op log
     (`.maugham/ops/*.jsonl`) and inbox manifest (`.maugham/inbox/inbox.*.jsonl`) are
     per-device-partitioned: each device writes to its own `*.<deviceSlug>.jsonl` file,
     readers glob and merge by opId (op log) or id last-wins (inbox). NSFileCoordinator
@@ -1270,11 +1293,13 @@ Segment-picker tooltips landed in `ProjectWindow` / `DetailPaneToggle`, closing 
 `milestone-ui-polish-followups` carry-forward about Annotations vs History pane affordance:
 
 ```swift
-// DetailPaneToggle row hints
-.help("Annotations · Accept / Reject / Archive Claude's open notes")     // ⌘⌥2
+// DetailPaneToggle row hints — shortcuts per the real 2026-05-29 mapping
+.help("Inspector · Document metadata, tags, targets")                     // ⌘⌥1
+.help("Research · Project research browser")                              // ⌘⌥2
 .help("Outline · Document structure")                                     // ⌘⌥3
+.help("Annotations · Accept / Reject / Archive Claude's open notes")     // ⌘⌥A
 .help("History · Read-only forensic log of every op (rewind from here)")  // ⌘⌥4
-.help("Research · Project research browser")                              // ⌘⌥5
+.help("Tasks · Inline task anchors")                                      // ⌘⌥5
 .help("Inbox · Triage captures from MaughamPhone")                        // ⌘⌥6
 ```
 
@@ -1291,8 +1316,8 @@ Per-area pointer added to "Per-area pointers":
   refresh model (no `NSFilePresenter` on iOS — see §3.6 of the spec).
 - Every write coordinated via `CoordinatedFileIO`. Every read coordinated.
 - All shared types from `MaughamCore`. iOS-only knobs in `BuildVariantPhone.swift`.
-- Project selection persisted by `ProjectManifest.id` (not relative path) — stable across
-  rename/move within the bookmarked root. See §3.7.
+- Project selection persisted by `ProjectManifest.id` (the minted ULID added in Phase A;
+  not relative path) — stable across rename/move within the bookmarked root. See §3.7.
 - Tripwire 13 extends here: `grep -n '"maugham"\|"Maugham"' MaughamPhone/` must return
   zero matches outside `BuildVariantPhone.swift` and tests.
 - Tripwire 4 extends here: cache `FountainScript` in `@State` populated by `.task`; do
@@ -1383,7 +1408,7 @@ After milestone 4 ships and `phone-v0.1.0` is live in TestFlight:
 8. Mac: invoke Claude via MCP to add a `suggestedChange` annotation on a paragraph.
 9. Phone: Annotations tab refreshes (pull down or background/foreground) → annotation appears under the project name.
 10. Phone: tap annotation → detail view shows paragraph context (prior text + suggested text) → tap "Reject…" → enter reason "Doesn't match the character's voice." → Save.
-11. Mac: within sync window (~10–30s), AnnotationsPane (⌘⌥2) shows the annotation as rejected with the user response visible.
+11. Mac: within sync window (~10–30s), AnnotationsPane (⌘⌥A) shows the annotation as rejected with the user response visible.
 12. Race smoke: on Mac, open the same annotation in the AnnotationsPane. On phone, open its detail view. Mac: Archive the annotation. Wait ~30s. Phone: tap Accept. Refresh the list. Annotation should be classified as accepted (later ULID wins); document this in the spec's known-behavior list (Race 1 in §5.3).
 13. Phone: airplane mode on. Tap capture → save text → assert UI shows a "queued" indicator (the file is written locally but iCloud hasn't synced). Disable airplane mode. Within ~30s, Mac sees the entry. (This validates the offline-write path.)
 14. **Eviction smoke.** On the phone, Settings → General → iPhone Storage → "Offload App" the test build (or wait ~7 days unused, or fill the device near capacity to force eviction). Reinstall / relaunch. Open the Annotations tab. Assert: header banner shows "Syncing N of M projects from iCloud…", recents projects' annotations stream in as their op logs download (50 MB cap respected), non-recent projects appear under "Other projects (tap to load)" with no annotations shown until tapped. **The tab never silently shows an empty list while op logs are still downloading.** Then open a manuscript in the Read tab: assert "Downloading <docname>…" view appears, Cancel works, completion renders the doc.

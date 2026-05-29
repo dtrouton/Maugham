@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 struct OutlinePane: View {
     @Bindable var store: ProjectStore

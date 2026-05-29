@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 struct InspectorLinksSection: View {
     @Bindable var store: ProjectStore

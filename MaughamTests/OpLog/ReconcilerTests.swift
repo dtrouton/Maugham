@@ -1,5 +1,6 @@
 // MaughamTests/OpLog/ReconcilerTests.swift
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 final class ReconcilerTests: XCTestCase {

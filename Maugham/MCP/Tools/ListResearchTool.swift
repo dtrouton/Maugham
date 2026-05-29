@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// `list_research(project_id)` — hierarchical research tree. Mirrors the
 /// shape of get_outline but for `manifest.research`. Lets Claude discover

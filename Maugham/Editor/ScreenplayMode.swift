@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 import AppKit
 
 /// Fountain mode for `.fountain` documents. Tokenizes via FountainTokenizer,

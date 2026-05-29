@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 /// Project-scope task surface: `__project__` op log + cross-project

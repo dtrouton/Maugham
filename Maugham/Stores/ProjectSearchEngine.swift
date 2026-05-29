@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Walks all manuscript + research-note documents and returns matches for
 /// a query. Pure value type — no observable state, callers own caching.

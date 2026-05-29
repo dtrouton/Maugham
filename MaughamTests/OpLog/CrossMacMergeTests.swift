@@ -1,5 +1,6 @@
 // MaughamTests/OpLog/CrossMacMergeTests.swift
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 final class CrossMacMergeTests: XCTestCase {

@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// MCP tool: `list_maugham_tools`
 ///

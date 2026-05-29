@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 /// End-to-end integration test: Claude adds a suggestion via MCP, the annotation

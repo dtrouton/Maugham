@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 import AppKit
 
 /// `read_document(project_id, document_id, max_dimension?, quality?, region?)` —

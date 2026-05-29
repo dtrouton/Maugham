@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 /// Regression tests for the live tasks-cache invalidation fast path.

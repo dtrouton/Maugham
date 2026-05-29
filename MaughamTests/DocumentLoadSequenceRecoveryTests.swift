@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 /// Regression tests for the load-time sequence/paragraph recovery paths

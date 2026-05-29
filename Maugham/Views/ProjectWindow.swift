@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 import AppKit
 
 /// Stable-per-launch session ID shared by all checkpoint captures in this process.

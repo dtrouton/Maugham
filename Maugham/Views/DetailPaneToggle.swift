@@ -59,12 +59,26 @@ struct DetailPaneToggle<Inspector: View>: View {
         .onChange(of: segment) { _, newValue in
             store.documentStore?.updateUIState { $0.detailSegment = newValue }
         }
+        .task {
+            // Populate the inbox count so the unread badge is live from window
+            // open, before the writer ever visits the inbox segment. Presenter
+            // changes (.inbox arm) keep it fresh thereafter.
+            await store.documentStore?.inboxStore.refresh()
+        }
         .onAppear {
             // If we land on outline in a hide-outline context, coerce to inspector.
             if hideOutline && segment == .outline {
                 segment = .inspector
             }
         }
+    }
+
+    /// New (`.new`) inbox captures awaiting triage — drives the picker badge.
+    /// The unread badge is the discoverability signal for the async phone→Mac
+    /// capture loop: without it, captures that sync in while the writer is
+    /// heads-down go unnoticed in a six-segment picker.
+    private var inboxCount: Int {
+        store.documentStore?.inboxStore.entries.count ?? 0
     }
 
     // MARK: - Picker
@@ -94,11 +108,32 @@ struct DetailPaneToggle<Inspector: View>: View {
                 .tag(DetailSegment.tasks)
                 .help("Tasks — todos in this document and across the project (⌘⌥5)")
                 .keyboardShortcut("5", modifiers: [.command, .option])
+            Image(systemName: "tray")
+                .tag(DetailSegment.inbox)
+                .help("Inbox — triage captures from MaughamPhone (⌘⌥6)")
+                .keyboardShortcut("6", modifiers: [.command, .option])
         }
         .pickerStyle(.segmented)
         .labelsHidden()
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
+        // Unread badge over the (rightmost) inbox segment. SwiftUI's segmented
+        // Picker can't badge a segment directly, so overlay top-trailing — which
+        // sits over the inbox tab since it's last. Hidden at zero; capped at 99+.
+        .overlay(alignment: .topTrailing) {
+            if inboxCount > 0 {
+                Text(inboxCount > 99 ? "99+" : "\(inboxCount)")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(.red, in: Capsule())
+                    .padding(.trailing, 10)
+                    .padding(.top, 2)
+                    .allowsHitTesting(false)
+                    .help("\(inboxCount) new capture\(inboxCount == 1 ? "" : "s") in the inbox (⌘⌥6)")
+            }
+        }
     }
 
     // MARK: - Content routing
@@ -127,6 +162,21 @@ struct DetailPaneToggle<Inspector: View>: View {
             historyPane
         case .tasks:
             tasksPane
+        case .inbox:
+            inboxPane
+        }
+    }
+
+    @ViewBuilder
+    private var inboxPane: some View {
+        if let ds = documentStore {
+            InboxPane(store: ds.inboxStore, projectStore: store)
+        } else {
+            ContentUnavailableView(
+                "Open a project",
+                systemImage: "tray",
+                description: Text("Captures from MaughamPhone appear here."))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

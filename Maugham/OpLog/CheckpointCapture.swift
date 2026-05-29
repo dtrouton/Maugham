@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Single entry point for ⌘S and Shift-⌘S. Force-flushes pending bursts on
 /// every doc, appends a `checkpoint` breadcrumb op to the active doc's log,

@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 struct SceneNavigatorPane: View {
     let script: FountainScript?

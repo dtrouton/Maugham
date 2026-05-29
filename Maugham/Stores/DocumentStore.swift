@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 import AppKit
 
 /// Project-scoped store that owns the NSFilePresenter, the registry of
@@ -18,6 +19,40 @@ public final class DocumentStore {
 
     internal var presenter: NSFilePresenter? { return _presenter }
     private var _presenter: ProjectFolderPresenter?
+
+    /// The capture inbox for this project window (MaughamPhone sync target).
+    /// Lazily created on first access; the InboxPane reads `entries`, the
+    /// `.inbox` presenter arm refreshes it, and (Phase C) the transcription
+    /// worker writes Whisper results back. MainActor-isolated because InboxStore
+    /// is `@MainActor @Observable`.
+    @MainActor private var _inboxStore: InboxStore?
+    @MainActor var inboxStore: InboxStore {
+        if let s = _inboxStore { return s }
+        let s = InboxStore(projectURL: projectURL)
+        _inboxStore = s
+        return s
+    }
+
+    @MainActor private var _transcriptionWorker: InboxTranscriptionWorker?
+    @MainActor var transcriptionWorker: InboxTranscriptionWorker {
+        if let w = _transcriptionWorker { return w }
+        let w = InboxTranscriptionWorker(
+            inboxStore: inboxStore,
+            transcriber: Self.makeTranscriber())
+        _transcriptionWorker = w
+        return w
+    }
+
+    /// Production transcriber. Returns a WhisperKitTranscriber on Apple Silicon;
+    /// nil on Intel so the worker stays inert there. Fully testable via injection.
+    @MainActor private static func makeTranscriber() -> Transcriber? {
+        #if arch(arm64)
+        return WhisperKitTranscriber()
+        #else
+        return nil
+        #endif
+    }
+
     private var uiStateScheduler: DebounceScheduler<UIState>!
 
     private var lastObservedManifestModified: Date?
@@ -110,6 +145,13 @@ public final class DocumentStore {
             projectURL: url, delegate: store)
         NSFileCoordinator.addFilePresenter(presenter)
         store._presenter = presenter
+
+        // Transcribe audio that synced while the app was closed: the presenter
+        // only fires for changes after open, so pre-existing eligible captures
+        // (the common phone-captured-while-Mac-closed case) need one initial
+        // scan. Inert when there's no transcriber (non-Apple-Silicon) or no
+        // eligible `.none`/`.onDeviceDraft` audio.
+        store.transcriptionWorker.onInboxChanged()
 
         return store
     }
@@ -532,6 +574,25 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
                       let diskText = String(data: data, encoding: .utf8)
                 else { return }
                 try? await doc.handleExternalDiskChange(diskMd: diskText)
+            }
+
+        case .inbox(let kind, _):
+            // A capture (or a Mac-side status transition) landed in
+            // `.maugham/inbox/`. `object: self` scopes the post to this project
+            // window so multiple windows don't cross-talk. See spec §3.3.
+            NotificationCenter.default.post(
+                name: .maughamInboxChanged, object: self,
+                userInfo: ["kind": kind.rawValue])
+            Task { @MainActor in
+                await inboxStore.refresh()
+                // Poke the transcription worker on ANY inbox change, not just
+                // `.audio` file events: a new audio capture surfaces as both an
+                // `.m4a` and a manifest row, arriving as separate sync events in
+                // either order. If the audio file event fires before its manifest
+                // row exists, an audio-only trigger would scan, find nothing
+                // eligible, and never re-run. The worker filters to eligible
+                // audio internally, so non-audio pokes are cheap no-ops.
+                transcriptionWorker.onInboxChanged()
             }
 
         case .sessionLog, .uiState, .conflictBackup, .scratch, .trash,

@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// `list_all_links(project_id)` — full reference graph. Returns every edge
 /// from a manuscript document to (a) a linked research item, (b) a wiki-link

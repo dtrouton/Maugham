@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 /// One row in the Collection's Pieces segment: kind icon, title, status dot.
 /// Supports inline rename when `renamingItemId == piece.id`.

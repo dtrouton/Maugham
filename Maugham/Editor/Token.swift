@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// A classified range of source text, produced by a `WritingMode`'s tokenizer
 /// and consumed by the editor coordinator to apply theme attributes.

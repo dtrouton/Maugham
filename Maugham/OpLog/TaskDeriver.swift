@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Pure projection from an op log + current paragraph map to a list of
 /// `WriterTask`. Mirrors `AnnotationDeriver` shape; no I/O, no `Document`

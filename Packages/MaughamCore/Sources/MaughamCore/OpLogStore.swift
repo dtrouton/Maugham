@@ -1,0 +1,115 @@
+// Maugham/OpLog/OpLogStore.swift  (now in MaughamCore)
+import Foundation
+
+/// Per-document append-only JSONL op log, **partitioned per device** (ADR 0012,
+/// spec §3.12). Each device writes only to its own file
+/// `.maugham/ops/<docId>.<deviceSlug>.jsonl`; readers glob every sibling for the
+/// doc (including the legacy unsuffixed `<docId>.jsonl`) and merge.
+///
+/// The logical op log is unchanged: the merged, opId-deduped, opId-sorted set of
+/// all ops. ULID opIds give a deterministic total order regardless of which file
+/// each op came from, so `Deriver`/`Materializer`/rewind see one `[Op]` and don't
+/// care how it was assembled. Partitioning exists only so iCloud Drive never has
+/// to reconcile two writers of the same path — it resolves divergence by
+/// whole-file replace, silently dropping the loser as a conflict-twin the loader
+/// would never open.
+///
+/// The write target is derived from `op.device` itself — an op self-describes the
+/// device that created it, which is exactly the file it belongs in — so no caller
+/// has to thread a device slug through.
+@MainActor
+public final class OpLogStore {
+    public let projectURL: URL
+    public let presenter: NSFilePresenter?
+
+    public init(projectURL: URL, presenter: NSFilePresenter? = nil) {
+        self.projectURL = projectURL
+        self.presenter = presenter
+    }
+
+    private var opsDir: URL { projectURL.appendingPathComponent(".maugham/ops") }
+
+    /// Glob every file for `docId` (legacy `<docId>.jsonl` + per-device
+    /// `<docId>.<slug>.jsonl`), load each (coordinated), and merge: dedupe by
+    /// opId, sort by opId. docIds are fixed-length (`d_` + 26-char ULID, or the
+    /// `__project__` synthetic), so the `<docId>.` boundary is unambiguous and
+    /// can't prefix-collide with another doc.
+    public func load(docId: String) async throws -> [Op] {
+        let urls = Self.opLogFileURLs(forDocId: docId, in: projectURL)
+        guard !urls.isEmpty else { return [] }
+        var merged: [Op] = []
+        for url in urls {
+            let store = JSONLAppendStore<Op>(
+                fileURL: url, presenter: presenter,
+                dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
+            merged.append(contentsOf: try await store.load())
+        }
+        return Self.mergeSortedDedup(merged)
+    }
+
+    /// Append to the writer's own per-device file, keyed by `op.device`.
+    public func append(_ op: Op) async throws {
+        try await store(forDocId: op.docId, deviceSlug: DeviceSlug.make(from: op.device))
+            .append(op)
+    }
+
+    private func store(forDocId docId: String, deviceSlug: String) -> JSONLAppendStore<Op> {
+        JSONLAppendStore<Op>(
+            fileURL: opsDir.appendingPathComponent("\(docId).\(deviceSlug).jsonl"),
+            presenter: presenter,
+            dedupKey: { $0.opId },
+            sortedBy: { $0.opId < $1.opId })
+    }
+
+    // MARK: - Glob helpers (shared with synchronous readers)
+
+    /// Every op-log file URL for `docId` (legacy + per-device). Pure listing,
+    /// no read coordination — for readers that need the file set without the
+    /// async coordinated load (mtime-change heuristics; the synchronous
+    /// local-log readers in ProjectStore+Tasks). Returns [] if the ops dir or
+    /// matching files don't exist.
+    public nonisolated static func opLogFileURLs(
+        forDocId docId: String, in projectURL: URL
+    ) -> [URL] {
+        let dir = projectURL.appendingPathComponent(".maugham/ops")
+        let all = (try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: nil)) ?? []
+        return all.filter { url in
+            let n = url.lastPathComponent
+            return n == "\(docId).jsonl"
+                || (n.hasPrefix("\(docId).") && n.hasSuffix(".jsonl"))
+        }
+    }
+
+    /// Synchronous globbed read+merge, bypassing `NSFileCoordinator`. For the
+    /// local-only / heuristic readers that deliberately avoid async
+    /// coordination; the async `load(docId:)` is the coordinated path and is
+    /// preferred where the call site can await. Same opId dedupe + sort.
+    public nonisolated static func loadSyncMerged(
+        forDocId docId: String, in projectURL: URL
+    ) -> [Op] {
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = JSONLAppendStore<Op>.dateDecoding
+        var ops: [Op] = []
+        for url in opLogFileURLs(forDocId: docId, in: projectURL) {
+            guard let data = try? Data(contentsOf: url),
+                  let text = String(data: data, encoding: .utf8) else { continue }
+            for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+                guard let lineData = String(line).data(using: .utf8),
+                      let op = try? dec.decode(Op.self, from: lineData) else { continue }
+                ops.append(op)
+            }
+        }
+        return mergeSortedDedup(ops)
+    }
+
+    /// Collapse a union of op arrays: opId-sorted, first-wins dedupe. Each
+    /// source file is already internally deduped+sorted; this collapses any
+    /// cross-file opId overlap (e.g. an op in both legacy and a per-device file).
+    nonisolated static func mergeSortedDedup(_ ops: [Op]) -> [Op] {
+        var seen = Set<String>()
+        return ops
+            .sorted { $0.opId < $1.opId }
+            .filter { seen.insert($0.opId).inserted }
+    }
+}

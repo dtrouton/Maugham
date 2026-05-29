@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 struct ResearchPreview: View {
     let projectURL: URL

@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 /// Regression: earlier builds emitted junk bootstrap ops with

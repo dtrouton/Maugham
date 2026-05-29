@@ -1,4 +1,5 @@
 import AppKit
+import MaughamCore
 import Foundation
 import SwiftUI
 
@@ -150,7 +151,7 @@ public final class ProjectStore {
             throw ProjectStoreError.manifestNotFound
         }
 
-        let manifest: ProjectManifest
+        var manifest: ProjectManifest
         do {
             let data = try Data(contentsOf: manifestURL)
             let decoder = JSONDecoder()
@@ -158,6 +159,24 @@ public final class ProjectStore {
             manifest = try decoder.decode(ProjectManifest.self, from: data)
         } catch {
             throw ProjectStoreError.manifestUnreadable(error.localizedDescription)
+        }
+
+        // Backfill a stable project id for pre-`id` manifests (one-time, on open).
+        // New projects are written by ProjectFactory with id == nil and acquire
+        // theirs here on first load; existing projects acquire one the next time
+        // they're opened. The phone keys capture-target selection + recents on
+        // this id, so it must reach disk — persist it before the store is built.
+        // `modified` is intentionally left untouched: backfilling an identifier
+        // is not a content edit, and the milestone-1a whole-second ISO8601
+        // round-trip on `modified` must not shift just because we added a field.
+        if manifest.id == nil {
+            manifest.id = ULID.generate()
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            if let data = try? encoder.encode(manifest) {
+                try? data.write(to: manifestURL, options: [.atomic])
+            }
         }
 
         let manuscriptText = try Self.readManuscript(for: manifest, at: url)

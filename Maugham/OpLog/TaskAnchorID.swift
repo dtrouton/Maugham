@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 public enum TaskAnchorID {
     /// Alphabet chosen to skip homoglyphs (no `i`, `l`, `o`, `u`) so anchors

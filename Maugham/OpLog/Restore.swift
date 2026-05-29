@@ -1,5 +1,6 @@
 // Maugham/OpLog/Restore.swift
 import Foundation
+import MaughamCore
 
 public enum Restore {
     public enum Scope: Equatable {

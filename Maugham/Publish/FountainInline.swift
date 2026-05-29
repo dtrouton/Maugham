@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Parses Fountain inline emphasis into `ProjectAST.Inline` runs. Fountain's
 /// emphasis set differs from markdown: `_x_` is UNDERLINE (not italic) and

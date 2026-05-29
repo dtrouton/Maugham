@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 struct LinkedResearchPane: View {
     @Bindable var store: ProjectStore

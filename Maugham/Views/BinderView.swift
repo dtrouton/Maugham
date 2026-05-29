@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 struct BinderView: View {
     @Bindable var store: ProjectStore

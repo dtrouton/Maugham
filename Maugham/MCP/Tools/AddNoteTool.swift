@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// `add_note(project_id, title, body, parent_group_id?)` — creates a `.document`
 /// research item under `research/` and posts maughamMCPNoteAdded for the UI.

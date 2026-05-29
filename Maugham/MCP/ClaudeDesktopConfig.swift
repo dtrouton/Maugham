@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Detects and mutates Claude Desktop's config file. Variant-aware via the
 /// optional `serverKey` parameter on each entry point — defaults to the

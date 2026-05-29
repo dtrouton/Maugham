@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 import AppKit
 @testable import Maugham
 

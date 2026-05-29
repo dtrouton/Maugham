@@ -1,4 +1,5 @@
 import AppKit
+import MaughamCore
 import Foundation
 
 // MARK: - StructureItem CRUD, move, rename, duplicate, tidy

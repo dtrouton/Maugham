@@ -23,18 +23,18 @@ import Foundation
 /// lets a rewind-triggered sweep stamp its archives with `.rewind` so
 /// the history viewer can distinguish "your edit deleted this paragraph"
 /// from "your time-travel undid this paragraph."
-internal struct SweepReason: Equatable, Sendable {
+public struct SweepReason: Equatable, Sendable {
     /// The paragraph ids whose annotations should be archived on the next
     /// sweep. Always non-empty when this value reached `_pendingSweep`
     /// (the `.userTyped` / `.externalLog` / `.useCloud` / `.rewind`
     /// factories all return nil for an empty removed set).
-    let removed: Set<String>
+    public let removed: Set<String>
     /// The `synthesisSource` that every `claude_archive` op produced by
     /// this sweep should carry. Defaults to `.paragraphDeleted` to
     /// preserve the pre-rewind behaviour for all four legacy callers.
-    let cause: SynthesisSource
+    public let cause: SynthesisSource
 
-    init(removed: Set<String>, cause: SynthesisSource = .paragraphDeleted) {
+    public init(removed: Set<String>, cause: SynthesisSource = .paragraphDeleted) {
         self.removed = removed
         self.cause = cause
     }
@@ -49,7 +49,7 @@ internal struct SweepReason: Equatable, Sendable {
     /// interleaving of merges that would race over which `cause`
     /// survives. The single caller (`Document.flagSweep`) honours this
     /// by virtue of `Document` itself being `@MainActor`.
-    func merging(_ other: SweepReason) -> SweepReason {
+    public func merging(_ other: SweepReason) -> SweepReason {
         SweepReason(removed: removed.union(other.removed), cause: other.cause)
     }
 
@@ -58,17 +58,17 @@ internal struct SweepReason: Equatable, Sendable {
     /// `handleExternalLogChange`, `handleExternalDiskChangeForceIngest`,
     /// `restoreToOp`) all funnel through these so the "empty set means
     /// no sweep needed" invariant is structural rather than convention.
-    static func userTyped(removed: Set<String>) -> SweepReason? {
+    public static func userTyped(removed: Set<String>) -> SweepReason? {
         removed.isEmpty
             ? nil
             : SweepReason(removed: removed, cause: .paragraphDeleted)
     }
-    static func externalLog(removed: Set<String>) -> SweepReason? {
+    public static func externalLog(removed: Set<String>) -> SweepReason? {
         removed.isEmpty
             ? nil
             : SweepReason(removed: removed, cause: .paragraphDeleted)
     }
-    static func useCloud(removed: Set<String>) -> SweepReason? {
+    public static func useCloud(removed: Set<String>) -> SweepReason? {
         // Pre-rewind, `sweepOrphanedAnnotations` hard-coded `.paragraphDeleted`
         // on every archive op regardless of which factory flagged the sweep —
         // including this one. Preserve that on-disk shape so existing logs
@@ -82,7 +82,7 @@ internal struct SweepReason: Equatable, Sendable {
     /// paragraphs. Stamped on the resulting `claude_archive` ops via
     /// `cause = .rewind` so a future history-viewer can distinguish
     /// these from typing-driven paragraph deletions.
-    static func rewind(removed: Set<String>) -> SweepReason? {
+    public static func rewind(removed: Set<String>) -> SweepReason? {
         removed.isEmpty
             ? nil
             : SweepReason(removed: removed, cause: .rewind)

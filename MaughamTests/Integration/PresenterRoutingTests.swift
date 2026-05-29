@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 /// Cross-area integration tests for the `DocumentStore` presenter → `Document`

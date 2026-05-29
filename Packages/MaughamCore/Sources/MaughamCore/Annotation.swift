@@ -63,7 +63,7 @@ public struct AnnotationFilter: Equatable, Sendable {
 extension AnnotationKind {
     /// Maps an annotation creation OpKind to its AnnotationKind, or nil if
     /// the op is not a creation op.
-    static func fromOpKind(_ kind: OpKind) -> AnnotationKind? {
+    public static func fromOpKind(_ kind: OpKind) -> AnnotationKind? {
         switch kind {
         case .claudeComment:    return .comment
         case .claudeSuggestion: return .suggestedChange

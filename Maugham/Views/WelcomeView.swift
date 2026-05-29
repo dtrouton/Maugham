@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 struct WelcomeView: View {
     let recents: [URL]

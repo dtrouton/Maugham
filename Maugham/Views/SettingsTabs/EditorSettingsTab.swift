@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 struct EditorSettingsTab: View {
     @Bindable var themeManager: UserPreferences

@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Pure-logic helpers for Tab/Shift+Tab cycling through screenplay element
 /// types. Used by EditorCoordinator when the active mode is ScreenplayMode.

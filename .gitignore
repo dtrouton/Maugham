@@ -16,8 +16,10 @@ build/
 *.ipa
 
 # Swift Package Manager
+# NOTE: do NOT ignore Packages/ wholesale — Packages/MaughamCore is first-party
+# source shared by the macOS app and the iOS companion. `.build/` already ignores
+# SPM build output at any depth (incl. Packages/*/.build/).
 .build/
-Packages/
 Package.resolved
 
 # macOS

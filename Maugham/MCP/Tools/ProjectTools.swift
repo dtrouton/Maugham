@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// `list_projects` — currently-open projects.
 public enum ListProjectsTool: MCPTool {

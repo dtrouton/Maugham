@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 import SwiftUI
 
 /// Reads / writes user-level preferences (theme, typography, focus prefs,

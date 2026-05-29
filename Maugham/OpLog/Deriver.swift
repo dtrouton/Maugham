@@ -1,5 +1,6 @@
 // Maugham/OpLog/Deriver.swift
 import Foundation
+import MaughamCore
 
 public enum Deriver {
     public struct DerivedState: Equatable, Sendable {

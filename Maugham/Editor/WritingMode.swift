@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 import AppKit
 
 /// Metrics computed by a writing mode for a given manuscript text.

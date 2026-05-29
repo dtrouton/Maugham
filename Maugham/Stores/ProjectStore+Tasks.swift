@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 // MARK: - Project-scope tasks (milestone-tasks)
 //
@@ -127,12 +128,15 @@ extension ProjectStore {
             .map(\.docId))
         for item in Self.collectDocuments(in: manifest.structure) {
             if openDocIds.contains(item.id) { continue }
-            let opLogURL = url.appendingPathComponent(
-                ".maugham/ops/\(item.id).jsonl")
-            if let attrs = try? FileManager.default.attributesOfItem(
-                atPath: opLogURL.path),
-               let mtime = attrs[.modificationDate] as? Date {
-                closedSum &+= Int(mtime.timeIntervalSince1970 * 1000)
+            // Per-device partitioning (ADR 0012): fold every op-log file's mtime
+            // (legacy + per-device), not just `<docId>.jsonl`, so the cache
+            // re-derives when any device's file for this doc changes.
+            for opLogURL in OpLogStore.opLogFileURLs(forDocId: item.id, in: url) {
+                if let attrs = try? FileManager.default.attributesOfItem(
+                    atPath: opLogURL.path),
+                   let mtime = attrs[.modificationDate] as? Date {
+                    closedSum &+= Int(mtime.timeIntervalSince1970 * 1000)
+                }
             }
         }
         return .init(
@@ -180,8 +184,6 @@ extension ProjectStore {
             if openDocIds.contains(item.id) { continue }
             guard let path = item.path else { continue }
             let fileURL = url.appendingPathComponent(path)
-            let opLogURL = url.appendingPathComponent(
-                ".maugham/ops/\(item.id).jsonl")
             // Read paragraphs from the .md (the autosave-canonical source
             // for ordering and live paragraph text).
             let mdText = (try? String(contentsOf: fileURL, encoding: .utf8)) ?? ""
@@ -191,20 +193,10 @@ extension ProjectStore {
                 guard let pid = p.id else { continue }
                 paragraphs[pid] = p.text
             }
-            // Read ops from the op log JSONL.
-            var ops: [Op] = []
-            if FileManager.default.fileExists(atPath: opLogURL.path),
-               let data = try? Data(contentsOf: opLogURL),
-               let text = String(data: data, encoding: .utf8) {
-                let dec = JSONDecoder()
-                dec.dateDecodingStrategy = JSONLAppendStore<Op>.dateDecoding
-                for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
-                    guard let lineData = String(line).data(using: .utf8),
-                          let op = try? dec.decode(Op.self, from: lineData)
-                    else { continue }
-                    ops.append(op)
-                }
-            }
+            // Read ops via the partition-aware synchronous merge (legacy +
+            // per-device files; ADR 0012). Sync read is deliberate here — see
+            // the function header note on avoiding async actor init per doc.
+            let ops = OpLogStore.loadSyncMerged(forDocId: item.id, in: url)
             let (closedTasks, _, _) = TaskDeriver.derive(
                 ops: ops, paragraphs: paragraphs, docId: item.id)
             all.append(contentsOf: closedTasks)
@@ -254,27 +246,12 @@ extension ProjectStore {
     private func ensureProjectOpLogLoaded() {
         guard !_projectOpLogLoaded else { return }
         _projectOpLogLoaded = true
-        let logURL = url
-            .appendingPathComponent(".maugham/ops/\(Self.projectTasksDocId).jsonl")
-        guard FileManager.default.fileExists(atPath: logURL.path) else { return }
-        // Synchronous read — the project log is tiny (pane-created tasks
-        // only). Skipping NSFileCoordinator here is acceptable for this
-        // local-only synthetic log; if iCloud coordination ever matters,
-        // route through OpLogStore.load via a startup async task instead.
-        guard let data = try? Data(contentsOf: logURL),
-              let text = String(data: data, encoding: .utf8) else { return }
-        let dec = JSONDecoder()
-        dec.dateDecodingStrategy = JSONLAppendStore<Op>.dateDecoding
-        var seen = Set<String>()
-        var ops: [Op] = []
-        for line in text.split(omittingEmptySubsequences: true, whereSeparator: \.isNewline) {
-            guard let d = String(line).data(using: .utf8),
-                  let op = try? dec.decode(Op.self, from: d) else { continue }
-            if seen.insert(op.opId).inserted {
-                ops.append(op)
-            }
-        }
-        ops.sort { $0.opId < $1.opId }
-        _projectOpLogMirror = ops
+        // Synchronous, partition-aware read (legacy + per-device files; ADR
+        // 0012). The project log is tiny (pane-created tasks only); skipping
+        // NSFileCoordinator is acceptable for this local-only synthetic log.
+        // If iCloud coordination ever matters, route through the async
+        // OpLogStore.load via a startup task instead.
+        _projectOpLogMirror = OpLogStore.loadSyncMerged(
+            forDocId: Self.projectTasksDocId, in: url)
     }
 }

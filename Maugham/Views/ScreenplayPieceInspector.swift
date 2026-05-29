@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 struct ScreenplayPieceInspector: View {
     @Bindable var store: ProjectStore

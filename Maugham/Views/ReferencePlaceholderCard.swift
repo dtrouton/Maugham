@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 /// Editor-pane placeholder shown when a project reference is selected.
 struct ReferencePlaceholderCard: View {

@@ -1,5 +1,6 @@
 // MaughamTests/OpLog/RenderFilterTests.swift
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 final class RenderFilterTests: XCTestCase {

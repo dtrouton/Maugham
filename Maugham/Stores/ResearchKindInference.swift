@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Maps a file extension to a ResearchItem.AssetKind. Returns nil for
 /// unknown extensions so importers can skip files they can't preview.

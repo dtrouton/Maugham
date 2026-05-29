@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 /// Spec §7.6: every rewind-emitted op carries `synthesisSource == .rewind`.

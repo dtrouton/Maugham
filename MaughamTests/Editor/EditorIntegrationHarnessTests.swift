@@ -1,5 +1,6 @@
 // MaughamTests/Editor/EditorIntegrationHarnessTests.swift
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 @MainActor

@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 import Foundation
 
 /// Hosts the EditorSurface for a single selected document.

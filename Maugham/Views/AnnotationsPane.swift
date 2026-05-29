@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 @MainActor
 struct AnnotationsPane: View {

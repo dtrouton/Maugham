@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Typed classification of a file URL relative to a project root. Replaces
 /// the string-prefix cascade that `DocumentStore.presenterDidChangeSubitem`
@@ -67,6 +68,14 @@ internal enum MaughamSidecarPath: Equatable {
     /// `.maugham/publications/<id>.json` — per-publication snapshot blob.
     case publicationSnapshot(relativePath: String)
 
+    /// `.maugham/inbox/*` — the capture inbox synced from MaughamPhone.
+    /// `kind` distinguishes the manifest stream (`inbox.<slug>.jsonl`) from the
+    /// kind-scoped asset subdirs (`text/`, `images/`, `audio/`). Routing intent:
+    /// post `maughamInboxChanged` so `InboxStore` refreshes and the audio
+    /// transcription worker picks up new `.audio` files. See ADR 0013-adjacent
+    /// inbox design (spec §3.2–3.3).
+    case inbox(kind: InboxFileKind, relativePath: String)
+
     /// A path under `.maugham/` that doesn't match any known subdir.
     /// Includes `.pending.jsonl` companions for `PendingBuffer`. Routing
     /// intent: ignore.
@@ -113,9 +122,15 @@ internal enum MaughamSidecarPath: Equatable {
         if relativePath.hasPrefix(opsPrefix)
             && relativePath.hasSuffix(".jsonl")
             && !relativePath.hasSuffix(".pending.jsonl") {
+            // Per-device partitioning (ADR 0012): a file is either the legacy
+            // `<docId>.jsonl` or `<docId>.<deviceSlug>.jsonl`. The docId (a
+            // `d_`+ULID, or `__project__`) never contains a dot, so it is the
+            // component before the FIRST dot — `deletingPathExtension` would
+            // strip only `.jsonl`, folding the device slug into the docId and
+            // misrouting the op-log change notification.
             let filename = (relativePath as NSString).lastPathComponent
-            let docId = (filename as NSString).deletingPathExtension
-            return .opLog(docId: docId)
+            let docId = filename.prefix { $0 != "." }
+            return .opLog(docId: String(docId))
         }
 
         if relativePath == ".maugham/checkpoints.jsonl" {
@@ -166,6 +181,24 @@ internal enum MaughamSidecarPath: Equatable {
 
         if relativePath.hasPrefix(".maugham/publications/") {
             return .publicationSnapshot(relativePath: relativePath)
+        }
+
+        if relativePath.hasPrefix(".maugham/inbox/") {
+            let tail = String(relativePath.dropFirst(".maugham/inbox/".count))
+            if tail.hasPrefix("text/") {
+                return .inbox(kind: .text, relativePath: relativePath)
+            }
+            if tail.hasPrefix("images/") {
+                return .inbox(kind: .image, relativePath: relativePath)
+            }
+            if tail.hasPrefix("audio/") {
+                return .inbox(kind: .audio, relativePath: relativePath)
+            }
+            // `inbox.jsonl` (legacy) or `inbox.<deviceSlug>.jsonl` (per-device).
+            if tail.hasPrefix("inbox.") && tail.hasSuffix(".jsonl") {
+                return .inbox(kind: .manifest, relativePath: relativePath)
+            }
+            return .unknownSidecar(relativePath: relativePath)
         }
 
         return .unknownSidecar(relativePath: relativePath)

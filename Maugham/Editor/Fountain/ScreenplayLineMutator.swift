@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Local context for a screenplay line — used by ScreenplayLineMutator to
 /// decide whether a forced-syntax marker is needed for elements that have

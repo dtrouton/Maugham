@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 struct ResearchRow: View {
     let item: ResearchItem

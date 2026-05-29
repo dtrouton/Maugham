@@ -1,5 +1,6 @@
 // MaughamTests/OpLog/BootstrapTests.swift
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 @MainActor
