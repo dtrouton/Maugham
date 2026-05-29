@@ -2,10 +2,27 @@
 % \begin{prose}{Section Title}...\end{prose}. Inside, paragraphs are plain
 % LaTeX; scene breaks emit \scenebreak; emphasis is \emph{...}, strong is
 % \textbf{...}, wiki-links are \wikilink{target}{display}.
+%
+% When a section sets include_in_toc:false the emitter passes an optional
+% first argument: \begin{prose}[notoc]{Section Title}.
 
-\newenvironment{prose}[1]
-  {\section{#1}}
-  {}
+% Piece title: unnumbered by default (the common book case). A piece that wants
+% a number opts in via its style_file: \renewcommand{\pieceheading}[1]{\section{#1}}
+% \pieceheading also writes the ToC entry; \pieceheadingnotoc suppresses it.
+% Defined here (prose.tex is \input'd before screenplay.tex) so screenplay.tex
+% can reuse them without redefining.
+\newcommand{\pieceheading}[1]{\section*{#1}\addcontentsline{toc}{section}{#1}}
+\newcommand{\pieceheadingnotoc}[1]{\section*{#1}}
+
+% Optional first arg `notoc` suppresses the ToC entry; the default `toc`
+% produces the normal heading + ToC entry.
+\makeatletter
+\newcommand{\prose@toc}{toc}
+\newenvironment{prose}[2][toc]{%
+  \def\prose@arg{#1}%
+  \ifx\prose@arg\prose@toc \pieceheading{#2}\else \pieceheadingnotoc{#2}\fi
+}{}
+\makeatother
 
 % A plain centered asterism. Claude can replace with an ornament/glyph,
 % a horizontal rule, blank space, anything.

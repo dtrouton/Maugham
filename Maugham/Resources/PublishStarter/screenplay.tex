@@ -22,14 +22,23 @@
 % font encoding, where the legacy `cmtt` family has no font shape and LaTeX
 % silently falls back to the serif default. \ttfamily resolves through the
 % configured monospace font (Latin Modern Mono), which exists under TU.
-\NewEnviron{screenplay}[1]{%
-  \section{#1}%
+%
+% Piece title is unnumbered by default (\pieceheading is defined in prose.tex,
+% which is \input'd first). The optional first arg `notoc` suppresses the ToC
+% entry — the emitter passes \begin{screenplay}[notoc]{Title} when a section
+% sets include_in_toc:false. The default `toc` produces heading + ToC entry.
+\makeatletter
+\newcommand{\screenplay@toc}{toc}
+\NewEnviron{screenplay}[2][toc]{%
+  \def\screenplay@arg{#1}%
+  \ifx\screenplay@arg\screenplay@toc \pieceheading{#2}\else \pieceheadingnotoc{#2}\fi
   \begingroup
   \ttfamily\fontsize{12pt}{14pt}\selectfont
   \setlength{\parindent}{0pt}%
   \BODY
   \endgroup
 }
+\makeatother
 
 \newcommand{\scene}[1]{\par\vspace{\baselineskip}\noindent\textbf{\MakeUppercase{#1}}\par\vspace{0.5\baselineskip}}
 \newcommand{\action}[1]{\par\noindent #1\par\vspace{0.5\baselineskip}}
