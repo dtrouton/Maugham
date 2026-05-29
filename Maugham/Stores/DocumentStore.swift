@@ -535,6 +535,16 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
                 try? await doc.handleExternalDiskChange(diskMd: diskText)
             }
 
+        case .inbox(let kind, _):
+            // A capture (or a Mac-side status transition) landed in
+            // `.maugham/inbox/`. InboxStore refreshes on any kind; the audio
+            // transcription worker filters to `.audio`. `object: self` scopes
+            // the post to this project window so multiple windows don't
+            // cross-talk. See spec §3.3.
+            NotificationCenter.default.post(
+                name: .maughamInboxChanged, object: self,
+                userInfo: ["kind": kind.rawValue])
+
         case .sessionLog, .uiState, .conflictBackup, .scratch, .trash,
              .publishTemplate, .publishStyles, .publishConfig, .publishAsset,
              .publishBuild, .publicationsLog, .publicationSnapshot,
