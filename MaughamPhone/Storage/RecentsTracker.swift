@@ -26,7 +26,10 @@ final class RecentsTracker {
 
     // MARK: - Constants
 
-    private enum Keys {
+    // Internal (not private) so tests reference the same key names rather than
+    // duplicating string literals — a literal-duplicating corrupt-data test
+    // would silently stop testing anything if a key were renamed.
+    enum Keys {
         static let captured = "recentProjectIds"
         static let openedDates = "lastOpenedDates"
     }

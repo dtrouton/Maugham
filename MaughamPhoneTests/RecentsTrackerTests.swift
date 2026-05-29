@@ -77,6 +77,18 @@ final class RecentsTrackerComputeTests: XCTestCase {
         XCTAssertFalse(final.recents.contains("r4"), "long-ago entry must drop out")
     }
 
+    func test_recents_exactBoundary_isIncluded() async throws {
+        // A project opened exactly 14 days ago sits on the cutoff. The window
+        // filter is `>= cutoff`, so the boundary instant counts as recent.
+        let exactlyOnBoundary = fixedNow.addingTimeInterval(-(14 * 24 * 60 * 60))
+        let onBoundary = RecentsTracker(defaults: defaults, now: { exactlyOnBoundary })
+        onBoundary.recordOpen("edge")
+
+        let final = makeTracker()
+        XCTAssertTrue(final.recents.contains("edge"),
+                      "an open exactly 14 days ago is on the inclusive cutoff and must count")
+    }
+
     func test_captured_order_mostRecentFirst() async throws {
         let tracker = makeTracker()
         tracker.recordCapture(into: "p1")
@@ -91,11 +103,9 @@ final class RecentsTrackerComputeTests: XCTestCase {
         let tracker = makeTracker()
         for i in 1...6 { tracker.recordCapture(into: "proj\(i)") }
 
-        XCTAssertEqual(tracker.captured.count, 5, "captured must be capped at 5")
-        // proj1 was the oldest capture and must have been dropped.
-        XCTAssertFalse(tracker.captured.contains("proj1"), "oldest entry must fall off when cap is exceeded")
-        // proj6 is the most recent — must be at the front.
-        XCTAssertEqual(tracker.captured.first, "proj6")
+        // Full order: most-recent-first, oldest (proj1) dropped past the cap of 5.
+        XCTAssertEqual(tracker.captured, ["proj6", "proj5", "proj4", "proj3", "proj2"],
+                       "cap-at-5 must keep the 5 most-recent in order, dropping the oldest")
     }
 
     func test_capture_moveToFront_doesNotGrowList() async throws {
@@ -161,8 +171,8 @@ final class RecentsTrackerPersistenceTests: XCTestCase {
     func test_corruptData_decodesToEmpty_doesNotCrash() async throws {
         // Inject garbage bytes under both persistence keys.
         let garbage = Data([0xDE, 0xAD, 0xBE, 0xEF])
-        defaults.set(garbage, forKey: "recentProjectIds")
-        defaults.set(garbage, forKey: "lastOpenedDates")
+        defaults.set(garbage, forKey: RecentsTracker.Keys.captured)
+        defaults.set(garbage, forKey: RecentsTracker.Keys.openedDates)
 
         // Must not crash; must start from empty state.
         let tracker = RecentsTracker(defaults: defaults, now: { fixedNow })
