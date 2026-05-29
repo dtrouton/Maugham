@@ -1,6 +1,6 @@
 # 0012 — Per-device JSONL file partitioning for multi-writer sidecars
 
-**Status:** Accepted
+**Status:** Accepted · Implemented 2026-05-29 (op log; `feat/maugham-core-extraction`, Phase B0)
 **Date:** 2026-05-24
 
 ## Context
