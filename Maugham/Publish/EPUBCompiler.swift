@@ -48,6 +48,16 @@ public struct EPUBCompiler {
                 xhtmlBody: XHTMLBodyEmitter.emit(ProjectAST(sections: [s]), config: config))
         }
 
+        // Persist build/body.xhtml for open-loop EPUB inspection via read_publish_file.
+        let build = publish.appendingPathComponent("build", isDirectory: true)
+        try? FileManager.default.createDirectory(at: build, withIntermediateDirectories: true)
+        let assembled = sections.map { $0.xhtmlBody }.joined(separator: "\n")
+        try? assembled.write(to: build.appendingPathComponent("body.xhtml"),
+                             atomically: true, encoding: .utf8)
+        try? "EPUB compile: no LaTeX log (HTML/CSS pipeline).".write(
+            to: build.appendingPathComponent("compile.log"),
+            atomically: true, encoding: .utf8)
+
         let cssURL = publish.appendingPathComponent("styles.css")
         let css = (try? String(contentsOf: cssURL)) ?? ""
 

@@ -154,3 +154,18 @@ The starter `preamble.tex` ships with a commented-out fontspec block that includ
 ## Recovery
 
 Overwriting or clearing a style file moves the prior version to Maugham's trash (`.maugham/trash/`, 30-day sweep, undo via ⌘⌥Z). There is **no git** in this workflow; the trash is the recovery path. `build/body.tex`, `build/body.xhtml`, and `build/compile.log` are readable via `read_publish_file` for diagnosing what the emitter and compiler produced.
+
+## EPUB iteration — open-loop workflow
+
+PDF output is **CLOSED-LOOP**: Claude edits `template.tex` or `preamble.tex`, runs a compile, and reads the result via `read_publication_page` — the rendered page image is returned directly. Claude can see what changed.
+
+EPUB output is **OPEN-LOOP**: after each compile, `build/body.xhtml` contains the assembled structural XHTML (one `<section>` block per piece, readable via `read_publish_file build/body.xhtml`). However, this is NOT how a reading application will render the file — final appearance depends on the reader's CSS interpretation, its handling of embedded fonts, device defaults, and night-mode overrides. Claude cannot observe those rendering decisions.
+
+EPUB iteration therefore works as follows:
+
+1. Claude proposes a CSS change in `styles.css` (via `write_publish_file`) and compiles.
+2. Denver loads the new `.epub` in his reading application of choice (e.g. Books, Calibre, Kindle).
+3. Denver describes what he sees — spacing, font size, chapter breaks, etc.
+4. Claude iterates based on Denver's description.
+
+This is the accepted workflow for personal-use EPUB. Closing the loop (embedding a headless reader, capturing screenshots) is out of scope here.
