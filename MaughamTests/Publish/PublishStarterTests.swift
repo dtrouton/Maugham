@@ -25,7 +25,7 @@ final class PublishStarterTests: XCTestCase {
         for name in [
             "template.tex", "preamble.tex", "frontmatter.tex",
             "prose.tex", "screenplay.tex", "backmatter.tex",
-            "styles.css", "config.json"
+            "styles.css", "config.json", "EMISSION.md"
         ] {
             XCTAssertTrue(
                 FileManager.default.fileExists(atPath: pub.appendingPathComponent(name).path),

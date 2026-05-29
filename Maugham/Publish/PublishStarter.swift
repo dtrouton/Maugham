@@ -19,6 +19,7 @@ public enum PublishStarter {
         ("backmatter.tex",      "backmatter.tex"),
         ("styles.css",          "styles.css"),
         ("default-config.json", "config.json"),
+        ("EMISSION.md",         "EMISSION.md"),
     ]
 
     public static func isInitialized(in projectURL: URL) -> Bool {
