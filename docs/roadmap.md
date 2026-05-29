@@ -96,13 +96,16 @@ AI assist for drafting, transcription, and project understanding.
 
 Delivery, sharing, and mixed-media compilation.
 
+**Shipped:**
+- ✓ **Publishing pipeline** (merged to main 2026-05-29) — PDF (bundled tectonic/LaTeX) + EPUB (HTML/CSS), driven by per-project Claude-authored LaTeX templates + a small `config.json`. `EMISSION.md` body-emission contract; per-piece `style_file` overrides; fonts via fontspec; `Exports/` view in the binder. MCP surface 20 → 40 tools. Specs: `docs/superpowers/specs/2026-05-26-publishing-pipeline-design.md`, `…/2026-05-29-publishing-feedback-design.md`.
+
 **Open — needs design first:**
-- • **Mixed-content collection** — a single project containing both prose stories AND screenplays. The existing `ProjectType.collection` is a 1d placeholder; this milestone makes it functional. Touches manifest schema (per-item writing mode), binder (mixed icons/affordances per item), and compile (mixed typography in one output). **Design direction (provisional, 2026-05-16):** hybrid — a Collection contains both "loose" mixed-content documents (each declares its own `mode: prose` / `mode: fountain` in the manifest) AND references to standalone Maugham projects. Loose docs and project-references coexist in one binder. Matches the writer's mental model where a short story collection has some pieces large enough to warrant their own project folder and others that don't. **Deferred questions** (captured for the brainstorm): can a loose Collection document be "split out" into its own standalone project later? Submission tracker semantics for Collection items vs. referenced projects. Brainstorm before scoping.
+- ✓ **Mixed-content collection** — a single project containing both prose stories AND screenplays. The existing `ProjectType.collection` is a 1d placeholder; this milestone makes it functional. Touches manifest schema (per-item writing mode), binder (mixed icons/affordances per item), and compile (mixed typography in one output). **Design direction (provisional, 2026-05-16):** hybrid — a Collection contains both "loose" mixed-content documents (each declares its own `mode: prose` / `mode: fountain` in the manifest) AND references to standalone Maugham projects. Loose docs and project-references coexist in one binder. Matches the writer's mental model where a short story collection has some pieces large enough to warrant their own project folder and others that don't. **Deferred questions** (captured for the brainstorm): can a loose Collection document be "split out" into its own standalone project later? Submission tracker semantics for Collection items vs. referenced projects. Brainstorm before scoping.
 
 **Compile (cross-type):**
-- • Compile UI — assemble manuscript into Word / EPUB / PDF / plain text
+- ✓ Compile to **PDF + EPUB** — shipped via the publishing pipeline (2026-05-29). Still open: Word / plain-text output.
 - • Markdown manuscript export for novels — Shunn standard (Times New Roman 12pt, double-spaced, 1" margins) for short-fiction submissions
-- • EPUB cover image handling
+- ✓ EPUB cover image handling — `config.cover.path` (+ `epub_specific_path`); embedded by the EPUB packager.
 - • **Clean export to `Exports/`** — "Export → Clean Markdown" / "Export → Clean Fountain" action generates anchor-stripped copies of `.md` / `.fountain` files into an `Exports/` directory next to the project. Removes paragraph anchors (`<!-- ¶XXXXXX -->`) AND task anchors (`<!--t-XXXXXX-->`) so the output is portable to any text editor. Writer-selectable filters: include/exclude `- [x]` done items, include/exclude `[[todo: …]]` segments. Provides a clean handoff to collaborators, version-control diffs, or production pipelines that don't speak Maugham's anchor convention.
 
 **Screenplay-specific production polish:**

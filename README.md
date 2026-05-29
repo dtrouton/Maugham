@@ -40,6 +40,8 @@ Smoke a fresh build: launch → New project → Novel → "Smoke" → type a sen
 
 Maugham ships a local MCP server (`maugham-mcp`, bundled inside `Maugham.app/Contents/MacOS/`). Once configured, Claude Desktop can read your open projects (binder, manuscript, research, wiki-link graph), add research notes, and annotate the manuscript without mutating it. The manuscript itself stays yours — Claude operates in a parallel annotation layer, surfaced in Maugham's Annotations pane.
 
+Claude Desktop can also **publish** your project — compile it to PDF (bundled tectonic/LaTeX) or EPUB, co-authoring a per-project LaTeX template tuned to your typographic taste. Outputs land in the project's `Exports/` folder (shown in the binder). The template and a small `config.json` live under `.maugham/publish/`; `EMISSION.md` there is the authoritative contract describing what the body emitter produces. Ask Claude `list_maugham_tools` to see the full tool surface (40 tools), or "set up publishing for this project."
+
 To configure: open Maugham, then **Help → Set up Claude Desktop…** → click `Configure`. Restart Claude Desktop. Try asking "What Maugham projects are open?"
 
 The server only runs while Maugham is running. Settings → General → "Allow Claude to connect (MCP)" toggles it off (default on). See [ADR 0003](docs/adr/0003-mcp-live-only-unix-socket.md) for the transport design and [ADR 0004](docs/adr/0004-mcp-foundation-scope.md) for the tool surface.

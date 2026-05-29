@@ -32,6 +32,9 @@ Keep them short. One to two pages is the right scale. If an ADR keeps growing, i
 | [0008](0008-id-prefix-cleanup.md) | ID prefix cleanup: canonical scheme adopted | Accepted | 2026-05-16 |
 | [0009](0009-collection-references-mac-local.md) | Collection references are Mac-local; iCloud cross-Mac is best-effort | Accepted | 2026-05-16 |
 | [0010](0010-typed-cross-area-seams.md) | Type-driven cross-area contracts (typed seams + integration tests) | Accepted | 2026-05-20 |
+| [0012](0012-per-device-jsonl-partitioning.md) | Per-device JSONL file partitioning for multi-writer sidecars | Accepted | 2026-05-24 |
+| [0011](0011-tasks-first-class-with-inline-anchors.md) | Tasks first-class with inline anchors | Proposed | 2026-05-25 |
+| [0013](0013-publishing-pipeline.md) | Publishing pipeline: Claude-authored bespoke typography | Accepted | 2026-05-29 |
 
 ## How to write a new ADR
 
