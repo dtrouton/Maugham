@@ -116,4 +116,13 @@ final class PublishConfigTests: XCTestCase {
         XCTAssertTrue(meta.keys.contains("year"))
         XCTAssertTrue(meta["year"] is NSNull)
     }
+
+    func test_section_styleFile_roundTrips() throws {
+        var cfg = PublishConfig()
+        cfg.sections["ab12"] = .init(titleOverride: nil, startOn: .any, includeInToc: true, styleFile: "tribute.tex")
+        let data = try JSONEncoder().encode(cfg)
+        let back = try JSONDecoder().decode(PublishConfig.self, from: data)
+        XCTAssertEqual(back.sections["ab12"]?.styleFile, "tribute.tex")
+        XCTAssertTrue(String(data: data, encoding: .utf8)!.contains("\"style_file\""))
+    }
 }

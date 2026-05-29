@@ -145,15 +145,18 @@ public struct PublishConfig: Codable, Equatable, Sendable {
         public var titleOverride: String?
         public var startOn: StartOn
         public var includeInToc: Bool
+        public var styleFile: String?
 
         public init(
             titleOverride: String? = nil,
             startOn: StartOn = .any,
-            includeInToc: Bool = true
+            includeInToc: Bool = true,
+            styleFile: String? = nil
         ) {
             self.titleOverride = titleOverride
             self.startOn = startOn
             self.includeInToc = includeInToc
+            self.styleFile = styleFile
         }
 
         public func encode(to encoder: Encoder) throws {
@@ -161,12 +164,14 @@ public struct PublishConfig: Codable, Equatable, Sendable {
             try c.encodeAlways(titleOverride, forKey: .titleOverride)
             try c.encode(startOn, forKey: .startOn)
             try c.encode(includeInToc, forKey: .includeInToc)
+            try c.encodeAlways(styleFile, forKey: .styleFile)
         }
 
         enum CodingKeys: String, CodingKey {
             case titleOverride = "title_override"
             case startOn = "start_on"
             case includeInToc = "include_in_toc"
+            case styleFile = "style_file"
         }
     }
 
