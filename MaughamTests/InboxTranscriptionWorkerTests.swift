@@ -6,11 +6,15 @@ import MaughamCore
 final class MockTranscriber: Transcriber, @unchecked Sendable {
     enum Mode { case success(String), failure }
     var mode: Mode = .success("WHISPER")
+    /// Invoked at the start of each transcribe — lets a test mutate inbox state
+    /// mid-transcription (to exercise the in-flight edit-protection re-check).
+    var onStart: (@Sendable () async -> Void)?
     private(set) var calls: [URL] = []
     private(set) var maxConcurrent = 0
     private var current = 0
     private let lock = NSLock()
     func transcribe(_ audio: URL, model: String) async throws -> String {
+        await onStart?()
         lock.lock(); calls.append(audio); current += 1
         maxConcurrent = max(maxConcurrent, current); lock.unlock()
         try? await Task.sleep(nanoseconds: 20_000_000) // 20ms to expose overlap
@@ -52,7 +56,7 @@ final class InboxTranscriptionWorkerTests: XCTestCase {
         let inbox = InboxStore(projectURL: root, deviceId: "mac")
         let mock = MockTranscriber()
         let worker = InboxTranscriptionWorker(
-            inboxStore: inbox, transcriber: mock, model: "m")
+            inboxStore: inbox, transcriber: mock)
         await worker.processForTest()
         await inbox.refresh()
         XCTAssertEqual(inbox.entries.first?.transcript, "WHISPER")
@@ -64,7 +68,7 @@ final class InboxTranscriptionWorkerTests: XCTestCase {
         try await seedAudio(root, id: "a1", state: .onDeviceDraft)
         let inbox = InboxStore(projectURL: root, deviceId: "mac")
         let mock = MockTranscriber(); mock.mode = .failure
-        let worker = InboxTranscriptionWorker(inboxStore: inbox, transcriber: mock, model: "m")
+        let worker = InboxTranscriptionWorker(inboxStore: inbox, transcriber: mock)
         await worker.processForTest()
         await inbox.refresh()
         XCTAssertEqual(inbox.entries.first?.transcriptionState, .failed)
@@ -77,7 +81,7 @@ final class InboxTranscriptionWorkerTests: XCTestCase {
         try await seedAudio(root, id: "mine", state: .userEdited)
         let inbox = InboxStore(projectURL: root, deviceId: "mac")
         let mock = MockTranscriber()
-        let worker = InboxTranscriptionWorker(inboxStore: inbox, transcriber: mock, model: "m")
+        let worker = InboxTranscriptionWorker(inboxStore: inbox, transcriber: mock)
         await worker.processForTest()
         XCTAssertTrue(mock.calls.isEmpty, "worker must not touch whisperFinal/userEdited")
     }
@@ -87,7 +91,7 @@ final class InboxTranscriptionWorkerTests: XCTestCase {
         for i in 0..<4 { try await seedAudio(root, id: "a\(i)", state: .onDeviceDraft) }
         let inbox = InboxStore(projectURL: root, deviceId: "mac")
         let mock = MockTranscriber()
-        let worker = InboxTranscriptionWorker(inboxStore: inbox, transcriber: mock, model: "m")
+        let worker = InboxTranscriptionWorker(inboxStore: inbox, transcriber: mock)
         await worker.processForTest()
         XCTAssertEqual(mock.calls.count, 4)
         XCTAssertEqual(mock.maxConcurrent, 1, "transcriptions run serially")
@@ -97,10 +101,30 @@ final class InboxTranscriptionWorkerTests: XCTestCase {
         let root = try project()
         try await seedAudio(root, id: "a1", state: .onDeviceDraft)
         let inbox = InboxStore(projectURL: root, deviceId: "mac")
-        let worker = InboxTranscriptionWorker(inboxStore: inbox, transcriber: nil, model: "m")
+        let worker = InboxTranscriptionWorker(inboxStore: inbox, transcriber: nil)
         await worker.processForTest()
         await inbox.refresh()
         XCTAssertEqual(inbox.entries.first?.transcriptionState, .onDeviceDraft,
                        "no transcriber → worker leaves entries untouched")
+    }
+
+    func test_userEditDuringTranscription_isNotClobbered() async throws {
+        // The writer edits the transcript while Whisper is running. The worker's
+        // post-await re-check must see the .userEdited row and skip the
+        // .whisperFinal write, or last-wins-by-writtenAt would clobber the edit.
+        let root = try project()
+        try await seedAudio(root, id: "a1", state: .onDeviceDraft)
+        let inbox = InboxStore(projectURL: root, deviceId: "mac")
+        let mock = MockTranscriber()
+        mock.onStart = { [inbox] in
+            await inbox.updateTranscript(id: "a1", text: "my edit", state: .userEdited)
+        }
+        let worker = InboxTranscriptionWorker(inboxStore: inbox, transcriber: mock)
+        await worker.processForTest()
+        await inbox.refresh()
+        let entry = inbox.entries.first { $0.id == "a1" }
+        XCTAssertEqual(entry?.transcriptionState, .userEdited,
+                       "a user edit during transcription must not be clobbered")
+        XCTAssertEqual(entry?.transcript, "my edit")
     }
 }

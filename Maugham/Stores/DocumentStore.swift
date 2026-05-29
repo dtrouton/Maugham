@@ -38,8 +38,7 @@ public final class DocumentStore {
         if let w = _transcriptionWorker { return w }
         let w = InboxTranscriptionWorker(
             inboxStore: inboxStore,
-            transcriber: Self.makeTranscriber(),
-            model: InboxTranscriptionWorker.configuredModel)
+            transcriber: Self.makeTranscriber())
         _transcriptionWorker = w
         return w
     }

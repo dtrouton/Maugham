@@ -16,16 +16,18 @@ import os
 final class InboxTranscriptionWorker {
     private let inboxStore: InboxStore
     private let transcriber: Transcriber?
-    private let model: String
-    private let log = Logger(subsystem: "com.maugham", category: "transcription")
+    // Subsystem from the running bundle id so dev/stable logs separate without
+    // hardcoding "com.maugham" (tripwire 13 spirit).
+    private let log = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.maugham.Maugham",
+        category: "transcription")
 
     private var running = false
     private var queued = false
 
-    init(inboxStore: InboxStore, transcriber: Transcriber?, model: String) {
+    init(inboxStore: InboxStore, transcriber: Transcriber?) {
         self.inboxStore = inboxStore
         self.transcriber = transcriber
-        self.model = model
     }
 
     /// Convenience for production wiring: read the configured model from defaults.
@@ -51,6 +53,9 @@ final class InboxTranscriptionWorker {
 
     private func processEligible() async {
         guard let transcriber else { return }
+        // Read the model fresh each drain so a Settings change takes effect on the
+        // next job (the worker is cached for the window's lifetime).
+        let model = Self.configuredModel
         await inboxStore.refresh()
         let eligible = inboxStore.entries.filter {
             $0.kind == .audio
@@ -60,6 +65,15 @@ final class InboxTranscriptionWorker {
             guard let url = inboxStore.assetURL(for: entry) else { continue }
             do {
                 let text = try await transcriber.transcribe(url, model: model)
+                // Re-check eligibility after the await: the worker is @MainActor,
+                // so the writer may have edited this transcript (→ .userEdited)
+                // while transcription ran. Writing .whisperFinal now would append a
+                // newer row and last-wins-by-writtenAt would clobber the edit.
+                // Refresh from disk (the edit's row is already appended) and skip
+                // if it's no longer a plain draft.
+                await inboxStore.refresh()
+                let current = inboxStore.entries.first { $0.id == entry.id }?.transcriptionState
+                guard current == .none || current == .onDeviceDraft else { continue }
                 await inboxStore.updateTranscript(id: entry.id, text: text, state: .whisperFinal)
             } catch {
                 log.error("transcription failed for \(entry.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
