@@ -15,8 +15,10 @@ actor DownloadCoordinator {
         case failed(String)
     }
 
+    static let defaultColdLaunchBudget: Int64 = 50 * 1024 * 1024  // 50 MB
+
     private(set) var states: [URL: DownloadState] = [:]
-    private(set) var coldLaunchBudgetRemaining: Int64 = 50 * 1024 * 1024  // 50 MB
+    private(set) var coldLaunchBudgetRemaining: Int64 = DownloadCoordinator.defaultColdLaunchBudget
 
     private let downloader: UbiquitousDownloader
 
@@ -117,16 +119,19 @@ actor DownloadCoordinator {
 
         transition(url, to: .downloading(progress: 0.0))
 
-        let task = Task<Void, Error> { [downloader] in
+        // `[weak self]`: the task is stored in `inFlight[url]`, so a strong
+        // capture would close the cycle self → inFlight → Task → self. Harmless
+        // for a singleton but a real leak for non-singleton use.
+        let task = Task<Void, Error> { [weak self, downloader] in
             do {
                 for try await progress in downloader.download(at: url) {
                     try Task.checkCancellation()
-                    await self.transition(url, to: .downloading(progress: progress))
+                    await self?.transition(url, to: .downloading(progress: progress))
                 }
                 try Task.checkCancellation()
-                await self.finish(url: url, terminal: .downloaded)
+                await self?.finish(url: url, terminal: .downloaded)
             } catch {
-                await self.finish(url: url, terminal: .failed(self.describe(error)))
+                await self?.finish(url: url, terminal: .failed(DownloadCoordinator.describe(error)))
                 throw error
             }
         }
@@ -158,7 +163,7 @@ actor DownloadCoordinator {
         }
     }
 
-    nonisolated private func describe(_ error: Error) -> String {
+    private static func describe(_ error: Error) -> String {
         if error is CancellationError { return "cancelled" }
         return (error as? LocalizedError)?.errorDescription ?? "\(error)"
     }

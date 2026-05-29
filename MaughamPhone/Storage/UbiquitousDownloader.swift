@@ -8,6 +8,11 @@ protocol UbiquitousDownloader: Sendable {
     /// Best-effort byte size for cold-launch budget accounting
     /// (`URLResourceKey.fileSizeKey`). nil if unknown. Must NOT trigger a
     /// download.
+    ///
+    /// Called by the Phase-D/E cold-launch driver to compute the `sizeHint`
+    /// passed to `DownloadCoordinator.ensureDownloadedIfBudgetAllows` — the
+    /// coordinator itself never calls this. Intentional seam surface, not dead
+    /// code.
     func fileSize(at url: URL) -> Int64?
 
     /// Downloads `url` from iCloud Drive, yielding fractional progress in

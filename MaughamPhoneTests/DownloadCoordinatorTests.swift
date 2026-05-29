@@ -95,13 +95,13 @@ final class DownloadCoordinatorDedupTests: XCTestCase {
         async let b: Void = coord.ensureDownloaded(url)
         async let c: Void = coord.ensureDownloaded(url)
 
-        // Wait until at least one download has actually been kicked off, then
-        // give the other two callers a chance to coalesce onto it.
+        // Wait until at least one download has actually been kicked off.
         await mock.awaitNextStart()
-        // Let the remaining callers run through `ensureDownloaded` so they
-        // attach to the in-flight task rather than starting their own.
-        try await Task.sleep(nanoseconds: 50_000_000)
-
+        // No sync point needed for the other two callers: the actor serializes
+        // them, and `startIfNeeded` returns the existing in-flight task rather
+        // than starting a new one — so `startCount` stays 1 regardless of
+        // scheduling order. (A caller arriving after .downloaded would hit the
+        // early-return guard and never reach `startIfNeeded` either.)
         mock.succeed(url)
         _ = try await (a, b, c)
 
@@ -118,11 +118,13 @@ final class DownloadCoordinatorBudgetTests: XCTestCase {
         let mock = MockUbiquitousDownloader()
         let coord = DownloadCoordinator(downloader: mock)
 
+        let budget = DownloadCoordinator.defaultColdLaunchBudget
         let big = u("big.jsonl")
         let overflow = u("overflow.jsonl")
 
-        // First request takes nearly the whole 50 MB budget.
-        let started1 = await coord.ensureDownloadedIfBudgetAllows(big, sizeHint: 49 * 1024 * 1024)
+        // First request takes nearly the whole budget.
+        let firstHint = budget - 1024 * 1024
+        let started1 = await coord.ensureDownloadedIfBudgetAllows(big, sizeHint: firstHint)
         XCTAssertTrue(started1)
         // The budget path starts the driving task without awaiting, so the
         // actual `download(at:)` invocation lands asynchronously — wait for it.
@@ -130,10 +132,10 @@ final class DownloadCoordinatorBudgetTests: XCTestCase {
         XCTAssertEqual(mock.startCount(for: big), 1)
 
         let remaining = await coord.coldLaunchBudgetRemaining
-        XCTAssertEqual(remaining, (50 - 49) * 1024 * 1024)
+        XCTAssertEqual(remaining, budget - firstHint)
 
         // Next request exceeds remaining budget → must be rejected, no download.
-        let started2 = await coord.ensureDownloadedIfBudgetAllows(overflow, sizeHint: 10 * 1024 * 1024)
+        let started2 = await coord.ensureDownloadedIfBudgetAllows(overflow, sizeHint: remaining + 1)
         XCTAssertFalse(started2)
         XCTAssertEqual(mock.startCount(for: overflow), 0, "over-budget request must not start a download")
 
@@ -148,7 +150,7 @@ final class DownloadCoordinatorBudgetTests: XCTestCase {
 
         // Exhaust the entire budget.
         let big = u("big.jsonl")
-        _ = await coord.ensureDownloadedIfBudgetAllows(big, sizeHint: 50 * 1024 * 1024)
+        _ = await coord.ensureDownloadedIfBudgetAllows(big, sizeHint: DownloadCoordinator.defaultColdLaunchBudget)
         let remaining = await coord.coldLaunchBudgetRemaining
         XCTAssertEqual(remaining, 0)
 
@@ -236,5 +238,43 @@ final class DownloadCoordinatorFailurePropagationTests: XCTestCase {
         var iterator = await coord.observe(url).makeAsyncIterator()
         let first = await iterator.next()
         XCTAssertEqual(first, .notDownloaded)
+    }
+}
+
+// MARK: - Cancel
+
+final class DownloadCoordinatorCancelTests: XCTestCase {
+    func test_cancel_setsFailedNotifiesObserversAndIgnoresLateSuccess() async throws {
+        let mock = MockUbiquitousDownloader()
+        let coord = DownloadCoordinator(downloader: mock)
+        let url = u("inflight.jsonl")
+
+        // Observe before cancelling so we capture the terminal .failed.
+        let observed = Task<[DownloadCoordinator.DownloadState], Never> {
+            var seen: [DownloadCoordinator.DownloadState] = []
+            for await s in await coord.observe(url) { seen.append(s) }
+            return seen
+        }
+
+        // Start an in-flight download in a child task. It will throw
+        // CancellationError once we cancel; we tolerate that here.
+        let caller = Task { try? await coord.ensureDownloaded(url) }
+        await mock.awaitNextStart()
+
+        await coord.cancel(url)
+
+        let state = await coord.states[url]
+        XCTAssertEqual(state, .failed("cancelled"), "cancel must leave state .failed(\"cancelled\")")
+
+        // Late success from the (now-cancelled) underlying stream must NOT flip
+        // the state back to .downloaded — the `wasInFlight` guard drops it.
+        mock.succeed(url)
+        _ = await caller.value
+        let afterLateSuccess = await coord.states[url]
+        XCTAssertEqual(afterLateSuccess, .failed("cancelled"), "late success after cancel must be ignored")
+
+        // Observer stream must have terminated on .failed("cancelled").
+        let seen = await observed.value
+        XCTAssertEqual(seen.last, .failed("cancelled"))
     }
 }
