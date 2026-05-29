@@ -11,6 +11,8 @@ struct SettingsView: View {
                 .tabItem { Label("Theme", systemImage: "paintbrush") }
             TypographySettingsTab(themeManager: themeManager)
                 .tabItem { Label("Typography", systemImage: "quote.bubble") }
+            VoiceSettingsTab()
+                .tabItem { Label("Voice", systemImage: "mic") }
             GeneralSettingsTab(themeManager: themeManager)
                 .tabItem { Label("General", systemImage: "gearshape") }
             AboutSettingsTab()
