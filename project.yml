@@ -62,6 +62,26 @@ targets:
         copy:
           destination: executables
           codeSign: false
+    postBuildScripts:
+      - name: Stamp Debug build identity (git SHA)
+        basedOnDependencyAnalysis: false
+        script: |
+          # Debug only: stamp CFBundleVersion with the git short SHA (+ -dirty)
+          # so list_maugham_tools can report the exact commit a dev build came
+          # from — 0.0.0-dev can't distinguish builds. Release builds get
+          # CFBundleVersion from CI (github.run_number); leave those untouched.
+          # Never touches CFBundleShortVersionString (that stays tag/CI-derived).
+          [ "$CONFIGURATION" = "Debug" ] || exit 0
+          SHA=$(git -C "$SRCROOT" rev-parse --short HEAD 2>/dev/null) || exit 0
+          if ! git -C "$SRCROOT" diff --quiet 2>/dev/null \
+             || ! git -C "$SRCROOT" diff --cached --quiet 2>/dev/null; then
+            SHA="${SHA}-dirty"
+          fi
+          PLIST="$TARGET_BUILD_DIR/$INFOPLIST_PATH"
+          [ -f "$PLIST" ] || exit 0
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $SHA" "$PLIST" 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $SHA" "$PLIST"
+          echo "Stamped CFBundleVersion=$SHA"
   maugham-mcp:
     type: tool
     platform: macOS

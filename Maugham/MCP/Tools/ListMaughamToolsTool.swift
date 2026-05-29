@@ -47,10 +47,15 @@ public enum ListMaughamToolsTool: MCPTool {
             else { return NSNull() }
             return ISO8601DateFormatter().string(from: date)
         }()
+        // CFBundleVersion: on Debug builds a postBuildScript stamps this with
+        // the git short SHA (+ -dirty), so `build` pins the exact commit a dev
+        // build came from. On Release it's CI's github.run_number.
+        let build = (Bundle.main.infoDictionary?["CFBundleVersion"] as? String) ?? "unknown"
         let server: [String: Any] = [
             "name": BuildVariant.current.mcpServerKey,
             "build_variant": buildVariantString,
             "version": version,
+            "build": build,
             "built_at": builtAt,
             "tool_count": all.count
         ]

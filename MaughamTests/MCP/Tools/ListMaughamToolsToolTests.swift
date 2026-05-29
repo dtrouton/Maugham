@@ -95,6 +95,12 @@ final class ListMaughamToolsToolTests: XCTestCase {
         XCTAssertNotNil(builtAt, "server.built_at must be an ISO8601 string for the running binary")
         XCTAssertFalse(builtAt?.isEmpty ?? true, "server.built_at must be non-empty")
 
+        // build = CFBundleVersion (git short SHA on Debug, run_number on Release).
+        // Always present as a non-empty string (key never absent).
+        let build = server["build"] as? String
+        XCTAssertNotNil(build, "server.build must be present (CFBundleVersion)")
+        XCTAssertFalse(build?.isEmpty ?? true, "server.build must be non-empty")
+
         // server.name must match the same value used in the initialize handshake.
         XCTAssertEqual(name, BuildVariant.current.mcpServerKey,
                        "server.name must match BuildVariant.current.mcpServerKey")
