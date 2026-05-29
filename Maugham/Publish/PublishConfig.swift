@@ -167,6 +167,22 @@ public struct PublishConfig: Codable, Equatable, Sendable {
             try c.encodeAlways(styleFile, forKey: .styleFile)
         }
 
+        // Custom decode so a PARTIAL section survives RFC-7396 merge-patch.
+        // `set_publish_config` merges the patch into the config JSON, then
+        // decodes the whole `PublishConfig`. A first-time per-section override
+        // (e.g. `{"sections":{"ab12":{"title_override":"X"}}}`) merges into a
+        // section object that has ONLY that one key — the synthesized decoder
+        // would then throw `keyNotFound` for the non-optional `start_on` /
+        // `include_in_toc`. Defaulting missing fields here is what makes a
+        // partial section patch behave per the merge-patch contract.
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            self.titleOverride = try c.decodeIfPresent(String.self, forKey: .titleOverride)
+            self.startOn = try c.decodeIfPresent(StartOn.self, forKey: .startOn) ?? .any
+            self.includeInToc = try c.decodeIfPresent(Bool.self, forKey: .includeInToc) ?? true
+            self.styleFile = try c.decodeIfPresent(String.self, forKey: .styleFile)
+        }
+
         enum CodingKeys: String, CodingKey {
             case titleOverride = "title_override"
             case startOn = "start_on"

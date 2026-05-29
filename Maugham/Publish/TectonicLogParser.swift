@@ -60,9 +60,14 @@ public enum TectonicLogParser {
                 i = j
                 continue
             }
-            // Warnings — pattern "Overfull \hbox ... at lines N--M"
+            // Warnings. Beyond LaTeX's own "LaTeX Warning" and the box-fit
+            // "Overfull/Underfull \hbox ... at lines N--M", tectonic surfaces
+            // package/class/font warnings as "<Name> Warning:" lines (e.g.
+            // "Package hyperref Warning:"). Match any line carrying "Warning"
+            // here — error lines were already consumed by the "! " branch
+            // above, so this can't swallow an error.
             if raw.hasPrefix("Overfull") || raw.hasPrefix("Underfull") ||
-               raw.hasPrefix("LaTeX Warning") {
+               raw.contains("Warning") {
                 var line: Int? = nil
                 if let lr = raw.range(of: "at lines? ") {
                     let after = raw[lr.upperBound...]

@@ -89,4 +89,41 @@ final class PublishConfigStoreTests: XCTestCase {
         let reloaded = try await store.load()
         XCTAssertEqual(reloaded?.metadata.title, "Good") // unchanged
     }
+
+    // Regression test for the Section custom init(from:) fix.
+    // Before the fix, applying a partial section patch that introduced a NEW
+    // section key with only one field would throw `keyNotFound` for `start_on`
+    // and `include_in_toc` (which are non-optional in the synthesised decoder).
+    // The fix adds a custom init(from:) that defaults those fields.
+    func test_applyPatch_partialNewSection_decodesWithDefaults() async throws {
+        let store = PublishConfigStore(projectURL: tmp)
+        // Start from a clean default config (no sections).
+        try await store.save(PublishConfig())
+
+        // Patch adds a new section with ONLY title_override — no start_on or include_in_toc.
+        let patch = #"{"sections":{"ab12":{"title_override":"Tribute"}}}"#
+        let result = try await store.applyPatch(Data(patch.utf8))
+
+        // Must not throw (above), must have no validation errors.
+        XCTAssertTrue(result.errors.isEmpty)
+
+        let section = try XCTUnwrap(result.config.sections["ab12"],
+                                    "section ab12 should be present after patch")
+        XCTAssertEqual(section.titleOverride, "Tribute")
+        XCTAssertEqual(section.startOn, .any,        "startOn should default to .any")
+        XCTAssertEqual(section.includeInToc, true,   "includeInToc should default to true")
+        XCTAssertNil(section.styleFile,              "styleFile should default to nil")
+
+        // Optional second assert: updating only start_on on an existing section
+        // preserves the previously set titleOverride and flips startOn.
+        let patch2 = #"{"sections":{"ab12":{"start_on":"recto"}}}"#
+        let result2 = try await store.applyPatch(Data(patch2.utf8))
+        XCTAssertTrue(result2.errors.isEmpty)
+
+        let section2 = try XCTUnwrap(result2.config.sections["ab12"],
+                                     "section ab12 should still be present after second patch")
+        XCTAssertEqual(section2.titleOverride, "Tribute", "titleOverride must be preserved")
+        XCTAssertEqual(section2.startOn, .recto,          "startOn must be updated to .recto")
+        XCTAssertEqual(section2.includeInToc, true,       "includeInToc must still be true")
+    }
 }
