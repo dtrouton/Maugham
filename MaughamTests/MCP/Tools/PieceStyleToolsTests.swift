@@ -103,4 +103,59 @@ final class PieceStyleToolsTests: XCTestCase {
         let cfgAfter = try await store.load()
         XCTAssertEqual(cfgAfter?.sections["ab12"]?.styleFile, "a-tribute.tex")
     }
+
+    // MARK: - clear_piece_style
+
+    func test_clearPieceStyle_unwiresAndTrashesOrphanFile() async throws {
+        let setP = #"{"project_id":"\#(pid!)","piece_id":"ab12","content":"%x","filename":"t.tex"}"#
+        _ = try await SetPieceStyleTool.handle(paramsJSON: Data(setP.utf8), registry: registry)
+
+        let clearP = #"{"project_id":"\#(pid!)","piece_id":"ab12"}"#
+        let data = try await ClearPieceStyleTool.handle(paramsJSON: Data(clearP.utf8), registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(resp?["status"] as? String, "cleared")
+        XCTAssertEqual(resp?["deleted_file"] as? Bool, true)
+
+        let cfg = try await PublishConfigStore(projectURL: projectURL).load()
+        XCTAssertNil(cfg?.sections["ab12"]?.styleFile,
+                     "style_file should be unwired")
+
+        let fileURL = publishRoot.appendingPathComponent("pieces/t.tex")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path),
+                       "orphaned pieces/t.tex should be deleted (moved to trash)")
+
+        let trashRoot = projectURL.appendingPathComponent(".trash")
+        let trashed = recursiveContents(of: trashRoot)
+        XCTAssertTrue(trashed.contains("%x"),
+                      "deleted file content (%x) should be in trash, got: \(trashed)")
+    }
+
+    func test_clearPieceStyle_keepsFileWhenSharedByAnotherPiece() async throws {
+        let s1 = #"{"project_id":"\#(pid!)","piece_id":"ab12","content":"%shared","filename":"shared.tex"}"#
+        _ = try await SetPieceStyleTool.handle(paramsJSON: Data(s1.utf8), registry: registry)
+        let s2 = #"{"project_id":"\#(pid!)","piece_id":"cd34","content":"%shared","filename":"shared.tex"}"#
+        _ = try await SetPieceStyleTool.handle(paramsJSON: Data(s2.utf8), registry: registry)
+
+        let clearP = #"{"project_id":"\#(pid!)","piece_id":"ab12"}"#
+        let data = try await ClearPieceStyleTool.handle(paramsJSON: Data(clearP.utf8), registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(resp?["status"] as? String, "cleared")
+        XCTAssertEqual(resp?["deleted_file"] as? Bool, false)
+
+        let fileURL = publishRoot.appendingPathComponent("pieces/shared.tex")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path),
+                      "shared.tex must survive because cd34 still references it")
+
+        let cfg = try await PublishConfigStore(projectURL: projectURL).load()
+        XCTAssertNil(cfg?.sections["ab12"]?.styleFile, "ab12 should be unwired")
+        XCTAssertEqual(cfg?.sections["cd34"]?.styleFile, "shared.tex",
+                       "cd34 should still reference shared.tex")
+    }
+
+    func test_clearPieceStyle_noStyleFile_isNoop() async throws {
+        let clearP = #"{"project_id":"\#(pid!)","piece_id":"ab12"}"#
+        let data = try await ClearPieceStyleTool.handle(paramsJSON: Data(clearP.utf8), registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(resp?["status"] as? String, "noop")
+    }
 }

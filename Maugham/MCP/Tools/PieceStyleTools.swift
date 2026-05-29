@@ -94,6 +94,93 @@ public enum SetPieceStyleTool: MCPTool {
     }
 }
 
+// MARK: - clear_piece_style
+
+/// Inverse of `set_piece_style`: unwire a section's `style_file` and delete the
+/// file — but only delete it if NO OTHER section still references it (two pieces
+/// may share one style file). The deleted file goes to the project trash
+/// (recoverable), same as an overwrite in `set_piece_style`.
+public enum ClearPieceStyleTool: MCPTool {
+    public static let method = "clear_piece_style"
+    public static let description =
+    "Remove a section's per-piece style file wiring; deletes the file to the project trash only if no other section references it (shared style files survive). No-op if the section has no style_file."
+    public static let inputSchemaJSON = """
+    {"type":"object","properties":{
+       "project_id":{"type":"string"},
+       "piece_id":{"type":"string"}
+     },"required":["project_id","piece_id"]}
+    """
+
+    struct Params: Codable {
+        let projectID: String
+        let pieceID: String
+        enum CodingKeys: String, CodingKey {
+            case projectID = "project_id"
+            case pieceID = "piece_id"
+        }
+    }
+
+    @MainActor
+    public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
+        guard let json = paramsJSON else {
+            throw MCPError.invalidArgument("missing params")
+        }
+        let params = try JSONDecoder().decode(Params.self, from: json)
+        guard let entry = registry.lookup(id: params.projectID) else {
+            throw MCPError.invalidArgument("unknown project_id")
+        }
+
+        let store = PublishConfigStore(projectURL: entry.url)
+        let cfg = (try await store.load()) ?? PublishConfig()
+
+        guard let name = cfg.sections[params.pieceID]?.styleFile else {
+            return try JSONSerialization.data(
+                withJSONObject: [
+                    "status": "noop",
+                    "piece_id": params.pieceID
+                ],
+                options: [.sortedKeys])
+        }
+
+        // Unwire: drop the style_file on this section.
+        var next = cfg
+        if var sec = next.sections[params.pieceID] {
+            sec.styleFile = nil
+            next.sections[params.pieceID] = sec
+        }
+
+        // Orphan check over OTHER sections only (this one is already unwired).
+        let stillReferenced = next.sections.values.contains { $0.styleFile == name }
+
+        var deletedFile = false
+        if !stillReferenced {
+            let rel = "pieces/\(name)"
+            let url = try PublishPath.validateAndResolve(relativePath: rel, in: entry.url)
+            if FileManager.default.fileExists(atPath: url.path) {
+                let metadata = try JSONSerialization.data(
+                    withJSONObject: ["id": "style-\(name)"])
+                _ = try await TrashStore(projectURL: entry.url).moveToTrash(
+                    fileRelativePath: ".maugham/publish/\(rel)",
+                    itemMetadata: metadata,
+                    originalParentId: nil,
+                    originalIndex: 0,
+                    displayTitle: name)
+                deletedFile = true
+            }
+        }
+
+        try await store.save(next)
+
+        return try JSONSerialization.data(
+            withJSONObject: [
+                "status": "cleared",
+                "piece_id": params.pieceID,
+                "deleted_file": deletedFile
+            ],
+            options: [.sortedKeys])
+    }
+}
+
 // MARK: - slug
 
 enum PieceStyleSlug {
