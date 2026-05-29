@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 /// Spec §2.7 — the Archive action mutates manuscript text. Tests cover:

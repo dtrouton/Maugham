@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// MCP `initialize` handshake handler. Claude Desktop and other MCP clients
 /// send this as the first message after spawning the server; the response

@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// `list_documents_by_tag(project_id, tag)` — flat list of manuscript documents
 /// whose tags include `tag` (case-insensitive). Returns id/title/path/tags.

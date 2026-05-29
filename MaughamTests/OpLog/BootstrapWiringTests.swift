@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 /// Contract: every production manuscript-load path must run `Bootstrap.run`

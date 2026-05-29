@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 import AppKit
 
 /// Project-scoped store that owns the NSFilePresenter, the registry of

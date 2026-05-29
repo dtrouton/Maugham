@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 struct OutlineTable: View {
     let items: [StructureItem]

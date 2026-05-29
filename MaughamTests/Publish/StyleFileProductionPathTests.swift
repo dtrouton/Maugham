@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 /// Production-path reproduction for the `style_file` / section-override id seam.

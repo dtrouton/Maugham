@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 /// Identifier for the "Check for Updates…" Window scene declared in `MaughamApp`.
 /// The menu item opens it via `@Environment(\.openWindow)` rather than presenting

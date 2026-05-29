@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 struct BinderRow: View {
     let item: StructureItem

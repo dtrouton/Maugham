@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 @MainActor
 public final class PublicationStore {

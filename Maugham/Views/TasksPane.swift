@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 // MARK: - Pure drop classifier
 //

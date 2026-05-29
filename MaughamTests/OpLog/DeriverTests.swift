@@ -1,5 +1,6 @@
 // MaughamTests/OpLog/DeriverTests.swift
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 final class DeriverTests: XCTestCase {

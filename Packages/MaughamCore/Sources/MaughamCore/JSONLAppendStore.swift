@@ -104,14 +104,14 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
         return f
     }
 
-    nonisolated static var dateEncoding: JSONEncoder.DateEncodingStrategy {
+    nonisolated public static var dateEncoding: JSONEncoder.DateEncodingStrategy {
         .custom { date, encoder in
             var c = encoder.singleValueContainer()
             try c.encode(iso8601Formatter.string(from: date))
         }
     }
 
-    nonisolated static var dateDecoding: JSONDecoder.DateDecodingStrategy {
+    nonisolated public static var dateDecoding: JSONDecoder.DateDecodingStrategy {
         .custom { decoder in
             let c = try decoder.singleValueContainer()
             let s = try c.decode(String.self)

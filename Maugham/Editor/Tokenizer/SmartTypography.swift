@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Computes optional auto-replacements for typographic input:
 /// `--` -> em dash, `...` -> ellipsis, `"` / `'` -> curly quotes.

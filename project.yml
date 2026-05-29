@@ -14,6 +14,9 @@ settings:
     ENABLE_HARDENED_RUNTIME: NO
     SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
     GCC_TREAT_WARNINGS_AS_ERRORS: NO
+packages:
+  MaughamCore:
+    path: Packages/MaughamCore
 targets:
   Maugham:
     type: application
@@ -58,6 +61,7 @@ targets:
         includes:
           - "*.md"
     dependencies:
+      - package: MaughamCore
       - target: maugham-mcp
         copy:
           destination: executables

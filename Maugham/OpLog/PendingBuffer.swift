@@ -1,5 +1,6 @@
 // Maugham/OpLog/PendingBuffer.swift
 import Foundation
+import MaughamCore
 
 /// In-memory buffer of paragraph changes since the last burst boundary,
 /// mirrored to disk at `.maugham/ops/<doc-id>.pending.jsonl` on the autosave

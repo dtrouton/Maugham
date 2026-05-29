@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 import CoreGraphics
 
 /// Pure-function layout helper for the Rewind modal's scrubber. Extracted

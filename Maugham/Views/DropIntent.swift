@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Classifies a drag-and-drop gesture in the binder into a structural action.
 public enum DropIntent: Equatable, Sendable {

@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 // MARK: - Project-scope tasks (milestone-tasks)
 //

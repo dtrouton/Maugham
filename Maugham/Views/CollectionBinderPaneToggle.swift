@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 /// Collection-specific binder shell. Mirrors BinderPaneToggle but uses
 /// Collection panes for manuscript + research. Trash and Find are reused.

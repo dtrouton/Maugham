@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 struct ResearchLinkPickerSheet: View {
     @Bindable var store: ProjectStore

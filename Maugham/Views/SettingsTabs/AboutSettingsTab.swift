@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 struct AboutSettingsTab: View {
     private var version: String {

@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Returned by `Document.restoreToOp(opId:)`. Carries the full effect of
 /// the restore so the modal can both render a confirmation toast

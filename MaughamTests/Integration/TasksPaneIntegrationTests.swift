@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 /// Integration coverage for `TasksPane` — exercises the backing model and

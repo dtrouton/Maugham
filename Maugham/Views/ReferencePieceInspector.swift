@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 import AppKit
 
 struct ReferencePieceInspector: View {

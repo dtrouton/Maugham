@@ -1,5 +1,6 @@
 // MaughamTests/OpLog/ShingleMatcherTests.swift
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 final class ShingleMatcherTests: XCTestCase {

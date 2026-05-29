@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 /// Integration tests for `Document.restoreToOp(opId:)` — the time-travel

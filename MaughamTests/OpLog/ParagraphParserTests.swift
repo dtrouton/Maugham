@@ -1,5 +1,6 @@
 // MaughamTests/OpLog/ParagraphParserTests.swift
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 final class ParagraphParserTests: XCTestCase {

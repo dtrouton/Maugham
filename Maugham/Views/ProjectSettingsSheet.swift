@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 struct ProjectSettingsSheet: View {
     @Bindable var store: ProjectStore

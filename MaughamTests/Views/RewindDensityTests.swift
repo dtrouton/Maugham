@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 import CoreGraphics
 @testable import Maugham
 

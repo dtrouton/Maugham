@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// `list_scenes(project_id)` — screenplay-only. Parses on demand.
 public enum ListScenesTool: MCPTool {

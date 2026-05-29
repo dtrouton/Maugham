@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 /// Per-doc time-travel modal. Opens via the "Rewind…" header button in
 /// HistoryPane (T13) or via the per-row "↺" button (T13). Reads the active

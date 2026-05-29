@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Bridges a live `ProjectStore` to `ProjectASTBuilder.Source`.
 ///

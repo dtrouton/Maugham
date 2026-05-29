@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Selects the appropriate WritingMode and default TypographySettings
 /// for a given document path based on its file extension.

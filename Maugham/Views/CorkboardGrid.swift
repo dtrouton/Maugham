@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 struct CorkboardGrid: View {
     let items: [StructureItem]

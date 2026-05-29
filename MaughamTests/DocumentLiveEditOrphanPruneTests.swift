@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 /// Regression: merging two checkbox paragraphs into one during a live

@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 struct ProsePieceInspector: View {
     @Bindable var store: ProjectStore

@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 import AppKit
 
 /// Markdown-flavored prose mode. Used by EditorSurface for `.md` documents.

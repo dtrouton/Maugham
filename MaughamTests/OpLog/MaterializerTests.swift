@@ -1,5 +1,6 @@
 // MaughamTests/OpLog/MaterializerTests.swift
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 final class MaterializerTests: XCTestCase {

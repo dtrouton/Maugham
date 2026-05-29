@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 struct BinderPaneToggle: View {
     @Bindable var store: ProjectStore

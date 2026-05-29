@@ -1,5 +1,6 @@
 // Maugham/Editor/RenderFilter.swift
 import Foundation
+import MaughamCore
 
 /// Translates between the on-disk markdown (with `<!-- ¶id -->` comments)
 /// and the display form (comments hidden). On every editor save we round-

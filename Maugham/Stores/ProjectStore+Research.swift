@@ -1,4 +1,5 @@
 import AppKit
+import MaughamCore
 import Foundation
 
 // MARK: - Research mutators

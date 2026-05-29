@@ -1,5 +1,6 @@
 // MaughamTests/Editor/EditorIntegrationHarness.swift
 import XCTest
+import MaughamCore
 import AppKit
 import SwiftUI
 @testable import Maugham

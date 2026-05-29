@@ -1,5 +1,6 @@
 // Maugham/Updates/UpdateChecker.swift
 import Foundation
+import MaughamCore
 import SwiftUI
 
 /// Tier 1.5 updater. Polls GitHub Releases; downloads newer `.dmg` silently;

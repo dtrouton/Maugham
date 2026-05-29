@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Shared resolution helpers for the annotation MCP tools (creation + read).
 /// Lifted here so the four creation tools and two read tools agree on how

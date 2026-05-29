@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 import AppKit
 
 /// Per-manuscript canonical state. Owns its op log + pending buffer +

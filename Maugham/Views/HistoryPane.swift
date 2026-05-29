@@ -1,5 +1,6 @@
 // Maugham/Views/HistoryPane.swift
 import SwiftUI
+import MaughamCore
 
 // MARK: - History entry + filter
 

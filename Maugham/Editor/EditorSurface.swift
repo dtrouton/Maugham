@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 import AppKit
 
 /// SwiftUI host for an NSTextView-backed editor surface, driven by a

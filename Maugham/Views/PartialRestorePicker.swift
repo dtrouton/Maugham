@@ -1,5 +1,6 @@
 // Maugham/Views/PartialRestorePicker.swift
 import SwiftUI
+import MaughamCore
 
 struct PartialRestorePicker: View {
     let checkpoint: Checkpoint

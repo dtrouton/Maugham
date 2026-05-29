@@ -1,4 +1,5 @@
 import AppKit
+import MaughamCore
 
 /// Custom NSView drawn in the left text-container inset of MaughamTextView.
 /// Shows a small uppercase abbreviation per line indicating the parsed

@@ -1,5 +1,6 @@
 // MaughamTests/OpLog/OpLogStoreTests.swift
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 @MainActor

@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// A surface that can resolve a wiki-link title to a document id.
 /// ProjectStore conforms in T8; the protocol exists so the editor
