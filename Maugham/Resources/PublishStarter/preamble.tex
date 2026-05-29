@@ -32,3 +32,14 @@
 % Wiki link in prose: rendered as plain bold display text (no hyperlink
 % target; wiki targets resolve inside Maugham, not in the PDF).
 \newcommand{\wikilink}[2]{\textbf{#2}}
+
+% --- Custom body font (optional) -------------------------------------------
+% Verified to compile under the bundled tectonic (XeTeX + fontspec).
+% To use a custom font:
+%   1. Put the .otf/.ttf into .maugham/publish/fonts/ (write_publish_file, base64).
+%   2. REMOVE or comment out the \usepackage[utf8]{inputenc} line above —
+%      inputenc is incompatible with fontspec under XeTeX.
+%   3. Uncomment the two lines below and set your filename.
+% \usepackage{fontspec}
+% \setmainfont[Path=fonts/]{EBGaramond-Regular.otf}
+% ---------------------------------------------------------------------------
