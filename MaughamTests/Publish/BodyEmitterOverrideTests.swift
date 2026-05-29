@@ -36,6 +36,44 @@ final class BodyEmitterOverrideTests: XCTestCase {
         XCTAssertTrue(out.contains("\\cleardoublepage"))
     }
 
+    // MARK: - styleFile scoped group
+
+    func test_styleFile_wrapsSectionInScopedGroupBeforeEnvironment() {
+        var cfg = PublishConfig(); cfg.sections["ab12"] = .init(styleFile: "tribute.tex")
+        let ast = ProjectASTBuilder.build(from: SinglePieceSource(pieceID: "ab12", title: "T", mode: .prose, text: "Body."))
+        let out = LaTeXBodyEmitter.emit(ast, config: cfg)
+        let g = out.range(of: "\\begingroup")!
+        let inp = out.range(of: "\\input{pieces/tribute.tex}")!
+        let env = out.range(of: "\\begin{prose}")!
+        let end = out.range(of: "\\endgroup")!
+        XCTAssertTrue(g.lowerBound < inp.lowerBound)
+        XCTAssertTrue(inp.lowerBound < env.lowerBound, "input before environment (title-page pattern depends on this)")
+        XCTAssertTrue(env.lowerBound < end.lowerBound)
+    }
+
+    /// THE INVARIANT THE SCOPED GROUP EXISTS FOR. If \input is ever hoisted out of
+    /// \begingroup, a styled piece leaks its redefinitions into the next piece.
+    func test_styleFile_scopeDoesNotLeakIntoNextPiece() {
+        var cfg = PublishConfig(); cfg.sections["aa11"] = .init(styleFile: "x.tex")  // bb22 has no styleFile
+        let ast = ProjectAST(sections: [
+            ProjectASTBuilder.build(from: SinglePieceSource(pieceID: "aa11", title: "One", mode: .prose, text: "A.")).sections[0],
+            ProjectASTBuilder.build(from: SinglePieceSource(pieceID: "bb22", title: "Two", mode: .prose, text: "B.")).sections[0],
+        ])
+        let out = LaTeXBodyEmitter.emit(ast, config: cfg)
+        let endgroup = out.range(of: "\\endgroup")!
+        let twoEnv = out.range(of: "\\begin{prose}{Two}")!
+        XCTAssertTrue(endgroup.lowerBound < twoEnv.lowerBound, "second piece must follow \\endgroup (scope closed)")
+        let after = String(out[twoEnv.lowerBound...])
+        XCTAssertFalse(after.contains("\\input{pieces/"), "unstyled piece must not source any style file")
+    }
+
+    func test_noStyleFile_emitsNoGroup() {
+        let ast = ProjectASTBuilder.build(from: SinglePieceSource(pieceID: "ab12", title: "T", mode: .prose, text: "Body."))
+        let out = LaTeXBodyEmitter.emit(ast, config: PublishConfig())
+        XCTAssertFalse(out.contains("\\begingroup"))
+        XCTAssertFalse(out.contains("\\input{pieces/"))
+    }
+
     // MARK: - XHTMLBodyEmitter overrides
 
     func test_xhtml_titleOverride_replacesH1() {

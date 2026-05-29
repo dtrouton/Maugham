@@ -21,6 +21,17 @@ public enum LaTeXBodyEmitter {
     private static func emit(section: ProjectAST.Section, isFirst: Bool,
                              config: PublishConfig, into out: inout [String]) {
         let ov = config.sections[section.pieceID]
+        // A per-piece style file's `\renewcommand`s must be scoped so they
+        // revert after this piece — otherwise a styled piece leaks its
+        // redefinitions into the next one. The group opens BEFORE the page
+        // break and environment and closes after `\end{...}`. Emission order is
+        // contractual: \begingroup → \input{pieces/<file>} → page-break →
+        // \begin{...} → nodes → \end{...} → \endgroup.
+        let styled = ov?.styleFile != nil
+        if let styleFile = ov?.styleFile {
+            out.append("\\begingroup")
+            out.append("\\input{pieces/\(styleFile)}")
+        }
         // Each piece starts on a fresh page. The first piece follows the
         // frontmatter (which already broke the page) so it's skipped to avoid
         // a leading blank page. The break honors the per-section `start_on`
@@ -44,6 +55,9 @@ public enum LaTeXBodyEmitter {
             out.append("\\begin{screenplay}\(opt){\(title)}")
             for node in section.nodes { emit(node: node, into: &out) }
             out.append("\\end{screenplay}")
+        }
+        if styled {
+            out.append("\\endgroup")
         }
     }
 
