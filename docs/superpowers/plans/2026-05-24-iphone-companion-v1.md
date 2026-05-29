@@ -77,11 +77,26 @@ Manual test by dropping a file + JSONL line into `.maugham/inbox/` (either the p
 
 ### Phase C — WhisperKit on the Mac
 
-- Add WhisperKit (`https://github.com/argmaxinc/WhisperKit`) as an SPM dependency on the Mac target only.
-- `Maugham/Stores/InboxTranscriptionWorker.swift` (new) — serial `Task` queue subscribed to `maughamInboxChanged`. On audio entries: run WhisperKit, call `InboxStore.updateTranscript`. Default model `base` (~150MB), settings hook for `small` / `large-v3`. Models live in `~/Library/Application Support/<BuildVariant.supportFolderName>/WhisperModels/`. Failure mode: keep on-device draft, mark `transcriptionState: failed`.
-- Apple Silicon-only; surface a settings hint on Intel.
+Refined in the 2026-05-29 brainstorm (spec §3.5): protocol seam + "Middle"
+download UX + `.userEdited` edit protection. Built as **two commits** so the
+external WhisperKit fetch is isolated from the testable worker logic.
 
-Manual test: drop a `.m4a` into `.maugham/inbox/audio/`, watch transcript appear.
+**Commit 1 — worker logic, no external dependency (builds + tests in any environment):**
+- `Packages/MaughamCore/.../Transcriber.swift` (new) — `protocol Transcriber { func transcribe(_ audio: URL, model: String) async throws -> String }`. Foundation-only.
+- `Packages/MaughamCore/.../Inbox/InboxEntry.swift` — add `TranscriptionState.userEdited` (raw `user_edited`).
+- `Maugham/Views/InboxPane.swift` — Edit Transcript now sets `.userEdited` (was: preserve state).
+- `Maugham/Stores/InboxTranscriptionWorker.swift` (new) — serial `Task` queue subscribed to `maughamInboxChanged` (`kind == .audio`), injected with a `Transcriber`. Eligibility: `transcriptionState ∈ {.none, .onDeviceDraft}` (skips `.whisperFinal`/`.userEdited`; re-scan on each notification doubles as retry). Success → `InboxStore.updateTranscript(…, .whisperFinal)`; failure → `.failed`, draft preserved. Model default `base`; storage `~/Library/Application Support/<BuildVariant.supportFolderName>/WhisperModels/`. Intel → `.failed` + one-time `os_log`.
+- `DocumentStore` owns/starts the worker (one per window), injecting the production transcriber (or, in commit 1, a stub) — wire so tests can inject a mock.
+- `MaughamPhone`/Settings "Voice transcription" section: model picker (`base`/`small`/`large-v3`) + live download progress + status + "Download now". (Mac Settings; the worker exposes model state.)
+- Tests (vs `MockTranscriber`): serial queueing, success→`.whisperFinal`, failure→`.failed`+draft kept, eligibility skips `.whisperFinal`/`.userEdited`, retry-on-next-change.
+
+**Commit 2 — the real transcriber + dependency (isolated; the only step with external-fetch risk):**
+- Add WhisperKit (`https://github.com/argmaxinc/WhisperKit`) as an SPM dependency on the **Mac target only**.
+- `Maugham/Stores/WhisperKitTranscriber.swift` (new) — thin `Transcriber` conformer wrapping WhisperKit (lazy model download-then-transcribe in the job). Inject in production.
+
+Deferred → future enhancement (spec §3.5): proactive-launch download, first-audio HUD alert, offline row chip, auto-retry of `.failed`, long-audio chunking, telemetry smoke.
+
+Manual test: drop a `.m4a` into `.maugham/inbox/audio/`, watch the transcript replace the draft.
 
 ### Phase D0 — iCloud Drive eviction handling (iOS-only infrastructure, prerequisite for D/E/F reads)
 

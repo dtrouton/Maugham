@@ -56,7 +56,9 @@ The dependency direction is clear: `Packages/MaughamCore` is foundational and un
 **Mac-only:**
 
 - `Maugham/Stores/InboxStore.swift` — `@Observable` class owned by `DocumentStore`, one per project window. Loads `.maugham/inbox/inbox.jsonl` via `JSONLAppendStore<InboxEntry>` but with a last-wins merge in its own load pass (the generic store's `dedupKey` keeps first occurrence — InboxStore needs newest to win for status transitions). Methods: `refresh()`, `promoteToResearch(_:)`, `trash(_:)`, `attachToCurrentDoc(_:)`, `updateTranscript(id:text:state:)`. Each mutating method appends a new InboxEntry with the same id and updated fields; the next `refresh()` collapses them through the last-wins merge.
-- `Maugham/Stores/InboxTranscriptionWorker.swift` — serial-queue background worker subscribed to `Notification.Name.maughamInboxChanged` events with `kind == .audio`. Pulls the entry by id, loads the corresponding `.m4a` from `.maugham/inbox/audio/`, runs WhisperKit, calls `InboxStore.updateTranscript(id:text:state: .whisperFinal)`. One transcription in flight at a time (WhisperKit is compute-heavy; competing jobs would thrash). Models live in `~/Library/Application Support/<BuildVariant.supportFolderName>/WhisperModels/`, downloaded lazily on first use.
+- `Packages/MaughamCore/Sources/MaughamCore/Transcriber.swift` — Foundation-only `protocol Transcriber { func transcribe(_ audio: URL, model: String) async throws -> String }`. The worker depends on this, not on WhisperKit (see §3.5).
+- `Maugham/Stores/WhisperKitTranscriber.swift` — the production `Transcriber` conformer wrapping WhisperKit. Added in an isolated final commit (the only step with external-fetch risk).
+- `Maugham/Stores/InboxTranscriptionWorker.swift` — serial-queue background worker subscribed to `Notification.Name.maughamInboxChanged` events with `kind == .audio`. Re-scans for eligible audio (`transcriptionState ∈ {.none, .onDeviceDraft}`), loads the corresponding `.m4a` from `.maugham/inbox/audio/`, runs its injected `Transcriber`, calls `InboxStore.updateTranscript(id:text:state: .whisperFinal)`. One transcription in flight at a time (WhisperKit is compute-heavy; competing jobs would thrash). Models live in `~/Library/Application Support/<BuildVariant.supportFolderName>/WhisperModels/`, downloaded lazily on first job. Tested against a `MockTranscriber`. See §3.5.
 - `Maugham/Views/InboxPane.swift` — right-pane mode mounted into `ProjectWindow`'s detail-pane host. Rows: kind icon (SF Symbol: `square.and.pencil` / `photo` / `mic`), title (user-set or first ~40 chars of text/transcript), subtitle (transcript preview + relative timestamp), trailing menu (Promote to research / Attach to current doc / Edit transcript / Trash). Empty state via `ContentUnavailableView("Nothing in the inbox", systemImage: "tray", description: "Capture from MaughamPhone — text, photo, or voice — appears here.")`.
 - `.github/workflows/phone-release.yml` — tag-triggered macOS-runner workflow for the iOS app. Trigger pattern `phone-v[0-9]+.[0-9]+.[0-9]+`. Steps: checkout → setup Xcode → install xcodegen → import distribution cert + provisioning profile from secrets → sync version from tag + build number from `git rev-list --count HEAD` → `./gen.sh` → build Release for iOS → run phone tests → archive + export `.ipa` → upload to TestFlight via App Store Connect API → create GitHub Release with `docs/release-notes/phone/v0.X.Y.md` as body.
 - `scripts/cut-phone-release.sh` — mirror of `cut-release.sh` for the phone. Verifies `docs/release-notes/phone/v0.X.Y.md` exists, tree is clean, phone test target passes, creates `phone-v0.X.Y` tag, prints push command. `--skip-tests` flag for emergencies.
@@ -301,33 +303,54 @@ This also addresses the broader carry-forward from `milestone-ui-polish-followup
 
 ### 3.5 WhisperKit transcription worker
 
-**Dependency.** [WhisperKit](https://github.com/argmaxinc/WhisperKit) is the Apple-Silicon-optimized Swift package wrapper around whisper.cpp. SPM-friendly, MIT license, model download is lazy on first use, runs on CoreML. Chosen over: whisper.cpp Swift bindings directly (more setup, less polished), MLX-Whisper (still beta), cloud APIs (privacy + key management).
+> **Refined 2026-05-29 (brainstorm).** Decisions baked in: a `Transcriber`
+> protocol seam (WhisperKit is not a direct dependency of the worker); "Middle"
+> download UX (lazy download-then-transcribe + Settings model picker with
+> progress + a row-level "awaiting transcription" state; **no** proactive-launch
+> download or HUD alert — those are deferred, see end of section); and a
+> `.userEdited` transcription state so the worker never clobbers a manual edit.
 
-**Worker lifecycle.** `InboxTranscriptionWorker` is owned by `DocumentStore` (one per project window), started in `DocumentStore.init` after the inbox subdir exists, stopped when the project window closes. It owns a serial `Task` — one transcription at a time — to keep WhisperKit from thrashing under multi-audio bursts. Notifications enqueue; the queue drains in arrival order.
+**Dependency, behind a seam.** [WhisperKit](https://github.com/argmaxinc/WhisperKit) is the Apple-Silicon-optimized Swift package wrapper around whisper.cpp (SPM-friendly, MIT, CoreML, lazy model download). Chosen over whisper.cpp bindings (more setup), MLX-Whisper (beta), and cloud APIs (privacy + keys). **The worker does not depend on WhisperKit directly.** It depends on a Foundation-only protocol in MaughamCore:
+
+```swift
+public protocol Transcriber {
+    func transcribe(_ audio: URL, model: String) async throws -> String
+}
+```
+
+`WhisperKitTranscriber` (Mac) is the production conformer; tests inject a `MockTranscriber`. This (a) keeps worker logic decoupled and unit-testable, and (b) **quarantines the external WhisperKit fetch** — a multi-hundred-MB CoreML package — into a single final build step, so a fetch failure degrades to "the real transcriber isn't wired yet," not "the project doesn't build." (Same spirit as the git-tracked tectonic binary avoiding a fetch in the build path.)
+
+**Worker lifecycle.** `InboxTranscriptionWorker` is owned by `DocumentStore` (one per project window), started after the inbox subdir exists, injected with a `Transcriber`. It owns a serial `Task` — one transcription at a time — so WhisperKit doesn't thrash under multi-audio bursts. Notifications enqueue; the queue drains in arrival order.
 
 **Per-job flow.**
 
 1. Receive `Notification.maughamInboxChanged` with `kind == .audio`.
-2. Pull the entry by deriving id from the changed file's name (`01HQR…J9.m4a` → id `01HQR…J9`).
-3. If `transcriptionState == .whisperFinal`, skip (already done, this is a status-only update).
-4. Load the audio file path: `.maugham/inbox/audio/<id>.m4a`.
-5. Ensure model is available — download on first use. Model identifier from a `@AppStorage("whisperModel")` setting; default `openai_whisper-base` (~150MB). Hint in Settings to upgrade to `openai_whisper-small` (~500MB) or `openai_whisper-large-v3` (~3GB) for higher quality.
-6. Run transcription. On success, `InboxStore.updateTranscript(id:text:state: .whisperFinal)`.
-7. On failure (model unavailable, audio corrupt, non-Apple-Silicon Mac), `InboxStore.updateTranscript(id:text:state: .failed)` — the on-device draft text from the phone is preserved.
+2. Re-scan inbox entries for **eligible** audio: `transcriptionState ∈ {.none, .onDeviceDraft}`. This skips `.whisperFinal` (already done) and `.userEdited` (the writer owns it) — and doubles as the retry path (a previously-`.failed` entry is *not* eligible by default; see below).
+3. Load the audio at `.maugham/inbox/audio/<id>.m4a`.
+4. Ensure the model is present; if absent, download it then transcribe **in the same background job** (no UI block — the draft shows meanwhile). Model from `@AppStorage("whisperModel")`, default `openai_whisper-base` (~150MB).
+5. On success → `InboxStore.updateTranscript(id:text:state: .whisperFinal)`.
+6. On failure (model download failed, audio corrupt, non-Apple-Silicon) → `.failed`; **the on-device draft is preserved** — the worst case is "the Mac didn't improve on the draft," never "the transcript is lost."
 
-**Model storage path.** `~/Library/Application Support/<BuildVariant.supportFolderName>/WhisperModels/` — variant-scoped so the dev install and stable install can have independent model state, in line with tripwire 13's spirit (every cross-install seam routes through BuildVariant).
+**Eligibility & retry.** Eligible = `.none`/`.onDeviceDraft`. A `.failed` entry isn't auto-retried on every notification (avoids hammering a corrupt file); the Settings "Download now" action (model case) and re-dropping audio cover recovery. `.userEdited` and `.whisperFinal` are terminal for the worker.
 
-**First-download UX.** "Download on first use" is the right default but the wrong UX without scaffolding — the first voice capture a writer makes shouldn't silently `.failed` because the 150MB model wasn't there yet.
+**Edit protection.** `InboxEntry.TranscriptionState` gains `.userEdited` (raw `user_edited`). `InboxPane`'s Edit Transcript sets it; the worker's eligibility filter then leaves the entry untouched, so a manual correction made in the gap before Whisper finishes is never overwritten.
 
-1. **Proactive download on worker start.** When `InboxTranscriptionWorker` initializes and the configured model is not present in the model storage path, it kicks off a background download via `WhisperKit.download(variant:)` if network is `.reachable` (checked via `NWPathMonitor`). No alert, no progress bar — just runs. On networks-unavailable, the worker no-ops the proactive download; the explicit-action paths below handle eventually.
-2. **Settings exposes explicit controls.** A "Voice transcription" section in Settings: "Currently using: base (149 MB) · Replace…" picker, "Download now" button (enabled when model not present), and a progress indicator (download bytes / total bytes) while a download is in flight. Replace ↔ download a different model and delete the previous to reclaim disk.
-3. **First-audio-with-no-model alert.** If an audio entry arrives before the proactive download has completed (cold-launch + first capture within ~60s on a slow network), the worker triggers a one-time HUD alert: "Downloading Whisper model (~150 MB)…" with progress. Non-blocking — the writer can dismiss; the alert returns only on the first audio per session. On completion, queued audio drains.
-4. **Offline-with-no-model row badge.** Audio entries that can't yet transcribe (model missing + no network) show a row-level "Awaiting transcription · Download required" subtitle plus a small Settings shortcut chip. Distinguishes the writer-actionable state ("go online or download model") from `.failed` (corrupt audio, unrecoverable).
-5. **First-use telemetry sanity check.** Manual smoke step: cold-launch on a fresh install, capture a voice note before the proactive download completes. Confirm the HUD appears, model downloads, queue drains, transcript replaces the on-device draft within ~60s of network availability.
+**Model storage path.** `~/Library/Application Support/<BuildVariant.supportFolderName>/WhisperModels/` — variant-scoped so dev and stable installs have independent model state (tripwire 13 spirit).
 
-**Non-Apple-Silicon Macs.** WhisperKit requires Apple Silicon for CoreML acceleration. On Intel Macs, the worker emits a one-time `os_log` warning, sets state to `.failed` for new audio entries, and surfaces an "Apple Silicon required for local transcription" hint in Settings. The on-device draft from the phone is the only transcript these Macs will get. The proactive-download path no-ops on Intel.
+**Settings — "Voice transcription" section.** Model picker (`base` ~150MB / `small` ~500MB / `large-v3` ~3GB) with a **live download progress** indicator, current-model status line, and a manual "Download now" (enabled when the model is absent). Replacing a model downloads the new one and deletes the previous to reclaim disk.
 
-**Long-audio chunking.** Not in v1. WhisperKit handles up to ~5 minutes well; longer recordings degrade. Document the limit in the worker's header. Chunking is a Phase H item.
+**Row-level state.** `InboxPane` shows an "Awaiting transcription" subtitle for an audio entry whose model is downloading/absent — distinct from `.failed` (unrecoverable) and from a present draft.
+
+**Non-Apple-Silicon Macs.** WhisperKit needs Apple-Silicon CoreML. On Intel, the worker marks new audio `.failed`, emits a one-time `os_log`, and Settings shows an "Apple Silicon required for local transcription" hint. The on-device draft is the only transcript these Macs get.
+
+**Deferred — potential future enhancements (not in v1).** Recorded here rather than dropped, since the on-device draft is always the fallback that makes them non-urgent:
+
+- **Proactive model download on worker start** (NWPathMonitor-gated) — pre-fetch so the first capture never waits. v1 downloads lazily on the first job instead.
+- **First-audio-with-no-model HUD alert** with progress — v1 relies on the Settings progress + the row-level "awaiting transcription" state.
+- **Offline-with-no-model row chip** (a Settings shortcut affordance beyond the plain "awaiting transcription" subtitle).
+- **Auto-retry of `.failed` entries** on reconnect / model-arrival (beyond the manual Settings action).
+- **Long-audio chunking (>5 min)** — WhisperKit degrades past ~5 minutes; document the limit in the worker header. (Already a Phase H item.)
+- **First-use telemetry smoke** as an automated check.
 
 ### 3.6 iOS file access via `UIDocumentPicker`
 
