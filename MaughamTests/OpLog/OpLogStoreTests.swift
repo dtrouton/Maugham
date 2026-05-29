@@ -58,9 +58,11 @@ final class OpLogStoreTests: XCTestCase {
         let store = OpLogStore(projectURL: tmp)
         let op = makeOp(opId: "01HZK01")
         try await store.append(op)
-        // Manually append a corrupted trailing line.
-        let opsDir = tmp.appendingPathComponent(".maugham/ops")
-        let file = opsDir.appendingPathComponent("doc-1.jsonl")
+        // Manually append a corrupted trailing line. With per-device
+        // partitioning (ADR 0012) the append landed in `doc-1.<slug>.jsonl`,
+        // not the legacy `doc-1.jsonl`; corrupt whatever file it actually wrote.
+        let file = try XCTUnwrap(
+            OpLogStore.opLogFileURLs(forDocId: "doc-1", in: tmp).first)
         let handle = try FileHandle(forWritingTo: file)
         try handle.seekToEnd()
         try handle.write(contentsOf: Data("{\"this is\": \"truncated\n".utf8))

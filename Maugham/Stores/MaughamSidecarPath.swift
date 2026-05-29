@@ -113,9 +113,15 @@ internal enum MaughamSidecarPath: Equatable {
         if relativePath.hasPrefix(opsPrefix)
             && relativePath.hasSuffix(".jsonl")
             && !relativePath.hasSuffix(".pending.jsonl") {
+            // Per-device partitioning (ADR 0012): a file is either the legacy
+            // `<docId>.jsonl` or `<docId>.<deviceSlug>.jsonl`. The docId (a
+            // `d_`+ULID, or `__project__`) never contains a dot, so it is the
+            // component before the FIRST dot — `deletingPathExtension` would
+            // strip only `.jsonl`, folding the device slug into the docId and
+            // misrouting the op-log change notification.
             let filename = (relativePath as NSString).lastPathComponent
-            let docId = (filename as NSString).deletingPathExtension
-            return .opLog(docId: docId)
+            let docId = filename.prefix { $0 != "." }
+            return .opLog(docId: String(docId))
         }
 
         if relativePath == ".maugham/checkpoints.jsonl" {

@@ -217,10 +217,11 @@ public final class Document {
         // resolve to a non-existent location, silently dropping ops.
         let projectURL = resolveProjectURL(for: url)
 
-        // Bootstrap detection.
-        let opLogPath = projectURL
-            .appendingPathComponent(".maugham/ops/\(docId).jsonl")
-        let logExists = FileManager.default.fileExists(atPath: opLogPath.path)
+        // Bootstrap detection. Per-device partitioning (ADR 0012) means a doc's
+        // log may exist only as `<docId>.<slug>.jsonl` with no legacy
+        // `<docId>.jsonl`; check the whole globbed set, or a doc whose only
+        // writer was a non-current device reads as "no log" and re-bootstraps.
+        let logExists = !OpLogStore.opLogFileURLs(forDocId: docId, in: projectURL).isEmpty
         let storedBytes = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
         let parsed = ParagraphParser.parse(storedBytes)
         // `parsed.isEmpty` (empty .md) used to satisfy `allSatisfy { id == nil }`
