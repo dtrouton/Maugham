@@ -141,4 +141,51 @@ final class PublishConfigToolsTests: XCTestCase {
             // expected
         }
     }
+
+    // MARK: - Unknown section key warnings
+
+    func test_setPublishConfig_unknownSectionKey_warns() async throws {
+        // Extract a real piece id so we can contrast bogus vs. real.
+        let store = try await ProjectStore.load(from: projectURL)
+        let docs = ProjectStore.collectDocuments(in: store.manifest.structure)
+        let realPieceID = try XCTUnwrap(docs.first?.id, "novel project must have at least one document")
+
+        // Patch with a BOGUS section key — should succeed (warn-and-proceed) but surface a warning.
+        let bogusKey = "doc-deadbeef"
+        let patch = #"{"sections":{"\#(bogusKey)":{"start_on":"recto"}}}"#
+        let data = try await SetPublishConfigTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(projectID!)","patch":\#(patch)}"#.utf8),
+            registry: registry)
+
+        let resp = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: data) as? [String: Any],
+            "response must be a JSON object")
+
+        // Call must NOT throw — warn-and-proceed; config is still present.
+        XCTAssertNotNil(resp["config"], "config must be present even for bogus key patch")
+
+        // A `warnings` array must appear in the response.
+        let warnings = try XCTUnwrap(resp["warnings"] as? [String],
+                                     "response must contain a `warnings` array")
+        XCTAssertFalse(warnings.isEmpty, "warnings must be non-empty for bogus section key")
+
+        // The warning must name the bogus key.
+        let mentionsBogus = warnings.contains { $0.contains(bogusKey) }
+        XCTAssertTrue(mentionsBogus,
+                      "at least one warning must mention the bogus key '\(bogusKey)'; got: \(warnings)")
+
+        // A patch keyed by the REAL piece id must produce NO warnings.
+        // Reset the persisted config first so the bogus key from above doesn't linger.
+        let cfgStore = PublishConfigStore(projectURL: projectURL)
+        try await cfgStore.save(PublishConfig())
+        let goodPatch = #"{"sections":{"\#(realPieceID)":{"start_on":"recto"}}}"#
+        let goodData = try await SetPublishConfigTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(projectID!)","patch":\#(goodPatch)}"#.utf8),
+            registry: registry)
+        let goodResp = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: goodData) as? [String: Any])
+        let goodWarnings = goodResp["warnings"] as? [String] ?? []
+        XCTAssertTrue(goodWarnings.isEmpty,
+                      "real piece id must produce no warnings; got: \(goodWarnings)")
+    }
 }

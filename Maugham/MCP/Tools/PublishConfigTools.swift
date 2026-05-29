@@ -62,6 +62,13 @@ public enum SetPublishConfigTool: MCPTool {
         let cfgStore = PublishConfigStore(projectURL: entry.url)
         let result = try await cfgStore.applyPatch(patchData)
 
+        // Warn about section keys that don't match any piece in the project.
+        let validIDs = Set(ProjectStore.collectDocuments(in: entry.store.manifest.structure).map(\.id))
+        let unknownKeys = result.config.sections.keys.filter { !validIDs.contains($0) }.sorted()
+        let warnings: [String] = unknownKeys.map {
+            "section key '\($0)' matches no piece in this project; call get_outline for valid piece ids"
+        }
+
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let cfgData = try encoder.encode(result.config)
@@ -69,7 +76,8 @@ public enum SetPublishConfigTool: MCPTool {
         let errs = result.errors.map { ["field": $0.field, "message": $0.message] }
         return try JSONSerialization.data(withJSONObject: [
             "config": cfgObj,
-            "errors": errs
+            "errors": errs,
+            "warnings": warnings
         ], options: [.sortedKeys])
     }
 }
