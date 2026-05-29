@@ -146,6 +146,13 @@ public final class DocumentStore {
         NSFileCoordinator.addFilePresenter(presenter)
         store._presenter = presenter
 
+        // Transcribe audio that synced while the app was closed: the presenter
+        // only fires for changes after open, so pre-existing eligible captures
+        // (the common phone-captured-while-Mac-closed case) need one initial
+        // scan. Inert when there's no transcriber (non-Apple-Silicon) or no
+        // eligible `.none`/`.onDeviceDraft` audio.
+        store.transcriptionWorker.onInboxChanged()
+
         return store
     }
 
@@ -571,16 +578,21 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
 
         case .inbox(let kind, _):
             // A capture (or a Mac-side status transition) landed in
-            // `.maugham/inbox/`. InboxStore refreshes on any kind; the audio
-            // transcription worker filters to `.audio`. `object: self` scopes
-            // the post to this project window so multiple windows don't
-            // cross-talk. See spec §3.3.
+            // `.maugham/inbox/`. `object: self` scopes the post to this project
+            // window so multiple windows don't cross-talk. See spec §3.3.
             NotificationCenter.default.post(
                 name: .maughamInboxChanged, object: self,
                 userInfo: ["kind": kind.rawValue])
-            Task { @MainActor in await inboxStore.refresh() }
-            if kind == .audio {
-                Task { @MainActor in transcriptionWorker.onInboxChanged() }
+            Task { @MainActor in
+                await inboxStore.refresh()
+                // Poke the transcription worker on ANY inbox change, not just
+                // `.audio` file events: a new audio capture surfaces as both an
+                // `.m4a` and a manifest row, arriving as separate sync events in
+                // either order. If the audio file event fires before its manifest
+                // row exists, an audio-only trigger would scan, find nothing
+                // eligible, and never re-run. The worker filters to eligible
+                // audio internally, so non-audio pokes are cheap no-ops.
+                transcriptionWorker.onInboxChanged()
             }
 
         case .sessionLog, .uiState, .conflictBackup, .scratch, .trash,
