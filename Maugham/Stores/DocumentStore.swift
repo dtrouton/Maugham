@@ -32,6 +32,23 @@ public final class DocumentStore {
         _inboxStore = s
         return s
     }
+
+    @MainActor private var _transcriptionWorker: InboxTranscriptionWorker?
+    @MainActor var transcriptionWorker: InboxTranscriptionWorker {
+        if let w = _transcriptionWorker { return w }
+        let w = InboxTranscriptionWorker(
+            inboxStore: inboxStore,
+            transcriber: Self.makeTranscriber(),
+            model: InboxTranscriptionWorker.configuredModel)
+        _transcriptionWorker = w
+        return w
+    }
+
+    /// Production transcriber. Returns nil in Commit 1 (no WhisperKit yet) so the
+    /// worker is inert in production while remaining fully testable via injection.
+    /// Commit 2 returns a WhisperKitTranscriber (Apple-Silicon only).
+    @MainActor private static func makeTranscriber() -> Transcriber? { nil }
+
     private var uiStateScheduler: DebounceScheduler<UIState>!
 
     private var lastObservedManifestModified: Date?
@@ -558,6 +575,9 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
                 name: .maughamInboxChanged, object: self,
                 userInfo: ["kind": kind.rawValue])
             Task { @MainActor in await inboxStore.refresh() }
+            if kind == .audio {
+                Task { @MainActor in transcriptionWorker.onInboxChanged() }
+            }
 
         case .sessionLog, .uiState, .conflictBackup, .scratch, .trash,
              .publishTemplate, .publishStyles, .publishConfig, .publishAsset,
