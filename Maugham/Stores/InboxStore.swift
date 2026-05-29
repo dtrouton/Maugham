@@ -93,7 +93,16 @@ final class InboxStore {
         try? FileManager.default.createDirectory(
             at: inboxDir, withIntermediateDirectories: true)
         var stamped = entry
-        stamped.writtenAt = Date()   // row-write time orders the last-wins merge
+        // Monotonic per-entry writtenAt: strictly newer than the row this
+        // transition supersedes, so the new state always wins the last-wins
+        // merge even when the prior row's writtenAt is in the future relative to
+        // this Mac's clock (cross-device skew — e.g. the phone's clock ahead).
+        // `entry` is built from the current winning row, so `entry.writtenAt` is
+        // the max seen for this id; +1ms guarantees we out-rank it. Without this,
+        // a future-dated draft out-ranks the Mac's transcript forever and the
+        // worker re-transcribes in an infinite loop. (Smoke caught this.)
+        let basis = entry.writtenAt ?? entry.createdAt
+        stamped.writtenAt = max(Date(), basis.addingTimeInterval(0.001))
         let store = JSONLAppendStore<InboxEntry>(fileURL: ownManifestURL)
         try? await store.append(stamped)
     }

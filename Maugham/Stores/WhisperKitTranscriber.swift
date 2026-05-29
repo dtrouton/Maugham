@@ -24,6 +24,8 @@ actor WhisperKitTranscriber: Transcriber {
             let config = WhisperKitConfig(
                 model: model,
                 downloadBase: Self.modelFolder,
+                verbose: false,        // silence per-window/-token decode log spam
+                logLevel: .error,
                 download: true)
             pipe = try await WhisperKit(config)
             loadedModel = model

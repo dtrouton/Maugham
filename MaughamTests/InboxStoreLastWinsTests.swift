@@ -110,6 +110,25 @@ final class InboxStoreLastWinsTests: XCTestCase {
         XCTAssertNil(store.entries.first?.resolvedAt, "restore clears resolvedAt")
     }
 
+    func test_transition_winsOverFutureDatedRow_noClockSkewLoop() async throws {
+        // A draft written with a future writtenAt (the phone's clock ahead of
+        // this Mac). A Mac-side transition must still win the merge, or the
+        // entry stays eligible and the worker re-transcribes forever.
+        let root = try makeProject()
+        var draft = entry("id1", .new, at: 100, text: "", transcript: "draft",
+                          state: .onDeviceDraft, kind: .audio)
+        draft.writtenAt = Date().addingTimeInterval(3600)   // 1h in the future
+        try await seed(root, file: "inbox.phone.jsonl", [draft])
+
+        let store = InboxStore(projectURL: root, deviceId: "mac")
+        await store.refresh()
+        await store.updateTranscript(id: "id1", text: "final", state: .whisperFinal)
+
+        XCTAssertEqual(store.entries.first?.transcriptionState, .whisperFinal,
+                       "transition must out-rank a future-dated row (no re-transcribe loop)")
+        XCTAssertEqual(store.entries.first?.transcript, "final")
+    }
+
     func test_sameCreatedAt_acrossFiles_newerWrittenAtWins() async throws {
         // The real phone-draft-vs-Mac-transcript case: both rows share the
         // entry's createdAt (it's the entry's birth, copied onto transitions),
