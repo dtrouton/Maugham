@@ -18,9 +18,14 @@ import MaughamCore
 @MainActor
 @Observable
 final class InboxStore {
-    /// `.new` entries only, newest first. promoted/trashed are terminal and
-    /// filtered out (they don't belong in the triage pane).
+    /// `.new` entries only, newest first. promoted/trashed are filtered out
+    /// (they don't belong in the triage pane).
     private(set) var entries: [InboxEntry] = []
+
+    /// `.trashed` entries, newest first — backs the inbox Trash view, where a
+    /// capture can be restored. Trash only flips status (the asset stays in
+    /// `inbox/`), so `restore` is a clean status flip back to `.new`.
+    private(set) var trashedEntries: [InboxEntry] = []
 
     private let inboxDir: URL
     /// This Mac's own device identifier — matches the op-log `device` (hostName)
@@ -60,9 +65,13 @@ final class InboxStore {
         rows.sort { writeTime($0) < writeTime($1) }
         var byId: [String: InboxEntry] = [:]
         for row in rows { byId[row.id] = row }
-        entries = byId.values
+        let collapsed = Array(byId.values)
+        entries = collapsed
             .filter { $0.status == .new }
             .sorted { $0.createdAt > $1.createdAt }
+        trashedEntries = collapsed
+            .filter { $0.status == .trashed }
+            .sorted { writeTime($0) > writeTime($1) }
     }
 
     private func manifestURLs() -> [URL] {
@@ -104,7 +113,7 @@ final class InboxStore {
     /// `resolvedAt`. Asset relocation (into `research/` or `.maugham/trash/`) is
     /// the caller's responsibility and must be coordinated separately.
     func updateStatus(id: String, to status: InboxEntry.Status,
-                      resolvedAt: Date = Date()) async {
+                      resolvedAt: Date? = Date()) async {
         guard var next = currentEntry(id: id) else { return }
         next.status = status
         next.resolvedAt = resolvedAt
@@ -115,7 +124,13 @@ final class InboxStore {
     /// The current (newest) row for `id` from the in-memory `entries`. Since
     /// `entries` is `.new`-only, this finds entries eligible for transition.
     private func currentEntry(id: String) -> InboxEntry? {
-        entries.first { $0.id == id }
+        entries.first { $0.id == id } ?? trashedEntries.first { $0.id == id }
+    }
+
+    /// Restore a trashed capture to the triage pane. Flips status back to `.new`
+    /// and clears `resolvedAt`; the asset never left `inbox/`, so nothing to move.
+    func restore(id: String) async {
+        await updateStatus(id: id, to: .new, resolvedAt: nil)
     }
 
     enum InboxError: Error, LocalizedError {

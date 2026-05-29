@@ -92,6 +92,24 @@ final class InboxStoreLastWinsTests: XCTestCase {
         XCTAssertTrue(store.entries.isEmpty)
     }
 
+    func test_trash_thenRestore_returnsToInbox() async throws {
+        let root = try makeProject()
+        try await seed(root, file: "inbox.mac.jsonl", [
+            entry("id1", .new, at: 100, text: "keep me"),
+        ])
+        let store = InboxStore(projectURL: root, deviceId: "mac")
+        await store.refresh()
+
+        await store.updateStatus(id: "id1", to: .trashed)
+        XCTAssertTrue(store.entries.isEmpty, "trashed entry leaves the inbox")
+        XCTAssertEqual(store.trashedEntries.map(\.id), ["id1"], "and shows in the trash view")
+
+        await store.restore(id: "id1")
+        XCTAssertEqual(store.entries.map(\.id), ["id1"], "restore returns it to the inbox")
+        XCTAssertTrue(store.trashedEntries.isEmpty)
+        XCTAssertNil(store.entries.first?.resolvedAt, "restore clears resolvedAt")
+    }
+
     func test_sameCreatedAt_acrossFiles_newerWrittenAtWins() async throws {
         // The real phone-draft-vs-Mac-transcript case: both rows share the
         // entry's createdAt (it's the entry's birth, copied onto transitions),

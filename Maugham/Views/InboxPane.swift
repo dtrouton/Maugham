@@ -19,6 +19,7 @@ struct InboxPane: View {
     @State private var editing: InboxEntry?
     @State private var audio = InboxAudioPlayer()
     @State private var promoteError: String?
+    @State private var showingTrash = false
 
     private static let relativeFormatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
@@ -30,7 +31,9 @@ struct InboxPane: View {
         VStack(spacing: 0) {
             header
             Divider()
-            if store.entries.isEmpty {
+            if showingTrash {
+                trashList
+            } else if store.entries.isEmpty {
                 emptyState
             } else {
                 List(store.entries) { entry in
@@ -66,12 +69,34 @@ struct InboxPane: View {
 
     private var header: some View {
         HStack {
-            Label("Inbox", systemImage: "tray").font(.headline)
-            Spacer()
-            if !store.entries.isEmpty {
-                Text("\(store.entries.count)")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
+            if showingTrash {
+                Button { showingTrash = false } label: {
+                    Label("Inbox", systemImage: "chevron.left")
+                }
+                .buttonStyle(.borderless)
+                .help("Back to the inbox")
+                Text("Trash").font(.headline)
+                Spacer()
+                if !store.trashedEntries.isEmpty {
+                    Text("\(store.trashedEntries.count)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Label("Inbox", systemImage: "tray").font(.headline)
+                Spacer()
+                if !store.entries.isEmpty {
+                    Text("\(store.entries.count)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                if !store.trashedEntries.isEmpty {
+                    Button { showingTrash = true } label: {
+                        Label("\(store.trashedEntries.count)", systemImage: "trash")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("View trashed captures (restore from here)")
+                }
             }
         }
         .padding(.horizontal, 12)
@@ -84,6 +109,34 @@ struct InboxPane: View {
             systemImage: "tray",
             description: Text("Capture from MaughamPhone — text, photo, or voice — appears here."))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var trashList: some View {
+        if store.trashedEntries.isEmpty {
+            ContentUnavailableView(
+                "Trash is empty",
+                systemImage: "trash",
+                description: Text("Trashed captures can be restored from here."))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            List(store.trashedEntries) { entry in
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: icon(for: entry.kind))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 18)
+                    Text(title(for: entry)).lineLimit(2)
+                    Spacer(minLength: 0)
+                    Button("Restore") { Task { await store.restore(id: entry.id) } }
+                        .buttonStyle(.borderless)
+                }
+                .padding(.vertical, 2)
+                .contextMenu {
+                    Button("Restore") { Task { await store.restore(id: entry.id) } }
+                }
+            }
+            .listStyle(.inset)
+        }
     }
 
     @ViewBuilder
