@@ -35,10 +35,23 @@ public enum ListMaughamToolsTool: MCPTool {
 
         let version = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "unknown"
         let buildVariantString = BuildVariant.current == .dev ? "dev" : "stable"
+        // `version` is a placeholder ("0.0.0-dev") on local/dev builds, so it
+        // can't distinguish one dev build from another. `built_at` — the mtime
+        // of the running executable — gives each build a distinct identity, so
+        // a debug round can tell "fresh build" from "stale binary" (the exact
+        // ambiguity that costs whole sessions). ISO8601, or null if unreadable.
+        let builtAt: Any = {
+            guard let exe = Bundle.main.executableURL,
+                  let date = (try? exe.resourceValues(
+                    forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            else { return NSNull() }
+            return ISO8601DateFormatter().string(from: date)
+        }()
         let server: [String: Any] = [
             "name": BuildVariant.current.mcpServerKey,
             "build_variant": buildVariantString,
             "version": version,
+            "built_at": builtAt,
             "tool_count": all.count
         ]
         return try JSONSerialization.data(withJSONObject: [

@@ -87,6 +87,14 @@ final class ListMaughamToolsToolTests: XCTestCase {
         XCTAssertFalse(version.isEmpty, "server.version must be non-empty")
         XCTAssertNotNil(toolCount, "server.tool_count must be an integer")
 
+        // built_at distinguishes one (placeholder-versioned) dev build from
+        // another. The running test executable has an mtime, so it must be a
+        // non-empty ISO8601 string here (key is always present; null only if
+        // the executable mtime is somehow unreadable).
+        let builtAt = server["built_at"] as? String
+        XCTAssertNotNil(builtAt, "server.built_at must be an ISO8601 string for the running binary")
+        XCTAssertFalse(builtAt?.isEmpty ?? true, "server.built_at must be non-empty")
+
         // server.name must match the same value used in the initialize handshake.
         XCTAssertEqual(name, BuildVariant.current.mcpServerKey,
                        "server.name must match BuildVariant.current.mcpServerKey")
