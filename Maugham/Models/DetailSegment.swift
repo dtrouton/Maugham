@@ -8,4 +8,5 @@ public enum DetailSegment: String, Codable, Equatable, Sendable {
     case outline
     case history
     case tasks      // milestone-tasks
+    case inbox      // iphone-companion: triage captures from MaughamPhone
 }

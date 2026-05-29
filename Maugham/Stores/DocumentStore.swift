@@ -19,6 +19,19 @@ public final class DocumentStore {
 
     internal var presenter: NSFilePresenter? { return _presenter }
     private var _presenter: ProjectFolderPresenter?
+
+    /// The capture inbox for this project window (MaughamPhone sync target).
+    /// Lazily created on first access; the InboxPane reads `entries`, the
+    /// `.inbox` presenter arm refreshes it, and (Phase C) the transcription
+    /// worker writes Whisper results back. MainActor-isolated because InboxStore
+    /// is `@MainActor @Observable`.
+    @MainActor private var _inboxStore: InboxStore?
+    @MainActor var inboxStore: InboxStore {
+        if let s = _inboxStore { return s }
+        let s = InboxStore(projectURL: projectURL)
+        _inboxStore = s
+        return s
+    }
     private var uiStateScheduler: DebounceScheduler<UIState>!
 
     private var lastObservedManifestModified: Date?
@@ -544,6 +557,7 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
             NotificationCenter.default.post(
                 name: .maughamInboxChanged, object: self,
                 userInfo: ["kind": kind.rawValue])
+            Task { @MainActor in await inboxStore.refresh() }
 
         case .sessionLog, .uiState, .conflictBackup, .scratch, .trash,
              .publishTemplate, .publishStyles, .publishConfig, .publishAsset,

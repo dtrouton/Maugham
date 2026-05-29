@@ -94,6 +94,10 @@ struct DetailPaneToggle<Inspector: View>: View {
                 .tag(DetailSegment.tasks)
                 .help("Tasks — todos in this document and across the project (⌘⌥5)")
                 .keyboardShortcut("5", modifiers: [.command, .option])
+            Image(systemName: "tray")
+                .tag(DetailSegment.inbox)
+                .help("Inbox — triage captures from MaughamPhone (⌘⌥6)")
+                .keyboardShortcut("6", modifiers: [.command, .option])
         }
         .pickerStyle(.segmented)
         .labelsHidden()
@@ -127,6 +131,21 @@ struct DetailPaneToggle<Inspector: View>: View {
             historyPane
         case .tasks:
             tasksPane
+        case .inbox:
+            inboxPane
+        }
+    }
+
+    @ViewBuilder
+    private var inboxPane: some View {
+        if let ds = documentStore {
+            InboxPane(store: ds.inboxStore)
+        } else {
+            ContentUnavailableView(
+                "Open a project",
+                systemImage: "tray",
+                description: Text("Captures from MaughamPhone appear here."))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

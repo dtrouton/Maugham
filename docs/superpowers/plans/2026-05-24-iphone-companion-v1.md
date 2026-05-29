@@ -8,8 +8,10 @@
 > 501–546); `MaughamSidecarPath` is now 18 cases (publishing added 7), `.inbox` is still a
 > one-case add; per-device JSONL partitioning (Phase B0) is confirmed **not yet shipped**
 > (ADR 0012 Accepted, unimplemented); detail-pane shortcuts are **⌘⌥1** inspector / **⌘⌥2**
-> research / **⌘⌥3** outline / **⌘⌥A** annotations (History + Tasks unbound) — inbox takes
-> **⌘⌥4**; iPhone tripwires renumber to **#17 + #18** (main is through #16); and
+> research / **⌘⌥3** outline / **⌘⌥4** history / **⌘⌥5** tasks / **⌘⌥A** annotations
+> (history + tasks shortcuts live on the `DetailPaneToggle` picker images, not the
+> `MaughamApp` menu — the first validation pass missed them) — inbox takes the next
+> free **⌘⌥6**; iPhone tripwires renumber to **#17 + #18** (main is through #16); and
 > `ProjectManifest` has **no `id` field** — Phase A adds an optional minted `id`
 > (additive optional field, schema stays 1 per the `typography` precedent) so project selection can key on it.
 
@@ -36,7 +38,7 @@ Four coordinated changes:
 
 1. **Extract `Packages/MaughamCore`** — a Foundation-only SPM package the Mac and iOS apps share. Houses Op/OpKind/Provenance, JSONLAppendStore, AnnotationDeriver, Materializer, Bootstrap, ParagraphID, ULID, BuildVariant, ProjectManifest, ResearchItem, Slugifier, and the Fountain parser (`FountainTokenizer`, `FountainLine`, `FountainScript`, `ScreenplayElement`). AppKit-bound files (`Document`, `ScreenplayMode`, `ScreenplayLayoutManager`) stay in the Mac target.
 2. **Per-device JSONL partitioning** — `OpLogStore` and the new `InboxStore` write to per-device files (`d_<docId>.<deviceSlug>.jsonl`, `inbox.<deviceSlug>.jsonl`) and merge on load. Prevents iCloud Drive conflict-twins from silently dropping ops when both phone and Mac write simultaneously. Spec §3.12 + ADR 0012.
-3. **Mac additions** — new `.inbox` case on `MaughamSidecarPath`, `InboxStore`, `InboxPane` right-pane mode (⌘⌥4), WhisperKit-backed `InboxTranscriptionWorker`.
+3. **Mac additions** — new `.inbox` case on `MaughamSidecarPath`, `InboxStore`, `InboxPane` right-pane mode (⌘⌥6), WhisperKit-backed `InboxTranscriptionWorker`.
 4. **iOS app** — new `MaughamPhone` target in the same `project.yml`, four-tab SwiftUI app (Capture / Read / Annotations / Settings), reads/writes the bookmarked project folder via `NSFileCoordinator`.
 
 Verified prerequisites (confirmed during planning):
@@ -69,7 +71,7 @@ Foundational. Must land before Phase D so the phone never writes to a shared fil
 - `Maugham/Stores/DocumentStore.swift` — add a `case .inbox` arm in `presenterDidChangeSubitem` (currently lines 501–546) that posts `Notification.Name.maughamInboxChanged`.
 - `Maugham/Stores/InboxStore.swift` (new) — owned by `DocumentStore`. Globs `.maugham/inbox/inbox.*.jsonl` (per-device partitioning, same pattern as OpLogStore from Phase B0). Writes go to the Mac's own `inbox.<deviceSlug>.jsonl`. Two-layer merge: per-file via `JSONLAppendStore` first-wins, cross-file via InboxStore last-wins (newest createdAt per id). Methods: `refresh`, `promoteToResearch(_:)` (delegates to `ProjectStore.addResearchAsset`), `trash(_:)`, `attachToCurrentDoc(_:)`, `updateTranscript(id:text:state:)`.
 - `Maugham/Views/InboxPane.swift` (new) — right-pane mode, rows show kind icon + title + transcript preview + timestamp + trailing menu (Promote / Attach / Edit transcript / Trash). Empty state with `ContentUnavailableView` pointing at the phone.
-- Add `.inbox` to `DetailSegment` (`Maugham/Models/DetailSegment.swift`) + `DetailPaneToggle.swift`, and wire its menu command + shortcut in `MaughamApp.swift` (the `maughamSetDetailSegment` notification block, currently ~lines 152–179). Real current map: ⌘⌥1 inspector, ⌘⌥2 research, ⌘⌥3 outline, ⌘⌥A annotations; History + Tasks have no shortcut. Inbox takes **⌘⌥4** (next free number); leaving History/Tasks unbound is a pre-existing gap, not this milestone's to fix.
+- Add `.inbox` to `DetailSegment` (`Maugham/Models/DetailSegment.swift`) + a picker image in `DetailPaneToggle.swift` with `.keyboardShortcut("6", modifiers: [.command, .option])`. Real current map: ⌘⌥1 inspector, ⌘⌥2 research, ⌘⌥3 outline, ⌘⌥4 history, ⌘⌥5 tasks, ⌘⌥A annotations. **Shortcuts for history/tasks/inbox live on the `DetailPaneToggle` picker images** (`.keyboardShortcut` modifiers), *not* the `MaughamApp` menu commands (which only cover inspector/research/outline/annotations) — so inbox follows the history/tasks pattern with a picker-image shortcut, no `MaughamApp` change. Inbox takes the next free **⌘⌥6**.
 
 Manual test by dropping a file + JSONL line into `.maugham/inbox/` (either the per-device file or the legacy unsuffixed name) — no phone code yet.
 
@@ -178,7 +180,7 @@ iOS releases use a separate tag namespace, workflow, and script — Mac releases
 ## Verification (manual smoke for v1)
 
 1. **Bookmark** — install MaughamPhone dev build, tap "Choose Projects Folder", pick an iCloud Drive folder with existing projects. Read tab lists them.
-2. **Text capture** — Capture → quick text → commit. Within ~30s, Mac InboxPane (⌘⌥4) shows the entry.
+2. **Text capture** — Capture → quick text → commit. Within ~30s, Mac InboxPane (⌘⌥6) shows the entry.
 3. **Photo capture** — Capture → photo → take photo. Mac InboxPane shows image thumbnail.
 4. **Voice capture** — Capture → voice → record 10s. Phone shows on-device draft instantly. Mac InboxPane initially shows the draft, then WhisperKit transcript replaces it within ~60s (first run includes one-time model download).
 5. **Triage** — On Mac, "Promote to research" on a row → file moves into `research/`, Research pane shows it, InboxPane removes the row.
@@ -195,7 +197,7 @@ iOS releases use a separate tag namespace, workflow, and script — Mac releases
 - `Maugham/Stores/ProjectFolderPresenter.swift` — verify directory-level subscription scope (Phase B0)
 - `Maugham/Stores/MaughamSidecarPath.swift` — new `.inbox` case
 - `Maugham/Stores/DocumentStore.swift` — `.inbox` switch arm in `presenterDidChangeSubitem`
-- `Maugham/Views/ProjectWindow.swift`, `DetailSegment.swift`, `DetailPaneToggle.swift` — ⌘⌥4 + new pane wiring
+- `Maugham/Models/DetailSegment.swift`, `Maugham/Views/DetailPaneToggle.swift` — `.inbox` case + picker image at ⌘⌥6 + content routing; `DocumentStore` owns the `InboxStore`
 - `scripts/cut-release.sh` referenced; new sibling created
 
 **Unchanged on the Mac (explicit non-scope):**

@@ -94,7 +94,7 @@ The dependency direction is clear: `Packages/MaughamCore` is foundational and un
 - `Maugham/Stores/MaughamSidecarPath.swift` — add `case inbox(kind: InboxFileKind, relativePath: String)`; extend `classifySidecar(url:projectURL:)` with branches for `.maugham/inbox/inbox.jsonl` → `.inbox(.manifest, …)`, `.maugham/inbox/text/*` → `.inbox(.text, …)`, `.maugham/inbox/images/*` → `.inbox(.image, …)`, `.maugham/inbox/audio/*` → `.inbox(.audio, …)`.
 - `Maugham/Stores/DocumentStore.swift` — add a `case .inbox(let kind, _):` arm in `presenterDidChangeSubitem` (currently lines 501–546); posts `Notification.Name.maughamInboxChanged` with `kind` in userInfo. `InboxStore` and `InboxTranscriptionWorker` both subscribe.
 - `Maugham/Views/DetailSegment.swift` — add `case inbox`; mirror in `Maugham/Views/DetailPaneToggle.swift` so the segment picker shows it.
-- `Maugham/MaughamApp.swift` + `Maugham/Views/ProjectWindow.swift` — bind ⌘⌥4 to `.inbox`. **Real current mapping** (verified 2026-05-29): ⌘⌥1 inspector, ⌘⌥2 *research*, ⌘⌥3 outline, ⌘⌥A annotations; `.history` and `.tasks` are `DetailSegment` cases with no shortcut. ⌘⌥4 is the next free number; the scheme is already mixed (numbers + a letter), and binding History/Tasks is out of scope here. Mount `InboxPane()` in the detail-pane host when `currentSegment == .inbox`.
+- `Maugham/Views/DetailPaneToggle.swift` — add a `.inbox` picker image with `.keyboardShortcut("6", …)`. **Real current mapping** (verified against code 2026-05-29): ⌘⌥1 inspector, ⌘⌥2 *research*, ⌘⌥3 outline, ⌘⌥4 history, ⌘⌥5 tasks, ⌘⌥A annotations. The history/tasks (and now inbox) shortcuts live on the **`DetailPaneToggle` picker images**, not the `MaughamApp` menu commands — the first validation pass only grepped `MaughamApp.swift` and wrongly concluded history/tasks were unbound. Inbox takes the next free **⌘⌥6**; no `MaughamApp` change (it follows the history/tasks picker-shortcut pattern). `DocumentStore` owns the `InboxStore` (MainActor lazy var); `DetailPaneToggle.inboxPane` mounts `InboxPane(store: ds.inboxStore)`.
 - `Maugham/OpLog/OpLogStore.swift` — `load(docId:)` globs all per-device op-log files (`d_<docId>.jsonl` + `d_<docId>.<deviceSlug>.jsonl`), merges via `JSONLAppendStore`'s existing opId-dedupe + opId-sort. `append(_:)` targets the writer's own per-device file. See §3.12 for the multi-writer partitioning rationale; the change is the only place that needs to know files are partitioned — every downstream consumer (`Deriver`, `Document.load`, `RewindWindow`) still sees a single `[Op]`.
 - `Maugham/Stores/ProjectFolderPresenter.swift` — confirm directory-level subscription to `.maugham/ops/`. New per-device files appear at runtime; the presenter must fire `presenterDidChangeSubitem` for siblings it has never seen before. If today's implementation watches a fixed set of paths, broaden to directory-level. (Likely already directory-level; needs verification at Phase B0.)
 - `CLAUDE.md` — new "iPhone companion" section between "Releases" and "Architectural tripwires"; three additions to "Questions you do not need to ask"; two new tripwires (#17 and #18, see §6 — main is already through #16). Per-area pointer for `MaughamPhone/`.
@@ -277,7 +277,7 @@ Keeping the generic store's per-file behavior intact and overriding the cross-fi
 
 ### 3.4 Mac-side triage UI
 
-The right-pane mode pattern is established (ADR 0005): the detail pane swaps content based on `currentSegment: DetailSegment`. Existing segments (verified 2026-05-29): `.inspector` (⌘⌥1), `.research` (⌘⌥2), `.outline` (⌘⌥3), `.annotations` (⌘⌥A), plus `.history` and `.tasks` (no shortcut). New: `.inbox` (⌘⌥4).
+The right-pane mode pattern is established (ADR 0005): the detail pane swaps content based on `segment: DetailSegment` in `DetailPaneToggle`. Existing segments (verified against code 2026-05-29): `.inspector` (⌘⌥1), `.research` (⌘⌥2), `.outline` (⌘⌥3), `.history` (⌘⌥4), `.tasks` (⌘⌥5), `.annotations` (⌘⌥A). New: `.inbox` (⌘⌥6).
 
 **Segment unread badge.** The `.inbox` segment in `DetailPaneToggle` shows a numeric badge with `InboxStore.entries.count` (entries with `status == .new`). The badge is the discoverability signal for "captures came in while you were writing" — without it, the inbox segment is buried in the picker and the writer would never know to look. Badge cap at "99+" if count exceeds 99 (avoids layout reflow). Disappears at count 0.
 
@@ -996,7 +996,7 @@ MAC
     → MaughamSidecarPath classifies as .inbox(.audio, …)
     → DocumentStore.presenterDidChangeSubitem posts maughamInboxChanged{kind: .audio}
   InboxStore subscribes, calls refresh() → entries: [entry01HQR…J9]
-  InboxPane (⌘⌥4) row appears: "rewrite the opening on the train" with draft badge.
+  InboxPane (⌘⌥6) row appears: "rewrite the opening on the train" with draft badge.
   InboxTranscriptionWorker subscribes, enqueues job for id 01HQR…J9.
     → WhisperKit transcribes the .m4a → "Rewrite the opening on the train."
     → InboxStore.updateTranscript(id: "01HQR…J9",
@@ -1275,9 +1275,9 @@ Segment-picker tooltips landed in `ProjectWindow` / `DetailPaneToggle`, closing 
 .help("Research · Project research browser")                              // ⌘⌥2
 .help("Outline · Document structure")                                     // ⌘⌥3
 .help("Annotations · Accept / Reject / Archive Claude's open notes")     // ⌘⌥A
-.help("History · Read-only forensic log of every op (rewind from here)")  // (no shortcut)
-.help("Tasks · Inline task anchors")                                      // (no shortcut)
-.help("Inbox · Triage captures from MaughamPhone")                        // ⌘⌥4
+.help("History · Read-only forensic log of every op (rewind from here)")  // ⌘⌥4
+.help("Tasks · Inline task anchors")                                      // ⌘⌥5
+.help("Inbox · Triage captures from MaughamPhone")                        // ⌘⌥6
 ```
 
 The phrasing differentiates **action surfaces** (Annotations, Inbox) from the **read-only
@@ -1378,7 +1378,7 @@ After milestone 4 ships and `phone-v0.1.0` is live in TestFlight:
 1. Install MaughamPhone on a real iPhone via TestFlight.
 2. Settings → Choose Projects Folder → pick an iCloud Drive folder containing a real Maugham project.
 3. Read tab → projects list populates → tap a project → binder appears → tap a manuscript → Markdown renders, paragraph anchors not visible. Open a `.fountain` → semantic styling correct (scene heading bold + uppercased, character centered + bold, dialogue indented, parenthetical italic + further indented).
-4. Capture tab → quick text "Test from phone" → Save. Within ~30s, Mac (with the project open) shows the entry in InboxPane (⌘⌥4).
+4. Capture tab → quick text "Test from phone" → Save. Within ~30s, Mac (with the project open) shows the entry in InboxPane (⌘⌥6).
 5. Capture → photo → take a photo. Mac InboxPane shows thumbnail.
 6. Capture → voice → record 10s. On phone, draft transcript appears within ~1s of Stop. On Mac, draft appears in InboxPane immediately on sync; WhisperKit transcript replaces it within ~30s of first run (longer if model is downloading), ~5s of subsequent runs.
 7. Mac: right-click row → Promote to research → file moves into `research/`, Research pane shows it, InboxPane removes the row.
