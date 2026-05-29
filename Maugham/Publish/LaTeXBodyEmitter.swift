@@ -11,7 +11,7 @@ public enum LaTeXBodyEmitter {
     public static func emit(_ ast: ProjectAST, config: PublishConfig = PublishConfig()) -> String {
         var lines: [String] = []
         for (index, section) in ast.sections.enumerated() {
-            emit(section: section, isFirst: index == 0, into: &lines)
+            emit(section: section, isFirst: index == 0, config: config, into: &lines)
         }
         return lines.joined(separator: "\n")
     }
@@ -19,20 +19,29 @@ public enum LaTeXBodyEmitter {
     // MARK: - section
 
     private static func emit(section: ProjectAST.Section, isFirst: Bool,
-                             into out: inout [String]) {
+                             config: PublishConfig, into out: inout [String]) {
+        let ov = config.sections[section.pieceID]
         // Each piece starts on a fresh page. The first piece follows the
         // frontmatter (which already broke the page) so it's skipped to avoid
-        // a leading blank page. This is what makes pieces start on their own
-        // pages without any per-section start_on configuration.
-        if !isFirst { out.append("\\clearpage") }
-        let title = LaTeXEscape.escape(section.title)
+        // a leading blank page. The break honors the per-section `start_on`
+        // override: `.recto`/`.verso` need global page parity so they live in
+        // config; `.any` (the default) is a plain page break.
+        if !isFirst {
+            switch ov?.startOn ?? .any {
+            case .recto: out.append("\\cleardoublepage")
+            case .verso: out.append("\\cleardoublepage\\thispagestyle{empty}\\null\\clearpage")
+            case .any:   out.append("\\clearpage")
+            }
+        }
+        let title = LaTeXEscape.escape(ov?.titleOverride ?? section.title)
+        let opt = (ov?.includeInToc == false) ? "[notoc]" : ""
         switch section.mode {
         case .prose:
-            out.append("\\begin{prose}{\(title)}")
+            out.append("\\begin{prose}\(opt){\(title)}")
             for node in section.nodes { emit(node: node, into: &out) }
             out.append("\\end{prose}")
         case .fountain:
-            out.append("\\begin{screenplay}{\(title)}")
+            out.append("\\begin{screenplay}\(opt){\(title)}")
             for node in section.nodes { emit(node: node, into: &out) }
             out.append("\\end{screenplay}")
         }
