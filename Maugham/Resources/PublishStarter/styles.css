@@ -1,0 +1,39 @@
+/* Barebones EPUB stylesheet. Thesis-grade typography — explicitly NOT
+   the "Maugham look". Claude is expected to rewrite per project. */
+
+body {
+  font-family: serif;
+  font-size: 1em;
+  line-height: 1.45;
+  margin: 1em;
+}
+
+h1 { font-size: 1.5em; margin-top: 2em; }
+h2 { font-size: 1.25em; margin-top: 1.5em; }
+
+p { margin: 0.5em 0; text-indent: 0; }
+
+section.prose p + p { text-indent: 1.5em; }
+
+hr.scene-break {
+  border: none;
+  text-align: center;
+  margin: 1em 0;
+}
+hr.scene-break::after { content: "* * *"; }
+
+section.screenplay {
+  font-family: monospace;
+}
+section.screenplay p.scene-heading {
+  font-weight: bold;
+  text-transform: uppercase;
+  margin-top: 1em;
+}
+section.screenplay p.character {
+  text-transform: uppercase;
+  margin-left: 25%;
+}
+section.screenplay p.dialogue { margin-left: 15%; margin-right: 15%; }
+section.screenplay p.parenthetical { margin-left: 20%; font-style: italic; }
+section.screenplay p.transition { text-align: right; text-transform: uppercase; }

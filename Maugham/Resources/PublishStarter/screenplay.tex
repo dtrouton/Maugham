@@ -1,0 +1,53 @@
+% Screenplay environment. Body emitter wraps each fountain section in
+% \begin{screenplay}{Section Title}...\end{screenplay}. Inside it uses:
+%   \scene{INT. KITCHEN - DAY}
+%   \action{Aaron pours coffee.}
+%   \character{AARON}
+%   \dialogue{Morning.}
+%   \parenthetical{(quietly)}
+%   \transition{CUT TO:}
+%   \dualdialogue{leftBlock}{rightBlock}
+%
+% Barebones rendering is Courier 12, monospaced. Margins are tight; this is
+% NOT industry-WGA-grade — it just renders correctly.
+
+\usepackage{environ}
+
+% Screenplay body is 12pt Courier with no paragraph indentation (block
+% formatting). Element indents are measured from the 1in page margin so they
+% land at the standard US-screenplay positions on US Letter:
+%   action/scene 1.5"  dialogue 2.5"  parenthetical 3.0"  character 3.7"
+% (i.e. add the 1in margin: indent-from-margin = position - 1in).
+% \ttfamily (not \fontfamily{cmtt}): tectonic runs XeTeX with Unicode (TU)
+% font encoding, where the legacy `cmtt` family has no font shape and LaTeX
+% silently falls back to the serif default. \ttfamily resolves through the
+% configured monospace font (Latin Modern Mono), which exists under TU.
+%
+% Piece title is unnumbered by default (\pieceheading is defined in prose.tex,
+% which is \input'd first). The optional first arg `notoc` suppresses the ToC
+% entry — the emitter passes \begin{screenplay}[notoc]{Title} when a section
+% sets include_in_toc:false. The default `toc` produces heading + ToC entry.
+\makeatletter
+\newcommand{\screenplay@toc}{toc}
+\NewEnviron{screenplay}[2][toc]{%
+  \def\screenplay@arg{#1}%
+  \ifx\screenplay@arg\screenplay@toc \pieceheading{#2}\else \pieceheadingnotoc{#2}\fi
+  \begingroup
+  \ttfamily\fontsize{12pt}{14pt}\selectfont
+  \setlength{\parindent}{0pt}%
+  \BODY
+  \endgroup
+}
+\makeatother
+
+\newcommand{\scene}[1]{\par\vspace{\baselineskip}\noindent\textbf{\MakeUppercase{#1}}\par\vspace{0.5\baselineskip}}
+\newcommand{\action}[1]{\par\noindent #1\par\vspace{0.5\baselineskip}}
+\newcommand{\character}[1]{\par\vspace{0.5\baselineskip}\hspace*{2.7in}\MakeUppercase{#1}\par}
+\newcommand{\parenthetical}[1]{\par\hspace*{2in}#1\par}
+\newcommand{\dialogue}[1]{\par\hspace*{1.5in}\begin{minipage}[t]{3.5in}#1\end{minipage}\par}
+\newcommand{\transition}[1]{\par\vspace{0.5\baselineskip}\hfill\MakeUppercase{#1}\par\vspace{0.5\baselineskip}}
+\newcommand{\dualdialogue}[2]{%
+  \par\noindent
+  \begin{minipage}[t]{0.45\textwidth}#1\end{minipage}\hfill
+  \begin{minipage}[t]{0.45\textwidth}#2\end{minipage}\par
+}

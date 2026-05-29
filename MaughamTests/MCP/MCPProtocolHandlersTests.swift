@@ -38,7 +38,17 @@ final class MCPProtocolHandlersTests: XCTestCase {
             "link_research", "unlink_research", "list_all_links",
             "add_comment", "add_suggested_change", "add_query",
             "add_craft_note", "list_annotations", "get_annotation",
-            "list_tasks", "get_task"
+            "list_tasks", "get_task",
+            "initialize_publish_template",
+            "get_publish_config", "set_publish_config",
+            "list_publish_files", "read_publish_file",
+            "read_publish_image", "write_publish_file",
+            "delete_publish_file",
+            "compile", "preview_compile",
+            "compile_status", "compile_cancel",
+            "list_publications", "read_publication_page", "republish",
+            "set_piece_style", "clear_piece_style",
+            "list_maugham_tools"
         ]))
     }
 
@@ -49,7 +59,7 @@ final class MCPProtocolHandlersTests: XCTestCase {
               case .array(let tools) = obj["tools"] else {
             return XCTFail("expected {tools: [...]}")
         }
-        XCTAssertEqual(tools.count, 22)
+        XCTAssertEqual(tools.count, 40)
         for t in tools {
             guard case .object(let o) = t else { return XCTFail("tool not object") }
             XCTAssertNotNil(o["name"])
@@ -92,9 +102,89 @@ final class MCPProtocolHandlersTests: XCTestCase {
             _ = try await MCPToolsCallHandler.handle(
                 paramsJSON: Data(req.utf8), router: router)
             XCTFail("expected throw")
-        } catch {
-            // Either methodNotFound or invalidArgument is acceptable;
-            // the point is we don't return a success response.
+        } catch MCPRouterError.methodNotFound {
+            // Protocol-level failure: stays as JSON-RPC error so the
+            // wire-level method-not-found semantics are preserved.
         }
+    }
+
+    func test_toolsCall_invalidArgument_becomesStructuredIsErrorResult() async throws {
+        let router = MCPRouter()
+        router.register(method: "bad") { _ in
+            throw MCPError.invalidArgument("project_id required")
+        }
+        let req = #"{"name":"bad","arguments":{}}"#
+        let resp = try await MCPToolsCallHandler.handle(
+            paramsJSON: Data(req.utf8), router: router)
+        let any = try JSONDecoder().decode(AnyJSON.self, from: resp)
+        guard case .object(let obj) = any else {
+            return XCTFail("expected object envelope, got: \(any)")
+        }
+        // isError must be true.
+        guard case .bool(let isErr) = obj["isError"], isErr else {
+            return XCTFail("expected isError=true; got \(String(describing: obj["isError"]))")
+        }
+        // Content block carries the structured payload as text.
+        guard case .array(let content) = obj["content"],
+              case .object(let block) = content.first ?? .null,
+              case .string(let text) = block["text"] else {
+            return XCTFail("expected content block with text payload")
+        }
+        let payload = try JSONSerialization.jsonObject(
+            with: Data(text.utf8)) as? [String: Any] ?? [:]
+        XCTAssertEqual(payload["error"] as? String, "invalid_argument")
+        XCTAssertEqual(payload["message"] as? String, "project_id required")
+    }
+
+    func test_toolsCall_genericSwiftError_becomesStructuredInternalError() async throws {
+        struct Boom: Error { let why: String }
+        let router = MCPRouter()
+        router.register(method: "boom") { _ in
+            throw Boom(why: "kaboom")
+        }
+        let req = #"{"name":"boom","arguments":{}}"#
+        let resp = try await MCPToolsCallHandler.handle(
+            paramsJSON: Data(req.utf8), router: router)
+        let any = try JSONDecoder().decode(AnyJSON.self, from: resp)
+        guard case .object(let obj) = any,
+              case .bool(true) = obj["isError"] ?? .null,
+              case .array(let content) = obj["content"],
+              case .object(let block) = content.first ?? .null,
+              case .string(let text) = block["text"] else {
+            return XCTFail("expected isError=true with text payload, got \(any)")
+        }
+        let payload = try JSONSerialization.jsonObject(
+            with: Data(text.utf8)) as? [String: Any] ?? [:]
+        XCTAssertEqual(payload["error"] as? String, "internal_error")
+        XCTAssertTrue((payload["message"] as? String ?? "").contains("kaboom"))
+    }
+
+    func test_toolsCall_toolErrorPayload_passesThroughUnchanged() async throws {
+        let router = MCPRouter()
+        let custom = MCPError.ToolErrorPayload(
+            error: "paragraph_not_found",
+            message: "paragraph X is gone",
+            hint: "re-read the document",
+            fields: ["paragraph_id": .string("X")])
+        router.register(method: "anno") { _ in
+            throw MCPError.toolError(payload: custom)
+        }
+        let req = #"{"name":"anno","arguments":{}}"#
+        let resp = try await MCPToolsCallHandler.handle(
+            paramsJSON: Data(req.utf8), router: router)
+        let any = try JSONDecoder().decode(AnyJSON.self, from: resp)
+        guard case .object(let obj) = any,
+              case .bool(true) = obj["isError"] ?? .null,
+              case .array(let content) = obj["content"],
+              case .object(let block) = content.first ?? .null,
+              case .string(let text) = block["text"] else {
+            return XCTFail("expected isError=true with text payload, got \(any)")
+        }
+        let payload = try JSONSerialization.jsonObject(
+            with: Data(text.utf8)) as? [String: Any] ?? [:]
+        XCTAssertEqual(payload["error"] as? String, "paragraph_not_found")
+        XCTAssertEqual(payload["message"] as? String, "paragraph X is gone")
+        XCTAssertEqual(payload["hint"] as? String, "re-read the document")
+        XCTAssertEqual(payload["paragraph_id"] as? String, "X")
     }
 }

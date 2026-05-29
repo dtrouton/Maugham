@@ -55,7 +55,25 @@ public enum MCPToolCatalog {
         ListAnnotationsTool.self,
         GetAnnotationTool.self,
         ListTasksTool.self,
-        GetTaskTool.self
+        GetTaskTool.self,
+        InitializePublishTemplateTool.self,
+        GetPublishConfigTool.self,
+        SetPublishConfigTool.self,
+        ListPublishFilesTool.self,
+        ReadPublishFileTool.self,
+        ReadPublishImageTool.self,
+        WritePublishFileTool.self,
+        DeletePublishFileTool.self,
+        CompileTool.self,
+        PreviewCompileTool.self,
+        CompileStatusTool.self,
+        CompileCancelTool.self,
+        ListPublicationsTool.self,
+        ReadPublicationPageTool.self,
+        RepublishTool.self,
+        SetPieceStyleTool.self,
+        ClearPieceStyleTool.self,
+        ListMaughamToolsTool.self
     ]
 
     /// Registers every catalog tool on the given router. Called from

@@ -13,6 +13,9 @@ struct ScreenplayPieceInspector: View {
                     synopsisSection(piece: piece)
                     statusSection(piece: piece)
                     pageTargetSection(piece: piece)
+                    InspectorPublishSection(
+                        projectURL: store.url,
+                        selectedPieceID: piece.id)
                     Spacer(minLength: 0)
                 }
                 .padding(16)

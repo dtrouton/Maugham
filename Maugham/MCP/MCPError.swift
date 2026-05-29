@@ -86,6 +86,19 @@ public enum MCPError: Error, Equatable {
 
     // MARK: - Convenience constructors
 
+    /// `unknown_project_id` — caller passed a project_id that isn't in
+    /// this server's registry. Note: project_id namespaces are per-server
+    /// (stable `maugham` and dev `maugham-dev` keep separate registries
+    /// for their respective open projects), so an ID returned by one
+    /// server's `list_projects` will not be valid on the other.
+    public static func unknownProjectID(_ id: String) -> MCPError {
+        .toolError(payload: .init(
+            error: "unknown_project_id",
+            message: "Project ID '\(id)' is not open on this server.",
+            hint: "Call list_projects on the same server you're calling this tool on. The stable (maugham) and dev (maugham-dev) servers maintain separate project registries; an ID from one is not valid on the other.",
+            fields: ["project_id": .string(id)]))
+    }
+
     /// `paragraph_not_found` — caller passed a paragraph_id that isn't in
     /// the current document sequence. Most common cause: the agent cached
     /// IDs from an earlier read_document response and the document has

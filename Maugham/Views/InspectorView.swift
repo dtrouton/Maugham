@@ -87,6 +87,13 @@ struct InspectorView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                if PublishStarter.isInitialized(in: store.url) {
+                    Section("Publishing") {
+                        InspectorPublishSection(
+                            projectURL: store.url,
+                            selectedPieceID: item.id)
+                    }
+                }
             } else if let item = currentItem {
                 Section("Group") {
                     LabeledContent("Title", value: item.title)

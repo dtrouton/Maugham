@@ -62,6 +62,12 @@ struct CollectionBinderPaneToggle: View {
                         onAddPiece: onAddPiece)
                 }
             }
+            // Exports footer, shown only on the Pieces segment.
+            if segment == .manuscript
+                && PublishStarter.isInitialized(in: store.url) {
+                Divider()
+                ExportsListView(projectURL: store.url)
+            }
         }
         .onChange(of: store.trashEntries.count) { _, newValue in
             if newValue == 0 && segment == .trash {

@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "metadata": {
+    "title": "Untitled",
+    "subtitle": null,
+    "author": "",
+    "copyright": null,
+    "isbn": null,
+    "publisher": null,
+    "year": null,
+    "language": "en",
+    "keywords": []
+  },
+  "outputs": {
+    "directory": "Exports",
+    "filename_template": "{title}-v{version}{label_suffix}.{ext}",
+    "sanitize_spaces": false,
+    "formats_enabled": ["pdf", "epub"]
+  },
+  "cover": {
+    "path": "cover.jpg",
+    "epub_specific_path": null
+  },
+  "sections": {},
+  "epub_overrides": {
+    "metadata": {},
+    "cover": null
+  },
+  "next_version": "0.1",
+  "active_label_hint": null
+}
