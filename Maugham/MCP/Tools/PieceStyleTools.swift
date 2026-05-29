@@ -43,16 +43,23 @@ public enum SetPieceStyleTool: MCPTool {
             throw MCPError.invalidArgument("unknown project_id")
         }
 
+        // Validate that the piece_id is a real manifest document — fail loudly on unknown ids
+        // so callers don't write orphaned style files keyed to non-existent pieces.
+        let docs = ProjectStore.collectDocuments(in: entry.store.manifest.structure)
+        guard let item = docs.first(where: { $0.id == params.pieceID }) else {
+            throw MCPError.invalidArgument(
+                "no piece '\(params.pieceID)' in this project; call get_outline for valid piece ids")
+        }
+
         let store = PublishConfigStore(projectURL: entry.url)
         let cfg = (try await store.load()) ?? PublishConfig()
 
-        // Resolve filename: explicit, else a deterministic slug of the title.
+        // Resolve filename: explicit, else a deterministic slug of the manifest item's title.
         let name: String
         if let explicit = params.filename, !explicit.isEmpty {
             name = explicit
         } else {
-            let title = cfg.sections[params.pieceID]?.titleOverride ?? params.pieceID
-            name = PieceStyleSlug.slug(title) + ".tex"
+            name = PieceStyleSlug.slug(item.title) + ".tex"
         }
 
         let rel = "pieces/\(name)"

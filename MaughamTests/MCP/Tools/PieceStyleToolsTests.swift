@@ -8,6 +8,10 @@ final class PieceStyleToolsTests: XCTestCase {
     var registry: ProjectRegistry!
     var pid: String!
     var projectURL: URL!
+    /// The real piece id from the novel project's manifest (e.g. "doc-XXXXXXXX").
+    var realPieceID: String!
+    /// The title of that piece ("Chapter 1" for a novel project).
+    var realPieceTitle: String!
 
     override func setUp() async throws {
         tmp = FileManager.default.temporaryDirectory
@@ -18,6 +22,10 @@ final class PieceStyleToolsTests: XCTestCase {
         registry = ProjectRegistry()
         registry.register(url: projectURL, store: store)
         pid = ProjectIdentifier.id(for: projectURL)
+        // Extract the real piece id + title from the manifest so tests don't use synthetic ids.
+        let docs = ProjectStore.collectDocuments(in: store.manifest.structure)
+        realPieceID = docs.first!.id
+        realPieceTitle = docs.first!.title
     }
 
     override func tearDown() async throws {
@@ -46,7 +54,8 @@ final class PieceStyleToolsTests: XCTestCase {
     }
 
     func test_setPieceStyle_writesFileAndWiresConfig() async throws {
-        let params = #"{"project_id":"\#(pid!)","piece_id":"ab12","content":"% piece style","filename":"tribute.tex"}"#
+        // Uses realPieceID from the manifest — synthetic ids ("ab12") now correctly throw.
+        let params = #"{"project_id":"\#(pid!)","piece_id":"\#(realPieceID!)","content":"% piece style","filename":"tribute.tex"}"#
         let data = try await SetPieceStyleTool.handle(
             paramsJSON: Data(params.utf8), registry: registry)
         let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -57,14 +66,15 @@ final class PieceStyleToolsTests: XCTestCase {
                       "pieces/tribute.tex should exist")
 
         let cfg = try await PublishConfigStore(projectURL: projectURL).load()
-        XCTAssertEqual(cfg?.sections["ab12"]?.styleFile, "tribute.tex")
+        XCTAssertEqual(cfg?.sections[realPieceID]?.styleFile, "tribute.tex")
     }
 
     func test_setPieceStyle_overwriteSendsPriorToTrash() async throws {
-        let p1 = #"{"project_id":"\#(pid!)","piece_id":"ab12","content":"%v1","filename":"tribute.tex"}"#
+        // Uses realPieceID from the manifest — synthetic ids ("ab12") now correctly throw.
+        let p1 = #"{"project_id":"\#(pid!)","piece_id":"\#(realPieceID!)","content":"%v1","filename":"tribute.tex"}"#
         _ = try await SetPieceStyleTool.handle(paramsJSON: Data(p1.utf8), registry: registry)
 
-        let p2 = #"{"project_id":"\#(pid!)","piece_id":"ab12","content":"%v2","filename":"tribute.tex"}"#
+        let p2 = #"{"project_id":"\#(pid!)","piece_id":"\#(realPieceID!)","content":"%v2","filename":"tribute.tex"}"#
         _ = try await SetPieceStyleTool.handle(paramsJSON: Data(p2.utf8), registry: registry)
 
         let fileURL = publishRoot.appendingPathComponent("pieces/tribute.tex")
@@ -79,15 +89,12 @@ final class PieceStyleToolsTests: XCTestCase {
     }
 
     func test_setPieceStyle_defaultFilenameIsDeterministicSlug() async throws {
-        // Give the piece a title override so the slug is deterministic.
-        let store = PublishConfigStore(projectURL: projectURL)
-        var cfg = PublishConfig()
-        var sec = PublishConfig.Section()
-        sec.titleOverride = "A Tribute!"
-        cfg.sections["ab12"] = sec
-        try await store.save(cfg)
+        // Uses realPieceID (e.g. "doc-XXXXXXXX") + realPieceTitle ("Chapter 1") from manifest.
+        // The slug is derived from the manifest item's title, so "Chapter 1" -> "chapter-1.tex".
+        // Synthetic ids ("ab12") now correctly throw; titleOverride is no longer consulted for slug.
+        let expectedSlug = PieceStyleSlug.slug(realPieceTitle) + ".tex"
 
-        let params = #"{"project_id":"\#(pid!)","piece_id":"ab12","content":"% gen"}"#
+        let params = #"{"project_id":"\#(pid!)","piece_id":"\#(realPieceID!)","content":"% gen"}"#
         _ = try await SetPieceStyleTool.handle(paramsJSON: Data(params.utf8), registry: registry)
         _ = try await SetPieceStyleTool.handle(paramsJSON: Data(params.utf8), registry: registry)
 
@@ -97,27 +104,28 @@ final class PieceStyleToolsTests: XCTestCase {
             .filter { $0.hasSuffix(".tex") }
         XCTAssertEqual(names.count, 1,
                        "same title -> same file, no duplicate; got \(names)")
-        XCTAssertEqual(names.first, "a-tribute.tex",
-                       "deterministic slug expected; got \(names)")
+        XCTAssertEqual(names.first, expectedSlug,
+                       "deterministic slug from piece title expected; got \(names)")
 
-        let cfgAfter = try await store.load()
-        XCTAssertEqual(cfgAfter?.sections["ab12"]?.styleFile, "a-tribute.tex")
+        let cfgAfter = try await PublishConfigStore(projectURL: projectURL).load()
+        XCTAssertEqual(cfgAfter?.sections[realPieceID]?.styleFile, expectedSlug)
     }
 
     // MARK: - clear_piece_style
 
     func test_clearPieceStyle_unwiresAndTrashesOrphanFile() async throws {
-        let setP = #"{"project_id":"\#(pid!)","piece_id":"ab12","content":"%x","filename":"t.tex"}"#
+        // Uses realPieceID from the manifest — synthetic ids ("ab12") now correctly throw.
+        let setP = #"{"project_id":"\#(pid!)","piece_id":"\#(realPieceID!)","content":"%x","filename":"t.tex"}"#
         _ = try await SetPieceStyleTool.handle(paramsJSON: Data(setP.utf8), registry: registry)
 
-        let clearP = #"{"project_id":"\#(pid!)","piece_id":"ab12"}"#
+        let clearP = #"{"project_id":"\#(pid!)","piece_id":"\#(realPieceID!)"}"#
         let data = try await ClearPieceStyleTool.handle(paramsJSON: Data(clearP.utf8), registry: registry)
         let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         XCTAssertEqual(resp?["status"] as? String, "cleared")
         XCTAssertEqual(resp?["deleted_file"] as? Bool, true)
 
         let cfg = try await PublishConfigStore(projectURL: projectURL).load()
-        XCTAssertNil(cfg?.sections["ab12"]?.styleFile,
+        XCTAssertNil(cfg?.sections[realPieceID]?.styleFile,
                      "style_file should be unwired")
 
         let fileURL = publishRoot.appendingPathComponent("pieces/t.tex")
@@ -131,12 +139,18 @@ final class PieceStyleToolsTests: XCTestCase {
     }
 
     func test_clearPieceStyle_keepsFileWhenSharedByAnotherPiece() async throws {
-        let s1 = #"{"project_id":"\#(pid!)","piece_id":"ab12","content":"%shared","filename":"shared.tex"}"#
+        // Uses realPieceID from the manifest for piece 1; adds a real second document for piece 2.
+        // Synthetic ids ("ab12", "cd34") now correctly throw; both pieces must exist in the manifest.
+        let entry = registry.lookup(id: pid)!
+        let piece2 = try await entry.store.addStructureItem(
+            parentId: nil, title: "Chapter 2", kind: .document(extension: "md"))
+
+        let s1 = #"{"project_id":"\#(pid!)","piece_id":"\#(realPieceID!)","content":"%shared","filename":"shared.tex"}"#
         _ = try await SetPieceStyleTool.handle(paramsJSON: Data(s1.utf8), registry: registry)
-        let s2 = #"{"project_id":"\#(pid!)","piece_id":"cd34","content":"%shared","filename":"shared.tex"}"#
+        let s2 = #"{"project_id":"\#(pid!)","piece_id":"\#(piece2.id)","content":"%shared","filename":"shared.tex"}"#
         _ = try await SetPieceStyleTool.handle(paramsJSON: Data(s2.utf8), registry: registry)
 
-        let clearP = #"{"project_id":"\#(pid!)","piece_id":"ab12"}"#
+        let clearP = #"{"project_id":"\#(pid!)","piece_id":"\#(realPieceID!)"}"#
         let data = try await ClearPieceStyleTool.handle(paramsJSON: Data(clearP.utf8), registry: registry)
         let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         XCTAssertEqual(resp?["status"] as? String, "cleared")
@@ -144,18 +158,72 @@ final class PieceStyleToolsTests: XCTestCase {
 
         let fileURL = publishRoot.appendingPathComponent("pieces/shared.tex")
         XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path),
-                      "shared.tex must survive because cd34 still references it")
+                      "shared.tex must survive because piece2 still references it")
 
         let cfg = try await PublishConfigStore(projectURL: projectURL).load()
-        XCTAssertNil(cfg?.sections["ab12"]?.styleFile, "ab12 should be unwired")
-        XCTAssertEqual(cfg?.sections["cd34"]?.styleFile, "shared.tex",
-                       "cd34 should still reference shared.tex")
+        XCTAssertNil(cfg?.sections[realPieceID]?.styleFile, "realPieceID should be unwired")
+        XCTAssertEqual(cfg?.sections[piece2.id]?.styleFile, "shared.tex",
+                       "piece2 should still reference shared.tex")
     }
 
     func test_clearPieceStyle_noStyleFile_isNoop() async throws {
-        let clearP = #"{"project_id":"\#(pid!)","piece_id":"ab12"}"#
+        // Uses realPieceID from the manifest — consistent with the rest of the suite.
+        let clearP = #"{"project_id":"\#(pid!)","piece_id":"\#(realPieceID!)"}"#
         let data = try await ClearPieceStyleTool.handle(paramsJSON: Data(clearP.utf8), registry: registry)
         let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         XCTAssertEqual(resp?["status"] as? String, "noop")
+    }
+
+    // MARK: - New: unknown piece_id validation + default filename from title
+
+    func test_setPieceStyle_unknownPieceID_throws() async throws {
+        // "doc-deadbeef" is not a real piece in this project; the tool must reject it loudly.
+        let params = #"{"project_id":"\#(pid!)","piece_id":"doc-deadbeef","content":"% bad","filename":"bad.tex"}"#
+        do {
+            _ = try await SetPieceStyleTool.handle(paramsJSON: Data(params.utf8), registry: registry)
+            XCTFail("Expected MCPError.invalidArgument for unknown piece_id, but handle returned normally")
+        } catch MCPError.invalidArgument {
+            // Expected — correct behaviour.
+        } catch {
+            XCTFail("Expected MCPError.invalidArgument, got \(error)")
+        }
+
+        // No file should have been written.
+        let piecesDir = publishRoot.appendingPathComponent("pieces")
+        let badFile = piecesDir.appendingPathComponent("bad.tex")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: badFile.path),
+                       "No file should be written for an unknown piece_id")
+
+        // Config should not have been modified for the bogus key.
+        let cfg = try await PublishConfigStore(projectURL: projectURL).load()
+        XCTAssertNil(cfg?.sections["doc-deadbeef"],
+                     "Config must not be modified for an unknown piece_id")
+    }
+
+    func test_setPieceStyle_defaultFilename_usesPieceTitle() async throws {
+        // Without an explicit filename, the slug comes from the manifest item's title, not the raw id.
+        // Novel project: title is "Chapter 1" -> slug "chapter-1" -> "chapter-1.tex".
+        let expectedSlug = PieceStyleSlug.slug(realPieceTitle) + ".tex"
+
+        let params = #"{"project_id":"\#(pid!)","piece_id":"\#(realPieceID!)","content":"% auto"}"#
+        let data = try await SetPieceStyleTool.handle(paramsJSON: Data(params.utf8), registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(resp?["status"] as? String, "set")
+        XCTAssertEqual(resp?["style_file"] as? String, expectedSlug,
+                       "returned style_file should be the title-derived slug, not the raw piece id")
+
+        // File must exist at the title-derived name.
+        let fileURL = publishRoot.appendingPathComponent("pieces/\(expectedSlug)")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path),
+                      "pieces/\(expectedSlug) should exist")
+
+        // Raw id-named file must NOT exist.
+        let idFile = publishRoot.appendingPathComponent("pieces/\(realPieceID!).tex")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: idFile.path),
+                       "No file should be named after the raw piece id")
+
+        // Config must wire the real piece id to the title-slug file name.
+        let cfg = try await PublishConfigStore(projectURL: projectURL).load()
+        XCTAssertEqual(cfg?.sections[realPieceID]?.styleFile, expectedSlug)
     }
 }
