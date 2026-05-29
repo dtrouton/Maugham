@@ -17,7 +17,6 @@ struct InboxPane: View {
     let projectStore: ProjectStore
 
     @State private var editing: InboxEntry?
-    @State private var draftTranscript: String = ""
     @State private var audio = InboxAudioPlayer()
     @State private var promoteError: String?
 
@@ -45,7 +44,17 @@ struct InboxPane: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .task { await store.refresh() }
         .onDisappear { audio.stop() }
-        .sheet(item: $editing) { entry in editTranscriptSheet(entry) }
+        .sheet(item: $editing) { entry in
+            // Seed the editor from the entry at sheet-init time (a self-contained
+            // subview) so it always opens with the existing transcript — a single
+            // imperative @State set just before presenting `.sheet(item:)` doesn't
+            // reliably propagate before the sheet's first render.
+            EditTranscriptSheet(initialText: entry.transcript ?? "") { newText in
+                // A manual edit makes the writer the owner: mark .userEdited so the
+                // transcription worker never overwrites it with a later Whisper result.
+                Task { await store.updateTranscript(id: entry.id, text: newText, state: .userEdited) }
+            }
+        }
         .alert("Couldn’t promote", isPresented: Binding(
             get: { promoteError != nil }, set: { if !$0 { promoteError = nil } })
         ) {
@@ -108,7 +117,7 @@ struct InboxPane: View {
         .contextMenu {
             Button("Promote to Research") { promote(entry) }
             if entry.kind == .audio {
-                Button("Edit Transcript…") { beginEditing(entry) }
+                Button("Edit Transcript…") { editing = entry }
             }
             Divider()
             Button("Trash", role: .destructive) {
@@ -125,35 +134,6 @@ struct InboxPane: View {
             do { try await store.promoteToResearch(entry, projectStore: projectStore) }
             catch { promoteError = error.localizedDescription }
         }
-    }
-
-    private func beginEditing(_ entry: InboxEntry) {
-        draftTranscript = entry.transcript ?? ""
-        editing = entry
-    }
-
-    private func editTranscriptSheet(_ entry: InboxEntry) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Edit Transcript").font(.headline)
-            TextEditor(text: $draftTranscript)
-                .font(.body)
-                .frame(minWidth: 360, minHeight: 160)
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
-            HStack {
-                Spacer()
-                Button("Cancel") { editing = nil }
-                Button("Save") {
-                    let id = entry.id
-                    let text = draftTranscript
-                    // A manual edit makes the writer the owner: mark .userEdited so the
-                    // transcription worker never overwrites it with a later Whisper result.
-                    Task { await store.updateTranscript(id: id, text: text, state: .userEdited) }
-                    editing = nil
-                }
-                .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(16)
     }
 
     // MARK: - Row presentation
@@ -184,6 +164,37 @@ struct InboxPane: View {
             return "Draft · \(relative)"
         }
         return relative
+    }
+}
+
+/// Self-contained transcript editor. Seeds its TextEditor from `initialText` at
+/// construction (via `State(initialValue:)`), so the sheet always opens with the
+/// existing transcript regardless of `.sheet(item:)` presentation timing.
+private struct EditTranscriptSheet: View {
+    @State private var text: String
+    let onSave: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    init(initialText: String, onSave: @escaping (String) -> Void) {
+        _text = State(initialValue: initialText)
+        self.onSave = onSave
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Edit Transcript").font(.headline)
+            TextEditor(text: $text)
+                .font(.body)
+                .frame(minWidth: 360, minHeight: 160)
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                Button("Save") { onSave(text); dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(16)
     }
 }
 
