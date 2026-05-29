@@ -59,7 +59,7 @@ final class ExportsListViewTests: XCTestCase {
         XCTAssertEqual(Set(entries.map(\.name)), ["Title.pdf", "Title.epub"])
     }
 
-    func testModel_sortsLexicallyDescending() throws {
+    func testModel_sortsByModificationDateDescending() throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("SortExports-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
@@ -68,12 +68,25 @@ final class ExportsListViewTests: XCTestCase {
         let exports = tmp.appendingPathComponent("Exports", isDirectory: true)
         try FileManager.default.createDirectory(
             at: exports, withIntermediateDirectories: true)
-        try Data().write(to: exports.appendingPathComponent("Book-v0.1.pdf"))
-        try Data().write(to: exports.appendingPathComponent("Book-v0.3.pdf"))
-        try Data().write(to: exports.appendingPathComponent("Book-v0.2.pdf"))
+
+        // Write three files and stamp explicit modification dates so the
+        // expected order is by recency, NOT by filename. Note the newest file
+        // (v0.2) sorts lexically BELOW v0.3 — proving we sort by mtime, not name.
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        func write(_ name: String, ageSeconds: TimeInterval) throws {
+            let url = exports.appendingPathComponent(name)
+            try Data().write(to: url)
+            try FileManager.default.setAttributes(
+                [.modificationDate: base.addingTimeInterval(ageSeconds)],
+                ofItemAtPath: url.path)
+        }
+        try write("Book-v0.1.pdf", ageSeconds: 0)      // oldest
+        try write("Book-v0.3.pdf", ageSeconds: 100)    // middle
+        try write("Book-v0.2.pdf", ageSeconds: 200)    // newest
 
         let entries = ExportsListView.Model(projectURL: tmp).scan()
         XCTAssertEqual(entries.map(\.name),
-                       ["Book-v0.3.pdf", "Book-v0.2.pdf", "Book-v0.1.pdf"])
+                       ["Book-v0.2.pdf", "Book-v0.3.pdf", "Book-v0.1.pdf"],
+                       "most recently modified file should be first, regardless of filename")
     }
 }

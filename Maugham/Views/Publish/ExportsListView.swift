@@ -10,9 +10,9 @@ import AppKit
 /// - `.maughamPublicationCompleted` notification (posted by
 ///   `CompileOrchestrator` on successful publish)
 ///
-/// Sort is lexically descending by filename, which puts newer versions first
-/// for simple "v0.N" suffixes but mis-sorts across the v0.9 → v0.10 boundary.
-/// Acceptable for v1; sort by mtime is a follow-up.
+/// Sort is by file modification date, newest first — the most recently
+/// compiled publication is always at the top, regardless of version-string
+/// quirks (e.g. v0.9 → v0.10).
 struct ExportsListView: View {
 
     let projectURL: URL
@@ -29,31 +29,39 @@ struct ExportsListView: View {
                     .padding(.vertical, 4)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                ForEach(entries) { entry in
-                    Button {
-                        NSWorkspace.shared.open(entry.url)
-                    } label: {
-                        HStack {
-                            Image(systemName: entry.icon)
-                            Text(entry.name).lineLimit(1).truncationMode(.middle)
-                            Spacer()
-                            Text(entry.size)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        Button("Reveal in Finder") {
-                            NSWorkspace.shared.activateFileViewerSelecting([entry.url])
-                        }
-                        Button("Delete…", role: .destructive) {
-                            try? FileManager.default.removeItem(at: entry.url)
-                            refresh()
+                // Bounded, scrollable list so a long publication history
+                // stays scrollable within the binder section instead of
+                // pushing the rest of the pane off-screen.
+                ScrollView {
+                    VStack(spacing: 2) {
+                        ForEach(entries) { entry in
+                            Button {
+                                NSWorkspace.shared.open(entry.url)
+                            } label: {
+                                HStack {
+                                    Image(systemName: entry.icon)
+                                    Text(entry.name).lineLimit(1).truncationMode(.middle)
+                                    Spacer()
+                                    Text(entry.size)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button("Reveal in Finder") {
+                                    NSWorkspace.shared.activateFileViewerSelecting([entry.url])
+                                }
+                                Button("Delete…", role: .destructive) {
+                                    try? FileManager.default.removeItem(at: entry.url)
+                                    refresh()
+                                }
+                            }
                         }
                     }
                 }
+                .frame(maxHeight: 220)
             }
         } label: {
             Label("Exports", systemImage: "square.and.arrow.up")
@@ -80,6 +88,7 @@ extension ExportsListView {
 
         struct Entry: Identifiable {
             let url: URL
+            let modified: Date
             var name: String { url.lastPathComponent }
             var icon: String {
                 url.pathExtension.lowercased() == "epub" ? "book" : "doc.richtext"
@@ -101,8 +110,13 @@ extension ExportsListView {
                 options: [.skipsHiddenFiles])) ?? []
             return urls
                 .filter { ["pdf", "epub"].contains($0.pathExtension.lowercased()) }
-                .map(Entry.init)
-                .sorted { $0.name > $1.name }   // newest-first by name (lexical)
+                .map { url in
+                    let mod = (try? url.resourceValues(
+                        forKeys: [.contentModificationDateKey]))?
+                        .contentModificationDate ?? .distantPast
+                    return Entry(url: url, modified: mod)
+                }
+                .sorted { $0.modified > $1.modified }   // most recently compiled first
         }
     }
 }
