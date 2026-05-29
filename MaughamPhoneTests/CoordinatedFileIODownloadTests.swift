@@ -70,6 +70,21 @@ final class CoordinatedFileIODownloadTests: XCTestCase {
         XCTAssertEqual(fs.observedStartCalls, 1, "start must be called exactly once")
     }
 
+    func test_alreadyCurrentSkipsStart() async throws {
+        // A locally-current file must yield 1.0 and finish without ever calling
+        // startDownloadingUbiquitousItem (no needless download of a present file).
+        let fs = FakeUbiquitousFileSystem(snapshots: [snap(.current)])
+        let io = CoordinatedFileIO(fileSystem: fs)
+
+        var yielded: [Double] = []
+        for try await progress in io.download(at: u("local.jsonl")) {
+            yielded.append(progress)
+        }
+
+        XCTAssertEqual(yielded, [1.0])
+        XCTAssertEqual(fs.observedStartCalls, 0, "start must not be called when already .current")
+    }
+
     func test_throwsOnDownloadError() async throws {
         let boom = FakeDownloadError(message: "boom")
         let fs = FakeUbiquitousFileSystem(snapshots: [
@@ -122,8 +137,10 @@ final class CoordinatedFileIODownloadTests: XCTestCase {
             }
         }
 
-        // Let the loop reach its first between-polls sleep, then cancel it there.
-        try await Task.sleep(for: .milliseconds(50))
+        // Let the loop reach its first between-polls sleep (100ms backoff), then
+        // cancel it there. 75ms sits safely inside that window with margin for a
+        // loaded CI runner's task-spawn latency.
+        try await Task.sleep(for: .milliseconds(75))
         consumer.cancel()
 
         let outcome = await consumer.value

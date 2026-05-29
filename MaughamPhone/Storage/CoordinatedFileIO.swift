@@ -78,6 +78,11 @@ struct CoordinatedFileIO: UbiquitousDownloader, Sendable {
                 return 1.0
             }
             try fs.startDownloadingUbiquitousItem(at: url)
+            // Falls through to poll immediately after start (no sleep yet).
+            // `startDownloadingUbiquitousItem` returns before the OS begins the
+            // transfer, so this first read typically reports .notDownloaded and
+            // yields 0.0 — a harmless leading progress value before the first
+            // backoff interval.
         } else {
             // Back off before re-polling. `Task.sleep` is also the between-polls
             // cancellation check — it throws CancellationError if cancelled.
