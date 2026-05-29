@@ -17,6 +17,9 @@ settings:
 packages:
   MaughamCore:
     path: Packages/MaughamCore
+  WhisperKit:
+    url: https://github.com/argmaxinc/WhisperKit
+    from: 0.9.0
 targets:
   Maugham:
     type: application
@@ -62,6 +65,7 @@ targets:
           - "*.md"
     dependencies:
       - package: MaughamCore
+      - package: WhisperKit
       - target: maugham-mcp
         copy:
           destination: executables

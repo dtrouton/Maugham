@@ -44,10 +44,15 @@ public final class DocumentStore {
         return w
     }
 
-    /// Production transcriber. Returns nil in Commit 1 (no WhisperKit yet) so the
-    /// worker is inert in production while remaining fully testable via injection.
-    /// Commit 2 returns a WhisperKitTranscriber (Apple-Silicon only).
-    @MainActor private static func makeTranscriber() -> Transcriber? { nil }
+    /// Production transcriber. Returns a WhisperKitTranscriber on Apple Silicon;
+    /// nil on Intel so the worker stays inert there. Fully testable via injection.
+    @MainActor private static func makeTranscriber() -> Transcriber? {
+        #if arch(arm64)
+        return WhisperKitTranscriber()
+        #else
+        return nil
+        #endif
+    }
 
     private var uiStateScheduler: DebounceScheduler<UIState>!
 
