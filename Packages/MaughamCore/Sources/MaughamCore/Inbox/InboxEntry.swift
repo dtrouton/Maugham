@@ -23,6 +23,7 @@ public struct InboxEntry: Codable, Equatable, Sendable, Identifiable {
         case none
         case onDeviceDraft = "on_device_draft"
         case whisperFinal = "whisper_final"
+        case userEdited = "user_edited"   // the writer owns this transcript; the worker leaves it alone
         case failed
     }
 

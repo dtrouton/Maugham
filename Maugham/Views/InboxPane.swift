@@ -145,10 +145,9 @@ struct InboxPane: View {
                 Button("Save") {
                     let id = entry.id
                     let text = draftTranscript
-                    // Preserve transcription state — a manual edit neither claims
-                    // Whisper-quality nor downgrades a draft.
-                    let state = entry.transcriptionState
-                    Task { await store.updateTranscript(id: id, text: text, state: state) }
+                    // A manual edit makes the writer the owner: mark .userEdited so the
+                    // transcription worker never overwrites it with a later Whisper result.
+                    Task { await store.updateTranscript(id: id, text: text, state: .userEdited) }
                     editing = nil
                 }
                 .keyboardShortcut(.defaultAction)

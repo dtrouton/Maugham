@@ -127,4 +127,13 @@ final class InboxStoreLastWinsTests: XCTestCase {
         XCTAssertEqual(store.entries.first?.transcript, "Whisper output.")
         XCTAssertEqual(store.entries.first?.transcriptionState, .whisperFinal)
     }
+
+    func test_userEdited_decodesAndRoundTrips() throws {
+        let json = #"{"id":"e","created_at":"2026-05-29T00:00:00Z","device_id":"d","kind":"audio","transcription_state":"user_edited","status":"new"}"#
+            .data(using: .utf8)!
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = .iso8601
+        let entry = try dec.decode(InboxEntry.self, from: json)
+        XCTAssertEqual(entry.transcriptionState, .userEdited)
+    }
 }
