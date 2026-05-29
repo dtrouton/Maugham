@@ -35,4 +35,28 @@ final class BodyEmitterOverrideTests: XCTestCase {
         let out = LaTeXBodyEmitter.emit(ast, config: cfg)
         XCTAssertTrue(out.contains("\\cleardoublepage"))
     }
+
+    // MARK: - XHTMLBodyEmitter overrides
+
+    func test_xhtml_titleOverride_replacesH1() {
+        var cfg = PublishConfig(); cfg.sections["ab12"] = .init(titleOverride: "New")
+        let ast = ProjectASTBuilder.build(from: SinglePieceSource(pieceID: "ab12", title: "Old", mode: .prose, text: "Body."))
+        let out = XHTMLBodyEmitter.emit(ast, config: cfg)
+        XCTAssertTrue(out.contains("<h1>New</h1>"))
+        XCTAssertFalse(out.contains("Old"))
+    }
+
+    func test_xhtml_includeInTocFalse_marksSection() {
+        var cfg = PublishConfig(); cfg.sections["ab12"] = .init(includeInToc: false)
+        let ast = ProjectASTBuilder.build(from: SinglePieceSource(pieceID: "ab12", title: "T", mode: .prose, text: "Body."))
+        let out = XHTMLBodyEmitter.emit(ast, config: cfg)
+        XCTAssertTrue(out.contains("data-toc=\"false\""))
+    }
+
+    func test_xhtml_defaultConfig_unchanged() {
+        let ast = ProjectASTBuilder.build(from: SinglePieceSource(pieceID: "ab12", title: "T", mode: .prose, text: "Body."))
+        let out = XHTMLBodyEmitter.emit(ast, config: PublishConfig())
+        XCTAssertTrue(out.contains("<h1>T</h1>"))
+        XCTAssertFalse(out.contains("data-toc"))
+    }
 }

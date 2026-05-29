@@ -8,19 +8,22 @@ public enum XHTMLBodyEmitter {
     public static func emit(_ ast: ProjectAST, config: PublishConfig = PublishConfig()) -> String {
         var lines: [String] = []
         for section in ast.sections {
-            emit(section: section, into: &lines)
+            emit(section: section, config: config, into: &lines)
         }
         return lines.joined(separator: "\n")
     }
 
-    private static func emit(section: ProjectAST.Section, into out: inout [String]) {
+    private static func emit(section: ProjectAST.Section, config: PublishConfig, into out: inout [String]) {
         let modeClass: String
         switch section.mode {
         case .prose:    modeClass = "prose"
         case .fountain: modeClass = "screenplay"
         }
-        out.append("<section class=\"\(modeClass)\" data-piece-id=\"\(XHTMLEscape.attribute(section.pieceID))\">")
-        out.append("<h1>\(XHTMLEscape.escape(section.title))</h1>")
+        let ov = config.sections[section.pieceID]
+        let tocAttr = (ov?.includeInToc == false) ? " data-toc=\"false\"" : ""
+        out.append("<section class=\"\(modeClass)\" data-piece-id=\"\(XHTMLEscape.attribute(section.pieceID))\"\(tocAttr)>")
+        let title = XHTMLEscape.escape(ov?.titleOverride ?? section.title)
+        out.append("<h1>\(title)</h1>")
         for node in section.nodes { emit(node: node, into: &out) }
         out.append("</section>")
     }
