@@ -73,6 +73,9 @@ public enum MCPToolCatalog {
         RepublishTool.self,
         SetPieceStyleTool.self,
         ClearPieceStyleTool.self,
+        ListInboxTool.self,
+        ReadInboxEntryTool.self,
+        PromoteInboxEntryTool.self,
         ListMaughamToolsTool.self
     ]
 

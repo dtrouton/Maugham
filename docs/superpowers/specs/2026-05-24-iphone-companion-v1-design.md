@@ -111,7 +111,7 @@ The dependency direction is clear: `Packages/MaughamCore` is foundational and un
 - `Maugham/OpLog/Reconciler.swift` — phone writes append to per-device op-log files; existing external-edit ingestion picks them up as it would any other external append. No classifier changes.
 - `Maugham/Editor/` — no editor changes. The phone does not edit manuscripts.
 - Op log schema — no new `OpKind` cases. Phone writes `claudeAccept` / `claudeReject` / `claudeArchive` with the existing shape. `Provenance.synthesisSource` gets no new cases; phone-originated ops carry no synthesisSource (it's optional; phone ops are not synthesized, they're user-driven).
-- MCP tool surface — no new MCP tools. Phone reads ops via direct JSONL read, writes ops via direct JSONL append. MCP and the iPhone companion are parallel surfaces, not nested.
+- MCP tool surface — *the **phone** adds no MCP tools*: it reads ops via direct JSONL read and writes via direct JSONL append (MCP and the phone are parallel surfaces, not nested). **However** (decided 2026-05-29, post-original-spec): the **Mac-side** MCP surface gains three inbox tools for Claude Desktop — `list_inbox`, `read_inbox_entry`, `promote_inbox_entry` (read + promote only; no add/trash). These let Claude triage captures into `research/` (its existing librarian role; non-destructive). They read/write only `.maugham/inbox/` + `research/`, never the manuscript. Catalog 40 → 43; `MCPProtocolHandlersTests`/`MCPToolsListSmokeTest` counts updated.
 - Existing iCloud handling — the Mac app has no iCloud entitlement today and won't get one. Project folders live at writer-chosen paths; iCloud Drive happens to sync them if they're inside it. iOS uses `UIDocumentPicker` for the same arbitrary-path access, no shared container.
 
 ---

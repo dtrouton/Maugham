@@ -118,6 +118,64 @@ final class InboxStore {
         entries.first { $0.id == id }
     }
 
+    enum InboxError: Error, LocalizedError {
+        case assetMissing(String)
+        case entryNotFound(String)
+        var errorDescription: String? {
+            switch self {
+            case .assetMissing(let n): return "Inbox asset file is missing: \(n)"
+            case .entryNotFound(let id): return "Inbox entry not found or already resolved: \(id)"
+            }
+        }
+    }
+
+    /// Move a capture into `research/` and mark the manifest row `.promoted`.
+    /// Shared by the InboxPane menu and the MCP `promote_inbox_entry` tool so
+    /// both surfaces produce identical results. Text entries become a research
+    /// `.md`; image/audio entries copy into `research/` (via the existing
+    /// `addResearchAsset` flow) and the inbox original is removed to complete
+    /// the move. Non-destructive in the failure sense: if the original removal
+    /// fails, a duplicate asset is left (harmless) rather than data lost.
+    @discardableResult
+    func promoteToResearch(_ entry: InboxEntry, projectStore: ProjectStore) async throws -> ResearchItem {
+        let created: ResearchItem
+        switch entry.kind {
+        case .text:
+            created = try await projectStore.addResearchTextNote(
+                parentId: nil, title: promotionTitle(for: entry))
+            if let path = created.path {
+                let dest = projectStore.url.appendingPathComponent(path)
+                try? (entry.inlineText ?? "").write(
+                    to: dest, atomically: true, encoding: .utf8)
+            }
+        case .image, .audio:
+            guard let asset = assetURL(for: entry),
+                  FileManager.default.fileExists(atPath: asset.path) else {
+                throw InboxError.assetMissing(entry.sourceFilename ?? entry.id)
+            }
+            // addResearchAsset copies; remove the inbox original to finish the
+            // move. The asset lives under .maugham/inbox/ and is never an open
+            // Document, so no close-before-FS guard (tripwire 14) is needed.
+            created = try await projectStore.addResearchAsset(parentId: nil, fromURL: asset)
+            try? FileManager.default.removeItem(at: asset)
+        }
+        await updateStatus(id: entry.id, to: .promoted)
+        return created
+    }
+
+    private func promotionTitle(for entry: InboxEntry) -> String {
+        if let t = entry.title, !t.isEmpty { return t }
+        let body = entry.inlineText ?? entry.transcript ?? ""
+        let firstLine = body.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
+        let trimmed = firstLine.trimmingCharacters(in: .whitespaces)
+        if !trimmed.isEmpty { return String(trimmed.prefix(60)) }
+        switch entry.kind {
+        case .image: return "Photo capture"
+        case .audio: return "Voice capture"
+        case .text:  return "Text capture"
+        }
+    }
+
     /// Absolute URL of an entry's asset file (image/audio), or nil for inline
     /// text. Used by the pane for playback and by promote/trash for relocation.
     func assetURL(for entry: InboxEntry) -> URL? {

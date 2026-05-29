@@ -139,7 +139,7 @@ struct DetailPaneToggle<Inspector: View>: View {
     @ViewBuilder
     private var inboxPane: some View {
         if let ds = documentStore {
-            InboxPane(store: ds.inboxStore)
+            InboxPane(store: ds.inboxStore, projectStore: store)
         } else {
             ContentUnavailableView(
                 "Open a project",
