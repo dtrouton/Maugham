@@ -72,7 +72,8 @@ public enum MCPToolCatalog {
         ReadPublicationPageTool.self,
         RepublishTool.self,
         SetPieceStyleTool.self,
-        ClearPieceStyleTool.self
+        ClearPieceStyleTool.self,
+        ListMaughamToolsTool.self
     ]
 
     /// Registers every catalog tool on the given router. Called from
