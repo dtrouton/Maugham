@@ -56,9 +56,25 @@
 > (op-log filename `d_` double-prefix would have silently dropped every phone
 > write — the unit round-trip missed it by bypassing the filename via Deriver).
 >
-> **The capture + read + annotation-review app is feature-complete.** The only
-> remaining work is **Phase G** (CI/release: `phone-v0.X.Y` tag namespace,
-> `phone-release.yml` GH Actions → TestFlight, signing secrets, `cut-phone-release.sh`).
+> **The capture + read + annotation-review app is feature-complete and
+> SMOKE-VERIFIED** (2026-05-30, on the iOS simulator against a staged local
+> project). Manual smoke ran the full capture→read→triage loop live and found +
+> fixed **six** real bugs the unit suite couldn't catch (commits `78c4024`,
+> `47d244c`, `6e8881d`, `60e84fc`, `fe4a379`, + the ProjectsRoot leniency):
+> non-security-scoped folder picks rejected; no refresh on folder change; the
+> **download gate failing on already-local / non-evicted files** (broke browsing
+> entirely — would hit every real user); Markdown rendered as run-together text;
+> resolved annotations lingering in the list; and a remotely-resolved annotation
+> not dropping from the list. The load-bearing annotation Accept round-trip
+> (`claude_accept` copies the change verbatim, lands in the un-double-prefixed
+> per-device file) and the cross-device race collapse were both verified on disk.
+> Capture (text/photo/voice → correct inbox rows + assets + monotonic `written_at`)
+> verified too. **Lesson reinforced: for cross-process/iCloud seams, test through
+> the real I/O path on a running build — the green unit suite hid all six.**
+>
+> **The only remaining work is **Phase G** (CI/release: `phone-v0.X.Y` tag
+> namespace, `phone-release.yml` GH Actions → TestFlight, signing secrets,
+> `cut-phone-release.sh`, **+ the MaughamPhone AppIcon** — see polish backlog).
 > Phase G is a CI/signing/distribution phase, not app code.
 >
 > **Carry-forwards into Phase G / future (final-review-surfaced):**
@@ -356,6 +372,12 @@ iOS releases use a separate tag namespace, workflow, and script — Mac releases
   answerable on the phone without opening the Mac. Read-only (triage stays
   Mac-side per the inbox MCP-scope decision); reuses `InboxEntry` + the
   per-device manifest glob.
+- **MaughamPhone app icon.** The iOS target has NO `AppIcon` asset (shows the
+  blank placeholder). Add an asset catalog with a 1024px icon + the per-variant
+  (dev/stable) treatment the Mac uses (`AppIcon`/`AppIconDev`, wired via
+  `ASSETCATALOG_COMPILER_APPICON_NAME` per config in `project.yml`). **Effectively
+  required before the Phase G TestFlight cut** — App Store Connect flags a missing
+  icon at upload — so fold it into Phase G even though it reads as polish.
 
 ## Critical correctness risks
 
