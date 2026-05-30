@@ -379,13 +379,18 @@ struct AnnotationDetailView: View {
             // Disappeared entirely (e.g. its creation op never landed locally) —
             // treat as resolved-elsewhere; nothing actionable here.
             resolvedElsewhere = true
+            onResolved()   // also let the list drop this now-stale item
             return
         }
         if fresh.status == .open {
             current = fresh
         } else {
+            // Resolved on another device since the list loaded. Hide the actions
+            // (race collapse) AND tell the list to reload so it doesn't keep
+            // showing this as open after the writer backs out.
             resolvedElsewhere = true
             current = fresh
+            onResolved()
         }
     }
 
