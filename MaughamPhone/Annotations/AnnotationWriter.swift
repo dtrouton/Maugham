@@ -15,14 +15,15 @@ import MaughamCore
 /// comment/query/craftNote there is no manuscript mutation, so `changes` is empty.
 ///
 /// Per-device partitioning (ADR 0012): the phone only ever appends to its OWN
-/// stream `.maugham/ops/d_<docId>.<deviceSlug>.jsonl`; the Mac globs siblings and
-/// merges by `opId`. Each op is encoded with `JSONLAppendStore<Op>.dateEncoding`
+/// stream `.maugham/ops/<docId>.<deviceSlug>.jsonl` (where `docId` is already the
+/// full `d_<ulid>` form); the Mac globs siblings and merges by `opId`. Each op is encoded with `JSONLAppendStore<Op>.dateEncoding`
 /// (ISO8601-with-fractional-seconds) so the Mac decodes the bytes losslessly, and
 /// appended through `CoordinatedFileIO` — the same `NSFileCoordinator` cooperation
 /// the inbox writer uses (`InboxCaptureWriter`).
 struct AnnotationWriter {
     let projectRoot: URL
-    /// The annotation's document id; the op-log file is `d_<docId>.<slug>.jsonl`.
+    /// The annotation's document id — the full `d_<ulid>` form (same string the
+    /// creation op carries in `op.docId`). The op-log file is `<docId>.<slug>.jsonl`.
     let docId: String
     /// `phone:<uuid>` (`PhoneDeviceID.current()`) — also drives the device slug.
     let deviceId: String
@@ -63,9 +64,13 @@ struct AnnotationWriter {
     }
 
     /// This device's own op-log stream for `docId`. Matches the Mac's
-    /// `OpLogStore.opLogFileURLs` per-device sibling convention.
+    /// `OpLogStore.store(forDocId:deviceSlug:)` convention EXACTLY: the file base
+    /// is the `docId` itself (already the full `d_<ulid>` form — same string the
+    /// creation op carries in `op.docId`), NOT `d_` + docId. Prepending `d_` here
+    /// would write to `d_d_<ulid>…`, a stream the Mac's `load(docId:)` glob
+    /// (`<docId>.*`) never finds — so the accept/reject would never reach the Mac.
     private var opLogURL: URL {
-        opsDir.appendingPathComponent("d_\(docId).\(DeviceSlug.make(from: deviceId)).jsonl")
+        opsDir.appendingPathComponent("\(docId).\(DeviceSlug.make(from: deviceId)).jsonl")
     }
 
     // MARK: - Pure builders (testable without I/O)

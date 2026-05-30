@@ -12,7 +12,9 @@ final class AnnotationWriterTests: XCTestCase {
     private let deviceId = "phone:TEST"
     private let appVersion = "0.1.0"
     private let osVersion = "iOS 17.4"
-    private let docId = "abcd1234"
+    // The full `d_<ulid>` form — the same string the op carries in `op.docId` and
+    // the base of the op-log filename (OpLogStore names files `<docId>.<slug>.jsonl`).
+    private let docId = "d_01HQ7T3JKM2N4P5R6S8VWX0Y2Z"
 
     private func makeWriter(projectRoot: URL = FileManager.default.temporaryDirectory) -> AnnotationWriter {
         AnnotationWriter(
@@ -207,10 +209,11 @@ final class AnnotationWriterTests: XCTestCase {
         let ann = commentAnnotation()
         let appended = try await writer.reject(ann, reason: "off-voice")
 
-        // The file must exist at .maugham/ops/d_<docId>.<slug>.jsonl.
+        // The file must exist at .maugham/ops/<docId>.<slug>.jsonl (docId already
+        // carries the d_ prefix; OpLogStore does NOT add another).
         let expectedURL = projectRoot
             .appendingPathComponent(".maugham/ops", isDirectory: true)
-            .appendingPathComponent("d_\(docId).\(DeviceSlug.make(from: deviceId)).jsonl")
+            .appendingPathComponent("\(docId).\(DeviceSlug.make(from: deviceId)).jsonl")
         XCTAssertTrue(FileManager.default.fileExists(atPath: expectedURL.path),
                       "op-log file should exist at the per-device path")
 
