@@ -42,11 +42,41 @@
 > ready-with-notes; read-path trace + tripwire-4 + download-gate + @MainActor/shared
 > instances all confirmed. Annotations tab is still a placeholder.
 >
-> **The remaining work is Phases F → G.** Start at **Phase F** (Annotations tab:
-> list Claude's open annotations across projects, Accept/Reject/Archive via op-log
-> writes, + the launch Face-ID gate). This is the milestone's correctness-critical
-> phase — give Phase F the dual-reviewer treatment (the `claudeAccept`-copies-`changes`
-> round-trip is the load-bearing test).
+> **Phase F is SHIPPED on branch `feat/iphone-companion-ios`** (not yet merged;
+> commits `a06c7da`..`d533834`). The iOS **Annotations tab** (the milestone's
+> correctness-critical phase) is done + green: `Deriver` promoted to MaughamCore
+> (shared op-replay) + `Op.Provenance.appVersion/osVersion`; `AnnotationWriter`
+> (Accept/Reject/Archive ops, per-device coordinated append, **fail-loud** on a
+> malformed suggestedChange); `AnnotationsListView` + `AnnotationDetailView`
+> (cross-device race-collapse re-derive); `LaunchAuthGate` (opt-in Face ID, 5-min
+> relock, fail-open); Settings "Security" + `NSFaceIDUsageDescription`. **120
+> MaughamPhone tests green; Mac suite still 1467 green** (no regression). F.2 got
+> the dual-reviewer treatment; the load-bearing `claudeAccept`-copies-`changes`
+> round-trip is pinned, and an **integration test caught a real cross-device bug**
+> (op-log filename `d_` double-prefix would have silently dropped every phone
+> write — the unit round-trip missed it by bypassing the filename via Deriver).
+>
+> **The capture + read + annotation-review app is feature-complete.** The only
+> remaining work is **Phase G** (CI/release: `phone-v0.X.Y` tag namespace,
+> `phone-release.yml` GH Actions → TestFlight, signing secrets, `cut-phone-release.sh`).
+> Phase G is a CI/signing/distribution phase, not app code.
+>
+> **Carry-forwards into Phase G / future (final-review-surfaced):**
+> - **`AnnotationDetailView.rederive()` doesn't `ensureDownloaded`** before reloading
+>   the op log — a freshly-evicted Mac resolution may be missed on first open (the
+>   "Already resolved on another device" won't show). Double-resolve is non-catastrophic
+>   (last-resolution-wins); pre-fault the doc's op-log URLs to close it.
+> - **Sync `coordinatedAppendLine` runs on the main actor** in AnnotationWriter +
+>   InboxCaptureWriter (~200-byte append; accepted prior art). A `nonisolated async`
+>   overload on `CoordinatedFileIO` would move it off-main.
+> - **Banner is computed-not-live** (recomputed on reload/pull-to-refresh, not a live
+>   iCloud state subscription); **"Other projects" loads eagerly** (all bookmarked
+>   projects, not lazy). Both acceptable for v1; note in G release notes.
+> - **Query "Mark answered" routes through `claudeAccept`** (reply → `userResponse`) —
+>   confirm the Mac AnnotationsPane renders `.accepted` on a `.query` correctly in the
+>   G smoke.
+> - **Manual smoke (spec §7.4 steps 7–14)** — the capture/read/annotation/race/auth/
+>   eviction smokes — are the user's to run once a TestFlight build exists (Phase G).
 >
 > **Carry-forwards into Phase F (final-review-surfaced):**
 > - **In-doc search is Fountain-only** (Markdown highlight is a TODO in
