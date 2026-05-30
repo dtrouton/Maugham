@@ -1,7 +1,10 @@
-// Maugham/OpLog/Deriver.swift
 import Foundation
-import MaughamCore
 
+/// Folds an op log into the current manuscript state (`paragraphs` + `sequence`)
+/// — the single shared op-replay. The Mac editor (`Document.load`) and the iOS
+/// reader (`AnnotationsListView`) both derive paragraph state through it; the
+/// rewind-cursor variant (`derive(ops:upTo:)`) stays Mac-side in
+/// `Deriver+Rewind.swift` because `RewindCursor` is editor-only.
 public enum Deriver {
     public struct DerivedState: Equatable, Sendable {
         public let paragraphs: [String: String]
@@ -93,30 +96,6 @@ public enum Deriver {
             sequence = synthesized
         }
         return DerivedState(paragraphs: paragraphs, sequence: sequence)
-    }
-
-    /// Derive state as it was when op `cursor` had just been applied — or
-    /// the full state when `cursor == .now`.
-    ///
-    /// Same fold semantics as `derive(ops:)`: only manuscript-mutating op
-    /// kinds contribute paragraph text; annotation creation ops are walked
-    /// for sequence/timing purposes but their `.next` is not applied.
-    ///
-    /// When `cursor` references an op_id not present in `ops`, returns the
-    /// full derivation — defensive against stale UI cursors that survived
-    /// a cross-Mac merge that compacted the source op away.
-    public static func derive(ops: [Op], upTo cursor: RewindCursor) -> DerivedState {
-        switch cursor {
-        case .now:
-            return deriveWithSequenceFallback(ops: ops)
-        case .atOp(let opId, _):
-            // Find the inclusive index of the target op.
-            guard let idx = ops.firstIndex(where: { $0.opId == opId }) else {
-                return deriveWithSequenceFallback(ops: ops)
-            }
-            let prefix = Array(ops.prefix(through: idx))
-            return deriveWithSequenceFallback(ops: prefix)
-        }
     }
 
     private static func appliesToManuscript(_ kind: OpKind) -> Bool {

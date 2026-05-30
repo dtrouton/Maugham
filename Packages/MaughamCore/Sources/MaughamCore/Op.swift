@@ -51,6 +51,12 @@ public struct Op: Codable, Equatable, Sendable {
         public let taskParentId: String?
         public let taskKind: String?
 
+        // Forensic metadata — populated only by phone-written ops (the iOS
+        // annotation-review path). Mac writes leave these nil; the deriver
+        // ignores them. Additive: existing op logs decode with both nil.
+        public let appVersion: String?
+        public let osVersion: String?
+
         enum CodingKeys: String, CodingKey {
             case sessionId = "session_id"
             case prompt
@@ -67,6 +73,8 @@ public struct Op: Codable, Equatable, Sendable {
             case taskPriority = "task_priority"
             case taskParentId = "task_parent_id"
             case taskKind = "task_kind"
+            case appVersion = "app_version"
+            case osVersion = "os_version"
         }
 
         public init(
@@ -77,7 +85,8 @@ public struct Op: Codable, Equatable, Sendable {
             userResponse: String? = nil,
             taskId: String? = nil, taskBody: String? = nil,
             taskStatus: String? = nil, taskPriority: Double? = nil,
-            taskParentId: String? = nil, taskKind: String? = nil
+            taskParentId: String? = nil, taskKind: String? = nil,
+            appVersion: String? = nil, osVersion: String? = nil
         ) {
             self.sessionId = sessionId
             self.prompt = prompt
@@ -94,6 +103,8 @@ public struct Op: Codable, Equatable, Sendable {
             self.taskPriority = taskPriority
             self.taskParentId = taskParentId
             self.taskKind = taskKind
+            self.appVersion = appVersion
+            self.osVersion = osVersion
         }
     }
 
