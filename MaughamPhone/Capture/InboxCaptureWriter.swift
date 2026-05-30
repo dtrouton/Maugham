@@ -119,10 +119,14 @@ struct InboxCaptureWriter {
         return withAsset
     }
 
-    /// Audio capture: moves the recorded `.m4a` at `tempURL` into
+    /// Audio capture: COPIES the recorded `.m4a` at `tempURL` into
     /// `inbox/audio/<id>.m4a`, then appends a manifest row. A non-nil
     /// `transcriptDraft` marks the entry `.onDeviceDraft` (a phone-side draft the
     /// Mac's worker may refine); nil leaves it `.none`.
+    ///
+    /// The writer does NOT delete `tempURL` — it can't own the recorder's
+    /// scratch. The caller is responsible for cleaning up the temp recording
+    /// after a successful (or discarded) capture.
     @discardableResult
     func writeAudio(from tempURL: URL, transcriptDraft: String?, title: String? = nil) async throws -> InboxEntry {
         let entry = buildEntry(

@@ -85,7 +85,7 @@ struct ProjectPickerSheet: View {
                 "No Projects",
                 systemImage: "folder",
                 description: Text("Projects in your synced folder will appear here."))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         } else {
             List {
                 if !sections.recent.isEmpty {
