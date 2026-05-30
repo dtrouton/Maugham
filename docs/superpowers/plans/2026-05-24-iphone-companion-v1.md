@@ -15,8 +15,43 @@
 > conformer behind a second seam), and `RecentsTracker`. 21 MaughamPhone tests
 > green; Mac suite still 1464 green (no regression). Two-stage review done per task.
 >
-> **The remaining work is the rest of the iOS app: Phases D → E → F → G.** Start
-> at **Phase D** (capture + the cold-launch driver that wires D0 together).
+> **Phase D is SHIPPED on branch `feat/iphone-companion-ios`** (not yet merged;
+> commits `92e6b1b`..`1212b46`). The iOS **capture app** is done + green:
+> `BuildVariantPhone` (bundle-id/bookmark-key knobs), `ProjectsRoot` (security-scoped
+> bookmark lifecycle behind a `BookmarkResolving` seam), `CoordinatedFileIO`
+> NSFileCoordinator read/write/appendLine wrappers, `ProjectsBrowser` (id→manifest
+> map), `InboxCaptureWriter` + `PhoneDeviceID` (phone→inbox writer; per-device JSONL,
+> monotonic `writtenAt`, assets — verified Mac-reader-compatible by round-tripping
+> through `JSONLAppendStore<InboxEntry>`), the **Capture tab** (text/photo/voice
+> sheets + project pill/picker + permissions), `ColdLaunchDownloader`, the wired
+> `MaughamPhoneApp` (shared stores + §3.13 cold-launch sequence), and the **Settings
+> tab**. **56 MaughamPhone tests green; Mac suite still 1464 green** (no regression).
+> Holistic final review: ready-with-notes, end-to-end capture path + on-disk format
+> + @MainActor/shared-instance all confirmed. Read/Annotations tabs are placeholders.
+>
+> **The remaining work is Phases E → F → G.** Start at **Phase E** (Read tab:
+> manuscripts/research browsing, Markdown + semantic-Fountain rendering).
+>
+> **Carry-forwards into Phase E/F (final-review-surfaced):**
+> - **`RecentsTracker.recordOpen` is never called yet** — Phase E's Read tab MUST
+>   call it on project/doc open so cold-launch prefetch stays warm for reading,
+>   not just capture.
+> - **`ProjectsBrowser` only refreshes at cold launch** — a project added to iCloud
+>   since launch won't appear. Phase E should call `refresh(root:)` on the Read
+>   tab's (and the picker's) `.task`/appear.
+> - **Cold-launch op-log prefetch is best-effort/fire-and-forget** — Phase F's
+>   Annotations tab must render the §3.13 download/`.downloading` banner itself
+>   (don't assume op logs are already local).
+> - **`@AppStorage("currentProjectId")` uses an empty-string sentinel** (not nil) —
+>   Phase E must guard `!isEmpty` like `CaptureView.selectedProject` does.
+> - **`ProjectsRoot` never calls `stopAccessingSecurityScopedResource`** — fine for
+>   a single lifetime-held folder grant; revisit when Phase E reads many docs across
+>   background/foreground transitions.
+> - **`ProjectsBrowser.refresh` enumerates child dirs un-coordinated** — a partial
+>   listing is possible mid-iCloud-sync; low risk, note for Phase E.
+> - Pre-existing (not Phase D): `InboxStore`/`InboxEntry` header comment says
+>   "last-wins by createdAt" but the merge actually orders by `writtenAt` — a Mac-side
+>   doc fix worth making when next touching that file.
 >
 > **Carry-forwards from D0 into Phase D (review-surfaced; none block D0):**
 > - **`RecentsTracker.openedDates` is never pruned** — stale entries outside the
