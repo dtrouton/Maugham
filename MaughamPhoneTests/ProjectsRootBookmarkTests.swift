@@ -112,19 +112,23 @@ final class ProjectsRootBookmarkTests: XCTestCase {
         XCTAssertNil(root.rootURL, "a stale bookmark must not yield a usable root")
     }
 
-    func test_resolveOnLaunch_accessDenied() {
+    func test_resolveOnLaunch_startAccessingFalse_stillAdoptsFolder() {
+        // `startAccessingSecurityScopedResource` returns false for URLs that
+        // don't need scoping (already accessible) — NOT a denial. The folder
+        // must still be adopted, or a non-scoped pick (e.g. the app's own
+        // container, which bit us in simulator smoke) silently lists nothing.
         defaults.set(Data([0x01]), forKey: bookmarkKey)
 
         let resolved = URL(fileURLWithPath: "/Users/x/iCloud/Projects")
         let resolver = FakeBookmarkResolver(
             resolve: { (resolved, false) },
-            startAccessing: { _ in false }  // denied
+            startAccessing: { _ in false }
         )
         let root = ProjectsRoot(defaults: defaults, resolver: resolver)
         root.resolveOnLaunch()
 
-        XCTAssertEqual(root.picker, .accessDenied)
-        XCTAssertNil(root.rootURL)
+        XCTAssertEqual(root.rootURL, resolved)
+        XCTAssertEqual(root.picker, .idle)
     }
 
     func test_resolveOnLaunch_resolveThrows_isResolveFailed() {

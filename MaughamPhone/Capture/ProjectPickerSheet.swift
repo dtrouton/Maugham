@@ -84,7 +84,7 @@ struct ProjectPickerSheet: View {
             ContentUnavailableView(
                 "No Projects",
                 systemImage: "folder",
-                description: Text("Projects in your synced folder will appear here."))
+                description: Text("Choose your projects folder in Settings — projects in it appear here."))
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         } else {
             List {

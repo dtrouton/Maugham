@@ -83,6 +83,14 @@ private struct RootTabView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .background { authGate.onBackground() }
         }
+        // When the writer picks a projects folder mid-session (Settings →
+        // Choose Folder sets rootURL), refresh the browser immediately so the
+        // project list + Capture pill populate without waiting for a relaunch
+        // or a visit to the Read tab.
+        .onChange(of: projectsRoot.rootURL) { _, newRoot in
+            guard let root = newRoot else { return }
+            Task { await projectsBrowser.refresh(root: root) }
+        }
     }
 
     /// Spec §3.13 cold-launch: resolve root → refresh manifests → prefetch recent

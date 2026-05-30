@@ -107,9 +107,9 @@ final class ProjectsRoot {
     /// launch. Sets `picker`/`rootURL` per the resolution outcome:
     ///   - no bookmark stored        → `.needed`
     ///   - resolves stale            → `.stale`
-    ///   - access denied             → `.accessDenied`
     ///   - resolution throws         → `.resolveFailed`
-    ///   - otherwise                 → `rootURL` set, `.idle`
+    ///   - otherwise                 → `rootURL` set, `.idle` (a `false` from
+    ///     `startAccessing` is not a denial — the folder is adopted anyway)
     func resolveOnLaunch() {
         guard let data = defaults.data(forKey: BuildVariant.current.bookmarkUserDefaultsKey) else {
             rootURL = nil
@@ -126,11 +126,12 @@ final class ProjectsRoot {
                 picker = .stale
                 return
             }
-            guard resolver.startAccessing(url) else {
-                rootURL = nil
-                picker = .accessDenied
-                return
-            }
+            // Begin security-scoped access. A `false` result is NOT a denial —
+            // `startAccessingSecurityScopedResource` returns false for URLs that
+            // don't require scoping (already accessible, e.g. a folder inside the
+            // app's own container). Adopt the folder either way; a genuine access
+            // problem surfaces later as a read failure, not here.
+            _ = resolver.startAccessing(url)
             rootURL = url
             picker = .idle
         } catch {
@@ -148,11 +149,10 @@ final class ProjectsRoot {
         let data = try resolver.makeBookmark(for: url)
         defaults.set(data, forKey: BuildVariant.current.bookmarkUserDefaultsKey)
 
-        guard resolver.startAccessing(url) else {
-            rootURL = nil
-            picker = .accessDenied
-            return
-        }
+        // `false` is not a denial (see `resolveOnLaunch`) — adopt the folder
+        // regardless so a non-security-scoped pick (e.g. the app's own container)
+        // still works.
+        _ = resolver.startAccessing(url)
         rootURL = url
         picker = .idle
     }
