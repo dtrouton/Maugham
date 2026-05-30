@@ -8,6 +8,7 @@ DerivedData/
 
 # Info.plist is owned by xcodegen — populated from project.yml on each generate
 Maugham/Info.plist
+MaughamPhone/Info.plist
 
 # Build artifacts
 build/

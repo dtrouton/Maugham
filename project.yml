@@ -144,15 +144,21 @@ targets:
         NSFaceIDUsageDescription: "Maugham uses Face ID to protect annotation review when you enable it in Settings."
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
+        # Pre-answers the App Store Connect export-compliance question so TestFlight
+        # uploads don't stall. The app uses only standard HTTPS / iCloud /
+        # LocalAuthentication — all exempt. (See docs/release-notes/phone/SETUP.md.)
+        ITSAppUsesNonExemptEncryption: false
     settings:
       configs:
         Debug:
           PRODUCT_BUNDLE_IDENTIFIER: com.maugham.MaughamPhone.dev
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) MAUGHAM_DEV_BUILD
           MAUGHAM_DISPLAY_NAME: Maugham Dev
+          ASSETCATALOG_COMPILER_APPICON_NAME: AppIconDev
         Release:
           PRODUCT_BUNDLE_IDENTIFIER: com.maugham.MaughamPhone
           MAUGHAM_DISPLAY_NAME: Maugham
+          ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     dependencies:
       - package: MaughamCore
   MaughamPhoneTests:

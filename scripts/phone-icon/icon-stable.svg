@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- MaughamPhone app icon — STABLE. The chosen "iconA-release-v3" direction:
+       serif M with a rust pilcrow (¶) tucked at the right shoulder, on warm
+       parchment. ¶ is the brand motif (paragraph IDs are the op-log's join key).
+       Full-bleed + opaque background → App-Store-safe once the alpha channel is
+       stripped at render time (see render.sh). -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f3ead6"/>
+      <stop offset="1" stop-color="#e7d6b4"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <text x="500" y="730" font-family="Iowan Old Style, Palatino, Georgia, serif" font-size="760" font-weight="700" text-anchor="middle" fill="#1c1a17">M</text>
+  <text x="712" y="600" font-family="Iowan Old Style, Palatino, Georgia, serif" font-size="350" font-weight="700" text-anchor="middle" fill="#b1542a">¶</text>
+</svg>

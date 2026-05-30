@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- MaughamPhone app icon — DEV. Same mark/geometry as icon-stable.svg, inverted
+       to deep ink so the dev build is instantly distinguishable on the home screen
+       (mirrors the Mac's AppIcon / AppIconDev split). Cream M, brightened rust ¶. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2c2720"/>
+      <stop offset="1" stop-color="#14110d"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <text x="500" y="730" font-family="Iowan Old Style, Palatino, Georgia, serif" font-size="760" font-weight="700" text-anchor="middle" fill="#efe6d0">M</text>
+  <text x="712" y="600" font-family="Iowan Old Style, Palatino, Georgia, serif" font-size="350" font-weight="700" text-anchor="middle" fill="#d2682f">¶</text>
+</svg>
