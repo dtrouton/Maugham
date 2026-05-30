@@ -1,6 +1,6 @@
 # Maugham
 
-A focus text editor for serious creative writing on macOS. Native Swift + SwiftUI + AppKit, files-as-truth on disk, designed to live alongside Claude Desktop.
+A focus text editor for serious creative writing on macOS, with an iPhone companion for capture / reading / annotation review on the go. Native Swift + SwiftUI + AppKit, files-as-truth on disk, designed to live alongside Claude Desktop.
 
 ## Status
 
@@ -36,6 +36,10 @@ Smoke a fresh build: launch → New project → Novel → "Smoke" → type a sen
     ./gen.sh
     xcodebuild -project Maugham.xcodeproj -scheme Maugham test CODE_SIGNING_ALLOWED=NO
 
+The iOS companion is a separate scheme (read [`MaughamPhone/AREA.md`](MaughamPhone/AREA.md) before editing it):
+
+    xcodebuild -project Maugham.xcodeproj -scheme MaughamPhone -destination 'platform=iOS Simulator,name=iPhone 17' test CODE_SIGNING_ALLOWED=NO
+
 ## Claude Desktop integration
 
 Maugham ships a local MCP server (`maugham-mcp`, bundled inside `Maugham.app/Contents/MacOS/`). Once configured, Claude Desktop can read your open projects (binder, manuscript, research, wiki-link graph), add research notes, and annotate the manuscript without mutating it. The manuscript itself stays yours — Claude operates in a parallel annotation layer, surfaced in Maugham's Annotations pane.
@@ -48,9 +52,11 @@ The server only runs while Maugham is running. Settings → General → "Allow C
 
 ## Layout
 
-- `Maugham/` — main app source (Swift, SwiftUI, AppKit)
+- `Maugham/` — main macOS app source (Swift, SwiftUI, AppKit)
+- `MaughamPhone/` — the iOS companion app (SwiftUI; see `MaughamPhone/AREA.md`)
+- `Packages/MaughamCore/` — Foundation-only substrate shared by both apps (op log, Fountain parser, models, `Deriver`, anchor strip, …)
 - `maugham-mcp/` — the MCP CLI binary that bridges Claude Desktop's stdio to Maugham's Unix socket
-- `MaughamTests/` — XCTest target
+- `MaughamTests/` / `MaughamPhoneTests/` — XCTest targets (Mac / iOS)
 - `project.yml` — xcodegen project description; edit this, not `Maugham.xcodeproj`
 - `docs/user-guide.md` — for writers using Maugham
 - `docs/roadmap.md` — current live roadmap (shipped + open, grouped by writer intent)
