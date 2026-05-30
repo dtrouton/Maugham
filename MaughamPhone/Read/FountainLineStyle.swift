@@ -69,6 +69,8 @@ enum FountainStyler {
             s.uppercased = true
 
         case .centered:
+            // Bold per the ScreenplayEmphasis contract (matches the Mac).
+            s.weight = .bold
             s.align = .center
 
         case .lyric:
@@ -89,6 +91,8 @@ enum FountainStyler {
         case .note:
             // v1: show dimmed (a hide toggle may come later). Not hidden so the
             // writer can see inline notes exist while reading on the phone.
+            // Italic per the ScreenplayEmphasis contract (matches the Mac).
+            s.italic = true
             s.dimmed = true
 
         case .pageBreak:
@@ -99,6 +103,8 @@ enum FountainStyler {
             // Commented-out `/* ... */` text. CHOICE: render dimmed (not hidden)
             // so the reader can see the text still exists in the manuscript,
             // consistent with how `.note` is surfaced.
+            // Italic per the ScreenplayEmphasis contract (matches the Mac).
+            s.italic = true
             s.dimmed = true
 
         case .titlePage:
