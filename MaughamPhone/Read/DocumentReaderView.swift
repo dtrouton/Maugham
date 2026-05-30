@@ -24,7 +24,7 @@ struct DocumentReaderView: View {
     private enum LoadState {
         case downloading(Double?)
         case loading
-        case markdown(AttributedString)
+        case markdown([MarkdownBlocks.Block])
         case fountain(FountainScript)
         /// Unsupported file type rendered as plain text (friendlier than failing).
         case plain(String)
@@ -54,8 +54,8 @@ struct DocumentReaderView: View {
             downloadGate(progress: progress)
         case .loading:
             loadingView
-        case let .markdown(attributed):
-            markdownView(attributed)
+        case let .markdown(blocks):
+            markdownView(blocks)
         case let .fountain(script):
             FountainSemanticRenderer(script: script, searchQuery: searchQuery)
         case let .plain(text):
@@ -98,13 +98,43 @@ struct DocumentReaderView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func markdownView(_ attributed: AttributedString) -> some View {
+    private func markdownView(_ blocks: [MarkdownBlocks.Block]) -> some View {
         ScrollView {
-            Text(attributed)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(20)
+            VStack(alignment: .leading, spacing: 14) {
+                ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+                    switch block {
+                    case let .heading(level, text):
+                        Text(text)
+                            .font(Self.headingFont(level)).bold()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    case let .paragraph(md):
+                        Text(Self.inlineEmphasis(md))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+            .textSelection(.enabled)
+            .padding(20)
         }
+    }
+
+    private static func headingFont(_ level: Int) -> Font {
+        switch level {
+        case 1: return .title
+        case 2: return .title2
+        case 3: return .title3
+        default: return .headline
+        }
+    }
+
+    /// Inline emphasis (`*italic*`, `**bold**`, links) for one paragraph, without
+    /// block re-interpretation — `inlineOnlyPreservingWhitespace` keeps the
+    /// paragraph's text intact. Falls back to plain text on a parse failure.
+    private static func inlineEmphasis(_ markdown: String) -> AttributedString {
+        (try? AttributedString(
+            markdown: markdown,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+            ?? AttributedString(markdown)
     }
 
     private func plainView(_ text: String) -> some View {
@@ -183,20 +213,10 @@ struct DocumentReaderView: View {
             // Shared display strip (paragraph + task anchors) — the same
             // MarkdownDisplayFilter the Mac editor's RenderFilter uses, so the
             // two surfaces never drift and the phone strips task anchors too.
-            let stripped = MarkdownDisplayFilter.stripAnchors(text)
-            // Full markdown so headings/lists/emphasis render. Fall back to the
-            // stripped plain text if the markdown parse throws (malformed input).
-            if let attributed = try? AttributedString(
-                markdown: stripped,
-                options: AttributedString.MarkdownParsingOptions(
-                    interpretedSyntax: .full,
-                    failurePolicy: .returnPartiallyParsedIfPossible
-                )
-            ) {
-                state = .markdown(attributed)
-            } else {
-                state = .markdown(AttributedString(stripped))
-            }
+            // Split into block elements so paragraph breaks + headings survive
+            // (AttributedString(markdown:) alone collapses blocks into one run).
+            // Inline emphasis is applied per-paragraph in the renderer.
+            state = .markdown(MarkdownBlocks.parse(MarkdownDisplayFilter.stripAnchors(text)))
         case .fountain:
             let script = FountainTokenizer().parse(text)
             state = .fountain(script)
