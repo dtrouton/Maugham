@@ -201,11 +201,13 @@ struct CoordinatedFileIO: UbiquitousDownloader, Sendable {
     ) async throws -> Double? {
         if state.finished { return nil }
 
-        // First call: fast-path the already-current case, else kick off the
-        // download before the first poll.
+        // First call: if the file is already locally readable, finish at once —
+        // ONLY an evicted placeholder (.notDownloaded) needs a fetch. This is
+        // what makes the reader work for non-iCloud (local) folders and for
+        // already-downloaded iCloud files, not just evicted placeholders.
         if !state.started {
             state.started = true
-            if fs.downloadSnapshot(at: url).status == .current {
+            if Self.isLocallyReady(fs.downloadSnapshot(at: url), url: url, fs: fs) {
                 state.finished = true
                 return 1.0
             }
@@ -224,7 +226,7 @@ struct CoordinatedFileIO: UbiquitousDownloader, Sendable {
 
         let snapshot = fs.downloadSnapshot(at: url)
         if let error = snapshot.error { throw error }
-        if snapshot.status == .current {
+        if Self.isLocallyReady(snapshot, url: url, fs: fs) {
             state.finished = true
             return 1.0
         }
@@ -235,5 +237,22 @@ struct CoordinatedFileIO: UbiquitousDownloader, Sendable {
             state.lastProgress = max(state.lastProgress, min(max(fraction, 0.0), 1.0))
         }
         return state.lastProgress
+    }
+
+    /// Whether `url` is readable right now without a (further) download:
+    ///   - `.current` / `.downloaded` — a local iCloud copy exists.
+    ///   - nil status + the file is present — a plain (non-ubiquitous) local file.
+    /// Only `.notDownloaded` (an evicted placeholder) is NOT ready and needs a
+    /// fetch. `URLUbiquitousItemDownloadingStatus` is a String-backed struct, not
+    /// a frozen enum, so this compares rather than exhaustively switches.
+    private static func isLocallyReady(
+        _ snapshot: UbiquitousDownloadSnapshot, url: URL, fs: UbiquitousFileSystem
+    ) -> Bool {
+        guard let status = snapshot.status else {
+            // Not a ubiquitous item — a plain local file. Ready iff it exists.
+            return fs.fileExists(at: url)
+        }
+        // `.current` / `.downloaded` are local; `.notDownloaded` is a placeholder.
+        return status != .notDownloaded
     }
 }

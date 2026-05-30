@@ -28,6 +28,11 @@ protocol UbiquitousFileSystem: Sendable {
     /// itself trigger a download.
     func downloadSnapshot(at url: URL) -> UbiquitousDownloadSnapshot
 
+    /// Whether the file exists locally on disk. Distinguishes a plain
+    /// (non-ubiquitous) local file — which has a nil downloading status but is
+    /// already readable — from a genuinely missing one.
+    func fileExists(at url: URL) -> Bool
+
     /// Best-effort byte size via `URLResourceKey.fileSizeKey`. nil if unknown.
     /// Must NOT trigger a download.
     func fileSize(at url: URL) -> Int64?
@@ -40,6 +45,10 @@ protocol UbiquitousFileSystem: Sendable {
 struct LiveUbiquitousFileSystem: UbiquitousFileSystem {
     func startDownloadingUbiquitousItem(at url: URL) throws {
         try FileManager.default.startDownloadingUbiquitousItem(at: url)
+    }
+
+    func fileExists(at url: URL) -> Bool {
+        FileManager.default.fileExists(atPath: url.path)
     }
 
     func downloadSnapshot(at url: URL) -> UbiquitousDownloadSnapshot {

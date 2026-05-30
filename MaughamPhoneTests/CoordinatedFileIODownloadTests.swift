@@ -14,11 +14,14 @@ final class FakeUbiquitousFileSystem: UbiquitousFileSystem, @unchecked Sendable 
     private(set) var startCalls = 0
     private let startError: Error?
     private let reportedSize: Int64?
+    private let exists: Bool
 
-    init(snapshots: [UbiquitousDownloadSnapshot], startError: Error? = nil, fileSize: Int64? = nil) {
+    init(snapshots: [UbiquitousDownloadSnapshot], startError: Error? = nil,
+         fileSize: Int64? = nil, fileExists: Bool = true) {
         self.snapshots = snapshots.isEmpty ? [UbiquitousDownloadSnapshot()] : snapshots
         self.startError = startError
         self.reportedSize = fileSize
+        self.exists = fileExists
     }
 
     func startDownloadingUbiquitousItem(at url: URL) throws {
@@ -32,6 +35,8 @@ final class FakeUbiquitousFileSystem: UbiquitousFileSystem, @unchecked Sendable 
         if index < snapshots.count - 1 { index += 1 }  // last element repeats
         return snap
     }
+
+    func fileExists(at url: URL) -> Bool { exists }
 
     func fileSize(at url: URL) -> Int64? { reportedSize }
 
@@ -85,6 +90,34 @@ final class CoordinatedFileIODownloadTests: XCTestCase {
         XCTAssertEqual(fs.observedStartCalls, 0, "start must not be called when already .current")
     }
 
+    func test_nonUbiquitousLocalFile_readyWithoutDownload() async throws {
+        // A plain local file (NOT an iCloud item) reports nil status. As long as
+        // it exists it's already readable — the reader must NOT call
+        // startDownloadingUbiquitousItem (which throws for non-ubiquitous items)
+        // and must finish at once. This is what broke browsing a local folder.
+        let fs = FakeUbiquitousFileSystem(snapshots: [snap(nil)], fileExists: true)
+        let io = CoordinatedFileIO(fileSystem: fs)
+
+        var yielded: [Double] = []
+        for try await progress in io.download(at: u("local.md")) { yielded.append(progress) }
+
+        XCTAssertEqual(yielded, [1.0])
+        XCTAssertEqual(fs.observedStartCalls, 0, "a present local file must not trigger a download")
+    }
+
+    func test_downloadedStatus_readyWithoutDownload() async throws {
+        // `.downloaded` (local copy exists, cloud has a newer version) is readable
+        // now — must finish, NOT poll forever waiting for `.current`.
+        let fs = FakeUbiquitousFileSystem(snapshots: [snap(.downloaded)])
+        let io = CoordinatedFileIO(fileSystem: fs)
+
+        var yielded: [Double] = []
+        for try await progress in io.download(at: u("synced.jsonl")) { yielded.append(progress) }
+
+        XCTAssertEqual(yielded, [1.0])
+        XCTAssertEqual(fs.observedStartCalls, 0)
+    }
+
     func test_throwsOnDownloadError() async throws {
         let boom = FakeDownloadError(message: "boom")
         let fs = FakeUbiquitousFileSystem(snapshots: [
@@ -115,9 +148,10 @@ final class CoordinatedFileIODownloadTests: XCTestCase {
     }
 
     func test_throwsOnCancellation() async throws {
-        // Stalls forever on .downloaded (never .current), so the loop is always
-        // mid-poll when we cancel — making the cancellation deterministic.
-        let fs = FakeUbiquitousFileSystem(snapshots: [snap(.downloaded, fraction: 0.3)])
+        // Stalls forever on .notDownloaded (an evicted placeholder that never
+        // becomes ready), so the loop is always mid-poll when we cancel — making
+        // the cancellation deterministic.
+        let fs = FakeUbiquitousFileSystem(snapshots: [snap(.notDownloaded, fraction: 0.3)])
         let io = CoordinatedFileIO(fileSystem: fs)
 
         // The contract: cancelling the consuming task stops the download and the
