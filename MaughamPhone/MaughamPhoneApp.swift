@@ -5,8 +5,8 @@ import MaughamCore
 ///
 /// Four tabs: Capture (out-and-about text/photo/voice into the project inbox),
 /// Read (browse manuscripts + research — Phase E), Annotations (triage Claude's
-/// open annotations — Phase F), Settings. Capture + Read + Settings are live;
-/// Annotations is a placeholder until Phase F lands.
+/// open annotations behind the optional Face ID gate — Phase F), Settings. All
+/// four are live.
 ///
 /// This App owns the shared stores and runs the cold-launch download sequence
 /// (spec §3.13): resolve the projects-root bookmark, refresh manifests (the
@@ -70,7 +70,7 @@ private struct RootTabView: View {
                 .tabItem { Label("Annotations", systemImage: "bubble.left.and.bubble.right") }
                 .tag(Tab.annotations)
 
-            SettingsView(projectsRoot: projectsRoot)
+            SettingsView(projectsRoot: projectsRoot, authGate: authGate)
                 .tabItem { Label("Settings", systemImage: "gearshape") }
                 .tag(Tab.settings)
         }

@@ -10,6 +10,10 @@ import MaughamCore
 @MainActor
 struct SettingsView: View {
     let projectsRoot: ProjectsRoot
+    /// Shared launch gate (also drives the Annotations tab); the Security toggle
+    /// binds to its `requireFaceId`. `@Bindable` so `$authGate.requireFaceId`
+    /// works against the `@Observable` class.
+    @Bindable var authGate: LaunchAuthGate
 
     @State private var showFolderPicker = false
 
@@ -18,6 +22,7 @@ struct SettingsView: View {
             Form {
                 projectsFolderSection
                 permissionsSection
+                securitySection
                 aboutSection
             }
             .navigationTitle("Settings")
@@ -184,6 +189,27 @@ struct SettingsView: View {
         case .denied, .restricted:  return .denied
         case .notDetermined:        return .notDetermined
         @unknown default:           return .notDetermined
+        }
+    }
+
+    // MARK: - Security (spec §3.14)
+
+    /// The opt-in per-launch Face ID gate over the Annotations tab. Disabled with
+    /// a hint when the device has no passcode set (biometrics can't be evaluated,
+    /// so the gate would fail-open anyway).
+    private var securitySection: some View {
+        Section {
+            Toggle("Require Face ID on launch", isOn: $authGate.requireFaceId)
+                .disabled(!authGate.canUseBiometrics)
+            if !authGate.canUseBiometrics {
+                Text("Set a passcode in iOS Settings to enable this option.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Security")
+        } footer: {
+            Text("When enabled, \(BuildVariant.current.displayName) asks for Face ID each time you open the app and switch to the Annotations tab. It doesn’t affect capture or reading. Your data is always protected by your iOS device passcode.")
         }
     }
 

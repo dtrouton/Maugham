@@ -16,11 +16,23 @@ struct AnnotationsListView: View {
     let recents: RecentsTracker
     let authGate: LaunchAuthGate
 
-    /// One project's open annotations plus its display name, for sectioning.
+    /// One open annotation plus the docId it came from. The detail view (F.5)
+    /// needs the docId to build its `AnnotationWriter` and to re-derive status —
+    /// the concatenation in `openAnnotations(for:)` would otherwise lose which
+    /// doc each annotation belongs to.
+    struct LoadedAnnotation: Identifiable {
+        let annotation: Annotation
+        let docId: String
+        var id: String { annotation.id }
+    }
+
+    /// One project's open annotations (each tagged with its docId) plus the
+    /// display name and folder URL, for sectioning and for the detail view.
     struct ProjectAnnotations: Identifiable {
         let id: ProjectId
         let projectName: String
-        let annotations: [Annotation]
+        let projectURL: URL
+        let annotations: [LoadedAnnotation]
     }
 
     @State private var loaded: [ProjectAnnotations] = []
@@ -118,11 +130,16 @@ struct AnnotationsListView: View {
     @ViewBuilder
     private func projectSection(_ section: ProjectAnnotations, header: String) -> some View {
         Section(header: Text(header)) {
-            ForEach(section.annotations) { annotation in
+            ForEach(section.annotations) { loaded in
                 NavigationLink {
-                    detailPlaceholder(annotation, projectName: section.projectName)
+                    AnnotationDetailView(
+                        annotation: loaded.annotation,
+                        projectId: section.id,
+                        projectURL: section.projectURL,
+                        docId: loaded.docId,
+                        recents: recents)
                 } label: {
-                    AnnotationRow(annotation: annotation, projectName: section.projectName)
+                    AnnotationRow(annotation: loaded.annotation, projectName: section.projectName)
                 }
             }
         }
@@ -157,23 +174,6 @@ struct AnnotationsListView: View {
         case .failed: return "exclamationmark.icloud"
         case .none: return "icloud"
         }
-    }
-
-    // MARK: - F.5 seam
-
-    /// Placeholder detail. F.5 builds `AnnotationDetailView` (the Accept / Reject
-    /// / Archive action surface wired to `AnnotationWriter`) and replaces this
-    /// call site — the `NavigationLink` destination is the only thing that
-    /// changes; the row + sectioning stay.
-    @ViewBuilder
-    private func detailPlaceholder(_ annotation: Annotation, projectName: String) -> some View {
-        // F.5: AnnotationDetailView(annotation: annotation, project: …, writer: …)
-        ScrollView {
-            Text(annotation.body)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding()
-        }
-        .navigationTitle(projectName)
     }
 
     // MARK: - Sectioning
@@ -213,6 +213,7 @@ struct AnnotationsListView: View {
                 results.append(ProjectAnnotations(
                     id: project.id,
                     projectName: project.manifest.title,
+                    projectURL: project.url,
                     annotations: anns))
             }
         }
@@ -223,14 +224,14 @@ struct AnnotationsListView: View {
     /// Open annotations for one project: enumerate its `.maugham/ops/` filenames,
     /// resolve the distinct doc ids, fault each doc's op-log files in
     /// (best-effort), load + derive, and concatenate.
-    private func openAnnotations(for project: BrowsedProject) async -> [Annotation] {
+    private func openAnnotations(for project: BrowsedProject) async -> [LoadedAnnotation] {
         let opsDir = project.url.appendingPathComponent(".maugham/ops", isDirectory: true)
         let filenames = (try? FileManager.default.contentsOfDirectory(atPath: opsDir.path)) ?? []
         let docIds = AnnotationLoading.docIds(inOpsDirectoryFilenames: filenames)
         guard !docIds.isEmpty else { return [] }
 
         let store = OpLogStore(projectURL: project.url)
-        var all: [Annotation] = []
+        var all: [LoadedAnnotation] = []
         for docId in docIds {
             // Fault each per-device op-log file in before reading: an evicted
             // iCloud file reads as empty bytes with NO error, silently rendering
@@ -240,7 +241,10 @@ struct AnnotationsListView: View {
                 try? await downloads.ensureDownloaded(url)
             }
             guard let ops = try? await store.load(docId: docId) else { continue }
-            all.append(contentsOf: AnnotationLoading.openAnnotations(ops: ops))
+            // Tag each annotation with its docId so the detail view can build a
+            // writer for the right op-log stream.
+            all.append(contentsOf: AnnotationLoading.openAnnotations(ops: ops)
+                .map { LoadedAnnotation(annotation: $0, docId: docId) })
         }
         return all
     }

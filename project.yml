@@ -141,6 +141,7 @@ targets:
         NSSpeechRecognitionUsageDescription: "Maugham transcribes your voice notes on-device so you can confirm what you said before it syncs."
         NSCameraUsageDescription: "Maugham captures photo references — whiteboards, book pages, locations — straight into your project's inbox."
         NSPhotoLibraryUsageDescription: "Maugham attaches photos from your library as reference captures in your project's inbox."
+        NSFaceIDUsageDescription: "Maugham uses Face ID to protect annotation review when you enable it in Settings."
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
     settings:
