@@ -35,6 +35,10 @@ struct AnnotationDetailView: View {
     let docId: String
     let recents: RecentsTracker
     var io: CoordinatedFileIO = .live
+    /// Called after THIS view resolves the annotation (accept/reject/archive), so
+    /// the list can reload and drop the now-resolved item from the open set —
+    /// the visible "handled" signal. Default no-op for previews/tests.
+    var onResolved: () -> Void = {}
 
     /// The freshest copy we have. Starts as the loaded `annotation`; replaced by
     /// the re-derived value (or left as-is if the reload fails / can't find it).
@@ -66,7 +70,8 @@ struct AnnotationDetailView: View {
         projectURL: URL,
         docId: String,
         recents: RecentsTracker,
-        io: CoordinatedFileIO = .live
+        io: CoordinatedFileIO = .live,
+        onResolved: @escaping () -> Void = {}
     ) {
         self.annotation = annotation
         self.projectId = projectId
@@ -74,6 +79,7 @@ struct AnnotationDetailView: View {
         self.docId = docId
         self.recents = recents
         self.io = io
+        self.onResolved = onResolved
         _current = State(initialValue: annotation)
     }
 
@@ -344,6 +350,7 @@ struct AnnotationDetailView: View {
         do {
             try await body(makeWriter())
             didResolveHere = true
+            onResolved()   // tell the list to reload so this item leaves the open set
             dismiss()
         } catch is CancelledWrite {
             // errorMessage already set by the caller.

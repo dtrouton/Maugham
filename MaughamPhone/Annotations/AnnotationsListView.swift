@@ -39,6 +39,9 @@ struct AnnotationsListView: View {
     @State private var banner: AnnotationsBanner.Banner = .none
     @State private var isLoading = false
     @State private var didLoad = false
+    /// Bumped by a detail view after it resolves an annotation, so the list
+    /// reloads and the now-resolved item drops out of the open set.
+    @State private var resolveTick = 0
 
     var body: some View {
         NavigationStack {
@@ -46,6 +49,11 @@ struct AnnotationsListView: View {
                 .navigationTitle("Annotations")
                 // Resolve the gate first; only load the (potentially large) list
                 // once we're past it. `evaluate()` is a no-op when Face ID is off.
+                .onChange(of: resolveTick) { _, _ in
+                    // A detail view just resolved an annotation — reload so it
+                    // leaves the open list.
+                    Task { if authGate.isUnlocked { await reload() } }
+                }
                 .task {
                     await authGate.evaluate()
                     if authGate.isUnlocked { await loadIfNeeded() }
@@ -137,7 +145,8 @@ struct AnnotationsListView: View {
                         projectId: section.id,
                         projectURL: section.projectURL,
                         docId: loaded.docId,
-                        recents: recents)
+                        recents: recents,
+                        onResolved: { resolveTick &+= 1 })
                 } label: {
                     AnnotationRow(annotation: loaded.annotation, projectName: section.projectName)
                 }
