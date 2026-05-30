@@ -140,6 +140,17 @@ Reliability the writer doesn't think about until it bites. Not glamorous, but ea
 
 ---
 
+## Group 5 — iPhone companion (mobile surface)
+
+A phone surface for what the desk app can't reach — capture out-and-about, read on the go, triage Claude's annotations away from the desk. Built on iCloud Drive + the op log; the manuscript stays Mac-only-for-editing. Plan: `docs/superpowers/plans/2026-05-24-iphone-companion-v1.md`; ADR [0012](adr/0012-per-device-jsonl-partitioning.md) (per-device JSONL).
+
+- ✓ **Mac groundwork** (merged 2026-05-29, merge `98128d1`) — extracted `Packages/MaughamCore` (Foundation-only shared substrate) + minted `ProjectManifest.id`; per-device JSONL partitioning so phone + Mac never conflict-twin a shared file; capture **inbox** (`InboxPane` ⌘⌥6, badge/promote/audio/edit/trash) with **WhisperKit** re-transcription behind a `Transcriber` seam; MCP 40 → 43 tools (`list_inbox`/`read_inbox_entry`/`promote_inbox_entry`).
+- ✓ **iOS app — Phases D0–F** (merged 2026-05-30, merge `3fff8b5`) — the `MaughamPhone` four-tab app: **Capture** (text/photo/voice → inbox; on-device speech draft), **Read** (Markdown blocks + semantic Fountain), **Annotation review** (Accept/Reject/Archive op-log writes; opt-in Face ID gate). iCloud-Drive eviction handling; security-scoped bookmarks; shared `MaughamCore`. Two anti-duplication consolidations (`Deriver` + `MarkdownDisplayFilter` promoted to MaughamCore) + the `ScreenplayEmphasis` cross-surface contract. Smoke-verified on the simulator — six real bugs found + fixed (see `MaughamPhone/AREA.md`). Mac 1467 / phone 126 tests green.
+- • **Phase G — TestFlight pipeline + AppIcon** — `phone-v0.X.Y` tag namespace, `phone-release.yml` GH Actions → TestFlight, `cut-phone-release.sh`, signing secrets, app icon. Handoff brief: `docs/superpowers/notes/2026-05-30-phase-g-handoff.md`.
+- • **Polish backlog** (uncommitted, may change) — Annotations show-resolved + undo; inbox preview in the Capture tab. See the plan's Phase H backlog.
+
+---
+
 ## Deferred surfaces (not on the roadmap)
 
 Considered and explicitly de-prioritized. Each gets a fresh brainstorm if/when prioritized.
