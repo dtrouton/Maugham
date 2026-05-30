@@ -153,6 +153,13 @@ struct DocumentReaderView: View {
 
         do {
             try await downloads.ensureDownloaded(docURL)
+        } catch is CancellationError {
+            // Cancel button (or task teardown) stopped the download. Keep a
+            // readable message and don't clobber one the Cancel handler set —
+            // the two run in either order on the main actor.
+            if case .failed = state { return }
+            state = .failed("Download cancelled.")
+            return
         } catch {
             state = .failed(describe(error))
             return
