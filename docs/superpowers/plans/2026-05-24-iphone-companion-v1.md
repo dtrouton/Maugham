@@ -6,8 +6,37 @@
 > "Milestone 2 — MaughamCore + inbox + WhisperKit"; ~1463 tests; smoke Tiers 1–3
 > verified). See `memory/project_milestone_iphone_companion_mac.md`.
 >
-> **The remaining work is the iOS app itself: Phases D0 → D → E → F → G.** Start
-> at **Phase D0** (iCloud-eviction download infra) before any read tabs.
+> **Phase D0 is SHIPPED on branch `feat/iphone-companion-ios`** (not yet merged;
+> commits `66193b5`..`d9603ef`). The iOS storage substrate for iCloud-Drive
+> eviction handling (§3.13) is done + green: a minimal `MaughamPhone` app target +
+> `MaughamPhoneTests` (iOS 17, both on MaughamCore), `DownloadCoordinator` (actor;
+> dedup + 50 MB budget + AsyncStream observation, behind the `UbiquitousDownloader`
+> seam), `CoordinatedFileIO` + `UbiquitousFileSystem` (the production download/poll
+> conformer behind a second seam), and `RecentsTracker`. 21 MaughamPhone tests
+> green; Mac suite still 1464 green (no regression). Two-stage review done per task.
+>
+> **The remaining work is the rest of the iOS app: Phases D → E → F → G.** Start
+> at **Phase D** (capture + the cold-launch driver that wires D0 together).
+>
+> **Carry-forwards from D0 into Phase D (review-surfaced; none block D0):**
+> - **`RecentsTracker.openedDates` is never pruned** — stale entries outside the
+>   14-day window accumulate. Negligible for v1; prune on load/`recordOpen` when
+>   convenient.
+> - **`CoordinatedFileIO` file-deleted-mid-poll → infinite `0.0`** — if a file
+>   vanishes between start and poll, `resourceValues` returns nil-status forever
+>   (no `.current`, no error). Add a `fileExists`/max-retry guard when the
+>   NSFileCoordinator read/write wrappers land here (noted in commit `d48a507`).
+> - **`UbiquitousDownloader.fileSize` returns `Int64?`** — the cold-launch driver
+>   must pick a `sizeHint` convention when size is nil (0 = always passes the
+>   budget gate, vs. a conservative estimate). Document the choice in Phase D.
+> - **`RecentsTracker.recents` is `@MainActor`** — the cold-launch Task must hop
+>   `await MainActor.run { tracker.recents }` before walking op-log URLs off-main.
+> - **`MaughamPhone/Info.plist` permission strings hardcode "Maugham"** — they read
+>   "Maugham" even in dev builds (display name "Maugham Dev"). Fix via
+>   `$(MAUGHAM_DISPLAY_NAME)` / a strings file when `BuildVariantPhone.swift` lands.
+> - Phase D still owes `BuildVariantPhone.swift` (phone bundle ids + bookmark keys),
+>   `ProjectsRoot`/`ProjectsBrowser`, and `CoordinatedFileIO`'s NSFileCoordinator
+>   read/write wrappers (marker comment in place).
 >
 > **Settled facts for the iOS session — read the shipped types, don't re-derive:**
 > - `Packages/MaughamCore` is the Foundation-only shared package; the new
