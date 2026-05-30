@@ -180,7 +180,10 @@ struct DocumentReaderView: View {
         // script in @State (tripwire 4); the renderer never re-parses.
         switch BinderRouting.kind(of: docURL) {
         case .markdown:
-            let stripped = ParagraphAnchorStripper.strip(text)
+            // Shared display strip (paragraph + task anchors) — the same
+            // MarkdownDisplayFilter the Mac editor's RenderFilter uses, so the
+            // two surfaces never drift and the phone strips task anchors too.
+            let stripped = MarkdownDisplayFilter.stripAnchors(text)
             // Full markdown so headings/lists/emphasis render. Fall back to the
             // stripped plain text if the markdown parse throws (malformed input).
             if let attributed = try? AttributedString(
