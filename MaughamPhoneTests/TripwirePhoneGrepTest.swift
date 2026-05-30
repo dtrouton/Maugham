@@ -1,0 +1,46 @@
+import XCTest
+
+/// Mirrors the Mac-side tripwire-13 enforcement (CLAUDE.md): no hardcoded
+/// `"maugham"` / `"Maugham"` identity-string literals in MaughamPhone sources —
+/// all six variant-dependent values route through `BuildVariant`, and the phone
+/// bundle-id literals live only in `BuildVariantPhone.swift`.
+///
+/// iOS can't spawn `grep` (there is no `Process` on iOS), so this scans the
+/// source tree in pure Swift via `#filePath`. The simulator shares the host
+/// filesystem, so the compile-time absolute path still resolves at runtime —
+/// the same trick `EmissionContractTests` uses on the Mac.
+final class TripwirePhoneGrepTest: XCTestCase {
+    func test_noHardcodedIdentityStringsInPhoneSources() throws {
+        // .../MaughamPhoneTests/TripwirePhoneGrepTest.swift → repoRoot/MaughamPhone
+        let here = URL(fileURLWithPath: #filePath)
+        let repoRoot = here.deletingLastPathComponent().deletingLastPathComponent()
+        let sourceDir = repoRoot.appendingPathComponent("MaughamPhone", isDirectory: true)
+
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: sourceDir,
+                                         includingPropertiesForKeys: nil) else {
+            return XCTFail("could not enumerate \(sourceDir.path) — is the source layout intact?")
+        }
+
+        // The one sanctioned home for the phone bundle-id literals.
+        let allowedFile = "BuildVariantPhone.swift"
+        var offenders: [String] = []
+
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            if url.lastPathComponent == allowedFile { continue }
+            let text = try String(contentsOf: url, encoding: .utf8)
+            for (index, line) in text.split(separator: "\n",
+                                            omittingEmptySubsequences: false).enumerated() {
+                if line.contains("\"maugham\"") || line.contains("\"Maugham\"") {
+                    offenders.append("\(url.lastPathComponent):\(index + 1): "
+                                     + line.trimmingCharacters(in: .whitespaces))
+                }
+            }
+        }
+
+        XCTAssertTrue(offenders.isEmpty,
+                      "Hardcoded \"maugham\"/\"Maugham\" identity strings found "
+                      + "(route them through BuildVariant):\n"
+                      + offenders.joined(separator: "\n"))
+    }
+}
