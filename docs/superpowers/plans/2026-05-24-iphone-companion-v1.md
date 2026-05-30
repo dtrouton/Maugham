@@ -29,8 +29,42 @@
 > Holistic final review: ready-with-notes, end-to-end capture path + on-disk format
 > + @MainActor/shared-instance all confirmed. Read/Annotations tabs are placeholders.
 >
-> **The remaining work is Phases E → F → G.** Start at **Phase E** (Read tab:
-> manuscripts/research browsing, Markdown + semantic-Fountain rendering).
+> **Phase E is SHIPPED on branch `feat/iphone-companion-ios`** (not yet merged;
+> commits `e8c60a5`..`ca6e965`). The iOS **Read tab** is done + green: pure helpers
+> (`ParagraphAnchorStripper` matching the real `<!-- ¶id -->` format,
+> `FountainStyler` §3.8 element→style mapping, `BinderRouting`), `DocumentReaderView`
+> (download-gated: `ensureDownloaded` + `observe` progress + Cancel → `coordinatedRead`
+> → anchor-stripped Markdown via `AttributedString` / Fountain parsed once in `.task`,
+> tripwire 4), `FountainSemanticRenderer`, `ProjectsListView` (refresh-on-appear +
+> pull-to-refresh — closes a D carry-forward) and `BinderView` (StructureItem tree +
+> Research section; `recordOpen` wired — closes another). **92 MaughamPhone tests
+> green; Mac suite still 1464 green** (no regression). Holistic final review:
+> ready-with-notes; read-path trace + tripwire-4 + download-gate + @MainActor/shared
+> instances all confirmed. Annotations tab is still a placeholder.
+>
+> **The remaining work is Phases F → G.** Start at **Phase F** (Annotations tab:
+> list Claude's open annotations across projects, Accept/Reject/Archive via op-log
+> writes, + the launch Face-ID gate). This is the milestone's correctness-critical
+> phase — give Phase F the dual-reviewer treatment (the `claudeAccept`-copies-`changes`
+> round-trip is the load-bearing test).
+>
+> **Carry-forwards into Phase F (final-review-surfaced):**
+> - **In-doc search is Fountain-only** (Markdown highlight is a TODO in
+>   `DocumentReaderView`); not needed for annotations but note it.
+> - **Cold-launch op-log prefetch is best-effort** — the Annotations tab MUST run
+>   its own `ensureDownloaded` + §3.13 download banner per op-log file; don't assume
+>   the prefetch made them local.
+> - **`ProjectsBrowser.manifestFileName = "project.maugham.json"`** is a local literal
+>   (drift risk) — Phase F will read more sidecar paths (`.maugham/ops/d_*.jsonl`);
+>   resolve them through a shared constant / `MaughamSidecarPath` rather than new
+>   literals. `OpReplay.buildState(ops:)` still needs adding to MaughamCore (spec
+>   §3.9 / critical-files) — it does NOT exist yet.
+> - **`"path:"`-fallback project ids** (for manifests the Mac hasn't re-opened since
+>   the `id` field shipped) won't match a later Mac-minted `ProjectManifest.id` —
+>   don't assume fallback ids are stable across Mac reopens when reconciling
+>   annotation `projectId` references.
+> - Research flattening drops group headers; `visibleLines` recomputes per body
+>   pass (sub-ms; fine) — minor, revisit only if Phase F adds annotation overlays.
 >
 > **Carry-forwards into Phase E/F (final-review-surfaced):**
 > - **`RecentsTracker.recordOpen` is never called yet** — Phase E's Read tab MUST
