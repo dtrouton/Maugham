@@ -298,6 +298,22 @@ public struct ScreenplayMode: WritingMode {
         return width / CGFloat(sample.count)
     }
 
+    /// Test seam for the cross-surface `ScreenplayEmphasis` contract: the
+    /// bold/italic this editor applies to `element`, read off the resolved font
+    /// traits. Layout (indents/alignment) and palette colour are intentionally
+    /// out of the contract and not reflected here. See `ScreenplayEmphasis` and
+    /// `ScreenplayEmphasisContractTests`.
+    func contractEmphasis(for element: ScreenplayElement) -> ScreenplayEmphasis {
+        let base = baseFont(for: .screenplayDefaults)
+        let attrs = attributes(
+            for: element, isDualSecond: false, palette: .light,
+            baseFont: base, charWidth: Self.charWidth(font: base),
+            typography: .screenplayDefaults)
+        let traits = (attrs[.font] as? NSFont)?.fontDescriptor.symbolicTraits ?? []
+        return ScreenplayEmphasis(
+            bold: traits.contains(.bold), italic: traits.contains(.italic))
+    }
+
     private func attributes(
         for element: ScreenplayElement,
         isDualSecond: Bool,

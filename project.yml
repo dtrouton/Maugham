@@ -3,6 +3,7 @@ options:
   bundleIdPrefix: com.maugham
   deploymentTarget:
     macOS: "14.0"
+    iOS: "17.0"
   createIntermediateGroups: true
   generateEmptyDirectories: true
 settings:
@@ -116,6 +117,57 @@ targets:
         BUNDLE_LOADER: $(TEST_HOST)
         TEST_HOST: $(BUILT_PRODUCTS_DIR)/Maugham.app/Contents/MacOS/Maugham
         GENERATE_INFOPLIST_FILE: YES
+  MaughamPhone:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: MaughamPhone
+        excludes:
+          - Info.plist
+          - "**/AREA.md"
+    info:
+      path: MaughamPhone/Info.plist
+      properties:
+        CFBundleDisplayName: $(MAUGHAM_DISPLAY_NAME)
+        CFBundleShortVersionString: "0.0.0-dev"
+        CFBundleVersion: "1"
+        LSRequiresIPhoneOS: true
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UIApplicationSupportsIndirectInputEvents: true
+        NSMicrophoneUsageDescription: "Maugham records voice notes so you can capture ideas out loud; they sync to your project's inbox."
+        NSSpeechRecognitionUsageDescription: "Maugham transcribes your voice notes on-device so you can confirm what you said before it syncs."
+        NSCameraUsageDescription: "Maugham captures photo references — whiteboards, book pages, locations — straight into your project's inbox."
+        NSPhotoLibraryUsageDescription: "Maugham attaches photos from your library as reference captures in your project's inbox."
+        NSFaceIDUsageDescription: "Maugham uses Face ID to protect annotation review when you enable it in Settings."
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+    settings:
+      configs:
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: com.maugham.MaughamPhone.dev
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) MAUGHAM_DEV_BUILD
+          MAUGHAM_DISPLAY_NAME: Maugham Dev
+        Release:
+          PRODUCT_BUNDLE_IDENTIFIER: com.maugham.MaughamPhone
+          MAUGHAM_DISPLAY_NAME: Maugham
+    dependencies:
+      - package: MaughamCore
+  MaughamPhoneTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: MaughamPhoneTests
+    dependencies:
+      - target: MaughamPhone
+    settings:
+      base:
+        BUNDLE_LOADER: $(TEST_HOST)
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/MaughamPhone.app/MaughamPhone
+        GENERATE_INFOPLIST_FILE: YES
 schemes:
   Maugham:
     build:
@@ -129,3 +181,14 @@ schemes:
       config: Debug
       targets:
         - MaughamTests
+  MaughamPhone:
+    build:
+      targets:
+        MaughamPhone: all
+        MaughamPhoneTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - MaughamPhoneTests

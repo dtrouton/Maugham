@@ -6,8 +6,152 @@
 > "Milestone 2 — MaughamCore + inbox + WhisperKit"; ~1463 tests; smoke Tiers 1–3
 > verified). See `memory/project_milestone_iphone_companion_mac.md`.
 >
-> **The remaining work is the iOS app itself: Phases D0 → D → E → F → G.** Start
-> at **Phase D0** (iCloud-eviction download infra) before any read tabs.
+> **Phase D0 is SHIPPED on branch `feat/iphone-companion-ios`** (not yet merged;
+> commits `66193b5`..`d9603ef`). The iOS storage substrate for iCloud-Drive
+> eviction handling (§3.13) is done + green: a minimal `MaughamPhone` app target +
+> `MaughamPhoneTests` (iOS 17, both on MaughamCore), `DownloadCoordinator` (actor;
+> dedup + 50 MB budget + AsyncStream observation, behind the `UbiquitousDownloader`
+> seam), `CoordinatedFileIO` + `UbiquitousFileSystem` (the production download/poll
+> conformer behind a second seam), and `RecentsTracker`. 21 MaughamPhone tests
+> green; Mac suite still 1464 green (no regression). Two-stage review done per task.
+>
+> **Phase D is SHIPPED on branch `feat/iphone-companion-ios`** (not yet merged;
+> commits `92e6b1b`..`1212b46`). The iOS **capture app** is done + green:
+> `BuildVariantPhone` (bundle-id/bookmark-key knobs), `ProjectsRoot` (security-scoped
+> bookmark lifecycle behind a `BookmarkResolving` seam), `CoordinatedFileIO`
+> NSFileCoordinator read/write/appendLine wrappers, `ProjectsBrowser` (id→manifest
+> map), `InboxCaptureWriter` + `PhoneDeviceID` (phone→inbox writer; per-device JSONL,
+> monotonic `writtenAt`, assets — verified Mac-reader-compatible by round-tripping
+> through `JSONLAppendStore<InboxEntry>`), the **Capture tab** (text/photo/voice
+> sheets + project pill/picker + permissions), `ColdLaunchDownloader`, the wired
+> `MaughamPhoneApp` (shared stores + §3.13 cold-launch sequence), and the **Settings
+> tab**. **56 MaughamPhone tests green; Mac suite still 1464 green** (no regression).
+> Holistic final review: ready-with-notes, end-to-end capture path + on-disk format
+> + @MainActor/shared-instance all confirmed. Read/Annotations tabs are placeholders.
+>
+> **Phase E is SHIPPED on branch `feat/iphone-companion-ios`** (not yet merged;
+> commits `e8c60a5`..`ca6e965`). The iOS **Read tab** is done + green: pure helpers
+> (`ParagraphAnchorStripper` matching the real `<!-- ¶id -->` format,
+> `FountainStyler` §3.8 element→style mapping, `BinderRouting`), `DocumentReaderView`
+> (download-gated: `ensureDownloaded` + `observe` progress + Cancel → `coordinatedRead`
+> → anchor-stripped Markdown via `AttributedString` / Fountain parsed once in `.task`,
+> tripwire 4), `FountainSemanticRenderer`, `ProjectsListView` (refresh-on-appear +
+> pull-to-refresh — closes a D carry-forward) and `BinderView` (StructureItem tree +
+> Research section; `recordOpen` wired — closes another). **92 MaughamPhone tests
+> green; Mac suite still 1464 green** (no regression). Holistic final review:
+> ready-with-notes; read-path trace + tripwire-4 + download-gate + @MainActor/shared
+> instances all confirmed. Annotations tab is still a placeholder.
+>
+> **Phase F is SHIPPED on branch `feat/iphone-companion-ios`** (not yet merged;
+> commits `a06c7da`..`d533834`). The iOS **Annotations tab** (the milestone's
+> correctness-critical phase) is done + green: `Deriver` promoted to MaughamCore
+> (shared op-replay) + `Op.Provenance.appVersion/osVersion`; `AnnotationWriter`
+> (Accept/Reject/Archive ops, per-device coordinated append, **fail-loud** on a
+> malformed suggestedChange); `AnnotationsListView` + `AnnotationDetailView`
+> (cross-device race-collapse re-derive); `LaunchAuthGate` (opt-in Face ID, 5-min
+> relock, fail-open); Settings "Security" + `NSFaceIDUsageDescription`. **120
+> MaughamPhone tests green; Mac suite still 1467 green** (no regression). F.2 got
+> the dual-reviewer treatment; the load-bearing `claudeAccept`-copies-`changes`
+> round-trip is pinned, and an **integration test caught a real cross-device bug**
+> (op-log filename `d_` double-prefix would have silently dropped every phone
+> write — the unit round-trip missed it by bypassing the filename via Deriver).
+>
+> **The capture + read + annotation-review app is feature-complete and
+> SMOKE-VERIFIED** (2026-05-30, on the iOS simulator against a staged local
+> project). Manual smoke ran the full capture→read→triage loop live and found +
+> fixed **six** real bugs the unit suite couldn't catch (commits `78c4024`,
+> `47d244c`, `6e8881d`, `60e84fc`, `fe4a379`, + the ProjectsRoot leniency):
+> non-security-scoped folder picks rejected; no refresh on folder change; the
+> **download gate failing on already-local / non-evicted files** (broke browsing
+> entirely — would hit every real user); Markdown rendered as run-together text;
+> resolved annotations lingering in the list; and a remotely-resolved annotation
+> not dropping from the list. The load-bearing annotation Accept round-trip
+> (`claude_accept` copies the change verbatim, lands in the un-double-prefixed
+> per-device file) and the cross-device race collapse were both verified on disk.
+> Capture (text/photo/voice → correct inbox rows + assets + monotonic `written_at`)
+> verified too. **Lesson reinforced: for cross-process/iCloud seams, test through
+> the real I/O path on a running build — the green unit suite hid all six.**
+>
+> **The only remaining work is **Phase G** (CI/release: `phone-v0.X.Y` tag
+> namespace, `phone-release.yml` GH Actions → TestFlight, signing secrets,
+> `cut-phone-release.sh`, **+ the MaughamPhone AppIcon** — see polish backlog).
+> Phase G is a CI/signing/distribution phase, not app code.
+>
+> **Carry-forwards into Phase G / future (final-review-surfaced):**
+> - **`AnnotationDetailView.rederive()` doesn't `ensureDownloaded`** before reloading
+>   the op log — a freshly-evicted Mac resolution may be missed on first open (the
+>   "Already resolved on another device" won't show). Double-resolve is non-catastrophic
+>   (last-resolution-wins); pre-fault the doc's op-log URLs to close it.
+> - **Sync `coordinatedAppendLine` runs on the main actor** in AnnotationWriter +
+>   InboxCaptureWriter (~200-byte append; accepted prior art). A `nonisolated async`
+>   overload on `CoordinatedFileIO` would move it off-main.
+> - **Banner is computed-not-live** (recomputed on reload/pull-to-refresh, not a live
+>   iCloud state subscription); **"Other projects" loads eagerly** (all bookmarked
+>   projects, not lazy). Both acceptable for v1; note in G release notes.
+> - **Query "Mark answered" routes through `claudeAccept`** (reply → `userResponse`) —
+>   confirm the Mac AnnotationsPane renders `.accepted` on a `.query` correctly in the
+>   G smoke.
+> - **Manual smoke (spec §7.4 steps 7–14)** — the capture/read/annotation/race/auth/
+>   eviction smokes — are the user's to run once a TestFlight build exists (Phase G).
+>
+> **Carry-forwards into Phase F (final-review-surfaced):**
+> - **In-doc search is Fountain-only** (Markdown highlight is a TODO in
+>   `DocumentReaderView`); not needed for annotations but note it.
+> - **Cold-launch op-log prefetch is best-effort** — the Annotations tab MUST run
+>   its own `ensureDownloaded` + §3.13 download banner per op-log file; don't assume
+>   the prefetch made them local.
+> - **`ProjectsBrowser.manifestFileName = "project.maugham.json"`** is a local literal
+>   (drift risk) — Phase F will read more sidecar paths (`.maugham/ops/d_*.jsonl`);
+>   resolve them through a shared constant / `MaughamSidecarPath` rather than new
+>   literals. `OpReplay.buildState(ops:)` still needs adding to MaughamCore (spec
+>   §3.9 / critical-files) — it does NOT exist yet.
+> - **`"path:"`-fallback project ids** (for manifests the Mac hasn't re-opened since
+>   the `id` field shipped) won't match a later Mac-minted `ProjectManifest.id` —
+>   don't assume fallback ids are stable across Mac reopens when reconciling
+>   annotation `projectId` references.
+> - Research flattening drops group headers; `visibleLines` recomputes per body
+>   pass (sub-ms; fine) — minor, revisit only if Phase F adds annotation overlays.
+>
+> **Carry-forwards into Phase E/F (final-review-surfaced):**
+> - **`RecentsTracker.recordOpen` is never called yet** — Phase E's Read tab MUST
+>   call it on project/doc open so cold-launch prefetch stays warm for reading,
+>   not just capture.
+> - **`ProjectsBrowser` only refreshes at cold launch** — a project added to iCloud
+>   since launch won't appear. Phase E should call `refresh(root:)` on the Read
+>   tab's (and the picker's) `.task`/appear.
+> - **Cold-launch op-log prefetch is best-effort/fire-and-forget** — Phase F's
+>   Annotations tab must render the §3.13 download/`.downloading` banner itself
+>   (don't assume op logs are already local).
+> - **`@AppStorage("currentProjectId")` uses an empty-string sentinel** (not nil) —
+>   Phase E must guard `!isEmpty` like `CaptureView.selectedProject` does.
+> - **`ProjectsRoot` never calls `stopAccessingSecurityScopedResource`** — fine for
+>   a single lifetime-held folder grant; revisit when Phase E reads many docs across
+>   background/foreground transitions.
+> - **`ProjectsBrowser.refresh` enumerates child dirs un-coordinated** — a partial
+>   listing is possible mid-iCloud-sync; low risk, note for Phase E.
+> - Pre-existing (not Phase D): `InboxStore`/`InboxEntry` header comment says
+>   "last-wins by createdAt" but the merge actually orders by `writtenAt` — a Mac-side
+>   doc fix worth making when next touching that file.
+>
+> **Carry-forwards from D0 into Phase D (review-surfaced; none block D0):**
+> - **`RecentsTracker.openedDates` is never pruned** — stale entries outside the
+>   14-day window accumulate. Negligible for v1; prune on load/`recordOpen` when
+>   convenient.
+> - **`CoordinatedFileIO` file-deleted-mid-poll → infinite `0.0`** — if a file
+>   vanishes between start and poll, `resourceValues` returns nil-status forever
+>   (no `.current`, no error). Add a `fileExists`/max-retry guard when the
+>   NSFileCoordinator read/write wrappers land here (noted in commit `d48a507`).
+> - **`UbiquitousDownloader.fileSize` returns `Int64?`** — the cold-launch driver
+>   must pick a `sizeHint` convention when size is nil (0 = always passes the
+>   budget gate, vs. a conservative estimate). Document the choice in Phase D.
+> - **`RecentsTracker.recents` is `@MainActor`** — the cold-launch Task must hop
+>   `await MainActor.run { tracker.recents }` before walking op-log URLs off-main.
+> - **`MaughamPhone/Info.plist` permission strings hardcode "Maugham"** — they read
+>   "Maugham" even in dev builds (display name "Maugham Dev"). Fix via
+>   `$(MAUGHAM_DISPLAY_NAME)` / a strings file when `BuildVariantPhone.swift` lands.
+> - Phase D still owes `BuildVariantPhone.swift` (phone bundle ids + bookmark keys),
+>   `ProjectsRoot`/`ProjectsBrowser`, and `CoordinatedFileIO`'s NSFileCoordinator
+>   read/write wrappers (marker comment in place).
 >
 > **Settled facts for the iOS session — read the shipped types, don't re-derive:**
 > - `Packages/MaughamCore` is the Foundation-only shared package; the new
@@ -210,6 +354,30 @@ iOS releases use a separate tag namespace, workflow, and script — Mac releases
 - iOS-side `NSFilePresenter` for live updates (requires background-mode rethink).
 - WhisperKit audio chunking for >5min recordings.
 - App Store submission (privacy policy URL, full review, App Store Connect metadata polish).
+
+#### Polish backlog (surfaced during the 2026-05-30 manual smoke; nice-to-have, NOT committed — may change)
+
+- **Show-resolved toggle + undo on the Annotations tab.** A filter to reveal
+  already-resolved annotations (accepted/rejected/archived), so the writer can
+  review what they handled and **undo/revert** a resolution. Today the list is
+  `.open`-only and a resolved item simply leaves the list (the new "handled"
+  signal); there's no way to re-surface or revert one from the phone. Revert
+  would append a fresh lifecycle op (e.g. re-open) — the op log already supports
+  it; this is a UI affordance + a "reopen" write. Pairs naturally with the
+  existing cross-device race story (last-resolution-wins).
+- **Inbox preview in the Capture tab.** Let the writer see what's currently
+  sitting in the project's inbox (the captures not yet promoted/triaged on the
+  Mac) from the Capture tab — a small list/count of pending `.maugham/inbox/`
+  entries for the selected project, so "did that capture actually land?" is
+  answerable on the phone without opening the Mac. Read-only (triage stays
+  Mac-side per the inbox MCP-scope decision); reuses `InboxEntry` + the
+  per-device manifest glob.
+- **MaughamPhone app icon.** The iOS target has NO `AppIcon` asset (shows the
+  blank placeholder). Add an asset catalog with a 1024px icon + the per-variant
+  (dev/stable) treatment the Mac uses (`AppIcon`/`AppIconDev`, wired via
+  `ASSETCATALOG_COMPILER_APPICON_NAME` per config in `project.yml`). **Effectively
+  required before the Phase G TestFlight cut** — App Store Connect flags a missing
+  icon at upload — so fold it into Phase G even though it reads as polish.
 
 ## Critical correctness risks
 

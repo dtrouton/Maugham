@@ -1,5 +1,6 @@
 // MaughamTests/OpLog/RestoreTests.swift
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 final class RestoreTests: XCTestCase {

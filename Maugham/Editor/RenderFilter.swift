@@ -7,56 +7,19 @@ import MaughamCore
 /// trip: parse the prior stored form to know existing IDs, then reattach
 /// IDs to the display-edited paragraphs by positional + shingle match.
 public enum RenderFilter {
-    /// Matches an inline task anchor `<!--t-XXXXXX-->` plus an optional single
-    /// preceding whitespace char. Consuming the leading whitespace is what
-    /// keeps `[[todo: x]]<!--t-X--> rest` collapsing to `[[todo: x]] rest`
-    /// (single space, not double) and `- [ ] foo <!--t-X-->` collapsing to
-    /// `- [ ] foo` (no trailing space).
-    private static let taskAnchorRegex: NSRegularExpression = {
-        // swiftlint:disable:next force_try
-        try! NSRegularExpression(
-            pattern: #"\s?<!--t-[0123456789abcdefghjkmnpqrstvwxyz]{6}-->"#)
-    }()
-
-    /// Strip `<!-- ¶id -->` comment lines (paragraph anchors) and any inline
-    /// `<!--t-XXXXXX-->` task anchors. Other HTML comments are kept.
-    /// Removing a paragraph-anchor line collapses the surrounding blank that
-    /// separated it from its paragraph; otherwise stripping
-    /// `<!-- ¶id -->\n\nFirst.` would leave a leading blank that becomes a
-    /// double-blank between paragraphs.
+    /// Strip the manuscript's display anchors (own-line `<!-- ¶id -->`
+    /// paragraph anchors + inline `<!--t-XXXXXX-->` task anchors). Delegates to
+    /// the shared `MarkdownDisplayFilter` — the single source of truth used by
+    /// both this editor and the iOS reader. Kept as a thin forwarder so the
+    /// existing editor call sites (Document.displayText etc.) are unchanged.
     public static func stripComments(_ stored: String) -> String {
-        let lines = stored.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
-        var out: [String] = []
-        var skipNextBlank = false
-        for line in lines {
-            let s = String(line)
-            if ParagraphID.parseComment(s) != nil {
-                // Drop this line and also any single blank that immediately follows,
-                // which was the separator between the comment and its paragraph.
-                skipNextBlank = true
-                continue
-            }
-            if skipNextBlank {
-                skipNextBlank = false
-                if s.trimmingCharacters(in: .whitespaces).isEmpty {
-                    continue
-                }
-            }
-            out.append(s)
-        }
-        let paragraphStripped = out.joined(separator: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return stripTaskAnchorsInline(paragraphStripped)
+        MarkdownDisplayFilter.stripAnchors(stored)
     }
 
-    /// Strip inline task anchors from arbitrary text. Public for the
-    /// single-line-aware helpers in `restoreTaskAnchors`.
+    /// Strip inline task anchors from arbitrary text. Forwards to the shared
+    /// filter; the save-time `restore…` helpers below rely on it.
     internal static func stripTaskAnchorsInline(_ s: String) -> String {
-        let ns = s as NSString
-        return taskAnchorRegex.stringByReplacingMatches(
-            in: s,
-            range: NSRange(location: 0, length: ns.length),
-            withTemplate: "")
+        MarkdownDisplayFilter.stripTaskAnchorsInline(s)
     }
 
     /// Given the on-disk stored form and the edited display form, produce a
@@ -255,23 +218,9 @@ public enum RenderFilter {
         from line: String
     ) -> (anchorId: String, hint: AnchorPositionHint)? {
         let ns = line as NSString
-        guard let match = taskAnchorRegex.firstMatch(
-            in: line, range: NSRange(location: 0, length: ns.length)
-        ) else { return nil }
-
-        let matchRange = match.range
-        let matched = ns.substring(with: matchRange)
-        // Extract the id from the matched substring (which may include a
-        // leading whitespace char).
-        let idPattern = #"<!--t-([0123456789abcdefghjkmnpqrstvwxyz]{6})-->"#
-        // swiftlint:disable:next force_try
-        let idRegex = try! NSRegularExpression(pattern: idPattern)
-        let matchedNS = matched as NSString
-        guard let idMatch = idRegex.firstMatch(
-            in: matched, range: NSRange(location: 0, length: matchedNS.length)),
-            let r = Range(idMatch.range(at: 1), in: matched)
+        // The task-anchor grammar lives once, in the shared MarkdownDisplayFilter.
+        guard let (matchRange, anchorId) = MarkdownDisplayFilter.firstTaskAnchor(in: line)
         else { return nil }
-        let anchorId = String(matched[r])
 
         // What's immediately before the matched range? If "]]" the anchor was
         // inline-after-brackets; otherwise the anchor was at end-of-line.
