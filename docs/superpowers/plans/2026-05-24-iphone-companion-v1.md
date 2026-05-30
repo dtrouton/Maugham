@@ -339,6 +339,24 @@ iOS releases use a separate tag namespace, workflow, and script — Mac releases
 - WhisperKit audio chunking for >5min recordings.
 - App Store submission (privacy policy URL, full review, App Store Connect metadata polish).
 
+#### Polish backlog (surfaced during the 2026-05-30 manual smoke; nice-to-have, NOT committed — may change)
+
+- **Show-resolved toggle + undo on the Annotations tab.** A filter to reveal
+  already-resolved annotations (accepted/rejected/archived), so the writer can
+  review what they handled and **undo/revert** a resolution. Today the list is
+  `.open`-only and a resolved item simply leaves the list (the new "handled"
+  signal); there's no way to re-surface or revert one from the phone. Revert
+  would append a fresh lifecycle op (e.g. re-open) — the op log already supports
+  it; this is a UI affordance + a "reopen" write. Pairs naturally with the
+  existing cross-device race story (last-resolution-wins).
+- **Inbox preview in the Capture tab.** Let the writer see what's currently
+  sitting in the project's inbox (the captures not yet promoted/triaged on the
+  Mac) from the Capture tab — a small list/count of pending `.maugham/inbox/`
+  entries for the selected project, so "did that capture actually land?" is
+  answerable on the phone without opening the Mac. Read-only (triage stays
+  Mac-side per the inbox MCP-scope decision); reuses `InboxEntry` + the
+  per-device manifest glob.
+
 ## Critical correctness risks
 
 1. **iCloud Drive conflict-twins on multi-writer JSONL.** Without per-device partitioning (Phase B0), phone + Mac concurrent appends to `.maugham/ops/d_<docId>.jsonl` or `.maugham/inbox/inbox.jsonl` produce silent conflict-twin files (`d_<docId> 2.jsonl` etc.) that the loader never opens. Spec §3.12 + ADR 0012. Phase B0 lands before Phase D for exactly this reason.
