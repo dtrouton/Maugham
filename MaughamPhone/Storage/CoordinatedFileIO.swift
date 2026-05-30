@@ -34,6 +34,138 @@ struct CoordinatedFileIO: UbiquitousDownloader, Sendable {
         fileSystem.fileSize(at: url)
     }
 
+    // MARK: - Coordinated read/write (Phase D)
+    //
+    // Every phone read inside the bookmarked iCloud-Drive projects folder, and
+    // every write into `.maugham/inbox/*` + `.maugham/ops/*.jsonl`, funnels
+    // through `NSFileCoordinator` here — the same primitive the Mac's
+    // `ProjectFolderPresenter` uses. That shared coordination is what lets the
+    // two sides cooperate cleanly through iCloud Drive (spec §3.6). The phone
+    // registers no `NSFilePresenter` in v1, so these are plain coordinate-read /
+    // coordinate-write calls (no presenter argument).
+    //
+    // These methods are eviction-AGNOSTIC: they assume the file is already local.
+    // Faulting an evicted iCloud file in is `DownloadCoordinator`'s job — callers
+    // `ensureDownloaded` first, *then* `coordinatedRead`.
+    //
+    // NSFileCoordinator's accessor block runs synchronously, so these stay
+    // sync-throwing. Errors thrown from inside the accessor (Data init, FileHandle
+    // failures) are captured into a `Swift.Error?` and rethrown after the
+    // coordination returns — `coordinate(...)` only surfaces *coordination* errors
+    // via its `error:` out-param, never accessor-thrown ones. Async callers invoke
+    // these directly; the file ops are brief.
+
+    /// Coordinated read of a file's bytes. Use for ANY read inside the bookmarked
+    /// projects folder. Assumes the file is already local (download first).
+    func coordinatedRead(at url: URL) throws -> Data {
+        let coordinator = NSFileCoordinator()
+        var coordinationError: NSError?
+        var accessorError: Swift.Error?
+        var data: Data?
+
+        coordinator.coordinate(readingItemAt: url, options: [], error: &coordinationError) { coordinatedURL in
+            do {
+                data = try Data(contentsOf: coordinatedURL)
+            } catch {
+                accessorError = error
+            }
+        }
+
+        if let coordinationError { throw coordinationError }
+        if let accessorError { throw accessorError }
+        // If coordination succeeded with no accessor error, `data` is non-nil.
+        guard let data else {
+            throw CocoaError(.fileReadUnknown)
+        }
+        return data
+    }
+
+    /// Coordinated write: runs `body` with the coordinated (possibly
+    /// temp-swapped) URL inside a write coordination. Use for ANY write into
+    /// `.maugham/inbox/*` or `.maugham/ops/*.jsonl`.
+    func coordinatedWrite(at url: URL, _ body: (URL) throws -> Void) throws {
+        let coordinator = NSFileCoordinator()
+        var coordinationError: NSError?
+        var accessorError: Swift.Error?
+
+        coordinator.coordinate(writingItemAt: url, options: [], error: &coordinationError) { coordinatedURL in
+            do {
+                try body(coordinatedURL)
+            } catch {
+                accessorError = error
+            }
+        }
+
+        if let coordinationError { throw coordinationError }
+        if let accessorError { throw accessorError }
+    }
+
+    /// Coordinated append of a single record line to a JSONL file, creating the
+    /// file + intermediate directories if absent. A trailing "\n" is added unless
+    /// `line` already ends in one. This is the inbox / op-log append primitive the
+    /// phone writers use.
+    ///
+    /// The whole append happens inside one write coordination so concurrent
+    /// appenders (and the Mac's coordinated writes) serialize rather than tearing
+    /// each other's records.
+    func coordinatedAppendLine(_ line: Data, to url: URL) throws {
+        let coordinator = NSFileCoordinator()
+        var coordinationError: NSError?
+        var accessorError: Swift.Error?
+
+        coordinator.coordinate(writingItemAt: url, options: [], error: &coordinationError) { coordinatedURL in
+            do {
+                let fm = FileManager.default
+                // Ensure parent dir exists (first capture for a fresh project).
+                let parent = coordinatedURL.deletingLastPathComponent()
+                if !fm.fileExists(atPath: parent.path) {
+                    try fm.createDirectory(at: parent, withIntermediateDirectories: true)
+                }
+                // Create the file if absent so FileHandle(forWritingTo:) can open it.
+                if !fm.fileExists(atPath: coordinatedURL.path) {
+                    fm.createFile(atPath: coordinatedURL.path, contents: nil)
+                }
+
+                let handle = try FileHandle(forWritingTo: coordinatedURL)
+                defer { try? handle.close() }
+                try handle.seekToEnd()
+                try handle.write(contentsOf: line)
+                // Newline-terminate so each record is its own line; don't double up
+                // if the caller already supplied the terminator.
+                if line.last != UInt8(ascii: "\n") {
+                    try handle.write(contentsOf: Data([UInt8(ascii: "\n")]))
+                }
+            } catch {
+                accessorError = error
+            }
+        }
+
+        if let coordinationError { throw coordinationError }
+        if let accessorError { throw accessorError }
+    }
+
+    /// Create a directory (and intermediates) if missing. Coordinated, so it
+    /// races cleanly against the Mac creating the same `.maugham/` subtree.
+    func ensureDirectory(at url: URL) throws {
+        let coordinator = NSFileCoordinator()
+        var coordinationError: NSError?
+        var accessorError: Swift.Error?
+
+        coordinator.coordinate(writingItemAt: url, options: [], error: &coordinationError) { coordinatedURL in
+            do {
+                let fm = FileManager.default
+                if !fm.fileExists(atPath: coordinatedURL.path) {
+                    try fm.createDirectory(at: coordinatedURL, withIntermediateDirectories: true)
+                }
+            } catch {
+                accessorError = error
+            }
+        }
+
+        if let coordinationError { throw coordinationError }
+        if let accessorError { throw accessorError }
+    }
+
     func download(at url: URL) -> AsyncThrowingStream<Double, Error> {
         let fs = fileSystem
         // `unfolding`: the produce closure runs in the CONSUMER's task context on
