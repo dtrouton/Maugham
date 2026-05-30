@@ -29,6 +29,11 @@ private struct RootTabView: View {
 
     @State private var projectsRoot = ProjectsRoot()
     @State private var recents = RecentsTracker()
+    @State private var authGate = LaunchAuthGate()
+
+    // Drives the Annotations-tab re-lock: backgrounding clears the gate's
+    // last-unlock so returning to the app re-prompts (spec §3.14).
+    @Environment(\.scenePhase) private var scenePhase
 
     // The DownloadCoordinator is constructed ONCE and shared: the browser faults
     // manifests in through it, and the cold-launch prefetch charges the same
@@ -57,7 +62,11 @@ private struct RootTabView: View {
                 .tabItem { Label("Read", systemImage: "book") }
                 .tag(Tab.read)
 
-            placeholder("Annotations", systemImage: "bubble.left.and.bubble.right", description: "Annotation review is coming soon.")
+            AnnotationsListView(
+                projectsBrowser: projectsBrowser,
+                downloads: downloads,
+                recents: recents,
+                authGate: authGate)
                 .tabItem { Label("Annotations", systemImage: "bubble.left.and.bubble.right") }
                 .tag(Tab.annotations)
 
@@ -70,6 +79,9 @@ private struct RootTabView: View {
         // to the actor/sync work.
         .task {
             await runLaunchSequence()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background { authGate.onBackground() }
         }
     }
 
@@ -94,17 +106,5 @@ private struct RootTabView: View {
 
         let coldLaunch = ColdLaunchDownloader(downloads: downloads, io: .live)
         await coldLaunch.prefetch(recentProjects: recentProjects)
-    }
-
-    /// Top-anchored empty-state placeholder. Tripwire 15: a `ContentUnavailableView`
-    /// needs BOTH the inner frame and the enclosing container frame, else the
-    /// pane collapses to intrinsic height and floats vertically.
-    private func placeholder(_ title: String, systemImage: String, description: String) -> some View {
-        ContentUnavailableView(
-            title,
-            systemImage: systemImage,
-            description: Text(description))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }
