@@ -33,9 +33,28 @@ struct AnnotationWriter {
     var osVersion: String
     /// Injectable clock so tests can pin `at` deterministically.
     var now: () -> Date = { Date() }
-    /// Injectable session id minter. Each lifecycle op gets its own session id;
-    /// the same value populates both `Op.session` and `provenance.sessionId`.
-    var newSession: () -> String = { ULID.generate() }
+    /// One session id per writer instance — groups all ops from a single
+    /// writing/review session so the Mac history pane shows them together (not as
+    /// a string of one-op "sessions"). Reused for every op this writer appends; the
+    /// same value populates both `Op.session` and `provenance.sessionId`.
+    /// Injectable so tests can pin it deterministically.
+    var session: String = ULID.generate()
+    /// Whether the malformed-suggestion guard trips an `assertionFailure` before
+    /// throwing. True in production so upstream corruption aborts a Debug build
+    /// loudly; the throws-test flips it off to exercise the thrown error without
+    /// aborting the test process.
+    var assertOnMalformed: Bool = true
+
+    /// Thrown when an op can't be built faithfully. Surfaced to the caller (F.5's
+    /// action handler) so the user sees an alert rather than a phantom accept.
+    enum WriteError: Error {
+        /// A `.suggestedChange` reached `makeAccept` missing the fields needed to
+        /// reconstruct its `ParagraphChange`. This is upstream corruption
+        /// (`AnnotationDeriver` always populates them), so we fail loud rather than
+        /// emit an empty-changes accept — which would mark the annotation accepted
+        /// while materializing nothing (silent manuscript data loss).
+        case malformedSuggestion(annotationId: String)
+    }
 
     // MARK: - Paths
 
@@ -60,16 +79,23 @@ struct AnnotationWriter {
     /// nothing to materialize, so `changes` is empty: a comment/query/craftNote
     /// accept must NOT fabricate a manuscript change.
     ///
-    /// Defensive: a `.suggestedChange` missing `paragraphId` or `suggestedText` is
-    /// malformed; rather than crash on a force-unwrap we fall back to empty
-    /// `changes` (the accept still records, it just materializes nothing).
-    func makeAccept(for annotation: Annotation) -> Op {
+    /// Fail loud: a `.suggestedChange` missing `paragraphId` or `suggestedText` is
+    /// upstream corruption — emitting an empty-changes accept would mark the
+    /// annotation accepted while materializing nothing (silent manuscript data
+    /// loss), so we `assertionFailure` (Debug) then `throw .malformedSuggestion`
+    /// rather than fabricate or drop the change.
+    func makeAccept(for annotation: Annotation) throws -> Op {
         let changes: [Op.ParagraphChange]
-        if annotation.kind == .suggestedChange,
-           let pid = annotation.paragraphId,
-           let next = annotation.suggestedText {
+        if annotation.kind == .suggestedChange {
+            guard let pid = annotation.paragraphId, let next = annotation.suggestedText else {
+                if assertOnMalformed {
+                    assertionFailure("malformed .suggestedChange reached makeAccept: \(annotation.id)")
+                }
+                throw WriteError.malformedSuggestion(annotationId: annotation.id)
+            }
             changes = [Op.ParagraphChange(paragraphId: pid, prior: annotation.priorText, next: next)]
         } else {
+            // comment/query/craftNote: nothing to materialize.
             changes = []
         }
         return makeLifecycleOp(for: annotation, kind: .claudeAccept, changes: changes, userResponse: nil)
@@ -86,7 +112,7 @@ struct AnnotationWriter {
         makeLifecycleOp(for: annotation, kind: .claudeArchive, changes: [], userResponse: nil)
     }
 
-    /// Shared lifecycle-op assembly. One fresh session id per op populates both
+    /// Shared lifecycle-op assembly. The writer's `session` populates both
     /// `Op.session` and `provenance.sessionId`; `sequence` is nil (lifecycle ops
     /// never reorder paragraphs); `sourceAnnotationId` keys the op back to the
     /// creation op so `AnnotationDeriver` resolves the annotation's status.
@@ -96,8 +122,7 @@ struct AnnotationWriter {
         changes: [Op.ParagraphChange],
         userResponse: String?
     ) -> Op {
-        let session = newSession()
-        return Op(
+        Op(
             opId: ULID.generate(),
             docId: docId,
             at: now(),
@@ -136,9 +161,9 @@ struct AnnotationWriter {
 
     /// Encode + coordinated-append one op to this device's op-log stream.
     /// `coordinatedAppendLine` creates intermediate dirs + the file on first use,
-    /// but we `ensureDirectory` first to mirror the inbox writer's shape.
+    /// so this is the single coordination site for the whole append (no separate
+    /// `ensureDirectory` pass — that would run a redundant second coordination).
     private func append(_ op: Op) async throws -> Op {
-        try io.ensureDirectory(at: opsDir)
         let line = try encode(op)
         try io.coordinatedAppendLine(line, to: opLogURL)
         return op

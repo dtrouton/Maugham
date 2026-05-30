@@ -109,7 +109,7 @@ final class AnnotationWriterTests: XCTestCase {
         XCTAssertEqual(ann.id, creationOpId)
 
         let writer = makeWriter()
-        let accept = writer.makeAccept(for: ann)
+        let accept = try writer.makeAccept(for: ann)
 
         // (a) The accept copies the change verbatim.
         XCTAssertEqual(accept.kind, .claudeAccept)
@@ -141,22 +141,31 @@ final class AnnotationWriterTests: XCTestCase {
 
     func test_makeAccept_comment_producesEmptyChanges() throws {
         let writer = makeWriter()
-        let accept = writer.makeAccept(for: commentAnnotation())
+        let accept = try writer.makeAccept(for: commentAnnotation())
         XCTAssertEqual(accept.kind, .claudeAccept)
         XCTAssertEqual(accept.changes, [],
                        "a comment accept must not fabricate a manuscript change")
     }
 
-    /// Defensive: a malformed suggestion (nil suggestedText) falls back to empty
-    /// changes rather than crashing.
-    func test_makeAccept_malformedSuggestion_fallsBackToEmpty() throws {
+    /// Fail loud: a malformed suggestion (nil suggestedText) THROWS rather than
+    /// emitting an empty-changes accept that would mark the annotation accepted
+    /// while materializing nothing (silent manuscript data loss).
+    func test_makeAccept_malformedSuggestion_throws() {
         let malformed = Annotation(
             id: "01MALFORMED", kind: .suggestedChange, paragraphId: "k7m3",
             body: "x", suggestedText: nil, priorText: "old",
             createdAt: Date(), createdBySession: nil,
             status: .open, userResponse: nil, resolvedAt: nil, isStale: false)
-        let accept = makeWriter().makeAccept(for: malformed)
-        XCTAssertEqual(accept.changes, [])
+        // Disable the Debug assertion so we can exercise the thrown error without
+        // aborting the test process; production keeps the loud assert.
+        var writer = makeWriter()
+        writer.assertOnMalformed = false
+        XCTAssertThrowsError(try writer.makeAccept(for: malformed)) { error in
+            guard case AnnotationWriter.WriteError.malformedSuggestion(let id) = error else {
+                return XCTFail("expected .malformedSuggestion, got \(error)")
+            }
+            XCTAssertEqual(id, "01MALFORMED")
+        }
     }
 
     // MARK: - 4. Provenance forensic fields + replay-invariance
