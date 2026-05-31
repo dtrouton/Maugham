@@ -218,8 +218,7 @@ struct DocumentReaderView: View {
             // Inline emphasis is applied per-paragraph in the renderer.
             state = .markdown(MarkdownBlocks.parse(MarkdownDisplayFilter.stripAnchors(text)))
         case .fountain:
-            let script = FountainTokenizer().parse(text)
-            state = .fountain(script)
+            state = .fountain(Self.parseFountain(text))
         case .other:
             // Render raw text plain — friendlier than a hard failure.
             state = .plain(text)
@@ -228,5 +227,24 @@ struct DocumentReaderView: View {
 
     private func describe(_ error: Error) -> String {
         (error as? LocalizedError)?.errorDescription ?? "\(error)"
+    }
+
+    // MARK: - Fountain parse seam
+
+    /// Strip the manuscript display anchors BEFORE parsing Fountain, then parse
+    /// once. The Fountain path must strip the same `<!-- ¶id -->` paragraph +
+    /// `<!--t-XXXXXX-->` task anchors the markdown path does — via the shared
+    /// `MarkdownDisplayFilter` (single source of truth, CLAUDE.md). Skipping the
+    /// strip shipped two bugs in the first TestFlight build: the anchor lines
+    /// rendered as `.action` body text ("paragraph markers"), and a leading
+    /// anchor line made `FountainTokenizer.parseTitlePage` miss the title page
+    /// (its first-line `Key:` probe saw the anchor, not the title). `stripAnchors`
+    /// removes each anchor line and the single blank that followed it, so the
+    /// blank lines *between* elements survive — exactly what Fountain's
+    /// blank-line-sensitive classification needs.
+    ///
+    /// Pure + static so it's unit-testable without the async I/O pipeline.
+    static func parseFountain(_ text: String) -> FountainScript {
+        FountainTokenizer().parse(MarkdownDisplayFilter.stripAnchors(text))
     }
 }
