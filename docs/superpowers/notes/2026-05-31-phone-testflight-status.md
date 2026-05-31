@@ -1,5 +1,12 @@
 # MaughamPhone TestFlight — status & pickup plan (2026-05-31)
 
+> **DONE (2026-05-31): `phone-v0.1.0` (build 854) released to TestFlight.** All five
+> on-device bugs below are fixed, regression-tested, and verified on device by the
+> user (screenplay renders correctly, folder picks, app installs). Throwaway tags
+> `phone-v0.0.1`–`0.0.4` + their GitHub releases are deleted; only `phone-v0.1.0`
+> remains. Milestone summary: `memory/project_milestone_iphone_companion_phase_g.md`.
+> This note is kept as the forensic record of the session. Nothing left to pick up.
+
 Working session on **Phase G** (iOS TestFlight pipeline) + the on-device bugs the
 dry runs surfaced. Written mid-task so the next session can resume cleanly.
 
