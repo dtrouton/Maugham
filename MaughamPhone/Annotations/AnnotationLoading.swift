@@ -12,15 +12,17 @@ enum AnnotationLoading {
     /// Distinct doc ids present in a project's `.maugham/ops/` directory, given
     /// the bare filenames in that directory.
     ///
-    /// Op-log files are named `d_<docId>.<deviceSlug>.jsonl` (per-device) or the
-    /// legacy unsuffixed `d_<docId>.jsonl`. The returned ids are the FULL
-    /// `d_<docId>` form (`d_` + the 26-char ULID), which is exactly what
-    /// `OpLogStore.load(docId:)` consumes: `load` re-globs `d_<docId>.*` itself,
-    /// and the `.` after the id is the unambiguous boundary (confirmed against
-    /// `OpLogStore.opLogFileURLs`).
+    /// Op-log files are named `<docId>.<deviceSlug>.jsonl` (per-device) or the
+    /// legacy unsuffixed `<docId>.jsonl`. A doc id is minted as `doc-<hex>` (or
+    /// `scene-<hex>` for screenplay scenes) — ADR 0008 — and never contains a
+    /// dot, so the id is exactly the filename component before the first `.`.
+    /// The returned ids are that full form, which is what `OpLogStore.load(docId:)`
+    /// consumes: `load` re-globs `<docId>.*` itself.
     ///
-    /// Non-op-log files (inbox manifests, stray junk) are ignored: only names of
-    /// the shape `d_<id>(.<slug>)?.jsonl` with a Crockford-base32 ULID body match.
+    /// We deliberately do NOT validate the id's *format* (the Mac's `OpLogStore`
+    /// doesn't either — it trusts the structure to supply real ids). Only the
+    /// synthetic `__project__` stream (tasks/checkpoints — no annotations) and
+    /// non-`.jsonl` files are excluded.
     static func docIds(inOpsDirectoryFilenames filenames: [String]) -> Set<String> {
         var ids = Set<String>()
         for name in filenames {
@@ -42,31 +44,30 @@ enum AnnotationLoading {
 
     // MARK: - Private
 
-    /// Parse one filename into its `d_<docId>` id, or nil if it isn't an op-log
-    /// file. Shape: `d_` + 26-char Crockford-base32 ULID, optionally `.<slug>`,
-    /// then `.jsonl`. We validate the ULID body so an inbox file like
-    /// `inbox.<slug>.jsonl` or arbitrary junk can never be mistaken for a doc.
+    /// Parse one filename into its doc id, or nil if it isn't a doc op-log file.
+    /// Shape: `<docId>(.<slug>)?.jsonl`. The doc id is the first dot-separated
+    /// component (doc ids contain no dot); the synthetic `__project__` stream is
+    /// rejected here since it carries no annotations.
     private static func docId(fromOpLogFilename name: String) -> String? {
         guard name.hasSuffix(".jsonl") else { return nil }
         // Strip the `.jsonl` suffix, then split off an optional `.<slug>` tail.
         let stem = String(name.dropLast(".jsonl".count))
         // The doc id is the first dot-separated component; anything after the
         // id's trailing `.` is the device slug (per-device file) or absent
-        // (legacy file). `d_<ULID>` itself contains no dot.
+        // (legacy file). A doc id (`doc-<hex>` / `scene-<hex>`) contains no dot.
         let head = stem.split(separator: ".", maxSplits: 1, omittingEmptySubsequences: false)[0]
         let candidate = String(head)
         return isDocId(candidate) ? candidate : nil
     }
 
-    /// A doc id is `d_` followed by a 26-char Crockford-base32 ULID. (The
-    /// `__project__` synthetic doc has no annotations, so it's intentionally not
-    /// matched here.)
+    /// Any op-log stream id is a doc id EXCEPT the synthetic `__project__`
+    /// (project-scope tasks/checkpoints — it carries no annotations). We don't
+    /// validate the id's *format*: doc ids are `doc-<hex>` / `scene-<hex>`
+    /// (ADR 0008), not a fixed `d_<ULID>` shape, and the Mac's `OpLogStore`
+    /// itself never format-checks the id — it's just the filename component
+    /// before the first `.`. An earlier `d_`+26-char-ULID check matched ZERO
+    /// real files and silently rendered every project as "No open annotations".
     private static func isDocId(_ s: String) -> Bool {
-        guard s.hasPrefix("d_") else { return false }
-        let body = s.dropFirst(2)
-        guard body.count == 26 else { return false }
-        // Crockford base32 alphabet (ULID), case-insensitive — excludes I L O U.
-        let allowed = Set("0123456789ABCDEFGHJKMNPQRSTVWXYZabcdefghjkmnpqrstvwxyz")
-        return body.allSatisfy { allowed.contains($0) }
+        !s.isEmpty && s != "__project__"
     }
 }

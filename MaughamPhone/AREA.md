@@ -74,10 +74,16 @@ seams and the views are build-verified:
    "no security scope needed" (already-accessible URL, e.g. the app's own container).
    `ProjectsRoot` adopts the folder regardless; only a thrown resolve / stale bookmark
    re-prompts.
-3. **Op-log + inbox filenames: the `docId` already carries the `d_` prefix.** Write
-   `<docId>.<deviceSlug>.jsonl` — NOT `d_<docId>...`. A double-prefix lands in a
-   stream the Mac's `OpLogStore.load(docId:)` glob never reads, silently dropping
-   every phone write. Match `OpLogStore.store(forDocId:deviceSlug:)`.
+3. **Op-log filenames: the `docId` already carries its own prefix — `doc-<hex>` /
+   `scene-<hex>` (ADR 0008), NOT `d_<ULID>`.** Write `<docId>.<deviceSlug>.jsonl`
+   and never prepend another prefix; the docId is just the filename component
+   before the first `.` (it contains no dot), and the only non-doc stream in
+   `.maugham/ops/` is the synthetic `__project__` (tasks/checkpoints, no
+   annotations). Match `OpLogStore.store(forDocId:deviceSlug:)` — which, like the
+   Mac reader, never format-validates the id. **Do not invent a stricter id
+   predicate** (e.g. `hasPrefix("d_")` or a 26-char-ULID check): it matches zero
+   real files and silently shows "No open annotations" / prefetches nothing. This
+   bit both `AnnotationLoading.isDocId` and `ColdLaunchDownloader.liveEnumerateOpLogs`.
 4. **`claudeAccept` on a `suggestedChange` must copy the creation op's `changes`
    array verbatim** (`AnnotationWriter.makeAccept`), or the Mac's `Deriver` replay
    materializes nothing on next load. Other kinds carry empty `changes`. A malformed

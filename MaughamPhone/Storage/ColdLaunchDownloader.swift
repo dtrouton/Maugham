@@ -61,11 +61,14 @@ struct ColdLaunchDownloader {
 
     // MARK: - Production glob
 
-    /// Lists `<projectURL>/.maugham/ops/d_*.jsonl`. The op log is
-    /// per-device-partitioned as `d_<docId>.<slug>.jsonl` with a legacy
-    /// `d_<docId>.jsonl` form — both match the `d_` prefix + `.jsonl` suffix
-    /// predicate (Tripwire 17 / ADR 0012). Returns `[]` for a project with no
-    /// ops dir yet (never throws).
+    /// Lists a project's manuscript op-log files: every `*.jsonl` under
+    /// `.maugham/ops/` except the synthetic `__project__` stream (tasks/
+    /// checkpoints — no phone surface reads it). The op log is per-device-
+    /// partitioned as `<docId>.<slug>.jsonl` with a legacy `<docId>.jsonl`
+    /// form (Tripwire 17 / ADR 0012). Doc ids are `doc-<hex>` / `scene-<hex>`
+    /// (ADR 0008) — NOT a `d_<ULID>` shape, so an earlier `d_`-prefix predicate
+    /// matched zero real files and prefetched nothing. Returns `[]` for a
+    /// project with no ops dir yet (never throws).
     static func liveEnumerateOpLogs(_ projectURL: URL) -> [URL] {
         let opsDir = projectURL
             .appendingPathComponent(".maugham", isDirectory: true)
@@ -78,7 +81,7 @@ struct ColdLaunchDownloader {
         else { return [] }
         return entries.filter { url in
             let name = url.lastPathComponent
-            return name.hasPrefix("d_") && name.hasSuffix(".jsonl")
+            return name.hasSuffix(".jsonl") && !name.hasPrefix("__project__")
         }
     }
 }

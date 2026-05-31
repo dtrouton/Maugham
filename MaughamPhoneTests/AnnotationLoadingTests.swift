@@ -7,24 +7,28 @@ import MaughamCore
 /// projection from a doc's op stream.
 final class AnnotationLoadingTests: XCTestCase {
 
-    // Two real-shaped ULID doc ids (26-char Crockford-base32 bodies).
-    private let docA = "d_01HQZZZZZZZZZZZZZZZZZZZZZZ"
-    private let docB = "d_01HQYYYYYYYYYYYYYYYYYYYYYY"
+    // Two real-shaped doc ids as actually minted (ADR 0008): "<prefix>-<id>",
+    // e.g. `doc-<8hex>` from ProjectFactory and `scene-<8hex>` for screenplay
+    // scenes. These are NOT a `d_<ULID>` shape — the on-disk filenames are the
+    // ground truth (see ~/Documents/Maugham/*/.maugham/ops/).
+    private let docA = "doc-0f677d7e"
+    private let docB = "scene-f8c9644e"
 
     // MARK: - docIds
 
     func test_docIds_parsesPerDeviceAndLegacy_ignoringNonOpLogFiles() {
         let filenames = [
-            "\(docA).macA.jsonl",    // per-device
-            "\(docA).jsonl",         // legacy unsuffixed, same doc
-            "\(docB).phoneB.jsonl",  // a second distinct doc
-            "garbage.txt",           // not jsonl
-            "inbox.x.jsonl",         // inbox manifest, not an op log
-            "d_short.jsonl",         // d_-prefixed but body isn't a 26-char ULID
+            "\(docA).denvers-macbook-air-loca-8a62e7c9.jsonl",  // per-device
+            "\(docA).jsonl",                                    // legacy unsuffixed, same doc
+            "\(docA).mcp-cba8e063.jsonl",                       // another device, same doc
+            "\(docB).phoneB.jsonl",                             // a second distinct doc
+            "garbage.txt",                                      // not jsonl
+            "__project__.jsonl",                                // synthetic task/checkpoint log: no annotations, excluded
+            "__project__.macA.jsonl",                           // per-device synthetic, excluded
         ]
         let ids = AnnotationLoading.docIds(inOpsDirectoryFilenames: filenames)
         XCTAssertEqual(ids, [docA, docB],
-            "two distinct doc ids; the per-device + legacy files for docA collapse to one, and non-op-log files are ignored")
+            "real doc-/scene- ids are recognized; per-device + legacy files collapse to one; __project__ and non-jsonl files are excluded")
     }
 
     func test_docIds_emptyDirectory_isEmpty() {

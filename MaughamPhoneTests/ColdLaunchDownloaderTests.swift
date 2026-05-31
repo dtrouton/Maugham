@@ -60,6 +60,48 @@ final class ColdLaunchDownloaderTests: XCTestCase {
         let coordinator: DownloadCoordinator
     }
 
+    // MARK: - liveEnumerateOpLogs (the real production glob)
+
+    /// The real filesystem glob recognizes manuscript op logs by their actual
+    /// minted shape (`doc-<hex>` / `scene-<hex>`, per-device + legacy), and
+    /// excludes the synthetic `__project__` stream and non-`.jsonl` files. An
+    /// earlier `d_`-prefix predicate matched ZERO real files (doc ids are not
+    /// `d_<ULID>`), so cold-launch prefetched nothing — this is the regression net.
+    func test_liveEnumerateOpLogs_recognizesRealDocIds_excludesProjectAndJunk() throws {
+        let fm = FileManager.default
+        let projectURL = fm.temporaryDirectory
+            .appendingPathComponent("cold-enum-\(UUID().uuidString)", isDirectory: true)
+        let opsDir = projectURL
+            .appendingPathComponent(".maugham/ops", isDirectory: true)
+        try fm.createDirectory(at: opsDir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: projectURL) }
+
+        let opLogNames = [
+            "doc-0f677d7e.jsonl",                                    // legacy unsuffixed
+            "doc-0f677d7e.denvers-macbook-air-loca-8a62e7c9.jsonl",  // per-device, same doc
+            "scene-f8c9644e.mcp-cba8e063.jsonl",                     // a screenplay scene doc
+        ]
+        let excludedNames = [
+            "__project__.jsonl",        // synthetic tasks/checkpoints — no phone surface reads it
+            "__project__.macA.jsonl",   // per-device synthetic
+            "notes.txt",                // not jsonl
+        ]
+        for name in opLogNames + excludedNames {
+            try Data().write(to: opsDir.appendingPathComponent(name))
+        }
+
+        let found = Set(ColdLaunchDownloader.liveEnumerateOpLogs(projectURL).map(\.lastPathComponent))
+        XCTAssertEqual(found, Set(opLogNames),
+            "real doc-/scene- op logs are enumerated; __project__ and non-jsonl files are excluded")
+    }
+
+    /// A project with no `.maugham/ops/` dir enumerates to empty, never throws.
+    func test_liveEnumerateOpLogs_missingOpsDir_isEmpty() {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cold-enum-missing-\(UUID().uuidString)", isDirectory: true)
+        XCTAssertTrue(ColdLaunchDownloader.liveEnumerateOpLogs(url).isEmpty)
+    }
+
     // MARK: - Tests
 
     /// Two recent projects, two op logs each → all four op-log URLs are attempted
