@@ -13,6 +13,9 @@ private final class FakeBookmarkResolver: BookmarkResolving, @unchecked Sendable
 
     // Records the URL passed to makeBookmark so round-trip tests can confirm it.
     private(set) var lastMadeBookmarkURL: URL?
+    // Ordered record of seam calls, so a test can assert ordering (on iOS
+    // startAccessing must precede makeBookmark — see the regression test).
+    private(set) var callOrder: [String] = []
 
     init(
         resolve: @escaping () throws -> (url: URL, isStale: Bool) = {
@@ -28,10 +31,14 @@ private final class FakeBookmarkResolver: BookmarkResolving, @unchecked Sendable
 
     func resolve(_ data: Data) throws -> (url: URL, isStale: Bool) { try resolveResult() }
     func makeBookmark(for url: URL) throws -> Data {
+        callOrder.append("makeBookmark")
         lastMadeBookmarkURL = url
         return try makeBookmarkResult()
     }
-    func startAccessing(_ url: URL) -> Bool { startAccessingResult(url) }
+    func startAccessing(_ url: URL) -> Bool {
+        callOrder.append("startAccessing")
+        return startAccessingResult(url)
+    }
 }
 
 private struct FakeResolveError: Error, LocalizedError {
@@ -140,6 +147,36 @@ final class ProjectsRootBookmarkTests: XCTestCase {
 
         XCTAssertEqual(root.picker, .resolveFailed("boom-resolve"))
         XCTAssertNil(root.rootURL)
+    }
+
+    /// Regression: on iOS a security-scoped URL from the document picker must have
+    /// its scope ACTIVE before `bookmarkData()` reads it, or the sandbox treats the
+    /// out-of-container iCloud path as non-existent and `makeBookmark` throws
+    /// NSFileReadNoSuchFileError ("…doesn't exist"). So `pick` must call
+    /// `startAccessing` BEFORE `makeBookmark`. (Found on the phone-v0.0.1 TestFlight
+    /// build: "Couldn't open folder because it doesn't exist" right after picking;
+    /// a debug build worked by luck because the picker grant was still active.)
+    func test_pick_startsAccessBeforeMakingBookmark() throws {
+        let resolver = FakeBookmarkResolver()
+        let root = ProjectsRoot(defaults: defaults, resolver: resolver)
+        try root.pick(from: URL(fileURLWithPath: "/Users/x/iCloud/Projects"))
+
+        let startIdx = resolver.callOrder.firstIndex(of: "startAccessing")
+        let bookmarkIdx = resolver.callOrder.firstIndex(of: "makeBookmark")
+        XCTAssertNotNil(startIdx, "pick must start security-scoped access")
+        XCTAssertNotNil(bookmarkIdx, "pick must mint a bookmark")
+        if let s = startIdx, let b = bookmarkIdx {
+            XCTAssertLessThan(s, b, "startAccessing must precede makeBookmark on iOS")
+        }
+    }
+
+    /// If minting the bookmark fails (sandbox blocks an inaccessible URL), `pick`
+    /// propagates the throw so `SettingsView` surfaces `.resolveFailed` rather than
+    /// adopting a dead root.
+    func test_pick_makeBookmarkThrows_propagates() {
+        let resolver = FakeBookmarkResolver(makeBookmark: { throw FakeMakeError() })
+        let root = ProjectsRoot(defaults: defaults, resolver: resolver)
+        XCTAssertThrowsError(try root.pick(from: URL(fileURLWithPath: "/Users/x/iCloud/Projects")))
     }
 
     func test_roundTrip_pickThenFreshResolveRestoresRoot() throws {

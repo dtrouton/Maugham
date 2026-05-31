@@ -146,13 +146,20 @@ final class ProjectsRoot {
     /// security-scoped access, and adopts it as the root. Throws if the
     /// bookmark can't be created (the only failable step here).
     func pick(from url: URL) throws {
+        // Start security-scoped access BEFORE minting the bookmark. On iOS a
+        // security-scoped URL from the document picker must have its scope active
+        // before `bookmarkData()` can read it; without it the sandbox treats the
+        // out-of-container iCloud path as non-existent and `makeBookmark` throws
+        // NSFileReadNoSuchFileError ("…doesn't exist"). This bit the first TestFlight
+        // build: "Couldn't open folder because it doesn't exist" right after picking,
+        // even though a debug build happened to work (the picker's grant was still
+        // active by luck). We keep the scope open for the session — `resolveOnLaunch`
+        // does the same and never stops. `false` is not a denial (see there).
+        _ = resolver.startAccessing(url)
+
         let data = try resolver.makeBookmark(for: url)
         defaults.set(data, forKey: BuildVariant.current.bookmarkUserDefaultsKey)
 
-        // `false` is not a denial (see `resolveOnLaunch`) — adopt the folder
-        // regardless so a non-security-scoped pick (e.g. the app's own container)
-        // still works.
-        _ = resolver.startAccessing(url)
         rootURL = url
         picker = .idle
     }
