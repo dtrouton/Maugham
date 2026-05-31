@@ -160,14 +160,14 @@ struct AnnotationDetailView: View {
         if current.kind == .suggestedChange {
             VStack(alignment: .leading, spacing: 12) {
                 if let prior = current.priorText, !prior.isEmpty {
-                    labeledBlock("Current", text: prior, tint: .secondary)
+                    labeledBlock("Current", text: Self.displayText(prior), tint: .secondary)
                 }
                 if let next = current.suggestedText {
-                    labeledBlock("Suggested", text: next, tint: .green)
+                    labeledBlock("Suggested", text: Self.displayText(next), tint: .green)
                 }
             }
         } else if let context = paragraphContext, !context.isEmpty {
-            labeledBlock("Paragraph", text: context, tint: .secondary)
+            labeledBlock("Paragraph", text: Self.displayText(context), tint: .secondary)
         }
     }
 
@@ -176,6 +176,20 @@ struct AnnotationDetailView: View {
     private var paragraphContext: String? {
         guard let pid = current.paragraphId else { return nil }
         return paragraphs[pid]
+    }
+
+    /// Strip inline `<!--t-XXXXXX-->` task anchors before showing manuscript
+    /// paragraph text (priorText / suggestedText / current paragraph). These
+    /// fields are raw manuscript bodies from the op log, which carry inline task
+    /// anchors mid-line; without this they render verbatim in the context blocks
+    /// (the same anchor-leak class as the screenplay reader). Paragraph `¶`
+    /// anchors don't appear here — they're own-line separators, never inside a
+    /// paragraph body — so only the task-anchor strip is needed. Routed through
+    /// the shared `MarkdownDisplayFilter` (single source of truth, CLAUDE.md).
+    /// Pure + static (and `nonisolated` — touches no actor state) so it's
+    /// unit-testable without hopping to the main actor.
+    nonisolated static func displayText(_ raw: String) -> String {
+        MarkdownDisplayFilter.stripTaskAnchorsInline(raw)
     }
 
     private func labeledBlock(_ label: String, text: String, tint: Color) -> some View {
