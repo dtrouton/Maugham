@@ -149,6 +149,13 @@ targets:
         # LocalAuthentication — all exempt. (See docs/release-notes/phone/SETUP.md.)
         ITSAppUsesNonExemptEncryption: false
     settings:
+      base:
+        # iPhone-only (TARGETED_DEVICE_FAMILY=1). The app is a portrait-only iPhone
+        # companion; the default (1,2 = iPhone+iPad) would require ALL FOUR
+        # orientations for iPad multitasking, which App Store Connect enforces at
+        # upload — it rejected the first dry run for declaring portrait-only on an
+        # iPad-capable bundle. iPhone-only keeps portrait-only valid.
+        TARGETED_DEVICE_FAMILY: "1"
       configs:
         Debug:
           PRODUCT_BUNDLE_IDENTIFIER: com.Maugham.MaughamPhone.dev
