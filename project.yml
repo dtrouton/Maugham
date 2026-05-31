@@ -151,12 +151,16 @@ targets:
     settings:
       configs:
         Debug:
-          PRODUCT_BUNDLE_IDENTIFIER: com.maugham.MaughamPhone.dev
+          PRODUCT_BUNDLE_IDENTIFIER: com.Maugham.MaughamPhone.dev
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) MAUGHAM_DEV_BUILD
           MAUGHAM_DISPLAY_NAME: Maugham Dev
           ASSETCATALOG_COMPILER_APPICON_NAME: AppIconDev
         Release:
-          PRODUCT_BUNDLE_IDENTIFIER: com.maugham.MaughamPhone
+          # NB: capital "M" in "Maugham" — the registered Apple App ID is
+          # com.Maugham.MaughamPhone (Apple namespaces App IDs case-insensitively,
+          # so the lowercase form can't be re-registered). Diverges intentionally
+          # from the Mac's com.maugham.Maugham. See CLAUDE.md → phone bundle-id note.
+          PRODUCT_BUNDLE_IDENTIFIER: com.Maugham.MaughamPhone
           MAUGHAM_DISPLAY_NAME: Maugham
           ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     dependencies:

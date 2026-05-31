@@ -157,7 +157,10 @@ jobs:
             <string>${{ steps.prof.outputs.team_id }}</string>
             <key>provisioningProfiles</key>
             <dict>
-              <key>com.maugham.MaughamPhone</key>
+              <!-- Capital "M": matches the registered App ID com.Maugham.MaughamPhone.
+                   Codesign matches the bundle id case-sensitively, so this MUST equal
+                   the Release PRODUCT_BUNDLE_IDENTIFIER in project.yml exactly. -->
+              <key>com.Maugham.MaughamPhone</key>
               <string>${{ steps.prof.outputs.name }}</string>
             </dict>
             <key>uploadSymbols</key>

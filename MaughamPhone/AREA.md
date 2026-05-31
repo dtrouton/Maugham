@@ -20,7 +20,9 @@ xcodebuild -project Maugham.xcodeproj -scheme MaughamPhone \
 - **Transient simulator "Busy / failed preflight checks" on a test run is a flake**
   — just re-run the command. Do **NOT** `simctl shutdown all` right before a launch;
   that *causes* the Busy state.
-- Dev/stable variants: `com.maugham.MaughamPhone[.dev]`; iOS knobs live on
+- Dev/stable variants: `com.Maugham.MaughamPhone[.dev]` (capital "M" — matches the
+  registered App ID; diverges from the Mac's `com.maugham.Maugham` on purpose, see
+  CLAUDE.md → phone bundle-id note); iOS knobs live on
   `BuildVariantPhone.swift` (the one sanctioned home for the bundle-id literals —
   tripwire 13; `TripwirePhoneGrepTest` enforces zero `"maugham"`/`"Maugham"`
   literals elsewhere). **WhisperKit is a Mac-target-only dep — never add it here.**

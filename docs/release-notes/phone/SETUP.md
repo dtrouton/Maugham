@@ -14,16 +14,18 @@ of ad-hoc, and a monotonic build number.
 ## 0. Prerequisites
 
 - **Apple Developer Program** membership (the paid one — required for TestFlight).
-- The stable bundle id is **`com.maugham.MaughamPhone`** (the dev variant
-  `com.maugham.MaughamPhone.dev` is for Xcode-run builds only — never released).
+- The stable bundle id is **`com.Maugham.MaughamPhone`** (note the capital "M" —
+  see the note at the bottom of this file). The dev variant
+  `com.Maugham.MaughamPhone.dev` is for Xcode-run builds only — never released.
 
 ## 1. Register the bundle id
 
 Developer portal → **Certificates, Identifiers & Profiles → Identifiers → +** →
 App IDs → App → description "MaughamPhone", bundle id **explicit**
-`com.maugham.MaughamPhone`. No special capabilities are needed (the app uses
-iCloud Drive via the document picker / security-scoped bookmarks, not an iCloud
-*container* entitlement, so you do **not** need to enable the iCloud capability here).
+`com.Maugham.MaughamPhone` (capital "M"). No special capabilities are needed (the
+app uses iCloud Drive via the document picker / security-scoped bookmarks, not an
+iCloud *container* entitlement, so you do **not** need to enable the iCloud
+capability here).
 
 ## 2. Create the App Store Connect app record
 
@@ -31,7 +33,7 @@ App Store Connect → **Apps → +** → New App:
 - Platform: iOS
 - Name: **Maugham** (or "MaughamPhone" — the public TestFlight name)
 - Primary language, SKU (any unique string, e.g. `maugham-phone`), bundle id
-  `com.maugham.MaughamPhone`.
+  `com.Maugham.MaughamPhone` (capital "M").
 
 This record must exist before the first upload or App Store Connect rejects the build.
 
@@ -51,7 +53,7 @@ base64 -i AppleDistribution.p12 | pbcopy   # → paste into the secret
 ## 4. App Store provisioning profile → `PROVISIONING_PROFILE`
 
 Portal → **Profiles → + → App Store Connect (Distribution)** → app id
-`com.maugham.MaughamPhone` → the Distribution cert from step 3 → download the
+`com.Maugham.MaughamPhone` → the Distribution cert from step 3 → download the
 **`.mobileprovision`**, then:
 
 ```sh
