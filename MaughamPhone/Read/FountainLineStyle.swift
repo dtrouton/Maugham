@@ -108,11 +108,16 @@ enum FountainStyler {
             s.dimmed = true
 
         case .titlePage:
-            // The renderer draws the title page block separately from
-            // `FountainScript.titlePage`; a stray titlePage-classified line
-            // falls back to a dim callout.
+            // Hidden from the body line list: the tokenizer emits the title-page
+            // region BOTH as structured `script.titlePage` fields AND as these
+            // `.titlePage` lines, and the renderer draws `script.titlePage` in its
+            // own `titlePageBlock`. If these lines also drew, the title page would
+            // render TWICE (centered block + left-aligned body) — the double-render
+            // that surfaced once anchor-stripping made title-page detection succeed.
+            // The structured block is the single renderer of this content.
             s.role = .callout
             s.dimmed = true
+            s.hidden = true
         }
 
         // Dual-dialogue second column reads distinctly via a deeper indent on
