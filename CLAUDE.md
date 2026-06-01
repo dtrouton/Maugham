@@ -66,12 +66,22 @@ disables the updater. Stable lives at bundle id `com.maugham.Maugham` in `/Appli
 `com.maugham.Maugham.dev` from Xcode. They have separate MCP socket paths and separate Claude
 Desktop config entries (`maugham` vs `maugham-dev`) — see `Maugham/BuildVariant.swift`.
 
-**Builds are currently unsigned** (ad-hoc, `CODE_SIGN_IDENTITY: "-"`). Each downloaded `.dmg`
-requires a one-time right-click → Open on first launch — Gatekeeper's standard "unidentified
-developer" treatment. Switching to Developer ID + notarization is a ~30-min CI change (add cert
-+ notarize/staple steps to the release workflow, flip `CODE_SIGN_IDENTITY` and
-`ENABLE_HARDENED_RUNTIME` in `project.yml`). The updater code doesn't change. See
-`docs/superpowers/specs/2026-05-22-production-release-design.md` for the full sequence.
+**Builds are signed + notarized.** Release config uses a Developer ID Application
+cert + hardened runtime; CI notarizes and staples, so downloaded `.dmg`/`.zip`
+launch Gatekeeper-clean (no right-click → Open). Dev builds stay ad-hoc
+(`com.maugham.Maugham.dev`, updater disabled). One-time secret setup:
+`docs/release-notes/SETUP-mac-signing.md`. New secrets: `DEVELOPER_ID_CERT`,
+`DEVELOPER_ID_CERT_PASSWORD`; notarytool reuses the phone's ASC API key. The Mac
+entitlements file is `Maugham/Maugham.entitlements` (minimal — add WhisperKit keys
+only if a notarization dry-run proves them needed).
+
+**Auto-update is in-place.** The updater downloads the notarized `.zip`, verifies it
+(codesign + our Team ID via `UpdateInstaller.runningAppTeamID` + notarization), and
+swaps the running app via a detached helper — "Restart & Update" relaunches; dismissing
+applies the staged update on next ordinary quit (`UpdateChecker.pendingQuitInstall`).
+Falls back to revealing the `.dmg` in Finder if `/Applications` (the running app's
+location) is unwritable. The verify/stage Process work runs off the main actor. See
+`docs/superpowers/specs/2026-06-01-mac-auto-update-design.md`.
 
 ## Architectural tripwires
 
