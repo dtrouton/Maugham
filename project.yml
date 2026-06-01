@@ -76,7 +76,7 @@ targets:
       - target: maugham-mcp
         copy:
           destination: executables
-          codeSign: false
+          codeSign: true
     postBuildScripts:
       - name: Stamp Debug build identity (git SHA)
         basedOnDependencyAnalysis: false
@@ -109,6 +109,9 @@ targets:
         SWIFT_VERSION: "5.10"
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_IDENTITY: "-"
+      configs:
+        Release:
+          ENABLE_HARDENED_RUNTIME: YES
   MaughamTests:
     type: bundle.unit-test
     platform: macOS
