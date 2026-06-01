@@ -33,6 +33,21 @@ jobs:
       - name: Install xcodegen
         run: brew install xcodegen
 
+      - name: Import Developer ID certificate
+        uses: apple-actions/import-codesign-certs@v7
+        with:
+          p12-file-base64: ${{ secrets.DEVELOPER_ID_CERT }}
+          p12-password: ${{ secrets.DEVELOPER_ID_CERT_PASSWORD }}
+
+      - name: Decode App Store Connect API key (for notarytool)
+        env:
+          ASC_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/asc
+          printf '%s' "$ASC_API_KEY" | base64 --decode > "/tmp/asc/AuthKey_${ASC_KEY_ID}.p8"
+
       - name: Extract version from tag
         id: ver
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
@@ -62,10 +77,22 @@ jobs:
       - name: Generate project
         run: ./gen.sh
 
-      - name: Build (Release)
+      - name: Derive Team ID from imported cert
+        id: team
+        run: |
+          set -euo pipefail
+          TEAM=$(security find-identity -v -p codesigning | \
+            grep "Developer ID Application" | head -1 | \
+            sed -E 's/.*\(([A-Z0-9]+)\)"?$/\1/')
+          if [[ -z "$TEAM" ]]; then echo "::error::no Developer ID Application identity found"; exit 1; fi
+          echo "team_id=$TEAM" >> "$GITHUB_OUTPUT"
+          echo "Team: $TEAM"
+
+      - name: Build (Release, signed + hardened)
         run: |
           xcodebuild -project Maugham.xcodeproj -scheme Maugham \
-            -configuration Release build CODE_SIGNING_ALLOWED=NO
+            -configuration Release build \
+            DEVELOPMENT_TEAM="${{ steps.team.outputs.team_id }}"
 
       - name: Test
         # Tests run in Debug — the scheme's Test action only builds the test
@@ -87,24 +114,46 @@ jobs:
           test -d "$APP_PATH" || { echo "::error::App not found at $APP_PATH"; exit 1; }
           echo "app_path=$APP_PATH" >> "$GITHUB_OUTPUT"
 
-      - name: Package .dmg
+      - name: Notarize + staple
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
         run: |
+          set -euo pipefail
+          APP="${{ steps.locate.outputs.app_path }}"
+          # notarytool needs a zip of the app to submit.
+          ditto -c -k --keepParent "$APP" /tmp/notarize.zip
+          xcrun notarytool submit /tmp/notarize.zip \
+            --key "/tmp/asc/AuthKey_${ASC_KEY_ID}.p8" \
+            --key-id "$ASC_KEY_ID" \
+            --issuer "$ASC_ISSUER_ID" \
+            --wait
+          xcrun stapler staple "$APP"
+          # Gate: assessment + signature must pass or we don't ship.
+          spctl -a -t exec -vv "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+      - name: Package .dmg and .zip
+        run: |
+          set -euo pipefail
           VERSION="${{ steps.ver.outputs.version }}"
+          APP="${{ steps.locate.outputs.app_path }}"
+          # DMG (manual / website download)
           mkdir -p /tmp/dmg-root
-          # ditto preserves macOS bundle metadata (extended attributes, resource
-          # forks, ACLs) that plain `cp -R` strips — important for app bundles
-          # to survive the staging→dmg→install round trip with correct
-          # appearance + asset rendering.
-          ditto "${{ steps.locate.outputs.app_path }}" "/tmp/dmg-root/Maugham.app"
+          ditto "$APP" "/tmp/dmg-root/Maugham.app"
           ln -s /Applications /tmp/dmg-root/Applications
           hdiutil create -volname Maugham -srcfolder /tmp/dmg-root -ov -format UDZO \
             "Maugham-${VERSION}.dmg"
-          ls -lh "Maugham-${VERSION}.dmg"
+          # ZIP (in-app auto-update payload; staple ticket travels inside the bundle)
+          ditto -c -k --keepParent "$APP" "Maugham-${VERSION}.zip"
+          ls -lh "Maugham-${VERSION}.dmg" "Maugham-${VERSION}.zip"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          files: Maugham-${{ steps.ver.outputs.version }}.dmg
+          files: |
+            Maugham-${{ steps.ver.outputs.version }}.dmg
+            Maugham-${{ steps.ver.outputs.version }}.zip
           body_path: docs/release-notes/v${{ steps.ver.outputs.version }}.md
           name: Maugham ${{ steps.ver.outputs.version }}
           tag_name: ${{ github.ref_name }}
