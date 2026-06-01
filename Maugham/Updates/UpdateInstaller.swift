@@ -30,4 +30,27 @@ public enum UpdateInstaller {
         guard verdict.teamID == expectedTeamID else { return .reject(reason: "Team ID mismatch") }
         return .accept
     }
+
+    /// Shell script run **detached** after the app quits. Polls until our PID is
+    /// gone, then atomically swaps the bundle (ditto to a temp sibling + mv so a
+    /// working app is never left half-overwritten), then optionally relaunches.
+    public static func helperScript(
+        pid: Int32, stagedBundle: String, installedBundle: String, relaunch: Bool
+    ) -> String {
+        let tmp = "\(installedBundle).inflight"
+        var s = """
+        #!/bin/bash
+        set -e
+        # Wait for the running Maugham (pid \(pid)) to fully exit.
+        while kill -0 \(pid) 2>/dev/null; do sleep 0.2; done
+        rm -rf "\(tmp)"
+        ditto "\(stagedBundle)" "\(tmp)"
+        rm -rf "\(installedBundle)"
+        mv "\(tmp)" "\(installedBundle)"
+        """
+        if relaunch {
+            s += "\nopen \"\(installedBundle)\"\n"
+        }
+        return s
+    }
 }

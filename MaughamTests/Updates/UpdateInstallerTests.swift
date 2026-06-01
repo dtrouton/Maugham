@@ -28,4 +28,23 @@ final class UpdateInstallerTests: XCTestCase {
         XCTAssertEqual(UpdateInstaller.decide(verdict: v, expectedTeamID: "ABC123"),
                        .reject(reason: "Invalid code signature"))
     }
+
+    func test_helperScript_relaunch_containsWaitSwapAndOpen() {
+        let script = UpdateInstaller.helperScript(
+            pid: 4242, stagedBundle: "/staged/Maugham.app",
+            installedBundle: "/Applications/Maugham.app", relaunch: true)
+        XCTAssertTrue(script.contains("kill -0 4242"))
+        XCTAssertTrue(script.contains("ditto"))
+        XCTAssertTrue(script.contains("/staged/Maugham.app"))
+        XCTAssertTrue(script.contains("/Applications/Maugham.app"))
+        XCTAssertTrue(script.contains("open \"/Applications/Maugham.app\""))
+    }
+
+    func test_helperScript_noRelaunch_omitsOpen() {
+        let script = UpdateInstaller.helperScript(
+            pid: 4242, stagedBundle: "/staged/Maugham.app",
+            installedBundle: "/Applications/Maugham.app", relaunch: false)
+        XCTAssertFalse(script.contains("open \""))
+        XCTAssertTrue(script.contains("ditto"))
+    }
 }
