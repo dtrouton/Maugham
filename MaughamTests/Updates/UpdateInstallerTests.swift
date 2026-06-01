@@ -47,4 +47,14 @@ final class UpdateInstallerTests: XCTestCase {
         XCTAssertFalse(script.contains("open \""))
         XCTAssertTrue(script.contains("ditto"))
     }
+
+    func test_installMode_inPlaceWhenWritable() {
+        XCTAssertEqual(UpdateInstaller.installMode(installedBundlePath: "/Applications/Maugham.app",
+                                                   isWritable: { _ in true }), .inPlace)
+    }
+
+    func test_installMode_finderFallbackWhenNotWritable() {
+        XCTAssertEqual(UpdateInstaller.installMode(installedBundlePath: "/Applications/Maugham.app",
+                                                   isWritable: { _ in false }), .finderFallback)
+    }
 }

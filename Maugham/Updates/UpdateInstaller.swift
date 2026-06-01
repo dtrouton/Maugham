@@ -20,6 +20,11 @@ public enum InstallDecision: Equatable {
     case reject(reason: String)
 }
 
+public enum InstallMode: Equatable {
+    case inPlace        // swap /Applications/Maugham.app via the helper
+    case finderFallback // reveal the .dmg in Finder (current behavior)
+}
+
 public enum UpdateInstaller {
     /// Pure decision: a staged bundle is trustworthy iff its signature is valid,
     /// it is notarized, and its Team ID matches the running app's Team ID.
@@ -52,5 +57,16 @@ public enum UpdateInstaller {
             s += "\nopen \"\(installedBundle)\"\n"
         }
         return s
+    }
+}
+
+extension UpdateInstaller {
+    /// Decide how to install based on whether the installed bundle is writable
+    /// by the current user. Defaults are injected for testability.
+    public static func installMode(
+        installedBundlePath: String,
+        isWritable: (String) -> Bool = { FileManager.default.isWritableFile(atPath: $0) }
+    ) -> InstallMode {
+        isWritable(installedBundlePath) ? .inPlace : .finderFallback
     }
 }
