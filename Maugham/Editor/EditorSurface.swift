@@ -307,6 +307,12 @@ private final class MaughamTextView: NSTextView {
                 height: max(bounds.height, frame.height))
             gutter.needsDisplay = true
         }
+
+        // Typewriter scroll reserves a viewport-relative vertical inset so the
+        // active line can reach center even at the document's start/end. The
+        // viewport height changes on resize, so recompute here. The method is
+        // guarded against no-op churn, so this won't loop with setFrameSize.
+        coordinator?.refreshTypewriterInset(in: self)
     }
 
     func installGutter(coordinator: EditorCoordinator) {

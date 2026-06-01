@@ -69,6 +69,10 @@ Invariants:
 
 8. **`applyFocusDim` is called from three paths intentionally.** Don't dedupe blindly — selection-change, focus-change, and explicit theme-update all need to drive it.
 
+9. **Scroll position is hand-governed; the per-keystroke full-range restyle fights it.** `retokenizeAndStyle`'s full-storage `setAttributes` invalidates all layout, which snaps the scroll origin toward the top on a long scrolled doc. Two mitigations live in `EditorCoordinator` and must both stay:
+   - **Typewriter off:** `textDidChange` captures the scroll origin *before* the restyle and restores it *after* (symmetric with the caret capture-and-restore right above it). NSTextView has already scrolled to the caret by the time `textDidChange` fires, so the captured origin is correct. This is what stops the "space/delete jumps to top then back" bug.
+   - **Typewriter on:** centering needs half-a-viewport of headroom above the first line and below the last, or the active line pins to the top/bottom edge instead of center. `refreshTypewriterInset` sets `textContainerInset.height` to `clipHeight/2` (restored to 24 when off) and must be re-run on resize (wired from `MaughamTextView.updateColumnInset`). `scrollSelectionToVerticalCenter` adds `textContainerInset.height` to the container-space `lineRect.midY` to land in view space — **don't drop that correction**, it's what makes centering accurate once the inset is large.
+
 ## What to read before editing
 
 - For prose tokenization changes: `Tokenizer/` and the prose path in `EditorCoordinator.applyStyles`.

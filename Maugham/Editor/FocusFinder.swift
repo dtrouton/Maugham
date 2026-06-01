@@ -94,7 +94,17 @@ public enum FocusFinder {
         let probe = clamped == length ? max(0, length - 1) : clamped
 
         for block in blocks {
-            if NSLocationInRange(probe, block) || block.location == probe {
+            // `NSLocationInRange` is end-exclusive, so a caret sitting at the
+            // very end of a paragraph (probe == NSMaxRange(block), e.g. when
+            // typing at the end of an existing paragraph) would miss its own
+            // block and fall through to the "nearest block after" fallback —
+            // highlighting the FOLLOWING paragraph. Blocks are separated by
+            // ≥2 newlines, so NSMaxRange(block) is always strictly less than
+            // the next block's location; treating the end position as inside
+            // the block is therefore unambiguous.
+            if NSLocationInRange(probe, block)
+                || block.location == probe
+                || NSMaxRange(block) == probe {
                 return block
             }
         }

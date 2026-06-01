@@ -280,11 +280,41 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         retokenizeAndStyle()
     }
 
+    /// Default vertical text inset (matches EditorSurface.makeNSView). Restored
+    /// when typewriter scroll is off.
+    private static let defaultVerticalInset: CGFloat = 24
+
     /// Typewriter scroll setting changed — update and apply immediately.
     func applyTypewriterScroll(_ enabled: Bool) {
         self.typewriterScroll = enabled
-        guard enabled, let textView else { return }
-        scrollSelectionToVerticalCenter(in: textView)
+        guard let textView else { return }
+        refreshTypewriterInset(in: textView)
+        if enabled {
+            scrollSelectionToVerticalCenter(in: textView)
+        } else {
+            // Inset shrank back to default; keep the caret on screen.
+            textView.scrollRangeToVisible(textView.selectedRange())
+        }
+    }
+
+    /// Reserve half a viewport of padding above and below the text when
+    /// typewriter scroll is on, so the active line can always reach the
+    /// vertical center — including at the very start and very end of the
+    /// document, where there'd otherwise be no content to scroll into and the
+    /// line would pin to the top/bottom edge. Restores the default inset when
+    /// typewriter scroll is off. Idempotent and guarded against no-op churn;
+    /// safe to call on every resize. The matching coordinate correction lives
+    /// in `scrollSelectionToVerticalCenter` (line rects are in container space,
+    /// so the inset must be added back to land in view space).
+    func refreshTypewriterInset(in textView: NSTextView) {
+        let clipHeight = textView.enclosingScrollView?
+            .contentView.bounds.height ?? 0
+        let target = (typewriterScroll && clipHeight > 0)
+            ? max(Self.defaultVerticalInset, clipHeight / 2)
+            : Self.defaultVerticalInset
+        guard abs(textView.textContainerInset.height - target) > 0.5 else { return }
+        textView.textContainerInset = NSSize(
+            width: textView.textContainerInset.width, height: target)
     }
 
     /// Focus mode settings changed — update and re-dim immediately.
@@ -465,6 +495,19 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // cycle() will reset it before the async block fires.
         let skipCursorRestore = isApplyingTabCycle
         let postEditSelection = textView.selectedRange()
+        // Capture the scroll origin BEFORE retokenizeAndStyle. NSTextView has
+        // already scrolled to keep the just-typed caret visible by the time
+        // textDidChange fires, so this origin is the correct, caret-visible
+        // position. retokenizeAndStyle's full-range setAttributes invalidates
+        // the entire layout, and on a long scrolled document AppKit snaps the
+        // origin toward the top during the relayout (visible as a jump-to-top-
+        // then-back, most often on space/delete since those change the wrapped
+        // line count). When typewriterScroll is on, scrollSelectionToVerticalCenter
+        // re-asserts a sane origin below and masks this; when it's off, we
+        // restore the captured origin ourselves. Symmetric with the caret
+        // capture-and-restore just above.
+        let preRestyleScrollOrigin = textView.enclosingScrollView?
+            .contentView.bounds.origin
         // Notify the host of the post-edit caret position so Document's
         // V2 task-anchor alignment can read it inside the immediately-
         // following setFullText call. Must fire BEFORE binding-set so the
@@ -492,6 +535,12 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         }
         if typewriterScroll {
             scrollSelectionToVerticalCenter(in: textView)
+        } else if let origin = preRestyleScrollOrigin,
+                  let scrollView = textView.enclosingScrollView,
+                  scrollView.contentView.bounds.origin != origin {
+            // The full-range restyle perturbed the scroll origin; put it back.
+            scrollView.contentView.scroll(to: origin)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
         }
     }
 
@@ -807,13 +856,21 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             forGlyphRange: glyphRange, in: textContainer)
         guard let scrollView = textView.enclosingScrollView else { return }
         let visible = scrollView.contentView.documentVisibleRect
+        // `lineRect` is in text-container coordinates; the text view offsets
+        // the container by `textContainerInset.height`. The scroll origin /
+        // frame / visible rect are all in view coordinates, so add the inset
+        // to land the line's midpoint in the same space. With typewriter
+        // scroll on, that inset is ~half a viewport (see refreshTypewriterInset),
+        // which is exactly the headroom that lets the first and last lines
+        // reach center.
+        let lineMidY = lineRect.midY + textView.textContainerInset.height
         // Centering computes negative Y near the top of the document and
         // overshoots near the bottom; clamp to the legitimate document
         // range so NSScrollView doesn't round-trip through a clamped value
         // and produce a visible jump on each keystroke.
         let documentHeight = scrollView.documentView?.frame.height ?? 0
         let maxY = max(0, documentHeight - visible.height)
-        let rawTarget = lineRect.midY - visible.height / 2
+        let rawTarget = lineMidY - visible.height / 2
         let clampedY = max(0, min(rawTarget, maxY))
         // Skip the call entirely if we're already within a pixel of the
         // target — avoids a no-op scroll that NSScrollView still treats

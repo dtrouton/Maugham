@@ -58,6 +58,24 @@ final class FocusFinderTests: XCTestCase {
         let range = FocusFinder.paragraphRange(in: "", cursor: 0)
         XCTAssertEqual(range, NSRange(location: 0, length: 0))
     }
+
+    func test_paragraphRange_caretAtEndOfParagraph_staysInThatParagraph() {
+        // "First para." is 11 chars (indices 0...10); the caret position when
+        // typing at the end of it is 11 (== NSMaxRange of the block, sitting
+        // just before the blank-line separator). Regression: this used to
+        // fall through to "nearest block at/after cursor" and highlight the
+        // FOLLOWING paragraph.
+        let text = "First para.\n\nSecond para."
+        let range = FocusFinder.paragraphRange(in: text, cursor: 11)
+        XCTAssertEqual(text.trimmedRange(range), "First para.")
+    }
+
+    func test_paragraphRange_caretAtEndOfMiddleParagraph_staysInThatParagraph() {
+        let text = "One.\n\nTwo.\n\nThree."
+        // End of "Two." — "One.\n\n" is 6 chars, "Two." adds 4 → caret at 10.
+        let range = FocusFinder.paragraphRange(in: text, cursor: 10)
+        XCTAssertEqual(text.trimmedRange(range), "Two.")
+    }
 }
 
 private extension String {
