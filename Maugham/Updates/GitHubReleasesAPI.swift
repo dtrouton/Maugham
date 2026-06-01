@@ -45,12 +45,14 @@ public enum GitHubReleasesAPI {
     public enum Error: Swift.Error, LocalizedError {
         case http(status: Int)
         case noDmgAsset
+        case noInstallableAsset
         case unparseable
 
         public var errorDescription: String? {
             switch self {
             case .http(let s): return "GitHub returned HTTP \(s)"
             case .noDmgAsset: return "Release is missing the .dmg asset"
+            case .noInstallableAsset: return "Release has no installable asset"
             case .unparseable: return "Couldn't parse GitHub's response"
             }
         }

@@ -81,7 +81,7 @@ public struct UpdateSheet: View {
         case .readyToInstall(let bundle, let version, _):
             Button("Later", action: dismiss)
             Button("Restart & Update") {
-                Task { await UpdateChecker.shared.installNow(bundleURL: bundle, version: version) }
+                Task { await checker.installNow(bundleURL: bundle, version: version) }
                 dismiss()
             }
             .keyboardShortcut(.defaultAction)

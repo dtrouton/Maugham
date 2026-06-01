@@ -60,7 +60,7 @@ public final class UpdateChecker: ObservableObject {
             }
             guard let asset = release.zipAsset ?? release.dmgAsset else {
                 state = trigger == .manual
-                    ? .error(GitHubReleasesAPI.Error.noDmgAsset.localizedDescription)
+                    ? .error(GitHubReleasesAPI.Error.noInstallableAsset.localizedDescription)
                     : .idle
                 return
             }
@@ -109,7 +109,7 @@ public final class UpdateChecker: ObservableObject {
     }
 
     /// Injected real installer side-effect (set in Task 8). Nil in tests.
-    public static var performInstall: ((URL, Bool) async -> Void)?
+    @MainActor public static var performInstall: ((URL, Bool) async -> Void)?
 
     private var backgroundTask: Task<Void, Never>?
     private static let initialDelaySeconds: UInt64 = 60

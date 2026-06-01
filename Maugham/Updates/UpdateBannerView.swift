@@ -21,7 +21,7 @@ public struct UpdateBannerView: View {
                 Button("Dismiss") { dismiss(version: v) }
                     .buttonStyle(.borderless)
                 Button("Restart & Update") {
-                    Task { await UpdateChecker.shared.installNow(bundleURL: bundle, version: v) }
+                    Task { await checker.installNow(bundleURL: bundle, version: v) }
                 }
                 .keyboardShortcut(.defaultAction)
             }

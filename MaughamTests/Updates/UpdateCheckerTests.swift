@@ -78,4 +78,24 @@ final class UpdateCheckerTests: XCTestCase {
         await checker.performCheck(trigger: .background)
         XCTAssertEqual(checker.state, .idle)
     }
+
+    func test_installNow_setsInstallingState() async {
+        let checker = makeChecker(fetch: { self.release(version: "0.1.0") })
+        await checker.installNow(bundleURL: URL(fileURLWithPath: "/tmp/Maugham.app"), version: "0.3.0")
+        XCTAssertEqual(checker.state, .installing(version: "0.3.0"))
+    }
+
+    func test_stageVerifyFailureSurfacesError() async {
+        struct E: Error, LocalizedError { var errorDescription: String? { "verify-failed" } }
+        let checker = makeChecker(
+            currentVersion: "0.1.0",
+            fetch: { self.release(version: "0.2.0") },
+            stageAndVerify: { _, _ in throw E() })
+        await checker.performCheck(trigger: .manual)
+        if case .error(let msg) = checker.state {
+            XCTAssertEqual(msg, "verify-failed")
+        } else {
+            XCTFail("Expected .error, got \(checker.state)")
+        }
+    }
 }
