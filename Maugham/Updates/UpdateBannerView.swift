@@ -10,18 +10,18 @@ public struct UpdateBannerView: View {
     }
 
     public var body: some View {
-        if case .ready(let v, let dmg, _) = checker.state,
+        if case .readyToInstall(let bundle, let v, _) = checker.state,
            Self.shouldShow(state: checker.state, dismissed: dismissedSet) {
             HStack(spacing: 12) {
                 Image(systemName: "arrow.down.circle.fill")
                     .foregroundColor(.accentColor)
-                Text("Maugham \(v) is ready to install")
+                Text("Maugham \(v) is ready")
                     .font(.callout)
                 Spacer()
-                Button("Later") { dismiss(version: v) }
+                Button("Dismiss") { dismiss(version: v) }
                     .buttonStyle(.borderless)
-                Button("Install") {
-                    NSWorkspace.shared.activateFileViewerSelecting([dmg])
+                Button("Restart & Update") {
+                    Task { await UpdateChecker.shared.installNow(bundleURL: bundle, version: v) }
                 }
                 .keyboardShortcut(.defaultAction)
             }
@@ -43,9 +43,9 @@ public struct UpdateBannerView: View {
     }
 
     /// Pure decision function for testability. Banner shows iff state is
-    /// `.ready` and the version hasn't been dismissed.
+    /// `.readyToInstall` and the version hasn't been dismissed.
     public static func shouldShow(state: UpdateState, dismissed: Set<String>) -> Bool {
-        if case .ready(let v, _, _) = state, !dismissed.contains(v) { return true }
+        if case .readyToInstall(_, let v, _) = state, !dismissed.contains(v) { return true }
         return false
     }
 }

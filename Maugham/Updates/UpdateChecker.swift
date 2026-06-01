@@ -17,20 +17,24 @@ public final class UpdateChecker: ObservableObject {
     public static let shared: UpdateChecker = UpdateChecker(
         currentVersionString: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0-dev",
         fetchLatest: { try await GitHubReleasesAPI.fetchLatestRelease() },
-        downloadDMG: UpdateChecker.defaultDownload)
+        downloadAsset: UpdateChecker.defaultDownload,
+        stageAndVerify: UpdateChecker.defaultStageAndVerify)
 
     private let currentVersionString: String
     private let fetchLatest: () async throws -> GitHubRelease
-    private let downloadDMG: (URL, String) async throws -> URL
+    private let downloadAsset: (URL, String) async throws -> URL
+    private let stageAndVerify: (URL, String) async throws -> URL
 
     public init(
         currentVersionString: String,
         fetchLatest: @escaping () async throws -> GitHubRelease,
-        downloadDMG: @escaping (URL, String) async throws -> URL
+        downloadAsset: @escaping (URL, String) async throws -> URL,
+        stageAndVerify: @escaping (URL, String) async throws -> URL
     ) {
         self.currentVersionString = currentVersionString
         self.fetchLatest = fetchLatest
-        self.downloadDMG = downloadDMG
+        self.downloadAsset = downloadAsset
+        self.stageAndVerify = stageAndVerify
     }
 
     /// Single check + (if needed) download. Trigger drives error visibility.
@@ -54,15 +58,18 @@ public final class UpdateChecker: ObservableObject {
                 state = .upToDate(currentVersion: currentVersionString)
                 return
             }
-            guard let asset = release.dmgAsset else {
+            guard let asset = release.zipAsset ?? release.dmgAsset else {
                 state = trigger == .manual
                     ? .error(GitHubReleasesAPI.Error.noDmgAsset.localizedDescription)
                     : .idle
                 return
             }
             state = .downloading(version: newVersion.string, progress: 0)
-            let dmgURL = try await downloadDMG(asset.browserDownloadURL, newVersion.string)
-            state = .ready(version: newVersion.string, dmgURL: dmgURL, releaseNotes: release.body)
+            let downloaded = try await downloadAsset(asset.browserDownloadURL, newVersion.string)
+            let stagedBundle = try await stageAndVerify(downloaded, newVersion.string)
+            state = .readyToInstall(bundleURL: stagedBundle,
+                                    version: newVersion.string,
+                                    releaseNotes: release.body)
         } catch {
             state = trigger == .manual
                 ? .error(error.localizedDescription)
@@ -79,7 +86,8 @@ public final class UpdateChecker: ObservableObject {
             .appendingPathComponent(BuildVariant.current.supportFolderName)
             .appendingPathComponent("Updates")
         try FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
-        let target = stagingDir.appendingPathComponent("Maugham-\(version).dmg")
+        let ext = url.pathExtension.isEmpty ? "zip" : url.pathExtension
+        let target = stagingDir.appendingPathComponent("Maugham-\(version).\(ext)")
         if FileManager.default.fileExists(atPath: target.path) { return target }
 
         let (tmpURL, _) = try await URLSession.shared.download(from: url)
@@ -87,6 +95,21 @@ public final class UpdateChecker: ObservableObject {
         try FileManager.default.moveItem(at: tmpURL, to: target)
         return target
     }
+
+    /// Placeholder real staging — Task 8 replaces this body with real unzip + verify.
+    private static func defaultStageAndVerify(_ downloaded: URL, _ version: String) async throws -> URL {
+        return downloaded
+    }
+
+    /// Apply a verified staged update: set state, then run the injected installer
+    /// side-effect (set in Task 8). `relaunch` defaults true (explicit install).
+    public func installNow(bundleURL: URL, version: String, relaunch: Bool = true) async {
+        state = .installing(version: version)
+        await UpdateChecker.performInstall?(bundleURL, relaunch)
+    }
+
+    /// Injected real installer side-effect (set in Task 8). Nil in tests.
+    public static var performInstall: ((URL, Bool) async -> Void)?
 
     private var backgroundTask: Task<Void, Never>?
     private static let initialDelaySeconds: UInt64 = 60

@@ -37,7 +37,7 @@ public struct UpdateSheet: View {
             switch checker.state {
             case .idle, .upToDate, .error:
                 await checker.checkNow()
-            case .checking, .downloading, .ready:
+            case .checking, .downloading, .readyToInstall, .installing:
                 break  // already doing something; don't restart it
             }
         }
@@ -53,13 +53,18 @@ public struct UpdateSheet: View {
             }
         case .downloading(_, let progress):
             ProgressView(value: progress).progressViewStyle(.linear)
-        case .ready(_, _, let notes):
+        case .readyToInstall(_, _, let notes):
             ScrollView {
                 Text(notes)
                     .font(.callout)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: 200)
+        case .installing:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Installing…")
+            }
         case .error(let msg):
             Text(msg).foregroundColor(.secondary)
         case .upToDate:
@@ -73,13 +78,15 @@ public struct UpdateSheet: View {
         switch checker.state {
         case .idle, .checking, .downloading:
             Button("Close", action: dismiss)
-        case .ready(_, let dmg, _):
+        case .readyToInstall(let bundle, let version, _):
             Button("Later", action: dismiss)
-            Button("Install") {
-                NSWorkspace.shared.activateFileViewerSelecting([dmg])
+            Button("Restart & Update") {
+                Task { await UpdateChecker.shared.installNow(bundleURL: bundle, version: version) }
                 dismiss()
             }
             .keyboardShortcut(.defaultAction)
+        case .installing:
+            Button("Close", action: dismiss)
         case .error:
             Button("Close", action: dismiss)
             Button("Retry") {
@@ -98,7 +105,8 @@ public struct UpdateSheet: View {
         case .idle: return "Check for Updates"
         case .checking: return "Checking for Updates…"
         case .downloading(let v, _): return "Downloading Maugham \(v)…"
-        case .ready(let v, _, _): return "Maugham \(v) is Ready to Install"
+        case .readyToInstall(_, let v, _): return "Maugham \(v) is Ready to Install"
+        case .installing(let v): return "Installing Maugham \(v)…"
         case .error: return "Couldn't Check for Updates"
         case .upToDate(let v): return "Maugham \(v) is Up to Date"
         }

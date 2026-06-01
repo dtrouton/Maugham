@@ -7,21 +7,23 @@ final class UpdateCheckerTests: XCTestCase {
     private func makeChecker(
         currentVersion: String = "0.1.0",
         fetch: @escaping () async throws -> GitHubRelease,
-        download: @escaping (URL, String) async throws -> URL = { _, _ in
-            URL(fileURLWithPath: "/tmp/fake.dmg")
-        }
+        downloadAsset: @escaping (URL, String) async throws -> URL = { _, _ in
+            URL(fileURLWithPath: "/tmp/fake.zip")
+        },
+        stageAndVerify: @escaping (URL, String) async throws -> URL = { u, _ in u }
     ) -> UpdateChecker {
         UpdateChecker(
             currentVersionString: currentVersion,
             fetchLatest: fetch,
-            downloadDMG: download)
+            downloadAsset: downloadAsset,
+            stageAndVerify: stageAndVerify)
     }
 
     private func release(version: String, body: String = "notes") -> GitHubRelease {
         let json = """
         {"tag_name":"v\(version)","name":"x","body":"\(body)","draft":false,"prerelease":false,
-         "assets":[{"name":"Maugham-\(version).dmg",
-                    "browser_download_url":"https://example/Maugham-\(version).dmg",
+         "assets":[{"name":"Maugham-\(version).zip",
+                    "browser_download_url":"https://example/Maugham-\(version).zip",
                     "size":100}]}
         """
         return try! GitHubRelease.decode(from: Data(json.utf8))
@@ -33,16 +35,17 @@ final class UpdateCheckerTests: XCTestCase {
         XCTAssertEqual(checker.state, .upToDate(currentVersion: "0.2.0"))
     }
 
-    func test_idleToReady_whenNewerVersionAvailable() async {
+    func test_idleToReadyToInstall_whenNewerVersionAvailable() async {
         let checker = makeChecker(
             currentVersion: "0.1.0",
             fetch: { self.release(version: "0.2.0") },
-            download: { url, _ in URL(fileURLWithPath: "/tmp/Maugham-0.2.0.dmg") })
+            downloadAsset: { url, _ in URL(fileURLWithPath: "/tmp/Maugham-0.2.0.zip") },
+            stageAndVerify: { _, _ in URL(fileURLWithPath: "/tmp/Maugham.app") })
         await checker.performCheck(trigger: .manual)
-        if case .ready(let v, _, _) = checker.state {
+        if case .readyToInstall(_, let v, _) = checker.state {
             XCTAssertEqual(v, "0.2.0")
         } else {
-            XCTFail("Expected .ready, got \(checker.state)")
+            XCTFail("Expected .readyToInstall, got \(checker.state)")
         }
     }
 

@@ -20,9 +20,9 @@ final class UpdateSheetIntegrationTests: XCTestCase {
 
     func test_titleForReady() {
         XCTAssertEqual(
-            UpdateSheet.title(for: .ready(
+            UpdateSheet.title(for: .readyToInstall(
+                bundleURL: URL(fileURLWithPath: "/tmp/Maugham.app"),
                 version: "0.2.0",
-                dmgURL: URL(fileURLWithPath: "/x"),
                 releaseNotes: "notes")),
             "Maugham 0.2.0 is Ready to Install")
     }
@@ -51,9 +51,10 @@ final class UpdateMenuCommandTests: XCTestCase {
     }
     func test_menuTitle_ready() {
         XCTAssertEqual(
-            UpdateMenuCommand.menuTitle(for: .ready(version: "0.2.0",
-                                                    dmgURL: URL(fileURLWithPath: "/x"),
-                                                    releaseNotes: "")),
+            UpdateMenuCommand.menuTitle(for: .readyToInstall(
+                bundleURL: URL(fileURLWithPath: "/tmp/Maugham.app"),
+                version: "0.2.0",
+                releaseNotes: "")),
             "Install Update…")
     }
     func test_menuTitle_error() {
