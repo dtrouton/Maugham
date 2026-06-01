@@ -114,6 +114,30 @@ jobs:
           test -d "$APP_PATH" || { echo "::error::App not found at $APP_PATH"; exit 1; }
           echo "app_path=$APP_PATH" >> "$GITHUB_OUTPUT"
 
+      - name: Re-sign nested executables (inside-out, hardened)
+        run: |
+          set -euo pipefail
+          APP="${{ steps.locate.outputs.app_path }}"
+          IDENTITY="Developer ID Application"
+          OPTS="--force --options runtime --timestamp --sign"
+          # Sign the bundled tectonic binary (ships via a type:folder reference,
+          # so Xcode's build does not re-sign it — notarytool would reject it).
+          TECTONIC="$APP/Contents/Resources/bin/tectonic"
+          if [[ -f "$TECTONIC" ]]; then
+            codesign $OPTS "$IDENTITY" "$TECTONIC"
+          fi
+          # Defensively re-sign the embedded MCP tool (deepest-first ordering).
+          MCP="$APP/Contents/MacOS/maugham-mcp"
+          if [[ -f "$MCP" ]]; then
+            codesign $OPTS "$IDENTITY" "$MCP"
+          fi
+          # Re-sign the outer app LAST so its seal covers the freshly-signed
+          # nested code. (Xcode already signed it once; this re-seals with the
+          # entitlements + hardened runtime intact.)
+          codesign $OPTS "$IDENTITY" --entitlements Maugham/Maugham.entitlements "$APP"
+          # Verify the whole thing is internally consistent before we notarize.
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
       - name: Notarize + staple
         env:
           ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
