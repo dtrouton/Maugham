@@ -70,3 +70,21 @@ extension UpdateInstaller {
         isWritable(installedBundlePath) ? .inPlace : .finderFallback
     }
 }
+
+extension UpdateInstaller {
+    /// The Team ID embedded in the *running* app's code signature, or nil if
+    /// unsigned/ad-hoc (e.g. the test host). Self-anchoring: the staged update
+    /// must be signed by the same team that signed us.
+    public static func runningAppTeamID() -> String? {
+        var codeRef: SecCode?
+        guard SecCodeCopySelf([], &codeRef) == errSecSuccess, let code = codeRef else { return nil }
+        var staticRef: SecStaticCode?
+        guard SecCodeCopyStaticCode(code, [], &staticRef) == errSecSuccess,
+              let staticCode = staticRef else { return nil }
+        var infoRef: CFDictionary?
+        let flags = SecCSFlags(rawValue: kSecCSSigningInformation)
+        guard SecCodeCopySigningInformation(staticCode, flags, &infoRef) == errSecSuccess,
+              let info = infoRef as NSDictionary? else { return nil }
+        return info[kSecCodeInfoTeamIdentifier] as? String
+    }
+}

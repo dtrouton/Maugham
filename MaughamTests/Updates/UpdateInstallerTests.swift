@@ -57,4 +57,10 @@ final class UpdateInstallerTests: XCTestCase {
         XCTAssertEqual(UpdateInstaller.installMode(installedBundlePath: "/Applications/Maugham.app",
                                                    isWritable: { _ in false }), .finderFallback)
     }
+
+    func test_runningAppTeamID_doesNotCrash() {
+        // Test host is ad-hoc signed → nil is acceptable; signed Release build
+        // returns the real team id (proven in dry-run). We only assert no crash.
+        _ = UpdateInstaller.runningAppTeamID()
+    }
 }
