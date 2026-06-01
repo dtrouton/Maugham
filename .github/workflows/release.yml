@@ -8,13 +8,6 @@ on:
 permissions:
   contents: write
 
-# Opt JS actions onto Node 24 ahead of GitHub's 2026-06-16 forced switch /
-# 2026-09-16 Node 20 removal. softprops/action-gh-release@v2 has no Node-24
-# release to pin yet, so this env var is GitHub's sanctioned bridge; harmless
-# once Node 24 is the default. (actions/checkout is pinned to v5, native Node 24.)
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   release:
     # macos-15 (or newer) gives access to Xcode 17.x + the macOS 26 SDK,
@@ -109,7 +102,7 @@ jobs:
           ls -lh "Maugham-${VERSION}.dmg"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: Maugham-${{ steps.ver.outputs.version }}.dmg
           body_path: docs/release-notes/v${{ steps.ver.outputs.version }}.md

@@ -10,11 +10,6 @@ on:
 permissions:
   contents: write
 
-# Same Node-24 bridge the Mac release workflow uses (softprops/action-gh-release@v2
-# has no Node-24 release to pin yet). Harmless once Node 24 is the default.
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   release:
     # iOS archive/sign/export requires a macOS runner. macos-15 matches the Mac
@@ -68,7 +63,7 @@ jobs:
           echo "Release notes: $NOTES"
 
       - name: Import distribution certificate
-        uses: apple-actions/import-codesign-certs@v3
+        uses: apple-actions/import-codesign-certs@v7
         with:
           p12-file-base64: ${{ secrets.APPLE_DISTRIBUTION_CERT }}
           p12-password: ${{ secrets.APPLE_DISTRIBUTION_CERT_PASSWORD }}
@@ -194,7 +189,7 @@ jobs:
         # only logs since destination=upload doesn't always emit an .ipa — the glob
         # is best-effort, hence if-no-files-found: ignore.)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: MaughamPhone-${{ steps.ver.outputs.version }}-ipa
           path: build/export/*.ipa
@@ -204,7 +199,7 @@ jobs:
         # Last step on purpose: TestFlight is the artifact testers consume; the GH
         # release is documentation. A build live on TestFlight without a release page
         # is acceptable; a release page advertising a build that never uploaded is not.
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           body_path: docs/release-notes/phone/v${{ steps.ver.outputs.version }}.md
           name: MaughamPhone ${{ steps.ver.outputs.version }}
