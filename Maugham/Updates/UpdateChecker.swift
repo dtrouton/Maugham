@@ -104,7 +104,7 @@ public final class UpdateChecker: ObservableObject {
     /// installer's Finder fallback handles it).
     private static func defaultStageAndVerify(_ downloaded: URL, _ version: String) async throws -> URL {
         if downloaded.pathExtension == "dmg" { return downloaded }
-        return try UpdateInstaller.stageAndVerify(zip: downloaded, version: version)
+        return try await UpdateInstaller.stageAndVerify(zip: downloaded, version: version)
     }
 
     /// Set when a verified .app update is staged but the user dismissed the
@@ -120,6 +120,8 @@ public final class UpdateChecker: ObservableObject {
     }
 
     /// Injected real installer side-effect (set in Task 8). Nil in tests.
+    /// Set once at app startup (MaughamApp's Window .task runs once per window
+    /// appearance). Production-only; unit tests reset it to nil in setUp/tearDown.
     @MainActor public static var performInstall: ((URL, Bool) async -> Void)?
 
     private var backgroundTask: Task<Void, Never>?

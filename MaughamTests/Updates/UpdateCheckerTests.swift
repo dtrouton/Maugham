@@ -97,6 +97,36 @@ final class UpdateCheckerTests: XCTestCase {
         XCTAssertEqual(checker.state, .installing(version: "0.3.0"))
     }
 
+    func test_pendingQuitInstall_setAfterAppStaged() async {
+        let checker = makeChecker(
+            currentVersion: "0.1.0",
+            fetch: { self.release(version: "0.2.0") },
+            stageAndVerify: { _, _ in URL(fileURLWithPath: "/tmp/Maugham.app") })
+        await checker.performCheck(trigger: .manual)
+        XCTAssertEqual(checker.pendingQuitInstall?.version, "0.2.0")
+        XCTAssertEqual(checker.pendingQuitInstall?.bundleURL, URL(fileURLWithPath: "/tmp/Maugham.app"))
+    }
+
+    func test_pendingQuitInstall_notSetForDmgFallback() async {
+        let checker = makeChecker(
+            currentVersion: "0.1.0",
+            fetch: { self.release(version: "0.2.0") },
+            stageAndVerify: { _, _ in URL(fileURLWithPath: "/tmp/Maugham-0.2.0.dmg") })
+        await checker.performCheck(trigger: .manual)
+        XCTAssertNil(checker.pendingQuitInstall)
+    }
+
+    func test_installNow_clearsPendingQuitInstall() async {
+        let checker = makeChecker(
+            currentVersion: "0.1.0",
+            fetch: { self.release(version: "0.2.0") },
+            stageAndVerify: { _, _ in URL(fileURLWithPath: "/tmp/Maugham.app") })
+        await checker.performCheck(trigger: .manual)
+        XCTAssertNotNil(checker.pendingQuitInstall)
+        await checker.installNow(bundleURL: URL(fileURLWithPath: "/tmp/Maugham.app"), version: "0.2.0")
+        XCTAssertNil(checker.pendingQuitInstall)
+    }
+
     func test_stageVerifyFailureSurfacesError() async {
         struct E: Error, LocalizedError { var errorDescription: String? { "verify-failed" } }
         let checker = makeChecker(

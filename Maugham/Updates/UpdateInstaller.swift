@@ -91,12 +91,11 @@ extension UpdateInstaller {
 
 extension UpdateInstaller {
     enum InstallError: LocalizedError {
-        case unzipFailed, verifyFailed(String), helperLaunchFailed
+        case unzipFailed, verifyFailed(String)
         var errorDescription: String? {
             switch self {
             case .unzipFailed: return "Couldn't unpack the update"
             case .verifyFailed(let r): return "Update failed verification: \(r)"
-            case .helperLaunchFailed: return "Couldn't start the installer"
             }
         }
     }
@@ -123,7 +122,12 @@ extension UpdateInstaller {
             .first { $0.hasPrefix("TeamIdentifier=") }
             .map { String($0.dropFirst("TeamIdentifier=".count)) }
             .flatMap { $0 == "not set" ? nil : $0 }
-        // spctl assess: exit 0 == accepted (notarized & signed for exec).
+        // spctl assess: exit 0 == Gatekeeper would allow exec (our proxy for
+        // "notarized + team-signed"). Caveat: if Gatekeeper is globally disabled
+        // (spctl --master-disable) this returns 0 for unsigned apps too — the
+        // codesign + Team-ID guards in decide() still protect against a tampered
+        // or wrong-team bundle. spctl contacts Apple's OCSP servers; a network
+        // timeout yields non-zero, which we conservatively treat as not-notarized.
         let (spctlCode, _) = run("/usr/sbin/spctl", ["-a", "-t", "exec", "-vv", bundlePath])
         return VerificationVerdict(codesignValid: csCode == 0,
                                    notarized: spctlCode == 0,
@@ -132,7 +136,17 @@ extension UpdateInstaller {
 
     /// Unzip `zip` into a staging dir and return the contained Maugham.app URL,
     /// verifying it against the running app's Team ID. Throws on any failure.
-    static func stageAndVerify(zip: URL, version: String) throws -> URL {
+    /// Runs off the calling actor — the codesign/spctl/ditto Process calls are
+    /// synchronous and spctl can block for seconds on Apple's OCSP servers, so
+    /// this must never run on the main actor.
+    static func stageAndVerify(zip: URL, version: String) async throws -> URL {
+        try await Task.detached(priority: .utility) {
+            try stageAndVerifySync(zip: zip, version: version)
+        }.value
+    }
+
+    /// Synchronous worker. MUST be called off the main actor (see stageAndVerify).
+    private static func stageAndVerifySync(zip: URL, version: String) throws -> URL {
         let stageDir = zip.deletingLastPathComponent()
             .appendingPathComponent("staged-\(version)", isDirectory: true)
         try? FileManager.default.removeItem(at: stageDir)
@@ -146,8 +160,11 @@ extension UpdateInstaller {
         let verdict = verify(bundlePath: bundle.path)
         let expected = runningAppTeamID() ?? ""
         switch decide(verdict: verdict, expectedTeamID: expected) {
-        case .accept: return bundle
-        case .reject(let reason): throw InstallError.verifyFailed(reason)
+        case .accept:
+            return bundle
+        case .reject(let reason):
+            try? FileManager.default.removeItem(at: stageDir)
+            throw InstallError.verifyFailed(reason)
         }
     }
 
@@ -172,6 +189,10 @@ extension UpdateInstaller {
         // Launch detached: the child reparents to launchd when we terminate and
         // keeps running (no controlling TTY → no SIGHUP). The script polls our
         // pid and only swaps after we've fully exited.
+        // NOTE: on a normal Finder/Dock launch the orphaned child reparents to
+        // launchd and survives our exit. When launched from Xcode/lldb, the
+        // debugger kills the process group on app exit — so the in-place swap
+        // won't apply in a debug session. Production launch only.
         p.executableURL = URL(fileURLWithPath: "/bin/bash")
         p.arguments = [scriptURL.path]
         do { try p.run() } catch { return false }
