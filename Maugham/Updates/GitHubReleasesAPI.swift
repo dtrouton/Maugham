@@ -32,6 +32,10 @@ public struct GitHubRelease: Decodable {
         assets.first { $0.name.hasSuffix(".dmg") }
     }
 
+    public var zipAsset: Asset? {
+        assets.first { $0.name.hasSuffix(".zip") }
+    }
+
     public static func decode(from data: Data) throws -> GitHubRelease {
         try JSONDecoder().decode(GitHubRelease.self, from: data)
     }
