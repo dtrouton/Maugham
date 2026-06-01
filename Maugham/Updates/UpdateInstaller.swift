@@ -88,3 +88,93 @@ extension UpdateInstaller {
         return info[kSecCodeInfoTeamIdentifier] as? String
     }
 }
+
+extension UpdateInstaller {
+    enum InstallError: LocalizedError {
+        case unzipFailed, verifyFailed(String), helperLaunchFailed
+        var errorDescription: String? {
+            switch self {
+            case .unzipFailed: return "Couldn't unpack the update"
+            case .verifyFailed(let r): return "Update failed verification: \(r)"
+            case .helperLaunchFailed: return "Couldn't start the installer"
+            }
+        }
+    }
+
+    /// Run a tool synchronously, return (exitCode, combined stdout+stderr).
+    private static func run(_ launchPath: String, _ args: [String]) -> (Int32, String) {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: launchPath)
+        p.arguments = args
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = pipe
+        do { try p.run() } catch { return (-1, "") }
+        p.waitUntilExit()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        return (p.terminationStatus, String(decoding: data, as: UTF8.self))
+    }
+
+    /// Inspect a staged bundle's signature via codesign + spctl.
+    static func verify(bundlePath: String) -> VerificationVerdict {
+        let (csCode, _) = run("/usr/bin/codesign", ["--verify", "--deep", "--strict", bundlePath])
+        let (_, dvOut) = run("/usr/bin/codesign", ["-dv", "--verbose=4", bundlePath])
+        let teamID = dvOut.split(separator: "\n")
+            .first { $0.hasPrefix("TeamIdentifier=") }
+            .map { String($0.dropFirst("TeamIdentifier=".count)) }
+            .flatMap { $0 == "not set" ? nil : $0 }
+        // spctl assess: exit 0 == accepted (notarized & signed for exec).
+        let (spctlCode, _) = run("/usr/sbin/spctl", ["-a", "-t", "exec", "-vv", bundlePath])
+        return VerificationVerdict(codesignValid: csCode == 0,
+                                   notarized: spctlCode == 0,
+                                   teamID: teamID)
+    }
+
+    /// Unzip `zip` into a staging dir and return the contained Maugham.app URL,
+    /// verifying it against the running app's Team ID. Throws on any failure.
+    static func stageAndVerify(zip: URL, version: String) throws -> URL {
+        let stageDir = zip.deletingLastPathComponent()
+            .appendingPathComponent("staged-\(version)", isDirectory: true)
+        try? FileManager.default.removeItem(at: stageDir)
+        try FileManager.default.createDirectory(at: stageDir, withIntermediateDirectories: true)
+        let (code, _) = run("/usr/bin/ditto", ["-x", "-k", zip.path, stageDir.path])
+        guard code == 0 else { throw InstallError.unzipFailed }
+        let bundle = stageDir.appendingPathComponent("Maugham.app")
+        guard FileManager.default.fileExists(atPath: bundle.path) else { throw InstallError.unzipFailed }
+        // Strip quarantine so the swapped-in copy launches clean.
+        _ = run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", bundle.path])
+        let verdict = verify(bundlePath: bundle.path)
+        let expected = runningAppTeamID() ?? ""
+        switch decide(verdict: verdict, expectedTeamID: expected) {
+        case .accept: return bundle
+        case .reject(let reason): throw InstallError.verifyFailed(reason)
+        }
+    }
+
+    /// Launch the detached swap helper for a verified bundle. Returns false if it
+    /// couldn't be launched (caller handles Finder fallback). `installedBundlePath`
+    /// defaults to the running app's own location so we replace the right copy.
+    @discardableResult
+    static func launchSwapHelper(stagedBundle: URL, relaunch: Bool,
+                                 installedBundlePath: String = Bundle.main.bundlePath) -> Bool {
+        guard installMode(installedBundlePath: installedBundlePath) == .inPlace else {
+            return false  // not writable → caller does Finder fallback
+        }
+        let script = helperScript(pid: ProcessInfo.processInfo.processIdentifier,
+                                  stagedBundle: stagedBundle.path,
+                                  installedBundle: installedBundlePath,
+                                  relaunch: relaunch)
+        let scriptURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("maugham-update-\(UUID().uuidString).sh")
+        do { try script.write(to: scriptURL, atomically: true, encoding: .utf8) }
+        catch { return false }
+        let p = Process()
+        // Launch detached: the child reparents to launchd when we terminate and
+        // keeps running (no controlling TTY → no SIGHUP). The script polls our
+        // pid and only swaps after we've fully exited.
+        p.executableURL = URL(fileURLWithPath: "/bin/bash")
+        p.arguments = [scriptURL.path]
+        do { try p.run() } catch { return false }
+        return true
+    }
+}

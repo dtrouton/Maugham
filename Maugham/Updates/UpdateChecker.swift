@@ -70,6 +70,9 @@ public final class UpdateChecker: ObservableObject {
             state = .readyToInstall(bundleURL: stagedBundle,
                                     version: newVersion.string,
                                     releaseNotes: release.body)
+            if stagedBundle.pathExtension == "app" {
+                pendingQuitInstall = (stagedBundle, newVersion.string)
+            }
         } catch {
             state = trigger == .manual
                 ? .error(error.localizedDescription)
@@ -96,14 +99,22 @@ public final class UpdateChecker: ObservableObject {
         return target
     }
 
-    /// Placeholder real staging — Task 8 replaces this body with real unzip + verify.
+    /// Real staging: unzip + verify a `.zip` payload; a `.dmg` (zip-less fallback
+    /// release) passes through unchanged (it can't be swapped in place — the
+    /// installer's Finder fallback handles it).
     private static func defaultStageAndVerify(_ downloaded: URL, _ version: String) async throws -> URL {
-        return downloaded
+        if downloaded.pathExtension == "dmg" { return downloaded }
+        return try UpdateInstaller.stageAndVerify(zip: downloaded, version: version)
     }
+
+    /// Set when a verified .app update is staged but the user dismissed the
+    /// toast. On ordinary quit we apply it silently (no relaunch). See MaughamApp.
+    public var pendingQuitInstall: (bundleURL: URL, version: String)?
 
     /// Apply a verified staged update: set state, then run the injected installer
     /// side-effect (set in Task 8). `relaunch` defaults true (explicit install).
     public func installNow(bundleURL: URL, version: String, relaunch: Bool = true) async {
+        pendingQuitInstall = nil
         state = .installing(version: version)
         await UpdateChecker.performInstall?(bundleURL, relaunch)
     }

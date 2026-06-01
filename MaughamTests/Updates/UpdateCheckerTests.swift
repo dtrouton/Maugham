@@ -4,6 +4,18 @@ import XCTest
 
 @MainActor
 final class UpdateCheckerTests: XCTestCase {
+    // The production app wires UpdateChecker.performInstall (a global) to a
+    // closure that may call NSApp.terminate. Keep it nil in these unit tests so
+    // installNow's `performInstall?` short-circuits and state assertions hold.
+    override func setUp() {
+        super.setUp()
+        UpdateChecker.performInstall = nil
+    }
+    override func tearDown() {
+        UpdateChecker.performInstall = nil
+        super.tearDown()
+    }
+
     private func makeChecker(
         currentVersion: String = "0.1.0",
         fetch: @escaping () async throws -> GitHubRelease,

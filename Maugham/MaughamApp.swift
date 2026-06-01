@@ -34,6 +34,15 @@ struct MaughamApp: App {
         ) { _ in
             NotificationCenter.default.post(
                 name: .maughamAppWillTerminate, object: nil)
+            // If a verified update was staged and the user dismissed the toast,
+            // apply it silently now (no relaunch). willTerminate runs on the main
+            // thread, so assumeIsolated is safe.
+            MainActor.assumeIsolated {
+                if let pending = UpdateChecker.shared.pendingQuitInstall,
+                   pending.bundleURL.pathExtension == "app" {
+                    UpdateInstaller.launchSwapHelper(stagedBundle: pending.bundleURL, relaunch: false)
+                }
+            }
         }
     }
 
@@ -52,6 +61,17 @@ struct MaughamApp: App {
                         mcpServer = server
                     } catch {
                         print("MCPServer failed to start: \(error)")
+                    }
+                    // Wire the real install side-effect: swap the running bundle
+                    // via the detached helper and quit (relaunch reopens it); fall
+                    // back to revealing the download in Finder if not writable.
+                    UpdateChecker.performInstall = { bundleURL, relaunch in
+                        if bundleURL.pathExtension == "app",
+                           UpdateInstaller.launchSwapHelper(stagedBundle: bundleURL, relaunch: relaunch) {
+                            NSApp.terminate(nil)  // willTerminate flushes autosave; helper waits for exit then swaps
+                        } else {
+                            NSWorkspace.shared.activateFileViewerSelecting([bundleURL])
+                        }
                     }
                     // Updater is independent of MCP — start it regardless of whether
                     // the MCP socket bound successfully.
