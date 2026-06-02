@@ -164,13 +164,55 @@ jobs:
         run: |
           set -euo pipefail
           APP="${{ steps.locate.outputs.app_path }}"
+          KEY="/tmp/asc/AuthKey_${ASC_KEY_ID}.p8"
+          AUTH=(--key "$KEY" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID")
           # notarytool needs a zip of the app to submit.
           ditto -c -k --keepParent "$APP" /tmp/notarize.zip
-          xcrun notarytool submit /tmp/notarize.zip \
-            --key "/tmp/asc/AuthKey_${ASC_KEY_ID}.p8" \
-            --key-id "$ASC_KEY_ID" \
-            --issuer "$ASC_ISSUER_ID" \
-            --wait
+
+          # We deliberately do NOT use `submit --wait`: Apple's scan can take 15+
+          # minutes, and a single dropped connection mid-wait (a real GitHub-runner
+          # failure mode — NSURLErrorNotConnectedToInternet) fails the whole release
+          # AND loses the submission id. Instead: submit once (capture the id), then
+          # poll with our own loop that TOLERATES transient network errors and only
+          # gives up on an explicit Apple verdict or an overall timeout.
+          echo "Submitting to notarization service…"
+          SUBMIT_OUT=$(xcrun notarytool submit /tmp/notarize.zip "${AUTH[@]}")
+          echo "$SUBMIT_OUT"
+          SUB_ID=$(echo "$SUBMIT_OUT" | awk '/^[[:space:]]*id:/ { print $2; exit }')
+          if [[ -z "$SUB_ID" ]]; then
+            echo "::error::could not parse submission id from notarytool output"
+            exit 1
+          fi
+          echo "Submission id: $SUB_ID"
+
+          # Poll up to 30 minutes. A failed `info` call (network blip) is retried,
+          # not fatal. Only an Apple verdict of Accepted/Invalid/Rejected ends it.
+          DEADLINE=$(( SECONDS + 1800 ))
+          STATUS="In Progress"
+          while [[ "$SECONDS" -lt "$DEADLINE" ]]; do
+            if INFO=$(xcrun notarytool info "$SUB_ID" "${AUTH[@]}" 2>/tmp/notary.err); then
+              STATUS=$(echo "$INFO" | sed -nE 's/^[[:space:]]*status:[[:space:]]*//p')
+              echo "status: $STATUS"
+              case "$STATUS" in
+                Accepted) break ;;
+                "In Progress") sleep 30 ;;
+                *)
+                  echo "::error::notarization status: $STATUS"
+                  xcrun notarytool log "$SUB_ID" "${AUTH[@]}" || true
+                  exit 1 ;;
+              esac
+            else
+              echo "transient notarytool info error (will retry):"
+              cat /tmp/notary.err || true
+              sleep 30
+            fi
+          done
+          if [[ "$STATUS" != "Accepted" ]]; then
+            echo "::error::notarization did not reach Accepted within timeout (last: $STATUS)"
+            echo "Submission $SUB_ID is still valid — re-run can resume via notarytool info/log."
+            exit 1
+          fi
+
           xcrun stapler staple "$APP"
           # Gate: assessment + signature must pass or we don't ship.
           spctl -a -t exec -vv "$APP"
