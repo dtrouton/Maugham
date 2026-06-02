@@ -52,6 +52,25 @@ jobs:
         id: ver
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
+      - name: Classify release (stable vs dry-run prerelease)
+        id: channel
+        # Patch number >= 90 is the reserved DRY-RUN band (e.g. v0.5.90). Such
+        # builds are throwaway signing/notarization shakedowns and MUST be marked
+        # prerelease so the stable channel's /releases/latest poll (which excludes
+        # prereleases) never surfaces them to installed users. Real releases use
+        # normal patch numbers (0, 1, 2, …) and publish as stable. This makes the
+        # safety structural — not a manual post-publish flip that could race.
+        run: |
+          set -euo pipefail
+          PATCH="${GITHUB_REF_NAME##*.}"
+          if [[ "$PATCH" -ge 90 ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "Dry-run band (patch $PATCH >= 90) → prerelease"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "Stable release (patch $PATCH) → not prerelease"
+          fi
+
       - name: Verify release notes exist
         run: |
           NOTES="docs/release-notes/v${{ steps.ver.outputs.version }}.md"
@@ -182,4 +201,4 @@ jobs:
           name: Maugham ${{ steps.ver.outputs.version }}
           tag_name: ${{ github.ref_name }}
           draft: false
-          prerelease: false
+          prerelease: ${{ steps.channel.outputs.prerelease }}

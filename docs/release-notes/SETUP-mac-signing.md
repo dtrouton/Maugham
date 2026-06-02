@@ -46,25 +46,35 @@ The workflow derives the Team ID at runtime from the imported certificate
 
 Per the dry-run-is-the-integration-test rule, prove the signing/notarization/install
 path on a **throwaway** tag before a real release — cert/profile/API-key/upload and
-Apple's bundle validation can only be checked by pushing a real signed build:
+Apple's bundle validation can only be checked by pushing a real signed build.
 
-    cp docs/release-notes/_template.md docs/release-notes/v0.4.91.md   # minimal notes
-    git add docs/release-notes/v0.4.91.md
-    git commit -m "chore: dry-run notes v0.4.91"
-    ./scripts/cut-release.sh 0.4.91
-    git push origin v0.4.91
+**The dry-run band: patch number ≥ 90** (e.g. `v0.5.90`, `v0.5.91`). The release
+workflow marks any build whose patch component is ≥ 90 as a **prerelease**, so the
+stable channel's `/releases/latest` poll (which excludes prereleases) never surfaces
+a throwaway to installed users. This safety is structural — decided in CI from the
+version, not a manual post-publish flip. Real releases use normal patch numbers
+(`0`, `1`, `2`, …) and publish as stable. (A 0.x line will never legitimately reach
+90 patches, so the band can't collide with a real release.)
+
+    cp docs/release-notes/_template.md docs/release-notes/v0.5.90.md   # minimal notes
+    git add docs/release-notes/v0.5.90.md
+    git commit -m "chore: dry-run notes v0.5.90 (throwaway)"
+    git tag -a v0.5.90 -m "Dry-run throwaway 0.5.90"
+    git push origin v0.5.90          # cut from the feature branch; the workflow
+                                     # fires on any v* tag regardless of branch
 
 Watch the run (`gh run watch`). The build must: sign without error, **notarytool
 accept** the hardened-runtime build (this is where a missing WhisperKit entitlement
 would surface — read `xcrun notarytool log <id>` if it rejects), staple, and pass the
-`spctl`/`codesign` gate. Then on a real Mac, download the `.dmg` from the GitHub
-Release and confirm it launches with **no right-click → Open**.
+`spctl`/`codesign` gate. The published release will be a **prerelease** (hidden from
+stable auto-update). Then on a real Mac, download the `.dmg` from the GitHub Release
+and confirm it launches with **no right-click → Open**.
 
 Delete the throwaway tag + release afterward:
 
-    gh release delete v0.4.91 --yes
-    git push --delete origin v0.4.91
-    git tag -d v0.4.91
+    gh release delete v0.5.90 --yes
+    git push --delete origin v0.5.90
+    git tag -d v0.5.90
 
 Build numbers are `github.run_number`, so throwaway tags never collide with later
 real releases. The full dry-run checklist is Task 14 of
