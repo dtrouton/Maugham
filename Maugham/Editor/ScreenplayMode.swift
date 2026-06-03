@@ -432,29 +432,19 @@ public struct ScreenplayMode: WritingMode {
                 [.font: italic, .foregroundColor: dim(palette.syntaxPunctuation, alpha: 0.4)],
                 range: span.range)
 
-        case .italic:
-            let markerLen = 1
-            let inner = NSRange(
-                location: span.range.location + markerLen,
-                length: span.range.length - markerLen * 2)
-            applyTrait(.italic, in: storage, range: inner, baseFont: baseFont)
-            fadeMarker(in: storage, location: span.range.location, length: 1,
-                       palette: palette)
-            fadeMarker(in: storage,
-                       location: span.range.location + span.range.length - 1,
-                       length: 1, palette: palette)
+        case .emphasis(let traits):
+            // span.range is content (markers already excluded by the tokenizer).
+            // applyTrait composes, so calling it twice yields bold+italic.
+            if traits.contains(.bold) {
+                applyTrait(.bold, in: storage, range: span.range, baseFont: baseFont)
+            }
+            if traits.contains(.italic) {
+                applyTrait(.italic, in: storage, range: span.range, baseFont: baseFont)
+            }
 
-        case .bold:
-            let markerLen = 2
-            let inner = NSRange(
-                location: span.range.location + markerLen,
-                length: span.range.length - markerLen * 2)
-            applyTrait(.bold, in: storage, range: inner, baseFont: baseFont)
-            fadeMarker(in: storage, location: span.range.location, length: 2,
-                       palette: palette)
-            fadeMarker(in: storage,
-                       location: span.range.location + span.range.length - 2,
-                       length: 2, palette: palette)
+        case .emphasisMarker:
+            fadeMarker(in: storage, location: span.range.location,
+                       length: span.range.length, palette: palette)
 
         case .underline:
             let markerLen = 1

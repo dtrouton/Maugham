@@ -32,8 +32,10 @@ public enum SourceCase: Equatable, Hashable, Sendable {
 public struct FountainInlineSpan: Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
         case note
-        case italic
-        case bold
+        /// Content (markers already excluded) carrying combined font traits.
+        case emphasis(EmphasisTraits)
+        /// An asterisk-marker range to fade. Carries no font change.
+        case emphasisMarker
         case underline
     }
     public let range: NSRange

@@ -407,9 +407,8 @@ public struct FountainTokenizer: Sendable {
         return .lower
     }
 
-    /// Returns inline spans (notes, italic, bold, underline) detected within
-    /// a single line. Order: notes first, then bold (longest first), then
-    /// italic (skipping ranges already inside bold), then underline.
+    /// Returns inline spans (notes, asterisk emphasis (via
+    /// InlineEmphasisScanner), and underline) detected within a single line.
     private static func inlineSpans(
         in trimmed: String,
         lineRange: NSRange,
@@ -422,16 +421,20 @@ public struct FountainTokenizer: Sendable {
         // 1. Inline notes (existing behavior).
         result.append(contentsOf: scanNotes(in: raw, lineRange: lineRange))
 
-        // 2. Bold **text**.
-        result.append(contentsOf: scanRegex(
-            pattern: #"\*\*([^*\n]+)\*\*"#,
-            in: raw, lineRange: lineRange, kind: .bold))
-
-        // 3. Italic *text* — delimiters must not be part of **. Lone * on each
-        //    side; content may contain ** (bold inside italic).
-        result.append(contentsOf: scanRegex(
-            pattern: #"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)"#,
-            in: raw, lineRange: lineRange, kind: .italic))
+        // 2. Asterisk emphasis (*, **, ***, nesting) via the shared scanner.
+        let scan = InlineEmphasisScanner.scan(raw)
+        for run in scan.runs {
+            result.append(FountainInlineSpan(
+                range: NSRange(location: lineRange.location + run.range.location,
+                               length: run.range.length),
+                kind: .emphasis(run.traits)))
+        }
+        for marker in scan.markers {
+            result.append(FountainInlineSpan(
+                range: NSRange(location: lineRange.location + marker.location,
+                               length: marker.length),
+                kind: .emphasisMarker))
+        }
 
         // 4. Underline _text_.
         result.append(contentsOf: scanRegex(

@@ -8,9 +8,11 @@ import MaughamCore
 /// (italic / bold / underline / note) to the phone reader's `AttributedString`.
 ///
 /// CONTRACT (mirrors `ScreenplayMode.applyInlineSpan` on Mac):
-///   .italic    → italic font on inner text; * markers at 30 % opacity
-///   .bold      → bold font on inner text; ** markers at 30 % opacity
-///   .underline → underline decoration on inner; _ markers at 30 % opacity
+///   .emphasis(traits) → bold and/or italic font on the content span (markers
+///                       already excluded by the tokenizer); traits compose so
+///                       [.bold, .italic] yields bold-italic.
+///   .emphasisMarker   → asterisk markers at 30 % opacity (no font change)
+///   .underline        → underline decoration on inner; _ markers at 30 % opacity
 ///   .note      → italic font + 40 % opacity over full [[...]] span (markers incl.)
 ///   .note element lines → plain (skip span pass; element-level style handles it)
 ///
@@ -96,7 +98,7 @@ final class FountainInlineEmphasisTests: XCTestCase {
 
     func test_italic_innerTextIsItalic_markersFaded() {
         let line = parsedLine(from: "He said *hello* quietly.\n")
-        XCTAssertTrue(line.inlineSpans.contains { $0.kind == .italic },
+        XCTAssertTrue(line.inlineSpans.contains { $0.kind == .emphasis([.italic]) },
                       "precondition: parser produced an italic span")
         let attr = attributedContent(line)
         guard let star = offset(of: "*hello*", in: attr) else {
@@ -125,7 +127,7 @@ final class FountainInlineEmphasisTests: XCTestCase {
 
     func test_bold_innerTextIsBold_markersFaded() {
         let line = parsedLine(from: "She said **wow** loudly.\n")
-        XCTAssertTrue(line.inlineSpans.contains { $0.kind == .bold },
+        XCTAssertTrue(line.inlineSpans.contains { $0.kind == .emphasis([.bold]) },
                       "precondition: parser produced a bold span")
         let attr = attributedContent(line)
         guard let stars = offset(of: "**wow**", in: attr) else {
@@ -181,8 +183,8 @@ final class FountainInlineEmphasisTests: XCTestCase {
 
     func test_multipleSpans_bothApplied() {
         let line = parsedLine(from: "This is *italic* and **bold** text.\n")
-        let kinds = Set(line.inlineSpans.map(\.kind))
-        XCTAssertTrue(kinds.contains(.italic) && kinds.contains(.bold),
+        XCTAssertTrue(line.inlineSpans.contains { $0.kind == .emphasis([.italic]) }
+                      && line.inlineSpans.contains { $0.kind == .emphasis([.bold]) },
                       "precondition: parser produced both italic and bold spans")
         let attr = attributedContent(line)
 
@@ -215,5 +217,48 @@ final class FountainInlineEmphasisTests: XCTestCase {
         }
         XCTAssertEqual(fontAt(star + 1, in: attr), Font.body.italic(),
                        "italic span still maps correctly after uppercasing")
+    }
+
+    // MARK: - Combinable + nested emphasis via the shared scanner
+
+    /// Substring covered by a span, document-relative.
+    private func sub(_ span: FountainInlineSpan, in source: String) -> String {
+        (source as NSString).substring(with: span.range)
+    }
+
+    func test_tripleAsterisk_isBoldItalicContentSpan() {
+        // `***word***` → exactly one bold+italic content span over `word`.
+        let source = "He yelled ***word*** loudly.\n"
+        let line = parsedLine(from: source)
+        let both = line.inlineSpans.filter {
+            if case .emphasis(let t) = $0.kind { return t == [.bold, .italic] }
+            return false
+        }
+        XCTAssertEqual(both.count, 1)
+        XCTAssertEqual(sub(both[0], in: source), "word")
+
+        // Rendered: inner glyph is bold-italic.
+        let attr = attributedContent(line)
+        guard let stars = offset(of: "***word***", in: attr) else {
+            XCTFail("marker not found"); return
+        }
+        XCTAssertEqual(fontAt(stars + 3, in: attr), Font.body.bold().italic(),
+                       "inner content should render bold-italic")
+    }
+
+    func test_nestedBoldInsideItalic_innerSpanIsBoldItalic() {
+        // `*a **b** a*`: the span covering `b` carries italic + bold.
+        let source = "Say *a **b** a* now.\n"
+        let line = parsedLine(from: source)
+        let inner = line.inlineSpans.first { span in
+            if case .emphasis = span.kind { return self.sub(span, in: source) == "b" }
+            return false
+        }
+        XCTAssertNotNil(inner)
+        if case .emphasis(let t)? = inner?.kind {
+            XCTAssertEqual(t, [.italic, .bold])
+        } else {
+            XCTFail("expected an emphasis span over `b`")
+        }
     }
 }
