@@ -26,6 +26,183 @@ enum FountainAlignMapper {
     }
 }
 
+// MARK: - Inline span rendering
+
+/// Inline-emphasis patterns mirroring the tokenizer's scanRegex calls. Used to
+/// re-locate span markers within `line.content` at render time (we re-scan the
+/// content string rather than mapping the source-document-relative NSRanges
+/// stored in `FountainInlineSpan.range`, which would require knowing leading-
+/// whitespace and forced-marker offsets that aren't preserved in FountainLine).
+private enum InlineEmphasisPattern {
+    static let bold    = try! NSRegularExpression(pattern: #"\*\*([^*\n]+)\*\*"#)
+    static let italic  = try! NSRegularExpression(pattern: #"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)"#)
+    static let underline = try! NSRegularExpression(pattern: #"_([^_\n]+)_"#)
+    static let note    = try! NSRegularExpression(pattern: #"\[\[.*?\]\]"#)
+}
+
+/// Font trait to apply for bold / italic spans.
+private enum EmphasisTrait { case bold, italic }
+
+/// Builds an `AttributedString` from a parsed `FountainLine`, applying inline
+/// emphasis (italic / bold / underline / note) on top of the element-level base
+/// style. This is a pure function — no SwiftUI rendering side-effects — so it is
+/// fully unit-testable.
+///
+/// CONTRACT (mirrors `ScreenplayMode.applyInlineSpan` on Mac):
+///   .italic    → italic trait on inner text; markers faded to 30 % opacity
+///   .bold      → bold trait on inner text; markers faded to 30 % opacity
+///   .underline → underline decoration on inner text; markers faded to 30 % opacity
+///   .note      → italic + ~40 % opacity over the full [[...]] span (incl. brackets)
+///
+/// Lines whose element is `.note` are skipped — the whole line is already styled
+/// as a note at the element level (matching Mac: `if line.element == .note { continue }`).
+///
+/// `style.uppercased` is applied BEFORE span-scanning so ASCII marker characters
+/// survive uppercasing unchanged.
+enum FountainInlineEmphasisRenderer {
+
+    /// Returns an `AttributedString` for `line.content` with inline emphasis
+    /// applied, or a plain `AttributedString(raw)` when no spans are present /
+    /// the line is a `.note` element.
+    ///
+    /// The caller is responsible for applying the element-level base font,
+    /// weight, and italic as SwiftUI view-/Text-modifiers on top.
+    static func attributedContent(
+        for line: FountainLine,
+        style: FountainLineStyle
+    ) -> AttributedString {
+        let raw = style.uppercased ? line.content.uppercased() : line.content
+
+        guard line.element != .note, !line.inlineSpans.isEmpty else {
+            return AttributedString(raw)
+        }
+
+        var attr = AttributedString(raw)
+        let fullNS = NSRange(location: 0, length: (raw as NSString).length)
+
+        // Note spans first — dim + italic over [[...]] including brackets.
+        applyMatches(InlineEmphasisPattern.note, in: raw, range: fullNS) { outer, _ in
+            applyNoteSpan(outerNS: outer, raw: raw, to: &attr)
+        }
+
+        // Bold (**text**): bold trait on inner, fade ** markers.
+        applyMatches(InlineEmphasisPattern.bold, in: raw, range: fullNS) { outer, inner in
+            applyTraitSpan(outerNS: outer, innerNS: inner,
+                           markerLength: 2, trait: .bold,
+                           raw: raw, to: &attr)
+        }
+
+        // Italic (*text*): italic trait on inner, fade * markers.
+        applyMatches(InlineEmphasisPattern.italic, in: raw, range: fullNS) { outer, inner in
+            applyTraitSpan(outerNS: outer, innerNS: inner,
+                           markerLength: 1, trait: .italic,
+                           raw: raw, to: &attr)
+        }
+
+        // Underline (_text_): underline on inner, fade _ markers.
+        applyMatches(InlineEmphasisPattern.underline, in: raw, range: fullNS) { outer, inner in
+            applyUnderlineSpan(outerNS: outer, innerNS: inner,
+                               markerLength: 1, raw: raw, to: &attr)
+        }
+
+        return attr
+    }
+
+    // MARK: - Private helpers
+
+    /// Enumerate all matches of `pattern` in `raw` within `range`.
+    /// Calls `handler(outerRange, innerRange)` where `inner` is capture group 1
+    /// when present, or equals `outer` otherwise (note pattern has no group).
+    private static func applyMatches(
+        _ pattern: NSRegularExpression,
+        in raw: String,
+        range: NSRange,
+        handler: (NSRange, NSRange) -> Void
+    ) {
+        pattern.enumerateMatches(in: raw, options: [], range: range) { match, _, _ in
+            guard let match else { return }
+            let outer = match.range
+            let inner = match.numberOfRanges > 1 ? match.range(at: 1) : outer
+            handler(outer, inner)
+        }
+    }
+
+    /// Convert an NSRange in `raw` to a `Range<AttributedString.Index>`.
+    private static func attrRange(
+        _ nsRange: NSRange,
+        in raw: String,
+        attr: AttributedString
+    ) -> Range<AttributedString.Index>? {
+        guard let strRange = Range(nsRange, in: raw) else { return nil }
+        return Range(strRange, in: attr)
+    }
+
+    /// [[...]] span: italic + dimmed over the full bracket pair.
+    private static func applyNoteSpan(
+        outerNS: NSRange,
+        raw: String,
+        to attr: inout AttributedString
+    ) {
+        guard let r = attrRange(outerNS, in: raw, attr: attr) else { return }
+        // Match Mac: italic + syntax-punctuation-dimmed color (0.4 opacity).
+        attr[r].font = Font.body.italic()
+        attr[r].foregroundColor = Color.primary.opacity(0.4)
+    }
+
+    /// Bold or italic span: apply the trait to inner text, fade the markers.
+    private static func applyTraitSpan(
+        outerNS: NSRange,
+        innerNS: NSRange,
+        markerLength: Int,
+        trait: EmphasisTrait,
+        raw: String,
+        to attr: inout AttributedString
+    ) {
+        if let innerR = attrRange(innerNS, in: raw, attr: attr) {
+            // Layer trait on whatever base font the run already has; fall back
+            // to .body (the element-level base font is set by the Text modifier
+            // in the caller and doesn't appear as a run attribute here yet).
+            let base = attr[innerR].font ?? Font.body
+            attr[innerR].font = trait == .bold ? base.bold() : base.italic()
+        }
+        fadeMarker(NSRange(location: outerNS.location, length: markerLength),
+                   raw: raw, in: &attr)
+        fadeMarker(NSRange(location: outerNS.location + outerNS.length - markerLength,
+                           length: markerLength),
+                   raw: raw, in: &attr)
+    }
+
+    /// Underline span: underline on inner text, fade the markers.
+    private static func applyUnderlineSpan(
+        outerNS: NSRange,
+        innerNS: NSRange,
+        markerLength: Int,
+        raw: String,
+        to attr: inout AttributedString
+    ) {
+        if let innerR = attrRange(innerNS, in: raw, attr: attr) {
+            attr[innerR].underlineStyle = Text.LineStyle(pattern: .solid)
+        }
+        fadeMarker(NSRange(location: outerNS.location, length: markerLength),
+                   raw: raw, in: &attr)
+        fadeMarker(NSRange(location: outerNS.location + outerNS.length - markerLength,
+                           length: markerLength),
+                   raw: raw, in: &attr)
+    }
+
+    /// Fade `nsRange` to 30 % opacity (marker-character treatment).
+    private static func fadeMarker(
+        _ nsRange: NSRange,
+        raw: String,
+        in attr: inout AttributedString
+    ) {
+        guard let r = attrRange(nsRange, in: raw, attr: attr) else { return }
+        attr[r].foregroundColor = Color.primary.opacity(0.3)
+    }
+}
+
+// MARK: - View
+
 /// Renders an already-parsed `FountainScript` with semantic screenplay styling.
 ///
 /// TRIPWIRE 4: the script is parsed ONCE upstream (in `DocumentReaderView.task`)
@@ -84,9 +261,8 @@ struct FountainSemanticRenderer: View {
     @ViewBuilder
     private func row(for line: FountainLine) -> some View {
         let style = FountainStyler.style(for: line)
-        let text = style.uppercased ? line.content.uppercased() : line.content
 
-        styledText(text, style: style)
+        styledText(line, style: style)
             .multilineTextAlignment(FountainAlignMapper.textAlignment(style.align))
             .foregroundStyle(style.dimmed ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
             .frame(maxWidth: .infinity,
@@ -97,11 +273,31 @@ struct FountainSemanticRenderer: View {
             .background(highlightBackground(for: line))
     }
 
-    /// Builds the base `Text` with font/weight/italic/monospace from the
-    /// descriptor. Font modifiers chain off `Text` so they compose before the
-    /// view-level modifiers above.
-    private func styledText(_ content: String, style: FountainLineStyle) -> Text {
-        var t = Text(content).font(font(for: style.role))
+    /// Builds the base `Text` with font / weight / italic / monospace from the
+    /// style descriptor.  When the line has inline spans the content is built
+    /// as an `AttributedString` so per-span traits layer on top; otherwise a
+    /// plain `String`-based `Text` is returned (fast path).
+    ///
+    /// Element-level weight / italic / foreground are applied as view-modifiers
+    /// in `row(for:)` and compose cleanly over any span-level font overrides
+    /// already baked into the `AttributedString`.
+    private func styledText(_ line: FountainLine, style: FountainLineStyle) -> Text {
+        guard !line.inlineSpans.isEmpty, line.element != .note else {
+            // Fast path — no spans or a .note element (styled at element level).
+            let content = style.uppercased ? line.content.uppercased() : line.content
+            var t = Text(content).font(font(for: style.role))
+            if style.weight == .bold { t = t.bold() }
+            if style.italic { t = t.italic() }
+            if style.monospaced { t = t.monospaced() }
+            return t
+        }
+
+        // Span path: AttributedString carries per-span italic / bold / underline.
+        // `.font(baseFont)` on Text sets the default for runs without an explicit
+        // font; span-level font overrides (set by FountainInlineEmphasisRenderer)
+        // win because they are stored as AttributedString run attributes.
+        let attr = FountainInlineEmphasisRenderer.attributedContent(for: line, style: style)
+        var t = Text(attr).font(font(for: style.role))
         if style.weight == .bold { t = t.bold() }
         if style.italic { t = t.italic() }
         if style.monospaced { t = t.monospaced() }
