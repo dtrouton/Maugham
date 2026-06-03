@@ -104,7 +104,7 @@ extension ProjectStore {
                 "addProjectReference only valid for Collection projects")
         }
         // Validate target is a Maugham project (has project.maugham.json)
-        let targetManifestURL = targetURL.appendingPathComponent("project.maugham.json")
+        let targetManifestURL = targetURL.appendingPathComponent(ProjectManifest.fileName)
         guard FileManager.default.fileExists(atPath: targetManifestURL.path) else {
             throw ProjectStoreError.fileSystemError(
                 "Selected folder is not a Maugham project: \(targetURL.path)")

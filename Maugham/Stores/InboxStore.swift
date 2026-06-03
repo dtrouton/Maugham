@@ -40,10 +40,7 @@ final class InboxStore {
     }
 
     /// Mirrors `EditorHost.deviceId`: hostName, best-effort stable per machine.
-    nonisolated static var currentDeviceId: String {
-        let name = ProcessInfo.processInfo.hostName
-        return name.isEmpty ? "unknown-host" : name
-    }
+    nonisolated static var currentDeviceId: String { MacDeviceID.current }
 
     private var ownManifestURL: URL {
         InboxManifest.inboxManifestURL(forDeviceSlug: DeviceSlug.make(from: deviceId),

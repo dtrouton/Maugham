@@ -107,10 +107,7 @@ public final class ProjectStore {
     /// ops live in a separate log anyway, so we mint our own per-instance.
     /// `@ObservationIgnored` because these are computed-once internal
     /// identifiers, never observed by SwiftUI.
-    @ObservationIgnored internal var projectOpDevice: String = {
-        let name = ProcessInfo.processInfo.hostName
-        return name.isEmpty ? "unknown-host" : name
-    }()
+    @ObservationIgnored internal var projectOpDevice: String = MacDeviceID.current
     @ObservationIgnored internal var projectOpSession: String = UUID().uuidString
 
     #if DEBUG
@@ -241,7 +238,7 @@ public final class ProjectStore {
         }
     }
 
-    static func newId(prefix: String) -> String {
+    nonisolated static func newId(prefix: String) -> String {
         let suffix = UUID().uuidString.prefix(8).lowercased()
         return "\(prefix)-\(suffix)"
     }

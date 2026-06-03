@@ -50,10 +50,7 @@ struct EditorHost: View {
     /// Device id — best-effort stable across launches. `hostName` is fine
     /// for single-user / single-Mac use; multi-device sync via iCloud will
     /// rely on the same value per machine.
-    private static let deviceId: String = {
-        let name = ProcessInfo.processInfo.hostName
-        return name.isEmpty ? "unknown-host" : name
-    }()
+    private static let deviceId: String = MacDeviceID.current
 
     var body: some View {
         Group {

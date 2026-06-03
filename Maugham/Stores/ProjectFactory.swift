@@ -181,7 +181,7 @@ public enum ProjectFactory {
 
             let now = Date()
             let item = StructureItem(
-                id: "doc-\(UUID().uuidString.prefix(8).lowercased())",
+                id: ProjectStore.newId(prefix: "doc"),
                 title: initialDocumentTitle,
                 type: .document,
                 path: "manuscript/\(filename)",
