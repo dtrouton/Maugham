@@ -2048,8 +2048,7 @@ internal func resolveDocId(for url: URL) throws -> String {
             let relativePath = url.path
                 .replacingOccurrences(of: probe.path + "/", with: "")
             if let data = try? Data(contentsOf: manifestURL) {
-                let dec = JSONDecoder()
-                dec.dateDecodingStrategy = .iso8601
+                let dec = ProjectManifest.makeDecoder()
                 if let manifest = try? dec.decode(
                     ProjectManifest.self, from: data),
                    let item = findItemByPath(
