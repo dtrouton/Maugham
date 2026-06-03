@@ -17,7 +17,8 @@ import MaughamCore
 /// # Testability seam
 /// `enumerateOpLogs` is injectable so a test can supply fake project dirs with
 /// scripted op-log URLs without touching the real filesystem. The production
-/// default globs `<projectURL>/.maugham/ops/` for `d_*.jsonl` files.
+/// default lists `<projectURL>/.maugham/ops/`, recognizing doc op logs via
+/// `OpLogStore.docId(fromOpLogFilename:)`.
 struct ColdLaunchDownloader {
     let downloads: DownloadCoordinator
     let io: CoordinatedFileIO
