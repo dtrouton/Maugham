@@ -63,6 +63,32 @@ public final class OpLogStore {
 
     // MARK: - Glob helpers (shared with synchronous readers)
 
+    /// The doc id encoded in an op-log filename, or nil if `name` is not a
+    /// manuscript doc op-log file. Filenames are `<docId>(.<slug>)?.jsonl`; the
+    /// doc id is the component before the first `.` (doc ids contain no dot) and is
+    /// `doc-<hex>` / `scene-<hex>` (ADR 0008). Deliberately NOT format-validated —
+    /// this store is id-agnostic by contract; the only excluded stream is the
+    /// synthetic `__project__` (tasks/checkpoints — no manuscript content).
+    ///
+    /// SINGLE SOURCE OF TRUTH for filename→docId. Surfaces (phone + Mac) MUST call
+    /// this, never hand-roll a predicate (a stricter local copy is what shipped the
+    /// phone-v0.1.1 "No open annotations" bug). Enforced by the reach-around
+    /// tripwires; see docs/superpowers/notes/cross-surface-contracts.md.
+    public nonisolated static func docId(fromOpLogFilename name: String) -> String? {
+        guard name.hasSuffix(".jsonl") else { return nil }
+        let stem = String(name.dropLast(".jsonl".count))
+        let head = String(stem.split(separator: ".", maxSplits: 1,
+                                     omittingEmptySubsequences: false)[0])
+        guard !head.isEmpty, head != "__project__" else { return nil }
+        return head
+    }
+
+    /// Distinct doc ids among a set of `.maugham/ops/` filenames (per-device +
+    /// legacy files for one doc collapse to one id).
+    public nonisolated static func docIds(inOpsDirectoryFilenames filenames: [String]) -> Set<String> {
+        Set(filenames.compactMap(docId(fromOpLogFilename:)))
+    }
+
     /// Every op-log file URL for `docId` (legacy + per-device). Pure listing,
     /// no read coordination — for readers that need the file set without the
     /// async coordinated load (mtime-change heuristics; the synchronous
