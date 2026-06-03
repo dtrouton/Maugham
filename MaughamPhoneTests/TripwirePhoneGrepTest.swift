@@ -43,4 +43,38 @@ final class TripwirePhoneGrepTest: XCTestCase {
                       + "(route them through BuildVariant):\n"
                       + offenders.joined(separator: "\n"))
     }
+
+    /// Action-triggered guard: surface code must not hand-roll op-log filename /
+    /// docId parsing — it must call OpLogStore. Catches the phone-v0.1.1 footgun
+    /// class. Allowlist = files that legitimately ARE the choke-point or its tests.
+    func test_noReachAroundOpLogFilenameParsing() throws {
+        let here = URL(fileURLWithPath: #filePath)
+        let repoRoot = here.deletingLastPathComponent().deletingLastPathComponent()
+        let sourceDir = repoRoot.appendingPathComponent("MaughamPhone", isDirectory: true)
+        // No legitimate op-log filename parsers or hand-rolled .jsonl filename
+        // constructors in MaughamPhone — surfaces delegate to OpLogStore /
+        // InboxManifest. The Task 7 audit finalizes this list.
+        let allowed: Set<String> = []
+        let forbidden = ["hasPrefix(\"d_\")", ".hasSuffix(\".jsonl\")", ".jsonl\""]
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: sourceDir, includingPropertiesForKeys: nil) else {
+            return XCTFail("could not enumerate \(sourceDir.path)")
+        }
+        var offenders: [String] = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            if allowed.contains(url.lastPathComponent) { continue }
+            let text = try String(contentsOf: url, encoding: .utf8)
+            for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+                for pat in forbidden where line.contains(pat) {
+                    offenders.append("\(url.lastPathComponent):\(i + 1): \(line.trimmingCharacters(in: .whitespaces))")
+                }
+            }
+        }
+        XCTAssertTrue(offenders.isEmpty,
+            "Hand-rolled op-log filename parsing or .jsonl filename construction found. "
+            + "Use OpLogStore.docId(fromOpLogFilename:) for parsing; "
+            + "use InboxManifest.inboxManifestURL for manifest construction. "
+            + "See docs/superpowers/notes/cross-surface-contracts.md:\n"
+            + offenders.joined(separator: "\n"))
+    }
 }

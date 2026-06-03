@@ -72,4 +72,26 @@ extension AnnotationKind {
         default:                return nil
         }
     }
+
+    /// SF Symbol name for this kind. SINGLE SOURCE — both the Mac AnnotationsPane
+    /// and the iOS AnnotationsList/Detail consume this so the icon never differs
+    /// across surfaces. (Cross-surface contract; see docs/superpowers/notes/cross-surface-contracts.md.)
+    public var systemImageName: String {
+        switch self {
+        case .comment:         return "bubble.left"
+        case .suggestedChange: return "pencil.line"
+        case .query:           return "questionmark.circle"
+        case .craftNote:       return "lightbulb"
+        }
+    }
+
+    /// Human-facing label for this kind. Single source, consumed by both surfaces.
+    public var displayName: String {
+        switch self {
+        case .comment:         return "Comment"
+        case .suggestedChange: return "Suggested change"
+        case .query:           return "Query"
+        case .craftNote:       return "Craft note"
+        }
+    }
 }

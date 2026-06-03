@@ -25,6 +25,8 @@ struct FountainLineStyle: Equatable {
     var dimmed: Bool = false
     /// Page breaks (and any other non-rendered element) are suppressed.
     var hidden: Bool = false
+    /// Section headings render with an underline decoration (cross-surface contract).
+    var underline: Bool = false
 }
 
 /// Maps a parsed `FountainLine` to its semantic display style (spec §3.8). This
@@ -39,12 +41,15 @@ enum FountainStyler {
     static func style(for line: FountainLine) -> FountainLineStyle {
         var s = FountainLineStyle()
 
-        switch line.element {
+        let element = line.element
+        s.uppercased = ScreenplayUppercase.shouldDisplayUppercase(element)
+
+        switch element {
         case .sceneHeading:
-            // Bold, monospaced, uppercased, with breathing room above.
+            // Bold, monospaced, with breathing room above.
+            // uppercased already set above via the shared ScreenplayUppercase contract.
             s.weight = .bold
             s.monospaced = true
-            s.uppercased = true
             s.topPadding = 12
 
         case .action:
@@ -64,9 +69,9 @@ enum FountainStyler {
             s.trailingIndent = 48
 
         case .transition:
+            // uppercased already set above via the shared ScreenplayUppercase contract.
             s.weight = .bold
             s.align = .trailing
-            s.uppercased = true
 
         case .centered:
             // Bold per the ScreenplayEmphasis contract (matches the Mac).
@@ -79,9 +84,10 @@ enum FountainStyler {
             s.leadingIndent = 48
 
         case .section:
-            // Bold headline; we keep it simple and don't vary by level.
+            // Bold headline with underline per the ScreenplayEmphasis contract (matches the Mac).
             s.role = .headline
             s.weight = .bold
+            s.underline = true
 
         case .synopsis:
             s.role = .callout

@@ -4,9 +4,9 @@ import MaughamCore
 
 /// The iOS half of the cross-surface `ScreenplayEmphasis` contract (sibling in
 /// `MaughamTests` covers the Mac editor). Asserts the SwiftUI reader's
-/// `FountainStyler` applies the same bold/italic the contract declares, so the
-/// two surfaces can't silently drift and a new `ScreenplayElement` is forced to
-/// be styled here too, not just on the Mac.
+/// `FountainStyler` applies the same bold/italic/underline the contract
+/// declares, so the two surfaces can't silently drift and a new
+/// `ScreenplayElement` is forced to be styled here too, not just on the Mac.
 final class ScreenplayEmphasisContractTests: XCTestCase {
     private let allElements: [ScreenplayElement] = [
         .action, .sceneHeading, .character, .dialogue, .parenthetical,
@@ -27,7 +27,8 @@ final class ScreenplayEmphasisContractTests: XCTestCase {
             }
             let style = FountainStyler.style(for: line(element))
             let actual = ScreenplayEmphasis(
-                bold: style.weight == .bold, italic: style.italic)
+                bold: style.weight == .bold, italic: style.italic,
+                underline: style.underline)
             XCTAssertEqual(
                 actual, expected,
                 "FountainStyler emphasis for \(element) diverged from the ScreenplayEmphasis contract")

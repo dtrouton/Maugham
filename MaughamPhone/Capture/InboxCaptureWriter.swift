@@ -42,7 +42,8 @@ struct InboxCaptureWriter {
 
     /// This device's own manifest stream. Matches the Mac's `ownManifestURL`.
     private var manifestURL: URL {
-        inboxDir.appendingPathComponent("inbox.\(DeviceSlug.make(from: deviceId)).jsonl")
+        InboxManifest.inboxManifestURL(forDeviceSlug: DeviceSlug.make(from: deviceId),
+                                       in: projectRoot)
     }
 
     private var imagesDir: URL {

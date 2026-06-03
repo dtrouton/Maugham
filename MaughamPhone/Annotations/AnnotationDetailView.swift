@@ -140,14 +140,9 @@ struct AnnotationDetailView: View {
     }
 
     /// Human label for the annotation kind, also the nav title.
-    private var kindTitle: String {
-        switch current.kind {
-        case .comment:         return "Comment"
-        case .suggestedChange: return "Suggested change"
-        case .query:           return "Query"
-        case .craftNote:       return "Craft note"
-        }
-    }
+    /// Delegates to `AnnotationKind.displayName` (MaughamCore) — single source
+    /// shared with the Mac surface.
+    private var kindTitle: String { current.kind.displayName }
 
     // MARK: - Paragraph context
 

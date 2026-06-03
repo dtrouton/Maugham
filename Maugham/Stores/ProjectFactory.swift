@@ -9,7 +9,7 @@ public enum ProjectFactoryError: Error, Equatable {
 
 /// Creates new projects on disk. One-shot operations; does not retain state.
 public enum ProjectFactory {
-    private static let manifestFilename = "project.maugham.json"
+    private static let manifestFilename = ProjectManifest.fileName
 
     /// Creates a Short Story project folder at `parent/<name>`.
     /// Returns the URL of the created project folder.
@@ -55,10 +55,7 @@ public enum ProjectFactory {
                 research: []
             )
 
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let manifestData = try encoder.encode(manifest)
+            let manifestData = try ProjectManifest.makeEncoder().encode(manifest)
             try manifestData.write(to: projectURL.appendingPathComponent(manifestFilename))
 
             // Publishing: copy barebones starter so new projects can publish immediately.
@@ -184,7 +181,7 @@ public enum ProjectFactory {
 
             let now = Date()
             let item = StructureItem(
-                id: "doc-\(UUID().uuidString.prefix(8).lowercased())",
+                id: ProjectStore.newId(prefix: "doc"),
                 title: initialDocumentTitle,
                 type: .document,
                 path: "manuscript/\(filename)",
@@ -213,11 +210,8 @@ public enum ProjectFactory {
     private static func writeManifest(
         _ manifest: ProjectManifest, to projectURL: URL
     ) throws {
-        let manifestURL = projectURL.appendingPathComponent("project.maugham.json")
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(manifest)
+        let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
+        let data = try ProjectManifest.makeEncoder().encode(manifest)
         try data.write(to: manifestURL, options: [.atomic])
     }
 }

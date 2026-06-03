@@ -104,15 +104,13 @@ extension ProjectStore {
                 "addProjectReference only valid for Collection projects")
         }
         // Validate target is a Maugham project (has project.maugham.json)
-        let targetManifestURL = targetURL.appendingPathComponent("project.maugham.json")
+        let targetManifestURL = targetURL.appendingPathComponent(ProjectManifest.fileName)
         guard FileManager.default.fileExists(atPath: targetManifestURL.path) else {
             throw ProjectStoreError.fileSystemError(
                 "Selected folder is not a Maugham project: \(targetURL.path)")
         }
         let data = try Data(contentsOf: targetManifestURL)
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let targetManifest = try decoder.decode(ProjectManifest.self, from: data)
+        let targetManifest = try ProjectManifest.makeDecoder().decode(ProjectManifest.self, from: data)
         let title = targetManifest.title
 
         // Slug from title; dedup against existing pieces by folder slug.
@@ -276,11 +274,9 @@ extension ProjectStore {
                 structure: [docStructItem],
                 research: carriedResearch,
                 targets: newTargets)
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let encoder = ProjectManifest.makeEncoder()
             try encoder.encode(newManifest).write(
-                to: stagingURL.appendingPathComponent("project.maugham.json"),
+                to: stagingURL.appendingPathComponent(ProjectManifest.fileName),
                 options: .atomic)
 
             // 6. Validate by loading

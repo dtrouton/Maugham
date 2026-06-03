@@ -2043,13 +2043,12 @@ internal func resolveDocId(for url: URL) throws -> String {
     let fm = FileManager.default
     // Cap the walk at 16 ancestors so a malformed URL can't infinite-loop.
     for _ in 0..<16 {
-        let manifestURL = probe.appendingPathComponent("project.maugham.json")
+        let manifestURL = probe.appendingPathComponent(ProjectManifest.fileName)
         if fm.fileExists(atPath: manifestURL.path) {
             let relativePath = url.path
                 .replacingOccurrences(of: probe.path + "/", with: "")
             if let data = try? Data(contentsOf: manifestURL) {
-                let dec = JSONDecoder()
-                dec.dateDecodingStrategy = .iso8601
+                let dec = ProjectManifest.makeDecoder()
                 if let manifest = try? dec.decode(
                     ProjectManifest.self, from: data),
                    let item = findItemByPath(
@@ -2084,7 +2083,7 @@ internal func resolveProjectURL(for url: URL) -> URL {
     let fm = FileManager.default
     for _ in 0..<16 {
         if fm.fileExists(atPath:
-            probe.appendingPathComponent("project.maugham.json").path) {
+            probe.appendingPathComponent(ProjectManifest.fileName).path) {
             return probe
         }
         let parent = probe.deletingLastPathComponent()

@@ -98,10 +98,7 @@ extension ProjectStore {
         let tmpURL = url.appendingPathComponent(Self.manifestFilename + ".tmp")
 
         do {
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try encoder.encode(manifest)
+            let data = try ProjectManifest.makeEncoder().encode(manifest)
             try data.write(to: tmpURL)
             _ = try FileManager.default.replaceItemAt(manifestURL, withItemAt: tmpURL)
         } catch {

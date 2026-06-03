@@ -27,24 +27,24 @@ final class InboxStore {
     /// `inbox/`), so `restore` is a clean status flip back to `.new`.
     private(set) var trashedEntries: [InboxEntry] = []
 
+    private let projectURL: URL
     private let inboxDir: URL
     /// This Mac's own device identifier — matches the op-log `device` (hostName)
     /// so a single machine's inbox + op-log writes carry a consistent identity.
     private let deviceId: String
 
     init(projectURL: URL, deviceId: String = InboxStore.currentDeviceId) {
+        self.projectURL = projectURL
         self.inboxDir = projectURL.appendingPathComponent(".maugham/inbox")
         self.deviceId = deviceId
     }
 
     /// Mirrors `EditorHost.deviceId`: hostName, best-effort stable per machine.
-    nonisolated static var currentDeviceId: String {
-        let name = ProcessInfo.processInfo.hostName
-        return name.isEmpty ? "unknown-host" : name
-    }
+    nonisolated static var currentDeviceId: String { MacDeviceID.current }
 
     private var ownManifestURL: URL {
-        inboxDir.appendingPathComponent("inbox.\(DeviceSlug.make(from: deviceId)).jsonl")
+        InboxManifest.inboxManifestURL(forDeviceSlug: DeviceSlug.make(from: deviceId),
+                                       in: projectURL)
     }
 
     // MARK: - Read

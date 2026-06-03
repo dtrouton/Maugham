@@ -11,6 +11,33 @@ import Foundation
 public struct ProjectManifest: Codable, Equatable, Sendable {
     public static let currentSchemaVersion = 1
 
+    /// The filename used by every Maugham project for its manifest.
+    /// Both the Mac app and the iOS companion look for this name in a
+    /// project folder. Centralised here so Mac + phone stay in sync if
+    /// the name ever changes.
+    public static let fileName = "project.maugham.json"
+
+    /// Returns a `JSONDecoder` configured for manifest files.
+    /// Both surfaces (Mac + phone) must use this to ensure identical
+    /// date parsing; a divergence silently breaks Mac-written manifests
+    /// on the phone.
+    public static func makeDecoder() -> JSONDecoder {
+        let d = JSONDecoder()
+        d.dateDecodingStrategy = .iso8601
+        return d
+    }
+
+    /// Returns a `JSONEncoder` configured for manifest files.
+    /// The output format (ISO8601 dates, pretty-printed, sorted keys) is
+    /// the byte-identical shape the Mac has written since milestone-1a.
+    /// Never change `outputFormatting` here without a migration strategy.
+    public static func makeEncoder() -> JSONEncoder {
+        let e = JSONEncoder()
+        e.dateEncodingStrategy = .iso8601
+        e.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return e
+    }
+
     public var schemaVersion: Int
 
     /// Stable logical project identifier, minted once (ULID) and persisted.

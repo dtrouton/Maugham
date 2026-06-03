@@ -21,7 +21,7 @@ extension ProjectStore {
                 relativeTo: nil,
                 bookmarkDataIsStale: &isStale) {
                 // Validate it still points at a project
-                let manifestURL = resolved.appendingPathComponent("project.maugham.json")
+                let manifestURL = resolved.appendingPathComponent(ProjectManifest.fileName)
                 if FileManager.default.fileExists(atPath: manifestURL.path) {
                     return .resolved(resolved.resolvingSymlinksInPath())
                 }
@@ -30,7 +30,7 @@ extension ProjectStore {
         // Path fallback
         if let pathStr = piece.linkedProjectPath {
             let candidate = URL(fileURLWithPath: pathStr)
-            let manifestURL = candidate.appendingPathComponent("project.maugham.json")
+            let manifestURL = candidate.appendingPathComponent(ProjectManifest.fileName)
             if FileManager.default.fileExists(atPath: manifestURL.path) {
                 return .resolvedViaPathFallback(candidate)
             }
@@ -50,7 +50,7 @@ extension ProjectStore {
               let relPath = manifest.structure[idx].path else {
             throw ProjectStoreError.fileSystemError("Piece is not a reference")
         }
-        let targetManifestURL = newURL.appendingPathComponent("project.maugham.json")
+        let targetManifestURL = newURL.appendingPathComponent(ProjectManifest.fileName)
         guard FileManager.default.fileExists(atPath: targetManifestURL.path) else {
             throw ProjectStoreError.fileSystemError(
                 "Selected folder is not a Maugham project")

@@ -5,10 +5,7 @@ import AppKit
 /// Stable-per-launch session ID shared by all checkpoint captures in this process.
 private let _checkpointSessionId: String = UUID().uuidString
 /// Best-effort stable per-machine device ID for checkpoint attribution.
-private let _checkpointDeviceId: String = {
-    let name = ProcessInfo.processInfo.hostName
-    return name.isEmpty ? "unknown-host" : name
-}()
+private let _checkpointDeviceId: String = MacDeviceID.current
 
 enum ProjectActiveSheet: Identifiable {
     case projectSettings
@@ -966,9 +963,9 @@ struct ProjectWindow: View {
     }
 
     private func isDocumentConflict(_ conflict: ConflictState) -> Bool {
-        // Manifest conflict path is "project.maugham.json"; everything else
+        // Manifest conflict path is ProjectManifest.fileName; everything else
         // is a document.
-        !conflict.path.hasSuffix("project.maugham.json")
+        !conflict.path.hasSuffix(ProjectManifest.fileName)
     }
 
     private func applyNoChrome() {

@@ -102,7 +102,7 @@ internal enum MaughamSidecarPath: Equatable {
         }
         let relativePath = String(changed.dropFirst(project.count + 1))
 
-        if relativePath == "project.maugham.json" {
+        if relativePath == ProjectManifest.fileName {
             return .manifest
         }
 

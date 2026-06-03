@@ -53,7 +53,7 @@ public final class ProjectStore {
         wordCountCache[id]
     }
 
-    static let manifestFilename = "project.maugham.json"
+    static let manifestFilename = ProjectManifest.fileName
 
     public let trashStore: TrashStore
     public internal(set) var trashEntries: [TrashEntry] = []
@@ -107,10 +107,7 @@ public final class ProjectStore {
     /// ops live in a separate log anyway, so we mint our own per-instance.
     /// `@ObservationIgnored` because these are computed-once internal
     /// identifiers, never observed by SwiftUI.
-    @ObservationIgnored internal var projectOpDevice: String = {
-        let name = ProcessInfo.processInfo.hostName
-        return name.isEmpty ? "unknown-host" : name
-    }()
+    @ObservationIgnored internal var projectOpDevice: String = MacDeviceID.current
     @ObservationIgnored internal var projectOpSession: String = UUID().uuidString
 
     #if DEBUG
@@ -154,9 +151,7 @@ public final class ProjectStore {
         var manifest: ProjectManifest
         do {
             let data = try Data(contentsOf: manifestURL)
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            manifest = try decoder.decode(ProjectManifest.self, from: data)
+            manifest = try ProjectManifest.makeDecoder().decode(ProjectManifest.self, from: data)
         } catch {
             throw ProjectStoreError.manifestUnreadable(error.localizedDescription)
         }
@@ -171,10 +166,7 @@ public final class ProjectStore {
         // round-trip on `modified` must not shift just because we added a field.
         if manifest.id == nil {
             manifest.id = ULID.generate()
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            if let data = try? encoder.encode(manifest) {
+            if let data = try? ProjectManifest.makeEncoder().encode(manifest) {
                 try? data.write(to: manifestURL, options: [.atomic])
             }
         }
@@ -246,7 +238,7 @@ public final class ProjectStore {
         }
     }
 
-    static func newId(prefix: String) -> String {
+    nonisolated static func newId(prefix: String) -> String {
         let suffix = UUID().uuidString.prefix(8).lowercased()
         return "\(prefix)-\(suffix)"
     }

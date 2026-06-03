@@ -132,11 +132,9 @@ public final class DocumentStore {
 
         // Seed lastObservedManifestModified so the first presenter callback
         // doesn't trigger a spurious archive of an unchanged manifest.
-        let manifestURL = url.appendingPathComponent("project.maugham.json")
+        let manifestURL = url.appendingPathComponent(ProjectManifest.fileName)
         if let data = try? Data(contentsOf: manifestURL) {
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            if let m = try? decoder.decode(ProjectManifest.self, from: data) {
+            if let m = try? ProjectManifest.makeDecoder().decode(ProjectManifest.self, from: data) {
                 store.lastObservedManifestModified = m.modified
             }
         }
@@ -215,7 +213,7 @@ public final class DocumentStore {
     /// Coordinated atomic manifest write. Uses the same coordinator as
     /// document writes so external watchers see the change cleanly.
     public func writeManifest(_ data: Data) async throws {
-        let manifestURL = projectURL.appendingPathComponent("project.maugham.json")
+        let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
         let coordinator = NSFileCoordinator(filePresenter: presenter)
         var coordError: NSError?
         var writeError: Error?
@@ -236,7 +234,7 @@ public final class DocumentStore {
 
     /// Coordinated read for callers outside ProjectStore.
     public func readManifest() async throws -> Data {
-        let manifestURL = projectURL.appendingPathComponent("project.maugham.json")
+        let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
         let coordinator = NSFileCoordinator(filePresenter: presenter)
         var coordError: NSError?
         var data: Data?
@@ -613,11 +611,9 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
     }
 
     private func handleManifestChanged() {
-        let manifestURL = projectURL.appendingPathComponent("project.maugham.json")
+        let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
         guard let data = try? Data(contentsOf: manifestURL) else { return }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        guard let diskManifest = try? decoder.decode(
+        guard let diskManifest = try? ProjectManifest.makeDecoder().decode(
             ProjectManifest.self, from: data) else { return }
 
         // Per master spec: "Last-writer-wins by `modified` timestamp; the loser

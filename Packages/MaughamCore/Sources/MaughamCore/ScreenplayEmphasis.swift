@@ -26,17 +26,19 @@ import Foundation
 ///     realise the element must be styled on BOTH the Mac editor and the iOS
 ///     reader, not just the one you were working on.
 ///
-/// Scope is intentionally `bold` + `italic` only. Uppercase and dimming are
+/// Scope is `bold` + `italic` + `underline`. Uppercase and dimming are
 /// expected to *feel* the same but are produced by surface-specific mechanisms
 /// (the Mac uppercases via its layout manager and dims via palette alpha), so
 /// they are not mechanically contracted here.
 public struct ScreenplayEmphasis: Equatable, Sendable {
     public var bold: Bool
     public var italic: Bool
+    public var underline: Bool
 
-    public init(bold: Bool = false, italic: Bool = false) {
+    public init(bold: Bool = false, italic: Bool = false, underline: Bool = false) {
         self.bold = bold
         self.italic = italic
+        self.underline = underline
     }
 
     /// The agreed bold/italic emphasis for `element`, or `nil` when the emphasis
@@ -54,7 +56,7 @@ public struct ScreenplayEmphasis: Equatable, Sendable {
         case .transition:    return ScreenplayEmphasis(bold: true)
         case .centered:      return ScreenplayEmphasis(bold: true)
         case .lyric:         return ScreenplayEmphasis(italic: true)
-        case .section:       return ScreenplayEmphasis(bold: true)
+        case .section:       return ScreenplayEmphasis(bold: true, underline: true)
         case .synopsis:      return ScreenplayEmphasis(italic: true)
         case .note:          return ScreenplayEmphasis(italic: true)
         case .boneyard:      return ScreenplayEmphasis(italic: true)
