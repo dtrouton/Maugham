@@ -31,19 +31,27 @@ public struct MarkdownTokenizer: Sendable {
                 ]
             }
 
-        // Asterisk emphasis (*, **, ***, nesting) via the shared scanner.
-        // Markers become syntaxPunctuation; content runs carry the traits.
-        let scan = InlineEmphasisScanner.scan(nsText)
-        for run in scan.runs {
-            let tok = Token(range: run.range, kind: .emphasis(run.traits))
-            if !tokens.contains(where: { $0.range.intersection(run.range) != nil }) {
-                tokens.append(tok)
+        // Asterisk emphasis (*, **, ***, nesting) via the shared scanner,
+        // scanned PER LINE so emphasis never spans a line break (matching the
+        // old [^*\n] regex behavior and FountainTokenizer's per-line approach).
+        nsText.enumerateSubstrings(in: fullRange, options: .byLines) { substring, lineRange, _, _ in
+            guard let line = substring else { return }
+            let scan = InlineEmphasisScanner.scan(line as NSString)
+            for run in scan.runs {
+                let r = NSRange(location: lineRange.location + run.range.location,
+                                length: run.range.length)
+                let tok = Token(range: r, kind: .emphasis(run.traits))
+                if !tokens.contains(where: { $0.range.intersection(r) != nil }) {
+                    tokens.append(tok)
+                }
             }
-        }
-        for marker in scan.markers {
-            let tok = Token(range: marker, kind: .syntaxPunctuation)
-            if !tokens.contains(where: { $0.range.intersection(marker) != nil }) {
-                tokens.append(tok)
+            for marker in scan.markers {
+                let r = NSRange(location: lineRange.location + marker.location,
+                                length: marker.length)
+                let tok = Token(range: r, kind: .syntaxPunctuation)
+                if !tokens.contains(where: { $0.range.intersection(r) != nil }) {
+                    tokens.append(tok)
+                }
             }
         }
 

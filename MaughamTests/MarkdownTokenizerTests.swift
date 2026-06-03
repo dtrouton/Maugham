@@ -104,6 +104,21 @@ final class MarkdownTokenizerTests: XCTestCase {
         XCTAssertTrue(kinds.contains { $0.contains("link") })
     }
 
+    func testEmphasisDoesNotSpanLineBreak() {
+        // An unclosed * on one line must not emphasize across the newline.
+        let tokens = MarkdownTokenizer().tokenize("*foo\nbar*")
+        let hasEmphasis = tokens.contains { if case .emphasis = $0.kind { return true }; return false }
+        XCTAssertFalse(hasEmphasis, "emphasis must not span a line break")
+    }
+
+    func testEmphasisStillWorksWithinOneLineOfMultiline() {
+        // Same-line emphasis on line 2 still works.
+        let tokens = MarkdownTokenizer().tokenize("plain line\nsome **bold** here")
+        let emph = tokens.first { if case .emphasis(let t) = $0.kind { return t == [.bold] }; return false }
+        XCTAssertNotNil(emph)
+        XCTAssertEqual(("plain line\nsome **bold** here" as NSString).substring(with: emph!.range), "bold")
+    }
+
     func test_tokensAreNonOverlapping_andSortedByLocation() {
         let md = "# A\n\n**b** and *c*"
         let tokens = tokenizer.tokenize(md)
