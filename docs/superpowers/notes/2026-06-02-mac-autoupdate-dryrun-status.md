@@ -2,6 +2,17 @@
 
 Branch: `feat/mac-auto-update-in-place` (pushed, not merged). Plan Task 14.
 
+## UPDATE 2026-06-03 00:10Z — CI HALF PROVEN ✅
+- v0.5.90 submission eventually went **Accepted** (Apple queue backlog ~3hr, not a
+  build problem). **Empty entitlements were sufficient — WhisperKit hardened-runtime
+  risk did NOT materialize.** No entitlement keys needed.
+- **v0.5.91 ran fully green** (run 26855224321): signed build → nested signing →
+  **Notarize + staple ✅** (the hardened submit-then-poll survived; Apple turnaround
+  fast this time) → packaged `.dmg` + `.zip` → published as **prerelease** (patch≥90
+  safety confirmed: `gh release list` shows v0.5.1 still "Latest", v0.5.91 "Pre-release";
+  `/releases/latest` = v0.5.1). Assets: Maugham-0.5.91.{dmg,zip}, both notarized+stapled.
+- **Remaining = on-device only** (needs the user's Mac): Steps below.
+
 ## Where we are
 - Tasks 1–13 done + reviewed; full Mac suite 1487 green.
 - **v0.5.90 dry-run**: signing + inside-out nested signing (tectonic/mcp) ✅, notarytool
