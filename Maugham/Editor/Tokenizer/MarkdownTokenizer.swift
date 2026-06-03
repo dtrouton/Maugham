@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Regex-based Markdown tokenizer. Classifies ranges of text into Token kinds
 /// for syntax highlighting. Does not handle tables, fenced code blocks, or
@@ -30,37 +31,21 @@ public struct MarkdownTokenizer: Sendable {
                 ]
             }
 
-        // Bold: \*\*([^*]+)\*\*
-        addMatches(
-            in: nsText, fullRange: fullRange,
-            pattern: #"\*\*([^*\n]+)\*\*"#,
-            into: &tokens) { match in
-                let outer = match.range(at: 0)
-                let inner = match.range(at: 1)
-                let openPunct = NSRange(location: outer.location, length: 2)
-                let closePunct = NSRange(location: inner.location + inner.length, length: 2)
-                return [
-                    Token(range: openPunct, kind: .syntaxPunctuation),
-                    Token(range: inner, kind: .emphasis(strong: true)),
-                    Token(range: closePunct, kind: .syntaxPunctuation),
-                ]
+        // Asterisk emphasis (*, **, ***, nesting) via the shared scanner.
+        // Markers become syntaxPunctuation; content runs carry the traits.
+        let scan = InlineEmphasisScanner.scan(nsText)
+        for run in scan.runs {
+            let tok = Token(range: run.range, kind: .emphasis(run.traits))
+            if !tokens.contains(where: { $0.range.intersection(run.range) != nil }) {
+                tokens.append(tok)
             }
-
-        // Italic: (?<!\*)\*([^*\n]+)\*(?!\*)
-        addMatches(
-            in: nsText, fullRange: fullRange,
-            pattern: #"(?<!\*)\*([^*\n]+)\*(?!\*)"#,
-            into: &tokens) { match in
-                let outer = match.range(at: 0)
-                let inner = match.range(at: 1)
-                let openPunct = NSRange(location: outer.location, length: 1)
-                let closePunct = NSRange(location: inner.location + inner.length, length: 1)
-                return [
-                    Token(range: openPunct, kind: .syntaxPunctuation),
-                    Token(range: inner, kind: .emphasis(strong: false)),
-                    Token(range: closePunct, kind: .syntaxPunctuation),
-                ]
+        }
+        for marker in scan.markers {
+            let tok = Token(range: marker, kind: .syntaxPunctuation)
+            if !tokens.contains(where: { $0.range.intersection(marker) != nil }) {
+                tokens.append(tok)
             }
+        }
 
         // Inline code: `([^`\n]+)`
         addMatches(

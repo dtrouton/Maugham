@@ -193,10 +193,12 @@ public struct ProseMode: WritingMode {
             ) ?? baseFont
             return [.font: font, .foregroundColor: palette.heading]
 
-        case .emphasis(let strong):
-            let traits: NSFontDescriptor.SymbolicTraits = strong ? .bold : .italic
+        case .emphasis(let traits):
+            var symbolic: NSFontDescriptor.SymbolicTraits = []
+            if traits.contains(.bold) { symbolic.insert(.bold) }
+            if traits.contains(.italic) { symbolic.insert(.italic) }
             let font = NSFont(
-                descriptor: baseFont.fontDescriptor.withSymbolicTraits(traits),
+                descriptor: baseFont.fontDescriptor.withSymbolicTraits(symbolic),
                 size: baseFont.pointSize
             ) ?? baseFont
             return [.font: font]
