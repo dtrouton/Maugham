@@ -51,10 +51,11 @@ final class TripwirePhoneGrepTest: XCTestCase {
         let here = URL(fileURLWithPath: #filePath)
         let repoRoot = here.deletingLastPathComponent().deletingLastPathComponent()
         let sourceDir = repoRoot.appendingPathComponent("MaughamPhone", isDirectory: true)
-        // No legitimate op-log filename parsers in MaughamPhone — surfaces delegate
-        // to OpLogStore. The Task 7 audit finalizes this list.
+        // No legitimate op-log filename parsers or hand-rolled .jsonl filename
+        // constructors in MaughamPhone — surfaces delegate to OpLogStore /
+        // InboxManifest. The Task 7 audit finalizes this list.
         let allowed: Set<String> = []
-        let forbidden = ["hasPrefix(\"d_\")", ".hasSuffix(\".jsonl\")"]
+        let forbidden = ["hasPrefix(\"d_\")", ".hasSuffix(\".jsonl\")", ".jsonl\""]
         let fm = FileManager.default
         guard let walker = fm.enumerator(at: sourceDir, includingPropertiesForKeys: nil) else {
             return XCTFail("could not enumerate \(sourceDir.path)")
@@ -70,7 +71,10 @@ final class TripwirePhoneGrepTest: XCTestCase {
             }
         }
         XCTAssertTrue(offenders.isEmpty,
-            "Hand-rolled op-log filename parsing found. Use OpLogStore.docId(fromOpLogFilename:). "
-            + "See docs/superpowers/notes/cross-surface-contracts.md:\n" + offenders.joined(separator: "\n"))
+            "Hand-rolled op-log filename parsing or .jsonl filename construction found. "
+            + "Use OpLogStore.docId(fromOpLogFilename:) for parsing; "
+            + "use InboxManifest.inboxManifestURL for manifest construction. "
+            + "See docs/superpowers/notes/cross-surface-contracts.md:\n"
+            + offenders.joined(separator: "\n"))
     }
 }
