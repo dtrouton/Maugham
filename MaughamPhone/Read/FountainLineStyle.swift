@@ -41,12 +41,15 @@ enum FountainStyler {
     static func style(for line: FountainLine) -> FountainLineStyle {
         var s = FountainLineStyle()
 
-        switch line.element {
+        let element = line.element
+        s.uppercased = ScreenplayUppercase.shouldDisplayUppercase(element)
+
+        switch element {
         case .sceneHeading:
-            // Bold, monospaced, uppercased, with breathing room above.
+            // Bold, monospaced, with breathing room above.
+            // uppercased already set above via the shared ScreenplayUppercase contract.
             s.weight = .bold
             s.monospaced = true
-            s.uppercased = true
             s.topPadding = 12
 
         case .action:
@@ -66,9 +69,9 @@ enum FountainStyler {
             s.trailingIndent = 48
 
         case .transition:
+            // uppercased already set above via the shared ScreenplayUppercase contract.
             s.weight = .bold
             s.align = .trailing
-            s.uppercased = true
 
         case .centered:
             // Bold per the ScreenplayEmphasis contract (matches the Mac).
