@@ -165,7 +165,7 @@ struct AnnotationsPane: View {
 }
 
 @MainActor
-private struct AnnotationRow: View {
+struct AnnotationRow: View {
     let annotation: Annotation
     let onAccept: () -> Void
     let onReject: () -> Void
@@ -210,11 +210,18 @@ private struct AnnotationRow: View {
         }
     }
 
+    /// Strips inline task anchors (`<!--t-XXXXXX-->`) from annotation text before
+    /// display. Mirrors `AnnotationDetailView.displayText` on the phone side.
+    /// Pure + nonisolated so it's directly unit-testable.
+    nonisolated static func displayText(_ raw: String) -> String {
+        MarkdownDisplayFilter.stripTaskAnchorsInline(raw)
+    }
+
     @ViewBuilder
     private var diffCard: some View {
         VStack(alignment: .leading, spacing: 1) {
             if let prior = annotation.priorText {
-                Text("\u{2212} \(prior)")
+                Text("\u{2212} \(AnnotationRow.displayText(prior))")
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.red)
                     .padding(.horizontal, 6).padding(.vertical, 3)
@@ -222,7 +229,7 @@ private struct AnnotationRow: View {
                     .background(Color.red.opacity(0.08))
             }
             if let suggested = annotation.suggestedText {
-                Text("+ \(suggested)")
+                Text("+ \(AnnotationRow.displayText(suggested))")
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.green)
                     .padding(.horizontal, 6).padding(.vertical, 3)
