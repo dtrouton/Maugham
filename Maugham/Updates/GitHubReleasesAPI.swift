@@ -32,6 +32,10 @@ public struct GitHubRelease: Decodable {
         assets.first { $0.name.hasSuffix(".dmg") }
     }
 
+    public var zipAsset: Asset? {
+        assets.first { $0.name.hasSuffix(".zip") }
+    }
+
     public static func decode(from data: Data) throws -> GitHubRelease {
         try JSONDecoder().decode(GitHubRelease.self, from: data)
     }
@@ -40,13 +44,13 @@ public struct GitHubRelease: Decodable {
 public enum GitHubReleasesAPI {
     public enum Error: Swift.Error, LocalizedError {
         case http(status: Int)
-        case noDmgAsset
+        case noInstallableAsset
         case unparseable
 
         public var errorDescription: String? {
             switch self {
             case .http(let s): return "GitHub returned HTTP \(s)"
-            case .noDmgAsset: return "Release is missing the .dmg asset"
+            case .noInstallableAsset: return "Release has no installable asset"
             case .unparseable: return "Couldn't parse GitHub's response"
             }
         }

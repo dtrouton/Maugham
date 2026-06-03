@@ -33,9 +33,43 @@ jobs:
       - name: Install xcodegen
         run: brew install xcodegen
 
+      - name: Import Developer ID certificate
+        uses: apple-actions/import-codesign-certs@v7
+        with:
+          p12-file-base64: ${{ secrets.DEVELOPER_ID_CERT }}
+          p12-password: ${{ secrets.DEVELOPER_ID_CERT_PASSWORD }}
+
+      - name: Decode App Store Connect API key (for notarytool)
+        env:
+          ASC_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/asc
+          printf '%s' "$ASC_API_KEY" | base64 --decode > "/tmp/asc/AuthKey_${ASC_KEY_ID}.p8"
+
       - name: Extract version from tag
         id: ver
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Classify release (stable vs dry-run prerelease)
+        id: channel
+        # Patch number >= 90 is the reserved DRY-RUN band (e.g. v0.5.90). Such
+        # builds are throwaway signing/notarization shakedowns and MUST be marked
+        # prerelease so the stable channel's /releases/latest poll (which excludes
+        # prereleases) never surfaces them to installed users. Real releases use
+        # normal patch numbers (0, 1, 2, …) and publish as stable. This makes the
+        # safety structural — not a manual post-publish flip that could race.
+        run: |
+          set -euo pipefail
+          PATCH="${GITHUB_REF_NAME##*.}"
+          if [[ "$PATCH" -ge 90 ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "Dry-run band (patch $PATCH >= 90) → prerelease"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "Stable release (patch $PATCH) → not prerelease"
+          fi
 
       - name: Verify release notes exist
         run: |
@@ -62,10 +96,22 @@ jobs:
       - name: Generate project
         run: ./gen.sh
 
-      - name: Build (Release)
+      - name: Derive Team ID from imported cert
+        id: team
+        run: |
+          set -euo pipefail
+          TEAM=$(security find-identity -v -p codesigning | \
+            grep "Developer ID Application" | head -1 | \
+            sed -E 's/.*\(([A-Z0-9]+)\)"?$/\1/')
+          if [[ -z "$TEAM" ]]; then echo "::error::no Developer ID Application identity found"; exit 1; fi
+          echo "team_id=$TEAM" >> "$GITHUB_OUTPUT"
+          echo "Team: $TEAM"
+
+      - name: Build (Release, signed + hardened)
         run: |
           xcodebuild -project Maugham.xcodeproj -scheme Maugham \
-            -configuration Release build CODE_SIGNING_ALLOWED=NO
+            -configuration Release build \
+            DEVELOPMENT_TEAM="${{ steps.team.outputs.team_id }}"
 
       - name: Test
         # Tests run in Debug — the scheme's Test action only builds the test
@@ -87,26 +133,114 @@ jobs:
           test -d "$APP_PATH" || { echo "::error::App not found at $APP_PATH"; exit 1; }
           echo "app_path=$APP_PATH" >> "$GITHUB_OUTPUT"
 
-      - name: Package .dmg
+      - name: Re-sign nested executables (inside-out, hardened)
         run: |
+          set -euo pipefail
+          APP="${{ steps.locate.outputs.app_path }}"
+          IDENTITY="Developer ID Application"
+          OPTS="--force --options runtime --timestamp --sign"
+          # Sign the bundled tectonic binary (ships via a type:folder reference,
+          # so Xcode's build does not re-sign it — notarytool would reject it).
+          TECTONIC="$APP/Contents/Resources/bin/tectonic"
+          if [[ -f "$TECTONIC" ]]; then
+            codesign $OPTS "$IDENTITY" "$TECTONIC"
+          fi
+          # Defensively re-sign the embedded MCP tool (deepest-first ordering).
+          MCP="$APP/Contents/MacOS/maugham-mcp"
+          if [[ -f "$MCP" ]]; then
+            codesign $OPTS "$IDENTITY" "$MCP"
+          fi
+          # Re-sign the outer app LAST so its seal covers the freshly-signed
+          # nested code. (Xcode already signed it once; this re-seals with the
+          # entitlements + hardened runtime intact.)
+          codesign $OPTS "$IDENTITY" --entitlements Maugham/Maugham.entitlements "$APP"
+          # Verify the whole thing is internally consistent before we notarize.
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+      - name: Notarize + staple
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          APP="${{ steps.locate.outputs.app_path }}"
+          KEY="/tmp/asc/AuthKey_${ASC_KEY_ID}.p8"
+          AUTH=(--key "$KEY" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID")
+          # notarytool needs a zip of the app to submit.
+          ditto -c -k --keepParent "$APP" /tmp/notarize.zip
+
+          # We deliberately do NOT use `submit --wait`: Apple's scan can take 15+
+          # minutes, and a single dropped connection mid-wait (a real GitHub-runner
+          # failure mode — NSURLErrorNotConnectedToInternet) fails the whole release
+          # AND loses the submission id. Instead: submit once (capture the id), then
+          # poll with our own loop that TOLERATES transient network errors and only
+          # gives up on an explicit Apple verdict or an overall timeout.
+          echo "Submitting to notarization service…"
+          SUBMIT_OUT=$(xcrun notarytool submit /tmp/notarize.zip "${AUTH[@]}")
+          echo "$SUBMIT_OUT"
+          SUB_ID=$(echo "$SUBMIT_OUT" | awk '/^[[:space:]]*id:/ { print $2; exit }')
+          if [[ -z "$SUB_ID" ]]; then
+            echo "::error::could not parse submission id from notarytool output"
+            exit 1
+          fi
+          echo "Submission id: $SUB_ID"
+
+          # Poll up to 30 minutes. A failed `info` call (network blip) is retried,
+          # not fatal. Only an Apple verdict of Accepted/Invalid/Rejected ends it.
+          DEADLINE=$(( SECONDS + 1800 ))
+          STATUS="In Progress"
+          while [[ "$SECONDS" -lt "$DEADLINE" ]]; do
+            if INFO=$(xcrun notarytool info "$SUB_ID" "${AUTH[@]}" 2>/tmp/notary.err); then
+              STATUS=$(echo "$INFO" | sed -nE 's/^[[:space:]]*status:[[:space:]]*//p')
+              echo "status: $STATUS"
+              case "$STATUS" in
+                Accepted) break ;;
+                "In Progress") sleep 30 ;;
+                *)
+                  echo "::error::notarization status: $STATUS"
+                  xcrun notarytool log "$SUB_ID" "${AUTH[@]}" || true
+                  exit 1 ;;
+              esac
+            else
+              echo "transient notarytool info error (will retry):"
+              cat /tmp/notary.err || true
+              sleep 30
+            fi
+          done
+          if [[ "$STATUS" != "Accepted" ]]; then
+            echo "::error::notarization did not reach Accepted within timeout (last: $STATUS)"
+            echo "Submission $SUB_ID is still valid — re-run can resume via notarytool info/log."
+            exit 1
+          fi
+
+          xcrun stapler staple "$APP"
+          # Gate: assessment + signature must pass or we don't ship.
+          spctl -a -t exec -vv "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+      - name: Package .dmg and .zip
+        run: |
+          set -euo pipefail
           VERSION="${{ steps.ver.outputs.version }}"
+          APP="${{ steps.locate.outputs.app_path }}"
+          # DMG (manual / website download)
           mkdir -p /tmp/dmg-root
-          # ditto preserves macOS bundle metadata (extended attributes, resource
-          # forks, ACLs) that plain `cp -R` strips — important for app bundles
-          # to survive the staging→dmg→install round trip with correct
-          # appearance + asset rendering.
-          ditto "${{ steps.locate.outputs.app_path }}" "/tmp/dmg-root/Maugham.app"
+          ditto "$APP" "/tmp/dmg-root/Maugham.app"
           ln -s /Applications /tmp/dmg-root/Applications
           hdiutil create -volname Maugham -srcfolder /tmp/dmg-root -ov -format UDZO \
             "Maugham-${VERSION}.dmg"
-          ls -lh "Maugham-${VERSION}.dmg"
+          # ZIP (in-app auto-update payload; staple ticket travels inside the bundle)
+          ditto -c -k --keepParent "$APP" "Maugham-${VERSION}.zip"
+          ls -lh "Maugham-${VERSION}.dmg" "Maugham-${VERSION}.zip"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          files: Maugham-${{ steps.ver.outputs.version }}.dmg
+          files: |
+            Maugham-${{ steps.ver.outputs.version }}.dmg
+            Maugham-${{ steps.ver.outputs.version }}.zip
           body_path: docs/release-notes/v${{ steps.ver.outputs.version }}.md
           name: Maugham ${{ steps.ver.outputs.version }}
           tag_name: ${{ github.ref_name }}
           draft: false
-          prerelease: false
+          prerelease: ${{ steps.channel.outputs.prerelease }}

@@ -12,7 +12,6 @@ settings:
     MACOSX_DEPLOYMENT_TARGET: "14.0"
     CODE_SIGN_STYLE: Automatic
     CODE_SIGN_IDENTITY: "-"
-    ENABLE_HARDENED_RUNTIME: NO
     SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
     GCC_TREAT_WARNINGS_AS_ERRORS: NO
 packages:
@@ -29,6 +28,7 @@ targets:
       - path: Maugham
         excludes:
           - Info.plist
+          - Maugham.entitlements
           - "**/AREA.md"
           - "Resources/PublishStarter/**"
           - "Resources/bin/**"
@@ -56,10 +56,16 @@ targets:
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) MAUGHAM_DEV_BUILD
           MAUGHAM_DISPLAY_NAME: Maugham Dev
           ASSETCATALOG_COMPILER_APPICON_NAME: AppIconDev
+          ENABLE_HARDENED_RUNTIME: NO
+          CODE_SIGN_IDENTITY: "-"
         Release:
           PRODUCT_BUNDLE_IDENTIFIER: com.maugham.Maugham
           MAUGHAM_DISPLAY_NAME: Maugham
           ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+          ENABLE_HARDENED_RUNTIME: YES
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: "Developer ID Application"
+          CODE_SIGN_ENTITLEMENTS: Maugham/Maugham.entitlements
     resources:
       - path: Maugham/Resources
         includes:
@@ -70,7 +76,7 @@ targets:
       - target: maugham-mcp
         copy:
           destination: executables
-          codeSign: false
+          codeSign: true
     postBuildScripts:
       - name: Stamp Debug build identity (git SHA)
         basedOnDependencyAnalysis: false
@@ -103,6 +109,9 @@ targets:
         SWIFT_VERSION: "5.10"
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_IDENTITY: "-"
+      configs:
+        Release:
+          ENABLE_HARDENED_RUNTIME: YES
   MaughamTests:
     type: bundle.unit-test
     platform: macOS

@@ -14,19 +14,19 @@ final class UpdateBannerIntegrationTests: XCTestCase {
 
     func test_shouldShowReturnsTrueForReadyNotDismissed() {
         XCTAssertTrue(UpdateBannerView.shouldShow(
-            state: .ready(version: "0.2.0", dmgURL: URL(fileURLWithPath: "/x"), releaseNotes: ""),
+            state: .readyToInstall(bundleURL: URL(fileURLWithPath: "/tmp/Maugham.app"), version: "0.2.0", releaseNotes: ""),
             dismissed: []))
     }
 
     func test_shouldShowReturnsFalseForReadyDismissed() {
         XCTAssertFalse(UpdateBannerView.shouldShow(
-            state: .ready(version: "0.2.0", dmgURL: URL(fileURLWithPath: "/x"), releaseNotes: ""),
+            state: .readyToInstall(bundleURL: URL(fileURLWithPath: "/tmp/Maugham.app"), version: "0.2.0", releaseNotes: ""),
             dismissed: ["0.2.0"]))
     }
 
     func test_shouldShowReturnsTrueForReadyNewerThanDismissed() {
         XCTAssertTrue(UpdateBannerView.shouldShow(
-            state: .ready(version: "0.2.1", dmgURL: URL(fileURLWithPath: "/x"), releaseNotes: ""),
+            state: .readyToInstall(bundleURL: URL(fileURLWithPath: "/tmp/Maugham.app"), version: "0.2.1", releaseNotes: ""),
             dismissed: ["0.2.0"]))
     }
 }

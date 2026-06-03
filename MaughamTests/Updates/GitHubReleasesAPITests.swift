@@ -33,4 +33,26 @@ final class GitHubReleasesAPITests: XCTestCase {
         let json = "{}"
         XCTAssertThrowsError(try GitHubRelease.decode(from: Data(json.utf8)))
     }
+
+    func test_zipAsset_selectsZipWhenPresent() throws {
+        let json = """
+        {"tag_name":"v0.5.0","name":"x","body":"n","assets":[
+          {"name":"Maugham-0.5.0.dmg","browser_download_url":"https://e/x.dmg","size":1},
+          {"name":"Maugham-0.5.0.zip","browser_download_url":"https://e/x.zip","size":2}
+        ]}
+        """
+        let r = try GitHubRelease.decode(from: Data(json.utf8))
+        XCTAssertEqual(r.zipAsset?.name, "Maugham-0.5.0.zip")
+        XCTAssertEqual(r.dmgAsset?.name, "Maugham-0.5.0.dmg")
+    }
+
+    func test_zipAsset_nilWhenAbsent() throws {
+        let json = """
+        {"tag_name":"v0.5.0","name":"x","body":"n","assets":[
+          {"name":"Maugham-0.5.0.dmg","browser_download_url":"https://e/x.dmg","size":1}
+        ]}
+        """
+        let r = try GitHubRelease.decode(from: Data(json.utf8))
+        XCTAssertNil(r.zipAsset)
+    }
 }

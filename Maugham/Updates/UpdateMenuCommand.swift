@@ -30,7 +30,8 @@ public struct UpdateMenuCommand: Commands {
         case .idle, .upToDate, .error: return "Check for Updates…"
         case .checking: return "Checking for Updates…"
         case .downloading: return "Downloading Update…"
-        case .ready: return "Install Update…"
+        case .readyToInstall: return "Install Update…"
+        case .installing: return "Installing…"
         }
     }
 }
