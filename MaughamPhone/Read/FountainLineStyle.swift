@@ -25,6 +25,8 @@ struct FountainLineStyle: Equatable {
     var dimmed: Bool = false
     /// Page breaks (and any other non-rendered element) are suppressed.
     var hidden: Bool = false
+    /// Section headings render with an underline decoration (cross-surface contract).
+    var underline: Bool = false
 }
 
 /// Maps a parsed `FountainLine` to its semantic display style (spec §3.8). This
@@ -79,9 +81,10 @@ enum FountainStyler {
             s.leadingIndent = 48
 
         case .section:
-            // Bold headline; we keep it simple and don't vary by level.
+            // Bold headline with underline per the ScreenplayEmphasis contract (matches the Mac).
             s.role = .headline
             s.weight = .bold
+            s.underline = true
 
         case .synopsis:
             s.role = .callout

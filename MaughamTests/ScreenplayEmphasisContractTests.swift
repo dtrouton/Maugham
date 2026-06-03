@@ -5,9 +5,9 @@ import AppKit
 
 /// The Mac half of the cross-surface `ScreenplayEmphasis` contract. Its sibling
 /// lives in `MaughamPhoneTests` for the iOS reader; together they guarantee that
-/// the elements which *should* read the same (bold/italic) DO read the same on
-/// both the AppKit editor and the SwiftUI reader, and that adding a new
-/// `ScreenplayElement` forces a decision for both surfaces (the exhaustive
+/// the elements which *should* read the same (bold/italic/underline) DO read
+/// the same on both the AppKit editor and the SwiftUI reader, and that adding a
+/// new `ScreenplayElement` forces a decision for both surfaces (the exhaustive
 /// switch in `ScreenplayEmphasis.contract(for:)` stops compiling otherwise).
 final class ScreenplayEmphasisContractTests: XCTestCase {
     private let mode = ScreenplayMode()

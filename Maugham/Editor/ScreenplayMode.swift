@@ -310,8 +310,12 @@ public struct ScreenplayMode: WritingMode {
             baseFont: base, charWidth: Self.charWidth(font: base),
             typography: .screenplayDefaults)
         let traits = (attrs[.font] as? NSFont)?.fontDescriptor.symbolicTraits ?? []
+        let underline = (attrs[.underlineStyle] as? Int).map {
+            $0 & NSUnderlineStyle.single.rawValue != 0
+        } ?? false
         return ScreenplayEmphasis(
-            bold: traits.contains(.bold), italic: traits.contains(.italic))
+            bold: traits.contains(.bold), italic: traits.contains(.italic),
+            underline: underline)
     }
 
     private func attributes(

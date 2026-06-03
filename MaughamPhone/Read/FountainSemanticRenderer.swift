@@ -268,6 +268,7 @@ struct FountainSemanticRenderer: View {
             if style.weight == .bold { t = t.bold() }
             if style.italic { t = t.italic() }
             if style.monospaced { t = t.monospaced() }
+            if style.underline { t = t.underline() }
             return t
         }
 
@@ -280,6 +281,7 @@ struct FountainSemanticRenderer: View {
         if style.weight == .bold { t = t.bold() }
         if style.italic { t = t.italic() }
         if style.monospaced { t = t.monospaced() }
+        if style.underline { t = t.underline() }
         return t
     }
 
