@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 final class TokenTests: XCTestCase {
@@ -8,8 +9,8 @@ final class TokenTests: XCTestCase {
     }
 
     func test_kindEquality_distinguishesEmphasisStrength() {
-        XCTAssertNotEqual(Token.Kind.emphasis(strong: false),
-                          .emphasis(strong: true))
+        XCTAssertNotEqual(Token.Kind.emphasis([.italic]),
+                          .emphasis([.bold]))
     }
 
     func test_kindEquality_distinguishesLinkHrefs() {

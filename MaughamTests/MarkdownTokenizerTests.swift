@@ -1,8 +1,29 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 final class MarkdownTokenizerTests: XCTestCase {
     private let tokenizer = MarkdownTokenizer()
+
+    func testBoldItalicTripleAsterisk() {
+        let tokens = MarkdownTokenizer().tokenize("***word***")
+        let emph = tokens.first { if case .emphasis = $0.kind { return true }; return false }
+        XCTAssertNotNil(emph)
+        if case .emphasis(let traits)? = emph?.kind {
+            XCTAssertEqual(traits, [.bold, .italic])
+        }
+        // The inner content is "word"; the six asterisks are syntaxPunctuation.
+        XCTAssertEqual((("***word***" as NSString)).substring(with: emph!.range), "word")
+    }
+
+    func testNestedEmphasisInProse() {
+        let tokens = MarkdownTokenizer().tokenize("*a **b** a*")
+        let bothTrait = tokens.first {
+            if case .emphasis(let t) = $0.kind { return t == [.italic, .bold] }
+            return false
+        }
+        XCTAssertNotNil(bothTrait, "middle 'b' should be bold+italic")
+    }
 
     func test_emptyText_producesNoTokens() {
         XCTAssertEqual(tokenizer.tokenize(""), [])
@@ -31,14 +52,14 @@ final class MarkdownTokenizerTests: XCTestCase {
         let tokens = tokenizer.tokenize("**bold**")
         let kinds = tokens.map(\.kind)
         XCTAssertEqual(kinds.filter { $0 == .syntaxPunctuation }.count, 2)
-        XCTAssertTrue(kinds.contains(.emphasis(strong: true)))
+        XCTAssertTrue(kinds.contains(.emphasis([.bold])))
     }
 
     func test_italic_producesEmphasisAndPunctuation() {
         let tokens = tokenizer.tokenize("*italic*")
         let kinds = tokens.map(\.kind)
         XCTAssertEqual(kinds.filter { $0 == .syntaxPunctuation }.count, 2)
-        XCTAssertTrue(kinds.contains(.emphasis(strong: false)))
+        XCTAssertTrue(kinds.contains(.emphasis([.italic])))
     }
 
     func test_inlineCode_producesCodeAndPunctuation() {
@@ -81,6 +102,21 @@ final class MarkdownTokenizerTests: XCTestCase {
         XCTAssertTrue(kinds.contains { $0.contains("heading") })
         XCTAssertTrue(kinds.contains { $0.contains("emphasis") })
         XCTAssertTrue(kinds.contains { $0.contains("link") })
+    }
+
+    func testEmphasisDoesNotSpanLineBreak() {
+        // An unclosed * on one line must not emphasize across the newline.
+        let tokens = MarkdownTokenizer().tokenize("*foo\nbar*")
+        let hasEmphasis = tokens.contains { if case .emphasis = $0.kind { return true }; return false }
+        XCTAssertFalse(hasEmphasis, "emphasis must not span a line break")
+    }
+
+    func testEmphasisStillWorksWithinOneLineOfMultiline() {
+        // Same-line emphasis on line 2 still works.
+        let tokens = MarkdownTokenizer().tokenize("plain line\nsome **bold** here")
+        let emph = tokens.first { if case .emphasis(let t) = $0.kind { return t == [.bold] }; return false }
+        XCTAssertNotNil(emph)
+        XCTAssertEqual(("plain line\nsome **bold** here" as NSString).substring(with: emph!.range), "bold")
     }
 
     func test_tokensAreNonOverlapping_andSortedByLocation() {

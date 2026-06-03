@@ -29,20 +29,20 @@ enum FountainAlignMapper {
 // MARK: - Inline span rendering
 
 /// Builds an `AttributedString` from a parsed `FountainLine`, applying the inline
-/// emphasis spans (`.italic` / `.bold` / `.underline` / `.note`) that the SHARED
-/// `FountainTokenizer` already produced in `line.inlineSpans`. This is a pure
-/// function — no SwiftUI rendering side-effects — so it is fully unit-testable.
+/// emphasis spans (`.emphasis` / `.emphasisMarker` / `.underline` / `.note`) that
+/// the SHARED `FountainTokenizer` already produced in `line.inlineSpans`. This is a
+/// pure function — no SwiftUI rendering side-effects — so it is fully unit-testable.
 ///
 /// CONTRACT — this is the iOS half of the cross-surface emphasis contract; it
 /// MUST mirror `ScreenplayMode.applyInlineSpan` (Mac) span-for-span. Both surfaces
 /// consume the SAME `FountainInlineSpan` values from MaughamCore; there is NO
-/// second emphasis parser here. The tokenizer's span `range` covers the FULL
-/// marked run (markers included), so `inner` is derived by trimming `markerLen`
-/// characters off each end exactly as the Mac does:
-///   .italic    → markerLen 1; italic on inner; fade 1 char each end
-///   .bold      → markerLen 2; bold   on inner; fade 2 chars each end
-///   .underline → markerLen 1; underline on inner; fade 1 char each end
-///   .note      → italic + ~40 % opacity over the WHOLE span (markers included)
+/// second emphasis parser here. Asterisk emphasis comes pre-split from
+/// `InlineEmphasisScanner`, so spans differ in marker handling by kind:
+///   .emphasis(traits) → content range, markers ALREADY excluded; layer bold/
+///                       italic traits directly on the run (no inner trim)
+///   .emphasisMarker   → the asterisk run; fade ~30 % opacity (no font change)
+///   .underline        → marker-INCLUDED run; underline on inner; fade 1 char each end
+///   .note             → italic + ~40 % opacity over the WHOLE span (markers included)
 ///
 /// `FountainInlineSpan.range` is DOCUMENT-relative (same coordinate space as
 /// `line.range`). It is converted to a `line.content`-relative range by
@@ -106,11 +106,23 @@ enum FountainInlineEmphasisRenderer {
                 attr[r].foregroundColor = Color.primary.opacity(0.4)
             }
 
-        case .italic:
-            applyTrait(.italic, markerLen: 1, span: span, content: content, to: &attr)
+        case .emphasis(let traits):
+            // Layer traits on each sub-run's own font (the range may be
+            // non-uniform, e.g. overlapping a note span) so we compose rather
+            // than clobber — mirrors the Mac's per-sub-run enumerateAttribute.
+            if let r = attrRange(span, in: content, attr: attr) {
+                for run in attr[r].runs {
+                    var f = run.font ?? Font.body
+                    if traits.contains(.bold)   { f = f.bold() }
+                    if traits.contains(.italic) { f = f.italic() }
+                    attr[run.range].font = f
+                }
+            }
 
-        case .bold:
-            applyTrait(.bold, markerLen: 2, span: span, content: content, to: &attr)
+        case .emphasisMarker:
+            if let r = attrRange(span, in: content, attr: attr) {
+                attr[r].foregroundColor = Color.primary.opacity(0.3)
+            }
 
         case .underline:
             // Underline decoration on inner; fade the single-char markers.
@@ -120,29 +132,6 @@ enum FountainInlineEmphasisRenderer {
             }
             fadeMarkers(span: span, markerLen: 1, content: content, to: &attr)
         }
-    }
-
-    /// Bold / italic: apply the font trait to the inner range and fade the
-    /// `markerLen`-character markers at each end. `inner = [loc+markerLen,
-    /// len-2*markerLen]` — identical to the Mac's computation.
-    private static func applyTrait(
-        _ trait: EmphasisTrait,
-        markerLen: Int,
-        span: NSRange,
-        content: String,
-        to attr: inout AttributedString
-    ) {
-        let inner = NSRange(
-            location: span.location + markerLen,
-            length: span.length - markerLen * 2)
-        if let r = attrRange(inner, in: content, attr: attr) {
-            // Layer the trait on whatever base font the run already has; fall back
-            // to .body (the element-level base font is applied by the Text modifier
-            // in the caller and does not appear as a run attribute here).
-            let base = attr[r].font ?? Font.body
-            attr[r].font = trait == .bold ? base.bold() : base.italic()
-        }
-        fadeMarkers(span: span, markerLen: markerLen, content: content, to: &attr)
     }
 
     /// Fade the leading + trailing `markerLen` characters of `span` to 30 % opacity.
@@ -176,9 +165,6 @@ enum FountainInlineEmphasisRenderer {
         return Range(strRange, in: attr)
     }
 }
-
-/// Font trait to apply for bold / italic spans.
-private enum EmphasisTrait { case bold, italic }
 
 // MARK: - View
 

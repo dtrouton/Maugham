@@ -6,7 +6,7 @@ import MaughamCore
 public struct Token: Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
         case heading(level: Int)
-        case emphasis(strong: Bool)
+        case emphasis(EmphasisTraits)
         case code
         case link(href: String)
         case wikiLink(title: String)
