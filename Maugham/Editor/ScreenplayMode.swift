@@ -708,49 +708,41 @@ public struct ScreenplayMode: WritingMode {
         }
     }
 
+    /// The shared per-key treatment this surface uses for a title-page key.
+    /// Sourced from the cross-surface contract; exposed (internal) so the
+    /// contract test can assert the Mac consumes `TitlePageFieldStyle.style`.
+    static func titlePageStyle(forKey key: String) -> TitlePageFieldStyle {
+        TitlePageFieldStyle.style(forKey: key)
+    }
+
     private func titlePageValueAttributes(
         key: String,
         palette: ThemePalette,
         baseFont: NSFont,
         typography: TypographySettings
     ) -> [NSAttributedString.Key: Any] {
+        let style = ScreenplayMode.titlePageStyle(forKey: key)
+
         let para = NSMutableParagraphStyle()
         para.lineSpacing = max(0,
             baseFont.pointSize * CGFloat(typography.lineHeightMultiplier - 1.0))
+        para.alignment = (style.alignment == .center) ? .center : .left
 
-        switch key {
-        case "Title":
-            let bold = NSFont(
-                descriptor: baseFont.fontDescriptor.withSymbolicTraits(.bold),
-                size: baseFont.pointSize * 1.5) ?? baseFont
-            para.alignment = .center
-            return [.paragraphStyle: para, .font: bold]
-        case "Credit":
-            let italic = NSFont(
-                descriptor: baseFont.fontDescriptor.withSymbolicTraits(.italic),
-                size: baseFont.pointSize) ?? baseFont
-            para.alignment = .center
-            return [.paragraphStyle: para, .font: italic]
-        case "Author":
-            para.alignment = .center
-            return [.paragraphStyle: para, .font: baseFont]
-        case "Source":
-            let italic = NSFont(
-                descriptor: baseFont.fontDescriptor.withSymbolicTraits(.italic),
-                size: baseFont.pointSize * 0.9) ?? baseFont
-            para.alignment = .center
-            return [.paragraphStyle: para, .font: italic]
-        default:
-            // Draft date, Contact, Notes, Copyright, unknown keys
-            let smaller = NSFont(
-                descriptor: baseFont.fontDescriptor,
-                size: baseFont.pointSize * 0.85) ?? baseFont
-            para.alignment = .left
-            return [
-                .paragraphStyle: para,
-                .font: smaller,
-                .foregroundColor: palette.syntaxPunctuation,
-            ]
+        var traits = baseFont.fontDescriptor.symbolicTraits
+        if style.bold { traits.insert(.bold) }
+        if style.italic { traits.insert(.italic) }
+        let descriptor = baseFont.fontDescriptor.withSymbolicTraits(traits)
+        let font = NSFont(
+            descriptor: descriptor,
+            size: baseFont.pointSize * CGFloat(style.scale)) ?? baseFont
+
+        var attrs: [NSAttributedString.Key: Any] = [
+            .paragraphStyle: para,
+            .font: font,
+        ]
+        if style.dimmed {
+            attrs[.foregroundColor] = palette.syntaxPunctuation
         }
+        return attrs
     }
 }

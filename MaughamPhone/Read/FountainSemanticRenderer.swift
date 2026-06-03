@@ -217,21 +217,45 @@ struct FountainSemanticRenderer: View {
         script.lines.filter { !FountainStyler.style(for: $0).hidden }
     }
 
-    /// Simple key: value header drawn from `script.titlePage` when present.
+    /// Base point size the title-page `scale` multiplier is applied against on
+    /// the phone. `.callout` is roughly 16pt at default Dynamic Type — keeping
+    /// this constant means the per-key scales translate directly from the Mac
+    /// contract while staying legible on a narrow screen.
+    private static let titlePageBaseSize: CGFloat = 16
+
+    /// Per-key styled header drawn from `script.titlePage` when present. Each
+    /// field's visual treatment comes from the shared `TitlePageFieldStyle`
+    /// contract (Title large/bold, Credit/Source italic, "other" keys dimmed),
+    /// the same source the Mac editor consumes.
     @ViewBuilder
     private var titlePageBlock: some View {
         if let titlePage = script.titlePage, !titlePage.isEmpty {
             VStack(spacing: 4) {
                 ForEach(titlePage, id: \.range.location) { field in
+                    let style = TitlePageFieldStyle.style(forKey: field.key)
                     Text("\(field.key): \(field.value)")
-                        .font(.callout)
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
+                        .font(Self.titlePageFont(for: style))
+                        .multilineTextAlignment(
+                            style.alignment == .center ? .center : .leading)
+                        .foregroundStyle(style.dimmed ? AnyShapeStyle(.secondary)
+                                                       : AnyShapeStyle(.primary))
+                        .frame(maxWidth: .infinity,
+                               alignment: style.alignment == .center ? .center : .leading)
                 }
             }
             .padding(.bottom, 24)
         }
+    }
+
+    /// Translate a `TitlePageFieldStyle` into a SwiftUI `Font` for the phone.
+    /// Exposed (internal) so the contract test can assert the phone consumes
+    /// `TitlePageFieldStyle.style` for a key.
+    static func titlePageFont(for style: TitlePageFieldStyle) -> Font {
+        var font = Font.system(
+            size: titlePageBaseSize * CGFloat(style.scale),
+            weight: style.bold ? .bold : .regular)
+        if style.italic { font = font.italic() }
+        return font
     }
 
     /// One styled line. `FountainStyler.style(for:)` is a pure O(1) mapping, so
