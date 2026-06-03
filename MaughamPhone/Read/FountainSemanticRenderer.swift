@@ -107,13 +107,16 @@ enum FountainInlineEmphasisRenderer {
             }
 
         case .emphasis(let traits):
-            // `span` is content-relative and marker-free. Layer traits on the
-            // existing font so they compose.
+            // Layer traits on each sub-run's own font (the range may be
+            // non-uniform, e.g. overlapping a note span) so we compose rather
+            // than clobber — mirrors the Mac's per-sub-run enumerateAttribute.
             if let r = attrRange(span, in: content, attr: attr) {
-                var f = attr[r].font ?? Font.body
-                if traits.contains(.bold) { f = f.bold() }
-                if traits.contains(.italic) { f = f.italic() }
-                attr[r].font = f
+                for run in attr[r].runs {
+                    var f = run.font ?? Font.body
+                    if traits.contains(.bold)   { f = f.bold() }
+                    if traits.contains(.italic) { f = f.italic() }
+                    attr[run.range].font = f
+                }
             }
 
         case .emphasisMarker:
