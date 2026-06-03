@@ -31,7 +31,12 @@ public struct FountainLine: Equatable, Sendable {
     /// uppercase substitution is needed.
     public let sourceCase: SourceCase
 
-    /// Sub-range markers (currently inline notes only). Empty for most lines.
+    /// Inline sub-range markers within this line: emphasis (`*italic*`,
+    /// `**bold**`, `_underline_`) and inline `[[notes]]`. Document-relative
+    /// ranges (same coordinate space as `range`). Empty for lines with no
+    /// inline markup. Both surfaces consume these — the Mac editor
+    /// (`ScreenplayMode.applyInlineSpan`) and the iOS reader
+    /// (`FountainSemanticRenderer`) — so neither re-parses emphasis.
     public let inlineSpans: [FountainInlineSpan]
 
     public init(
