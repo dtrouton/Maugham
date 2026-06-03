@@ -29,20 +29,20 @@ enum FountainAlignMapper {
 // MARK: - Inline span rendering
 
 /// Builds an `AttributedString` from a parsed `FountainLine`, applying the inline
-/// emphasis spans (`.italic` / `.bold` / `.underline` / `.note`) that the SHARED
-/// `FountainTokenizer` already produced in `line.inlineSpans`. This is a pure
-/// function — no SwiftUI rendering side-effects — so it is fully unit-testable.
+/// emphasis spans (`.emphasis` / `.emphasisMarker` / `.underline` / `.note`) that
+/// the SHARED `FountainTokenizer` already produced in `line.inlineSpans`. This is a
+/// pure function — no SwiftUI rendering side-effects — so it is fully unit-testable.
 ///
 /// CONTRACT — this is the iOS half of the cross-surface emphasis contract; it
 /// MUST mirror `ScreenplayMode.applyInlineSpan` (Mac) span-for-span. Both surfaces
 /// consume the SAME `FountainInlineSpan` values from MaughamCore; there is NO
-/// second emphasis parser here. The tokenizer's span `range` covers the FULL
-/// marked run (markers included), so `inner` is derived by trimming `markerLen`
-/// characters off each end exactly as the Mac does:
-///   .italic    → markerLen 1; italic on inner; fade 1 char each end
-///   .bold      → markerLen 2; bold   on inner; fade 2 chars each end
-///   .underline → markerLen 1; underline on inner; fade 1 char each end
-///   .note      → italic + ~40 % opacity over the WHOLE span (markers included)
+/// second emphasis parser here. Asterisk emphasis comes pre-split from
+/// `InlineEmphasisScanner`, so spans differ in marker handling by kind:
+///   .emphasis(traits) → content range, markers ALREADY excluded; layer bold/
+///                       italic traits directly on the run (no inner trim)
+///   .emphasisMarker   → the asterisk run; fade ~30 % opacity (no font change)
+///   .underline        → marker-INCLUDED run; underline on inner; fade 1 char each end
+///   .note             → italic + ~40 % opacity over the WHOLE span (markers included)
 ///
 /// `FountainInlineSpan.range` is DOCUMENT-relative (same coordinate space as
 /// `line.range`). It is converted to a `line.content`-relative range by

@@ -436,7 +436,7 @@ public struct FountainTokenizer: Sendable {
                 kind: .emphasisMarker))
         }
 
-        // 4. Underline _text_.
+        // 3. Underline _text_.
         result.append(contentsOf: scanRegex(
             pattern: #"_([^_\n]+)_"#,
             in: raw, lineRange: lineRange, kind: .underline))
