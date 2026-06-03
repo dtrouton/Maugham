@@ -59,18 +59,19 @@ struct AnnotationWriter {
 
     // MARK: - Paths
 
-    private var opsDir: URL {
-        projectRoot.appendingPathComponent(".maugham/ops", isDirectory: true)
-    }
-
-    /// This device's own op-log stream for `docId`. Matches the Mac's
-    /// `OpLogStore.store(forDocId:deviceSlug:)` convention EXACTLY: the file base
-    /// is the `docId` itself (already the full `d_<ulid>` form — same string the
-    /// creation op carries in `op.docId`), NOT `d_` + docId. Prepending `d_` here
-    /// would write to `d_d_<ulid>…`, a stream the Mac's `load(docId:)` glob
-    /// (`<docId>.*`) never finds — so the accept/reject would never reach the Mac.
+    /// This device's own op-log stream for `docId`. Delegates to
+    /// `OpLogStore.opLogFileURL(forDocId:deviceSlug:in:)` — the single source of
+    /// truth for op-log filename construction — so the Mac and phone can never drift
+    /// on filename shape. The `docId` is already the full `d_<ulid>` form (same
+    /// string the creation op carries in `op.docId`); do NOT prepend `d_` here or
+    /// the file lands at `d_d_<ulid>…`, a stream the Mac's `load(docId:)` glob
+    /// never finds and the accept/reject silently never reaches the Mac.
     private var opLogURL: URL {
-        opsDir.appendingPathComponent("\(docId).\(DeviceSlug.make(from: deviceId)).jsonl")
+        OpLogStore.opLogFileURL(
+            forDocId: docId,
+            deviceSlug: DeviceSlug.make(from: deviceId),
+            in: projectRoot
+        )
     }
 
     // MARK: - Pure builders (testable without I/O)

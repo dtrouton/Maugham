@@ -55,13 +55,27 @@ public final class OpLogStore {
 
     private func store(forDocId docId: String, deviceSlug: String) -> JSONLAppendStore<Op> {
         JSONLAppendStore<Op>(
-            fileURL: opsDir.appendingPathComponent("\(docId).\(deviceSlug).jsonl"),
+            fileURL: Self.opLogFileURL(forDocId: docId, deviceSlug: deviceSlug, in: projectURL),
             presenter: presenter,
             dedupKey: { $0.opId },
             sortedBy: { $0.opId < $1.opId })
     }
 
     // MARK: - Glob helpers (shared with synchronous readers)
+
+    /// The op-log file URL a writer for `docId` on device `deviceSlug` appends to:
+    /// `<projectURL>/.maugham/ops/<docId>.<deviceSlug>.jsonl`. SINGLE SOURCE OF TRUTH
+    /// for op-log filename CONSTRUCTION — the producer-side twin of
+    /// `docId(fromOpLogFilename:)`. Surfaces (phone `AnnotationWriter`, Mac
+    /// `OpLogStore.store`) MUST call this, never hand-roll the `"\(docId).\(slug).jsonl"`
+    /// template. See docs/superpowers/notes/cross-surface-contracts.md.
+    public nonisolated static func opLogFileURL(
+        forDocId docId: String, deviceSlug: String, in projectURL: URL
+    ) -> URL {
+        projectURL
+            .appendingPathComponent(".maugham/ops", isDirectory: true)
+            .appendingPathComponent("\(docId).\(deviceSlug).jsonl")
+    }
 
     /// The doc id encoded in an op-log filename, or nil if `name` is not a
     /// manuscript doc op-log file. Filenames are `<docId>(.<slug>)?.jsonl`; the
