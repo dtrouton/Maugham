@@ -192,7 +192,7 @@ struct AnnotationRow: View {
     @ViewBuilder
     private var header: some View {
         HStack(spacing: 6) {
-            Label(kindLabel, systemImage: kindIcon)
+            Label(annotation.kind.displayName, systemImage: annotation.kind.systemImageName)
                 .labelStyle(.titleAndIcon)
                 .font(.caption)
                 .foregroundStyle(kindColor)
@@ -263,22 +263,6 @@ struct AnnotationRow: View {
         .controlSize(.small)
     }
 
-    private var kindLabel: String {
-        switch annotation.kind {
-        case .comment: return "Comment"
-        case .suggestedChange: return "Suggestion"
-        case .query: return "Query"
-        case .craftNote: return "Craft note"
-        }
-    }
-    private var kindIcon: String {
-        switch annotation.kind {
-        case .comment: return "bubble.left"
-        case .suggestedChange: return "wand.and.stars"
-        case .query: return "questionmark.circle"
-        case .craftNote: return "ruler"
-        }
-    }
     private var kindColor: Color {
         switch annotation.kind {
         case .comment: return .blue

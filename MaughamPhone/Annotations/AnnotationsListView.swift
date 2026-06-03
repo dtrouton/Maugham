@@ -344,13 +344,10 @@ private struct AnnotationRow: View {
 
 /// Pure SF-Symbol mapping for annotation kinds — out of the row body so it's
 /// trivially testable and the icon vocabulary lives in one place.
+/// Delegates to `AnnotationKind.systemImageName` (MaughamCore), which is the
+/// single source of truth shared with the Mac surface.
 enum AnnotationsIcons {
     static func kindSymbol(_ kind: AnnotationKind) -> String {
-        switch kind {
-        case .comment: return "bubble.left"
-        case .suggestedChange: return "pencil.line"
-        case .query: return "questionmark.circle"
-        case .craftNote: return "lightbulb"
-        }
+        kind.systemImageName
     }
 }
