@@ -53,7 +53,7 @@ public final class ProjectStore {
         wordCountCache[id]
     }
 
-    static let manifestFilename = "project.maugham.json"
+    static let manifestFilename = ProjectManifest.fileName
 
     public let trashStore: TrashStore
     public internal(set) var trashEntries: [TrashEntry] = []
@@ -154,9 +154,7 @@ public final class ProjectStore {
         var manifest: ProjectManifest
         do {
             let data = try Data(contentsOf: manifestURL)
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            manifest = try decoder.decode(ProjectManifest.self, from: data)
+            manifest = try ProjectManifest.makeDecoder().decode(ProjectManifest.self, from: data)
         } catch {
             throw ProjectStoreError.manifestUnreadable(error.localizedDescription)
         }
@@ -171,10 +169,7 @@ public final class ProjectStore {
         // round-trip on `modified` must not shift just because we added a field.
         if manifest.id == nil {
             manifest.id = ULID.generate()
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            if let data = try? encoder.encode(manifest) {
+            if let data = try? ProjectManifest.makeEncoder().encode(manifest) {
                 try? data.write(to: manifestURL, options: [.atomic])
             }
         }

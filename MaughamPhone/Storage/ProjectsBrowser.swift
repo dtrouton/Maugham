@@ -44,10 +44,10 @@ final class ProjectsBrowser {
     private let downloads: DownloadCoordinator
     private let io: CoordinatedFileIO
 
-    /// Manifest filename at each project folder root. Matches the Mac's literal
-    /// (`ProjectStore`/`ProjectFactory` use the same string; there is no shared
-    /// constant in MaughamCore to import).
-    private static let manifestFileName = "project.maugham.json"
+    /// Manifest filename at each project folder root. Sourced from
+    /// `ProjectManifest.fileName` in MaughamCore so Mac and phone always
+    /// agree on the name without a second literal.
+    private static let manifestFileName = ProjectManifest.fileName
 
     init(downloads: DownloadCoordinator, io: CoordinatedFileIO = .live) {
         self.downloads = downloads
@@ -93,12 +93,9 @@ final class ProjectsBrowser {
                 // reads as empty bytes with NO error, so we must download first.
                 try await downloads.ensureDownloaded(manifestURL)
                 let data = try io.coordinatedRead(at: manifestURL)
-                // Match production's manifest decoder config exactly
-                // (ProjectStore.load): ISO8601 dates. A plain decoder would
-                // fail on `created`/`modified`.
-                let decoder = JSONDecoder()
-                decoder.dateDecodingStrategy = .iso8601
-                let manifest = try decoder.decode(ProjectManifest.self, from: data)
+                // Use the shared manifest decoder from MaughamCore so date
+                // strategy stays in sync with the Mac writer automatically.
+                let manifest = try ProjectManifest.makeDecoder().decode(ProjectManifest.self, from: data)
                 found.append(BrowsedProject(
                     id: Self.resolveId(manifest: manifest, folder: child),
                     url: child,

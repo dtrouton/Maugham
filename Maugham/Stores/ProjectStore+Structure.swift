@@ -306,12 +306,9 @@ extension ProjectStore {
     }
 
     func saveManifest() async throws {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data: Data
         do {
-            data = try encoder.encode(manifest)
+            data = try ProjectManifest.makeEncoder().encode(manifest)
         } catch {
             throw ProjectStoreError.manifestUnwritable(error.localizedDescription)
         }
@@ -327,7 +324,7 @@ extension ProjectStore {
         }
 
         // Legacy direct path used during initial load before DocumentStore exists.
-        let manifestURL = url.appendingPathComponent("project.maugham.json")
+        let manifestURL = url.appendingPathComponent(ProjectManifest.fileName)
         let tmpURL = manifestURL.appendingPathExtension("tmp")
         do {
             try data.write(to: tmpURL, options: [.atomic])
