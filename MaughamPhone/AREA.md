@@ -103,6 +103,7 @@ seams and the views are build-verified:
 8. Mac tripwires that recur on iOS: **4** (no per-row Fountain parse — cache the
    `FountainScript` in `.task`), **13** (no hardcoded identity strings), **15**
    (empty-state needs both `.frame(maxWidth:.infinity,maxHeight:.infinity[,alignment:.top])`).
+- **Cross-surface contracts:** if you touch op-log/inbox filenames, ids, formats, or Fountain rendering, you may be in shared phone↔Mac territory — the reach-around tripwires will tell you. Registry: `docs/superpowers/notes/cross-surface-contracts.md`.
 
 ## Cross-surface contract
 
