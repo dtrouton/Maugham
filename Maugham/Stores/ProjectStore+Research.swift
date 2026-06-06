@@ -18,7 +18,7 @@ extension ProjectStore {
                 throw ProjectStoreError.fileSystemError("DocumentStore not available")
             }
             let parentPath = researchParentPath(parentId: parentId)
-            let slug = Self.researchSlugify(title)
+            let slug = Slugifier.slug(from:title)
             let folderPath = "\(parentPath)/\(slug)"
             let folderURL = url.appendingPathComponent(folderPath, isDirectory: true)
             try FileManager.default.createDirectory(
@@ -62,7 +62,7 @@ extension ProjectStore {
         let parentPath = researchParentPath(parentId: parentId)
         let stem = (filename as NSString).deletingPathExtension
         let ext = (filename as NSString).pathExtension.lowercased()
-        let slug = Self.researchSlugify(stem)
+        let slug = Slugifier.slug(from:stem)
         var targetFilename = "\(slug).\(ext)"
         let parentURL = url.appendingPathComponent(parentPath, isDirectory: true)
         try? FileManager.default.createDirectory(
@@ -130,7 +130,7 @@ extension ProjectStore {
         if let parentId,
            let parent = findResearchItem(id: parentId, in: manifest.research),
            parent.type == .group {
-            let groupSlug = Self.researchSlugify(parent.title)
+            let groupSlug = Slugifier.slug(from:parent.title)
             parentFolder = researchRoot.appendingPathComponent(groupSlug)
             try FileManager.default.createDirectory(
                 at: parentFolder, withIntermediateDirectories: true)
@@ -155,7 +155,7 @@ extension ProjectStore {
         }
 
         // Write the empty .md file
-        let slug = Self.researchSlugify(resolvedTitle)
+        let slug = Slugifier.slug(from:resolvedTitle)
         // Dedup against existing files on disk (title-dedup may not match if a
         // prior rename left a stale file at the same slug path).
         var finalFilename = "\(slug).md"
@@ -254,25 +254,6 @@ extension ProjectStore {
             }
             return copy
         }
-    }
-
-    static func researchSlugify(_ s: String) -> String {
-        let lower = s.lowercased()
-        var out = ""
-        var lastDash = false
-        for ch in lower {
-            if ch.isLetter || ch.isNumber {
-                out.append(ch)
-                lastDash = false
-            } else if ch == "-" || ch == "_" || ch.isWhitespace {
-                if !lastDash && !out.isEmpty {
-                    out.append("-")
-                    lastDash = true
-                }
-            }
-        }
-        if out.hasSuffix("-") { out.removeLast() }
-        return out.isEmpty ? "untitled" : out
     }
 
     static func researchDedupedFilename(
@@ -684,8 +665,8 @@ extension ProjectStore {
     ) throws -> (newPath: String, childPathRewrites: [(String, String)])? {
         guard let oldRelPath = item.path else { return nil }
         let oldURL = url.appendingPathComponent(oldRelPath)
-        let oldSlug = Self.researchSlugify(oldTitle)
-        let newSlug = Self.researchSlugify(newTitle)
+        let oldSlug = Slugifier.slug(from:oldTitle)
+        let newSlug = Slugifier.slug(from:newTitle)
         guard oldSlug != newSlug else { return nil }
 
         let parentDir = oldURL.deletingLastPathComponent()

@@ -357,7 +357,7 @@ extension ProjectStore {
 
         let baseTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedTitle = baseTitle.isEmpty ? "Untitled Note" : baseTitle
-        let slug = Self.researchSlugify(resolvedTitle)
+        let slug = Slugifier.slug(from:resolvedTitle)
         var filename = "\(slug).md"
         var counter = 2
         while FileManager.default.fileExists(
@@ -408,7 +408,7 @@ extension ProjectStore {
         let kind = ResearchKindInference.kind(forFilename: filename) ?? .document
         let stem = (filename as NSString).deletingPathExtension
         let ext = (filename as NSString).pathExtension.lowercased()
-        let slug = Self.researchSlugify(stem)
+        let slug = Slugifier.slug(from:stem)
         let existing = (try? FileManager.default
             .contentsOfDirectory(atPath: researchFolderURL.path)) ?? []
         let baseFilename = ext.isEmpty ? slug : "\(slug).\(ext)"
@@ -450,7 +450,7 @@ extension ProjectStore {
         let researchFolder = "\(pieceFolder)/research"
         let baseTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedTitle = baseTitle.isEmpty ? "Untitled Link" : baseTitle
-        let slug = Self.researchSlugify(resolvedTitle)
+        let slug = Slugifier.slug(from:resolvedTitle)
         // Build a synthetic path for filtering — no file is actually written.
         let existingPaths = Set(manifest.research.compactMap { $0.path })
         var pathName = "\(slug).link"
