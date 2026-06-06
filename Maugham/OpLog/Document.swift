@@ -182,90 +182,17 @@ public final class Document {
     /// Bootstrap migration if needed (the .md lacks inline ¶id markers
     /// or no op log exists yet). Recovers from a crashed pending buffer
     /// by folding its contents into a synthesized typing_burst op.
-    public static func load(
-        url: URL,
-        device: String,
-        session: String,
-        presenter: NSFilePresenter?
-    ) async throws -> Document {
-        try await load(
-            url: url, device: device, session: session, presenter: presenter,
-            burstIdle: .seconds(30), burstMax: .seconds(90))
-    }
-
-    /// Internal overload that accepts custom burst thresholds. Used by tests
-    /// to avoid waiting 30 seconds for the default idle threshold.
-    internal static func load(
-        url: URL,
-        device: String,
-        session: String,
-        presenter: NSFilePresenter?,
-        burstIdle: Duration,
-        burstMax: Duration
-    ) async throws -> Document {
-        // Resolve doc-id by looking up the manifest. For tests + initial
-        // setup, fall back to a deterministic id derived from the path.
-        let docId = try resolveDocId(for: url)
-
-        // projectURL is wherever `project.maugham.json` lives. Walk up
-        // from the doc's URL until we find it. For Novel/Screenplay this
-        // is 2 levels up (manuscript/<file>.md → project/); for Collection
-        // it can be 3 (pieces/<piece-folder>/<file>.md → project/) or
-        // deeper for research notes. Defaulting to a fixed 2-level
-        // deletingLastPathComponent landed inside the piece folder for
-        // Collections and made every .maugham/ops/<docId>.jsonl path
-        // resolve to a non-existent location, silently dropping ops.
-        let projectURL = resolveProjectURL(for: url)
-
-        // Bootstrap detection. Per-device partitioning (ADR 0012) means a doc's
-        // log may exist only as `<docId>.<slug>.jsonl` with no legacy
-        // `<docId>.jsonl`; check the whole globbed set, or a doc whose only
-        // writer was a non-current device reads as "no log" and re-bootstraps.
-        let logExists = !OpLogStore.opLogFileURLs(forDocId: docId, in: projectURL).isEmpty
-        let storedBytes = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-        let parsed = ParagraphParser.parse(storedBytes)
-        // `parsed.isEmpty` (empty .md) used to satisfy `allSatisfy { id == nil }`
-        // vacuously, triggering bootstrap that emitted a junk op with empty
-        // changes + empty sequence. Filter empty .md out explicitly. The
-        // empty case happens transiently for newly-created docs before
-        // first autosave; there's nothing to bootstrap. Bootstrap.run also
-        // has its own empty-parsed guard, so this is belt-and-braces.
-        let needsBootstrap = (!logExists || parsed.allSatisfy { $0.id == nil })
-            && !parsed.isEmpty
-
-        if needsBootstrap {
-            _ = try await Bootstrap.run(
-                projectURL: projectURL, docId: docId,
-                mdURL: url, device: device, session: session)
-        }
-
-        let opStore = OpLogStore(projectURL: projectURL, presenter: presenter)
-        let pending = PendingBuffer(projectURL: projectURL, docId: docId)
-        try await pending.loadFromDisk()
-
-        var ops = try await opStore.load(docId: docId)
-
-        // Crash recovery: fold any pending changes into a real op.
-        // Capture sequence from the parsed .md — autosave wrote the .md
-        // after the last burst flushed, so its paragraph anchor ordering
-        // is more current than the op log's last-explicit sequence. Without
-        // this the recovered op leaves sequence at whatever the last
-        // bursted op said (often a stale shape from before the user split
-        // / inserted paragraphs), which strands new paragraph ids out of
-        // sequence and collapses displayText to the stale ordering.
-        if !pending.isEmpty() {
-            let recoveredSequence = parsed.compactMap(\.id)
-            let recovered = Op(
-                opId: ULID.generate(), docId: docId, at: Date(),
-                device: device, session: session, kind: .typingBurst,
-                changes: pending.snapshot(),
-                sequence: recoveredSequence.isEmpty ? nil : recoveredSequence)
-            try await opStore.append(recovered)
-            try await pending.clear()
-            ops.append(recovered)
-        }
-
-        var initial = Deriver.derive(ops: ops)
+    /// Reconcile the op-log-derived state with the parsed on-disk `.md`,
+    /// applying the four load-time recovery branches that decide what the
+    /// writer sees on open. Pure and self-contained: inputs are the derived
+    /// op-log state + parsed paragraphs, output is the final state fed into
+    /// the `Document` init. Lifted verbatim out of `load` so it is directly
+    /// testable; operates on the post-crash-recovery derived state.
+    internal nonisolated static func reconcile(
+        derived: Deriver.DerivedState,
+        parsed: [ParsedParagraph]
+    ) -> Deriver.DerivedState {
+        var initial = derived
         // Two recovery paths from non-canonical op-log states:
         //
         // 1. Empty paragraphs + tagged on-disk file: `Bootstrap.run`
@@ -378,6 +305,94 @@ public final class Document {
                     paragraphs: trimmed, sequence: initial.sequence)
             }
         }
+        return initial
+    }
+
+    public static func load(
+        url: URL,
+        device: String,
+        session: String,
+        presenter: NSFilePresenter?
+    ) async throws -> Document {
+        try await load(
+            url: url, device: device, session: session, presenter: presenter,
+            burstIdle: .seconds(30), burstMax: .seconds(90))
+    }
+
+    /// Internal overload that accepts custom burst thresholds. Used by tests
+    /// to avoid waiting 30 seconds for the default idle threshold.
+    internal static func load(
+        url: URL,
+        device: String,
+        session: String,
+        presenter: NSFilePresenter?,
+        burstIdle: Duration,
+        burstMax: Duration
+    ) async throws -> Document {
+        // Resolve doc-id by looking up the manifest. For tests + initial
+        // setup, fall back to a deterministic id derived from the path.
+        let docId = try resolveDocId(for: url)
+
+        // projectURL is wherever `project.maugham.json` lives. Walk up
+        // from the doc's URL until we find it. For Novel/Screenplay this
+        // is 2 levels up (manuscript/<file>.md → project/); for Collection
+        // it can be 3 (pieces/<piece-folder>/<file>.md → project/) or
+        // deeper for research notes. Defaulting to a fixed 2-level
+        // deletingLastPathComponent landed inside the piece folder for
+        // Collections and made every .maugham/ops/<docId>.jsonl path
+        // resolve to a non-existent location, silently dropping ops.
+        let projectURL = resolveProjectURL(for: url)
+
+        // Bootstrap detection. Per-device partitioning (ADR 0012) means a doc's
+        // log may exist only as `<docId>.<slug>.jsonl` with no legacy
+        // `<docId>.jsonl`; check the whole globbed set, or a doc whose only
+        // writer was a non-current device reads as "no log" and re-bootstraps.
+        let logExists = !OpLogStore.opLogFileURLs(forDocId: docId, in: projectURL).isEmpty
+        let storedBytes = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        let parsed = ParagraphParser.parse(storedBytes)
+        // `parsed.isEmpty` (empty .md) used to satisfy `allSatisfy { id == nil }`
+        // vacuously, triggering bootstrap that emitted a junk op with empty
+        // changes + empty sequence. Filter empty .md out explicitly. The
+        // empty case happens transiently for newly-created docs before
+        // first autosave; there's nothing to bootstrap. Bootstrap.run also
+        // has its own empty-parsed guard, so this is belt-and-braces.
+        let needsBootstrap = (!logExists || parsed.allSatisfy { $0.id == nil })
+            && !parsed.isEmpty
+
+        if needsBootstrap {
+            _ = try await Bootstrap.run(
+                projectURL: projectURL, docId: docId,
+                mdURL: url, device: device, session: session)
+        }
+
+        let opStore = OpLogStore(projectURL: projectURL, presenter: presenter)
+        let pending = PendingBuffer(projectURL: projectURL, docId: docId)
+        try await pending.loadFromDisk()
+
+        var ops = try await opStore.load(docId: docId)
+
+        // Crash recovery: fold any pending changes into a real op.
+        // Capture sequence from the parsed .md — autosave wrote the .md
+        // after the last burst flushed, so its paragraph anchor ordering
+        // is more current than the op log's last-explicit sequence. Without
+        // this the recovered op leaves sequence at whatever the last
+        // bursted op said (often a stale shape from before the user split
+        // / inserted paragraphs), which strands new paragraph ids out of
+        // sequence and collapses displayText to the stale ordering.
+        if !pending.isEmpty() {
+            let recoveredSequence = parsed.compactMap(\.id)
+            let recovered = Op(
+                opId: ULID.generate(), docId: docId, at: Date(),
+                device: device, session: session, kind: .typingBurst,
+                changes: pending.snapshot(),
+                sequence: recoveredSequence.isEmpty ? nil : recoveredSequence)
+            try await opStore.append(recovered)
+            try await pending.clear()
+            ops.append(recovered)
+        }
+
+        let initial = Document.reconcile(
+            derived: Deriver.derive(ops: ops), parsed: parsed)
         let lastWritten = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
         let initialEcho = EchoState.initialLoad(bytes: lastWritten)
 
