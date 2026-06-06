@@ -96,13 +96,8 @@ public enum CompileTool: MCPTool {
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
-        guard let json = paramsJSON else {
-            throw MCPError.invalidArgument("missing params")
-        }
-        let params = try JSONDecoder().decode(Params.self, from: json)
-        guard let entry = registry.lookup(id: params.projectID) else {
-            throw MCPError.unknownProjectID(params.projectID)
-        }
+        let params = try decodeParams(Params.self, from: paramsJSON)
+        let entry = try resolveProject(params.projectID, in: registry)
         let store = entry.store
         let projectURL = entry.url
         let stores = PublishingStores.sharedFor(
@@ -176,13 +171,8 @@ public enum PreviewCompileTool: MCPTool {
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
-        guard let json = paramsJSON else {
-            throw MCPError.invalidArgument("missing params")
-        }
-        let params = try JSONDecoder().decode(Params.self, from: json)
-        guard let entry = registry.lookup(id: params.projectID) else {
-            throw MCPError.unknownProjectID(params.projectID)
-        }
+        let params = try decodeParams(Params.self, from: paramsJSON)
+        let entry = try resolveProject(params.projectID, in: registry)
         let store = entry.store
         let projectURL = entry.url
         let stores = PublishingStores.sharedFor(
@@ -235,13 +225,8 @@ public enum CompileStatusTool: MCPTool {
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
-        guard let json = paramsJSON else {
-            throw MCPError.invalidArgument("missing params")
-        }
-        let params = try JSONDecoder().decode(Params.self, from: json)
-        guard let entry = registry.lookup(id: params.projectID) else {
-            throw MCPError.unknownProjectID(params.projectID)
-        }
+        let params = try decodeParams(Params.self, from: paramsJSON)
+        let entry = try resolveProject(params.projectID, in: registry)
         let stores = PublishingStores.sharedFor(
             projectID: params.projectID, projectURL: entry.url)
         guard let job = await stores.jobManager.get(jobID: params.jobID) else {
@@ -282,13 +267,8 @@ public enum CompileCancelTool: MCPTool {
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
-        guard let json = paramsJSON else {
-            throw MCPError.invalidArgument("missing params")
-        }
-        let params = try JSONDecoder().decode(CompileStatusTool.Params.self, from: json)
-        guard let entry = registry.lookup(id: params.projectID) else {
-            throw MCPError.unknownProjectID(params.projectID)
-        }
+        let params = try decodeParams(CompileStatusTool.Params.self, from: paramsJSON)
+        let entry = try resolveProject(params.projectID, in: registry)
         let stores = PublishingStores.sharedFor(
             projectID: params.projectID, projectURL: entry.url)
         let result = await stores.jobManager.cancel(jobID: params.jobID)

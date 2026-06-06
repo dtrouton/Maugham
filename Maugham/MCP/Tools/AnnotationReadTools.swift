@@ -36,12 +36,7 @@ public enum ListAnnotationsTool: MCPTool {
     public static func handle(
         paramsJSON: Data?, registry: ProjectRegistry
     ) async throws -> Data {
-        guard let data = paramsJSON,
-              let params = try? JSONDecoder().decode(Params.self, from: data)
-        else {
-            throw MCPError.invalidArgument(
-                "project_id, document_id required")
-        }
+        let params = try decodeParams(Params.self, from: paramsJSON)
         let kindFilter: Set<AnnotationKind>? = params.kinds.flatMap { raws in
             let set = Set(raws.compactMap(AnnotationKind.init(rawValue:)))
             return set.isEmpty ? nil : set
@@ -109,12 +104,7 @@ public enum GetAnnotationTool: MCPTool {
     public static func handle(
         paramsJSON: Data?, registry: ProjectRegistry
     ) async throws -> Data {
-        guard let data = paramsJSON,
-              let params = try? JSONDecoder().decode(Params.self, from: data)
-        else {
-            throw MCPError.invalidArgument(
-                "project_id, document_id, annotation_id required")
-        }
+        let params = try decodeParams(Params.self, from: paramsJSON)
         let result: Result = try await withAnnotationDocument(
             projectId: params.project_id,
             documentId: params.document_id,

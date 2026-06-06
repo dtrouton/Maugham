@@ -22,13 +22,8 @@ public enum LinkResearchTool: MCPTool {
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
-        guard let data = paramsJSON,
-              let params = try? JSONDecoder().decode(Params.self, from: data) else {
-            throw MCPError.invalidArgument("project_id, research_id, document_id required")
-        }
-        guard let entry = registry.lookup(id: params.project_id) else {
-            throw MCPError.projectNotOpen
-        }
+        let params = try decodeParams(Params.self, from: paramsJSON)
+        let entry = try resolveProject(params.project_id, in: registry)
         try await entry.store.linkResearch(
             researchId: params.research_id, toDocumentId: params.document_id)
         return try JSONEncoder().encode(Result(linked: true))
@@ -55,13 +50,8 @@ public enum UnlinkResearchTool: MCPTool {
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
-        guard let data = paramsJSON,
-              let params = try? JSONDecoder().decode(Params.self, from: data) else {
-            throw MCPError.invalidArgument("project_id, research_id, document_id required")
-        }
-        guard let entry = registry.lookup(id: params.project_id) else {
-            throw MCPError.projectNotOpen
-        }
+        let params = try decodeParams(Params.self, from: paramsJSON)
+        let entry = try resolveProject(params.project_id, in: registry)
         try await entry.store.unlinkResearch(
             researchId: params.research_id, fromDocumentId: params.document_id)
         return try JSONEncoder().encode(Result(linked: false))

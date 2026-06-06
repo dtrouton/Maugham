@@ -88,15 +88,8 @@ public enum ListTasksTool: MCPTool {
     public static func handle(
         paramsJSON: Data?, registry: ProjectRegistry
     ) async throws -> Data {
-        guard let data = paramsJSON,
-              let params = try? JSONDecoder().decode(Params.self, from: data)
-        else {
-            throw MCPError.invalidArgument(
-                "project_id and scope are required")
-        }
-        guard let entry = registry.lookup(id: params.project_id) else {
-            throw MCPError.projectNotOpen
-        }
+        let params = try decodeParams(Params.self, from: paramsJSON)
+        let entry = try resolveProject(params.project_id, in: registry)
 
         // Default = open only. Explicit empty array also collapses to default.
         let statusFilter: Set<TaskStatus> = params.statuses.flatMap { raws in
@@ -182,15 +175,8 @@ public enum GetTaskTool: MCPTool {
     public static func handle(
         paramsJSON: Data?, registry: ProjectRegistry
     ) async throws -> Data {
-        guard let data = paramsJSON,
-              let params = try? JSONDecoder().decode(Params.self, from: data)
-        else {
-            throw MCPError.invalidArgument(
-                "project_id and task_id are required")
-        }
-        guard let entry = registry.lookup(id: params.project_id) else {
-            throw MCPError.projectNotOpen
-        }
+        let params = try decodeParams(Params.self, from: paramsJSON)
+        let entry = try resolveProject(params.project_id, in: registry)
 
         // Walk the project-scope aggregation across every status — the
         // caller asked for a specific id, not a status-filtered list, so

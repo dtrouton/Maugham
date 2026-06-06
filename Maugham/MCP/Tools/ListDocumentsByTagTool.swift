@@ -24,13 +24,8 @@ public enum ListDocumentsByTagTool: MCPTool {
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
-        guard let data = paramsJSON,
-              let params = try? JSONDecoder().decode(Params.self, from: data) else {
-            throw MCPError.invalidArgument("project_id and tag required")
-        }
-        guard let entry = registry.lookup(id: params.project_id) else {
-            throw MCPError.projectNotOpen
-        }
+        let params = try decodeParams(Params.self, from: paramsJSON)
+        let entry = try resolveProject(params.project_id, in: registry)
         let target = params.tag.lowercased()
         let docs = Self.flatDocs(entry.store.manifest.structure).compactMap { item -> Doc? in
             guard let tags = item.tags,

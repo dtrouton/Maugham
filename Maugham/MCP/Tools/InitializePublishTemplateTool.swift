@@ -31,13 +31,8 @@ public enum InitializePublishTemplateTool: MCPTool {
     public static func handle(
         paramsJSON: Data?, registry: ProjectRegistry
     ) async throws -> Data {
-        guard let json = paramsJSON else {
-            throw MCPError.invalidArgument("missing params")
-        }
-        let params = try JSONDecoder().decode(Params.self, from: json)
-        guard let entry = registry.lookup(id: params.projectID) else {
-            throw MCPError.unknownProjectID(params.projectID)
-        }
+        let params = try decodeParams(Params.self, from: paramsJSON)
+        let entry = try resolveProject(params.projectID, in: registry)
         do {
             try await PublishStarter.install(
                 into: entry.url, force: params.force ?? false)

@@ -27,7 +27,7 @@ func withAnnotationDocument<T>(
     body: (Document) async throws -> T
 ) async throws -> T {
     guard let entry = registry.lookup(id: projectId) else {
-        throw MCPError.projectNotOpen
+        throw MCPError.unknownProjectID(projectId)
     }
     // Case 1: doc is loaded in the editor — use the live instance.
     if let ds = entry.store.documentStore,

@@ -35,13 +35,8 @@ public enum SetPieceStyleTool: MCPTool {
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
-        guard let json = paramsJSON else {
-            throw MCPError.invalidArgument("missing params")
-        }
-        let params = try JSONDecoder().decode(Params.self, from: json)
-        guard let entry = registry.lookup(id: params.projectID) else {
-            throw MCPError.invalidArgument("unknown project_id")
-        }
+        let params = try decodeParams(Params.self, from: paramsJSON)
+        let entry = try resolveProject(params.projectID, in: registry)
 
         // Validate that the piece_id is a real manifest document — fail loudly on unknown ids
         // so callers don't write orphaned style files keyed to non-existent pieces.
@@ -129,13 +124,8 @@ public enum ClearPieceStyleTool: MCPTool {
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
-        guard let json = paramsJSON else {
-            throw MCPError.invalidArgument("missing params")
-        }
-        let params = try JSONDecoder().decode(Params.self, from: json)
-        guard let entry = registry.lookup(id: params.projectID) else {
-            throw MCPError.invalidArgument("unknown project_id")
-        }
+        let params = try decodeParams(Params.self, from: paramsJSON)
+        let entry = try resolveProject(params.projectID, in: registry)
 
         let store = PublishConfigStore(projectURL: entry.url)
         let cfg = (try await store.load()) ?? PublishConfig()

@@ -135,8 +135,8 @@ final class PublishFileToolsTests: XCTestCase {
                 paramsJSON: Data(#"{"project_id":"proj_notreal"}"#.utf8),
                 registry: registry)
             XCTFail("expected throw")
-        } catch let MCPError.invalidArgument(msg) {
-            XCTAssertTrue(msg.contains("unknown project_id"))
+        } catch let MCPError.toolError(payload) {
+            XCTAssertEqual(payload.error, "unknown_project_id")
         }
     }
 
