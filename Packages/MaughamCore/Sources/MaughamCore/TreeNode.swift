@@ -61,6 +61,28 @@ public enum TreeWalk {
         return out
     }
 
+    /// Pre-order flat list of every LEAF node — a node whose `children` is nil
+    /// or empty. Branch (group) nodes are omitted, but their descendants are
+    /// still visited so all leaves surface. Replaces the hand-rolled
+    /// "flatten the tree to its leaf items" walks.
+    ///
+    /// Leaf-ness is by children-emptiness, NOT node type: a childless branch
+    /// node (e.g. an empty `.group`) IS returned as a leaf. Callers wanting
+    /// only certain leaf kinds filter the result (e.g. the phone research
+    /// reader pipes this through `ReadIcons.isReadableResearch`). Don't swap a
+    /// type predicate in — it changes where that filtering decision lives.
+    public static func leaves<N: TreeNode>(in nodes: [N]) -> [N] {
+        var out: [N] = []
+        for node in nodes {
+            if let kids = node.children, !kids.isEmpty {
+                out.append(contentsOf: leaves(in: kids))
+            } else {
+                out.append(node)
+            }
+        }
+        return out
+    }
+
     /// Pre-order id list (parent before children).
     public static func collectIds<N: TreeNode>(in nodes: [N]) -> [String] {
         var out: [String] = []

@@ -12,7 +12,7 @@ struct BinderView: View {
     /// Research items that the reader can actually open (text documents with a
     /// path). Computed once — not in a row body (tripwire 4).
     private var readableResearch: [ResearchItem] {
-        flattenResearch(project.manifest.research).filter(ReadIcons.isReadableResearch)
+        TreeWalk.leaves(in: project.manifest.research).filter(ReadIcons.isReadableResearch)
     }
 
     var body: some View {
@@ -64,15 +64,6 @@ struct BinderView: View {
         }
     }
 
-    /// Flatten the research tree to its leaf assets (group nodes hold children).
-    private func flattenResearch(_ items: [ResearchItem]) -> [ResearchItem] {
-        items.flatMap { item -> [ResearchItem] in
-            if let children = item.children, !children.isEmpty {
-                return flattenResearch(children)
-            }
-            return [item]
-        }
-    }
 }
 
 /// One node of the manuscript structure. Recurses for groups (DisclosureGroup

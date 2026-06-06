@@ -32,6 +32,23 @@ final class TreeNodeTests: XCTestCase {
                        ["a", "a1", "a2", "a2x", "b"])
     }
 
+    func test_leaves_returnsLeafNodesOnly_branchesOmitted() {
+        // Branch nodes "a" and "a2" are omitted; their descendants surface.
+        XCTAssertEqual(TreeWalk.leaves(in: sample()).map(\.id),
+                       ["a1", "a2x", "b"])
+    }
+
+    func test_leaves_childlessBranchCountsAsLeaf() {
+        // A node with an EMPTY (non-nil) children array is leaf-by-emptiness,
+        // not by type — it must be returned (callers filter by kind later).
+        let tree = [Node(id: "g", children: [
+            Node(id: "emptyGroup", children: []),   // childless branch
+            Node(id: "leaf", children: nil),
+        ])]
+        XCTAssertEqual(TreeWalk.leaves(in: tree).map(\.id),
+                       ["emptyGroup", "leaf"])
+    }
+
     func test_first_byPredicate_returnsDeepNode_preorder() {
         // Predicate matching a deep node.
         XCTAssertEqual(
