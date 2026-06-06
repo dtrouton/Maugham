@@ -1,6 +1,13 @@
 import SwiftUI
 import MaughamCore
 import AppKit
+import os
+
+/// Subsystem from the running bundle id so dev/stable logs separate without
+/// hardcoding "com.maugham" (tripwire 13 spirit).
+private let _researchNoteEditorLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.maugham.Maugham",
+    category: "ResearchNoteEditor")
 
 /// An editor surface for a research note (.document kind). Research notes
 /// are not `Document` actors (no op-log, no paragraph IDs); they autosave via
@@ -81,7 +88,7 @@ struct ResearchNoteEditor: View {
                     forNoteAt: notePath,
                     in: projectURL)
             } catch {
-                print("Image paste failed:", error)
+                _researchNoteEditorLog.error("Image paste failed: \(error, privacy: .public)")
                 return nil
             }
         }

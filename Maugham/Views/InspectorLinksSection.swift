@@ -130,7 +130,7 @@ struct InspectorLinksSection: View {
     }
 
     private var linkableDocuments: [StructureItem] {
-        let all = collectAll(in: store.manifest.structure)
+        let all = TreeWalk.collect(in: store.manifest.structure, where: { _ in true })
             .filter { $0.type == .document && $0.id != currentItemId }
             .filter { !draftLinks.contains($0.id) }
         let q = addSearch.trimmingCharacters(in: .whitespaces).lowercased()
@@ -139,24 +139,12 @@ struct InspectorLinksSection: View {
     }
 
     private var backlinks: [StructureItem] {
-        collectAll(in: store.manifest.structure)
+        TreeWalk.collect(in: store.manifest.structure, where: { _ in true })
             .filter { ($0.links ?? []).contains(currentItemId) }
     }
 
     private func linkedTitle(id: String) -> String {
-        collectAll(in: store.manifest.structure)
-            .first(where: { $0.id == id })?.title
+        TreeWalk.find(id: id, in: store.manifest.structure)?.title
             ?? "(missing)"
-    }
-
-    private func collectAll(in items: [StructureItem]) -> [StructureItem] {
-        var result: [StructureItem] = []
-        for item in items {
-            result.append(item)
-            if let children = item.children {
-                result.append(contentsOf: collectAll(in: children))
-            }
-        }
-        return result
     }
 }

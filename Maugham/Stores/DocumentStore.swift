@@ -3,7 +3,11 @@ import MaughamCore
 import AppKit
 import os
 
-private let documentStoreLog = Logger(subsystem: "com.maugham", category: "DocumentStore")
+// Subsystem from the running bundle id so dev/stable logs separate without
+// hardcoding "com.maugham" (tripwire 13 spirit).
+private let documentStoreLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.maugham.Maugham",
+    category: "DocumentStore")
 
 /// Project-scoped store that owns the NSFilePresenter, the registry of
 /// per-document `Document` actors, session tracking, UI state, manifest IO,

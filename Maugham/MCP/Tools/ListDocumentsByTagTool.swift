@@ -27,20 +27,12 @@ public enum ListDocumentsByTagTool: MCPTool {
         let params = try decodeParams(Params.self, from: paramsJSON)
         let entry = try resolveProject(params.project_id, in: registry)
         let target = params.tag.lowercased()
-        let docs = Self.flatDocs(entry.store.manifest.structure).compactMap { item -> Doc? in
-            guard let tags = item.tags,
-                  tags.contains(where: { $0.lowercased() == target }) else { return nil }
-            return Doc(id: item.id, title: item.title, path: item.path, tags: item.tags)
-        }
+        let docs = TreeWalk.collect(in: entry.store.manifest.structure, where: { $0.type == .document })
+            .compactMap { item -> Doc? in
+                guard let tags = item.tags,
+                      tags.contains(where: { $0.lowercased() == target }) else { return nil }
+                return Doc(id: item.id, title: item.title, path: item.path, tags: item.tags)
+            }
         return try JSONEncoder().encode(docs)
-    }
-
-    private static func flatDocs(_ items: [StructureItem]) -> [StructureItem] {
-        var out: [StructureItem] = []
-        for item in items {
-            if item.type == .document { out.append(item) }
-            if let kids = item.children { out.append(contentsOf: flatDocs(kids)) }
-        }
-        return out
     }
 }

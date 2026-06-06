@@ -35,7 +35,7 @@ func withAnnotationDocument<T>(
         return try await body(doc)
     }
     // Case 2: doc not loaded — transient-load from disk.
-    guard let item = findManifestItem(
+    guard let item = TreeWalk.find(
             id: documentId, in: entry.store.manifest.structure),
           let path = item.path else {
         throw MCPError.invalidArgument(
@@ -55,17 +55,4 @@ func withAnnotationDocument<T>(
     // `body`, so the caller observes a fully durable state on return.
     Task { await doc.close() }
     return result
-}
-
-private func findManifestItem(
-    id: String, in items: [StructureItem]
-) -> StructureItem? {
-    for item in items {
-        if item.id == id { return item }
-        if let kids = item.children,
-           let found = findManifestItem(id: id, in: kids) {
-            return found
-        }
-    }
-    return nil
 }

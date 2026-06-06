@@ -19,12 +19,12 @@ struct OutlinePane: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if layout == .table {
                 OutlineTable(
-                    items: flattenDocs(store.manifest.structure),
+                    items: TreeWalk.collect(in: store.manifest.structure, where: { $0.type == .document }),
                     store: store,
                     selectedItemId: $selectedItemId)
             } else {
                 CorkboardGrid(
-                    items: flattenDocs(store.manifest.structure),
+                    items: TreeWalk.collect(in: store.manifest.structure, where: { $0.type == .document }),
                     store: store,
                     selectedItemId: $selectedItemId)
             }
@@ -50,18 +50,4 @@ struct OutlinePane: View {
         }
     }
 
-    /// Flatten manifest.structure to document items only, recursing through groups.
-    private func flattenDocs(_ items: [StructureItem]) -> [StructureItem] {
-        var out: [StructureItem] = []
-        for item in items {
-            switch item.type {
-            case .document: out.append(item)
-            case .group:
-                if let children = item.children {
-                    out.append(contentsOf: flattenDocs(children))
-                }
-            }
-        }
-        return out
-    }
 }

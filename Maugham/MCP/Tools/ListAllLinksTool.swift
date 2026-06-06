@@ -32,22 +32,22 @@ public enum ListAllLinksTool: MCPTool {
         let entry = try resolveProject(params.project_id, in: registry)
         let store = entry.store
 
-        let docs = Self.flatDocs(store.manifest.structure)
+        let docs = TreeWalk.collect(in: store.manifest.structure, where: { $0.type == .document })
         // title → (id, title) lookup for wiki resolution. Manuscript docs and
         // research assets compete on title; if both exist with the same title
         // the document wins (caller should be using unique titles).
         var titleIndex: [String: (id: String, title: String)] = [:]
         // Index every research item (groups + assets) so linked groups
         // resolve their title instead of falling back to the raw id.
-        for r in Self.flatResearch(store.manifest.research) {
+        let allResearch = TreeWalk.collect(in: store.manifest.research, where: { _ in true })
+        for r in allResearch {
             titleIndex[r.title.lowercased()] = (r.id, r.title)
         }
         for d in docs {
             titleIndex[d.title.lowercased()] = (d.id, d.title)
         }
         let researchById: [String: ResearchItem] =
-            Dictionary(uniqueKeysWithValues:
-                Self.flatResearch(store.manifest.research).map { ($0.id, $0) })
+            Dictionary(uniqueKeysWithValues: allResearch.map { ($0.id, $0) })
 
         var edges: [Edge] = []
 
@@ -88,26 +88,6 @@ public enum ListAllLinksTool: MCPTool {
             }
         }
         return try JSONEncoder().encode(edges)
-    }
-
-    private static func flatDocs(_ items: [StructureItem]) -> [StructureItem] {
-        var out: [StructureItem] = []
-        for item in items {
-            if item.type == .document { out.append(item) }
-            if let kids = item.children { out.append(contentsOf: flatDocs(kids)) }
-        }
-        return out
-    }
-
-    /// All research items (groups + assets), recursively flattened. We index
-    /// groups too so chapter→group links resolve their title.
-    private static func flatResearch(_ items: [ResearchItem]) -> [ResearchItem] {
-        var out: [ResearchItem] = []
-        for item in items {
-            out.append(item)
-            if let kids = item.children { out.append(contentsOf: flatResearch(kids)) }
-        }
-        return out
     }
 
     /// Extract `[[X]]` tokens from text. Returns the X strings (no brackets,

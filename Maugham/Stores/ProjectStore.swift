@@ -4,7 +4,11 @@ import Foundation
 import SwiftUI
 import os
 
-private let projectStoreLog = Logger(subsystem: "com.maugham", category: "ProjectStore")
+// Subsystem from the running bundle id so dev/stable logs separate without
+// hardcoding "com.maugham" (tripwire 13 spirit).
+private let projectStoreLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.maugham.Maugham",
+    category: "ProjectStore")
 
 public enum StructureItemKind: Equatable, Sendable {
     case document(extension: String)  // "md" or "fountain"

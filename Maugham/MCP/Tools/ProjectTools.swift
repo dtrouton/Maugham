@@ -73,26 +73,14 @@ public enum GetMetadataTool: MCPTool {
 
     private static func collectTags(in items: [StructureItem]) -> [String] {
         var seen = Set<String>()
-        func walk(_ list: [StructureItem]) {
-            for item in list {
-                if let tags = item.tags { for t in tags { seen.insert(t) } }
-                if let kids = item.children { walk(kids) }
-            }
+        for item in TreeWalk.collect(in: items, where: { _ in true }) {
+            if let tags = item.tags { for t in tags { seen.insert(t) } }
         }
-        walk(items)
         return seen.sorted()
     }
 
     private static func countResearch(_ items: [ResearchItem]) -> Int {
-        var count = 0
-        func walk(_ list: [ResearchItem]) {
-            for item in list {
-                if item.type == .asset { count += 1 }
-                if let kids = item.children { walk(kids) }
-            }
-        }
-        walk(items)
-        return count
+        TreeWalk.collect(in: items, where: { $0.type == .asset }).count
     }
 }
 
@@ -201,16 +189,8 @@ public enum GetOutlineTool: MCPTool {
     private static func maxDescendantModified(
         in items: [StructureItem], store: ProjectStore
     ) -> Date? {
-        var best: Date? = nil
-        for item in items {
-            if item.type == .document, let d = modifiedDate(for: item, store: store) {
-                if let b = best { best = max(b, d) } else { best = d }
-            }
-            if let kids = item.children,
-               let nested = maxDescendantModified(in: kids, store: store) {
-                best = best.map { max($0, nested) } ?? nested
-            }
-        }
-        return best
+        TreeWalk.collect(in: items, where: { $0.type == .document })
+            .compactMap { modifiedDate(for: $0, store: store) }
+            .max()
     }
 }

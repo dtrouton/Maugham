@@ -1,6 +1,13 @@
 import SwiftUI
 import MaughamCore
 import AppKit
+import os
+
+/// Subsystem from the running bundle id so dev/stable logs separate without
+/// hardcoding "com.maugham" (tripwire 13 spirit).
+private let _projectWindowLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.maugham.Maugham",
+    category: "ProjectWindow")
 
 /// Stable-per-launch session ID shared by all checkpoint captures in this process.
 private let _checkpointSessionId: String = UUID().uuidString
@@ -109,17 +116,7 @@ struct ProjectWindow: View {
                 .sheet(isPresented: $showingCheckpointLabelSheet) {
                     let projectURL = store.url
                     let activeDocId = selectedItemId ?? "__no-selection__"
-                    let allDocIds: [String] = {
-                        func collect(_ items: [StructureItem]) -> [String] {
-                            var ids: [String] = []
-                            for item in items {
-                                if item.type == .document { ids.append(item.id) }
-                                if let ch = item.children { ids.append(contentsOf: collect(ch)) }
-                            }
-                            return ids
-                        }
-                        return collect(store.manifest.structure)
-                    }()
+                    let allDocIds: [String] = Self.documentIds(in: store.manifest.structure)
                     CheckpointLabelPromptSheet(
                         onConfirm: { label in
                             showingCheckpointLabelSheet = false
@@ -460,7 +457,7 @@ struct ProjectWindow: View {
                                     name: .maughamOpenProject, object: nil,
                                     userInfo: ["url": newProjectURL])
                             } catch {
-                                print("Promote failed: \(error)")
+                                _projectWindowLog.error("Promote failed: \(error, privacy: .public)")
                             }
                         }
                     }
@@ -922,7 +919,7 @@ struct ProjectWindow: View {
                 : false
             if isValid {
                 self.selectedItemId = savedSelection
-            } else if let first = firstDocument(in: s.manifest.structure) {
+            } else if let first = TreeWalk.first(in: s.manifest.structure, where: { $0.type == .document }) {
                 self.selectedItemId = first.id
             }
             self.isNoChromeOn = ds.uiState.isNoChromeOn
@@ -949,14 +946,6 @@ struct ProjectWindow: View {
         }
     }
 
-    private func firstDocument(in items: [StructureItem]) -> StructureItem? {
-        for item in items {
-            if item.type == .document { return item }
-            if let children = item.children,
-               let nested = firstDocument(in: children) { return nested }
-        }
-        return nil
-    }
 }
 
 // MARK: - CheckpointModifier

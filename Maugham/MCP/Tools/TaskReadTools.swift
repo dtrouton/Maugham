@@ -139,7 +139,7 @@ public enum ListTasksTool: MCPTool {
         // an empty result rather than erroring — same shape as searching
         // for tasks in a non-existent doc returning [] (no `document_not_found`
         // error envelope was specified in §10; aligning with that silence).
-        guard let item = findManifestItem(
+        guard let item = TreeWalk.find(
                 id: docId, in: projectEntry.store.manifest.structure),
               let path = item.path else {
             return []
@@ -196,21 +196,3 @@ public enum GetTaskTool: MCPTool {
     }
 }
 
-// MARK: - Manifest walk
-
-/// Local copy of the manifest item walker. `AnnotationToolHelpers.swift`
-/// has the same private helper; duplicating four lines here keeps the
-/// two read-tool files independent rather than forcing a shared module
-/// for one private function.
-private func findManifestItem(
-    id: String, in items: [StructureItem]
-) -> StructureItem? {
-    for item in items {
-        if item.id == id { return item }
-        if let kids = item.children,
-           let found = findManifestItem(id: id, in: kids) {
-            return found
-        }
-    }
-    return nil
-}
