@@ -116,7 +116,7 @@ struct InspectorView: View {
 
     private var currentItem: StructureItem? {
         guard let id = selectedItemId else { return nil }
-        return findItem(id: id, in: store.manifest.structure)
+        return TreeWalk.find(id: id, in: store.manifest.structure)
     }
 
     private var wordsLabel: String {
@@ -162,34 +162,10 @@ struct InspectorView: View {
 
     private var tagSuggestions: [String] {
         var pool = Set<String>()
-        for item in collectAllItems(in: store.manifest.structure) {
+        for item in TreeWalk.collect(in: store.manifest.structure, where: { _ in true }) {
             for t in item.tags ?? [] { pool.insert(t) }
         }
         return Array(pool).sorted()
-    }
-
-    private func collectAllItems(
-        in items: [StructureItem]
-    ) -> [StructureItem] {
-        var result: [StructureItem] = []
-        for item in items {
-            result.append(item)
-            if let children = item.children {
-                result.append(contentsOf: collectAllItems(in: children))
-            }
-        }
-        return result
-    }
-
-    private func findItem(id: String, in items: [StructureItem]) -> StructureItem? {
-        for item in items {
-            if item.id == id { return item }
-            if let children = item.children,
-               let nested = findItem(id: id, in: children) {
-                return nested
-            }
-        }
-        return nil
     }
 
     @ViewBuilder

@@ -12,9 +12,10 @@ final class AnnotationWriterTests: XCTestCase {
     private let deviceId = "phone:TEST"
     private let appVersion = "0.1.0"
     private let osVersion = "iOS 17.4"
-    // The full `d_<ulid>` form — the same string the op carries in `op.docId` and
-    // the base of the op-log filename (OpLogStore names files `<docId>.<slug>.jsonl`).
-    private let docId = "d_01HQ7T3JKM2N4P5R6S8VWX0Y2Z"
+    // The real on-disk format (ADR 0008): `doc-<8hex>` or `scene-<8hex>`.
+    // The earlier `d_<ULID>` shape is fabricated and was behind the phone-v0.1.1
+    // "No open annotations" footgun.
+    private let docId = "doc-0f677d7e"
 
     private func makeWriter(projectRoot: URL = FileManager.default.temporaryDirectory) -> AnnotationWriter {
         AnnotationWriter(

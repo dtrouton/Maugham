@@ -13,11 +13,8 @@ public enum GetPublishConfigTool: MCPTool {
     }
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
-        guard let json = paramsJSON else { throw MCPError.invalidArgument("missing params") }
-        let params = try JSONDecoder().decode(Params.self, from: json)
-        guard let entry = registry.lookup(id: params.projectID) else {
-            throw MCPError.unknownProjectID(params.projectID)
-        }
+        let params = try decodeParams(Params.self, from: paramsJSON)
+        let entry = try resolveProject(params.projectID, in: registry)
         let cfgStore = PublishConfigStore(projectURL: entry.url)
         let persisted = try await cfgStore.load()
         let cfg = persisted ?? PublishConfig()
@@ -55,9 +52,7 @@ public enum SetPublishConfigTool: MCPTool {
         guard let patchObj = outer?["patch"] else {
             throw MCPError.invalidArgument("patch required")
         }
-        guard let entry = registry.lookup(id: projectID) else {
-            throw MCPError.unknownProjectID(projectID)
-        }
+        let entry = try resolveProject(projectID, in: registry)
         let patchData = try JSONSerialization.data(withJSONObject: patchObj, options: [])
         let cfgStore = PublishConfigStore(projectURL: entry.url)
         let result = try await cfgStore.applyPatch(patchData)

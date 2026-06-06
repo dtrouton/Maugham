@@ -24,18 +24,16 @@ public enum AddNoteTool: MCPTool {
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
-        guard let data = paramsJSON,
-              let params = try? JSONDecoder().decode(Params.self, from: data) else {
-            throw MCPError.invalidArgument("project_id, title, body required")
-        }
-        guard let entry = registry.lookup(id: params.project_id) else {
-            throw MCPError.projectNotOpen
-        }
+        let params = try decodeParams(Params.self, from: paramsJSON)
+        let entry = try resolveProject(params.project_id, in: registry)
         let store = entry.store
 
         // Validate parent group if supplied
         if let parentId = params.parent_group_id {
-            if !Self.groupExists(id: parentId, in: store.manifest.research) {
+            let exists = TreeWalk.first(in: store.manifest.research, where: {
+                $0.id == parentId && $0.type == .group
+            }) != nil
+            if !exists {
                 throw MCPError.invalidArgument("parent_group_id not found: \(parentId)")
             }
         }
@@ -64,13 +62,5 @@ public enum AddNoteTool: MCPTool {
 
         let result = Result(id: created.id, title: created.title, path: created.path ?? "")
         return try JSONEncoder().encode(result)
-    }
-
-    private static func groupExists(id: String, in items: [ResearchItem]) -> Bool {
-        for item in items {
-            if item.id == id && item.type == .group { return true }
-            if let kids = item.children, groupExists(id: id, in: kids) { return true }
-        }
-        return false
     }
 }

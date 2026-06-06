@@ -53,15 +53,15 @@ final class ProjectToolsTests: XCTestCase {
         XCTAssertEqual(meta.type, "novel")
     }
 
-    func test_getMetadata_unknownProject_throwsProjectNotOpen() async throws {
+    func test_getMetadata_unknownProject_throwsUnknownProjectID() async throws {
         let reg = ProjectRegistry()
         let req = "{\"project_id\":\"proj_deadbeef\"}"
         do {
             _ = try await GetMetadataTool.handle(
                 paramsJSON: Data(req.utf8), registry: reg)
             XCTFail("expected throw")
-        } catch MCPError.projectNotOpen {
-            // ok
+        } catch let MCPError.toolError(payload) {
+            XCTAssertEqual(payload.error, "unknown_project_id")
         } catch {
             XCTFail("wrong: \(error)")
         }

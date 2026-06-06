@@ -84,13 +84,8 @@ public enum ListPublishFilesTool: MCPTool {
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
-        guard let json = paramsJSON else {
-            throw MCPError.invalidArgument("missing params")
-        }
-        let params = try JSONDecoder().decode(Params.self, from: json)
-        guard let entry = registry.lookup(id: params.projectID) else {
-            throw MCPError.invalidArgument("unknown project_id")
-        }
+        let params = try decodeParams(Params.self, from: paramsJSON)
+        let entry = try resolveProject(params.projectID, in: registry)
         let publishRoot = entry.url
             .appendingPathComponent(".maugham/publish", isDirectory: true)
         var files: [[String: Any]] = []
@@ -154,13 +149,8 @@ public enum ReadPublishFileTool: MCPTool {
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
-        guard let json = paramsJSON else {
-            throw MCPError.invalidArgument("missing params")
-        }
-        let params = try JSONDecoder().decode(Params.self, from: json)
-        guard let entry = registry.lookup(id: params.projectID) else {
-            throw MCPError.invalidArgument("unknown project_id")
-        }
+        let params = try decodeParams(Params.self, from: paramsJSON)
+        let entry = try resolveProject(params.projectID, in: registry)
         let url = try PublishPath.validateAndResolve(
             relativePath: params.path, in: entry.url)
         guard FileManager.default.fileExists(atPath: url.path) else {
@@ -205,13 +195,8 @@ public enum ReadPublishImageTool: MCPTool {
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
-        guard let json = paramsJSON else {
-            throw MCPError.invalidArgument("missing params")
-        }
-        let params = try JSONDecoder().decode(Params.self, from: json)
-        guard let entry = registry.lookup(id: params.projectID) else {
-            throw MCPError.invalidArgument("unknown project_id")
-        }
+        let params = try decodeParams(Params.self, from: paramsJSON)
+        let entry = try resolveProject(params.projectID, in: registry)
         let url = try PublishPath.validateAndResolve(
             relativePath: params.path, in: entry.url)
         guard FileManager.default.fileExists(atPath: url.path) else {
@@ -254,13 +239,8 @@ public enum WritePublishFileTool: MCPTool {
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
-        guard let json = paramsJSON else {
-            throw MCPError.invalidArgument("missing params")
-        }
-        let params = try JSONDecoder().decode(Params.self, from: json)
-        guard let entry = registry.lookup(id: params.projectID) else {
-            throw MCPError.invalidArgument("unknown project_id")
-        }
+        let params = try decodeParams(Params.self, from: paramsJSON)
+        let entry = try resolveProject(params.projectID, in: registry)
         let url = try PublishPath.validateAndResolve(
             relativePath: params.path, in: entry.url)
         try FileManager.default.createDirectory(
@@ -312,13 +292,8 @@ public enum DeletePublishFileTool: MCPTool {
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
-        guard let json = paramsJSON else {
-            throw MCPError.invalidArgument("missing params")
-        }
-        let params = try JSONDecoder().decode(Params.self, from: json)
-        guard let entry = registry.lookup(id: params.projectID) else {
-            throw MCPError.invalidArgument("unknown project_id")
-        }
+        let params = try decodeParams(Params.self, from: paramsJSON)
+        let entry = try resolveProject(params.projectID, in: registry)
         if PublishPath.isProtected(relativePath: params.path) && !(params.force ?? false) {
             throw MCPError.invalidArgument(
                 "\(params.path) is protected (any .tex/.css/.json directly under .maugham/publish/ — these are load-bearing for compile). Pass force=true to delete anyway.")

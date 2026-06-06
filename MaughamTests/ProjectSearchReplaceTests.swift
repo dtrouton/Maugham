@@ -31,20 +31,42 @@ final class ProjectSearchReplaceTests: XCTestCase {
         return tmp
     }
 
+    /// Replacements route through the op log (the source of truth), so the
+    /// on-disk `.md` becomes anchored. These tests assert on the DISPLAY form
+    /// recovered via a fresh `Document.load`, not exact disk bytes. The search
+    /// must be primed via `performSearch` first (matching the real UI), since
+    /// `replaceMatch` derives the target occurrence ordinal + query from
+    /// `currentSearch`.
+    private func displayText(of project: URL, _ slug: String) async throws -> String {
+        let doc = try await Document.load(
+            url: project.appendingPathComponent("manuscript/\(slug).md"),
+            device: "verify", session: "verify", presenter: nil)
+        return doc.displayText
+    }
+
+    private func search(
+        _ store: ProjectStore, _ query: String,
+        options: SearchOptions = SearchOptions()
+    ) async -> SearchResults {
+        let results = await ProjectSearchEngine().search(
+            query: query, options: options, in: store)
+        // Prime currentSearch so replaceMatch can derive ordinal + query.
+        store.currentSearch = results
+        return results
+    }
+
     func test_replaceMatch_writesNewContentToDisk() async throws {
         let project = try makeProject(manuscript: [
             ("c1", "the kitchen is empty\n")
         ])
         let store = try await ProjectStore.load(from: project)
-        let matches = await ProjectSearchEngine().search(
-            query: "kitchen", options: SearchOptions(), in: store).matches
+        let matches = await search(store, "kitchen").matches
         XCTAssertEqual(matches.count, 1)
 
         try await store.replaceMatch(matches[0], with: "library")
 
-        let content = try String(
-            contentsOf: project.appendingPathComponent("manuscript/c1.md"))
-        XCTAssertEqual(content, "the library is empty\n")
+        let text = try await displayText(of: project, "c1")
+        XCTAssertEqual(text, "the library is empty")
     }
 
     func test_replaceMatch_withEmptyString_deletesMatch() async throws {
@@ -52,15 +74,13 @@ final class ProjectSearchReplaceTests: XCTestCase {
             ("c1", "the kitchen is empty\n")
         ])
         let store = try await ProjectStore.load(from: project)
-        let matches = await ProjectSearchEngine().search(
-            query: "kitchen ", options: SearchOptions(), in: store).matches
+        let matches = await search(store, "kitchen ").matches
         XCTAssertEqual(matches.count, 1)
 
         try await store.replaceMatch(matches[0], with: "")
 
-        let content = try String(
-            contentsOf: project.appendingPathComponent("manuscript/c1.md"))
-        XCTAssertEqual(content, "the is empty\n")
+        let text = try await displayText(of: project, "c1")
+        XCTAssertEqual(text, "the is empty")
     }
 
     func test_replaceAll_replacesAllMatchesPerDoc() async throws {
@@ -69,32 +89,31 @@ final class ProjectSearchReplaceTests: XCTestCase {
             ("c2", "no kitchen anywhere\n")
         ])
         let store = try await ProjectStore.load(from: project)
-        let results = await ProjectSearchEngine().search(
-            query: "kitchen", options: SearchOptions(), in: store)
+        let results = await search(store, "kitchen")
         XCTAssertEqual(results.matchCount, 3)
 
         try await store.replaceAll(in: results, with: "library")
 
-        let c1 = try String(contentsOf: project.appendingPathComponent("manuscript/c1.md"))
-        let c2 = try String(contentsOf: project.appendingPathComponent("manuscript/c2.md"))
-        XCTAssertEqual(c1, "library here\nand library there\n")
-        XCTAssertEqual(c2, "no library anywhere\n")
+        let c1 = try await displayText(of: project, "c1")
+        let c2 = try await displayText(of: project, "c2")
+        XCTAssertEqual(c1, "library here\nand library there")
+        XCTAssertEqual(c2, "no library anywhere")
     }
 
     func test_replaceAll_rightToLeftOrderPreservesOffsets() async throws {
-        // Multiple matches on the same line; offsets must apply right-to-left
-        // so earlier matches' ranges stay valid.
+        // Multiple matches on the same line; the op-log path re-finds and
+        // replaces all occurrences (right-to-left internally) so longer
+        // replacements don't corrupt later matches.
         let project = try makeProject(manuscript: [
-            ("c1", "ab ab ab\n")  // 3 matches of "ab" at offsets 0, 3, 6
+            ("c1", "ab ab ab\n")  // 3 matches of "ab"
         ])
         let store = try await ProjectStore.load(from: project)
-        let results = await ProjectSearchEngine().search(
-            query: "ab", options: SearchOptions(), in: store)
+        let results = await search(store, "ab")
         XCTAssertEqual(results.matchCount, 3)
 
         try await store.replaceAll(in: results, with: "XYZ")  // longer than "ab"
 
-        let content = try String(contentsOf: project.appendingPathComponent("manuscript/c1.md"))
-        XCTAssertEqual(content, "XYZ XYZ XYZ\n")
+        let text = try await displayText(of: project, "c1")
+        XCTAssertEqual(text, "XYZ XYZ XYZ")
     }
 }

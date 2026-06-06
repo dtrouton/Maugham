@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 // MARK: - set_piece_style
 
@@ -35,13 +36,8 @@ public enum SetPieceStyleTool: MCPTool {
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
-        guard let json = paramsJSON else {
-            throw MCPError.invalidArgument("missing params")
-        }
-        let params = try JSONDecoder().decode(Params.self, from: json)
-        guard let entry = registry.lookup(id: params.projectID) else {
-            throw MCPError.invalidArgument("unknown project_id")
-        }
+        let params = try decodeParams(Params.self, from: paramsJSON)
+        let entry = try resolveProject(params.projectID, in: registry)
 
         // Validate that the piece_id is a real manifest document — fail loudly on unknown ids
         // so callers don't write orphaned style files keyed to non-existent pieces.
@@ -129,13 +125,8 @@ public enum ClearPieceStyleTool: MCPTool {
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
-        guard let json = paramsJSON else {
-            throw MCPError.invalidArgument("missing params")
-        }
-        let params = try JSONDecoder().decode(Params.self, from: json)
-        guard let entry = registry.lookup(id: params.projectID) else {
-            throw MCPError.invalidArgument("unknown project_id")
-        }
+        let params = try decodeParams(Params.self, from: paramsJSON)
+        let entry = try resolveProject(params.projectID, in: registry)
 
         let store = PublishConfigStore(projectURL: entry.url)
         let cfg = (try await store.load()) ?? PublishConfig()
@@ -191,13 +182,13 @@ public enum ClearPieceStyleTool: MCPTool {
 // MARK: - slug
 
 enum PieceStyleSlug {
+    /// Style-file slug for a piece title. Delegates to the shared `Slugifier`
+    /// (folds diacritics, caps length, ASCII-only) so there is one slug
+    /// algorithm in the codebase — but substitutes a publish-appropriate
+    /// `"piece"` fallback for `Slugifier`'s generic `"untitled"` (a style file
+    /// named `untitled.tex` reads worse than `piece.tex`).
     static func slug(_ s: String) -> String {
-        let lowered = s.lowercased(); var out = ""; var lastDash = false
-        for ch in lowered {
-            if ch.isLetter || ch.isNumber { out.append(ch); lastDash = false }
-            else if !lastDash { out.append("-"); lastDash = true }
-        }
-        let trimmed = out.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
-        return trimmed.isEmpty ? "piece" : trimmed
+        let base = Slugifier.slug(from: s)
+        return base == "untitled" ? "piece" : base
     }
 }

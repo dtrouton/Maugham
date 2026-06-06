@@ -31,9 +31,10 @@ public final class OpLogStore {
 
     /// Glob every file for `docId` (legacy `<docId>.jsonl` + per-device
     /// `<docId>.<slug>.jsonl`), load each (coordinated), and merge: dedupe by
-    /// opId, sort by opId. docIds are fixed-length (`d_` + 26-char ULID, or the
-    /// `__project__` synthetic), so the `<docId>.` boundary is unambiguous and
-    /// can't prefix-collide with another doc.
+    /// opId, sort by opId. docIds contain no dots (delimiter between id and device
+    /// slug), so the `<docId>.` boundary is unambiguous and can't prefix-collide
+    /// with another doc. Format is `doc-<hex>` / `scene-<hex>` (ADR 0008) or the
+    /// synthetic `__project__`.
     public func load(docId: String) async throws -> [Op] {
         let urls = Self.opLogFileURLs(forDocId: docId, in: projectURL)
         guard !urls.isEmpty else { return [] }

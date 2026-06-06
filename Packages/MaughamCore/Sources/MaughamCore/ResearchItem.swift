@@ -2,7 +2,7 @@ import Foundation
 
 /// A node in a project's research tree.
 /// Either a `group` (with `children`) or an `asset` (image, document, pdf, audio, link).
-public struct ResearchItem: Codable, Equatable, Identifiable, Sendable {
+public struct ResearchItem: Codable, Equatable, Identifiable, Sendable, TreeNode {
     public enum ItemType: String, Codable, Sendable {
         case group, asset
     }

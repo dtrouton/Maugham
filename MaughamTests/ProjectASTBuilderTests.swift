@@ -48,11 +48,12 @@ final class ProjectASTBuilderTests: XCTestCase {
     }
 
     func testProseStripsAnchors_fromBody() {
-        // Manuscript paragraphs carry inline <!-- ¶XXXX --> anchors;
-        // the AST is anchor-stripped (publishing pipeline never emits them).
+        // Manuscript paragraphs carry <!-- ¶XXXX --> anchors on their own line
+        // (the Materializer format: anchor-line + blank + text). The AST is
+        // anchor-stripped (publishing pipeline never emits them).
         let src = FixtureSource(pieces: [
             (id: "p1", title: "C", mode: .prose,
-             text: "<!-- ¶abcd -->Hello.")
+             text: "<!-- ¶abcd -->\n\nHello.")
         ])
         let ast = ProjectASTBuilder.build(from: src)
         XCTAssertEqual(ast.sections[0].nodes, [.paragraph("Hello.")])
@@ -125,12 +126,13 @@ final class ProjectASTBuilderTests: XCTestCase {
     }
 
     func testFountainStripsAnchors_fromAction() {
-        // Fountain manuscripts carry the same inline <!-- ¶XXXX --> op-log
-        // anchors as prose. They must never leak into a rendered screenplay
-        // (regression: Good Luck Babe's PDF showed raw <!-- ¶XXXX --> text).
+        // Fountain manuscripts carry <!-- ¶XXXX --> anchors on their own line
+        // (Materializer format: anchor-line + blank + text). They must never
+        // leak into a rendered screenplay (regression: Good Luck Babe's PDF
+        // showed raw <!-- ¶XXXX --> text).
         let src = FixtureSource(pieces: [
             (id: "p1", title: "Scene 1", mode: .fountain,
-             text: "<!-- ¶abcd -->Aaron pours coffee.")
+             text: "<!-- ¶abcd -->\n\nAaron pours coffee.")
         ])
         let ast = ProjectASTBuilder.build(from: src)
         XCTAssertEqual(ast.sections[0].nodes, [.fountain(.action("Aaron pours coffee."))])

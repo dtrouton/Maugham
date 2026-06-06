@@ -2,6 +2,13 @@ import AppKit
 import MaughamCore
 import Foundation
 import SwiftUI
+import os
+
+// Subsystem from the running bundle id so dev/stable logs separate without
+// hardcoding "com.maugham" (tripwire 13 spirit).
+private let projectStoreLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.maugham.Maugham",
+    category: "ProjectStore")
 
 public enum StructureItemKind: Equatable, Sendable {
     case document(extension: String)  // "md" or "fountain"
@@ -11,8 +18,6 @@ public enum StructureItemKind: Equatable, Sendable {
 public enum ProjectStoreError: Error, Equatable {
     case manifestNotFound
     case manifestUnreadable(String)
-    case manuscriptUnreadable(String)
-    case manuscriptUnwritable(String)
     case manifestUnwritable(String)
     case structureMissing
     case parentNotFound(String)
@@ -20,14 +25,14 @@ public enum ProjectStoreError: Error, Equatable {
     case cycle
 }
 
-/// Manages an open Maugham project: its manifest plus its manuscript text.
-/// Phase 1a supports Short Story projects only (single manuscript file).
+/// Manages an open Maugham project: its manifest and structure.
+/// The op log (under .maugham/ops/) is the source of truth for manuscript
+/// content; .md files on disk are derived. See CLAUDE.md hard invariants.
 @MainActor
 @Observable
 public final class ProjectStore {
     public let url: URL
     public internal(set) var manifest: ProjectManifest
-    public var manuscriptText: String
 
     /// Optional reference to the DocumentStore that owns this project's
     /// coordinated I/O. Set by ProjectWindow at open time. When non-nil,
@@ -128,13 +133,11 @@ public final class ProjectStore {
     private init(
         url: URL,
         manifest: ProjectManifest,
-        manuscriptText: String,
         trashStore: TrashStore,
         trashEntries: [TrashEntry]
     ) {
         self.url = url
         self.manifest = manifest
-        self.manuscriptText = manuscriptText
         self.trashStore = trashStore
         self.trashEntries = trashEntries
     }
@@ -166,12 +169,13 @@ public final class ProjectStore {
         // round-trip on `modified` must not shift just because we added a field.
         if manifest.id == nil {
             manifest.id = ULID.generate()
-            if let data = try? ProjectManifest.makeEncoder().encode(manifest) {
-                try? data.write(to: manifestURL, options: [.atomic])
+            do {
+                let data = try ProjectManifest.makeEncoder().encode(manifest)
+                try data.write(to: manifestURL, options: [.atomic])
+            } catch {
+                projectStoreLog.error("Project id backfill failed for \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         }
-
-        let manuscriptText = try Self.readManuscript(for: manifest, at: url)
 
         let trashStore = TrashStore(projectURL: url)
         try? await trashStore.sweep()
@@ -180,7 +184,6 @@ public final class ProjectStore {
         let store = ProjectStore(
             url: url,
             manifest: manifest,
-            manuscriptText: manuscriptText,
             trashStore: trashStore,
             trashEntries: trashEntries)
         Self.populateWordCountCache(in: store, from: manifest, at: url)
@@ -221,26 +224,29 @@ public final class ProjectStore {
         return out
     }
 
-    private static func readManuscript(
-        for manifest: ProjectManifest, at projectURL: URL
-    ) throws -> String {
-        guard let docPath = manifest.structure.first(where: { $0.type == .document })?.path else {
-            return ""
-        }
-        let manuscriptURL = projectURL.appendingPathComponent(docPath)
-        guard FileManager.default.fileExists(atPath: manuscriptURL.path) else {
-            return ""
-        }
-        do {
-            return try String(contentsOf: manuscriptURL, encoding: .utf8)
-        } catch {
-            throw ProjectStoreError.manuscriptUnreadable(error.localizedDescription)
-        }
-    }
-
     nonisolated static func newId(prefix: String) -> String {
         let suffix = UUID().uuidString.prefix(8).lowercased()
         return "\(prefix)-\(suffix)"
+    }
+
+    /// Returns `base` when `isTaken(base)` is false, otherwise tries
+    /// `"\(base)-2"`, `"\(base)-3"`, ... until `isTaken` returns false.
+    ///
+    /// Used throughout ProjectStore+* to dedup slugs and folder names against
+    /// either a `Set<String>` or a filesystem-existence check.  Pass the
+    /// appropriate closure for each call site.
+    ///
+    /// - Note: Extension-qualified filenames (e.g. `"\(slug)-2.md"`) are NOT
+    ///   handled here — those sites build the final filename outside the helper
+    ///   and pass a closure that checks the full path.
+    nonisolated static func dedupedName(
+        _ base: String,
+        isTaken: (String) -> Bool
+    ) -> String {
+        guard isTaken(base) else { return base }
+        var n = 2
+        while isTaken("\(base)-\(n)") { n += 1 }
+        return "\(base)-\(n)"
     }
 
 }

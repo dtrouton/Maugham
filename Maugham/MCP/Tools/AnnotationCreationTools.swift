@@ -24,8 +24,7 @@ public enum AddCommentTool: MCPTool {
     public static func handle(
         paramsJSON: Data?, registry: ProjectRegistry
     ) async throws -> Data {
-        let params = try decodeAnnotationParams(Params.self, from: paramsJSON,
-            required: "project_id, document_id, paragraph_id, body required")
+        let params = try decodeParams(Params.self, from: paramsJSON)
         let id = try await withAnnotationDocument(
             projectId: params.project_id,
             documentId: params.document_id,
@@ -66,8 +65,7 @@ public enum AddSuggestedChangeTool: MCPTool {
     public static func handle(
         paramsJSON: Data?, registry: ProjectRegistry
     ) async throws -> Data {
-        let params = try decodeAnnotationParams(Params.self, from: paramsJSON,
-            required: "project_id, document_id, paragraph_id, body, suggested_text required")
+        let params = try decodeParams(Params.self, from: paramsJSON)
         let id = try await withAnnotationDocument(
             projectId: params.project_id,
             documentId: params.document_id,
@@ -108,8 +106,7 @@ public enum AddQueryTool: MCPTool {
     public static func handle(
         paramsJSON: Data?, registry: ProjectRegistry
     ) async throws -> Data {
-        let params = try decodeAnnotationParams(Params.self, from: paramsJSON,
-            required: "project_id, document_id, paragraph_id, body required")
+        let params = try decodeParams(Params.self, from: paramsJSON)
         let id = try await withAnnotationDocument(
             projectId: params.project_id,
             documentId: params.document_id,
@@ -149,8 +146,7 @@ public enum AddCraftNoteTool: MCPTool {
     public static func handle(
         paramsJSON: Data?, registry: ProjectRegistry
     ) async throws -> Data {
-        let params = try decodeAnnotationParams(Params.self, from: paramsJSON,
-            required: "project_id, document_id, body required")
+        let params = try decodeParams(Params.self, from: paramsJSON)
         let id = try await withAnnotationDocument(
             projectId: params.project_id,
             documentId: params.document_id,
@@ -167,14 +163,6 @@ public enum AddCraftNoteTool: MCPTool {
 }
 
 // MARK: - File-private helpers
-
-private func decodeAnnotationParams<T: Decodable>(
-    _ type: T.Type, from data: Data?, required: String
-) throws -> T {
-    guard let data, let decoded = try? JSONDecoder().decode(T.self, from: data)
-    else { throw MCPError.invalidArgument(required) }
-    return decoded
-}
 
 private func annotationToolArgsJSON<T: Encodable>(_ params: T) -> String? {
     let enc = JSONEncoder()

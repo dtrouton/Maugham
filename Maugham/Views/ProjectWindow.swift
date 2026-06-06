@@ -1,6 +1,13 @@
 import SwiftUI
 import MaughamCore
 import AppKit
+import os
+
+/// Subsystem from the running bundle id so dev/stable logs separate without
+/// hardcoding "com.maugham" (tripwire 13 spirit).
+private let _projectWindowLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.maugham.Maugham",
+    category: "ProjectWindow")
 
 /// Stable-per-launch session ID shared by all checkpoint captures in this process.
 private let _checkpointSessionId: String = UUID().uuidString
@@ -37,10 +44,7 @@ struct ProjectWindow: View {
     @State private var pendingPieceRenameId: String?
     @State private var detailSegment: DetailSegment = .inspector
     @State private var outlineLayout: OutlineLayout = .table
-    @State private var mcpBannerTitle: String?
-    @State private var mcpBannerCount: Int = 0
-    @State private var mcpBannerLatestId: String?
-    @State private var mcpBannerDismissTask: Task<Void, Never>?
+    @State private var mcpBanner = MCPBannerModel()
     @State private var showingCheckpointLabelSheet: Bool = false
     @State private var showingBootstrapNotice: Bool = false
     @State private var currentElement: String? = nil
@@ -65,17 +69,17 @@ struct ProjectWindow: View {
                     SaveFlashOverlay(isShowing: $showingSaveFlash)
                 }
                 .overlay(alignment: .top) {
-                    if let title = mcpBannerTitle {
+                    if let title = mcpBanner.title {
                         MCPNoteBanner(
                             title: title,
-                            count: mcpBannerCount,
+                            count: mcpBanner.count,
                             onShow: { handleShowLatestMCPNote() },
-                            onDismiss: { handleDismissMCPBanner() }
+                            onDismiss: { mcpBanner.dismiss() }
                         )
                         .transition(.move(edge: .top).combined(with: .opacity))
                     }
                 }
-                .animation(.easeInOut(duration: 0.2), value: mcpBannerTitle)
+                .animation(.easeInOut(duration: 0.2), value: mcpBanner.title)
                 .navigationTitle(store.manifest.title)
                 .sheet(item: $activeSheet) { sheet in
                     switch sheet {
@@ -112,17 +116,7 @@ struct ProjectWindow: View {
                 .sheet(isPresented: $showingCheckpointLabelSheet) {
                     let projectURL = store.url
                     let activeDocId = selectedItemId ?? "__no-selection__"
-                    let allDocIds: [String] = {
-                        func collect(_ items: [StructureItem]) -> [String] {
-                            var ids: [String] = []
-                            for item in items {
-                                if item.type == .document { ids.append(item.id) }
-                                if let ch = item.children { ids.append(contentsOf: collect(ch)) }
-                            }
-                            return ids
-                        }
-                        return collect(store.manifest.structure)
-                    }()
+                    let allDocIds: [String] = Self.documentIds(in: store.manifest.structure)
                     CheckpointLabelPromptSheet(
                         onConfirm: { label in
                             showingCheckpointLabelSheet = false
@@ -232,10 +226,7 @@ struct ProjectWindow: View {
             researchPreviewVisible: $researchPreviewVisible,
             showInspector: $showInspector,
             detailSegment: $detailSegment,
-            mcpBannerTitle: $mcpBannerTitle,
-            mcpBannerCount: $mcpBannerCount,
-            mcpBannerLatestId: $mcpBannerLatestId,
-            mcpBannerDismissTask: $mcpBannerDismissTask))
+            mcpBanner: mcpBanner))
         .modifier(CheckpointModifier(
             documentStore: documentStore,
             store: store,
@@ -272,10 +263,7 @@ struct ProjectWindow: View {
         @Binding var researchPreviewVisible: Bool
         @Binding var showInspector: Bool
         @Binding var detailSegment: DetailSegment
-        @Binding var mcpBannerTitle: String?
-        @Binding var mcpBannerCount: Int
-        @Binding var mcpBannerLatestId: String?
-        @Binding var mcpBannerDismissTask: Task<Void, Never>?
+        let mcpBanner: MCPBannerModel
 
         func body(content: Content) -> some View {
             content
@@ -352,13 +340,13 @@ struct ProjectWindow: View {
                           let match = note.userInfo?["match"] as? SearchMatch else { return }
                     switch match.documentSource {
                     case .manuscript:
-                        if let item = findStructureItemByPath(
-                            match.documentPath, in: store.manifest.structure) {
+                        if let item = TreeWalk.first(
+                            in: store.manifest.structure) { $0.path == match.documentPath } {
                             selectedItemId = item.id
                         }
                     case .research:
-                        if let item = findResearchItemByPath(
-                            match.documentPath, in: store.manifest.research) {
+                        if let item = TreeWalk.first(
+                            in: store.manifest.research) { $0.path == match.documentPath } {
                             selectedResearchId = item.id
                         }
                     }
@@ -371,22 +359,7 @@ struct ProjectWindow: View {
                           let title = info["title"] as? String,
                           ProjectIdentifier.id(for: url) == projectId else { return }
                     DispatchQueue.main.async {
-                        mcpBannerTitle = title
-                        mcpBannerCount += 1
-                        mcpBannerLatestId = researchId
-                        mcpBannerDismissTask?.cancel()
-                        mcpBannerDismissTask = Task {
-                            try? await Task.sleep(for: .seconds(8))
-                            if !Task.isCancelled {
-                                await MainActor.run {
-                                    mcpBannerTitle = nil
-                                    mcpBannerCount = 0
-                                    mcpBannerLatestId = nil
-                                    mcpBannerDismissTask?.cancel()
-                                    mcpBannerDismissTask = nil
-                                }
-                            }
-                        }
+                        mcpBanner.bump(title: title, latestId: researchId)
                     }
                 }
                 .modifier(CollectionPieceModifier(
@@ -412,31 +385,6 @@ struct ProjectWindow: View {
                 }
         }
 
-        private func findStructureItemByPath(
-            _ path: String, in items: [StructureItem]
-        ) -> StructureItem? {
-            for item in items {
-                if item.path == path { return item }
-                if let children = item.children,
-                   let nested = findStructureItemByPath(path, in: children) {
-                    return nested
-                }
-            }
-            return nil
-        }
-
-        private func findResearchItemByPath(
-            _ path: String, in items: [ResearchItem]
-        ) -> ResearchItem? {
-            for item in items {
-                if item.path == path { return item }
-                if let children = item.children,
-                   let nested = findResearchItemByPath(path, in: children) {
-                    return nested
-                }
-            }
-            return nil
-        }
     }
 
     /// Handles the three collection-piece notifications in a separate modifier
@@ -509,7 +457,7 @@ struct ProjectWindow: View {
                                     name: .maughamOpenProject, object: nil,
                                     userInfo: ["url": newProjectURL])
                             } catch {
-                                print("Promote failed: \(error)")
+                                _projectWindowLog.error("Promote failed: \(error, privacy: .public)")
                             }
                         }
                     }
@@ -695,7 +643,7 @@ struct ProjectWindow: View {
             )
         case .research:
             if let id = selectedResearchId,
-               let item = findResearchItem(
+               let item = TreeWalk.find(
                     id: id, in: store.manifest.research) {
                 if item.kind == .document, let path = item.path {
                     ResearchNoteEditor(
@@ -750,7 +698,7 @@ struct ProjectWindow: View {
     /// post the document-first-class refactor (T11).
     private func activeDocument(in store: ProjectStore, documentStore: DocumentStore) -> Document? {
         guard let id = selectedItemId,
-              let item = findItem(id: id, in: store.manifest.structure),
+              let item = TreeWalk.find(id: id, in: store.manifest.structure),
               let path = item.path else { return nil }
         return documentStore.document(for: path)
     }
@@ -774,10 +722,10 @@ struct ProjectWindow: View {
             hideOutline: store.manifest.type == .collection,
             projectURL: store.url,
             activeDocId: selectedItemId ?? "__no-selection__",
-            allDocIds: collectAllDocIds(in: store.manifest.structure),
+            allDocIds: Self.documentIds(in: store.manifest.structure),
             device: _checkpointDeviceId,
             session: _checkpointSessionId,
-            docPaths: collectDocPaths(in: store.manifest.structure),
+            docPaths: Self.documentPaths(in: store.manifest.structure),
             documentStore: documentStore
         ) {
             if store.manifest.type == .collection {
@@ -788,22 +736,18 @@ struct ProjectWindow: View {
         }
     }
 
-    private func collectAllDocIds(in items: [StructureItem]) -> [String] {
-        var ids: [String] = []
-        for item in items {
-            if item.type == .document { ids.append(item.id) }
-            if let children = item.children { ids.append(contentsOf: collectAllDocIds(in: children)) }
-        }
-        return ids
+    /// Pre-order ids of every `.document` node in the structure tree.
+    /// Single source of truth shared by ProjectWindow, CheckpointModifier, and
+    /// RewindModifier (each had its own copy before the TreeWalk migration).
+    static func documentIds(in items: [StructureItem]) -> [String] {
+        TreeWalk.collect(in: items, where: { $0.type == .document }).map(\.id)
     }
 
-    private func collectDocPaths(in items: [StructureItem]) -> [String: String] {
+    /// `[documentId: path]` over every path-bearing `.document` node.
+    static func documentPaths(in items: [StructureItem]) -> [String: String] {
         var result: [String: String] = [:]
-        for item in items {
-            if item.type == .document, let path = item.path { result[item.id] = path }
-            if let children = item.children {
-                for (k, v) in collectDocPaths(in: children) { result[k] = v }
-            }
+        for item in TreeWalk.collect(in: items, where: { $0.type == .document }) {
+            if let path = item.path { result[item.id] = path }
         }
         return result
     }
@@ -817,9 +761,9 @@ struct ProjectWindow: View {
                 ReferencePieceInspector(store: store, pieceId: id)
             case .loose, .none:
                 if let path = piece.path, path.hasSuffix(".fountain") {
-                    ScreenplayPieceInspector(store: store, pieceId: id)
+                    PieceInspector(store: store, pieceId: id, kind: .screenplay)
                 } else {
-                    ProsePieceInspector(store: store, pieceId: id)
+                    PieceInspector(store: store, pieceId: id, kind: .prose)
                 }
             }
         } else {
@@ -840,7 +784,7 @@ struct ProjectWindow: View {
             )
         case .research:
             if let id = selectedResearchId,
-               let item = findResearchItem(
+               let item = TreeWalk.find(
                     id: id, in: store.manifest.research) {
                 InspectorResearchPanel(store: store, item: item)
             } else {
@@ -861,7 +805,7 @@ struct ProjectWindow: View {
 
     private func updateMetrics(for text: String) {
         guard let store, let id = selectedItemId,
-              let item = findItem(id: id, in: store.manifest.structure),
+              let item = TreeWalk.find(id: id, in: store.manifest.structure),
               item.type == .document, let path = item.path else {
             metrics = EditorMetrics(wordCount: 0, characterCount: 0, readingMinutes: 0)
             return
@@ -869,19 +813,10 @@ struct ProjectWindow: View {
         metrics = WritingModeFactory.mode(for: path).metrics(text)
     }
 
-    private func findItem(id: String, in items: [StructureItem]) -> StructureItem? {
-        for item in items {
-            if item.id == id { return item }
-            if let children = item.children,
-               let n = findItem(id: id, in: children) { return n }
-        }
-        return nil
-    }
-
     private var goalIndicatorState: GoalIndicatorState {
         guard let store else { return .empty }
         let currentDoc = selectedItemId.flatMap {
-            findItem(id: $0, in: store.manifest.structure)
+            TreeWalk.find(id: $0, in: store.manifest.structure)
         }
 
         // For a Collection, derive isScreenplay from the active piece, not the
@@ -923,45 +858,6 @@ struct ProjectWindow: View {
             isScreenplay: isScreenplay)
     }
 
-    private func findResearchItem(
-        id: String, in items: [ResearchItem]
-    ) -> ResearchItem? {
-        for item in items {
-            if item.id == id { return item }
-            if let children = item.children,
-               let nested = findResearchItem(id: id, in: children) {
-                return nested
-            }
-        }
-        return nil
-    }
-
-    private func findStructureItemByPath(
-        _ path: String, in items: [StructureItem]
-    ) -> StructureItem? {
-        for item in items {
-            if item.path == path { return item }
-            if let children = item.children,
-               let nested = findStructureItemByPath(path, in: children) {
-                return nested
-            }
-        }
-        return nil
-    }
-
-    private func findResearchItemByPath(
-        _ path: String, in items: [ResearchItem]
-    ) -> ResearchItem? {
-        for item in items {
-            if item.path == path { return item }
-            if let children = item.children,
-               let nested = findResearchItemByPath(path, in: children) {
-                return nested
-            }
-        }
-        return nil
-    }
-
     private func isDocumentConflict(_ conflict: ConflictState) -> Bool {
         // Manifest conflict path is ProjectManifest.fileName; everything else
         // is a document.
@@ -996,32 +892,11 @@ struct ProjectWindow: View {
         }
     }
 
-    private func handleMCPNoteAdded(researchId: String, title: String) {
-        mcpBannerTitle = title
-        mcpBannerCount += 1
-        mcpBannerLatestId = researchId
-        mcpBannerDismissTask?.cancel()
-        mcpBannerDismissTask = Task {
-            try? await Task.sleep(for: .seconds(8))
-            if !Task.isCancelled {
-                await MainActor.run { handleDismissMCPBanner() }
-            }
-        }
-    }
-
     private func handleShowLatestMCPNote() {
-        guard let id = mcpBannerLatestId else { return }
+        guard let id = mcpBanner.latestId else { return }
         binderSegment = .research
         selectedResearchId = id
-        handleDismissMCPBanner()
-    }
-
-    private func handleDismissMCPBanner() {
-        mcpBannerTitle = nil
-        mcpBannerCount = 0
-        mcpBannerLatestId = nil
-        mcpBannerDismissTask?.cancel()
-        mcpBannerDismissTask = nil
+        mcpBanner.dismiss()
     }
 
     @MainActor
@@ -1040,11 +915,11 @@ struct ProjectWindow: View {
             // deleted item, fall back to first document.
             let savedSelection = ds.uiState.selectedItemId
             let isValid = savedSelection != nil
-                ? findItem(id: savedSelection!, in: s.manifest.structure) != nil
+                ? TreeWalk.contains(id: savedSelection!, in: s.manifest.structure)
                 : false
             if isValid {
                 self.selectedItemId = savedSelection
-            } else if let first = firstDocument(in: s.manifest.structure) {
+            } else if let first = TreeWalk.first(in: s.manifest.structure, where: { $0.type == .document }) {
                 self.selectedItemId = first.id
             }
             self.isNoChromeOn = ds.uiState.isNoChromeOn
@@ -1066,21 +941,11 @@ struct ProjectWindow: View {
             loadError = "No project.maugham.json was found in this folder."
         } catch ProjectStoreError.manifestUnreadable(let msg) {
             loadError = "Manifest is corrupt or unreadable: \(msg)"
-        } catch ProjectStoreError.manuscriptUnreadable(let msg) {
-            loadError = "Manuscript file couldn't be read: \(msg)"
         } catch {
             loadError = error.localizedDescription
         }
     }
 
-    private func firstDocument(in items: [StructureItem]) -> StructureItem? {
-        for item in items {
-            if item.type == .document { return item }
-            if let children = item.children,
-               let nested = firstDocument(in: children) { return nested }
-        }
-        return nil
-    }
 }
 
 // MARK: - CheckpointModifier
@@ -1100,7 +965,7 @@ private struct CheckpointModifier: ViewModifier {
                 for: .maughamSaveCheckpoint)) { _ in
                 guard let store, let documentStore else { return }
                 let activeDocId = selectedItemId ?? "__no-selection__"
-                let allDocIds = collectDocIds(in: store.manifest.structure)
+                let allDocIds = ProjectWindow.documentIds(in: store.manifest.structure)
                 let activeDoc = activeDocument(
                     selectedItemId: selectedItemId,
                     structure: store.manifest.structure,
@@ -1128,31 +993,14 @@ private struct CheckpointModifier: ViewModifier {
                 selectedItemId: selectedItemId))
     }
 
-    private func collectDocIds(in items: [StructureItem]) -> [String] {
-        var ids: [String] = []
-        for item in items {
-            if item.type == .document { ids.append(item.id) }
-            if let children = item.children {
-                ids.append(contentsOf: collectDocIds(in: children))
-            }
-        }
-        return ids
-    }
-
     private func activeDocument(
         selectedItemId: String?,
         structure: [StructureItem],
         documentStore: DocumentStore
     ) -> Document? {
-        guard let id = selectedItemId else { return nil }
-        func find(_ items: [StructureItem]) -> StructureItem? {
-            for item in items {
-                if item.id == id { return item }
-                if let children = item.children, let n = find(children) { return n }
-            }
-            return nil
-        }
-        guard let item = find(structure), let path = item.path else { return nil }
+        guard let id = selectedItemId,
+              let item = TreeWalk.find(id: id, in: structure),
+              let path = item.path else { return nil }
         return documentStore.document(for: path)
     }
 }
@@ -1197,8 +1045,8 @@ private struct RewindModifier: ViewModifier {
     @ViewBuilder
     private var rewindSheet: some View {
         if let store, let documentStore, let docId = selectedItemId {
-            let allIds = collectDocIds(in: store.manifest.structure)
-            let paths = collectDocPaths(in: store.manifest.structure)
+            let allIds = ProjectWindow.documentIds(in: store.manifest.structure)
+            let paths = ProjectWindow.documentPaths(in: store.manifest.structure)
             let title = paths[docId]?.components(separatedBy: "/").last ?? docId
             RewindWindow(
                 projectURL: store.url,
@@ -1229,25 +1077,6 @@ private struct RewindModifier: ViewModifier {
         }
     }
 
-    private func collectDocIds(in items: [StructureItem]) -> [String] {
-        var ids: [String] = []
-        for item in items {
-            if item.type == .document { ids.append(item.id) }
-            if let ch = item.children { ids.append(contentsOf: collectDocIds(in: ch)) }
-        }
-        return ids
-    }
-
-    private func collectDocPaths(in items: [StructureItem]) -> [String: String] {
-        var m: [String: String] = [:]
-        for item in items {
-            if item.type == .document, let path = item.path { m[item.id] = path }
-            if let ch = item.children {
-                m.merge(collectDocPaths(in: ch)) { a, _ in a }
-            }
-        }
-        return m
-    }
 }
 
 // MARK: - ParagraphNavModifier
@@ -1269,113 +1098,3 @@ private struct ParagraphNavModifier: ViewModifier {
     }
 }
 
-/// An editor surface for a research note (.document kind). Research notes
-/// are not `Document` actors (no op-log, no paragraph IDs); they autosave via
-/// `DocumentStore.scheduleFileSave` on the same 750ms cadence. Selecting a
-/// different research item simply unmounts this view and remounts with the
-/// new path, flushing the pending save.
-private struct ResearchNoteEditor: View {
-    @Bindable var store: ProjectStore
-    @Bindable var documentStore: DocumentStore
-    let path: String
-    let itemId: String
-    let previewVisible: Bool
-    @Environment(UserPreferences.self) private var userPreferences
-
-    @State private var documentText: String = ""
-    @State private var loadedPath: String?
-    @State private var researchCursor: Int? = nil
-
-    var body: some View {
-        HSplitView {
-            editorContent
-            if previewVisible {
-                ResearchNotePreviewPane(
-                    notePath: path,
-                    projectURL: store.url,
-                    noteText: documentText)
-            }
-        }
-        .task(id: path) { await loadDocument() }
-    }
-
-    @ViewBuilder
-    private var editorContent: some View {
-        Group {
-            if loadedPath == path {
-                EditorSurface(
-                    text: Binding(
-                        get: { documentText },
-                        set: { newValue in
-                            documentText = newValue
-                            documentStore.scheduleFileSave(for: path, text: newValue)
-                        }
-                    ),
-                    theme: userPreferences.theme,
-                    typography: ProjectStore.effectiveTypography(
-                        override: store.manifest.typography,
-                        userDefault: userPreferences.typography),
-                    mode: WritingModeFactory.mode(for: path),
-                    typewriterScroll: userPreferences.typewriterScroll,
-                    sentenceFocus: userPreferences.sentenceFocus,
-                    paragraphFocus: userPreferences.paragraphFocus,
-                    initialCursorLocation: researchCursor,
-                    onCursorChanged: { position in
-                        researchCursor = position
-                    },
-                    showElementGutter: false,
-                    imagePasteHandler: makeImagePasteHandler()
-                )
-                .id(path)
-            } else {
-                VStack {
-                    Text("Loading…")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-    }
-
-    private func makeImagePasteHandler() -> ((NSImage) -> String?) {
-        let projectURL = store.url
-        let notePath = path
-        return { image in
-            do {
-                return try ImagePasteHandler.saveAndReference(
-                    image: image,
-                    forNoteAt: notePath,
-                    in: projectURL)
-            } catch {
-                print("Image paste failed:", error)
-                return nil
-            }
-        }
-    }
-
-    private func loadDocument() async {
-        guard loadedPath != path else { return }
-        // Flush any pending file save before switching research notes.
-        try? await documentStore.flushPendingSave()
-        let url = store.url.appendingPathComponent(path)
-        let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-        documentText = text
-        researchCursor = nil
-        loadedPath = path
-    }
-}
-
-private struct WindowAccessor: NSViewRepresentable {
-    @Binding var window: NSWindow?
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        DispatchQueue.main.async { self.window = view.window }
-        return view
-    }
-    func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async {
-            if self.window == nil { self.window = nsView.window }
-        }
-    }
-}

@@ -10,7 +10,7 @@ Active development. The current state of what's shipped and what's open lives in
 
 Latest release: <https://github.com/dtrouton/Maugham/releases/latest>
 
-Download the `.dmg`, drag `Maugham.app` to `/Applications`, then **right-click → Open** the first time you launch — Maugham is currently unsigned, so Gatekeeper warns about an unidentified developer. After the first open, subsequent launches work normally.
+Download the `.dmg` and drag `Maugham.app` to `/Applications`. Builds are signed with a Developer ID certificate and notarized by Apple, so they launch Gatekeeper-clean — no right-click → Open needed.
 
 Maugham checks for updates daily in the background and shows a banner across the top of any project window when one is ready. Force a check from the **Maugham → Check for Updates…** menu.
 
@@ -44,7 +44,7 @@ The iOS companion is a separate scheme (read [`MaughamPhone/AREA.md`](MaughamPho
 
 Maugham ships a local MCP server (`maugham-mcp`, bundled inside `Maugham.app/Contents/MacOS/`). Once configured, Claude Desktop can read your open projects (binder, manuscript, research, wiki-link graph), add research notes, and annotate the manuscript without mutating it. The manuscript itself stays yours — Claude operates in a parallel annotation layer, surfaced in Maugham's Annotations pane.
 
-Claude Desktop can also **publish** your project — compile it to PDF (bundled tectonic/LaTeX) or EPUB, co-authoring a per-project LaTeX template tuned to your typographic taste. Outputs land in the project's `Exports/` folder (shown in the binder). The template and a small `config.json` live under `.maugham/publish/`; `EMISSION.md` there is the authoritative contract describing what the body emitter produces. Ask Claude `list_maugham_tools` to see the full tool surface (40 tools), or "set up publishing for this project."
+Claude Desktop can also **publish** your project — compile it to PDF (bundled tectonic/LaTeX) or EPUB, co-authoring a per-project LaTeX template tuned to your typographic taste. Outputs land in the project's `Exports/` folder (shown in the binder). The template and a small `config.json` live under `.maugham/publish/`; `EMISSION.md` there is the authoritative contract describing what the body emitter produces. Ask Claude `list_maugham_tools` to see the full tool surface (43 tools), or "set up publishing for this project."
 
 To configure: open Maugham, then **Help → Set up Claude Desktop…** → click `Configure`. Restart Claude Desktop. Try asking "What Maugham projects are open?"
 

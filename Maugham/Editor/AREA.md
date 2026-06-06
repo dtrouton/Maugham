@@ -14,9 +14,9 @@ The NSTextView-backed editing surface: text storage, tokenization, styling, curs
 - `ScreenplayMode.swift` and `ScreenplayLayoutManager.swift` live at `Maugham/Editor/` (not under `Fountain/`).
   - `ScreenplayMode.applyTypography` does **full-storage** `setAttributes` (not incremental). Known race-window contributor; don't add work inside it.
   - `ScreenplayLayoutManager` exists but display-uppercase for forced sluglines/characters is the **option-A fallback** intentionally (display-time uppercase rejected for cursor-positioning reasons). Don't "fix" it without rethinking the approach.
-- `Fountain/` — screenplay parser primitives: `FountainTokenizer.swift` (the parser; despite the name it does parsing not just tokenizing), `FountainScript.swift`, `FountainLine.swift`, plus `CharacterAutocompleter.swift` (dead — see below).
+- `Fountain/` — screenplay parser primitives: `FountainTokenizer.swift` (the parser; despite the name it does parsing not just tokenizing), `FountainScript.swift`, `FountainLine.swift`.
 - `Tokenizer/` — prose-side tokenizer + style application.
-- `CharacterAutocompleter.swift` — **DEAD CODE**. `updateAutocomplete` is defined but never called. NSPopover was abandoned in 3b ("too brittle, blocks input"). Don't wire it back without redesigning the UX (popover → inline ghost-text or sheet, TBD).
+- **Character autocomplete is intentionally absent.** The NSPopover-based `CharacterAutocompleter` was deleted (2026-06-06) after being dead since 3b ("too brittle, blocks input"). Don't reintroduce a popover-based autocomplete; if character autocomplete returns, redesign the UX first (inline ghost-text or sheet).
 
 ## Task anchor styling
 

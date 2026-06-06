@@ -18,7 +18,7 @@ extension ProjectStore {
                 throw ProjectStoreError.fileSystemError("DocumentStore not available")
             }
             let parentPath = researchParentPath(parentId: parentId)
-            let slug = Self.researchSlugify(title)
+            let slug = Slugifier.slug(from:title)
             let folderPath = "\(parentPath)/\(slug)"
             let folderURL = url.appendingPathComponent(folderPath, isDirectory: true)
             try FileManager.default.createDirectory(
@@ -62,7 +62,7 @@ extension ProjectStore {
         let parentPath = researchParentPath(parentId: parentId)
         let stem = (filename as NSString).deletingPathExtension
         let ext = (filename as NSString).pathExtension.lowercased()
-        let slug = Self.researchSlugify(stem)
+        let slug = Slugifier.slug(from:stem)
         var targetFilename = "\(slug).\(ext)"
         let parentURL = url.appendingPathComponent(parentPath, isDirectory: true)
         try? FileManager.default.createDirectory(
@@ -130,7 +130,7 @@ extension ProjectStore {
         if let parentId,
            let parent = findResearchItem(id: parentId, in: manifest.research),
            parent.type == .group {
-            let groupSlug = Self.researchSlugify(parent.title)
+            let groupSlug = Slugifier.slug(from:parent.title)
             parentFolder = researchRoot.appendingPathComponent(groupSlug)
             try FileManager.default.createDirectory(
                 at: parentFolder, withIntermediateDirectories: true)
@@ -155,7 +155,7 @@ extension ProjectStore {
         }
 
         // Write the empty .md file
-        let slug = Self.researchSlugify(resolvedTitle)
+        let slug = Slugifier.slug(from:resolvedTitle)
         // Dedup against existing files on disk (title-dedup may not match if a
         // prior rename left a stale file at the same slug path).
         var finalFilename = "\(slug).md"
@@ -221,14 +221,7 @@ extension ProjectStore {
     func findResearchItem(
         id: String, in items: [ResearchItem]
     ) -> ResearchItem? {
-        for it in items {
-            if it.id == id { return it }
-            if let children = it.children,
-               let found = findResearchItem(id: id, in: children) {
-                return found
-            }
-        }
-        return nil
+        TreeWalk.find(id: id, in: items)
     }
 
     func mutateResearchItem(
@@ -244,35 +237,11 @@ extension ProjectStore {
         in items: [ResearchItem],
         transform: (inout ResearchItem) -> Void
     ) -> [ResearchItem] {
-        items.map { item in
-            var copy = item
-            if copy.id == id {
-                transform(&copy)
-            } else if let children = copy.children {
-                copy.children = applyResearchMutation(
-                    id: id, in: children, transform: transform)
-            }
-            return copy
+        TreeWalk.mutate(id: id, in: items) { node in
+            var node = node
+            transform(&node)
+            return node
         }
-    }
-
-    static func researchSlugify(_ s: String) -> String {
-        let lower = s.lowercased()
-        var out = ""
-        var lastDash = false
-        for ch in lower {
-            if ch.isLetter || ch.isNumber {
-                out.append(ch)
-                lastDash = false
-            } else if ch == "-" || ch == "_" || ch.isWhitespace {
-                if !lastDash && !out.isEmpty {
-                    out.append("-")
-                    lastDash = true
-                }
-            }
-        }
-        if out.hasSuffix("-") { out.removeLast() }
-        return out.isEmpty ? "untitled" : out
     }
 
     static func researchDedupedFilename(
@@ -425,40 +394,19 @@ extension ProjectStore {
     static func applyResearchRemoval(
         id: String, in items: [ResearchItem]
     ) -> [ResearchItem] {
-        items.compactMap { item in
-            if item.id == id { return nil }
-            var copy = item
-            if let children = copy.children {
-                copy.children = applyResearchRemoval(id: id, in: children)
-            }
-            return copy
-        }
+        TreeWalk.remove(id: id, in: items)
     }
 
     static func researchContains(id: String, in items: [ResearchItem]) -> Bool {
-        for it in items {
-            if it.id == id { return true }
-            if let children = it.children, researchContains(id: id, in: children) {
-                return true
-            }
-        }
-        return false
+        TreeWalk.contains(id: id, in: items)
     }
 
     static func researchRewriteChildPaths(
         _ items: [ResearchItem], oldPrefix: String, newPrefix: String
     ) -> [ResearchItem] {
-        items.map { item in
-            var copy = item
-            if let p = copy.path, p.hasPrefix(oldPrefix + "/") {
-                copy.path = newPrefix + "/" + p.dropFirst(oldPrefix.count + 1)
-            }
-            if let children = copy.children {
-                copy.children = researchRewriteChildPaths(
-                    children, oldPrefix: oldPrefix, newPrefix: newPrefix)
-            }
-            return copy
-        }
+        TreeWalk.rewritePaths(
+            in: items, replacingPrefix: oldPrefix, with: newPrefix,
+            path: { $0.path }, setPath: { $0.path = $1 })
     }
 
     /// Duplicate a research item. Asset → copy file with "Copy of <title>".
@@ -510,6 +458,8 @@ extension ProjectStore {
         return copy
     }
 
+    /// NOT a `TreeWalk` fit: regenerates every node's id (a whole-tree
+    /// transform), not a find/mutate-by-id. Left hand-rolled deliberately.
     static func researchFreshIds(_ item: ResearchItem) -> ResearchItem {
         var copy = item
         copy.id = Self.newId(prefix: item.type == .group ? "res-grp" : "res")
@@ -684,20 +634,17 @@ extension ProjectStore {
     ) throws -> (newPath: String, childPathRewrites: [(String, String)])? {
         guard let oldRelPath = item.path else { return nil }
         let oldURL = url.appendingPathComponent(oldRelPath)
-        let oldSlug = Self.researchSlugify(oldTitle)
-        let newSlug = Self.researchSlugify(newTitle)
+        let oldSlug = Slugifier.slug(from:oldTitle)
+        let newSlug = Slugifier.slug(from:newTitle)
         guard oldSlug != newSlug else { return nil }
 
         let parentDir = oldURL.deletingLastPathComponent()
 
         if item.type == .group {
             // Rename folder; collect child path rewrites.
-            var dedupedSlug = newSlug
-            var counter = 2
-            while FileManager.default.fileExists(
-                atPath: parentDir.appendingPathComponent(dedupedSlug).path) {
-                dedupedSlug = "\(newSlug)-\(counter)"
-                counter += 1
+            let dedupedSlug = Self.dedupedName(newSlug) {
+                FileManager.default.fileExists(
+                    atPath: parentDir.appendingPathComponent($0).path)
             }
             let newURL = parentDir.appendingPathComponent(dedupedSlug)
             try FileManager.default.moveItem(at: oldURL, to: newURL)

@@ -72,20 +72,9 @@ struct ResearchLinkPickerSheet: View {
     }
 
     private func filteredItems() -> [ResearchItem] {
-        let all = flatten(store.manifest.research)
+        let all = TreeWalk.collect(in: store.manifest.research, where: { _ in true })
         if query.isEmpty { return all }
         let lower = query.lowercased()
         return all.filter { $0.title.lowercased().contains(lower) }
-    }
-
-    private func flatten(_ items: [ResearchItem]) -> [ResearchItem] {
-        var out: [ResearchItem] = []
-        for item in items {
-            out.append(item)
-            if let children = item.children {
-                out.append(contentsOf: flatten(children))
-            }
-        }
-        return out
     }
 }

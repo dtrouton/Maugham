@@ -74,15 +74,15 @@ final class ListResearchToolTests: XCTestCase {
         XCTAssertEqual(characters.children?.first?.path, "research/characters/sarah.md")
     }
 
-    func test_listResearch_unknownProject_throwsProjectNotOpen() async throws {
+    func test_listResearch_unknownProject_throwsUnknownProjectID() async throws {
         let reg = ProjectRegistry()
         let req = "{\"project_id\":\"proj_deadbeef\"}"
         do {
             _ = try await ListResearchTool.handle(
                 paramsJSON: Data(req.utf8), registry: reg)
             XCTFail("expected throw")
-        } catch MCPError.projectNotOpen {
-            // ok
+        } catch let MCPError.toolError(payload) {
+            XCTAssertEqual(payload.error, "unknown_project_id")
         } catch {
             XCTFail("wrong: \(error)")
         }

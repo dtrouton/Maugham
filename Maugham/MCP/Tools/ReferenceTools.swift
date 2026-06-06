@@ -19,13 +19,8 @@ public enum ListScenesTool: MCPTool {
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
-        guard let data = paramsJSON,
-              let params = try? JSONDecoder().decode(Params.self, from: data) else {
-            throw MCPError.invalidArgument("project_id required")
-        }
-        guard let entry = registry.lookup(id: params.project_id) else {
-            throw MCPError.projectNotOpen
-        }
+        let params = try decodeParams(Params.self, from: paramsJSON)
+        let entry = try resolveProject(params.project_id, in: registry)
         let store = entry.store
         guard store.manifest.type == .screenplay else {
             return try JSONEncoder().encode([Scene]())
@@ -43,7 +38,7 @@ public enum ListScenesTool: MCPTool {
         let linesPerPage = 55.0
         var headings: [Heading] = []
         var cumulativeLines = 0
-        for item in Self.allDocuments(in: store.manifest.structure) {
+        for item in TreeWalk.collect(in: store.manifest.structure, where: { $0.type == .document }) {
             guard let path = item.path else { continue }
             let text: String
             if let ds = store.documentStore, let doc = ds.document(for: path) {
@@ -82,16 +77,6 @@ public enum ListScenesTool: MCPTool {
                 document_id: h.documentId))
         }
         return try JSONEncoder().encode(scenes)
-    }
-
-    /// Walk manifest.structure recursively, flattening to .document items.
-    private static func allDocuments(in items: [StructureItem]) -> [StructureItem] {
-        var out: [StructureItem] = []
-        for item in items {
-            if item.type == .document { out.append(item) }
-            if let kids = item.children { out.append(contentsOf: allDocuments(in: kids)) }
-        }
-        return out
     }
 
     /// Mirror of FountainScript's private lineCount(for:). Replicated here because
@@ -145,13 +130,8 @@ public enum FindReferencesTool: MCPTool {
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
-        guard let data = paramsJSON,
-              let params = try? JSONDecoder().decode(Params.self, from: data) else {
-            throw MCPError.invalidArgument("project_id and target required")
-        }
-        guard let entry = registry.lookup(id: params.project_id) else {
-            throw MCPError.projectNotOpen
-        }
+        let params = try decodeParams(Params.self, from: paramsJSON)
+        let entry = try resolveProject(params.project_id, in: registry)
         let store = entry.store
 
         // Resolve target to a canonical id (document or research).
@@ -163,7 +143,7 @@ public enum FindReferencesTool: MCPTool {
 
         // Linked-research backref scan needs an id.
         if let rid = resolvedId {
-            for chapter in Self.flatDocs(store.manifest.structure) {
+            for chapter in TreeWalk.collect(in: store.manifest.structure, where: { $0.type == .document }) {
                 if store.linkedResearchIds(forDocumentId: chapter.id).contains(rid) {
                     if seenFromIds.insert(chapter.id).inserted {
                         refs.append(Reference(
@@ -179,7 +159,7 @@ public enum FindReferencesTool: MCPTool {
         // id, look up its title(s); else use the literal target string as a title.
         let titles = Self.titlesToScan(target: params.target, resolvedId: resolvedId, store: store)
         if !titles.isEmpty {
-            for doc in Self.flatDocs(store.manifest.structure) {
+            for doc in TreeWalk.collect(in: store.manifest.structure, where: { $0.type == .document }) {
                 guard let path = doc.path else { continue }
                 let abs = entry.url.appendingPathComponent(path)
                 guard let text = try? String(contentsOf: abs, encoding: .utf8) else { continue }
@@ -202,39 +182,34 @@ public enum FindReferencesTool: MCPTool {
     /// research), then by case-insensitive title match, then by exact path match.
     @MainActor
     private static func resolveTargetId(_ target: String, store: ProjectStore) -> String? {
+        let docs = TreeWalk.collect(in: store.manifest.structure, where: { $0.type == .document })
         // Exact id in manuscript structure?
-        if flatDocs(store.manifest.structure).contains(where: { $0.id == target }) {
+        if docs.contains(where: { $0.id == target }) {
             return target
         }
         // Exact id in research tree?
-        if findResearchById(id: target, in: store.manifest.research) != nil {
+        if TreeWalk.find(id: target, in: store.manifest.research) != nil {
             return target
         }
         // Case-insensitive title match in manuscript structure?
-        if let m = flatDocs(store.manifest.structure)
+        if let m = docs
             .first(where: { $0.title.compare(target, options: .caseInsensitive) == .orderedSame }) {
             return m.id
         }
         // Case-insensitive title match in research tree?
-        if let r = findResearchByTitle(title: target, in: store.manifest.research) {
+        if let r = TreeWalk.first(in: store.manifest.research, where: {
+            $0.title.compare(target, options: .caseInsensitive) == .orderedSame
+        }) {
             return r.id
         }
         // Exact path match (manuscript)?
-        if let m = flatDocs(store.manifest.structure)
+        if let m = docs
             .first(where: { $0.path == target }) {
             return m.id
         }
         // Exact path match (research)?
-        if let r = findResearchByPath(path: target, in: store.manifest.research) {
+        if let r = TreeWalk.first(in: store.manifest.research, where: { $0.path == target }) {
             return r.id
-        }
-        return nil
-    }
-
-    private static func findResearchByPath(path: String, in items: [ResearchItem]) -> ResearchItem? {
-        for item in items {
-            if item.path == path { return item }
-            if let kids = item.children, let n = findResearchByPath(path: path, in: kids) { return n }
         }
         return nil
     }
@@ -245,7 +220,8 @@ public enum FindReferencesTool: MCPTool {
     ) -> [String] {
         var titles: [String] = []
         if let id = resolvedId {
-            for doc in flatDocs(store.manifest.structure) where doc.id == id {
+            for doc in TreeWalk.collect(in: store.manifest.structure, where: { $0.type == .document })
+                where doc.id == id {
                 titles.append(doc.title)
             }
             for item in store.resolveResearchLinks([id]) {
@@ -259,31 +235,6 @@ public enum FindReferencesTool: MCPTool {
         return titles
     }
 
-    @MainActor
-    private static func flatDocs(_ items: [StructureItem]) -> [StructureItem] {
-        var out: [StructureItem] = []
-        for item in items {
-            if item.type == .document { out.append(item) }
-            if let kids = item.children { out.append(contentsOf: flatDocs(kids)) }
-        }
-        return out
-    }
-
-    private static func findResearchById(id: String, in items: [ResearchItem]) -> ResearchItem? {
-        for item in items {
-            if item.id == id { return item }
-            if let kids = item.children, let n = findResearchById(id: id, in: kids) { return n }
-        }
-        return nil
-    }
-
-    private static func findResearchByTitle(title: String, in items: [ResearchItem]) -> ResearchItem? {
-        for item in items {
-            if item.title.compare(title, options: .caseInsensitive) == .orderedSame { return item }
-            if let kids = item.children, let n = findResearchByTitle(title: title, in: kids) { return n }
-        }
-        return nil
-    }
 }
 
 /// `get_session_stats(project_id, days?)` — session log aggregates.
@@ -310,13 +261,8 @@ public enum GetSessionStatsTool: MCPTool {
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
-        guard let data = paramsJSON,
-              let params = try? JSONDecoder().decode(Params.self, from: data) else {
-            throw MCPError.invalidArgument("project_id required")
-        }
-        guard let entry = registry.lookup(id: params.project_id) else {
-            throw MCPError.projectNotOpen
-        }
+        let params = try decodeParams(Params.self, from: paramsJSON)
+        let entry = try resolveProject(params.project_id, in: registry)
         let daysWindow = max(1, params.days ?? 30)
         let log = (try? await entry.store.documentStore?.loadSessionLog()) ?? .empty
         let now = Date()

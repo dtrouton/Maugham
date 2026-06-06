@@ -137,51 +137,11 @@ public enum RenderFilter {
     internal static func restoreLineByLine(
         priorLines: [String], displayedLines: [String]
     ) -> [String] {
-        // Strip anchors from prior lines for body comparison (keep originals
-        // around to extract anchor + position when re-injecting).
         let priorStripped: [String] = priorLines.map(stripTaskAnchorsInline)
-
-        // claimedPrior[j] == true once prior line j has been paired.
-        var claimedPrior = [Bool](repeating: false, count: priorLines.count)
-        // pairing[i] == j means displayed[i] paired with prior[j], or -1 unpaired.
-        var pairing = [Int](repeating: -1, count: displayedLines.count)
-
-        // -- Pass 1a: body-match (greedy first-match). --
-        for i in 0..<displayedLines.count {
-            for j in 0..<priorLines.count where !claimedPrior[j] {
-                if priorStripped[j] == displayedLines[i] {
-                    pairing[i] = j
-                    claimedPrior[j] = true
-                    break
-                }
-            }
-        }
-
-        // -- Pass 1b: LCS over unclaimed lines. --
-        let unclaimedDisplayed: [Int] = (0..<displayedLines.count).filter { pairing[$0] == -1 }
-        let unclaimedPrior: [Int] = (0..<priorLines.count).filter { !claimedPrior[$0] }
-
-        if !unclaimedDisplayed.isEmpty && !unclaimedPrior.isEmpty {
-            // LCS uses positional alignment as the similarity proxy: a line in
-            // unclaimedDisplayed at index a pairs with a line in
-            // unclaimedPrior at index b if they sit in the LCS. Equality is
-            // softened to "either body equal, or both unique in their
-            // respective pools" — but for Pass 1 we approximate with positional
-            // best-fit: every remaining displayed line pairs with the
-            // corresponding remaining prior line if they exist.
-            //
-            // We use a "match anything that hasn't matched" strategy: walk in
-            // order through both unclaimed lists in parallel; pair them up to
-            // the shorter length. This handles renames where line position
-            // is preserved.
-            let n = min(unclaimedDisplayed.count, unclaimedPrior.count)
-            for k in 0..<n {
-                let i = unclaimedDisplayed[k]
-                let j = unclaimedPrior[k]
-                pairing[i] = j
-                claimedPrior[j] = true
-            }
-        }
+        let (pairing, _) = computePass1Pairing(
+            priorStripped: priorStripped,
+            displayedLines: displayedLines,
+            priorCount: priorLines.count)
 
         // -- Re-inject anchors from paired prior lines. --
         var out: [String] = []
@@ -202,6 +162,53 @@ public enum RenderFilter {
             out.append(reinjectAnchor(into: dLine, anchorId: anchorId, hint: positionHint))
         }
         return out
+    }
+
+    /// Core Pass 1 pairing algorithm shared by `restoreLineByLine` and
+    /// `TaskAnchorAlignment`.
+    ///
+    /// Returns `(pairing, claimedPrior)` where:
+    /// - `pairing[i] == j` means `displayedLines[i]` paired with prior
+    ///   line `j`, or -1 if unpaired.
+    /// - `claimedPrior[j] == true` once prior line `j` has been paired.
+    ///
+    /// Pass 1a: body-match (greedy first-match) — pairs displayed lines with
+    /// unclaimed prior lines whose anchor-stripped body matches exactly.
+    /// Pass 1b: positional zip over remaining unclaimed lines — handles
+    /// renames where line position is roughly stable.
+    internal static func computePass1Pairing(
+        priorStripped: [String],
+        displayedLines: [String],
+        priorCount: Int
+    ) -> (pairing: [Int], claimedPrior: [Bool]) {
+        var claimedPrior = [Bool](repeating: false, count: priorCount)
+        var pairing = [Int](repeating: -1, count: displayedLines.count)
+
+        // -- Pass 1a: body-match (greedy first-match). --
+        for i in 0..<displayedLines.count {
+            for j in 0..<priorCount where !claimedPrior[j] {
+                if priorStripped[j] == displayedLines[i] {
+                    pairing[i] = j
+                    claimedPrior[j] = true
+                    break
+                }
+            }
+        }
+
+        // -- Pass 1b: positional zip over unclaimed lines. --
+        // Walk both unclaimed lists in parallel; pair up to the shorter
+        // length. This handles renames where line position is preserved.
+        let unclaimedDisplayed: [Int] = (0..<displayedLines.count).filter { pairing[$0] == -1 }
+        let unclaimedPrior: [Int] = (0..<priorCount).filter { !claimedPrior[$0] }
+        let n = min(unclaimedDisplayed.count, unclaimedPrior.count)
+        for k in 0..<n {
+            let i = unclaimedDisplayed[k]
+            let j = unclaimedPrior[k]
+            pairing[i] = j
+            claimedPrior[j] = true
+        }
+
+        return (pairing, claimedPrior)
     }
 
     /// Position hint for re-injection. `.afterCloseBrackets` for

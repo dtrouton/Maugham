@@ -88,15 +88,8 @@ public enum ListTasksTool: MCPTool {
     public static func handle(
         paramsJSON: Data?, registry: ProjectRegistry
     ) async throws -> Data {
-        guard let data = paramsJSON,
-              let params = try? JSONDecoder().decode(Params.self, from: data)
-        else {
-            throw MCPError.invalidArgument(
-                "project_id and scope are required")
-        }
-        guard let entry = registry.lookup(id: params.project_id) else {
-            throw MCPError.projectNotOpen
-        }
+        let params = try decodeParams(Params.self, from: paramsJSON)
+        let entry = try resolveProject(params.project_id, in: registry)
 
         // Default = open only. Explicit empty array also collapses to default.
         let statusFilter: Set<TaskStatus> = params.statuses.flatMap { raws in
@@ -146,7 +139,7 @@ public enum ListTasksTool: MCPTool {
         // an empty result rather than erroring — same shape as searching
         // for tasks in a non-existent doc returning [] (no `document_not_found`
         // error envelope was specified in §10; aligning with that silence).
-        guard let item = findManifestItem(
+        guard let item = TreeWalk.find(
                 id: docId, in: projectEntry.store.manifest.structure),
               let path = item.path else {
             return []
@@ -182,15 +175,8 @@ public enum GetTaskTool: MCPTool {
     public static func handle(
         paramsJSON: Data?, registry: ProjectRegistry
     ) async throws -> Data {
-        guard let data = paramsJSON,
-              let params = try? JSONDecoder().decode(Params.self, from: data)
-        else {
-            throw MCPError.invalidArgument(
-                "project_id and task_id are required")
-        }
-        guard let entry = registry.lookup(id: params.project_id) else {
-            throw MCPError.projectNotOpen
-        }
+        let params = try decodeParams(Params.self, from: paramsJSON)
+        let entry = try resolveProject(params.project_id, in: registry)
 
         // Walk the project-scope aggregation across every status — the
         // caller asked for a specific id, not a status-filtered list, so
@@ -210,21 +196,3 @@ public enum GetTaskTool: MCPTool {
     }
 }
 
-// MARK: - Manifest walk
-
-/// Local copy of the manifest item walker. `AnnotationToolHelpers.swift`
-/// has the same private helper; duplicating four lines here keeps the
-/// two read-tool files independent rather than forcing a shared module
-/// for one private function.
-private func findManifestItem(
-    id: String, in items: [StructureItem]
-) -> StructureItem? {
-    for item in items {
-        if item.id == id { return item }
-        if let kids = item.children,
-           let found = findManifestItem(id: id, in: kids) {
-            return found
-        }
-    }
-    return nil
-}

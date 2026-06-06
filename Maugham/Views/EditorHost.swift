@@ -144,7 +144,7 @@ struct EditorHost: View {
 
     private var currentItem: StructureItem? {
         guard let id = selectedItemId else { return nil }
-        return findItem(id: id, in: store.manifest.structure)
+        return TreeWalk.find(id: id, in: store.manifest.structure)
     }
 
     private func loadDocumentIfNeeded() async {
@@ -186,14 +186,4 @@ struct EditorHost: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func findItem(id: String, in items: [StructureItem]) -> StructureItem? {
-        for item in items {
-            if item.id == id { return item }
-            if let children = item.children,
-               let nested = findItem(id: id, in: children) {
-                return nested
-            }
-        }
-        return nil
-    }
 }

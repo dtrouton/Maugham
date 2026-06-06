@@ -15,7 +15,7 @@ import MaughamCore
 @MainActor
 private func liveInbox(_ registry: ProjectRegistry, projectId: String) throws
     -> (store: ProjectStore, inbox: InboxStore) {
-    guard let entry = registry.lookup(id: projectId) else { throw MCPError.projectNotOpen }
+    guard let entry = registry.lookup(id: projectId) else { throw MCPError.unknownProjectID(projectId) }
     guard let inbox = entry.store.documentStore?.inboxStore else {
         throw MCPError.invalidArgument("inbox unavailable for project: \(projectId)")
     }
@@ -45,10 +45,7 @@ public enum ListInboxTool: MCPTool {
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
-        guard let data = paramsJSON,
-              let params = try? JSONDecoder().decode(Params.self, from: data) else {
-            throw MCPError.invalidArgument("project_id required")
-        }
+        let params = try decodeParams(Params.self, from: paramsJSON)
         let (_, inbox) = try liveInbox(registry, projectId: params.project_id)
         await inbox.refresh()
         let iso = ISO8601DateFormatter()
@@ -75,10 +72,7 @@ public enum ReadInboxEntryTool: MCPTool {
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
-        guard let data = paramsJSON,
-              let params = try? JSONDecoder().decode(Params.self, from: data) else {
-            throw MCPError.invalidArgument("project_id, entry_id required")
-        }
+        let params = try decodeParams(Params.self, from: paramsJSON)
         let (_, inbox) = try liveInbox(registry, projectId: params.project_id)
         await inbox.refresh()
         guard let entry = inbox.entries.first(where: { $0.id == params.entry_id }) else {
@@ -113,10 +107,7 @@ public enum PromoteInboxEntryTool: MCPTool {
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
-        guard let data = paramsJSON,
-              let params = try? JSONDecoder().decode(Params.self, from: data) else {
-            throw MCPError.invalidArgument("project_id, entry_id required")
-        }
+        let params = try decodeParams(Params.self, from: paramsJSON)
         let (store, inbox) = try liveInbox(registry, projectId: params.project_id)
         await inbox.refresh()
         guard var entry = inbox.entries.first(where: { $0.id == params.entry_id }) else {

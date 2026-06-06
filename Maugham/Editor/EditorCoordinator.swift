@@ -63,8 +63,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     private(set) var lastTokens: [Token] = []
 
     /// Most recent FountainScript from ScreenplayMode parsing. nil for prose
-    /// modes. Updated each time retokenizeAndStyle runs. Source for both
-    /// the character autocompleter (3b) and the element gutter (3b).
+    /// modes. Updated each time retokenizeAndStyle runs. Source for
+    /// the element gutter (3b).
     private(set) var lastParsedScript: FountainScript?
 
     /// Most recent cycle target on the current blank line. Cleared when:
@@ -82,8 +82,6 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// Set to true while cycle(in:direction:) is mutating storage so that
     /// textDidChange knows to leave lastCycleTarget alone.
     private var isApplyingTabCycle = false
-
-    private let autocompleter = CharacterAutocompleter()
 
     /// Observer token for `maughamNavigateToScene` notifications.
     private var navigateObserver: NSObjectProtocol?
@@ -765,75 +763,6 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             }
         }
         return script.lines.last
-    }
-
-    private func updateAutocomplete(in textView: NSTextView) {
-        guard mode is ScreenplayMode,
-              let script = lastParsedScript,
-              !script.characterNames.isEmpty,
-              textView.textStorage != nil else {
-            autocompleter.dismiss()
-            return
-        }
-        let cursor = textView.selectedRange().location
-        guard let activeLine = lineCovering(cursor: cursor, in: script) else {
-            autocompleter.dismiss()
-            return
-        }
-        guard activeLine.element == .character else {
-            autocompleter.dismiss()
-            return
-        }
-        // Cursor must be at end of line content.
-        // End of line in source: range covers content + trailing newline if
-        // present. Subtract 1 if the line's source text ends with newline.
-        // Bound-check the range against current storage — lastParsedScript
-        // can be momentarily stale relative to textView.string (selection-
-        // change fires before textDidChange + retokenizeAndStyle re-parses).
-        let storageLength = (textView.string as NSString).length
-        guard NSMaxRange(activeLine.range) <= storageLength else {
-            autocompleter.dismiss()
-            return
-        }
-        let lineSource = (textView.string as NSString).substring(with: activeLine.range)
-        let trailingNewlineLength = lineSource.hasSuffix("\n") ? 1 : 0
-        let endOfLine = activeLine.range.location
-            + activeLine.range.length
-            - trailingNewlineLength
-        guard cursor == endOfLine else {
-            autocompleter.dismiss()
-            return
-        }
-        guard !activeLine.content.isEmpty else {
-            autocompleter.dismiss()
-            return
-        }
-        // Strip @ prefix for prefix-matching.
-        let prefix = activeLine.content.hasPrefix("@")
-            ? String(activeLine.content.dropFirst())
-            : activeLine.content
-        let suggestions = CharacterAutocompleter.rankSuggestions(
-            prefix: prefix, characterNames: script.characterNames)
-        guard !suggestions.isEmpty else {
-            autocompleter.dismiss()
-            return
-        }
-        // Compute anchor rect from layout manager.
-        guard let layoutManager = textView.layoutManager,
-              let container = textView.textContainer else {
-            autocompleter.dismiss()
-            return
-        }
-        let glyphRange = layoutManager.glyphRange(
-            forCharacterRange: NSRange(location: cursor, length: 0),
-            actualCharacterRange: nil)
-        var rect = layoutManager.boundingRect(
-            forGlyphRange: glyphRange, in: container)
-        rect = rect.offsetBy(dx: textView.textContainerInset.width,
-                             dy: textView.textContainerInset.height)
-        autocompleter.show(suggestions: suggestions,
-                           anchorRect: rect,
-                           relativeTo: textView)
     }
 
     private func navigateToLine(at location: Int, in textView: NSTextView) {

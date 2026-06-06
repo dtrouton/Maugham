@@ -21,6 +21,7 @@ Full audit + execution order: `docs/superpowers/notes/2026-06-03-cross-surface-a
 | manifest date strategy | 1 | `ProjectManifest.makeEncoder()` / `makeDecoder()` | round-trip (both) | ✅ |
 | op/inbox Codable + dateEncoding | 1 | `JSONLAppendStore.dateEncoding` + shared types | existing round-trip tests | ✅ |
 | ULID / ParagraphID / DeviceSlug / Deriver / AnnotationDeriver / merge | 1 | MaughamCore (single impl) | existing | ✅ |
+| id-keyed tree traversal (find / contains / collect / mutate / remove / path rewrite over `StructureItem` + `ResearchItem`) | 1 | `TreeWalk.*` over the `TreeNode` protocol (MaughamCore); both `StructureItem`/`ResearchItem` conform. Surfaces call `TreeWalk` (`find(id:)`, `contains(id:)`, `first(in:where:)`, `collectIds`, `collect(in:where:)`, `mutate`, `remove`, `rewritePaths`, `idsByPath`) — do not re-implement recursive children-walks. **Phone exception (note for later):** `MaughamPhone/Read/BinderView.flattenResearch` collects *leaf nodes only* (drops group nodes) — not a clean `TreeWalk.collect` fit, left as-is. | `TreeNodeTests` (MaughamCoreTests) | ✅ |
 | anchor stripping | 1 | `MarkdownDisplayFilter` | existing | ✅ |
 | annotation task-anchor strip in diff cards | 1 | `MarkdownDisplayFilter.stripTaskAnchorsInline` (Mac must call) | both | ✅ |
 | Fountain inline emphasis spans | 2A | consume `FountainLine.inlineSpans` on both surfaces | both | ✅ |
