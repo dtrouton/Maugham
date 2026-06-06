@@ -54,14 +54,19 @@ extension ProjectStore {
     // keep the raw atomic write.
     //
     // Coordinate-space subtlety: `SearchMatch.charRangeInDocument` /
-    // `lineNumber` are in STORED form (the `.md` WITH `<!-- ¶id -->` anchors,
-    // which is what `ProjectSearchEngine` reads). `setFullText` consumes the
-    // DISPLAY form (anchors stripped). We must NOT splice a stored-form range
-    // into display text. Instead we RE-FIND occurrences in `doc.displayText`
-    // (respecting the recorded `SearchOptions`) and operate on those — the
-    // ordinal position of an occurrence within a document is preserved between
-    // stored and display form (anchors aren't query text), so the Nth match in
-    // stored form is the Nth match in display form.
+    // `lineNumber` are DISPLAY-form coordinates — `ProjectSearchEngine` strips
+    // the `<!-- ¶id -->` / `<!--t-XXXXXX-->` anchors via MarkdownDisplayFilter
+    // before matching, so a match never lands inside an invisible anchor. BUT
+    // those coordinates are a SNAPSHOT taken at search time: by the time a
+    // replace runs, the live `doc.displayText` may have diverged (autosave
+    // landed an external edit, or an earlier replace in this same loop already
+    // shifted offsets). So we don't trust the snapshotted range — we RE-FIND
+    // occurrences in the CURRENT `doc.displayText` (respecting the recorded
+    // `SearchOptions`) and target by ORDINAL. The ordinal is stable across any
+    // content change that doesn't add or remove query occurrences, which is the
+    // common case for a replace pass; if occurrences did change, the
+    // stale-match guard (re-find count < requested index) throws so the caller
+    // re-runs the search.
 
     /// Replace a single search match with the given replacement text.
     ///
@@ -75,7 +80,7 @@ extension ProjectStore {
         switch match.documentSource {
         case .manuscript:
             // Determine the ordinal of this match among same-document matches
-            // in the current search results (left-to-right by stored-form
+            // in the current search results (left-to-right by display-form
             // location). This identifies WHICH display-form occurrence to hit.
             let options = currentSearch?.options ?? SearchOptions()
             let query = currentSearch?.query ?? ""
@@ -184,6 +189,44 @@ extension ProjectStore {
             isTransient = true
         }
 
+        // Apply the edit, then close a transiently-loaded doc on EVERY exit
+        // path (normal completion AND throw), exactly once, AWAITED. close()
+        // flushes the pending burst + autosave, so the `.md` reflects the edit
+        // before the instance is torn down — the caller (which re-runs the
+        // search right after) depends on that persistence being durable, so a
+        // fire-and-forget close won't do. An open doc is left to its live
+        // schedulers (its editor binding already reflects the new displayText).
+        //
+        // We capture any thrown error and close after the do/catch (rather than
+        // using `defer`, whose body can't `await`): that keeps the close a
+        // single AWAITED site reached on both success and failure. A duplicated
+        // fire-and-forget that the throw path skipped or doubled could leave two
+        // transient Documents racing the same autosave scheduler on a rapid
+        // re-search+replace of the same doc.
+        var thrown: Error?
+        do {
+            try applyReplacement(
+                to: doc, query: query, options: options,
+                replacement: replacement, occurrenceIndices: occurrenceIndices)
+        } catch {
+            thrown = error
+        }
+        // Single close site — runs on success AND failure, awaited exactly once.
+        if isTransient { await doc.close() }
+        if let thrown { throw thrown }
+    }
+
+    /// Pure-in-memory replacement step: re-find occurrences in the doc's CURRENT
+    /// display form, replace the requested ordinals (or all), and commit via
+    /// `setFullText`. Throws the stale-match guard. Persistence/teardown is the
+    /// caller's responsibility (see `replaceInManuscript`).
+    private func applyReplacement(
+        to doc: Document,
+        query: String,
+        options: SearchOptions,
+        replacement: String,
+        occurrenceIndices: [Int]?
+    ) throws {
         // Re-find occurrences in DISPLAY form (anchors stripped) so the ranges
         // are valid coordinates for `setFullText`.
         let display = doc.displayText
@@ -196,7 +239,6 @@ extension ProjectStore {
         // surface so the caller re-runs the search.
         if let indices = occurrenceIndices {
             for idx in indices where idx >= ranges.count {
-                if isTransient { Task { await doc.close() } }
                 throw ProjectStoreError.fileSystemError(
                     "Match range out of bounds")
             }
@@ -222,14 +264,6 @@ extension ProjectStore {
 
         // Commit through the same path normal typing uses.
         doc.setFullText(newText)
-
-        // For a transiently-loaded doc, force persistence (burst → autosave),
-        // then close it. close() flushes both. An open doc is left to its
-        // live burst/autosave schedulers (and its editor binding already
-        // reflects the new displayText).
-        if isTransient {
-            await doc.close()
-        }
     }
 
     /// Find all occurrence ranges of `query` in `text` according to `options`.
