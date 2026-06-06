@@ -19,7 +19,11 @@ packages:
     path: Packages/MaughamCore
   WhisperKit:
     url: https://github.com/argmaxinc/WhisperKit
-    from: 0.9.0
+    # Pinned to an immutable commit (not a floating `from:` range) so release
+    # builds are reproducible and can't auto-pull a moved/compromised in-range
+    # tag. Bump by resolving the new tag to its SHA (git ls-remote --tags).
+    # Dependabot can't watch this — it's an xcodegen dep, not a Package.swift.
+    revision: defefaefe33dc6dbb45005958abaea1c0f8293ff # v0.9.4
 targets:
   Maugham:
     type: application

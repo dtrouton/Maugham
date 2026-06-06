@@ -17,10 +17,14 @@ jobs:
     runs-on: macos-15
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          # This job loads Developer ID signing + notarization secrets and never
+          # pushes back to git, so don't leave the token in .git/config.
+          persist-credentials: false
 
       - name: Set up Xcode
-        uses: maxim-lobanov/setup-xcode@v1
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
           xcode-version: 'latest-stable'
 
@@ -34,7 +38,7 @@ jobs:
         run: brew install xcodegen
 
       - name: Import Developer ID certificate
-        uses: apple-actions/import-codesign-certs@v7
+        uses: apple-actions/import-codesign-certs@5142e029c445c10ffc7149d172e540235a065466 # v7.0.0
         with:
           p12-file-base64: ${{ secrets.DEVELOPER_ID_CERT }}
           p12-password: ${{ secrets.DEVELOPER_ID_CERT_PASSWORD }}
@@ -72,8 +76,10 @@ jobs:
           fi
 
       - name: Verify release notes exist
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          NOTES="docs/release-notes/v${{ steps.ver.outputs.version }}.md"
+          NOTES="docs/release-notes/v${VERSION}.md"
           if [[ ! -f "$NOTES" ]]; then
             echo "::error::Missing $NOTES"
             exit 1
@@ -81,9 +87,10 @@ jobs:
           echo "Release notes: $NOTES"
 
       - name: Sync version into project.yml
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          BUILD: ${{ github.run_number }}
         run: |
-          VERSION="${{ steps.ver.outputs.version }}"
-          BUILD="${{ github.run_number }}"
           # Use sed for the two version fields. macOS sed needs -i ''.
           sed -i '' \
             "s/CFBundleShortVersionString: \"0.0.0-dev\"/CFBundleShortVersionString: \"${VERSION}\"/" \
@@ -108,10 +115,12 @@ jobs:
           echo "Team: $TEAM"
 
       - name: Build (Release, signed + hardened)
+        env:
+          TEAM_ID: ${{ steps.team.outputs.team_id }}
         run: |
           xcodebuild -project Maugham.xcodeproj -scheme Maugham \
             -configuration Release build \
-            DEVELOPMENT_TEAM="${{ steps.team.outputs.team_id }}"
+            DEVELOPMENT_TEAM="${TEAM_ID}"
 
       - name: Test
         # Tests run in Debug — the scheme's Test action only builds the test
@@ -134,9 +143,10 @@ jobs:
           echo "app_path=$APP_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Re-sign nested executables (inside-out, hardened)
+        env:
+          APP: ${{ steps.locate.outputs.app_path }}
         run: |
           set -euo pipefail
-          APP="${{ steps.locate.outputs.app_path }}"
           IDENTITY="Developer ID Application"
           OPTS="--force --options runtime --timestamp --sign"
           # Sign the bundled tectonic binary (ships via a type:folder reference,
@@ -161,9 +171,9 @@ jobs:
         env:
           ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP: ${{ steps.locate.outputs.app_path }}
         run: |
           set -euo pipefail
-          APP="${{ steps.locate.outputs.app_path }}"
           KEY="/tmp/asc/AuthKey_${ASC_KEY_ID}.p8"
           AUTH=(--key "$KEY" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID")
           # notarytool needs a zip of the app to submit.
@@ -219,10 +229,11 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$APP"
 
       - name: Package .dmg and .zip
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          APP: ${{ steps.locate.outputs.app_path }}
         run: |
           set -euo pipefail
-          VERSION="${{ steps.ver.outputs.version }}"
-          APP="${{ steps.locate.outputs.app_path }}"
           # DMG (manual / website download)
           mkdir -p /tmp/dmg-root
           ditto "$APP" "/tmp/dmg-root/Maugham.app"
@@ -234,7 +245,7 @@ jobs:
           ls -lh "Maugham-${VERSION}.dmg" "Maugham-${VERSION}.zip"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
           files: |
             Maugham-${{ steps.ver.outputs.version }}.dmg
