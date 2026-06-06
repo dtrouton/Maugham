@@ -83,40 +83,15 @@ enum TaskAnchorAlignment {
                 separator: "\n", omittingEmptySubsequences: false
             ).map(String.init)
 
-            var pairing = [Int](repeating: -1, count: displayedLines.count)
-            var claimedPrior = [Bool](repeating: false, count: priorLines.count)
-
-            // Strip anchors from prior for body comparison.
-            let priorStripped = priorLines.map(
-                RenderFilter.stripTaskAnchorsInline)
-
-            // 1a: body-match (greedy first-match).
-            for i in 0..<displayedLines.count {
-                for j in 0..<priorLines.count where !claimedPrior[j] {
-                    if priorStripped[j] == displayedLines[i] {
-                        pairing[i] = j
-                        claimedPrior[j] = true
-                        break
-                    }
-                }
-            }
-
-            // 1b: LCS-ish positional pairing over unclaimed lines. We use
-            // the same approach as RenderFilter.restoreLineByLine: zip
-            // remaining unclaimed display and prior lines in order. This
-            // captures within-paragraph renames where positions are
-            // roughly stable.
-            let unclaimedDisplayed = (0..<displayedLines.count)
-                .filter { pairing[$0] == -1 }
-            let unclaimedPrior = (0..<priorLines.count)
-                .filter { !claimedPrior[$0] }
-            let lcsCount = min(unclaimedDisplayed.count, unclaimedPrior.count)
-            for k in 0..<lcsCount {
-                let i = unclaimedDisplayed[k]
-                let j = unclaimedPrior[k]
-                pairing[i] = j
-                claimedPrior[j] = true
-            }
+            // Strip anchors from prior for body comparison, then delegate
+            // Pass 1a (body-match) + Pass 1b (positional zip) to the
+            // shared helper in RenderFilter — the single implementation that
+            // is also property-tested by RenderFilterTaskAnchorTests.
+            let priorStripped = priorLines.map(RenderFilter.stripTaskAnchorsInline)
+            let (pairing, claimedPrior) = RenderFilter.computePass1Pairing(
+                priorStripped: priorStripped,
+                displayedLines: displayedLines,
+                priorCount: priorLines.count)
 
             paraStates.append(ParaState(
                 pid: pid,
