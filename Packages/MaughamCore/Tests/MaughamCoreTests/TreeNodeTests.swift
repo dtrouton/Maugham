@@ -32,6 +32,28 @@ final class TreeNodeTests: XCTestCase {
                        ["a", "a1", "a2", "a2x", "b"])
     }
 
+    func test_first_byPredicate_returnsDeepNode_preorder() {
+        // Predicate matching a deep node.
+        XCTAssertEqual(
+            TreeWalk.first(in: sample()) { $0.id == "a2x" }?.id, "a2x")
+        // No match → nil.
+        XCTAssertNil(TreeWalk.first(in: sample()) { $0.id == "nope" })
+        // Pre-order: parent "a" is visited before any of its children.
+        XCTAssertEqual(
+            TreeWalk.first(in: sample()) { $0.id.hasPrefix("a") }?.id, "a")
+    }
+
+    func test_collect_byPredicate_preorder_filtered() {
+        // Filtered collect: only ids starting with "a".
+        XCTAssertEqual(
+            TreeWalk.collect(in: sample()) { $0.id.hasPrefix("a") }.map(\.id),
+            ["a", "a1", "a2", "a2x"])
+        // `{ _ in true }` flattens the whole tree, pre-order.
+        XCTAssertEqual(
+            TreeWalk.collect(in: sample()) { _ in true }.map(\.id),
+            ["a", "a1", "a2", "a2x", "b"])
+    }
+
     func test_mutate_returnsNewTree_leavesOthersUntouched() {
         let updated = TreeWalk.mutate(id: "a1", in: sample()) { node in
             var n = node; n.id = "a1-renamed"; return n

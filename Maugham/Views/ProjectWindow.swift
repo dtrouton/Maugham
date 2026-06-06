@@ -352,13 +352,13 @@ struct ProjectWindow: View {
                           let match = note.userInfo?["match"] as? SearchMatch else { return }
                     switch match.documentSource {
                     case .manuscript:
-                        if let item = findStructureItemByPath(
-                            match.documentPath, in: store.manifest.structure) {
+                        if let item = TreeWalk.first(
+                            in: store.manifest.structure) { $0.path == match.documentPath } {
                             selectedItemId = item.id
                         }
                     case .research:
-                        if let item = findResearchItemByPath(
-                            match.documentPath, in: store.manifest.research) {
+                        if let item = TreeWalk.first(
+                            in: store.manifest.research) { $0.path == match.documentPath } {
                             selectedResearchId = item.id
                         }
                     }
@@ -412,31 +412,6 @@ struct ProjectWindow: View {
                 }
         }
 
-        private func findStructureItemByPath(
-            _ path: String, in items: [StructureItem]
-        ) -> StructureItem? {
-            for item in items {
-                if item.path == path { return item }
-                if let children = item.children,
-                   let nested = findStructureItemByPath(path, in: children) {
-                    return nested
-                }
-            }
-            return nil
-        }
-
-        private func findResearchItemByPath(
-            _ path: String, in items: [ResearchItem]
-        ) -> ResearchItem? {
-            for item in items {
-                if item.path == path { return item }
-                if let children = item.children,
-                   let nested = findResearchItemByPath(path, in: children) {
-                    return nested
-                }
-            }
-            return nil
-        }
     }
 
     /// Handles the three collection-piece notifications in a separate modifier
@@ -695,7 +670,7 @@ struct ProjectWindow: View {
             )
         case .research:
             if let id = selectedResearchId,
-               let item = findResearchItem(
+               let item = TreeWalk.find(
                     id: id, in: store.manifest.research) {
                 if item.kind == .document, let path = item.path {
                     ResearchNoteEditor(
@@ -750,7 +725,7 @@ struct ProjectWindow: View {
     /// post the document-first-class refactor (T11).
     private func activeDocument(in store: ProjectStore, documentStore: DocumentStore) -> Document? {
         guard let id = selectedItemId,
-              let item = findItem(id: id, in: store.manifest.structure),
+              let item = TreeWalk.find(id: id, in: store.manifest.structure),
               let path = item.path else { return nil }
         return documentStore.document(for: path)
     }
@@ -774,10 +749,10 @@ struct ProjectWindow: View {
             hideOutline: store.manifest.type == .collection,
             projectURL: store.url,
             activeDocId: selectedItemId ?? "__no-selection__",
-            allDocIds: collectAllDocIds(in: store.manifest.structure),
+            allDocIds: Self.documentIds(in: store.manifest.structure),
             device: _checkpointDeviceId,
             session: _checkpointSessionId,
-            docPaths: collectDocPaths(in: store.manifest.structure),
+            docPaths: Self.documentPaths(in: store.manifest.structure),
             documentStore: documentStore
         ) {
             if store.manifest.type == .collection {
@@ -788,22 +763,18 @@ struct ProjectWindow: View {
         }
     }
 
-    private func collectAllDocIds(in items: [StructureItem]) -> [String] {
-        var ids: [String] = []
-        for item in items {
-            if item.type == .document { ids.append(item.id) }
-            if let children = item.children { ids.append(contentsOf: collectAllDocIds(in: children)) }
-        }
-        return ids
+    /// Pre-order ids of every `.document` node in the structure tree.
+    /// Single source of truth shared by ProjectWindow, CheckpointModifier, and
+    /// RewindModifier (each had its own copy before the TreeWalk migration).
+    static func documentIds(in items: [StructureItem]) -> [String] {
+        TreeWalk.collect(in: items, where: { $0.type == .document }).map(\.id)
     }
 
-    private func collectDocPaths(in items: [StructureItem]) -> [String: String] {
+    /// `[documentId: path]` over every path-bearing `.document` node.
+    static func documentPaths(in items: [StructureItem]) -> [String: String] {
         var result: [String: String] = [:]
-        for item in items {
-            if item.type == .document, let path = item.path { result[item.id] = path }
-            if let children = item.children {
-                for (k, v) in collectDocPaths(in: children) { result[k] = v }
-            }
+        for item in TreeWalk.collect(in: items, where: { $0.type == .document }) {
+            if let path = item.path { result[item.id] = path }
         }
         return result
     }
@@ -840,7 +811,7 @@ struct ProjectWindow: View {
             )
         case .research:
             if let id = selectedResearchId,
-               let item = findResearchItem(
+               let item = TreeWalk.find(
                     id: id, in: store.manifest.research) {
                 InspectorResearchPanel(store: store, item: item)
             } else {
@@ -861,7 +832,7 @@ struct ProjectWindow: View {
 
     private func updateMetrics(for text: String) {
         guard let store, let id = selectedItemId,
-              let item = findItem(id: id, in: store.manifest.structure),
+              let item = TreeWalk.find(id: id, in: store.manifest.structure),
               item.type == .document, let path = item.path else {
             metrics = EditorMetrics(wordCount: 0, characterCount: 0, readingMinutes: 0)
             return
@@ -869,19 +840,10 @@ struct ProjectWindow: View {
         metrics = WritingModeFactory.mode(for: path).metrics(text)
     }
 
-    private func findItem(id: String, in items: [StructureItem]) -> StructureItem? {
-        for item in items {
-            if item.id == id { return item }
-            if let children = item.children,
-               let n = findItem(id: id, in: children) { return n }
-        }
-        return nil
-    }
-
     private var goalIndicatorState: GoalIndicatorState {
         guard let store else { return .empty }
         let currentDoc = selectedItemId.flatMap {
-            findItem(id: $0, in: store.manifest.structure)
+            TreeWalk.find(id: $0, in: store.manifest.structure)
         }
 
         // For a Collection, derive isScreenplay from the active piece, not the
@@ -921,45 +883,6 @@ struct ProjectWindow: View {
                 ? docPageTarget
                 : store.manifest.targets?.pageTarget,
             isScreenplay: isScreenplay)
-    }
-
-    private func findResearchItem(
-        id: String, in items: [ResearchItem]
-    ) -> ResearchItem? {
-        for item in items {
-            if item.id == id { return item }
-            if let children = item.children,
-               let nested = findResearchItem(id: id, in: children) {
-                return nested
-            }
-        }
-        return nil
-    }
-
-    private func findStructureItemByPath(
-        _ path: String, in items: [StructureItem]
-    ) -> StructureItem? {
-        for item in items {
-            if item.path == path { return item }
-            if let children = item.children,
-               let nested = findStructureItemByPath(path, in: children) {
-                return nested
-            }
-        }
-        return nil
-    }
-
-    private func findResearchItemByPath(
-        _ path: String, in items: [ResearchItem]
-    ) -> ResearchItem? {
-        for item in items {
-            if item.path == path { return item }
-            if let children = item.children,
-               let nested = findResearchItemByPath(path, in: children) {
-                return nested
-            }
-        }
-        return nil
     }
 
     private func isDocumentConflict(_ conflict: ConflictState) -> Bool {
@@ -1027,7 +950,7 @@ struct ProjectWindow: View {
             // deleted item, fall back to first document.
             let savedSelection = ds.uiState.selectedItemId
             let isValid = savedSelection != nil
-                ? findItem(id: savedSelection!, in: s.manifest.structure) != nil
+                ? TreeWalk.contains(id: savedSelection!, in: s.manifest.structure)
                 : false
             if isValid {
                 self.selectedItemId = savedSelection
@@ -1085,7 +1008,7 @@ private struct CheckpointModifier: ViewModifier {
                 for: .maughamSaveCheckpoint)) { _ in
                 guard let store, let documentStore else { return }
                 let activeDocId = selectedItemId ?? "__no-selection__"
-                let allDocIds = collectDocIds(in: store.manifest.structure)
+                let allDocIds = ProjectWindow.documentIds(in: store.manifest.structure)
                 let activeDoc = activeDocument(
                     selectedItemId: selectedItemId,
                     structure: store.manifest.structure,
@@ -1113,31 +1036,14 @@ private struct CheckpointModifier: ViewModifier {
                 selectedItemId: selectedItemId))
     }
 
-    private func collectDocIds(in items: [StructureItem]) -> [String] {
-        var ids: [String] = []
-        for item in items {
-            if item.type == .document { ids.append(item.id) }
-            if let children = item.children {
-                ids.append(contentsOf: collectDocIds(in: children))
-            }
-        }
-        return ids
-    }
-
     private func activeDocument(
         selectedItemId: String?,
         structure: [StructureItem],
         documentStore: DocumentStore
     ) -> Document? {
-        guard let id = selectedItemId else { return nil }
-        func find(_ items: [StructureItem]) -> StructureItem? {
-            for item in items {
-                if item.id == id { return item }
-                if let children = item.children, let n = find(children) { return n }
-            }
-            return nil
-        }
-        guard let item = find(structure), let path = item.path else { return nil }
+        guard let id = selectedItemId,
+              let item = TreeWalk.find(id: id, in: structure),
+              let path = item.path else { return nil }
         return documentStore.document(for: path)
     }
 }
@@ -1182,8 +1088,8 @@ private struct RewindModifier: ViewModifier {
     @ViewBuilder
     private var rewindSheet: some View {
         if let store, let documentStore, let docId = selectedItemId {
-            let allIds = collectDocIds(in: store.manifest.structure)
-            let paths = collectDocPaths(in: store.manifest.structure)
+            let allIds = ProjectWindow.documentIds(in: store.manifest.structure)
+            let paths = ProjectWindow.documentPaths(in: store.manifest.structure)
             let title = paths[docId]?.components(separatedBy: "/").last ?? docId
             RewindWindow(
                 projectURL: store.url,
@@ -1214,25 +1120,6 @@ private struct RewindModifier: ViewModifier {
         }
     }
 
-    private func collectDocIds(in items: [StructureItem]) -> [String] {
-        var ids: [String] = []
-        for item in items {
-            if item.type == .document { ids.append(item.id) }
-            if let ch = item.children { ids.append(contentsOf: collectDocIds(in: ch)) }
-        }
-        return ids
-    }
-
-    private func collectDocPaths(in items: [StructureItem]) -> [String: String] {
-        var m: [String: String] = [:]
-        for item in items {
-            if item.type == .document, let path = item.path { m[item.id] = path }
-            if let ch = item.children {
-                m.merge(collectDocPaths(in: ch)) { a, _ in a }
-            }
-        }
-        return m
-    }
 }
 
 // MARK: - ParagraphNavModifier

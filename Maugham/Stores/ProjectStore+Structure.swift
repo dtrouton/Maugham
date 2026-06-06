@@ -219,20 +219,8 @@ extension ProjectStore {
         candidateId: String,
         in items: [StructureItem]
     ) -> Bool {
-        guard let ancestor = findItemStatic(id: ancestorId, in: items) else { return false }
-        return Self.containsId(candidateId, in: ancestor.children ?? [])
-    }
-
-    static func findItemStatic(
-        id: String, in items: [StructureItem]
-    ) -> StructureItem? {
-        TreeWalk.find(id: id, in: items)
-    }
-
-    static func containsId(
-        _ id: String, in items: [StructureItem]
-    ) -> Bool {
-        TreeWalk.contains(id: id, in: items)
+        guard let ancestor = TreeWalk.find(id: ancestorId, in: items) else { return false }
+        return TreeWalk.contains(id: candidateId, in: ancestor.children ?? [])
     }
 
     func replaceChildren(

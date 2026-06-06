@@ -65,7 +65,7 @@ struct ResearchView: View {
 
     private func tryCommitPendingRename() {
         guard let id = pendingRenameId,
-              findItem(id: id, in: store.manifest.research) != nil else { return }
+              TreeWalk.contains(id: id, in: store.manifest.research) else { return }
         renamingItemId = id
         pendingRenameId = nil
     }
@@ -317,19 +317,6 @@ struct ResearchView: View {
 
     // MARK: - Tree helpers
 
-    private func findItem(
-        id: String, in items: [ResearchItem]
-    ) -> ResearchItem? {
-        for item in items {
-            if item.id == id { return item }
-            if let children = item.children,
-               let nested = findItem(id: id, in: children) {
-                return nested
-            }
-        }
-        return nil
-    }
-
     private func findParentId(of childId: String) -> String? {
         findParentIdHelper(of: childId, in: store.manifest.research, parent: nil)
     }
@@ -351,7 +338,7 @@ struct ResearchView: View {
     private func currentIndex(of id: String, in parentId: String?) -> Int {
         let siblings: [ResearchItem]
         if let parentId,
-           let parent = findItem(id: parentId, in: store.manifest.research) {
+           let parent = TreeWalk.find(id: parentId, in: store.manifest.research) {
             siblings = parent.children ?? []
         } else {
             siblings = store.manifest.research

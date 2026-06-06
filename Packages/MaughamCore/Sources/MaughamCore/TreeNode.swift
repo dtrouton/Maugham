@@ -27,6 +27,40 @@ public enum TreeWalk {
         find(id: id, in: nodes) != nil
     }
 
+    /// Pre-order depth-first search for the first node satisfying `predicate`.
+    /// The generic counterpart to `find(id:in:)` for non-id keys (e.g. by-path
+    /// lookup, where `path` is not part of the `TreeNode` protocol). Returns the
+    /// node, not just its id; callers wanting the id use `.map(\.id)`.
+    public static func first<N: TreeNode>(
+        in nodes: [N], where predicate: (N) -> Bool
+    ) -> N? {
+        for node in nodes {
+            if predicate(node) { return node }
+            if let kids = node.children, let hit = first(in: kids, where: predicate) {
+                return hit
+            }
+        }
+        return nil
+    }
+
+    /// Pre-order (parent before children) flat list of every node satisfying
+    /// `predicate`. The generic counterpart to `collectIds(in:)` when callers
+    /// need to filter on, or read more than the id of, each node (e.g. collect
+    /// only `.document` nodes, then map to ids or build an `[id: path]` map).
+    /// Pass `{ _ in true }` to flatten the whole tree.
+    public static func collect<N: TreeNode>(
+        in nodes: [N], where predicate: (N) -> Bool
+    ) -> [N] {
+        var out: [N] = []
+        for node in nodes {
+            if predicate(node) { out.append(node) }
+            if let kids = node.children {
+                out.append(contentsOf: collect(in: kids, where: predicate))
+            }
+        }
+        return out
+    }
+
     /// Pre-order id list (parent before children).
     public static func collectIds<N: TreeNode>(in nodes: [N]) -> [String] {
         var out: [String] = []

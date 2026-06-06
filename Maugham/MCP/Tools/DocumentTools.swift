@@ -54,14 +54,14 @@ public enum ReadDocumentTool: MCPTool {
         let store = entry.store
 
         // Manuscript document path
-        if let item = Self.findItem(id: params.document_id, in: store.manifest.structure),
+        if let item = TreeWalk.find(id: params.document_id, in: store.manifest.structure),
            item.type == .document,
            let path = item.path {
             return try await emitManuscriptDoc(item: item, path: path, store: store, projectURL: entry.url)
         }
 
         // Research item path
-        if let item = Self.findResearchItem(id: params.document_id, in: store.manifest.research) {
+        if let item = TreeWalk.find(id: params.document_id, in: store.manifest.research) {
             return try emitResearchItem(item: item, projectURL: entry.url, params: params)
         }
 
@@ -175,24 +175,6 @@ public enum ReadDocumentTool: MCPTool {
             quality: params.quality)
     }
 
-    private static func findResearchItem(
-        id: String, in items: [ResearchItem]
-    ) -> ResearchItem? {
-        for item in items {
-            if item.id == id { return item }
-            if let kids = item.children, let n = findResearchItem(id: id, in: kids) { return n }
-        }
-        return nil
-    }
-
-    private static func findItem(id: String, in items: [StructureItem]) -> StructureItem? {
-        for item in items {
-            if item.id == id { return item }
-            if let kids = item.children, let f = findItem(id: id, in: kids) { return f }
-        }
-        return nil
-    }
-
     private static func modeFor(path: String, projectType: ProjectType) -> String {
         if path.hasSuffix(".fountain") { return "fountain" }
         if projectType == .screenplay { return "screenplay" }
@@ -245,8 +227,8 @@ public enum SearchTextTool: MCPTool {
             // SearchMatch.documentPath is the engine's relative file path, not
             // the real StructureItem.id. Resolve to the actual id so that
             // search_text → read_document works correctly.
-            let resolvedId = Self.findStructureItemId(
-                path: m.documentPath, in: entry.store.manifest.structure)
+            let resolvedId = TreeWalk.first(
+                in: entry.store.manifest.structure) { $0.path == m.documentPath }?.id
                 ?? m.documentPath  // fallback: orphan match, emit path for debug
             return Match(
                 document_id: resolvedId,
@@ -255,18 +237,5 @@ public enum SearchTextTool: MCPTool {
                 preview: m.linePreview)
         }
         return try JSONEncoder().encode(mapped)
-    }
-
-    private static func findStructureItemId(
-        path: String, in items: [StructureItem]
-    ) -> String? {
-        for item in items {
-            if item.path == path { return item.id }
-            if let kids = item.children,
-               let nested = findStructureItemId(path: path, in: kids) {
-                return nested
-            }
-        }
-        return nil
     }
 }

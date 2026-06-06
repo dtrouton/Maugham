@@ -247,25 +247,12 @@ struct BinderView: View {
     private func currentIndex(of id: String, in parentId: String?) -> Int {
         let siblings: [StructureItem]
         if let parentId,
-           let parent = findItem(id: parentId, in: store.manifest.structure) {
+           let parent = TreeWalk.find(id: parentId, in: store.manifest.structure) {
             siblings = parent.children ?? []
         } else {
             siblings = store.manifest.structure
         }
         return siblings.firstIndex(where: { $0.id == id }) ?? 0
-    }
-
-    private func findItem(
-        id: String, in items: [StructureItem]
-    ) -> StructureItem? {
-        for item in items {
-            if item.id == id { return item }
-            if let children = item.children,
-               let nested = findItem(id: id, in: children) {
-                return nested
-            }
-        }
-        return nil
     }
 
     /// Find the parent id of an item by id, or nil if at root.
