@@ -121,7 +121,11 @@ public final class DocumentStore {
         store.fileSaveScheduler = DebounceScheduler<FileSavePayload>(
             delay: .milliseconds(750)
         ) { [weak store] payload in
-            try? await store?.performFileSave(path: payload.path, text: payload.text)
+            do {
+                try await store?.performFileSave(path: payload.path, text: payload.text)
+            } catch {
+                documentStoreLog.error("Research-note autosave failed for \(payload.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
         }
 
         // Log scratch stragglers from a previous crashed multi-rename.

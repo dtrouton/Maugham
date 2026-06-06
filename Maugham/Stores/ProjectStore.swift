@@ -2,6 +2,9 @@ import AppKit
 import MaughamCore
 import Foundation
 import SwiftUI
+import os
+
+private let projectStoreLog = Logger(subsystem: "com.maugham", category: "ProjectStore")
 
 public enum StructureItemKind: Equatable, Sendable {
     case document(extension: String)  // "md" or "fountain"
@@ -162,8 +165,11 @@ public final class ProjectStore {
         // round-trip on `modified` must not shift just because we added a field.
         if manifest.id == nil {
             manifest.id = ULID.generate()
-            if let data = try? ProjectManifest.makeEncoder().encode(manifest) {
-                try? data.write(to: manifestURL, options: [.atomic])
+            do {
+                let data = try ProjectManifest.makeEncoder().encode(manifest)
+                try data.write(to: manifestURL, options: [.atomic])
+            } catch {
+                projectStoreLog.error("Project id backfill failed for \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         }
 
