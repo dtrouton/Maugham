@@ -19,7 +19,7 @@ final class PhoneAnnotationIntegrationTests: XCTestCase {
         try? FileManager.default.removeItem(at: tmp)
     }
 
-    private let docId = "d_01HQ7T3JKM2N4P5R6S8VWX0Y2Z"
+    private let docId = "doc-0f677d7e"
 
     /// A creation op as the Mac would have written it: a `claude_comment` whose
     /// change carries the paragraph anchor + prior snapshot.

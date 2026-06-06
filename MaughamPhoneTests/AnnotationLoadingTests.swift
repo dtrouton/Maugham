@@ -60,7 +60,7 @@ final class AnnotationLoadingTests: XCTestCase {
 
     private func suggestionOp(opId: String, paragraphId: String, prior: String, next: String) -> Op {
         Op(
-            opId: opId, docId: "d_x", at: Date(timeIntervalSince1970: 1_700_000_000),
+            opId: opId, docId: "doc-0f677d7e", at: Date(timeIntervalSince1970: 1_700_000_000),
             device: "phone:TEST", session: "s", kind: .claudeSuggestion,
             changes: [Op.ParagraphChange(paragraphId: paragraphId, prior: prior, next: next)],
             sequence: nil,
@@ -69,7 +69,7 @@ final class AnnotationLoadingTests: XCTestCase {
 
     private func acceptOp(opId: String, sourceAnnotationId: String, paragraphId: String, prior: String, next: String) -> Op {
         Op(
-            opId: opId, docId: "d_x", at: Date(timeIntervalSince1970: 1_700_000_100),
+            opId: opId, docId: "doc-0f677d7e", at: Date(timeIntervalSince1970: 1_700_000_100),
             device: "phone:TEST", session: "s", kind: .claudeAccept,
             changes: [Op.ParagraphChange(paragraphId: paragraphId, prior: prior, next: next)],
             sequence: nil,
@@ -78,7 +78,7 @@ final class AnnotationLoadingTests: XCTestCase {
 
     private func commentOp(opId: String, paragraphId: String, body: String) -> Op {
         Op(
-            opId: opId, docId: "d_x", at: Date(timeIntervalSince1970: 1_700_000_000),
+            opId: opId, docId: "doc-0f677d7e", at: Date(timeIntervalSince1970: 1_700_000_000),
             device: "phone:TEST", session: "s", kind: .claudeComment,
             changes: [Op.ParagraphChange(paragraphId: paragraphId, prior: nil, next: "")],
             sequence: nil,
