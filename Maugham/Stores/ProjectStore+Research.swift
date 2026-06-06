@@ -642,12 +642,9 @@ extension ProjectStore {
 
         if item.type == .group {
             // Rename folder; collect child path rewrites.
-            var dedupedSlug = newSlug
-            var counter = 2
-            while FileManager.default.fileExists(
-                atPath: parentDir.appendingPathComponent(dedupedSlug).path) {
-                dedupedSlug = "\(newSlug)-\(counter)"
-                counter += 1
+            let dedupedSlug = Self.dedupedName(newSlug) {
+                FileManager.default.fileExists(
+                    atPath: parentDir.appendingPathComponent($0).path)
             }
             let newURL = parentDir.appendingPathComponent(dedupedSlug)
             try FileManager.default.moveItem(at: oldURL, to: newURL)

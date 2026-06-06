@@ -124,12 +124,7 @@ extension ProjectStore {
             guard parts.count >= 2 else { return folderName }
             return parts.dropFirst().joined(separator: "-")
         })
-        var slug = baseSlug
-        var counter = 2
-        while existingSlugs.contains(slug) {
-            slug = "\(baseSlug)-\(counter)"
-            counter += 1
-        }
+        let slug = Self.dedupedName(baseSlug) { existingSlugs.contains($0) }
 
         let nn = String(format: "%02d", nextPieceNumber())
         let folderName = "\(nn)-\(slug)"
@@ -702,12 +697,7 @@ extension ProjectStore {
             let s = parts.joined(separator: "-")
             return s.isEmpty ? nil : s
         })
-        var slug = baseSlug
-        var counter = 2
-        while siblingSlugs.contains(slug) {
-            slug = "\(baseSlug)-\(counter)"
-            counter += 1
-        }
+        let slug = Self.dedupedName(baseSlug) { siblingSlugs.contains($0) }
 
         let newFolderName = "\(nnPrefix)\(slug)"
         let newFolderRel = piecesDirRel.isEmpty ? newFolderName : "\(piecesDirRel)/\(newFolderName)"

@@ -421,10 +421,7 @@ extension ProjectStore {
                 existing.insert(String(name[slugRange]))
             }
         }
-        if !existing.contains(base) { return base }
-        var n = 2
-        while existing.contains("\(base)-\(n)") { n += 1 }
-        return "\(base)-\(n)"
+        return dedupedName(base) { existing.contains($0) }
     }
 
     /// Rewrites the path prefix of every child item recursively.

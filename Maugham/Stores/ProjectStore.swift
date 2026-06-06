@@ -225,4 +225,24 @@ public final class ProjectStore {
         return "\(prefix)-\(suffix)"
     }
 
+    /// Returns `base` when `isTaken(base)` is false, otherwise tries
+    /// `"\(base)-2"`, `"\(base)-3"`, ... until `isTaken` returns false.
+    ///
+    /// Used throughout ProjectStore+* to dedup slugs and folder names against
+    /// either a `Set<String>` or a filesystem-existence check.  Pass the
+    /// appropriate closure for each call site.
+    ///
+    /// - Note: Extension-qualified filenames (e.g. `"\(slug)-2.md"`) are NOT
+    ///   handled here — those sites build the final filename outside the helper
+    ///   and pass a closure that checks the full path.
+    nonisolated static func dedupedName(
+        _ base: String,
+        isTaken: (String) -> Bool
+    ) -> String {
+        guard isTaken(base) else { return base }
+        var n = 2
+        while isTaken("\(base)-\(n)") { n += 1 }
+        return "\(base)-\(n)"
+    }
+
 }
