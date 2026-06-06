@@ -61,4 +61,63 @@ public enum TreeWalk {
             return node
         }
     }
+
+    /// Rewrite the `path` of every node whose path begins with `oldPrefix`,
+    /// replacing that prefix with `newPrefix`.
+    ///
+    /// `path` is not part of the `TreeNode` protocol (StructureItem and
+    /// ResearchItem both carry `path: String?` but the protocol doesn't require
+    /// it), so access is supplied via closures.
+    ///
+    /// Prefix semantics (the reconciled rule — see `TreeNodeTests` for the
+    /// derivation of the old `rewriteChildPaths` / `researchRewriteChildPaths`
+    /// `dropFirst(+1)` divergence, which were two spellings of this one rule):
+    ///   - a path EQUAL to `oldPrefix`            → `newPrefix`
+    ///   - a path of form `oldPrefix + "/" + r`   → `newPrefix + "/" + r`
+    ///   - any other path (incl. `oldPrefix` as a non-boundary prefix such as
+    ///     `oldPrefix + "ie"`, and nil paths)     → left untouched
+    /// We match on `p == oldPrefix || p.hasPrefix(oldPrefix + "/")` and take
+    /// `suffix = p.dropFirst(oldPrefix.count)` — which keeps the leading "/"
+    /// for descendants and is empty for the exact match. No double slash, no
+    /// eaten character.
+    public static func rewritePaths<N: TreeNode>(
+        in nodes: [N],
+        replacingPrefix oldPrefix: String,
+        with newPrefix: String,
+        path: (N) -> String?,
+        setPath: (inout N, String) -> Void
+    ) -> [N] {
+        nodes.map { node in
+            var node = node
+            if let p = path(node), p == oldPrefix || p.hasPrefix(oldPrefix + "/") {
+                let suffix = p.dropFirst(oldPrefix.count)
+                setPath(&node, newPrefix + suffix)
+            }
+            if let kids = node.children {
+                node.children = rewritePaths(
+                    in: kids, replacingPrefix: oldPrefix, with: newPrefix,
+                    path: path, setPath: setPath)
+            }
+            return node
+        }
+    }
+
+    /// Build a `[path: id]` map over the whole tree (pre-order). Nodes with a
+    /// nil path are skipped. On duplicate paths, last-writer-wins (pre-order),
+    /// which the store invariant — unique on-disk paths — makes moot.
+    /// `path` access is supplied via a closure (see `rewritePaths`).
+    public static func idsByPath<N: TreeNode>(
+        in nodes: [N],
+        path: (N) -> String?
+    ) -> [String: String] {
+        var out: [String: String] = [:]
+        func walk(_ nodes: [N]) {
+            for node in nodes {
+                if let p = path(node) { out[p] = node.id }
+                if let kids = node.children { walk(kids) }
+            }
+        }
+        walk(nodes)
+        return out
+    }
 }

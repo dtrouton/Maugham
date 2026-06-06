@@ -47,4 +47,95 @@ final class TreeNodeTests: XCTestCase {
         XCTAssertFalse(TreeWalk.contains(id: "a2x", in: after)) // subtree gone
         XCTAssertTrue(TreeWalk.contains(id: "a1", in: after))
     }
+
+    // MARK: - Path rewrite (Task 3.2)
+    //
+    // STEP-1 RECONCILIATION FINDINGS (the latent +1 divergence):
+    //
+    // Two store copies both rewrite a group's descendant paths when the group's
+    // folder moves from `oldPrefix` to `newPrefix`. Both gate on the SAME
+    // condition — `p.hasPrefix(oldPrefix + "/")` — so both assume child paths
+    // are shaped `oldPrefix + "/" + rest` (e.g. oldPrefix="research/grp",
+    // child path="research/grp/note.md", rest="note.md"). They differ only in
+    // how they re-attach the suffix:
+    //
+    //   ProjectStore+Structure.rewriteChildPaths:
+    //       newPrefix + p.dropFirst(oldPrefix.count)
+    //     dropFirst(count) drops "research/grp", KEEPING the leading "/".
+    //     → "research/grp/note.md" → newPrefix + "/note.md".
+    //
+    //   ProjectStore+Research.researchRewriteChildPaths:
+    //       newPrefix + "/" + p.dropFirst(oldPrefix.count + 1)
+    //     dropFirst(count+1) drops "research/grp/" (incl. the slash), then the
+    //     literal "/" is re-prepended.
+    //     → "note.md" → newPrefix + "/" + "note.md".
+    //
+    // CONCLUSION: both produce the IDENTICAL result ("new/place/note.md") for
+    // the same-shaped input. Neither is buggy; the "+1" is NOT compensating for
+    // differently-shaped stored paths — it is merely a second spelling of the
+    // same rule (strip-the-slash-then-re-add vs. keep-the-slash). The callers
+    // (group rename in +Structure, cross-group move + duplicate in +Research)
+    // all pass child paths that contain the full prefix with a "/" boundary.
+    //
+    // Canonical rule encoded once in TreeWalk.rewritePaths:
+    //   p == oldPrefix            → newPrefix                  (exact node)
+    //   p == oldPrefix + "/" + r  → newPrefix + "/" + r        (descendant)
+    //   match on (p == oldPrefix || p.hasPrefix(oldPrefix + "/")),
+    //   suffix = p.dropFirst(oldPrefix.count)  (keeps the leading "/" for
+    //   descendants, empty for the exact match). No double slash, no eaten char.
+    //   (The existing store copies only handle the descendant case because the
+    //   group node's own path is rewritten separately by their callers; the
+    //   generic additionally handles the exact-match node for completeness.)
+
+    func test_rewritePaths_replacesPrefix_noDoubleSlash_noEatenChar() {
+        struct PNode: TreeNode, Equatable {
+            var id: String
+            var path: String?
+            var children: [PNode]?
+        }
+        let tree = [PNode(id: "g", path: "old/group", children: [
+            PNode(id: "d", path: "old/group/chapter.md", children: nil),
+        ])]
+        let rewritten = TreeWalk.rewritePaths(
+            in: tree, replacingPrefix: "old/group", with: "new/place",
+            path: { $0.path }, setPath: { $0.path = $1 })
+        XCTAssertEqual(TreeWalk.find(id: "d", in: rewritten)?.path, "new/place/chapter.md")
+        XCTAssertEqual(TreeWalk.find(id: "g", in: rewritten)?.path, "new/place")
+    }
+
+    func test_rewritePaths_leavesNonMatchingPathsUntouched() {
+        struct PNode: TreeNode, Equatable {
+            var id: String
+            var path: String?
+            var children: [PNode]?
+        }
+        // "old/groupie" must NOT match "old/group" (prefix-but-not-boundary),
+        // and an unrelated path is left alone.
+        let tree = [
+            PNode(id: "x", path: "old/groupie/n.md", children: nil),
+            PNode(id: "y", path: "elsewhere/n.md", children: nil),
+        ]
+        let rewritten = TreeWalk.rewritePaths(
+            in: tree, replacingPrefix: "old/group", with: "new/place",
+            path: { $0.path }, setPath: { $0.path = $1 })
+        XCTAssertEqual(TreeWalk.find(id: "x", in: rewritten)?.path, "old/groupie/n.md")
+        XCTAssertEqual(TreeWalk.find(id: "y", in: rewritten)?.path, "elsewhere/n.md")
+    }
+
+    func test_idsByPath_mapsPathToId_skipsNilPaths() {
+        struct PNode: TreeNode, Equatable {
+            var id: String
+            var path: String?
+            var children: [PNode]?
+        }
+        let tree = [PNode(id: "g", path: "grp", children: [
+            PNode(id: "d", path: "grp/chapter.md", children: nil),
+            PNode(id: "link", path: nil, children: nil), // link asset: no path
+        ])]
+        let map = TreeWalk.idsByPath(in: tree, path: { $0.path })
+        XCTAssertEqual(map["grp"], "g")
+        XCTAssertEqual(map["grp/chapter.md"], "d")
+        XCTAssertNil(map["__missing__"])
+        XCTAssertEqual(map.count, 2) // nil-path node excluded
+    }
 }
