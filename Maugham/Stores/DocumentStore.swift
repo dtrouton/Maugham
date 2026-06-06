@@ -1,6 +1,9 @@
 import Foundation
 import MaughamCore
 import AppKit
+import os
+
+private let documentStoreLog = Logger(subsystem: "com.maugham", category: "DocumentStore")
 
 /// Project-scoped store that owns the NSFilePresenter, the registry of
 /// per-document `Document` actors, session tracking, UI state, manifest IO,
@@ -127,7 +130,7 @@ public final class DocumentStore {
         if let entries = try? FileManager.default
             .contentsOfDirectory(atPath: scratchDir.path),
            !entries.isEmpty {
-            print("[DocumentStore] WARNING: \(entries.count) stragglers in \(scratchDir.path) — likely from a crashed reorder/tidy. Manual inspection recommended.")
+            documentStoreLog.warning("WARNING: \(entries.count, privacy: .public) stragglers in \(scratchDir.path, privacy: .public) — likely from a crashed reorder/tidy. Manual inspection recommended.")
         }
 
         // Seed lastObservedManifestModified so the first presenter callback
