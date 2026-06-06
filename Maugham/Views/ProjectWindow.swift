@@ -37,10 +37,7 @@ struct ProjectWindow: View {
     @State private var pendingPieceRenameId: String?
     @State private var detailSegment: DetailSegment = .inspector
     @State private var outlineLayout: OutlineLayout = .table
-    @State private var mcpBannerTitle: String?
-    @State private var mcpBannerCount: Int = 0
-    @State private var mcpBannerLatestId: String?
-    @State private var mcpBannerDismissTask: Task<Void, Never>?
+    @State private var mcpBanner = MCPBannerModel()
     @State private var showingCheckpointLabelSheet: Bool = false
     @State private var showingBootstrapNotice: Bool = false
     @State private var currentElement: String? = nil
@@ -65,17 +62,17 @@ struct ProjectWindow: View {
                     SaveFlashOverlay(isShowing: $showingSaveFlash)
                 }
                 .overlay(alignment: .top) {
-                    if let title = mcpBannerTitle {
+                    if let title = mcpBanner.title {
                         MCPNoteBanner(
                             title: title,
-                            count: mcpBannerCount,
+                            count: mcpBanner.count,
                             onShow: { handleShowLatestMCPNote() },
-                            onDismiss: { handleDismissMCPBanner() }
+                            onDismiss: { mcpBanner.dismiss() }
                         )
                         .transition(.move(edge: .top).combined(with: .opacity))
                     }
                 }
-                .animation(.easeInOut(duration: 0.2), value: mcpBannerTitle)
+                .animation(.easeInOut(duration: 0.2), value: mcpBanner.title)
                 .navigationTitle(store.manifest.title)
                 .sheet(item: $activeSheet) { sheet in
                     switch sheet {
@@ -232,10 +229,7 @@ struct ProjectWindow: View {
             researchPreviewVisible: $researchPreviewVisible,
             showInspector: $showInspector,
             detailSegment: $detailSegment,
-            mcpBannerTitle: $mcpBannerTitle,
-            mcpBannerCount: $mcpBannerCount,
-            mcpBannerLatestId: $mcpBannerLatestId,
-            mcpBannerDismissTask: $mcpBannerDismissTask))
+            mcpBanner: mcpBanner))
         .modifier(CheckpointModifier(
             documentStore: documentStore,
             store: store,
@@ -272,10 +266,7 @@ struct ProjectWindow: View {
         @Binding var researchPreviewVisible: Bool
         @Binding var showInspector: Bool
         @Binding var detailSegment: DetailSegment
-        @Binding var mcpBannerTitle: String?
-        @Binding var mcpBannerCount: Int
-        @Binding var mcpBannerLatestId: String?
-        @Binding var mcpBannerDismissTask: Task<Void, Never>?
+        let mcpBanner: MCPBannerModel
 
         func body(content: Content) -> some View {
             content
@@ -371,22 +362,7 @@ struct ProjectWindow: View {
                           let title = info["title"] as? String,
                           ProjectIdentifier.id(for: url) == projectId else { return }
                     DispatchQueue.main.async {
-                        mcpBannerTitle = title
-                        mcpBannerCount += 1
-                        mcpBannerLatestId = researchId
-                        mcpBannerDismissTask?.cancel()
-                        mcpBannerDismissTask = Task {
-                            try? await Task.sleep(for: .seconds(8))
-                            if !Task.isCancelled {
-                                await MainActor.run {
-                                    mcpBannerTitle = nil
-                                    mcpBannerCount = 0
-                                    mcpBannerLatestId = nil
-                                    mcpBannerDismissTask?.cancel()
-                                    mcpBannerDismissTask = nil
-                                }
-                            }
-                        }
+                        mcpBanner.bump(title: title, latestId: researchId)
                     }
                 }
                 .modifier(CollectionPieceModifier(
@@ -920,18 +896,10 @@ struct ProjectWindow: View {
     }
 
     private func handleShowLatestMCPNote() {
-        guard let id = mcpBannerLatestId else { return }
+        guard let id = mcpBanner.latestId else { return }
         binderSegment = .research
         selectedResearchId = id
-        handleDismissMCPBanner()
-    }
-
-    private func handleDismissMCPBanner() {
-        mcpBannerTitle = nil
-        mcpBannerCount = 0
-        mcpBannerLatestId = nil
-        mcpBannerDismissTask?.cancel()
-        mcpBannerDismissTask = nil
+        mcpBanner.dismiss()
     }
 
     @MainActor
@@ -1141,113 +1109,3 @@ private struct ParagraphNavModifier: ViewModifier {
     }
 }
 
-/// An editor surface for a research note (.document kind). Research notes
-/// are not `Document` actors (no op-log, no paragraph IDs); they autosave via
-/// `DocumentStore.scheduleFileSave` on the same 750ms cadence. Selecting a
-/// different research item simply unmounts this view and remounts with the
-/// new path, flushing the pending save.
-private struct ResearchNoteEditor: View {
-    @Bindable var store: ProjectStore
-    @Bindable var documentStore: DocumentStore
-    let path: String
-    let itemId: String
-    let previewVisible: Bool
-    @Environment(UserPreferences.self) private var userPreferences
-
-    @State private var documentText: String = ""
-    @State private var loadedPath: String?
-    @State private var researchCursor: Int? = nil
-
-    var body: some View {
-        HSplitView {
-            editorContent
-            if previewVisible {
-                ResearchNotePreviewPane(
-                    notePath: path,
-                    projectURL: store.url,
-                    noteText: documentText)
-            }
-        }
-        .task(id: path) { await loadDocument() }
-    }
-
-    @ViewBuilder
-    private var editorContent: some View {
-        Group {
-            if loadedPath == path {
-                EditorSurface(
-                    text: Binding(
-                        get: { documentText },
-                        set: { newValue in
-                            documentText = newValue
-                            documentStore.scheduleFileSave(for: path, text: newValue)
-                        }
-                    ),
-                    theme: userPreferences.theme,
-                    typography: ProjectStore.effectiveTypography(
-                        override: store.manifest.typography,
-                        userDefault: userPreferences.typography),
-                    mode: WritingModeFactory.mode(for: path),
-                    typewriterScroll: userPreferences.typewriterScroll,
-                    sentenceFocus: userPreferences.sentenceFocus,
-                    paragraphFocus: userPreferences.paragraphFocus,
-                    initialCursorLocation: researchCursor,
-                    onCursorChanged: { position in
-                        researchCursor = position
-                    },
-                    showElementGutter: false,
-                    imagePasteHandler: makeImagePasteHandler()
-                )
-                .id(path)
-            } else {
-                VStack {
-                    Text("Loading…")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-    }
-
-    private func makeImagePasteHandler() -> ((NSImage) -> String?) {
-        let projectURL = store.url
-        let notePath = path
-        return { image in
-            do {
-                return try ImagePasteHandler.saveAndReference(
-                    image: image,
-                    forNoteAt: notePath,
-                    in: projectURL)
-            } catch {
-                print("Image paste failed:", error)
-                return nil
-            }
-        }
-    }
-
-    private func loadDocument() async {
-        guard loadedPath != path else { return }
-        // Flush any pending file save before switching research notes.
-        try? await documentStore.flushPendingSave()
-        let url = store.url.appendingPathComponent(path)
-        let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-        documentText = text
-        researchCursor = nil
-        loadedPath = path
-    }
-}
-
-private struct WindowAccessor: NSViewRepresentable {
-    @Binding var window: NSWindow?
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        DispatchQueue.main.async { self.window = view.window }
-        return view
-    }
-    func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async {
-            if self.window == nil { self.window = nsView.window }
-        }
-    }
-}
