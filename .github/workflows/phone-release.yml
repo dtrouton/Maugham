@@ -17,16 +17,19 @@ jobs:
     runs-on: macos-15
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           # CRITICAL: the build number is `git rev-list --count HEAD`, which needs
           # the full history. The default shallow clone (fetch-depth: 1) would make
           # every build number 1, and Apple rejects any CFBundleVersion <= a prior
           # upload — so the 2nd cut would be rejected forever. fetch-depth: 0 = full.
           fetch-depth: 0
+          # This job loads signing secrets and never pushes back to git (only
+          # read-only `git rev-list`), so don't leave the token in .git/config.
+          persist-credentials: false
 
       - name: Set up Xcode
-        uses: maxim-lobanov/setup-xcode@v1
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
           xcode-version: 'latest-stable'
 
@@ -54,8 +57,10 @@ jobs:
           echo "Releasing MaughamPhone $VERSION ($BUILD)"
 
       - name: Verify release notes exist
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          NOTES="docs/release-notes/phone/v${{ steps.ver.outputs.version }}.md"
+          NOTES="docs/release-notes/phone/v${VERSION}.md"
           if [[ ! -f "$NOTES" ]]; then
             echo "::error::Missing $NOTES"
             exit 1
@@ -63,7 +68,7 @@ jobs:
           echo "Release notes: $NOTES"
 
       - name: Import distribution certificate
-        uses: apple-actions/import-codesign-certs@v7
+        uses: apple-actions/import-codesign-certs@7abe6dfe88f6bf6b1fa06e6a5704a2605d897418 # v7
         with:
           p12-file-base64: ${{ secrets.APPLE_DISTRIBUTION_CERT }}
           p12-password: ${{ secrets.APPLE_DISTRIBUTION_CERT_PASSWORD }}
@@ -99,9 +104,10 @@ jobs:
           printf '%s' "$ASC_API_KEY" | base64 --decode > "/tmp/asc/AuthKey_${ASC_KEY_ID}.p8"
 
       - name: Sync version + build into project.yml
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          BUILD: ${{ steps.ver.outputs.build }}
         run: |
-          VERSION="${{ steps.ver.outputs.version }}"
-          BUILD="${{ steps.ver.outputs.build }}"
           # macOS sed needs -i ''. Each placeholder lives on its own line per target;
           # this rewrites both the Maugham and MaughamPhone declarations, which is
           # harmless — this workflow only archives the MaughamPhone scheme.
@@ -117,6 +123,9 @@ jobs:
         run: ./gen.sh
 
       - name: Archive (Release, generic iOS)
+        env:
+          TEAM_ID: ${{ steps.prof.outputs.team_id }}
+          PROFILE_NAME: ${{ steps.prof.outputs.name }}
         run: |
           set -euo pipefail
           xcodebuild -project Maugham.xcodeproj -scheme MaughamPhone \
@@ -126,10 +135,13 @@ jobs:
             archive \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Apple Distribution" \
-            DEVELOPMENT_TEAM="${{ steps.prof.outputs.team_id }}" \
-            PROVISIONING_PROFILE_SPECIFIER="${{ steps.prof.outputs.name }}"
+            DEVELOPMENT_TEAM="${TEAM_ID}" \
+            PROVISIONING_PROFILE_SPECIFIER="${PROFILE_NAME}"
 
       - name: Write ExportOptions.plist
+        env:
+          TEAM_ID: ${{ steps.prof.outputs.team_id }}
+          PROFILE_NAME: ${{ steps.prof.outputs.name }}
         run: |
           set -euo pipefail
           # Generated at runtime so no account-specific values (team id, profile
@@ -149,14 +161,14 @@ jobs:
             <key>signingStyle</key>
             <string>manual</string>
             <key>teamID</key>
-            <string>${{ steps.prof.outputs.team_id }}</string>
+            <string>${TEAM_ID}</string>
             <key>provisioningProfiles</key>
             <dict>
               <!-- Capital "M": matches the registered App ID com.Maugham.MaughamPhone.
                    Codesign matches the bundle id case-sensitively, so this MUST equal
                    the Release PRODUCT_BUNDLE_IDENTIFIER in project.yml exactly. -->
               <key>com.Maugham.MaughamPhone</key>
-              <string>${{ steps.prof.outputs.name }}</string>
+              <string>${PROFILE_NAME}</string>
             </dict>
             <key>uploadSymbols</key>
             <true/>
@@ -189,7 +201,7 @@ jobs:
         # only logs since destination=upload doesn't always emit an .ipa — the glob
         # is best-effort, hence if-no-files-found: ignore.)
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: MaughamPhone-${{ steps.ver.outputs.version }}-ipa
           path: build/export/*.ipa
@@ -199,7 +211,7 @@ jobs:
         # Last step on purpose: TestFlight is the artifact testers consume; the GH
         # release is documentation. A build live on TestFlight without a release page
         # is acceptable; a release page advertising a build that never uploaded is not.
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
           body_path: docs/release-notes/phone/v${{ steps.ver.outputs.version }}.md
           name: MaughamPhone ${{ steps.ver.outputs.version }}
