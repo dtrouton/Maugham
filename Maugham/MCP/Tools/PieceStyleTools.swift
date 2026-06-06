@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 // MARK: - set_piece_style
 
@@ -181,13 +182,13 @@ public enum ClearPieceStyleTool: MCPTool {
 // MARK: - slug
 
 enum PieceStyleSlug {
+    /// Style-file slug for a piece title. Delegates to the shared `Slugifier`
+    /// (folds diacritics, caps length, ASCII-only) so there is one slug
+    /// algorithm in the codebase — but substitutes a publish-appropriate
+    /// `"piece"` fallback for `Slugifier`'s generic `"untitled"` (a style file
+    /// named `untitled.tex` reads worse than `piece.tex`).
     static func slug(_ s: String) -> String {
-        let lowered = s.lowercased(); var out = ""; var lastDash = false
-        for ch in lowered {
-            if ch.isLetter || ch.isNumber { out.append(ch); lastDash = false }
-            else if !lastDash { out.append("-"); lastDash = true }
-        }
-        let trimmed = out.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
-        return trimmed.isEmpty ? "piece" : trimmed
+        let base = Slugifier.slug(from: s)
+        return base == "untitled" ? "piece" : base
     }
 }
