@@ -38,7 +38,7 @@ jobs:
         run: brew install xcodegen
 
       - name: Import Developer ID certificate
-        uses: apple-actions/import-codesign-certs@7abe6dfe88f6bf6b1fa06e6a5704a2605d897418 # v7
+        uses: apple-actions/import-codesign-certs@5142e029c445c10ffc7149d172e540235a065466 # v7.0.0
         with:
           p12-file-base64: ${{ secrets.DEVELOPER_ID_CERT }}
           p12-password: ${{ secrets.DEVELOPER_ID_CERT_PASSWORD }}
