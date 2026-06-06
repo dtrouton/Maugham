@@ -764,9 +764,9 @@ struct ProjectWindow: View {
                 ReferencePieceInspector(store: store, pieceId: id)
             case .loose, .none:
                 if let path = piece.path, path.hasSuffix(".fountain") {
-                    ScreenplayPieceInspector(store: store, pieceId: id)
+                    PieceInspector(store: store, pieceId: id, kind: .screenplay)
                 } else {
-                    ProsePieceInspector(store: store, pieceId: id)
+                    PieceInspector(store: store, pieceId: id, kind: .prose)
                 }
             }
         } else {
