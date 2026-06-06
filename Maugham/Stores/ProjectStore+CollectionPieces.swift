@@ -330,16 +330,14 @@ extension ProjectStore {
         }
     }
 
-    /// Add a research note inside a piece's research/ subfolder. Adds a
-    /// ResearchItem to manifest.research with a piece-scoped path. The note
-    /// is project-local research from the manifest's POV — discoverability
-    /// in the binder is done by path-prefix matching (UI layer).
-    public func addPieceResearchNote(
-        pieceId: String, title: String
-    ) async throws -> ResearchItem {
+    /// Validate this is a Collection project, look up the loose piece by id,
+    /// and derive its folder paths. Throws if the project is not a Collection
+    /// or if `pieceId` does not identify a loose piece.
+    private func resolveLoosePiece(_ pieceId: String) throws
+        -> (piece: StructureItem, pieceFolder: String, researchFolder: String) {
         guard manifest.type == .collection else {
             throw ProjectStoreError.fileSystemError(
-                "addPieceResearchNote only valid for Collection projects")
+                "Operation only valid for Collection projects")
         }
         guard let piece = manifest.structure.first(where: { $0.id == pieceId }),
               piece.pieceKind == .loose,
@@ -351,6 +349,17 @@ extension ProjectStore {
         // its parent.
         let pieceFolder = (piecePath as NSString).deletingLastPathComponent
         let researchFolder = "\(pieceFolder)/research"
+        return (piece: piece, pieceFolder: pieceFolder, researchFolder: researchFolder)
+    }
+
+    /// Add a research note inside a piece's research/ subfolder. Adds a
+    /// ResearchItem to manifest.research with a piece-scoped path. The note
+    /// is project-local research from the manifest's POV — discoverability
+    /// in the binder is done by path-prefix matching (UI layer).
+    public func addPieceResearchNote(
+        pieceId: String, title: String
+    ) async throws -> ResearchItem {
+        let (_, _, researchFolder) = try resolveLoosePiece(pieceId)
         let researchFolderURL = url.appendingPathComponent(researchFolder)
         try FileManager.default.createDirectory(
             at: researchFolderURL, withIntermediateDirectories: true)
@@ -388,18 +397,7 @@ extension ProjectStore {
     public func addPieceResearchAsset(
         pieceId: String, fromURL sourceURL: URL
     ) async throws -> ResearchItem {
-        guard manifest.type == .collection else {
-            throw ProjectStoreError.fileSystemError(
-                "addPieceResearchAsset only valid for Collection projects")
-        }
-        guard let piece = manifest.structure.first(where: { $0.id == pieceId }),
-              piece.pieceKind == .loose,
-              let piecePath = piece.path else {
-            throw ProjectStoreError.fileSystemError(
-                "Unknown loose piece: \(pieceId)")
-        }
-        let pieceFolder = (piecePath as NSString).deletingLastPathComponent
-        let researchFolder = "\(pieceFolder)/research"
+        let (_, _, researchFolder) = try resolveLoosePiece(pieceId)
         let researchFolderURL = url.appendingPathComponent(researchFolder)
         try FileManager.default.createDirectory(
             at: researchFolderURL, withIntermediateDirectories: true)
@@ -436,18 +434,7 @@ extension ProjectStore {
     public func addPieceResearchLink(
         pieceId: String, title: String, url linkURL: String
     ) async throws -> ResearchItem {
-        guard manifest.type == .collection else {
-            throw ProjectStoreError.fileSystemError(
-                "addPieceResearchLink only valid for Collection projects")
-        }
-        guard let piece = manifest.structure.first(where: { $0.id == pieceId }),
-              piece.pieceKind == .loose,
-              let piecePath = piece.path else {
-            throw ProjectStoreError.fileSystemError(
-                "Unknown loose piece: \(pieceId)")
-        }
-        let pieceFolder = (piecePath as NSString).deletingLastPathComponent
-        let researchFolder = "\(pieceFolder)/research"
+        let (_, _, researchFolder) = try resolveLoosePiece(pieceId)
         let baseTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedTitle = baseTitle.isEmpty ? "Untitled Link" : baseTitle
         let slug = Slugifier.slug(from:resolvedTitle)
