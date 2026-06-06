@@ -1053,8 +1053,6 @@ struct ProjectWindow: View {
             loadError = "No project.maugham.json was found in this folder."
         } catch ProjectStoreError.manifestUnreadable(let msg) {
             loadError = "Manifest is corrupt or unreadable: \(msg)"
-        } catch ProjectStoreError.manuscriptUnreadable(let msg) {
-            loadError = "Manuscript file couldn't be read: \(msg)"
         } catch {
             loadError = error.localizedDescription
         }

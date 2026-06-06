@@ -11,8 +11,6 @@ public enum StructureItemKind: Equatable, Sendable {
 public enum ProjectStoreError: Error, Equatable {
     case manifestNotFound
     case manifestUnreadable(String)
-    case manuscriptUnreadable(String)
-    case manuscriptUnwritable(String)
     case manifestUnwritable(String)
     case structureMissing
     case parentNotFound(String)
@@ -20,14 +18,14 @@ public enum ProjectStoreError: Error, Equatable {
     case cycle
 }
 
-/// Manages an open Maugham project: its manifest plus its manuscript text.
-/// Phase 1a supports Short Story projects only (single manuscript file).
+/// Manages an open Maugham project: its manifest and structure.
+/// The op log (under .maugham/ops/) is the source of truth for manuscript
+/// content; .md files on disk are derived. See CLAUDE.md hard invariants.
 @MainActor
 @Observable
 public final class ProjectStore {
     public let url: URL
     public internal(set) var manifest: ProjectManifest
-    public var manuscriptText: String
 
     /// Optional reference to the DocumentStore that owns this project's
     /// coordinated I/O. Set by ProjectWindow at open time. When non-nil,
@@ -128,13 +126,11 @@ public final class ProjectStore {
     private init(
         url: URL,
         manifest: ProjectManifest,
-        manuscriptText: String,
         trashStore: TrashStore,
         trashEntries: [TrashEntry]
     ) {
         self.url = url
         self.manifest = manifest
-        self.manuscriptText = manuscriptText
         self.trashStore = trashStore
         self.trashEntries = trashEntries
     }
@@ -171,8 +167,6 @@ public final class ProjectStore {
             }
         }
 
-        let manuscriptText = try Self.readManuscript(for: manifest, at: url)
-
         let trashStore = TrashStore(projectURL: url)
         try? await trashStore.sweep()
         let trashEntries = (try? await trashStore.list()) ?? []
@@ -180,7 +174,6 @@ public final class ProjectStore {
         let store = ProjectStore(
             url: url,
             manifest: manifest,
-            manuscriptText: manuscriptText,
             trashStore: trashStore,
             trashEntries: trashEntries)
         Self.populateWordCountCache(in: store, from: manifest, at: url)
@@ -219,23 +212,6 @@ public final class ProjectStore {
             }
         }
         return out
-    }
-
-    private static func readManuscript(
-        for manifest: ProjectManifest, at projectURL: URL
-    ) throws -> String {
-        guard let docPath = manifest.structure.first(where: { $0.type == .document })?.path else {
-            return ""
-        }
-        let manuscriptURL = projectURL.appendingPathComponent(docPath)
-        guard FileManager.default.fileExists(atPath: manuscriptURL.path) else {
-            return ""
-        }
-        do {
-            return try String(contentsOf: manuscriptURL, encoding: .utf8)
-        } catch {
-            throw ProjectStoreError.manuscriptUnreadable(error.localizedDescription)
-        }
     }
 
     nonisolated static func newId(prefix: String) -> String {
