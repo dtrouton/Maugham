@@ -996,19 +996,6 @@ struct ProjectWindow: View {
         }
     }
 
-    private func handleMCPNoteAdded(researchId: String, title: String) {
-        mcpBannerTitle = title
-        mcpBannerCount += 1
-        mcpBannerLatestId = researchId
-        mcpBannerDismissTask?.cancel()
-        mcpBannerDismissTask = Task {
-            try? await Task.sleep(for: .seconds(8))
-            if !Task.isCancelled {
-                await MainActor.run { handleDismissMCPBanner() }
-            }
-        }
-    }
-
     private func handleShowLatestMCPNote() {
         guard let id = mcpBannerLatestId else { return }
         binderSegment = .research
