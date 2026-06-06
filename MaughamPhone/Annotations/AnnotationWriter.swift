@@ -16,14 +16,14 @@ import MaughamCore
 ///
 /// Per-device partitioning (ADR 0012): the phone only ever appends to its OWN
 /// stream `.maugham/ops/<docId>.<deviceSlug>.jsonl` (where `docId` is already the
-/// full `d_<ulid>` form); the Mac globs siblings and merges by `opId`. Each op is encoded with `JSONLAppendStore<Op>.dateEncoding`
+/// full `doc-<hex>` or `scene-<hex>` form per ADR 0008); the Mac globs siblings and merges by `opId`. Each op is encoded with `JSONLAppendStore<Op>.dateEncoding`
 /// (ISO8601-with-fractional-seconds) so the Mac decodes the bytes losslessly, and
 /// appended through `CoordinatedFileIO` — the same `NSFileCoordinator` cooperation
 /// the inbox writer uses (`InboxCaptureWriter`).
 struct AnnotationWriter {
     let projectRoot: URL
-    /// The annotation's document id — the full `d_<ulid>` form (same string the
-    /// creation op carries in `op.docId`). The op-log file is `<docId>.<slug>.jsonl`.
+    /// The annotation's document id — the full `doc-<hex>` or `scene-<hex>` form
+    /// per ADR 0008 (same string the creation op carries in `op.docId`). The op-log file is `<docId>.<slug>.jsonl`.
     let docId: String
     /// `phone:<uuid>` (`PhoneDeviceID.current()`) — also drives the device slug.
     let deviceId: String
@@ -62,10 +62,10 @@ struct AnnotationWriter {
     /// This device's own op-log stream for `docId`. Delegates to
     /// `OpLogStore.opLogFileURL(forDocId:deviceSlug:in:)` — the single source of
     /// truth for op-log filename construction — so the Mac and phone can never drift
-    /// on filename shape. The `docId` is already the full `d_<ulid>` form (same
-    /// string the creation op carries in `op.docId`); do NOT prepend `d_` here or
-    /// the file lands at `d_d_<ulid>…`, a stream the Mac's `load(docId:)` glob
-    /// never finds and the accept/reject silently never reaches the Mac.
+    /// on filename shape. The `docId` is already the full `doc-<hex>` or `scene-<hex>`
+    /// form per ADR 0008 (same string the creation op carries in `op.docId`); do NOT
+    /// double-prefix it or the file lands in an untracked stream the Mac's
+    /// `load(docId:)` glob never finds and the accept/reject silently never reaches the Mac.
     private var opLogURL: URL {
         OpLogStore.opLogFileURL(
             forDocId: docId,
