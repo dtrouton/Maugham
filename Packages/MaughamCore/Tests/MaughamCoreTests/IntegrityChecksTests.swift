@@ -28,4 +28,22 @@ final class IntegrityChecksTests: XCTestCase {
             checkpoints: cps, opsByDoc: ["doc-1": ["op-a"]])
         XCTAssertTrue(dangling.isEmpty)
     }
+
+    func test_conflictTwins_detectsICloudNumberedCopies() {
+        let names = [
+            "doc-0f677d7e.macA.jsonl",       // normal
+            "doc-0f677d7e.macA 2.jsonl",     // iCloud conflict twin
+            "scene-f8c9644e 3.jsonl",        // twin without device slug
+            "doc-0f677d7e.phoneB.jsonl",     // normal
+            "notes.txt",                     // ignored (not jsonl)
+        ]
+        XCTAssertEqual(
+            Set(IntegrityChecks.conflictTwins(inOpsDirectoryFilenames: names)),
+            ["doc-0f677d7e.macA 2.jsonl", "scene-f8c9644e 3.jsonl"])
+    }
+
+    func test_conflictTwins_emptyWhenNone() {
+        XCTAssertTrue(IntegrityChecks.conflictTwins(
+            inOpsDirectoryFilenames: ["doc-0f677d7e.macA.jsonl"]).isEmpty)
+    }
 }

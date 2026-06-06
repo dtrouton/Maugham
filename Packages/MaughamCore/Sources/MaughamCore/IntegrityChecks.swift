@@ -30,4 +30,15 @@ public enum IntegrityChecks {
         }
         return result
     }
+
+    /// Filenames that look like iCloud conflict copies (`"... N.jsonl"`, a space +
+    /// integer before the extension). Their presence means iCloud resolved a
+    /// concurrent append by dropping a sibling — silent data loss (tripwire 17).
+    public static func conflictTwins(inOpsDirectoryFilenames names: [String]) -> [String] {
+        names.filter { name in
+            guard name.hasSuffix(".jsonl") else { return false }
+            let stem = name.dropLast(".jsonl".count)
+            return stem.range(of: #" \d+$"#, options: .regularExpression) != nil
+        }
+    }
 }
