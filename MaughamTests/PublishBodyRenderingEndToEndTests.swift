@@ -51,7 +51,9 @@ final class PublishBodyRenderingEndToEndTests: XCTestCase {
                           Credit: Written by
                           Author: Chappell Roan
 
-                          <!-- ¶abcd -->Aaron pours coffee *hurriedly*.
+                          <!-- ¶abcd -->
+
+                          Aaron pours coffee *hurriedly*.
                           """),
                 ]
             }

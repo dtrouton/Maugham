@@ -44,9 +44,10 @@ public enum ProjectASTBuilder {
     // MARK: - prose
 
     private static func parseProse(_ text: String) -> [ProjectAST.Node] {
-        // Strip inline <!-- ¶XXXX --> anchors, then run a line-oriented block
-        // parser (headings, blockquotes, scene breaks, multi-line paragraphs).
-        let stripped = stripAnchors(text)
+        // Strip inline <!-- ¶XXXX --> anchors via the shared single source of
+        // truth, then run a line-oriented block parser (headings, blockquotes,
+        // scene breaks, multi-line paragraphs).
+        let stripped = MarkdownDisplayFilter.stripAnchors(text)
         let lines = stripped.components(separatedBy: "\n")
         return parseProseBlocks(lines).map(ProjectAST.Node.prose)
     }
@@ -146,24 +147,6 @@ public enum ProjectASTBuilder {
         return rest
     }
 
-    private static func stripAnchors(_ s: String) -> String {
-        // <!-- ¶XXXX --> anchors (4-char alphabet-restricted ParagraphID).
-        // Also handles <!--t-XXXXXX--> task anchors.
-        var result = s
-        let patterns = [
-            #"<!--\s*¶[0-9a-z]{4}\s*-->"#,
-            #"<!--t-[0-9a-zA-Z]{6}-->"#
-        ]
-        for pat in patterns {
-            if let regex = try? NSRegularExpression(pattern: pat) {
-                let range = NSRange(result.startIndex..., in: result)
-                result = regex.stringByReplacingMatches(
-                    in: result, range: range, withTemplate: "")
-            }
-        }
-        return result
-    }
-
     private static func isSceneBreakLine(_ s: String) -> Bool {
         let stripped = s.replacingOccurrences(of: " ", with: "")
         return stripped == "***" || stripped == "###" || stripped == "---"
@@ -176,10 +159,10 @@ public enum ProjectASTBuilder {
         // Maugham/Editor's existing FountainParser, which v1's builder
         // bridges through in production (see Task 31). For tests with
         // fixture text, we use this inline classifier.
-        // Strip inline <!-- ¶XXXX --> anchors before parsing, exactly as
-        // parseProse does — otherwise op-log join keys leak into rendered
-        // screenplay output (action/dialogue text).
-        let stripped = stripAnchors(text)
+        // Strip inline <!-- ¶XXXX --> anchors via the shared single source of
+        // truth, exactly as parseProse does — otherwise op-log join keys leak
+        // into rendered screenplay output (action/dialogue text).
+        let stripped = MarkdownDisplayFilter.stripAnchors(text)
         var nodes: [ProjectAST.FountainNode] = []
         let lines = stripped.split(separator: "\n", omittingEmptySubsequences: false)
             .map(String.init)
