@@ -2,7 +2,7 @@ import Foundation
 
 /// A node in a project's manuscript structure tree.
 /// Either a `group` (with `children`) or a `document` (with `path`).
-public struct StructureItem: Codable, Equatable, Identifiable, Sendable {
+public struct StructureItem: Codable, Equatable, Identifiable, Sendable, TreeNode {
     public enum ItemType: String, Codable, Sendable {
         case group, document
     }

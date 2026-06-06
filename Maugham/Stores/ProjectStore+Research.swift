@@ -221,14 +221,7 @@ extension ProjectStore {
     func findResearchItem(
         id: String, in items: [ResearchItem]
     ) -> ResearchItem? {
-        for it in items {
-            if it.id == id { return it }
-            if let children = it.children,
-               let found = findResearchItem(id: id, in: children) {
-                return found
-            }
-        }
-        return nil
+        TreeWalk.find(id: id, in: items)
     }
 
     func mutateResearchItem(
@@ -244,15 +237,10 @@ extension ProjectStore {
         in items: [ResearchItem],
         transform: (inout ResearchItem) -> Void
     ) -> [ResearchItem] {
-        items.map { item in
-            var copy = item
-            if copy.id == id {
-                transform(&copy)
-            } else if let children = copy.children {
-                copy.children = applyResearchMutation(
-                    id: id, in: children, transform: transform)
-            }
-            return copy
+        TreeWalk.mutate(id: id, in: items) { node in
+            var node = node
+            transform(&node)
+            return node
         }
     }
 
@@ -406,40 +394,19 @@ extension ProjectStore {
     static func applyResearchRemoval(
         id: String, in items: [ResearchItem]
     ) -> [ResearchItem] {
-        items.compactMap { item in
-            if item.id == id { return nil }
-            var copy = item
-            if let children = copy.children {
-                copy.children = applyResearchRemoval(id: id, in: children)
-            }
-            return copy
-        }
+        TreeWalk.remove(id: id, in: items)
     }
 
     static func researchContains(id: String, in items: [ResearchItem]) -> Bool {
-        for it in items {
-            if it.id == id { return true }
-            if let children = it.children, researchContains(id: id, in: children) {
-                return true
-            }
-        }
-        return false
+        TreeWalk.contains(id: id, in: items)
     }
 
     static func researchRewriteChildPaths(
         _ items: [ResearchItem], oldPrefix: String, newPrefix: String
     ) -> [ResearchItem] {
-        items.map { item in
-            var copy = item
-            if let p = copy.path, p.hasPrefix(oldPrefix + "/") {
-                copy.path = newPrefix + "/" + p.dropFirst(oldPrefix.count + 1)
-            }
-            if let children = copy.children {
-                copy.children = researchRewriteChildPaths(
-                    children, oldPrefix: oldPrefix, newPrefix: newPrefix)
-            }
-            return copy
-        }
+        TreeWalk.rewritePaths(
+            in: items, replacingPrefix: oldPrefix, with: newPrefix,
+            path: { $0.path }, setPath: { $0.path = $1 })
     }
 
     /// Duplicate a research item. Asset → copy file with "Copy of <title>".
@@ -491,6 +458,8 @@ extension ProjectStore {
         return copy
     }
 
+    /// NOT a `TreeWalk` fit: regenerates every node's id (a whole-tree
+    /// transform), not a find/mutate-by-id. Left hand-rolled deliberately.
     static func researchFreshIds(_ item: ResearchItem) -> ResearchItem {
         var copy = item
         copy.id = Self.newId(prefix: item.type == .group ? "res-grp" : "res")

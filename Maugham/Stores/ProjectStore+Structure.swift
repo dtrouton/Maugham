@@ -226,26 +226,13 @@ extension ProjectStore {
     static func findItemStatic(
         id: String, in items: [StructureItem]
     ) -> StructureItem? {
-        for item in items {
-            if item.id == id { return item }
-            if let children = item.children,
-               let nested = findItemStatic(id: id, in: children) {
-                return nested
-            }
-        }
-        return nil
+        TreeWalk.find(id: id, in: items)
     }
 
     static func containsId(
         _ id: String, in items: [StructureItem]
     ) -> Bool {
-        for item in items {
-            if item.id == id { return true }
-            if let children = item.children, containsId(id, in: children) {
-                return true
-            }
-        }
-        return false
+        TreeWalk.contains(id: id, in: items)
     }
 
     func replaceChildren(
@@ -266,14 +253,7 @@ extension ProjectStore {
     func findItem(
         id: String, in items: [StructureItem]
     ) -> StructureItem? {
-        for item in items {
-            if item.id == id { return item }
-            if let children = item.children,
-               let nested = findItem(id: id, in: children) {
-                return nested
-            }
-        }
-        return nil
+        TreeWalk.find(id: id, in: items)
     }
 
     /// Mutate the item with the given id in place. The closure receives an
@@ -282,26 +262,10 @@ extension ProjectStore {
         id: String,
         transform: (inout StructureItem) -> Void
     ) {
-        var newStructure = manifest.structure
-        Self.applyMutation(id: id, in: &newStructure, transform: transform)
-        manifest.structure = newStructure
-    }
-
-    static func applyMutation(
-        id: String,
-        in items: inout [StructureItem],
-        transform: (inout StructureItem) -> Void
-    ) {
-        for i in items.indices {
-            if items[i].id == id {
-                transform(&items[i])
-                return
-            }
-            if items[i].children != nil {
-                var children = items[i].children!
-                applyMutation(id: id, in: &children, transform: transform)
-                items[i].children = children
-            }
+        manifest.structure = TreeWalk.mutate(id: id, in: manifest.structure) { node in
+            var node = node
+            transform(&node)
+            return node
         }
     }
 
@@ -476,22 +440,15 @@ extension ProjectStore {
     }
 
     /// Rewrites the path prefix of every child item recursively.
+    /// Thin forwarder to `TreeWalk.rewritePaths` (the reconciled prefix rule).
     static func rewriteChildPaths(
         in children: inout [StructureItem],
         oldPrefix: String,
         newPrefix: String
     ) {
-        for i in children.indices {
-            if let p = children[i].path, p.hasPrefix(oldPrefix + "/") {
-                children[i].path = newPrefix + p.dropFirst(oldPrefix.count)
-            }
-            if children[i].children != nil {
-                var nested = children[i].children!
-                rewriteChildPaths(in: &nested,
-                                  oldPrefix: oldPrefix, newPrefix: newPrefix)
-                children[i].children = nested
-            }
-        }
+        children = TreeWalk.rewritePaths(
+            in: children, replacingPrefix: oldPrefix, with: newPrefix,
+            path: { $0.path }, setPath: { $0.path = $1 })
     }
 
     /// Duplicate a structure item. For a document, copies the file and
@@ -716,31 +673,22 @@ extension ProjectStore {
         in items: inout [StructureItem],
         transform: (inout StructureItem) -> Void
     ) {
-        for i in 0..<items.count {
-            if items[i].id == documentId {
-                transform(&items[i])
-                return
-            }
-            if var children = items[i].children {
-                applyLinkMutation(documentId: documentId, in: &children, transform: transform)
-                items[i].children = children
-            }
+        items = TreeWalk.mutate(id: documentId, in: items) { node in
+            var node = node
+            transform(&node)
+            return node
         }
     }
 
     static func findItemLinks(
         documentId: String, in items: [StructureItem]
     ) -> [String]? {
-        for item in items {
-            if item.id == documentId { return item.linkedResearchIds ?? [] }
-            if let children = item.children,
-               let nested = findItemLinks(documentId: documentId, in: children) {
-                return nested
-            }
-        }
-        return nil
+        TreeWalk.find(id: documentId, in: items).map { $0.linkedResearchIds ?? [] }
     }
 
+    /// NOT a clean `TreeWalk.collectIds` fit: filters to `.group` AND emits
+    /// POST-order (deepest groups first) — `tidyAllFilenames` depends on that
+    /// ordering. Left hand-rolled deliberately.
     static func collectGroupIds(
         in items: [StructureItem],
         into result: inout [String?]
@@ -805,20 +753,7 @@ extension ProjectStore {
     }
 
     func removeFromStructure(id: String) {
-        var newStructure = manifest.structure
-        Self.applyRemoval(id: id, in: &newStructure)
-        manifest.structure = newStructure
-    }
-
-    static func applyRemoval(
-        id: String, in items: inout [StructureItem]
-    ) {
-        items.removeAll(where: { $0.id == id })
-        for i in items.indices where items[i].children != nil {
-            var children = items[i].children!
-            applyRemoval(id: id, in: &children)
-            items[i].children = children
-        }
+        manifest.structure = TreeWalk.remove(id: id, in: manifest.structure)
     }
 }
 
