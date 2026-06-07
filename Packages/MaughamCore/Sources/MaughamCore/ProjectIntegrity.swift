@@ -16,21 +16,25 @@ public struct IntegrityReport: Equatable, Sendable {
     public let docSkips: [DocSkips]
     public let conflictTwins: [String]
     public let danglingPointers: [IntegrityChecks.DanglingPointer]
+    public let invalidParagraphIds: [IntegrityChecks.InvalidParagraphId]
 
     public init(
         docSkips: [DocSkips],
         conflictTwins: [String],
-        danglingPointers: [IntegrityChecks.DanglingPointer]
+        danglingPointers: [IntegrityChecks.DanglingPointer],
+        invalidParagraphIds: [IntegrityChecks.InvalidParagraphId] = []
     ) {
         self.docSkips = docSkips
         self.conflictTwins = conflictTwins
         self.danglingPointers = danglingPointers
+        self.invalidParagraphIds = invalidParagraphIds
     }
 
     /// `docSkips` only ever holds docs *with* skips (the aggregator filters empties),
     /// so its emptiness alone is the parse-health signal.
     public var isHealthy: Bool {
         docSkips.isEmpty && conflictTwins.isEmpty && danglingPointers.isEmpty
+            && invalidParagraphIds.isEmpty
     }
 }
 
@@ -43,6 +47,7 @@ public enum ProjectIntegrity {
 
         var docSkips: [IntegrityReport.DocSkips] = []
         var opsByDoc: [String: Set<String>] = [:]
+        var allOps: [Op] = []
         for docId in OpLogStore.docIds(inOpsDirectoryFilenames: filenames).sorted() {
             var skips: [ParseDiagnostics.SkippedLine] = []
             var opIds: Set<String> = []
@@ -54,6 +59,7 @@ public enum ProjectIntegrity {
                 let result = try await store.loadDiagnosed()
                 skips.append(contentsOf: result.diagnostics.skipped)
                 opIds.formUnion(result.elements.map(\.opId))
+                allOps.append(contentsOf: result.elements)
             }
             if !skips.isEmpty { docSkips.append(.init(docId: docId, skipped: skips)) }
             opsByDoc[docId] = opIds
@@ -66,6 +72,7 @@ public enum ProjectIntegrity {
         return IntegrityReport(
             docSkips: docSkips,
             conflictTwins: IntegrityChecks.conflictTwins(inOpsDirectoryFilenames: filenames),
-            danglingPointers: dangling)
+            danglingPointers: dangling,
+            invalidParagraphIds: IntegrityChecks.invalidParagraphIds(inOps: allOps))
     }
 }

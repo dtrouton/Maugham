@@ -27,7 +27,7 @@ public final class BackupCoordinator {
 
         // Integrity-before-backup (decision 2026-06-07).
         if let report = try? await ProjectIntegrity.check(projectURL: projectURL), !report.isHealthy {
-            let summary = "skips:\(report.docSkips.count) twins:\(report.conflictTwins.count) dangling:\(report.danglingPointers.count)"
+            let summary = "skips:\(report.docSkips.count) twins:\(report.conflictTwins.count) dangling:\(report.danglingPointers.count) bad-ids:\(report.invalidParagraphIds.count)"
             lastResult = .integrityFailed(summary: summary)
             return
         }

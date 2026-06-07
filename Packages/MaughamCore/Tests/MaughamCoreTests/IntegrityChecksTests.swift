@@ -46,4 +46,33 @@ final class IntegrityChecksTests: XCTestCase {
         XCTAssertTrue(IntegrityChecks.conflictTwins(
             inOpsDirectoryFilenames: ["doc-0f677d7e.macA.jsonl"]).isEmpty)
     }
+
+    private func op(_ opId: String, changes: [(String, String)], sequence: [String]? = nil) -> Op {
+        Op(opId: opId, docId: "doc-1", at: Date(timeIntervalSince1970: 0), device: "d", session: "s",
+           kind: .typingBurst,
+           changes: changes.map { Op.ParagraphChange(paragraphId: $0.0, prior: nil, next: $0.1) },
+           sequence: sequence, provenance: nil)
+    }
+
+    func test_invalidParagraphIds_cleanForNormalOps() {
+        let ops = [op("01A", changes: [("ab12", "hello")], sequence: ["ab12", "cd34"])]
+        XCTAssertTrue(IntegrityChecks.invalidParagraphIds(inOps: ops).isEmpty)
+    }
+
+    func test_invalidParagraphIds_flagsEmptyId() {
+        let ops = [op("01A", changes: [("", "orphaned text")])]
+        XCTAssertEqual(IntegrityChecks.invalidParagraphIds(inOps: ops),
+                       [IntegrityChecks.InvalidParagraphId(docId: "doc-1", opId: "01A", value: "")])
+    }
+
+    func test_invalidParagraphIds_flagsJunkInSequence() {
+        let ops = [op("01A", changes: [("ab12", "t")], sequence: ["ab12", "bad id\n"])]
+        XCTAssertEqual(IntegrityChecks.invalidParagraphIds(inOps: ops).map(\.value), ["bad id\n"])
+    }
+
+    func test_invalidParagraphIds_doesNotEnforceStrictAlphabet() {
+        // Permissive in-memory ids (tripwire 8) must NOT be flagged — only garbage is.
+        let ops = [op("01A", changes: [("p1", "t"), ("legacy-longer-id", "t2")])]
+        XCTAssertTrue(IntegrityChecks.invalidParagraphIds(inOps: ops).isEmpty)
+    }
 }
