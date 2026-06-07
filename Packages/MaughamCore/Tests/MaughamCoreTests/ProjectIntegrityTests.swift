@@ -40,7 +40,11 @@ final class ProjectIntegrityTests: XCTestCase {
         let report = try await ProjectIntegrity.check(projectURL: proj)
         XCTAssertFalse(report.isHealthy)
         XCTAssertEqual(report.docSkips.first?.docId, "doc-0f677d7e")
-        XCTAssertEqual(report.docSkips.first?.skipped.first?.raw, "GARBAGE NOT JSON")
+        // Both the normal file's garbage line and the conflict-twin's `{}` fail to
+        // decode as Op; the order they're globbed in isn't guaranteed, so assert the
+        // garbage line is present rather than that it's first (avoids a directory-order flake).
+        XCTAssertEqual(
+            report.docSkips.first?.skipped.contains(where: { $0.raw == "GARBAGE NOT JSON" }), true)
         XCTAssertEqual(report.conflictTwins, ["doc-0f677d7e.macA 2.jsonl"])
     }
 }

@@ -8,13 +8,29 @@ public struct IntegrityReport: Equatable, Sendable {
     public struct DocSkips: Equatable, Sendable {
         public let docId: String
         public let skipped: [ParseDiagnostics.SkippedLine]
+        public init(docId: String, skipped: [ParseDiagnostics.SkippedLine]) {
+            self.docId = docId
+            self.skipped = skipped
+        }
     }
     public let docSkips: [DocSkips]
     public let conflictTwins: [String]
     public let danglingPointers: [IntegrityChecks.DanglingPointer]
 
+    public init(
+        docSkips: [DocSkips],
+        conflictTwins: [String],
+        danglingPointers: [IntegrityChecks.DanglingPointer]
+    ) {
+        self.docSkips = docSkips
+        self.conflictTwins = conflictTwins
+        self.danglingPointers = danglingPointers
+    }
+
+    /// `docSkips` only ever holds docs *with* skips (the aggregator filters empties),
+    /// so its emptiness alone is the parse-health signal.
     public var isHealthy: Bool {
-        docSkips.allSatisfy { $0.skipped.isEmpty } && conflictTwins.isEmpty && danglingPointers.isEmpty
+        docSkips.isEmpty && conflictTwins.isEmpty && danglingPointers.isEmpty
     }
 }
 

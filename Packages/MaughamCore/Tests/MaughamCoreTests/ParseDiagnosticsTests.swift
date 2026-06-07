@@ -20,6 +20,8 @@ final class ParseDiagnosticsTests: XCTestCase {
         XCTAssertEqual(result.elements, [Item(id: "a"), Item(id: "b")])
         XCTAssertEqual(result.diagnostics.skipped.count, 1)
         XCTAssertEqual(result.diagnostics.skipped.first?.raw, "NOT JSON")
+        // The first line `{"id":"a"}\n` is 11 bytes, so the skipped line starts at offset 11.
+        XCTAssertEqual(result.diagnostics.skipped.first?.byteOffset, 11)
         XCTAssertFalse(result.diagnostics.isClean)
     }
 
