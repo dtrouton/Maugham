@@ -144,4 +144,30 @@ final class BackupWriterTests: XCTestCase {
         try "ROT".write(to: dest.appendingPathComponent("01A/a.md"), atomically: true, encoding: .utf8)
         XCTAssertEqual(try BackupWriter.verifyGeneration(id: "01A", at: dest), ["a.md"])
     }
+
+    func test_verifyGeneration_throwsWhenManifestMissing() throws {
+        let dest = destDir()
+        defer { try? FileManager.default.removeItem(at: dest) }
+        // A directory with no manifest (e.g. not a real generation).
+        try FileManager.default.createDirectory(
+            at: dest.appendingPathComponent("GHOST"), withIntermediateDirectories: true)
+        XCTAssertThrowsError(try BackupWriter.verifyGeneration(id: "GHOST", at: dest))
+    }
+
+    func test_write_refusesToOverwriteExistingGeneration() throws {
+        let source = try makeTree(["a.md": "alpha"])
+        let dest = destDir()
+        defer { try? FileManager.default.removeItem(at: source); try? FileManager.default.removeItem(at: dest) }
+        _ = try BackupWriter.write(source: source, to: dest, generationId: "01A", at: when)
+        // Second write with the same id must throw and leave the original intact.
+        XCTAssertThrowsError(
+            try BackupWriter.write(source: source, to: dest, generationId: "01A", at: when)
+        ) { error in
+            XCTAssertEqual(error as? BackupError, .generationAlreadyExists(id: "01A"))
+        }
+        XCTAssertEqual(try String(contentsOf: dest.appendingPathComponent("01A/a.md"), encoding: .utf8), "alpha")
+        // No partial left behind by the refused write.
+        XCTAssertEqual(try BackupWriter.generationIds(at: dest), ["01A"])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dest.appendingPathComponent(".partial-01A").path))
+    }
 }

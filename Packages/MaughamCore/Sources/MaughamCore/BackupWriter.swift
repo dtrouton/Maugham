@@ -14,9 +14,16 @@ public enum BackupWriter {
     /// symlinks excluded), sorted ascending. Paths use "/" separators.
     public static func relativeFilePaths(under root: URL) throws -> [String] {
         let fm = FileManager.default
+        // A throwing error handler is essential: with `errorHandler: nil` the
+        // enumerator stops SILENTLY on the first traversal error (e.g. an
+        // unreadable subdirectory), which would make a backup quietly omit files
+        // with no signal. We surface the error instead.
+        var enumerationError: Error?
         guard let en = fm.enumerator(
             at: root, includingPropertiesForKeys: [.isRegularFileKey],
-            options: [], errorHandler: nil) else { return [] }
+            options: [],
+            errorHandler: { _, error in enumerationError = error; return false }
+        ) else { return [] }
         let rootPath = root.standardizedFileURL.path
         var result: [String] = []
         for case let url as URL in en {
@@ -26,6 +33,7 @@ public enum BackupWriter {
             guard full.hasPrefix(rootPath + "/") else { continue }
             result.append(String(full.dropFirst(rootPath.count + 1)))
         }
+        if let enumerationError { throw enumerationError }
         return result.sorted()
     }
 
@@ -41,6 +49,12 @@ public enum BackupWriter {
         try fm.createDirectory(at: destination, withIntermediateDirectories: true)
         let partial = destination.appendingPathComponent(".partial-\(generationId)")
         let final = destination.appendingPathComponent(generationId)
+
+        // Generations are immutable — refuse to overwrite an existing one (a ULID
+        // collision means a caller bug). Fail fast before the expensive copy.
+        guard !fm.fileExists(atPath: final.path) else {
+            throw BackupError.generationAlreadyExists(id: generationId)
+        }
 
         // Clean any leftovers from a crashed prior run.
         try? fm.removeItem(at: partial)
@@ -63,8 +77,7 @@ public enum BackupWriter {
                 throw BackupError.verificationFailed(mismatchedPaths: mismatches)
             }
 
-            // Atomic commit.
-            try? fm.removeItem(at: final)
+            // Atomic commit (final is guaranteed absent — guarded above).
             try fm.moveItem(at: partial, to: final)
             return BackupGeneration(id: generationId, manifest: manifest)
         } catch {
@@ -89,8 +102,8 @@ public enum BackupWriter {
     }
 
     /// Keep the newest `keeping` generations under `destination`; remove the rest.
-    /// "Newest" = highest-sorting ids (ULID ids sort chronologically). `keeping`
-    /// is clamped at 0. Returns the removed ids (ascending). Generations are
+    /// "Newest" = highest-sorting ids (ULID ids sort chronologically). Negative
+    /// `keeping` is treated as 0. Returns the removed ids (ascending). Generations are
     /// immutable, so pruning only ever deletes whole old generation directories.
     @discardableResult
     public static func prune(destination: URL, keeping: Int) throws -> [String] {
