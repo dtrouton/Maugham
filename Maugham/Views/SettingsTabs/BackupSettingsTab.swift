@@ -14,23 +14,28 @@ struct BackupSettingsTab: View {
                 }
                 ForEach(themeManager.backupDestinations) { cfg in
                     HStack {
-                        VStack(alignment: .leading) {
-                            Text(cfg.displayName)
-                            Text("Keep \(cfg.retention) generations")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                        Stepper(value: retentionBinding(cfg), in: 1...50) {
+                            VStack(alignment: .leading) {
+                                Text(cfg.displayName)
+                                Text("Keep \(cfg.retention) generation\(cfg.retention == 1 ? "" : "s")")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
-                        Spacer()
                         Button(role: .destructive) { remove(cfg) } label: {
                             Image(systemName: "trash")
                         }
                         .buttonStyle(.borderless)
+                        .padding(.leading, 8)
                     }
                 }
                 Button("Add destination…") { addDestination() }
             }
             Section {
                 Text("Backups run automatically when you save (⌘S). A copy is verified, then written to each destination; a corrupt project is detected and skipped rather than backed up.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("Tip: local folders use copy-on-write, so keeping many generations is nearly free. For a cloud-synced folder (Dropbox, OneDrive, Drive) each generation re-uploads, so lower its count (2 is a good default) — Maugham can't tell a synced folder from a local one, so the choice is yours.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -64,5 +69,17 @@ struct BackupSettingsTab: View {
 
     private func remove(_ cfg: BackupDestinationConfig) {
         themeManager.backupDestinations.removeAll { $0.id == cfg.id }
+    }
+
+    /// A binding to one destination's retention that writes back through the array
+    /// element, so `UserPreferences.backupDestinations`' `didSet` persists the change.
+    private func retentionBinding(_ cfg: BackupDestinationConfig) -> Binding<Int> {
+        Binding(
+            get: { themeManager.backupDestinations.first { $0.id == cfg.id }?.retention ?? cfg.retention },
+            set: { newValue in
+                guard let idx = themeManager.backupDestinations.firstIndex(where: { $0.id == cfg.id })
+                else { return }
+                themeManager.backupDestinations[idx].retention = newValue
+            })
     }
 }
