@@ -16,6 +16,7 @@ public final class UserPreferences {
     private static let paragraphFocusKey = "maugham.paragraphFocus"
     private static let goalIndicatorsKey = "maugham.goalIndicatorsVisible"
     private static let mcpEnabledKey = "maugham.mcpEnabled"
+    private static let backupDestinationsKey = "maugham.backupDestinations"
 
     private let defaults: UserDefaults
 
@@ -53,6 +54,14 @@ public final class UserPreferences {
         didSet { defaults.set(mcpEnabled, forKey: Self.mcpEnabledKey) }
     }
 
+    public var backupDestinations: [BackupDestinationConfig] {
+        didSet {
+            if let data = try? JSONEncoder().encode(backupDestinations) {
+                defaults.set(data, forKey: Self.backupDestinationsKey)
+            }
+        }
+    }
+
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
 
@@ -82,5 +91,12 @@ public final class UserPreferences {
             defaults.object(forKey: Self.goalIndicatorsKey) as? Bool ?? true
         self.mcpEnabled =
             defaults.object(forKey: Self.mcpEnabledKey) as? Bool ?? true
+
+        if let data = defaults.data(forKey: Self.backupDestinationsKey),
+           let decoded = try? JSONDecoder().decode([BackupDestinationConfig].self, from: data) {
+            self.backupDestinations = decoded
+        } else {
+            self.backupDestinations = []
+        }
     }
 }
