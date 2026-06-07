@@ -219,6 +219,7 @@ struct ProjectWindow: View {
             documentStore: documentStore,
             store: store,
             url: url,
+            window: window,
             sessionLog: $sessionLog,
             selectedItemId: $selectedItemId,
             selectedResearchId: $selectedResearchId,
@@ -256,6 +257,7 @@ struct ProjectWindow: View {
         let documentStore: DocumentStore?
         let store: ProjectStore?
         let url: URL
+        let window: NSWindow?
         @Binding var sessionLog: SessionLog
         @Binding var selectedItemId: String?
         @Binding var selectedResearchId: String?
@@ -368,6 +370,7 @@ struct ProjectWindow: View {
                 }
                 .modifier(CollectionPieceModifier(
                     store: store,
+                    window: window,
                     selectedItemId: $selectedItemId,
                     pendingPieceRenameId: $pendingPieceRenameId))
                 .alert("Renumber every chapter and scene?",
@@ -395,6 +398,11 @@ struct ProjectWindow: View {
     /// so that SessionAndNavigationModifier.body stays within the type-checker limit.
     private struct CollectionPieceModifier: ViewModifier {
         let store: ProjectStore?
+        /// The owning project window. The add-piece notifications are posted with
+        /// `object: nil` (from the binder buttons + the menu command), so EVERY open
+        /// collection window receives them. We act only when this window is key, so
+        /// "add a screenplay" adds it to the front project, not all of them.
+        let window: NSWindow?
         @Binding var selectedItemId: String?
         @Binding var pendingPieceRenameId: String?
 
@@ -402,7 +410,8 @@ struct ProjectWindow: View {
             content
                 .onReceive(NotificationCenter.default.publisher(
                     for: .maughamAddLoosePiece)) { _ in
-                    guard let store, store.manifest.type == .collection else { return }
+                    guard window?.isKeyWindow == true,
+                          let store, store.manifest.type == .collection else { return }
                     Task {
                         let piece = try? await store.addLoosePiece(
                             title: "Untitled Piece", mode: .prose)
@@ -414,7 +423,8 @@ struct ProjectWindow: View {
                 }
                 .onReceive(NotificationCenter.default.publisher(
                     for: .maughamAddScreenplayPiece)) { _ in
-                    guard let store, store.manifest.type == .collection else { return }
+                    guard window?.isKeyWindow == true,
+                          let store, store.manifest.type == .collection else { return }
                     Task {
                         let piece = try? await store.addLoosePiece(
                             title: "Untitled Screenplay", mode: .screenplay)
@@ -426,7 +436,8 @@ struct ProjectWindow: View {
                 }
                 .onReceive(NotificationCenter.default.publisher(
                     for: .maughamLinkProject)) { _ in
-                    guard let store, store.manifest.type == .collection else { return }
+                    guard window?.isKeyWindow == true,
+                          let store, store.manifest.type == .collection else { return }
                     let panel = NSOpenPanel()
                     panel.canChooseDirectories = true
                     panel.canChooseFiles = false
