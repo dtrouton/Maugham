@@ -179,6 +179,12 @@ noise).
 
 ## 8. Forward items (cross-roadmap — capture now, build later)
 
+- **Single-document restore (op-log surgery)** → the immediate backup follow-on. Pull *one* doc's
+  content from a chosen generation back into the **live** project as **new, rewindable ops**
+  (never a silent file overwrite); the `.md` re-derives. Deferred from the recovery-UI plan because
+  it touches the Document/op-log write path (harder than whole-project restore-beside, which is a
+  pure file copy). Whole-project restore-beside + the integrity warning ship first; this is its own
+  plan. (Decided 2026-06-07.)
 - **Op-log compaction (Automerge/CRDT-style)** → Group 4 perf. Snapshot derived state + truncate
   ancient ops into a compacted base, keeping recent ops for rewind. Smaller backups + faster
   derive; deep rewind beyond the horizon is preserved *in pre-compaction backup generations* — a
