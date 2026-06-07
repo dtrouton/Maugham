@@ -37,4 +37,18 @@ public enum BackupRestore {
         }
         return all.sorted { $0.id > $1.id }
     }
+
+    /// The relative paths in `gen` that don't match its manifest (empty == intact).
+    /// Throws nothing — an unreadable manifest yields `[]` (treated as can't-verify;
+    /// `newestIntact` therefore won't pick a generation whose manifest is gone — see
+    /// note). Use for an integrity badge in the restore list.
+    public static func verify(_ gen: RestoreGeneration) -> [String] {
+        ((try? BackupWriter.verifyGeneration(id: gen.id, at: gen.destination)) ?? ["<unverifiable>"])
+    }
+
+    /// The newest generation across `destinations` that verifies intact, or nil if
+    /// none do — the "auto-bisect-to-good" path for recovering from corruption.
+    public static func newestIntact(across destinations: [URL]) -> RestoreGeneration? {
+        listGenerations(across: destinations).first { verify($0).isEmpty }
+    }
 }

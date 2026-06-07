@@ -39,4 +39,38 @@ final class BackupRestoreTests: XCTestCase {
         XCTAssertTrue(BackupRestore.listGenerations(across: []).isEmpty)
         XCTAssertTrue(BackupRestore.listGenerations(across: [destDir()]).isEmpty)
     }
+
+    func test_newestIntact_skipsCorruptGenerationsToFindGoodOne() throws {
+        let source = try makeTree(["a.md": "alpha"])
+        let dest = destDir()
+        defer { [source, dest].forEach { try? FileManager.default.removeItem(at: $0) } }
+        _ = try BackupWriter.write(source: source, to: dest, generationId: "01A", at: when)  // good
+        _ = try BackupWriter.write(source: source, to: dest, generationId: "01B", at: when)  // will corrupt
+        // Corrupt the newest generation's content.
+        try "ROT".write(to: dest.appendingPathComponent("01B/a.md"), atomically: true, encoding: .utf8)
+
+        let intact = BackupRestore.newestIntact(across: [dest])
+        XCTAssertEqual(intact?.id, "01A")  // bisected past the corrupt 01B
+    }
+
+    func test_newestIntact_nilWhenAllCorruptOrNone() throws {
+        let source = try makeTree(["a.md": "alpha"])
+        let dest = destDir()
+        defer { [source, dest].forEach { try? FileManager.default.removeItem(at: $0) } }
+        XCTAssertNil(BackupRestore.newestIntact(across: [dest]))  // none
+        _ = try BackupWriter.write(source: source, to: dest, generationId: "01A", at: when)
+        try "ROT".write(to: dest.appendingPathComponent("01A/a.md"), atomically: true, encoding: .utf8)
+        XCTAssertNil(BackupRestore.newestIntact(across: [dest]))  // all corrupt
+    }
+
+    func test_verify_returnsMismatchedPaths() throws {
+        let source = try makeTree(["a.md": "alpha"])
+        let dest = destDir()
+        defer { [source, dest].forEach { try? FileManager.default.removeItem(at: $0) } }
+        _ = try BackupWriter.write(source: source, to: dest, generationId: "01A", at: when)
+        let gen = BackupRestore.listGenerations(across: [dest])[0]
+        XCTAssertEqual(BackupRestore.verify(gen), [])
+        try "ROT".write(to: dest.appendingPathComponent("01A/a.md"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(BackupRestore.verify(gen), ["a.md"])
+    }
 }
