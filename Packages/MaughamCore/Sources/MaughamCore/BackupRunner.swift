@@ -40,4 +40,44 @@ public enum BackupRunner {
             MerkleManifest.self, from: Data(contentsOf: manifestURL))
         return manifest.rootHash
     }
+
+    /// Back up `projectURL` to each destination. Best-effort and independent: a
+    /// failing destination becomes a `.failed` outcome and never aborts the others.
+    /// A destination whose newest generation already matches the current source is
+    /// `.skippedUnchanged` (so idle saves don't churn retention). After a write, the
+    /// destination is pruned to its retention. Never throws. `generationId` is a
+    /// caller-supplied ULID stamped onto every destination written this run.
+    public static func run(
+        projectURL: URL,
+        destinations: [BackupDestination],
+        generationId: String,
+        at builtAt: Date
+    ) -> [BackupOutcome] {
+        // Build the source root once; if the source itself is unreadable, every
+        // destination fails identically.
+        let sourceRoot: String
+        do {
+            let rels = try BackupWriter.relativeFilePaths(under: projectURL)
+            sourceRoot = try MerkleBuilder.build(
+                root: projectURL, relativePaths: rels, at: builtAt).rootHash
+        } catch {
+            return destinations.map {
+                .failed(destination: $0.url, message: "source unreadable: \(error)")
+            }
+        }
+
+        return destinations.map { dest in
+            do {
+                if let latest = try latestRootHash(at: dest.url), latest == sourceRoot {
+                    return .skippedUnchanged(destination: dest.url)
+                }
+                let gen = try BackupWriter.write(
+                    source: projectURL, to: dest.url, generationId: generationId, at: builtAt)
+                try BackupWriter.prune(destination: dest.url, keeping: dest.retention)
+                return .written(destination: dest.url, generation: gen)
+            } catch {
+                return .failed(destination: dest.url, message: "\(error)")
+            }
+        }
+    }
 }
