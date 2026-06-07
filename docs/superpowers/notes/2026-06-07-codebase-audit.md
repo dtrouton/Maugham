@@ -179,3 +179,124 @@ catches the next regression in all of the above.
 1.7 socket loop, 1.8 trash restore; the screenplay triple-parse perf collapse;
 the CommonMark parity + grep-meta tests; and the doc corrections (tripwire-19
 wording, `Op.at` semantics, the recovery-depends-on-`.md` honesty note).
+
+---
+
+# Addendum — Pattern investigation (three exhaustive sweeps)
+
+After the initial audit we asked: are these findings *tells* of a systemic
+pattern? Three read-only sweeps were run to size the blast radius of the three
+patterns the audit implied. The result **revises** the initial "systemic rot"
+read in a specific, useful way (see the synthesis at the end).
+
+## Sweep 1 — every raw filesystem write/move on a user-content path
+
+Exhaustively classified ~35 `write(to:)`/`moveItem`/`copyItem`/`removeItem`
+sites against the two required disciplines (manuscript → must route through
+`Document.setFullText`/op log; research note → raw atomic write but
+flush-before-move per tripwire 14; `.maugham/`/derived → free).
+
+**Verdict: the discipline is honored almost everywhere.**
+- **Exactly ONE manuscript-corruption bug, no siblings:** `ProjectStore+Structure.swift:394` (`propagateWikiLinkRename`) raw-writes manuscript bytes (finding 0.1). Every other manuscript-touching site (Search replace, rename/move/delete of docs, piece-folder moves, the materialize render) correctly closes the Document or routes through the op log.
+- **ONE phantom-file ⚠️ (not corruption):** `movePiece`/`renamePiece` (`ProjectStore+CollectionPieces.swift:634/640/720`) move the whole piece folder (manuscript + `research/`) but close only the manuscript `Document` — they don't `flushPendingSave()` the piece's research-note debounce, so a pending research save can land at the old path post-move (finding 1.3). `promotePieceToProject` does it correctly (`flushPendingSave()` at line ~200); these two omit it.
+- Everything else (MCP add_note/publish/piece-style, trash, inbox, manifest, Exports, update staging, project creation) is correctly confined or guarded.
+
+→ Pattern 1 is **real but isolated**, not systemic. The wiki-rename bug is a single lapse from an otherwise-honored convention.
+
+## Sweep 2 — every presenter-watched file's write-side echo guard
+
+The project-root `NSFilePresenter` → `DocumentStore.presenterDidChangeSubitem`
+→ `MaughamSidecarPath.classify` routes 21 path-classes; **only 4 react**.
+
+| Watched class | Write-stamp? | Compare basis | Guard | Verdict |
+|---|---|---|---|---|
+| Manuscript `.md` | yes (`Document.swift:176`) | content bytes | typed, unbypassable (`EchoState`) | ✅ gold standard |
+| Op-log JSONL (Document writes) | yes (`_opLogMirror`) | opId-set | ad-hoc | ⚠️ |
+| Op-log JSONL (**CheckpointCapture ⌘S**) | **no** (separate `OpLogStore` instance) | opId-set (read side) | none | ⚠️ one wasted re-derive per ⌘S; self-heals; `.checkpoint` is a derivation no-op so no data loss |
+| Manifest `project.maugham.json` | **no** (`writeManifest` never stamps `lastObservedManifestModified`) | **timestamp, whole-second-truncated** | ad-hoc bare `Date?` | ❌ spurious `.maugham/conflicts/manifest-*.json` on every structural edit (finding 1.2) |
+| 17 other classes | n/a | none | n/a (explicit no-op or idempotent refresh) | ✅ safe by construction |
+
+**Verdict: contained.** One real bug (manifest), one minor ⚠️ (CheckpointCapture
+mirror gap), 17 safe. A *generalized* `EchoState`-for-all-sidecars would be
+**overkill** — the right fix is narrow: give the manifest a content-hash + a
+write-side stamp (a small typed guard justified *here* because the reaction is
+destructive), and have CheckpointCapture append through the live Document (or
+pre-seed its mirror). Leave the rest.
+
+Secondary note: the op-log read-side guard (`Document+ExternalChange.swift:66-68`)
+filters by opId-set membership only — a *content* change to an already-seen opId
+is invisible (the read-side mirror of finding 0.4). Sound today only because
+ULIDs are unique; the same dedup is what silently drops a divergent-content
+opId collision.
+
+## Sweep 3 — data-integrity tests: correctness vs. pinned current behavior
+
+Audited the integrity-critical suites for tests that pass while the behavior is
+wrong. **This is the sweep that found the systemic thing.**
+
+| Test | Anti-pattern | Severity |
+|---|---|---|
+| `CrossMacMergeTests.swift:30-39` | **Asserts the bug** — two ops, same opId, different text; asserts `"A-1"` survives "purely because it loaded first" (`// LWW: 01HZK02 wins`). Certifies silent cross-Mac data loss as intended (matches 0.4). | **Critical** |
+| `OpLogStorePartitioningTests.swift:63` | Round-trip-can't-fail — duplicates `op-a` with **byte-identical** payload through the real loader, so the dangerous divergent-content merge is never exercised. | High |
+| `ReconcilerTests.swift` (whole file) | **Untested path** — echo/edit/strip cases only; **no external-deletion test.** `Reconciler.classify:29-37` iterates disk paragraphs only, so a paragraph deleted on disk classifies as `.echo` and **survives in derived state**. Silent deletion-drop. | High |
+| `DeriverTests.swift:51-60` | Asserts-a-convention-as-correctness — blesses "deriver applies in argument order, ignores opId"; cements the unenforced "caller must sort" precondition that 0.4's determinism rests on. | Medium |
+| `DocumentReconcileTests.swift:49-58` | Indistinguishable assertion — branch-3 ".md↔op-log precedence" test uses the same text (`"old"`) on both sides, so it passes regardless of which source wins. | Medium |
+| `RenderFilterTests.swift:19-30` | Adversarial gap — only the easy minor-edit id-reattach; no drastic-rewrite case where the char-bigram tier mis-pairs (id-swap = identity corruption). | Medium |
+| `AddNoteToolTests.swift` | Happy-path only on a membrane invariant — no negative test that an escaping title/path is rejected (contrast `PublishFileToolsTests`, which does test `..`/null/leading-slash). | Medium |
+| `AnnotationKindContractTests` (both targets) | Tautology-adjacent — two hand-synced literal copies; either can drift to a wrong value without failing. | Low-Med |
+| `IntegrityChecksTests.swift:73` | Weak-net-as-coverage — confirms the integrity scan does NOT enforce the canonical paragraph-id alphabet (correct per tripwire 8), but the suite reads as if it guards the `.md`↔op-log join key; it doesn't. | Low-Med (design gap) |
+
+**Genuinely strong (catch real regressions):** backup/restore + bisect,
+Merkle tamper/missing, conflict-twin + dangling-pointer, `PresenterRoutingTests`
+(asserts *absence* of the over-archive/re-ingest bugs), annotation lifecycle,
+accept-contract, crash-recovery, `ParagraphID` alphabet gate, the
+`PublishFileTools` path-validation negatives.
+
+**Coverage estimate:** ~2/3 of integrity-critical seams have tests that would
+catch a regression; the weak ~1/3 is concentrated **precisely at the
+cross-device op-log merge / reconcile boundary** — the highest-stakes surface.
+The single most load-bearing seam (opId-collision resolution) is guarded by one
+test that *certifies the data loss as correct.*
+
+## Synthesis — the actual tell
+
+The two FS/state sweeps came back **reassuring** (one isolated bug each, not
+systemic); the test sweep came back **concerning** (the net has holes exactly
+where the stakes are highest). Reconciled, they reveal the real pattern:
+
+**The bug distribution is a photographic negative of the feedback the code
+gets.** Every confirmed silent-divergence bug lives in a spot that is
+simultaneously (a) invisible to a solo writer on one Mac smoke-testing by feel,
+and (b) covered by a test that is absent, happy-path-only, or *pins the bug*:
+- 0.2 / 0.4 cross-device LWW & opId-collision → no multi-device feel; the one test certifies the loss.
+- 0.1 wiki-rename to a *closed* doc → silent until reopened; membrane tests are happy-path.
+- 1.2 manifest self-archive → just litters a hidden dir; the test only covers the external case.
+- Reconciler external-deletion → no test at all.
+
+Conversely, everything with daily smoke exposure (editing, rename, ⌘S) **or** a
+real adversarial test (backup, Merkle, presenter-routing) is correct. The
+disciplines (op-routing, close-before-FS, echo guards) are honored almost
+everywhere — because those paths get exercised. **The bugs aren't scattered;
+they cluster where feedback is absent.** This rhymes exactly with the
+2026-05-19 audit's lesson ("suite always green, user found the bugs by typing")
+— a month later, same shape, moved from the editor seam to the merge seam.
+
+Two consequences that change the plan:
+1. **A test that asserts the bug is worse than no test** — it blocks the fix.
+   `CrossMacMergeTests`, `OpLogStorePartitioningTests`, and `DeriverTests`
+   are load-bearing in the *wrong direction*: you can't correct
+   `JSONLAppendStore`'s blind first-wins without "breaking" them, which reads
+   as a regression. **Rewriting these three tests is a prerequisite to fixing
+   0.2/0.4, not a follow-up.**
+2. **The highest-leverage single move is to build the cross-device merge /
+   reconcile integration harness and make it adversarial** (skewed clocks,
+   divergent-content opId collision, external deletion, drastic-rewrite
+   id-reattach). It simultaneously (a) closes the worst coverage gap, (b)
+   forces the 0.2/0.4/Reconciler-deletion fixes to be correct, and (c)
+   installs the feedback loop whose absence generated these bugs. Pair it with
+   the `ci.yml` gate so the loop actually runs.
+
+Net: the codebase is **better-disciplined than the bug list suggests** — but its
+safety net has a hole shaped exactly like its riskiest feature (multi-device
+sync), and one corner of the net is sewn to the bug. Fix the net at that seam
+first; the data-correctness fixes follow naturally and land verified.
