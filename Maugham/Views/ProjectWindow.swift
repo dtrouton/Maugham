@@ -197,6 +197,7 @@ struct ProjectWindow: View {
         }
         .onReceive(NotificationCenter.default.publisher(
             for: .maughamShowProjectStatistics)) { _ in
+            guard window?.isKeyWindow == true else { return }
             openWindow(id: "project-stats", value: url)
         }
         .onReceive(NotificationCenter.default.publisher(
@@ -235,10 +236,11 @@ struct ProjectWindow: View {
         .modifier(CheckpointModifier(
             documentStore: documentStore,
             store: store,
+            window: window,
             selectedItemId: selectedItemId,
             showingCheckpointLabelSheet: $showingCheckpointLabelSheet,
             onSaveFlash: { showSaveFlash() }))
-        .modifier(ParagraphNavModifier(binderSegment: $binderSegment))
+        .modifier(ParagraphNavModifier(window: window, binderSegment: $binderSegment))
         .sheet(isPresented: $showingSyntaxHelp) {
             SyntaxHelpSheet(mode: currentSyntaxHelpMode)
         }
@@ -282,6 +284,7 @@ struct ProjectWindow: View {
                 }
                 .onReceive(NotificationCenter.default.publisher(
                     for: .maughamTidyAllFilenames)) { _ in
+                    guard window?.isKeyWindow == true else { return }
                     showingTidyAllConfirmation = true
                 }
                 .onReceive(NotificationCenter.default.publisher(
@@ -292,6 +295,7 @@ struct ProjectWindow: View {
                 }
                 .onReceive(NotificationCenter.default.publisher(
                     for: .maughamNavigateToDocument)) { note in
+                    guard window?.isKeyWindow == true else { return }
                     if let id = note.userInfo?["id"] as? String {
                         binderSegment = .manuscript
                         selectedItemId = id
@@ -299,6 +303,7 @@ struct ProjectWindow: View {
                 }
                 .onReceive(NotificationCenter.default.publisher(
                     for: .maughamAddResearchFile)) { _ in
+                    guard window?.isKeyWindow == true else { return }
                     Task {
                         let panel = NSOpenPanel()
                         panel.allowsMultipleSelection = true
@@ -320,6 +325,7 @@ struct ProjectWindow: View {
                 }
                 .onReceive(NotificationCenter.default.publisher(
                     for: .maughamRestoreLastDeleted)) { _ in
+                    guard window?.isKeyWindow == true else { return }
                     Task {
                         try? await store?.restoreLastDeleted()
                     }
@@ -970,6 +976,10 @@ struct ProjectWindow: View {
 private struct CheckpointModifier: ViewModifier {
     let documentStore: DocumentStore?
     let store: ProjectStore?
+    /// The owning project window. ⌘S / Shift-⌘S are posted with `object: nil`
+    /// (menu commands), so every open window receives them. We act only when
+    /// this window is key, so ⌘S checkpoints + backs up the front project only.
+    let window: NSWindow?
     let selectedItemId: String?
     @Binding var showingCheckpointLabelSheet: Bool
     let onSaveFlash: () -> Void
@@ -979,7 +989,8 @@ private struct CheckpointModifier: ViewModifier {
         content
             .onReceive(NotificationCenter.default.publisher(
                 for: .maughamSaveCheckpoint)) { _ in
-                guard let store, let documentStore else { return }
+                guard window?.isKeyWindow == true,
+                      let store, let documentStore else { return }
                 let activeDocId = selectedItemId ?? "__no-selection__"
                 let allDocIds = ProjectWindow.documentIds(in: store.manifest.structure)
                 let activeDoc = activeDocument(
@@ -1006,7 +1017,7 @@ private struct CheckpointModifier: ViewModifier {
             }
             .onReceive(NotificationCenter.default.publisher(
                 for: .maughamNamedCheckpoint)) { _ in
-                guard store != nil else { return }
+                guard window?.isKeyWindow == true, store != nil else { return }
                 showingCheckpointLabelSheet = true
             }
             .modifier(RewindModifier(
@@ -1106,12 +1117,16 @@ private struct RewindModifier: ViewModifier {
 /// Handles .maughamNavigateToParagraph in its own modifier to stay within
 /// Swift's type-checker expression limit in SessionAndNavigationModifier.
 private struct ParagraphNavModifier: ViewModifier {
+    /// The owning project window. `.maughamNavigateToParagraph` is posted with
+    /// `object: nil`, so every open window receives it; we act only when key.
+    let window: NSWindow?
     @Binding var binderSegment: BinderSegment
 
     func body(content: Content) -> some View {
         content
             .onReceive(NotificationCenter.default.publisher(
                 for: .maughamNavigateToParagraph)) { note in
+                guard window?.isKeyWindow == true else { return }
                 // v1: just ensure the manuscript pane is focused.
                 // Anchored scroll-to-paragraph is a follow-up.
                 _ = note.userInfo?["paragraph_id"] as? String
