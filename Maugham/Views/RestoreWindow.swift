@@ -8,7 +8,14 @@ struct RestoreWindow: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var generations: [RestoreGeneration] = []
-    @State private var selection: String?
+    /// Generation directories that verified intact — computed once on load, not in
+    /// the row body (verifying re-hashes the whole generation; doing it per render
+    /// span­s an AttributeGraph cycle on large backups).
+    @State private var intact: Set<URL> = []
+    /// The selected generation's directory. A generation *directory* is unique;
+    /// its `id` (the ULID) is NOT — a single backup run stamps the same id into
+    /// every destination — so the list keys on `directory`, not `id`.
+    @State private var selection: URL?
     @State private var error: String?
 
     var body: some View {
@@ -22,7 +29,7 @@ struct RestoreWindow: View {
                     description: Text("No backup generations exist for this project yet."))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List(generations, id: \.id, selection: $selection) { gen in
+                List(generations, id: \.directory, selection: $selection) { gen in
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(gen.builtAt.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? gen.id)
@@ -30,7 +37,7 @@ struct RestoreWindow: View {
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        if BackupRestore.verify(gen).isEmpty {
+                        if intact.contains(gen.directory) {
                             Label("Verified", systemImage: "checkmark.seal").labelStyle(.iconOnly)
                                 .foregroundStyle(.green).help("Integrity verified")
                         } else {
@@ -51,11 +58,20 @@ struct RestoreWindow: View {
             }.padding(12)
         }
         .frame(minWidth: 520, minHeight: 420)
-        .task { generations = backupCoordinator.generations(forProject: projectURL) }
+        .task { await load() }
+    }
+
+    private func load() async {
+        let gens = backupCoordinator.generations(forProject: projectURL)
+        var ok: Set<URL> = []
+        for gen in gens where BackupRestore.verify(gen).isEmpty { ok.insert(gen.directory) }
+        generations = gens
+        intact = ok
     }
 
     private func restore() {
-        guard let id = selection, let gen = generations.first(where: { $0.id == id }) else { return }
+        guard let dir = selection,
+              let gen = generations.first(where: { $0.directory == dir }) else { return }
         let panel = NSSavePanel()
         panel.message = "Choose where to restore a copy of this project."
         panel.nameFieldStringValue = projectURL.lastPathComponent + " (restored)"
