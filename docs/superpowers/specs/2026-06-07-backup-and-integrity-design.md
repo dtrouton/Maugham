@@ -202,9 +202,13 @@ noise).
 - Tests crossing the `.md ↔ op log` boundary use 4-char alphabet-restricted paragraph IDs
   (tripwire 8).
 
-## 10. Open questions (resolve during planning)
+## 10. Decisions (resolved 2026-06-07) + remaining open questions
 
-- Health-indicator UI placement: status footer vs a Group-4 right-pane vs menu.
-- Default retention numbers (local N, remote M).
-- Whether the per-project opt-out needs a UI surface or is MCP/config-only for v1.
-- Whether "Verify project" runs automatically on open (cost on large projects) or on-demand only.
+**Decided:**
+- **Retention defaults:** local destinations keep **10** generations (cheap APFS clones), remote/external keep **2** (real bytes). Per-destination, overridable.
+- **Configuration home:** a new **"Backups" tab in the Settings window** (alongside General / Voice transcription) — add/remove destination folders (security-scoped bookmarks), set per-destination retention, and view last-backup status.
+- **Integrity-check timing:** run `ProjectIntegrity.check` **on project open (background)** AND **before each backup** — a corrupt source is caught and surfaced before it can be propagated to any destination (consistent with "a mirror that copies corruption isn't a backup"). A manual "Verify project" command also exists.
+
+**Still open (later UI plan):**
+- Health-indicator *placement* for the on-open result (status footer vs a badge vs a banner) — the Backups Settings tab owns destination status; the open-time integrity result needs a home.
+- Whether the per-project opt-out needs its own UI surface or is config/MCP-only for v1.
