@@ -87,4 +87,21 @@ public enum BackupWriter {
             return isDir ? name : nil
         }.sorted()
     }
+
+    /// Keep the newest `keeping` generations under `destination`; remove the rest.
+    /// "Newest" = highest-sorting ids (ULID ids sort chronologically). `keeping`
+    /// is clamped at 0. Returns the removed ids (ascending). Generations are
+    /// immutable, so pruning only ever deletes whole old generation directories.
+    @discardableResult
+    public static func prune(destination: URL, keeping: Int) throws -> [String] {
+        let keep = max(0, keeping)
+        let ids = try generationIds(at: destination)
+        guard ids.count > keep else { return [] }
+        let toRemove = Array(ids.dropLast(keep))
+        let fm = FileManager.default
+        for id in toRemove {
+            try fm.removeItem(at: destination.appendingPathComponent(id))
+        }
+        return toRemove
+    }
 }

@@ -96,4 +96,34 @@ final class BackupWriterTests: XCTestCase {
             .appendingPathComponent("nope-\(UUID().uuidString)")
         XCTAssertEqual(try BackupWriter.generationIds(at: dest), [])
     }
+
+    func test_prune_keepsNewestNAndRemovesOlder() throws {
+        let source = try makeTree(["a.md": "alpha"])
+        let dest = destDir()
+        defer { try? FileManager.default.removeItem(at: source); try? FileManager.default.removeItem(at: dest) }
+        for id in ["01A", "01B", "01C", "01D"] {
+            _ = try BackupWriter.write(source: source, to: dest, generationId: id, at: when)
+        }
+        let removed = try BackupWriter.prune(destination: dest, keeping: 2)
+        XCTAssertEqual(removed, ["01A", "01B"])               // oldest removed
+        XCTAssertEqual(try BackupWriter.generationIds(at: dest), ["01C", "01D"])  // newest kept
+    }
+
+    func test_prune_noOpWhenWithinLimit() throws {
+        let source = try makeTree(["a.md": "alpha"])
+        let dest = destDir()
+        defer { try? FileManager.default.removeItem(at: source); try? FileManager.default.removeItem(at: dest) }
+        _ = try BackupWriter.write(source: source, to: dest, generationId: "01A", at: when)
+        XCTAssertEqual(try BackupWriter.prune(destination: dest, keeping: 5), [])
+        XCTAssertEqual(try BackupWriter.generationIds(at: dest), ["01A"])
+    }
+
+    func test_prune_keepingZeroRemovesAll() throws {
+        let source = try makeTree(["a.md": "alpha"])
+        let dest = destDir()
+        defer { try? FileManager.default.removeItem(at: source); try? FileManager.default.removeItem(at: dest) }
+        _ = try BackupWriter.write(source: source, to: dest, generationId: "01A", at: when)
+        XCTAssertEqual(try BackupWriter.prune(destination: dest, keeping: 0), ["01A"])
+        XCTAssertEqual(try BackupWriter.generationIds(at: dest), [])
+    }
 }
