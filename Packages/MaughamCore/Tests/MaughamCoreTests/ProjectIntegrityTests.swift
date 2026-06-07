@@ -47,4 +47,25 @@ final class ProjectIntegrityTests: XCTestCase {
             report.docSkips.first?.skipped.contains(where: { $0.raw == "GARBAGE NOT JSON" }), true)
         XCTAssertEqual(report.conflictTwins, ["doc-0f677d7e.macA 2.jsonl"])
     }
+
+    @MainActor
+    func test_check_flagsSemanticCorruption_emptyParagraphId() async throws {
+        let proj = makeProject()
+        defer { try? FileManager.default.removeItem(at: proj) }
+        // A valid-JSON op whose change carries an EMPTY paragraph id — parses fine,
+        // but is semantically corrupt (the minor-corruption case the JSON check misses).
+        let op = Op(opId: "01ABC", docId: "doc-0f677d7e", at: Date(timeIntervalSince1970: 0),
+                    device: "macA", session: "s", kind: .typingBurst,
+                    changes: [Op.ParagraphChange(paragraphId: "", prior: nil, next: "orphaned")],
+                    sequence: nil, provenance: nil)
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = JSONLAppendStore<Op>.dateEncoding
+        let line = String(data: try enc.encode(op), encoding: .utf8)!
+        try writeOps(proj, file: "doc-0f677d7e.macA.jsonl", lines: [line])
+
+        let report = try await ProjectIntegrity.check(projectURL: proj)
+        XCTAssertFalse(report.isHealthy)
+        XCTAssertEqual(report.docSkips.count, 0)  // it parsed fine — not a syntactic skip
+        XCTAssertEqual(report.invalidParagraphIds.map(\.opId), ["01ABC"])
+    }
 }

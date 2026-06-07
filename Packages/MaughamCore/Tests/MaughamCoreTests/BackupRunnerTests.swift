@@ -35,6 +35,35 @@ final class BackupRunnerTests: XCTestCase {
         XCTAssertEqual(try BackupRunner.latestRootHash(at: dest), gen.manifest.rootHash)
     }
 
+    // Regression: an idle ⌘S only appends a `.checkpoint` breadcrumb op to the op
+    // log; that must NOT spawn a new generation (was the "saves every time" bug).
+    func test_run_skipsWhenOnlyACheckpointOpWasAppended() throws {
+        let proj = FileManager.default.temporaryDirectory.appendingPathComponent("brp-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: proj.appendingPathComponent(".maugham/ops"), withIntermediateDirectories: true)
+        let dest = destDir()
+        defer { [proj, dest].forEach { try? FileManager.default.removeItem(at: $0) } }
+        let enc = JSONEncoder(); enc.dateEncodingStrategy = JSONLAppendStore<Op>.dateEncoding
+        func line(_ id: String, _ kind: OpKind) -> String {
+            let op = Op(opId: id, docId: "doc-0f0f0f0f", at: Date(timeIntervalSince1970: 0),
+                        device: "macA", session: "s", kind: kind, changes: [], sequence: nil, provenance: nil)
+            return String(data: try! enc.encode(op), encoding: .utf8)!
+        }
+        let opsFile = proj.appendingPathComponent(".maugham/ops/doc-0f0f0f0f.macA.jsonl")
+        try (line("01A", .typingBurst) + "\n").write(to: opsFile, atomically: true, encoding: .utf8)
+
+        _ = BackupRunner.run(projectURL: proj, destinations: [BackupDestination(url: dest, retention: 5)],
+                             generationId: "01GEN1", at: when)
+        // Simulate a checkpoint-only save: append a `.checkpoint` op.
+        try (line("01A", .typingBurst) + "\n" + line("01CP", .checkpoint) + "\n")
+            .write(to: opsFile, atomically: true, encoding: .utf8)
+        let second = BackupRunner.run(projectURL: proj, destinations: [BackupDestination(url: dest, retention: 5)],
+                                      generationId: "01GEN2", at: when)
+
+        guard case .skippedUnchanged = second[0] else { return XCTFail("expected skip, got \(second[0])") }
+        XCTAssertEqual(try BackupWriter.generationIds(at: dest), ["01GEN1"])  // no churn
+    }
+
     func test_run_writesToAllDestinationsFirstTime() throws {
         let source = try makeTree(["a.md": "alpha", "sub/b.md": "beta"])
         let d1 = destDir(); let d2 = destDir()

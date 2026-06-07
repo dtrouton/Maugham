@@ -958,6 +958,7 @@ private struct CheckpointModifier: ViewModifier {
     let selectedItemId: String?
     @Binding var showingCheckpointLabelSheet: Bool
     let onSaveFlash: () -> Void
+    @Environment(BackupCoordinator.self) private var backupCoordinator
 
     func body(content: Content) -> some View {
         content
@@ -980,6 +981,12 @@ private struct CheckpointModifier: ViewModifier {
                         session: _checkpointSessionId,
                         label: nil)
                     onSaveFlash()
+                    // Back up after the checkpoint is durable. The coordinator
+                    // hops off-main internally and records status.
+                    await backupCoordinator.backupNow(
+                        projectURL: store.url,
+                        generationId: ULID.generate(),
+                        at: Date())
                 }
             }
             .onReceive(NotificationCenter.default.publisher(

@@ -5,6 +5,7 @@ import AppKit
 @main
 struct MaughamApp: App {
     @State private var userPreferences = UserPreferences()
+    @State private var backupCoordinator = BackupCoordinator()
     @State private var recents = RecentsStore()
     @State private var mcpRouter = MCPRouter()
     @State private var mcpRegistry = ProjectRegistry()
@@ -76,6 +77,16 @@ struct MaughamApp: App {
                     // Updater is independent of MCP — start it regardless of whether
                     // the MCP socket bound successfully.
                     UpdateChecker.shared.startBackgroundLoop()
+
+                    // Resolve persisted backup destinations into runnable
+                    // security-scoped URLs at launch.
+                    backupCoordinator.destinations =
+                        BackupCoordinator.resolveDestinations(
+                            userPreferences.backupDestinations)
+                }
+                .onChange(of: userPreferences.backupDestinations) { _, new in
+                    backupCoordinator.destinations =
+                        BackupCoordinator.resolveDestinations(new)
                 }
                 .onReceive(NotificationCenter.default.publisher(
                     for: .maughamAppWillTerminate)) { _ in
@@ -244,6 +255,7 @@ struct MaughamApp: App {
                 ProjectWindow(url: url)
                     .navigationTitle(url.lastPathComponent)
                     .environment(userPreferences)
+                    .environment(backupCoordinator)
                     .environment(recents)
                     .environment(mcpRegistry)
             } else {
