@@ -73,4 +73,52 @@ final class BackupRestoreTests: XCTestCase {
         try "ROT".write(to: dest.appendingPathComponent("01A/a.md"), atomically: true, encoding: .utf8)
         XCTAssertEqual(BackupRestore.verify(gen), ["a.md"])
     }
+
+    func test_restoreBeside_copiesProjectWithoutBackupSidecars() throws {
+        let source = try makeTree(["a.md": "alpha", "sub/b.md": "beta"])
+        let dest = destDir()
+        defer { try? FileManager.default.removeItem(at: source); try? FileManager.default.removeItem(at: dest) }
+        _ = try BackupWriter.write(source: source, to: dest, generationId: "01A", at: when)
+        // Give it a signature sidecar too (as a real backup run would).
+        try "sig".write(to: dest.appendingPathComponent("01A/\(BackupSignature.signatureName)"),
+                        atomically: true, encoding: .utf8)
+        let gen = BackupRestore.listGenerations(across: [dest])[0]
+        let target = FileManager.default.temporaryDirectory.appendingPathComponent("restored-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: target) }
+
+        let result = try BackupRestore.restoreBeside(gen, to: target)
+
+        XCTAssertEqual(result, target)
+        XCTAssertEqual(try String(contentsOf: target.appendingPathComponent("a.md"), encoding: .utf8), "alpha")
+        XCTAssertEqual(try String(contentsOf: target.appendingPathComponent("sub/b.md"), encoding: .utf8), "beta")
+        // Backup bookkeeping must NOT appear in a restored project.
+        XCTAssertFalse(FileManager.default.fileExists(atPath: target.appendingPathComponent(BackupWriter.manifestName).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: target.appendingPathComponent(BackupSignature.signatureName).path))
+    }
+
+    func test_restoreBeside_refusesExistingTarget() throws {
+        let source = try makeTree(["a.md": "alpha"])
+        let dest = destDir()
+        let target = destDir()  // already exists
+        defer { [source, dest, target].forEach { try? FileManager.default.removeItem(at: $0) } }
+        _ = try BackupWriter.write(source: source, to: dest, generationId: "01A", at: when)
+        let gen = BackupRestore.listGenerations(across: [dest])[0]
+        XCTAssertThrowsError(try BackupRestore.restoreBeside(gen, to: target)) {
+            XCTAssertEqual($0 as? RestoreError, .targetAlreadyExists(target))
+        }
+    }
+
+    func test_restoreBeside_refusesCorruptGeneration() throws {
+        let source = try makeTree(["a.md": "alpha"])
+        let dest = destDir()
+        defer { try? FileManager.default.removeItem(at: source); try? FileManager.default.removeItem(at: dest) }
+        _ = try BackupWriter.write(source: source, to: dest, generationId: "01A", at: when)
+        try "ROT".write(to: dest.appendingPathComponent("01A/a.md"), atomically: true, encoding: .utf8)
+        let gen = BackupRestore.listGenerations(across: [dest])[0]
+        let target = FileManager.default.temporaryDirectory.appendingPathComponent("r-\(UUID().uuidString)")
+        XCTAssertThrowsError(try BackupRestore.restoreBeside(gen, to: target)) {
+            XCTAssertEqual($0 as? RestoreError, .generationCorrupt(mismatchedPaths: ["a.md"]))
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: target.path))  // nothing written
+    }
 }

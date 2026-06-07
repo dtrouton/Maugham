@@ -51,4 +51,26 @@ public enum BackupRestore {
     public static func newestIntact(across destinations: [URL]) -> RestoreGeneration? {
         listGenerations(across: destinations).first { verify($0).isEmpty }
     }
+
+    /// Restore `gen` into a NEW folder at `target` — never into the live project.
+    /// Refuses if `target` exists or the generation fails integrity. Strips the
+    /// backup sidecars (manifest + signature) so the result is a clean project.
+    /// Returns `target`.
+    @discardableResult
+    public static func restoreBeside(_ gen: RestoreGeneration, to target: URL) throws -> URL {
+        let fm = FileManager.default
+        guard !fm.fileExists(atPath: target.path) else {
+            throw RestoreError.targetAlreadyExists(target)
+        }
+        let mismatches = verify(gen)
+        guard mismatches.isEmpty else {
+            throw RestoreError.generationCorrupt(mismatchedPaths: mismatches)
+        }
+        // Copy the whole generation (APFS CoW where possible), then drop the sidecars.
+        try fm.copyItem(at: gen.directory, to: target)
+        for sidecar in [BackupWriter.manifestName, BackupSignature.signatureName] {
+            try? fm.removeItem(at: target.appendingPathComponent(sidecar))
+        }
+        return target
+    }
 }
