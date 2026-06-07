@@ -56,6 +56,18 @@ final class BackupCoordinatorTests: XCTestCase {
         return d
     }
 
+    /// Writes a valid `project.maugham.json` carrying `id` into `proj`, so
+    /// `BackupCoordinator.projectKey` reads the minted id instead of falling
+    /// back to the folder name.
+    private func writeManifest(id: String, into proj: URL) throws {
+        let manifest = ProjectManifest(
+            id: id, type: .novel, title: "T", author: "A",
+            created: Date(timeIntervalSince1970: 0), modified: Date(timeIntervalSince1970: 0),
+            structure: [], research: [])
+        try ProjectManifest.makeEncoder().encode(manifest)
+            .write(to: proj.appendingPathComponent(ProjectManifest.fileName))
+    }
+
     func test_backupNow_writesGenerationAndRecordsStatus() async throws {
         let proj = try tempProjectWithOps(); let dest = destDir()
         defer { [proj, dest].forEach { try? FileManager.default.removeItem(at: $0) } }
@@ -64,8 +76,46 @@ final class BackupCoordinatorTests: XCTestCase {
 
         await coordinator.backupNow(projectURL: proj, generationId: "01GEN", at: Date(timeIntervalSince1970: 1))
 
-        XCTAssertEqual(try BackupWriter.generationIds(at: dest), ["01GEN"])
+        // No manifest → key falls back to the project folder name; generation lives
+        // under <dest>/<projectFolderName>/, not flat under <dest>.
+        XCTAssertEqual(try BackupWriter.generationIds(at: dest.appendingPathComponent(proj.lastPathComponent)), ["01GEN"])
         if case .ok = coordinator.lastResult { } else { XCTFail("expected ok, got \(String(describing: coordinator.lastResult))") }
+    }
+
+    func test_backupNow_keysGenerationsUnderProjectSubfolder() async throws {
+        let proj = try tempProjectWithOps()  // existing helper
+        // Give the project a manifest with a known id.
+        try writeManifest(id: "proj-AAAA", into: proj)
+        let dest = destDir()                  // existing helper
+        defer { [proj, dest].forEach { try? FileManager.default.removeItem(at: $0) } }
+        let coordinator = BackupCoordinator()
+        coordinator.destinations = [BackupDestination(url: dest, retention: 5)]
+
+        await coordinator.backupNow(projectURL: proj, generationId: "01GEN", at: Date(timeIntervalSince1970: 1))
+
+        // Generation lives under <dest>/<manifest.id>/, NOT flat under <dest>.
+        XCTAssertEqual(try BackupWriter.generationIds(at: dest.appendingPathComponent("proj-AAAA")), ["01GEN"])
+        // The only entry directly under <dest> is the project-key subfolder — the
+        // generation id itself never sits flat under <dest>.
+        XCTAssertEqual(try BackupWriter.generationIds(at: dest), ["proj-AAAA"])
+        XCTAssertFalse(try BackupWriter.generationIds(at: dest).contains("01GEN"))
+    }
+
+    func test_generationsForProject_listsOnlyThatProject() async throws {
+        let projA = try tempProjectWithOps()
+        try writeManifest(id: "proj-A", into: projA)
+        let projB = try tempProjectWithOps()
+        try writeManifest(id: "proj-B", into: projB)
+        let dest = destDir()
+        defer { [projA, projB, dest].forEach { try? FileManager.default.removeItem(at: $0) } }
+        let coordinator = BackupCoordinator()
+        coordinator.destinations = [BackupDestination(url: dest, retention: 5)]
+        await coordinator.backupNow(projectURL: projA, generationId: "01A", at: Date(timeIntervalSince1970: 1))
+        await coordinator.backupNow(projectURL: projB, generationId: "01B", at: Date(timeIntervalSince1970: 2))
+
+        // Same shared destination, but each project sees only its own generations.
+        XCTAssertEqual(coordinator.generations(forProject: projA).map(\.id), ["01A"])
+        XCTAssertEqual(coordinator.generations(forProject: projB).map(\.id), ["01B"])
     }
 
     func test_backupNow_abortsAndFlagsWhenSourceCorrupt() async throws {

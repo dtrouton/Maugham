@@ -33,7 +33,7 @@ public final class BackupCoordinator {
         }
 
         // BackupRunner.run is synchronous filesystem work; hop off the main actor.
-        let dests = destinations
+        let dests = projectDestinations(for: projectURL)
         let outcomes = await Task.detached {
             BackupRunner.run(projectURL: projectURL, destinations: dests, generationId: generationId, at: now)
         }.value
@@ -47,6 +47,33 @@ public final class BackupCoordinator {
             }
         }
         lastResult = .ok(written: written, skipped: skipped, failed: failed, at: now)
+    }
+
+    /// The per-project subfolder name under a destination: the project's minted
+    /// `ProjectManifest.id`, falling back to the folder name if the manifest has
+    /// no id (older projects). Keeps each project's generations separate so several
+    /// projects can share one backup destination.
+    public static func projectKey(for projectURL: URL) -> String {
+        let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
+        if let data = try? Data(contentsOf: manifestURL),
+           let manifest = try? ProjectManifest.makeDecoder().decode(ProjectManifest.self, from: data),
+           let id = manifest.id, !id.isEmpty {
+            return id
+        }
+        return projectURL.lastPathComponent
+    }
+
+    /// Per-project destination URLs (`<destination>/<projectKey>`), preserving retention.
+    private func projectDestinations(for projectURL: URL) -> [BackupDestination] {
+        let key = Self.projectKey(for: projectURL)
+        return destinations.map {
+            BackupDestination(url: $0.url.appendingPathComponent(key), retention: $0.retention)
+        }
+    }
+
+    /// Generations for one project across all destinations, newest-first.
+    public func generations(forProject projectURL: URL) -> [RestoreGeneration] {
+        BackupRestore.listGenerations(across: projectDestinations(for: projectURL).map(\.url))
     }
 
     /// Resolve persisted configs into runnable destinations. Unresolvable/stale
