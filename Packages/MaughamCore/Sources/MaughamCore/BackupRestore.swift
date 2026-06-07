@@ -39,9 +39,9 @@ public enum BackupRestore {
     }
 
     /// The relative paths in `gen` that don't match its manifest (empty == intact).
-    /// Throws nothing — an unreadable manifest yields `[]` (treated as can't-verify;
-    /// `newestIntact` therefore won't pick a generation whose manifest is gone — see
-    /// note). Use for an integrity badge in the restore list.
+    /// Throws nothing — an unreadable/missing manifest yields `["<unverifiable>"]`
+    /// (non-empty, i.e. treated as *not* intact), so `newestIntact` won't pick a
+    /// generation we can't actually check. Use for an integrity badge in the list.
     public static func verify(_ gen: RestoreGeneration) -> [String] {
         ((try? BackupWriter.verifyGeneration(id: gen.id, at: gen.destination)) ?? ["<unverifiable>"])
     }
