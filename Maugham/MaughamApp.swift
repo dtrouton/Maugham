@@ -122,6 +122,8 @@ struct MaughamApp: App {
                 }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
                 Divider()
+                FocusedRestoreButton()
+                Divider()
                 Button("Tidy All Filenames") {
                     NotificationCenter.default.post(
                         name: .maughamTidyAllFilenames, object: nil)
@@ -270,6 +272,16 @@ struct MaughamApp: App {
             }
         }
 
+        WindowGroup("Restore Backup", id: "backup-restore", for: URL.self) { $projectURL in
+            if let projectURL {
+                RestoreWindow(projectURL: projectURL)
+                    .environment(backupCoordinator)
+            } else {
+                Text("No project").foregroundStyle(.secondary)
+            }
+        }
+        .windowResizability(.contentMinSize)
+
         Settings {
             SettingsView()
                 .environment(userPreferences)
@@ -311,6 +323,28 @@ struct MaughamApp: App {
         _ = firstResponder.tryToPerform(
             #selector(NSResponder.performTextFinderAction(_:)),
             with: item)
+    }
+}
+
+/// Focused-value key carrying the URL of the project owning the currently
+/// focused window, so window-scoped commands (e.g. File → Restore from Backup…)
+/// can target it.
+struct FocusedProjectURLKey: FocusedValueKey { typealias Value = URL }
+extension FocusedValues {
+    var projectURL: URL? {
+        get { self[FocusedProjectURLKey.self] }
+        set { self[FocusedProjectURLKey.self] = newValue }
+    }
+}
+
+private struct FocusedRestoreButton: View {
+    @FocusedValue(\.projectURL) private var projectURL
+    @Environment(\.openWindow) private var openWindow
+    var body: some View {
+        Button("Restore from Backup…") {
+            if let projectURL { openWindow(id: "backup-restore", value: projectURL) }
+        }
+        .disabled(projectURL == nil)
     }
 }
 
