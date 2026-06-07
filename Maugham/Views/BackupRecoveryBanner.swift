@@ -10,7 +10,7 @@ struct BackupRecoveryBanner: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        if case .integrityFailed = backupCoordinator.lastResult {
+        if case .integrityFailed = backupCoordinator.lastResult(for: projectURL) {
             HStack(spacing: 12) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)

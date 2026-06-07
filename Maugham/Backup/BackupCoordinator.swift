@@ -17,18 +17,32 @@ public final class BackupCoordinator {
         case integrityFailed(summary: String)
         case noDestinations
     }
-    public private(set) var lastResult: Result = .idle
+    /// Backup outcome **per project** (keyed by a normalized URL). Per-project so a
+    /// failure on one project doesn't light the "backups paused" banner on every
+    /// open window — the coordinator is a single app-wide object shared by all
+    /// project windows.
+    public private(set) var resultsByProject: [URL: Result] = [:]
+
+    /// The most recent backup outcome for `projectURL` (`.idle` if none yet).
+    public func lastResult(for projectURL: URL) -> Result {
+        resultsByProject[Self.resultKey(projectURL)] ?? .idle
+    }
+
+    /// Normalize so the banner's `url` and `backupNow`'s `store.url` (which may
+    /// differ by `/var`↔`/private/var` or trailing slash) key the same slot.
+    private static func resultKey(_ url: URL) -> URL { url.standardizedFileURL }
 
     /// Run an integrity check, then (if clean) back up to all destinations. A
     /// corrupt source is surfaced and the backup is skipped — corruption must not
     /// propagate to destinations. Never throws.
     public func backupNow(projectURL: URL, generationId: String, at now: Date) async {
-        guard !destinations.isEmpty else { lastResult = .noDestinations; return }
+        let key = Self.resultKey(projectURL)
+        guard !destinations.isEmpty else { resultsByProject[key] = .noDestinations; return }
 
         // Integrity-before-backup (decision 2026-06-07).
         if let report = try? await ProjectIntegrity.check(projectURL: projectURL), !report.isHealthy {
             let summary = "skips:\(report.docSkips.count) twins:\(report.conflictTwins.count) dangling:\(report.danglingPointers.count) bad-ids:\(report.invalidParagraphIds.count)"
-            lastResult = .integrityFailed(summary: summary)
+            resultsByProject[key] = .integrityFailed(summary: summary)
             return
         }
 
@@ -46,7 +60,7 @@ public final class BackupCoordinator {
             case .failed: failed += 1
             }
         }
-        lastResult = .ok(written: written, skipped: skipped, failed: failed, at: now)
+        resultsByProject[key] = .ok(written: written, skipped: skipped, failed: failed, at: now)
     }
 
     /// The per-project subfolder name under a destination: the project's minted

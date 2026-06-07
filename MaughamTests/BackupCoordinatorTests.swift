@@ -79,7 +79,7 @@ final class BackupCoordinatorTests: XCTestCase {
         // No manifest → key falls back to the project folder name; generation lives
         // under <dest>/<projectFolderName>/, not flat under <dest>.
         XCTAssertEqual(try BackupWriter.generationIds(at: dest.appendingPathComponent(proj.lastPathComponent)), ["01GEN"])
-        if case .ok = coordinator.lastResult { } else { XCTFail("expected ok, got \(String(describing: coordinator.lastResult))") }
+        if case .ok = coordinator.lastResult(for: proj) { } else { XCTFail("expected ok, got \(String(describing: coordinator.lastResult(for: proj)))") }
     }
 
     func test_backupNow_keysGenerationsUnderProjectSubfolder() async throws {
@@ -129,6 +129,32 @@ final class BackupCoordinatorTests: XCTestCase {
         await coordinator.backupNow(projectURL: proj, generationId: "01GEN", at: Date(timeIntervalSince1970: 1))
 
         XCTAssertEqual(try BackupWriter.generationIds(at: dest), [])  // nothing backed up
-        if case .integrityFailed = coordinator.lastResult { } else { XCTFail("expected integrityFailed, got \(String(describing: coordinator.lastResult))") }
+        if case .integrityFailed = coordinator.lastResult(for: proj) { } else { XCTFail("expected integrityFailed, got \(String(describing: coordinator.lastResult(for: proj)))") }
+    }
+
+    // Regression: a corrupt project's integrity failure must NOT bleed into another
+    // open project's result (the coordinator is one app-wide object; results are
+    // keyed per project so the banner only lights on the failing project's window).
+    @MainActor
+    func test_results_arePerProject_failureDoesNotBleed() async throws {
+        let good = try tempProjectWithOps()
+        let bad = try tempProjectWithOps()
+        try "GARBAGE NOT JSON\n".write(
+            to: bad.appendingPathComponent(".maugham/ops/doc-0f0f0f0f.macA.jsonl"),
+            atomically: true, encoding: .utf8)
+        let dest = destDir()
+        defer { [good, bad, dest].forEach { try? FileManager.default.removeItem(at: $0) } }
+        let coordinator = BackupCoordinator()
+        coordinator.destinations = [BackupDestination(url: dest, retention: 5)]
+
+        await coordinator.backupNow(projectURL: good, generationId: "01G", at: Date(timeIntervalSince1970: 1))
+        await coordinator.backupNow(projectURL: bad, generationId: "01B", at: Date(timeIntervalSince1970: 2))
+
+        if case .ok = coordinator.lastResult(for: good) {} else {
+            XCTFail("good project should be .ok, got \(coordinator.lastResult(for: good))")
+        }
+        if case .integrityFailed = coordinator.lastResult(for: bad) {} else {
+            XCTFail("bad project should be .integrityFailed, got \(coordinator.lastResult(for: bad))")
+        }
     }
 }
