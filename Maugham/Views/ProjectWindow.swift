@@ -159,6 +159,7 @@ struct ProjectWindow: View {
                 BackupRecoveryBanner(projectURL: url)
             }
         }
+        .focusedSceneValue(\.projectURL, url)
         .background(WindowAccessor(window: $window))
         .task(id: url) { await load() }
         .onDisappear {
