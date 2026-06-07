@@ -29,4 +29,51 @@ final class BackupWriterTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         XCTAssertEqual(try BackupWriter.relativeFilePaths(under: root), [])
     }
+
+    private let when = Date(timeIntervalSince1970: 1_700_000_000)
+    private func destDir() -> URL {
+        let d = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dest-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        return d
+    }
+
+    func test_write_copiesAllFilesAndEmbedsVerifiableManifest() throws {
+        let source = try makeTree(["a.md": "alpha", "sub/b.md": "beta"])
+        let dest = destDir()
+        defer { try? FileManager.default.removeItem(at: source); try? FileManager.default.removeItem(at: dest) }
+
+        let gen = try BackupWriter.write(source: source, to: dest, generationId: "01GEN", at: when)
+
+        let genDir = dest.appendingPathComponent("01GEN")
+        XCTAssertEqual(gen.id, "01GEN")
+        XCTAssertEqual(try String(contentsOf: genDir.appendingPathComponent("a.md"), encoding: .utf8), "alpha")
+        XCTAssertEqual(try String(contentsOf: genDir.appendingPathComponent("sub/b.md"), encoding: .utf8), "beta")
+        // Manifest exists and verifies against the copied tree.
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: genDir.appendingPathComponent(BackupWriter.manifestName).path))
+        XCTAssertEqual(MerkleBuilder.verify(manifest: gen.manifest, root: genDir), [])
+        // Manifest does not list itself.
+        XCTAssertFalse(gen.manifest.entries.contains { $0.relativePath == BackupWriter.manifestName })
+    }
+
+    func test_write_leavesNoPartialDirOnSuccess() throws {
+        let source = try makeTree(["a.md": "alpha"])
+        let dest = destDir()
+        defer { try? FileManager.default.removeItem(at: source); try? FileManager.default.removeItem(at: dest) }
+        _ = try BackupWriter.write(source: source, to: dest, generationId: "01GEN", at: when)
+        let entries = try FileManager.default.contentsOfDirectory(atPath: dest.path)
+        XCTAssertEqual(entries, ["01GEN"])  // no .partial-* left behind
+    }
+
+    func test_write_cleansLeftoverPartialFromPriorFailure() throws {
+        let source = try makeTree(["a.md": "alpha"])
+        let dest = destDir()
+        defer { try? FileManager.default.removeItem(at: source); try? FileManager.default.removeItem(at: dest) }
+        // Simulate a leftover partial from a crashed prior run.
+        try FileManager.default.createDirectory(
+            at: dest.appendingPathComponent(".partial-01GEN"), withIntermediateDirectories: true)
+        _ = try BackupWriter.write(source: source, to: dest, generationId: "01GEN", at: when)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dest.path), ["01GEN"])
+    }
 }
