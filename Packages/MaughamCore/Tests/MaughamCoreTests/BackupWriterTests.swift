@@ -76,4 +76,24 @@ final class BackupWriterTests: XCTestCase {
         _ = try BackupWriter.write(source: source, to: dest, generationId: "01GEN", at: when)
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dest.path), ["01GEN"])
     }
+
+    func test_generationIds_listsCommittedGenerationsSortedIgnoringPartials() throws {
+        let source = try makeTree(["a.md": "alpha"])
+        let dest = destDir()
+        defer { try? FileManager.default.removeItem(at: source); try? FileManager.default.removeItem(at: dest) }
+        _ = try BackupWriter.write(source: source, to: dest, generationId: "01B", at: when)
+        _ = try BackupWriter.write(source: source, to: dest, generationId: "01A", at: when)
+        _ = try BackupWriter.write(source: source, to: dest, generationId: "01C", at: when)
+        // A stray partial + a stray dotfile must be ignored.
+        try FileManager.default.createDirectory(
+            at: dest.appendingPathComponent(".partial-XX"), withIntermediateDirectories: true)
+
+        XCTAssertEqual(try BackupWriter.generationIds(at: dest), ["01A", "01B", "01C"])
+    }
+
+    func test_generationIds_missingDestinationIsEmpty() throws {
+        let dest = FileManager.default.temporaryDirectory
+            .appendingPathComponent("nope-\(UUID().uuidString)")
+        XCTAssertEqual(try BackupWriter.generationIds(at: dest), [])
+    }
 }

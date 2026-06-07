@@ -72,4 +72,19 @@ public enum BackupWriter {
             throw error
         }
     }
+
+    /// Committed generation ids under `destination`, sorted ascending (ULID ids sort
+    /// chronologically). Ignores hidden entries (`.partial-*`, `.DS_Store`) and files.
+    public static func generationIds(at destination: URL) throws -> [String] {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: destination.path) else { return [] }
+        let entries = try fm.contentsOfDirectory(
+            at: destination, includingPropertiesForKeys: [.isDirectoryKey], options: [])
+        return entries.compactMap { url -> String? in
+            let name = url.lastPathComponent
+            guard !name.hasPrefix(".") else { return nil }
+            let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+            return isDir ? name : nil
+        }.sorted()
+    }
 }
