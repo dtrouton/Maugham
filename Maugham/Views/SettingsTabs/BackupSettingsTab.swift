@@ -13,20 +13,31 @@ struct BackupSettingsTab: View {
                         .font(.callout)
                 }
                 ForEach(themeManager.backupDestinations) { cfg in
-                    HStack {
-                        Stepper(value: retentionBinding(cfg), in: 1...50) {
-                            VStack(alignment: .leading) {
-                                Text(cfg.displayName)
-                                Text("Keep \(cfg.retention) generation\(cfg.retention == 1 ? "" : "s")")
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(cfg.displayName).fontWeight(.medium)
+                            if let path = displayPath(cfg) {
+                                Text(path)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .help(path)
                             }
+                        }
+                        Spacer(minLength: 8)
+                        HStack(spacing: 6) {
+                            Text("Keep \(cfg.retention)")
+                                .font(.callout)
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                            Stepper(value: retentionBinding(cfg), in: 1...50) { EmptyView() }
+                                .labelsHidden()
                         }
                         Button(role: .destructive) { remove(cfg) } label: {
                             Image(systemName: "trash")
                         }
                         .buttonStyle(.borderless)
-                        .padding(.leading, 8)
                     }
                 }
                 Button("Add destination…") { addDestination() }
@@ -62,6 +73,7 @@ struct BackupSettingsTab: View {
         let cfg = BackupDestinationConfig(
             id: UUID().uuidString,
             displayName: url.lastPathComponent,
+            path: url.path,
             bookmark: bookmark,
             retention: 10)
         themeManager.backupDestinations.append(cfg)
@@ -69,6 +81,13 @@ struct BackupSettingsTab: View {
 
     private func remove(_ cfg: BackupDestinationConfig) {
         themeManager.backupDestinations.removeAll { $0.id == cfg.id }
+    }
+
+    /// The destination's path with the home directory shown as `~`, or nil for
+    /// configs saved before paths were recorded (they fall back to name only).
+    private func displayPath(_ cfg: BackupDestinationConfig) -> String? {
+        guard let path = cfg.path else { return nil }
+        return (path as NSString).abbreviatingWithTildeInPath
     }
 
     /// A binding to one destination's retention that writes back through the array
