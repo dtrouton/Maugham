@@ -13,6 +13,8 @@ struct SettingsView: View {
                 .tabItem { Label("Typography", systemImage: "quote.bubble") }
             VoiceSettingsTab()
                 .tabItem { Label("Voice", systemImage: "mic") }
+            BackupSettingsTab(themeManager: themeManager)
+                .tabItem { Label("Backups", systemImage: "externaldrive.badge.timemachine") }
             GeneralSettingsTab(themeManager: themeManager)
                 .tabItem { Label("General", systemImage: "gearshape") }
             AboutSettingsTab()
