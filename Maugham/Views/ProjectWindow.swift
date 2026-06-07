@@ -154,7 +154,10 @@ struct ProjectWindow: View {
         }
         .frame(minWidth: 980, minHeight: 540)
         .safeAreaInset(edge: .top, spacing: 0) {
-            UpdateBannerView()
+            VStack(spacing: 0) {
+                UpdateBannerView()
+                BackupRecoveryBanner(projectURL: url)
+            }
         }
         .background(WindowAccessor(window: $window))
         .task(id: url) { await load() }
