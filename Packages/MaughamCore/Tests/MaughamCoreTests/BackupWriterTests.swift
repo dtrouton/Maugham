@@ -126,4 +126,22 @@ final class BackupWriterTests: XCTestCase {
         XCTAssertEqual(try BackupWriter.prune(destination: dest, keeping: 0), ["01A"])
         XCTAssertEqual(try BackupWriter.generationIds(at: dest), [])
     }
+
+    func test_verifyGeneration_cleanWhenUntouched() throws {
+        let source = try makeTree(["a.md": "alpha", "sub/b.md": "beta"])
+        let dest = destDir()
+        defer { try? FileManager.default.removeItem(at: source); try? FileManager.default.removeItem(at: dest) }
+        _ = try BackupWriter.write(source: source, to: dest, generationId: "01A", at: when)
+        XCTAssertEqual(try BackupWriter.verifyGeneration(id: "01A", at: dest), [])
+    }
+
+    func test_verifyGeneration_detectsTamper() throws {
+        let source = try makeTree(["a.md": "alpha", "sub/b.md": "beta"])
+        let dest = destDir()
+        defer { try? FileManager.default.removeItem(at: source); try? FileManager.default.removeItem(at: dest) }
+        _ = try BackupWriter.write(source: source, to: dest, generationId: "01A", at: when)
+        // Corrupt a file inside the committed generation.
+        try "ROT".write(to: dest.appendingPathComponent("01A/a.md"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(try BackupWriter.verifyGeneration(id: "01A", at: dest), ["a.md"])
+    }
 }

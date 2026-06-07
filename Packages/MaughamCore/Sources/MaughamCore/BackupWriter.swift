@@ -104,4 +104,15 @@ public enum BackupWriter {
         }
         return toRemove
     }
+
+    /// Verify a committed generation's files against its embedded manifest. Returns
+    /// the relative paths that mismatch or are missing (empty == intact). Throws if
+    /// the generation or its manifest can't be read.
+    public static func verifyGeneration(id: String, at destination: URL) throws -> [String] {
+        let genDir = destination.appendingPathComponent(id)
+        let manifestURL = genDir.appendingPathComponent(manifestName)
+        let manifest = try JSONDecoder().decode(
+            MerkleManifest.self, from: Data(contentsOf: manifestURL))
+        return MerkleBuilder.verify(manifest: manifest, root: genDir)
+    }
 }
