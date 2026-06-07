@@ -1,9 +1,13 @@
 // swift-tools-version: 5.10
 import PackageDescription
 
-// MaughamCore — the Foundation-only substrate shared by the macOS app (Maugham)
-// and the iOS companion (MaughamPhone). Houses the op-log types, JSONL store,
-// annotation derivation, paragraph/Fountain parsing, and the shared model types.
+// MaughamCore — the substrate shared by the macOS app (Maugham) and the iOS
+// companion (MaughamPhone). Houses the op-log types, JSONL store, annotation
+// derivation, paragraph/Fountain parsing, and the shared model types.
+// Uses Apple system frameworks only (Foundation, plus CryptoKit for the
+// integrity manifest's SHA-256) — NO third-party package dependencies, so it
+// stays trivially buildable for both Apple targets. (It is therefore Apple-only:
+// porting to Linux would mean swapping CryptoKit for apple/swift-crypto.)
 // AppKit/SwiftUI-bound code stays in the app targets; nothing here imports a UI
 // framework. See docs/superpowers/specs/2026-05-24-iphone-companion-v1-design.md §3.1.
 let package = Package(

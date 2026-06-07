@@ -30,7 +30,18 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
     }
 
     public func load() async throws -> [Element] {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
+        parseDiagnosed(bytes: try readBytes()).elements
+    }
+
+    /// Like `load()`, but also reports lines that failed to decode (previously
+    /// dropped silently). Use this where corruption must be surfaced.
+    public func loadDiagnosed() async throws -> (elements: [Element], diagnostics: ParseDiagnostics) {
+        parseDiagnosed(bytes: try readBytes())
+    }
+
+    /// Coordinated read of the whole file; empty Data if the file is absent.
+    private func readBytes() throws -> Data {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return Data() }
         let coord = NSFileCoordinator(filePresenter: presenter)
         var coordErr: NSError?
         var bytes: Data?
@@ -38,7 +49,7 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
             bytes = try? Data(contentsOf: ru)
         }
         if let coordErr { throw coordErr }
-        return parseAndPostProcess(bytes: bytes ?? Data())
+        return bytes ?? Data()
     }
 
     public func append(_ element: Element) async throws {
@@ -73,24 +84,28 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
         return String(data: data, encoding: .utf8) ?? ""
     }
 
-    private func parseAndPostProcess(bytes: Data) -> [Element] {
-        guard let text = String(data: bytes, encoding: .utf8) else { return [] }
+    private func parseDiagnosed(bytes: Data) -> (elements: [Element], diagnostics: ParseDiagnostics) {
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = Self.dateDecoding
         var elements: [Element] = []
         var seen = Set<String>()
-        for line in text.split(omittingEmptySubsequences: true, whereSeparator: \.isNewline) {
-            guard let d = String(line).data(using: .utf8),
-                  let element = try? dec.decode(Element.self, from: d) else { continue }
-            if let key = dedupKey?(element) {
-                if !seen.insert(key).inserted { continue }
+        var skipped: [ParseDiagnostics.SkippedLine] = []
+        var offset = 0
+        for lineBytes in bytes.split(separator: 0x0A, omittingEmptySubsequences: false) {
+            let lineLen = lineBytes.count
+            defer { offset += lineLen + 1 }  // +1 for the consumed newline
+            if lineBytes.isEmpty { continue }  // blank line: not corruption
+            let data = Data(lineBytes)
+            guard let element = try? dec.decode(Element.self, from: data) else {
+                let raw = String(data: data, encoding: .utf8) ?? "<non-utf8>"
+                skipped.append(.init(byteOffset: offset, raw: raw))
+                continue
             }
+            if let key = dedupKey?(element), !seen.insert(key).inserted { continue }
             elements.append(element)
         }
-        if let sortedBy {
-            elements.sort(by: sortedBy)
-        }
-        return elements
+        if let sortedBy { elements.sort(by: sortedBy) }
+        return (elements, ParseDiagnostics(skipped: skipped))
     }
 
     // === Shared ISO8601-with-fractional-seconds Date coding ===
