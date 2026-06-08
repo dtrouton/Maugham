@@ -240,11 +240,44 @@ Opportunistic; each is small and independent. Good for haiku/sonnet.
 - **M4** is all opportunistic; fold each task into whichever milestone touches
   the same file.
 
-## Doc deliverables (folded into milestones, not a separate pass)
+## Doc strategy — agent-first, lean context
 
-Per CLAUDE.md ("docs describe what ships"): Tier-1 corrections in **0.4** (the
-docs are wrong now); the **schema-evolution ADR** with **3.3**; `Stores/AREA.md`
-with **3.1**; `Updates/AREA.md` (new) with **4.4**; `OpLog/AREA.md` amendments
-with **2.2** + **4.8**. Separately worth raising with the user (not a task here):
-CLAUDE.md at ~38KB is past the size where load-bearing rules stay reliably
-followed — consider migrating detail into AREA.md/ADRs rather than growing root.
+Guiding principle: **the docs exist to help an agent working in this repo, and
+bloated always-loaded context hurts more than it helps.** Three rules:
+
+1. **Enforcement > prose.** The best doc is a compile error or a failing test.
+   Every tripwire M3 converts to a type/test (`relocate(plan:)`, the schema
+   `unknown` cases, the manifest `EchoState`, the tripwire-greps) lets its
+   CLAUDE.md entry **shrink to a one-line pointer** ("enforced by X — see Y").
+   The doc work and the hardening work are the same effort: as a rule becomes
+   structural, its cautionary essay becomes a pointer. **Docs shrink as we
+   harden** — track CLAUDE.md size going *down* across M1–M3 as a signal.
+2. **CLAUDE.md is a router, not an encyclopedia.** Always-loaded root context is
+   borrowed from the agent's attention to the corruption-class invariants.
+   Target ~38KB → ~12–15KB: keep first-five-minutes routing, hard invariants,
+   default workflow, "questions you don't need to ask", and a **terse tripwire
+   index** (one-line rule + where-it's-enforced/read-more). Relocate, never drop.
+3. **Push detail to the nearest AREA.md — just-in-time.** Detail is paid for
+   only when an agent is actually in that directory. Per-area pointers in root
+   become one line deferring to AREA.md.
+
+### Doc tasks (folded into milestones; "describe what ships" per CLAUDE.md)
+- **0.4** — Tier-1 corrections (docs wrong *now*): tripwire-19 reword,
+  op-log-source-of-truth honesty note.
+- **D1 (parallel, sonnet)** — **CLAUDE.md slim-down**: move the Releases recipe
+  → new `docs/RELEASING.md`; move phone bundle-id/Phase-G forensics →
+  `MaughamPhone/AREA.md`; compress the 19 tripwire paragraphs → an index
+  (rule + enforcement pointer), with the post-mortems left in the `memory/`
+  files they cite; compress per-area pointers to one line each. **No rule
+  dropped** — relocate + compress only; diff reviewed against the current file
+  to prove nothing load-bearing was lost.
+- **3.3** — ADR 0014 (persisted-schema evolution), `UIState` named as template.
+- **3.1** — `Stores/AREA.md`: the typed `relocate(plan:)` mover as *the* way to
+  move user content (replaces the prose tripwire-14 description, now enforced).
+- **4.4** — new `Maugham/Updates/AREA.md`: verify-chain + atomic-swap invariants.
+- **2.2 / 4.8** — `OpLog/AREA.md`: merge resolution + `Op.at` semantics; bigram
+  margin rule. Each replaces a "cleanup planned" hand-wave with a stated (and,
+  where M-tasks land them, enforced) contract.
+
+As each tripwire becomes enforced, its root-file entry is cut to a pointer in
+the **same** PR — so the index stays honest and the file keeps shrinking.
