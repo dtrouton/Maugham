@@ -177,9 +177,14 @@ struct InboxPane: View {
             Button("Promote to Research") { promote(entry) }
             if entry.kind == .audio {
                 Button("Edit Transcript…") { editing = entry }
-                if canTranscribe,
-                   entry.transcriptionState == .failed || entry.transcriptionState == .whisperFinal {
-                    Button("Transcribe Again") {
+                // Offer manual (re)transcription for any audio capture except one
+                // the writer has hand-edited (we don't clobber `.userEdited`). This
+                // covers entries stuck at `.none`/`.onDeviceDraft` that the worker
+                // never finished — not just `.failed`/`.whisperFinal` — so a blank
+                // capture always has an escape hatch. Re-running picks up the
+                // current Settings model.
+                if canTranscribe, entry.transcriptionState != .userEdited {
+                    Button(transcribeActionLabel(for: entry)) {
                         audio.stop()
                         retranscribe(entry)
                     }
@@ -236,6 +241,12 @@ struct InboxPane: View {
             return "Draft · \(relative)"
         }
         return relative
+    }
+
+    /// "Transcribe" for a capture that has never produced a transcript (`.none`),
+    /// "Transcribe Again" once there's a draft/result/failure to replace.
+    private func transcribeActionLabel(for entry: InboxEntry) -> String {
+        entry.transcriptionState == .none ? "Transcribe" : "Transcribe Again"
     }
 }
 
