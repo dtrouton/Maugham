@@ -15,6 +15,11 @@ import MaughamCore
 struct InboxPane: View {
     @Bindable var store: InboxStore
     let projectStore: ProjectStore
+    /// True when local transcription is available (Apple Silicon). Gates the
+    /// "Transcribe Again" affordance — there's no transcriber on Intel.
+    let canTranscribe: Bool
+    /// Re-arm + kick transcription for an entry (DocumentStore.retranscribe).
+    let retranscribe: (InboxEntry) -> Void
 
     @State private var editing: InboxEntry?
     @State private var audio = InboxAudioPlayer()
@@ -52,7 +57,8 @@ struct InboxPane: View {
             // subview) so it always opens with the existing transcript — a single
             // imperative @State set just before presenting `.sheet(item:)` doesn't
             // reliably propagate before the sheet's first render.
-            EditTranscriptSheet(initialText: entry.transcript ?? "") { newText in
+            EditTranscriptSheet(initialText: entry.transcript ?? "",
+                                errorNote: entry.transcriptionError) { newText in
                 // A manual edit makes the writer the owner: mark .userEdited so the
                 // transcription worker never overwrites it with a later Whisper result.
                 Task { await store.updateTranscript(id: entry.id, text: newText, state: .userEdited) }
@@ -160,7 +166,7 @@ struct InboxPane: View {
                 if let subtitle = subtitle(for: entry) {
                     Text(subtitle)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(entry.transcriptionState == .failed ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
                         .lineLimit(1)
                 }
             }
@@ -171,6 +177,13 @@ struct InboxPane: View {
             Button("Promote to Research") { promote(entry) }
             if entry.kind == .audio {
                 Button("Edit Transcript…") { editing = entry }
+                if canTranscribe,
+                   entry.transcriptionState == .failed || entry.transcriptionState == .whisperFinal {
+                    Button("Transcribe Again") {
+                        audio.stop()
+                        retranscribe(entry)
+                    }
+                }
             }
             Divider()
             Button("Trash", role: .destructive) {
@@ -213,6 +226,12 @@ struct InboxPane: View {
     private func subtitle(for entry: InboxEntry) -> String? {
         let relative = Self.relativeFormatter.localizedString(
             for: entry.createdAt, relativeTo: Date())
+        if entry.transcriptionState == .failed {
+            if let err = entry.transcriptionError, !err.isEmpty {
+                return "Failed · \(err)"
+            }
+            return "Failed · \(relative)"
+        }
         if entry.kind == .audio, entry.transcriptionState == .onDeviceDraft {
             return "Draft · \(relative)"
         }
@@ -225,17 +244,24 @@ struct InboxPane: View {
 /// existing transcript regardless of `.sheet(item:)` presentation timing.
 private struct EditTranscriptSheet: View {
     @State private var text: String
+    let errorNote: String?
     let onSave: (String) -> Void
     @Environment(\.dismiss) private var dismiss
 
-    init(initialText: String, onSave: @escaping (String) -> Void) {
+    init(initialText: String, errorNote: String? = nil, onSave: @escaping (String) -> Void) {
         _text = State(initialValue: initialText)
+        self.errorNote = errorNote
         self.onSave = onSave
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Edit Transcript").font(.headline)
+            if let errorNote, !errorNote.isEmpty {
+                Label(errorNote, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
             TextEditor(text: $text)
                 .font(.body)
                 .frame(minWidth: 360, minHeight: 160)
