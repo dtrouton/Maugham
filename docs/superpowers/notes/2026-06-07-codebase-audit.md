@@ -300,3 +300,112 @@ Net: the codebase is **better-disciplined than the bug list suggests** — but i
 safety net has a hole shaped exactly like its riskiest feature (multi-device
 sync), and one corner of the net is sewn to the bug. Fix the net at that seam
 first; the data-correctness fixes follow naturally and land verified.
+
+---
+
+# Addendum 2 — Round-2 sweeps (concurrency, updater, cross-version schema, silent `try?`)
+
+Four more blind spots checked after the first addendum. Two came back clean
+(reassuring negative results), two found real items. Same thesis holds: the
+bugs live where there's no feedback.
+
+## Sweep 4 — MCP-thread vs main-actor concurrency: CLEAN ✅
+The headline worry — an MCP handler racing the user's typing on the op
+log/manifest — **does not exist.** The socket transport runs off-main
+(`MCPServer.swift:91,132` `Task.detached`/`DispatchQueue.global`, blocking POSIX
+wrapped in continuations — correct), but `await router.dispatch` (`MCPServer.swift:207`)
+re-isolates onto `@MainActor`, and every store (`ProjectStore`, `DocumentStore`,
+`Document`, `InboxStore`, the op-log `JSONLAppendStore`) is `@MainActor @Observable`.
+A Claude annotation append and a typing-burst flush are mutually exclusive by
+main-actor serialization. Two concurrent MCP connections both collapse to main
+at the dispatch hop. This is the textbook-correct shape; an `actor` redesign
+would be a regression (it'd lose the free serialize-with-UI). `SWIFT_STRICT_CONCURRENCY=complete`
+would be quiet on this seam — its noise (the audit's "lurking warnings") is in
+the editor's AppKit-delegate / `Sendable`-closure code, not the store writes.
+
+## Sweep 5 — Auto-updater: security CLEAN ✅, one brick-risk should-fix ⚠️
+Verification chain is **sound and correctly ordered**: `codesign --deep --strict`
++ `spctl` notarization + Team-ID matched against the **running app's own**
+signature (`UpdateInstaller.swift:78-89`, not an attacker-controllable constant),
+all on the **same staged bytes** that get installed — **no TOCTOU window**
+(verified path at `:160` == returned path at `:164` == helper's `ditto` source).
+No downgrade (strict `>` `UpdateChecker.swift:57`) or dry-run/prerelease install
+(`/releases/latest` excludes prereleases + CI marks patch≥90 prerelease).
+Detached helper: random-named per-user `$TMPDIR` path, no elevation, no
+privilege-escalation hijack. Verification failures throw, never fall through.
+
+**The one ⚠️ (medium, brick not security):** the final swap is
+`rm -rf "<installed>"` then `mv` (`UpdateInstaller.swift:53-54`), **not** the
+atomic rename the spec promised. New bundle is safely pre-staged as a same-volume
+`.inflight` sibling (crash mid-copy is harmless), but a crash/power-loss in the
+narrow `rm`→`mv` gap (or a cross-volume `mv`) leaves `/Applications/Maugham.app`
+**missing** → unlaunchable until manual reinstall. Same-volume sibling means a
+one-line fix to an atomic exchange (`FileManager.replaceItemAt` / `renameatx_np(RENAME_SWAP)`).
+
+## Sweep 6 — Cross-version Codable tolerance: real, ranked ❌/⚠️
+Phone and Mac ship on independent release trains and auto-update means a project
+is routinely touched by two app versions, so cross-version reads are normal, not
+edge. Findings:
+
+| Type | Unknown enum case | Blast radius | Severity |
+|---|---|---|---|
+| `ProjectType`, `StructureItem.ItemType`, `ResearchItem.AssetKind`, `PieceKind` (in `project.maugham.json`) | **throws** (even the `Optional` ones — synthesized Optional decoder still calls `init(from:)` when the key is present) | **whole manifest undecodable → project unopenable** on older build (no per-line quarantine for a single JSON file); on phone the project silently disappears from the list | **High** |
+| `OpKind`, `SynthesisSource` (op-log JSONL) | throws at the `Op` level | **single line quarantined** by `JSONLAppendStore.parseDiagnosed` — op log keeps loading. **But** a skipped `.typingBurst` → those manuscript edits are silently invisible on the older reader (stale text, mis-marked annotation staleness) | Med |
+| `InboxEntry.Kind`/`TranscriptionState`/`Status`, `Checkpoint.LabelSource`, `PublishConfig.Format`/`StartOn` | throws | single JSONL row skipped (inbox/checkpoint) or whole config unloadable (publish, Mac-only, mostly `?? PublishConfig()` fallback) | Low-Med |
+| `BinderSegment`/`DetailSegment`/`OutlineLayout` (`ui-state.json`) | **tolerant** `(try? decode) ?? .default` | falls back to default | ✅ (the template) |
+
+Two structural gaps behind these:
+- **`schemaVersion` on the manifest is declared but never checked** (`ProjectManifest.swift:12`; no caller compares it) — purely documentary. `UIState`/`SessionLog` *do* guard it correctly and are the in-codebase template.
+- **`IntegrityQuarantine` is not wired to the normal op-log load path** — it's only invoked from `ProjectIntegrity.check`, which only runs from the backup gate (`BackupCoordinator.swift:43`). So in everyday operation, quarantined (unknown/torn) op lines are **silently dropped with no forensic record**; the v0.8.0 quarantine safety net isn't engaged on the hot path. Swapping the load call to `loadDiagnosed()` + `IntegrityQuarantine.record(...)` at the one `Document+Load` site closes it.
+
+Cheapest high-leverage fixes (ranked): (1) add an `unknown` fallback case to
+`OpKind` + `SynthesisSource` — `Deriver.appliesToManuscript`'s exhaustive switch
+then turns a silent-quarantine-data-loss into a **compile error** forcing the
+dev to handle the new case; (2) same for the four manifest enums (or custom
+`init(from:)` returning a safe default) — converts project-unopenable into
+graceful degradation; (3) custom `init(from:)` with `decodeIfPresent`+defaults
+for `TypographySettings` (8 non-optional fields, a landmine for the next add);
+(4) `schemaVersion` guard on `ProjectManifest` load (explicit "requires a newer
+Maugham" instead of silent misparse); (5) wire `IntegrityQuarantine` into the
+load path.
+
+## Sweep 7 — silent `try?` on op-log writes (cross-cutting)
+~255 production `try?`; the large majority are legitimate cleanup/rollback
+(`removeItem` on staging, idempotent `createDirectory`, scratch teardown,
+partial-file cleanup — you don't care if those fail). The dangerous subset is
+`try?` on **source-of-truth writes**:
+
+- **`Document.close():593` — `try? await flushBurstNow()` (Tier-0-class).** `close()`
+  runs on app quit **and** every FS-surgery path (rename/move/delete). If the
+  final burst-flush to the op log fails, **the last burst of edits before the
+  close is silently lost** — no signal, no retry. The edits you most want to
+  survive are exactly the ones this drops on a write error.
+- **`PartialRestorePicker.swift:92` — `try? await opStore.append(restoreOp)`** —
+  a partial restore looks done in the UI but the op silently isn't persisted on
+  a write failure.
+- **`Document+Tasks.swift:199`, `ProjectStore+Tasks.swift:83`, `InboxStore.swift:107`** —
+  task/inbox ops appended with the error swallowed → action looks done, isn't durable.
+- **`DocumentStore.swift:649` — `try? data.write(conflictBackupURL)`** — the
+  conflict backup (the *loser* of a cloud conflict — the safety net) silently
+  vanishes if the write fails.
+
+Encouraging contrast: the **core manuscript burst-flush** (`Document.flushBurstNow:553`)
+and the **annotation appends** (`Document+Annotations:120/216`) correctly use
+`try await` and propagate. So the discipline exists — only the secondary
+op-log paths and the close-time flush regressed to `try?`. Fix: propagate (or at
+minimum log/retry/quarantine) on every op-log append and on the close flush;
+`close()` swallowing the flush is the one to treat as Tier-0.
+
+## Round-2 synthesis
+The two security/concurrency worries (MCP race, updater verification) came back
+**clean** — the security-sensitive subsystems are well-built. The two that found
+items are both **"the failure that hasn't happened yet"**: cross-version schema
+breakage needs a *future* enum case to bite, and the silent-`try?` op losses need
+a *write to fail*. Both are, by definition, zero-feedback today — which is
+exactly why they drifted, and exactly why `UIState` (a frequently-exercised,
+user-visible type) got the defensive decoder while `Op`/`ProjectManifest` (no
+v2 has shipped, so no one's felt the break) did not. Same photographic-negative
+pattern, one more time. The fixes are cheap and mostly compile-time-enforcing
+(`unknown` cases that make `Deriver`/manifest switches refuse to build until the
+new case is handled), so they're high-leverage to land *before* the next schema
+change rather than after a user's project won't open.
