@@ -108,14 +108,30 @@ final class InboxStore {
     }
 
     /// Replace an entry's transcript + transcription state (Whisper result, or a
-    /// manual correction). Preserves every other field. No-op if `id` is unknown.
+    /// manual correction). Preserves every other field except `transcriptionError`,
+    /// which is set to `error` (pass `nil` to clear it — e.g. on success or a manual
+    /// edit). No-op if `id` is unknown.
     func updateTranscript(id: String, text: String,
-                          state: InboxEntry.TranscriptionState) async {
+                          state: InboxEntry.TranscriptionState,
+                          error: String? = nil) async {
         guard var next = currentEntry(id: id) else { return }
         next.transcript = text
         next.transcriptionState = state
+        next.transcriptionError = error
         await append(next)
         await refresh()
+    }
+
+    /// Re-arm a finished (`.whisperFinal`) or `.failed` audio entry for the
+    /// transcription worker: reset its state to `.onDeviceDraft` (the worker's
+    /// eligible set is `.none`/`.onDeviceDraft`), keep the current transcript as
+    /// the draft (so a second failure still has something to preserve), and clear
+    /// any stored error. Pairs with `DocumentStore.retranscribe`, which pokes the
+    /// worker after this. No-op if `id` is unknown.
+    func requestRetranscription(id: String) async {
+        guard let cur = currentEntry(id: id) else { return }
+        await updateTranscript(id: id, text: cur.transcript ?? "",
+                               state: .onDeviceDraft, error: nil)
     }
 
     /// Move an entry to a terminal status (`.promoted` / `.trashed`), stamping

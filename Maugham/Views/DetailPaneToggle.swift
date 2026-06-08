@@ -17,6 +17,15 @@ struct DetailPaneToggle<Inspector: View>: View {
     let documentStore: DocumentStore?
     @ViewBuilder var inspectorContent: () -> Inspector
 
+    /// Local transcription exists only on Apple Silicon (see DocumentStore.makeTranscriber).
+    private static var localTranscriptionAvailable: Bool {
+        #if arch(arm64)
+        return true
+        #else
+        return false
+        #endif
+    }
+
     init(
         store: ProjectStore,
         segment: Binding<DetailSegment>,
@@ -170,7 +179,9 @@ struct DetailPaneToggle<Inspector: View>: View {
     @ViewBuilder
     private var inboxPane: some View {
         if let ds = documentStore {
-            InboxPane(store: ds.inboxStore, projectStore: store)
+            InboxPane(store: ds.inboxStore, projectStore: store,
+                      canTranscribe: Self.localTranscriptionAvailable,
+                      retranscribe: { entry in Task { await ds.retranscribe(entry) } })
         } else {
             ContentUnavailableView(
                 "Open a project",
