@@ -173,4 +173,27 @@ final class InboxTranscriptionWorkerTests: XCTestCase {
                        "a user edit during a failing transcription must survive")
         XCTAssertEqual(e?.transcript, "my edit")
     }
+
+    func test_success_clearsPriorError() async throws {
+        // An eligible draft that still carries a stale error (e.g. re-armed after
+        // a prior failure). A successful transcription must clear the error.
+        let root = try project()
+        let asset = root.appendingPathComponent(".maugham/inbox/audio/a1.m4a")
+        try Data("audio".utf8).write(to: asset)
+        let file = root.appendingPathComponent(".maugham/inbox/inbox.seed.jsonl")
+        let s = JSONLAppendStore<InboxEntry>(fileURL: file)
+        try await s.append(InboxEntry(
+            id: "a1", createdAt: Date(timeIntervalSince1970: 100), deviceId: "phone",
+            kind: .audio, sourceFilename: "a1.m4a", transcript: "draft",
+            transcriptionState: .onDeviceDraft, transcriptionError: "old failure"))
+        let inbox = InboxStore(projectURL: root, deviceId: "mac")
+        let mock = MockTranscriber()   // default .success("WHISPER")
+        let worker = InboxTranscriptionWorker(inboxStore: inbox, transcriber: mock)
+        await worker.processForTest()
+        await inbox.refresh()
+        let e = inbox.entries.first { $0.id == "a1" }
+        XCTAssertEqual(e?.transcriptionState, .whisperFinal)
+        XCTAssertEqual(e?.transcript, "WHISPER")
+        XCTAssertNil(e?.transcriptionError, "successful transcription clears a stale error")
+    }
 }

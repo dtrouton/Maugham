@@ -91,9 +91,15 @@ final class InboxTranscriptionWorker {
                 state = .failed
                 error = thrown.localizedDescription
             }
-            // Single post-await eligibility re-check guards EVERY outcome against a
-            // concurrent user edit (→ .userEdited) clobber. Refresh first so the
-            // edit's row (already appended) is visible.
+            // Post-await eligibility re-check: refresh so an edit that landed
+            // during `transcribe` (its row is already appended) is visible, then
+            // skip the write if the entry is no longer a plain draft. This catches
+            // the realistic case — a user edit (→ .userEdited) during the long
+            // transcribe await. A sub-ms residual window remains (an edit Task
+            // becoming ready exactly at the updateTranscript suspension below);
+            // accepted for v1 since both run on the MainActor and the window is
+            // practically unreachable. The durable fix would fold the predicate
+            // into a conditional append.
             await inboxStore.refresh()
             let current = inboxStore.entries.first { $0.id == entry.id }?.transcriptionState
             guard current == .none || current == .onDeviceDraft else { continue }
