@@ -187,7 +187,7 @@ extension Document {
         }
 
         let opStore = OpLogStore(projectURL: projectURL, presenter: presenter)
-        let pending = PendingBuffer(projectURL: projectURL, docId: docId)
+        let pending = PendingBuffer(projectURL: projectURL, docId: docId, device: device)
         try await pending.loadFromDisk()
 
         var ops = try await opStore.load(docId: docId)

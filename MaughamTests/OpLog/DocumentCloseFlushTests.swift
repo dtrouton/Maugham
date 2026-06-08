@@ -11,8 +11,8 @@ import XCTest
 ///
 /// The fix: on append failure the in-memory `PendingBuffer` is still intact
 /// (`pending.clear()` runs only after a successful append), so `close()`
-/// durably flushes it to `.maugham/ops/<docId>.pending.jsonl` for crash
-/// recovery, and records the failure non-silently.
+/// durably flushes it to `.maugham/pending/<docId>.<slug>.pending.jsonl` for
+/// crash recovery, and records the failure non-silently.
 @MainActor
 final class DocumentCloseFlushTests: XCTestCase {
 
@@ -70,9 +70,10 @@ final class DocumentCloseFlushTests: XCTestCase {
             "close() must surface the burst-flush failure non-silently, not "
             + "swallow it with `try?`.")
 
+        let slug = DeviceSlug.make(from: "m")
         let pendingURL = project
-            .appendingPathComponent(".maugham/ops")
-            .appendingPathComponent("\(doc.docId).pending.jsonl")
+            .appendingPathComponent(".maugham/pending")
+            .appendingPathComponent("\(doc.docId).\(slug).pending.jsonl")
         XCTAssertTrue(
             FileManager.default.fileExists(atPath: pendingURL.path),
             "close() must durably flush the still-intact pending buffer to "
@@ -80,7 +81,7 @@ final class DocumentCloseFlushTests: XCTestCase {
             + "burst of edits is silently lost.")
 
         // And the recovered bytes must be the burst we typed.
-        let recovered = PendingBuffer(projectURL: project, docId: doc.docId)
+        let recovered = PendingBuffer(projectURL: project, docId: doc.docId, device: "m")
         try await recovered.loadFromDisk()
         let texts = recovered.snapshot().map(\.next)
         XCTAssertTrue(

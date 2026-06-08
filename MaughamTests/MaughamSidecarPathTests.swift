@@ -76,6 +76,18 @@ final class MaughamSidecarPathTests: XCTestCase {
         )
     }
 
+    func testClassifies_pendingBuffer_isIgnoredSidecar() {
+        // `.maugham/pending/<docId>.<slug>.pending.jsonl` — the crash-recovery
+        // buffer, relocated out of `.maugham/ops/` so it can't match the op-log
+        // glob. Routing intent: ignore (derived/ephemeral).
+        let rel = ".maugham/pending/d_01HQ7T3JKM2N4P5R6S8VWX0Y2Z.somemac-1a2b3c4d.pending.jsonl"
+        let url = projectURL.appendingPathComponent(rel)
+        XCTAssertEqual(
+            MaughamSidecarPath.classify(url: url, projectURL: projectURL),
+            .pending(relativePath: rel)
+        )
+    }
+
     func testPublishStoreRoundTrip_doesNotPolluteUnknownSidecar() async throws {
         let store = await PublicationStore(projectURL: projectURL)
         try await store.append(Publication(

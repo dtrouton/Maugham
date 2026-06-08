@@ -604,7 +604,7 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
                 transcriptionWorker.onInboxChanged()
             }
 
-        case .sessionLog, .uiState, .conflictBackup, .scratch, .trash,
+        case .sessionLog, .uiState, .conflictBackup, .scratch, .pending, .trash,
              .publishTemplate, .publishStyles, .publishConfig, .publishAsset,
              .publishBuild, .publicationsLog, .publicationSnapshot,
              .unknownSidecar, .outsideProject:
