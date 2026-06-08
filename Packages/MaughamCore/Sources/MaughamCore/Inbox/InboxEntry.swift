@@ -53,6 +53,11 @@ public struct InboxEntry: Codable, Equatable, Sendable, Identifiable {
     public var title: String?                   // optional user-set label
     public var status: Status
     public var resolvedAt: Date?                // set when status leaves .new
+    /// Human-readable reason the last transcription attempt failed (Whisper
+    /// threw, or produced no text). nil unless `transcriptionState == .failed`.
+    /// Optional so older readers and the phone (which never writes it) decode
+    /// it as nil — tripwire 19.
+    public var transcriptionError: String?
 
     public init(
         id: String,
@@ -66,7 +71,8 @@ public struct InboxEntry: Codable, Equatable, Sendable, Identifiable {
         transcriptionState: TranscriptionState = .none,
         title: String? = nil,
         status: Status = .new,
-        resolvedAt: Date? = nil
+        resolvedAt: Date? = nil,
+        transcriptionError: String? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -80,6 +86,7 @@ public struct InboxEntry: Codable, Equatable, Sendable, Identifiable {
         self.title = title
         self.status = status
         self.resolvedAt = resolvedAt
+        self.transcriptionError = transcriptionError
     }
 
     enum CodingKeys: String, CodingKey {
@@ -95,5 +102,6 @@ public struct InboxEntry: Codable, Equatable, Sendable, Identifiable {
         case title
         case status
         case resolvedAt = "resolved_at"
+        case transcriptionError = "transcription_error"
     }
 }
