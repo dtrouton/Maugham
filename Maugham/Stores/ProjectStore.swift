@@ -156,7 +156,18 @@ public final class ProjectStore {
             let data = try Data(contentsOf: manifestURL)
             manifest = try ProjectManifest.makeDecoder().decode(ProjectManifest.self, from: data)
         } catch {
-            throw ProjectStoreError.manifestUnreadable(error.localizedDescription)
+            // The live manifest is unreadable (corrupt / truncated). Recover from the
+            // verified shadow if one exists, and repair the live file from it — so a
+            // damaged `project.maugham.json` no longer means "can't open the project."
+            guard let shadow = ManifestShadow.recover(in: url),
+                  let recovered = try? ProjectManifest.makeDecoder()
+                      .decode(ProjectManifest.self, from: shadow) else {
+                throw ProjectStoreError.manifestUnreadable(error.localizedDescription)
+            }
+            manifest = recovered
+            try? shadow.write(to: manifestURL, options: [.atomic])
+            projectStoreLog.error(
+                "Recovered project manifest from shadow for \(url.path, privacy: .public)")
         }
 
         // Backfill a stable project id for pre-`id` manifests (one-time, on open).
