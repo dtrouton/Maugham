@@ -54,12 +54,14 @@ harness + CI are green-on-correct.
     contract M2 will change). _Findings: 0.4, sweep-3._
 - **0.3 — Adversarial cross-device merge/reconcile harness.** New
   `MaughamTests/OpLog/CrossDeviceIntegrationTests` driving the *production*
-  load/merge/derive/reconcile path with: skewed device clocks editing the same
-  paragraph (0.2); divergent-content opId collision (0.4); external `.md`
-  deletion of an anchored paragraph (Reconciler can't see deletions today —
-  sweep 3); drastic-rewrite id-reattach where the bigram tier could mis-pair
-  (O1/RenderFilter). These tests **will fail initially** — they define done for
-  M1/M2. Model: **opus**. _Findings: 0.2, 0.4, Reconciler-deletion, O1._
+  load/merge/derive/reconcile path with: divergent-content opId collision →
+  deterministic survivor (0.4, M2.1); external `.md` deletion of an anchored
+  paragraph (Reconciler can't see deletions today — sweep 3); drastic-rewrite
+  id-reattach where the bigram tier could mis-pair (O1/RenderFilter). Plus a
+  skewed-clock same-paragraph case authored but **marked expected-deferred**
+  (single-editor ethos — owned by the collaboration milestone, not a gate). The
+  active cases **fail initially** and define done for M1. Model: **opus**.
+  _Findings: 0.4, Reconciler-deletion, O1; 0.2 documented-deferred._
 - **0.4 — Tier-1 doc corrections** (cheap; the docs are wrong *now*):
   CLAUDE.md tripwire 19 reworded ("recurrence-tripper, not a fence; the real net
   is the round-trip integration tests"); the "op log is source of truth"
@@ -114,25 +116,33 @@ pending-partition) go green; wiki-rename + close-flush tests pass.
 
 ---
 
-## Milestone 2 — Cross-device conflict resolution (brainstorm → spec → implement)
+## Milestone 2 — Merge determinism now; conflict resolution DEFERRED to collaboration
 
-**Design-significant — changes on-disk resolution semantics. Gets its own
-brainstorm + spec before code.** Do not patch blindly.
+**Decision (2026-06-07, user):** Maugham is single-editor by ethos. The only
+trigger for skew-induced LWW loss (0.2) is two machines editing the *same
+paragraph* genuinely concurrently — and one person can't type on two machines at
+once, so by the time you switch machines minutes have passed (>> realistic clock
+skew). Practical single-editor risk is near-zero, and true concurrent-edit
+conflict detection is exactly what the **Human reviewer / collaborator layer**
+(Group 2 roadmap) must build. **So the LWW/conflict-surfacing work is deferred
+there, not specced now.**
 
-- **2.1 — Brainstorm + spec.** Decide between: **(a, recommended)** surface the
-  conflict — detect concurrent same-paragraph writes from different `device`s
-  via the existing `prior` snapshots and route to the conflict UI (reuses the
-  "writer disposes" membrane; the collaborator-layer roadmap item needs this
-  anyway); **(b)** hybrid logical clock (HLC/Lamport) so "newer" is skew-proof
-  but still auto-LWW; **(c)** document + defer if same-paragraph multi-device
-  editing isn't a near-term scenario. Resolve `Op.at`'s role (wire into
-  resolution, or mark display-only). Spec to `docs/superpowers/specs/`.
-- **2.2 — Implement** against the 0.3 skewed-clock + collision cases. Update
-  `Maugham/OpLog/AREA.md` (merge resolution; `Op.at` semantics). Model: **opus**.
-  _Findings: 0.2, 0.4._
+- **2.1 — Cheap determinism guard (keep — not concurrency-driven).** Make the
+  op-log merge **load-order-independent** on a non-byte-equal opId collision:
+  surface/quarantine it (or pick a content-deterministic survivor), never blind
+  first-wins. This is plain merge correctness (two devices must derive identical
+  text from identical logs), already asserted by the M0 test rewrites (0.2-tests
+  / 0.4). Model: **sonnet**. _Finding: 0.4._
+- **2.2 — Document the deferral.** One line in `Maugham/OpLog/AREA.md`: merge is
+  LWW-by-opId, skew-blind by design under single-editor; skew-proof logical
+  clock + same-paragraph conflict surfacing is owned by the collaboration
+  milestone. Mark `Op.at` display-only until then. Add a roadmap/collaboration
+  note that the audit's 0.2 + the `prior`-snapshot divergence-detection idea are
+  the starting point. Model: **haiku**.
 
-**M2 acceptance:** the 0.3 skewed-clock + divergent-collision cases go green per
-the chosen design; no silent drop of the newer edit.
+**M2 acceptance:** the 0.3 *divergent-collision-determinism* case goes green; the
+0.3 *skewed-clock-same-paragraph* case is marked an expected/deferred scenario
+(documented, not a failing gate), carried into the collaboration milestone.
 
 ---
 
@@ -232,9 +242,9 @@ Opportunistic; each is small and independent. Good for haiku/sonnet.
 - **M1 tasks are largely independent** and parallelizable across subagents once
   the harness exists; 1.1 (close-flush) and 1.2 (wiki-rename) are the two to do
   first (live silent-loss).
-- **M2 waits on a brainstorm decision** (2.1) — needs the user's read on whether
-  same-paragraph multi-device editing is near-term (→ design a, surface conflict)
-  or deferrable (→ document + ship HLC later). Flag for the user at M2 start.
+- **M2 is now small** (determinism guard + a deferral note) — the design-heavy
+  conflict work moved to the collaboration milestone per the single-editor
+  decision. No brainstorm gate remains; everything in M0–M4 is dispatchable.
 - **M3.1 (typed mover)** should land before or with M1.6 to avoid doing the
   flush-fix twice; **M3.3 (schema)** is independent and can run in parallel.
 - **M4** is all opportunistic; fold each task into whichever milestone touches
