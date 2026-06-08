@@ -241,6 +241,11 @@ public final class DocumentStore {
         }
         if let coordError { throw coordError }
         if let writeError { throw writeError }
+
+        // Mirror the just-saved manifest into a verified shadow so a later corrupt
+        // or truncated `project.maugham.json` can be recovered without a full restore
+        // (`ProjectStore.load` falls back to it). Best-effort — never fail the save.
+        try? ManifestShadow.write(data, in: projectURL)
     }
 
     /// Coordinated read for callers outside ProjectStore.
