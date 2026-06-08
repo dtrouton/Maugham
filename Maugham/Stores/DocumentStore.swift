@@ -50,6 +50,17 @@ public final class DocumentStore {
         return w
     }
 
+    /// Re-arm an inbox audio entry for transcription and kick the worker. Resets
+    /// the entry to `.onDeviceDraft` (clearing any failure error) and pokes the
+    /// worker, which reads the current Settings model fresh — so this is also the
+    /// "I switched to a better model, redo this clip" path. Backs the InboxPane
+    /// "Transcribe Again" gesture.
+    @MainActor
+    func retranscribe(_ entry: InboxEntry) async {
+        await inboxStore.requestRetranscription(id: entry.id)
+        transcriptionWorker.onInboxChanged()
+    }
+
     /// Production transcriber. Returns a WhisperKitTranscriber on Apple Silicon;
     /// nil on Intel so the worker stays inert there. Fully testable via injection.
     @MainActor private static func makeTranscriber() -> Transcriber? {
