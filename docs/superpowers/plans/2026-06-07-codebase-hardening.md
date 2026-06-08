@@ -277,10 +277,27 @@ bloated always-loaded context hurts more than it helps.** Three rules:
 - **D1 (parallel, sonnet)** — **CLAUDE.md slim-down**: move the Releases recipe
   → new `docs/RELEASING.md`; move phone bundle-id/Phase-G forensics →
   `MaughamPhone/AREA.md`; compress the 19 tripwire paragraphs → an index
-  (rule + enforcement pointer), with the post-mortems left in the `memory/`
-  files they cite; compress per-area pointers to one line each. **No rule
-  dropped** — relocate + compress only; diff reviewed against the current file
-  to prove nothing load-bearing was lost.
+  **table**, with the post-mortems left in the `memory/` files they cite;
+  compress per-area pointers to one line each. **No rule dropped** — relocate +
+  compress only; diff reviewed against the current file to prove nothing
+  load-bearing was lost.
+  - **Format = markdown + tables, NOT a custom terse/DSL format.** The files are
+    injected as inline text the model reads natively; a machine format (JSON/
+    YAML/DSL/abbreviated shorthand) adds a decode step that leaks nuance and
+    saves only a few percent over a clean table. The real budget win is the
+    *relocation + enforcement-pointer* strategy above, not telegraphing prose.
+  - **Each tripwire row keeps its one-clause rationale (the "why it broke").**
+    That clause is the highest-value-per-token content — it's what lets an agent
+    recognize a novel-but-rhyming situation (the file's whole "if it rhymes,
+    slow down" premise). Strip ceremony ("after 4 fix-rounds"), never the why.
+  - **Canonical row shape:** `# | Rule | Why (1 clause) | Enforced / more`.
+    Example — tripwire 1 becomes:
+    `1 | No NSTextStorage subclass to front multiple files | layout/undo/selection caches can't be steered from a subclass; killed 3d | memory/…3d_abandoned`.
+    ~40% fewer tokens than the paragraph, same comprehension. Do not compress
+    past this into cryptic shorthand — it loses both the model's easy parse and
+    a human reviewer's ability to verify a rule wasn't dropped.
+  - As tripwires become enforced by M1–M3 types/tests, the "Enforced / more"
+    column points at the test/type and the rule can drop to a bare pointer.
 - **3.3** — ADR 0014 (persisted-schema evolution), `UIState` named as template.
 - **3.1** — `Stores/AREA.md`: the typed `relocate(plan:)` mover as *the* way to
   move user content (replaces the prose tripwire-14 description, now enforced).
