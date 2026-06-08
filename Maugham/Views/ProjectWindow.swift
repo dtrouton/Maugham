@@ -153,13 +153,7 @@ struct ProjectWindow: View {
             }
         }
         .frame(minWidth: 980, minHeight: 540)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            VStack(spacing: 0) {
-                UpdateBannerView()
-                BackupRecoveryBanner(projectURL: url)
-            }
-        }
-        .focusedSceneValue(\.projectURL, url)
+        .modifier(TopChromeModifier(projectURL: url))
         .background(WindowAccessor(window: $window))
         .task(id: url) { await load() }
         .onDisappear {
@@ -252,6 +246,24 @@ struct ProjectWindow: View {
         case .followSystem: return nil
         case .dark:         return .dark
         case .light, .sepia: return .light
+        }
+    }
+
+    /// The top banners (software-update + backups-paused) and the focused project
+    /// URL, pulled off `body` into a modifier so `ProjectWindow.body` stays under
+    /// the SwiftUI type-checker's ceiling — the Release optimizer is stricter than
+    /// Debug, so adding these inline built locally but failed the Release CI build.
+    private struct TopChromeModifier: ViewModifier {
+        let projectURL: URL
+        func body(content: Content) -> some View {
+            content
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    VStack(spacing: 0) {
+                        UpdateBannerView()
+                        BackupRecoveryBanner(projectURL: projectURL)
+                    }
+                }
+                .focusedSceneValue(\.projectURL, projectURL)
         }
     }
 
