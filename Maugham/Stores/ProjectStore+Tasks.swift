@@ -80,7 +80,15 @@ extension ProjectStore {
 
         let store = OpLogStore(projectURL: url)
         Task { @MainActor in
-            try? await store.append(op)
+            // LOG (can't propagate): `appendProjectTaskOp` is a sync
+            // fire-and-forget; the Task outlives it. A swallowed `try?` would
+            // drop a project-scope task op from `.maugham/ops/` silently while
+            // the in-memory mirror reports success. Surface it.
+            do { try await store.append(op) }
+            catch {
+                projectStoreLog.error(
+                    "project task op append failed: \(error.localizedDescription, privacy: .public)")
+            }
         }
     }
 

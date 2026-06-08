@@ -1,6 +1,13 @@
 // Maugham/Views/PartialRestorePicker.swift
 import SwiftUI
 import MaughamCore
+import os
+
+// Subsystem from the running bundle id so dev/stable logs separate without
+// hardcoding "com.maugham" (tripwire 13 spirit).
+private let partialRestoreLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.maugham.Maugham",
+    category: "PartialRestore")
 
 struct PartialRestorePicker: View {
     let checkpoint: Checkpoint
@@ -89,7 +96,17 @@ struct PartialRestorePicker: View {
                 session: session,
                 sourceCheckpoint: checkpoint.checkpointId
             ) {
-                try? await opStore.append(restoreOp)
+                // LOG (can't propagate): `performRestore` is an `async`
+                // non-throwing SwiftUI action callback. The restore op is a
+                // source-of-truth write — a swallowed `try?` would let the UI
+                // report a completed restore while the op never persisted (the
+                // restore silently doesn't survive a relaunch). Surface it; we
+                // still materialize so the editor shows the intended state.
+                do { try await opStore.append(restoreOp) }
+                catch {
+                    partialRestoreLog.error(
+                        "partial-restore op append failed for doc \(docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                }
                 // Materialize the new state and schedule a save so the .md
                 // on disk (and the editor) reflects the restored content.
                 materializeAndScheduleSave(

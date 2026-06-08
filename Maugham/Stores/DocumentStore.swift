@@ -646,6 +646,14 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
             .replacingOccurrences(of: ":", with: "-")
         let backupURL = conflictsDir
             .appendingPathComponent("manifest-\(stamp).json")
-        try? data.write(to: backupURL, options: [.atomic])
+        // LOG (sync, non-throwing context): this is the conflict backup — the
+        // *loser* of a cloud manifest conflict, i.e. the safety net itself. A
+        // swallowed `try?` would let that safety net vanish silently on a write
+        // error, exactly when it's needed. Surface the failure.
+        do { try data.write(to: backupURL, options: [.atomic]) }
+        catch {
+            documentStoreLog.error(
+                "conflict-backup write failed at \(backupURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
     }
 }

@@ -6,7 +6,9 @@ import os
 
 // Subsystem from the running bundle id so dev/stable logs separate without
 // hardcoding "com.maugham" (tripwire 13 spirit).
-private let projectStoreLog = Logger(
+// `internal` (not `private`) so the `ProjectStore+*.swift` peer extensions can
+// log source-of-truth op-append failures through the same facility.
+internal let projectStoreLog = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "com.maugham.Maugham",
     category: "ProjectStore")
 

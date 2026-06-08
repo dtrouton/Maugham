@@ -27,6 +27,14 @@ public final class OpLogStore {
         self.presenter = presenter
     }
 
+    /// Test-only failure-injection seam. When non-nil, `append` throws this
+    /// error instead of writing — letting tests exercise the disk-error
+    /// recovery paths (e.g. `Document.close()`'s durable pending-flush
+    /// fallback) without an actual unwritable filesystem. Default nil, so
+    /// production behaviour is unchanged. `internal` + `@testable import` is
+    /// the access surface; not part of the public API.
+    var appendFailureForTesting: Error?
+
     private var opsDir: URL { projectURL.appendingPathComponent(".maugham/ops") }
 
     /// Glob every file for `docId` (legacy `<docId>.jsonl` + per-device
@@ -50,6 +58,7 @@ public final class OpLogStore {
 
     /// Append to the writer's own per-device file, keyed by `op.device`.
     public func append(_ op: Op) async throws {
+        if let injected = appendFailureForTesting { throw injected }
         try await store(forDocId: op.docId, deviceSlug: DeviceSlug.make(from: op.device))
             .append(op)
     }

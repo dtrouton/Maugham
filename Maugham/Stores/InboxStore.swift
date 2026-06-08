@@ -1,5 +1,12 @@
 import Foundation
 import MaughamCore
+import os
+
+// Subsystem from the running bundle id so dev/stable logs separate without
+// hardcoding "com.maugham" (tripwire 13 spirit).
+private let inboxStoreLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.maugham.Maugham",
+    category: "InboxStore")
 
 /// Owns a project's capture inbox (`.maugham/inbox/`). One per project window,
 /// created by `DocumentStore`. Reads every per-device manifest stream
@@ -104,7 +111,16 @@ final class InboxStore {
         let basis = entry.writtenAt ?? entry.createdAt
         stamped.writtenAt = max(Date(), basis.addingTimeInterval(0.001))
         let store = JSONLAppendStore<InboxEntry>(fileURL: ownManifestURL)
-        try? await store.append(stamped)
+        // LOG (can't cleanly propagate): `append` is `async` non-throwing and
+        // its callers are fire-and-forget UI transitions (promote/trash/
+        // transcript). The manifest is the inbox's source of truth — a
+        // swallowed `try?` would lose a status transition silently (e.g. a
+        // promote that never persists), so surface the failure.
+        do { try await store.append(stamped) }
+        catch {
+            inboxStoreLog.error(
+                "inbox manifest append failed for entry \(stamped.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     /// Replace an entry's transcript + transcription state (Whisper result, or a

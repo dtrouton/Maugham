@@ -1,6 +1,15 @@
 import Foundation
 import MaughamCore
 import AppKit
+import os
+
+// Subsystem from the running bundle id so dev/stable logs separate without
+// hardcoding "com.maugham" (tripwire 13 spirit). Mirrors DocumentStore's logger.
+// `internal` (not `private`) so the `Document+*.swift` peer extensions can log
+// source-of-truth op-append failures through the same facility.
+internal let documentLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.maugham.Maugham",
+    category: "Document")
 
 /// Per-manuscript canonical state. Owns its op log + pending buffer +
 /// burst scheduler + autosave + conflict detection. The single
@@ -123,6 +132,12 @@ public final class Document {
 
     /// Internal autosave debounce (replaces DocumentStore.scheduleSave).
     internal var autosaveScheduler: DebounceScheduler<Void>!
+
+    /// Test-observable count of close-time burst-flush failures that were
+    /// handled (logged + pending durably re-flushed) rather than swallowed.
+    /// Lets a regression test assert the failure was surfaced non-silently.
+    /// Production code never reads it.
+    internal private(set) var closeBurstFlushFailures: Int = 0
 
     internal init(
         url: URL, docId: String, device: String, session: String,
@@ -590,7 +605,30 @@ public final class Document {
     public func close() async {
         // Flush any pending burst so editorial classification survives the
         // close (matches EditorHost's onDocChange behaviour).
-        try? await flushBurstNow()
+        //
+        // `close()` runs on app quit AND every FS-surgery path. The burst this
+        // flushes is the LAST edits before the close — exactly the ones we most
+        // want to survive — so a swallowed `try?` here was a Tier-0
+        // silent-manuscript-loss bug (sweep 7). On append failure we must not
+        // drop the burst silently.
+        //
+        // Recovery guarantee: `flushBurstNow` clears the pending buffer ONLY
+        // after a successful `opStore.append` — so on an append failure the
+        // in-memory `PendingBuffer` is still intact. We durably re-persist it
+        // to `.maugham/ops/<docId>.pending.jsonl`, which the next
+        // `Document.load` folds back into a real op via the crash-recovery
+        // path. That makes the durable re-persist explicit and local to
+        // `close()` rather than leaning on `performAutosave`'s incidental
+        // `flushToDisk`. We also record the failure non-silently (os.Logger +
+        // a test-observable counter) so the drop leaves a forensic trace.
+        do {
+            try await flushBurstNow()
+        } catch {
+            try? await pending.flushToDisk()
+            closeBurstFlushFailures += 1
+            documentLog.error(
+                "close() burst flush failed for doc \(self.docId, privacy: .public); pending buffer re-flushed to disk for crash recovery: \(error.localizedDescription, privacy: .public)")
+        }
         // Flush any pending autosave so the .md reflects the final state.
         await autosaveScheduler.flush()
     }
