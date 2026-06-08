@@ -288,7 +288,7 @@ internal func resolveDocId(for url: URL) throws -> String {
             // don't keep climbing into an unrelated parent project.
             let relativeFallback = url.path
                 .replacingOccurrences(of: probe.path + "/", with: "")
-            return "doc-\(relativeFallback.hashValue.magnitude)"
+            return "doc-\(StableHash.fnv1a64Hex(relativeFallback))"
         }
         let parent = probe.deletingLastPathComponent()
         if parent.path == probe.path { break }   // hit root
@@ -297,7 +297,7 @@ internal func resolveDocId(for url: URL) throws -> String {
     // No manifest found — hash-fallback against the basename so test fixtures
     // still get a stable id.
     let basename = url.lastPathComponent
-    return "doc-\(basename.hashValue.magnitude)"
+    return "doc-\(StableHash.fnv1a64Hex(basename))"
 }
 
 /// Walks up the directory tree from a doc's URL until it finds the directory
