@@ -9,8 +9,11 @@ import os
 /// `.userEdited` transcript. One transcription at a time. On failure the draft
 /// is preserved (worst case: the Mac didn't improve on it). See spec §3.5.
 ///
-/// `.failed` entries are not auto-retried (avoids hammering a corrupt file);
-/// re-dropping audio or the Settings "Download now" path cover recovery.
+/// `.failed` entries are not *auto*-retried (avoids hammering a corrupt file);
+/// the writer re-arms one explicitly via `DocumentStore.retranscribe` (the
+/// "Transcribe Again" pane gesture), which resets it to `.onDeviceDraft` so this
+/// worker picks it up with the current Settings model. An empty result is
+/// treated as a failure (it does not throw) so it can't clobber the draft.
 /// Long audio (>5 min) is not chunked in v1 — WhisperKit degrades past ~5 min.
 @MainActor
 final class InboxTranscriptionWorker {
@@ -63,24 +66,38 @@ final class InboxTranscriptionWorker {
         }
         for entry in eligible {
             guard let url = inboxStore.assetURL(for: entry) else { continue }
+            let text: String
+            let state: InboxEntry.TranscriptionState
+            let error: String?
             do {
-                let text = try await transcriber.transcribe(url, model: model)
-                // Re-check eligibility after the await: the worker is @MainActor,
-                // so the writer may have edited this transcript (→ .userEdited)
-                // while transcription ran. Writing .whisperFinal now would append a
-                // newer row and last-wins-by-writtenAt would clobber the edit.
-                // Refresh from disk (the edit's row is already appended) and skip
-                // if it's no longer a plain draft.
-                await inboxStore.refresh()
-                let current = inboxStore.entries.first { $0.id == entry.id }?.transcriptionState
-                guard current == .none || current == .onDeviceDraft else { continue }
-                await inboxStore.updateTranscript(id: entry.id, text: text, state: .whisperFinal)
-            } catch {
-                log.error("transcription failed for \(entry.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                // Preserve the on-device draft; only the state changes.
-                await inboxStore.updateTranscript(
-                    id: entry.id, text: entry.transcript ?? "", state: .failed)
+                let result = try await transcriber.transcribe(url, model: model)
+                if result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    // WhisperKit returns no segments for a silent/unclear clip and
+                    // does NOT throw. Treat empty as a failure and preserve the
+                    // on-device draft instead of overwriting it with empty text.
+                    log.error("transcription empty for \(entry.id, privacy: .public)")
+                    text = entry.transcript ?? ""
+                    state = .failed
+                    error = "WhisperKit produced no text for this clip — it may be "
+                          + "silent or unclear. Try a larger model, or re-record."
+                } else {
+                    text = result
+                    state = .whisperFinal
+                    error = nil
+                }
+            } catch let thrown {
+                log.error("transcription failed for \(entry.id, privacy: .public): \(thrown.localizedDescription, privacy: .public)")
+                text = entry.transcript ?? ""   // preserve the on-device draft
+                state = .failed
+                error = thrown.localizedDescription
             }
+            // Single post-await eligibility re-check guards EVERY outcome against a
+            // concurrent user edit (→ .userEdited) clobber. Refresh first so the
+            // edit's row (already appended) is visible.
+            await inboxStore.refresh()
+            let current = inboxStore.entries.first { $0.id == entry.id }?.transcriptionState
+            guard current == .none || current == .onDeviceDraft else { continue }
+            await inboxStore.updateTranscript(id: entry.id, text: text, state: state, error: error)
         }
     }
 }

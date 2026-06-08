@@ -127,4 +127,50 @@ final class InboxTranscriptionWorkerTests: XCTestCase {
                        "a user edit during transcription must not be clobbered")
         XCTAssertEqual(entry?.transcript, "my edit")
     }
+
+    func test_emptyResult_marksFailed_keepsDraft_setsError() async throws {
+        let root = try project()
+        try await seedAudio(root, id: "a1", state: .onDeviceDraft)
+        let inbox = InboxStore(projectURL: root, deviceId: "mac")
+        let mock = MockTranscriber(); mock.mode = .success("")   // empty transcript
+        let worker = InboxTranscriptionWorker(inboxStore: inbox, transcriber: mock)
+        await worker.processForTest()
+        await inbox.refresh()
+        let e = inbox.entries.first { $0.id == "a1" }
+        XCTAssertEqual(e?.transcriptionState, .failed, "empty result is a failure, not a success")
+        XCTAssertEqual(e?.transcript, "draft", "draft preserved, not clobbered with empty")
+        XCTAssertNotNil(e?.transcriptionError, "a diagnostic error is recorded")
+    }
+
+    func test_thrownFailure_setsError() async throws {
+        let root = try project()
+        try await seedAudio(root, id: "a1", state: .onDeviceDraft)
+        let inbox = InboxStore(projectURL: root, deviceId: "mac")
+        let mock = MockTranscriber(); mock.mode = .failure
+        let worker = InboxTranscriptionWorker(inboxStore: inbox, transcriber: mock)
+        await worker.processForTest()
+        await inbox.refresh()
+        let e = inbox.entries.first { $0.id == "a1" }
+        XCTAssertEqual(e?.transcriptionState, .failed)
+        XCTAssertNotNil(e?.transcriptionError, "thrown error is surfaced")
+    }
+
+    func test_userEditDuringFailingTranscription_isNotClobbered() async throws {
+        // Same protection as the success path, but for a failing transcription:
+        // a concurrent user edit must not be overwritten by a .failed write.
+        let root = try project()
+        try await seedAudio(root, id: "a1", state: .onDeviceDraft)
+        let inbox = InboxStore(projectURL: root, deviceId: "mac")
+        let mock = MockTranscriber(); mock.mode = .failure
+        mock.onStart = { [inbox] in
+            await inbox.updateTranscript(id: "a1", text: "my edit", state: .userEdited)
+        }
+        let worker = InboxTranscriptionWorker(inboxStore: inbox, transcriber: mock)
+        await worker.processForTest()
+        await inbox.refresh()
+        let e = inbox.entries.first { $0.id == "a1" }
+        XCTAssertEqual(e?.transcriptionState, .userEdited,
+                       "a user edit during a failing transcription must survive")
+        XCTAssertEqual(e?.transcript, "my edit")
+    }
 }
