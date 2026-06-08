@@ -1,0 +1,227 @@
+name: CI
+
+# Runs the Mac and iPhone test suites on every push / PR to main and claude/**
+# branches. Does NOT trigger on tags — release.yml and phone-release.yml own
+# tag-triggered builds and will continue to run their own test step.
+#
+# NOTE: This workflow intentionally reports failures. Tasks 0.2 / 0.3 of the
+# codebase-hardening plan add correctness tests that are RED against unfixed
+# code by design — they are the spec for Milestone 1 fixes. Do not add
+# allow-failure logic to hide them.
+
+on:
+  push:
+    branches:
+      - main
+      - 'claude/**'
+  pull_request:
+    branches:
+      - main
+      - 'claude/**'
+
+# No write permissions needed — this workflow only reads code and reports test
+# results. The principle of least privilege also limits blast radius if a
+# third-party action is ever compromised.
+permissions:
+  contents: read
+
+# Cancel in-progress runs for the same branch/PR so a fast follow-up push
+# doesn't queue behind a now-stale run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1 — Mac scheme test suite
+  # ---------------------------------------------------------------------------
+  mac-tests:
+    name: Mac tests (Maugham scheme)
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          # CI never pushes back to git, so don't leave the token in
+          # .git/config (env-block injection defence, per CI-hardening notes).
+          persist-credentials: false
+
+      - name: Set up Xcode 26.5
+        # Pinned to a specific version (NOT latest-stable) so an unexpected
+        # Xcode bump can't silently break the gate between releases.
+        # The developer machine runs Xcode 26.5; this matches that.
+        # SHA is the canonical commit for maxim-lobanov/setup-xcode v1.7.0.
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: '26.5'
+
+      - name: Print Xcode + SDK info
+        run: |
+          xcodebuild -version
+          xcrun --show-sdk-path --sdk macosx
+          xcrun --show-sdk-version --sdk macosx
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate project
+        # Maugham.xcodeproj is generated (gitignored). Always run gen.sh before
+        # any xcodebuild invocation.
+        run: ./gen.sh
+
+      - name: Run Mac tests
+        run: |
+          xcodebuild \
+            -project Maugham.xcodeproj \
+            -scheme Maugham \
+            test \
+            CODE_SIGNING_ALLOWED=NO \
+            -resultBundlePath TestResults-Mac.xcresult
+
+      - name: Upload Mac test results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: TestResults-Mac
+          path: TestResults-Mac.xcresult
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # Job 2 — Phone scheme test suite (iOS Simulator)
+  # ---------------------------------------------------------------------------
+  phone-tests:
+    name: Phone tests (MaughamPhone scheme)
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Set up Xcode 26.5
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: '26.5'
+
+      - name: Print Xcode + SDK info
+        run: |
+          xcodebuild -version
+          xcrun --show-sdk-path --sdk iphonesimulator
+          xcrun --show-sdk-version --sdk iphonesimulator
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate project
+        run: ./gen.sh
+
+      - name: Run Phone tests (with one retry for sim flakiness)
+        # The iOS simulator can fail with "Busy / failed preflight checks" on
+        # the first boot — CLAUDE.md documents this as a flake that resolves on
+        # retry. A single retry is sufficient; `simctl shutdown all` is NOT done
+        # here because (per CLAUDE.md) that command CAUSES the failure.
+        #
+        # Implementation: run the test command; if it fails, wait 30 s and try
+        # once more. A second failure is a real failure and the step exits non-zero.
+        run: |
+          set +e
+          xcodebuild \
+            -project Maugham.xcodeproj \
+            -scheme MaughamPhone \
+            -destination 'platform=iOS Simulator,name=iPhone 17' \
+            test \
+            CODE_SIGNING_ALLOWED=NO \
+            -resultBundlePath TestResults-Phone.xcresult
+          EXIT_CODE=$?
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "First attempt failed (exit $EXIT_CODE). Waiting 30 s before retry..."
+            sleep 30
+            set -e
+            xcodebuild \
+              -project Maugham.xcodeproj \
+              -scheme MaughamPhone \
+              -destination 'platform=iOS Simulator,name=iPhone 17' \
+              test \
+              CODE_SIGNING_ALLOWED=NO \
+              -resultBundlePath TestResults-Phone-retry.xcresult
+          else
+            set -e
+          fi
+
+      - name: Upload Phone test results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: TestResults-Phone
+          path: |
+            TestResults-Phone.xcresult
+            TestResults-Phone-retry.xcresult
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # Job 3 — Swift strict-concurrency warning scan
+  #
+  # Builds with SWIFT_STRICT_CONCURRENCY=complete and prints the warning count.
+  # This job NEVER fails on warnings — its sole purpose is to make the count
+  # visible in CI logs so the lurking concurrency warnings (the audit predicts
+  # they cluster in Maugham/Editor/ AppKit-delegate / Sendable-closure code)
+  # become visible incrementally as they're fixed.
+  # ---------------------------------------------------------------------------
+  concurrency-warnings:
+    name: Strict-concurrency warning scan
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Set up Xcode 26.5
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: '26.5'
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate project
+        run: ./gen.sh
+
+      - name: Build with SWIFT_STRICT_CONCURRENCY=complete (warnings only)
+        # Build but do NOT test — this step is purely for surfacing diagnostics.
+        # Pipe stderr (where xcodebuild emits warnings) through tee so the raw
+        # output is visible in the log AND captured to a file for counting.
+        # The `|| true` at the end ensures this step never fails the job, even
+        # if the build itself exits non-zero due to a concurrency error (which
+        # would mean a harder problem, separately caught by the test jobs above).
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project Maugham.xcodeproj \
+            -scheme Maugham \
+            build \
+            CODE_SIGNING_ALLOWED=NO \
+            SWIFT_STRICT_CONCURRENCY=complete \
+            2>&1 | tee /tmp/concurrency-build.log || true
+
+      - name: Report concurrency warning count
+        # Count lines containing "warning:" that are Sendable/actor/isolation
+        # diagnostics specifically, then print the total for tracking over time.
+        # Also prints the full per-file breakdown so the worst offenders are
+        # visible without downloading an artifact.
+        run: |
+          TOTAL=$(grep -c "warning:" /tmp/concurrency-build.log 2>/dev/null || echo 0)
+          CONCURRENCY=$(grep "warning:" /tmp/concurrency-build.log 2>/dev/null \
+            | grep -c -E "Sendable|actor|isolation|concurrent|@MainActor|nonisolated" \
+            || echo 0)
+          echo "===== Strict-concurrency warning summary ====="
+          echo "Total warnings (all kinds): $TOTAL"
+          echo "Concurrency-related warnings: $CONCURRENCY"
+          echo ""
+          echo "--- Per-file concurrency warning counts ---"
+          grep "warning:" /tmp/concurrency-build.log 2>/dev/null \
+            | grep -E "Sendable|actor|isolation|concurrent|@MainActor|nonisolated" \
+            | sed -E 's|.*/([^/]+\.swift):[0-9]+:[0-9]+.*|\1|' \
+            | sort | uniq -c | sort -rn \
+            || echo "(none found)"
+          echo "============================================="
