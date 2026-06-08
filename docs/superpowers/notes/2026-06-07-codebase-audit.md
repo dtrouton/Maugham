@@ -396,6 +396,28 @@ op-log paths and the close-time flush regressed to `try?`. Fix: propagate (or at
 minimum log/retry/quarantine) on every op-log append and on the close flush;
 `close()` swallowing the flush is the one to treat as Tier-0.
 
+## Sweep 8 — Unicode / grapheme safety: CLEAN ✅ (one contained cosmetic bug)
+The highest-stakes question — can exotic text (emoji/surrogate pairs, combining
+marks, CJK, RTL, NFC/NFD) corrupt the manuscript via range math or anchor
+insertion — answers **no**. `<!-- ¶id -->` anchors are always emitted on their
+own line via pure `String.append` (`Materializer.materialize:10-23`), never an
+index-splice into content; inline `<!--t-->` task anchors splice at regex-found
+ASCII `]]` boundaries with self-consistent same-NSString UTF-16 offsets
+(`Document+Tasks.swift:160-166`). The op-log↔`.md` join is a byte-exact UTF-8
+round-trip (no normalization on read/write) compared with canonical-equivalence
+`String ==` (`RenderFilter.swift:66`) — NFC/NFD can only *help* anchor reuse,
+never churn ids. Editor range math (`applyExternalText` clamp, screenplay
+cycle/mutator, find/replace, focus-dim) is UTF-16-consistent against the same
+`textView.string`. One real bug of the class but **contained, non-corrupting**:
+`Document.paragraphId(at:)` (`Document.swift:212,216`) uses grapheme `.count` on
+un-stripped raw text where its sibling `displayRange(forParagraphId:):248-249`
+and `TaskAnchorAlignment.cursorParagraph:300` (which claims to mirror it) both
+correctly use `NSString.length` on stripped text → wrong footer paragraph id +
+dead checkbox clicks near emoji/CJK/task-anchored paragraphs. Every consumer is
+read-only display or a guarded no-op-on-mismatch mutator, so it can't replace the
+wrong span or write bad Unicode. Bounded cleanup (align it to the correct
+sibling), not a data vector.
+
 ## Round-2 synthesis
 The two security/concurrency worries (MCP race, updater verification) came back
 **clean** — the security-sensitive subsystems are well-built. The two that found
