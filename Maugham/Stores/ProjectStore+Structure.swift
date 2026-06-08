@@ -375,28 +375,82 @@ extension ProjectStore {
     }
 
     /// Walk every other manuscript document; if its body references
-    /// `[[oldTitle]]`, rewrite to `[[newTitle]]` and persist via direct
-    /// disk write (these documents aren't necessarily the currently-open
-    /// one in DocumentStore, so we go straight to file).
+    /// `[[oldTitle]]`, rewrite to `[[newTitle]]` THROUGH THE OP LOG.
+    ///
+    /// The op log is the source of truth for manuscripts; the `.md` on disk is
+    /// derived (hard invariant #1). So this rewrite must produce ops, not raw
+    /// bytes — the same discipline as `ProjectStore+Search.swift`'s
+    /// `replaceInManuscript`. A raw `String.write(to:)` here (the historical
+    /// shape) corrupted manuscripts on every rename: for a CLOSED doc the `.md`
+    /// diverged from its op log (the reconciler had to guess on the next load);
+    /// for an OPEN doc the live `Document` re-materialized and clobbered the
+    /// raw write (tripwires 7 + 14, finding 0.1).
+    ///
+    /// Per-doc failures (a transient load or close that throws) are logged via
+    /// `projectStoreLog` and skipped — one bad doc must not abort propagation
+    /// to the rest — never swallowed by a bare `try?`. The method stays
+    /// non-throwing so a single I/O hiccup can't unwind the whole rename.
     func propagateWikiLinkRename(
         excludeId: String, oldTitle: String, newTitle: String
     ) async {
         for doc in Self.collectDocuments(in: manifest.structure)
         where doc.id != excludeId {
             guard let path = doc.path else { continue }
-            let fileURL = url.appendingPathComponent(path)
-            guard let body = try? String(contentsOf: fileURL,
-                                         encoding: .utf8) else { continue }
+
+            // Obtain the Document — the live registry instance if this doc is
+            // open, else a transient load. The wiki link appears identically
+            // in display form (it isn't an anchor), so we compute the rewrite
+            // on `displayText`.
+            let docURL = url.appendingPathComponent(path)
+            let openDoc = documentStore?.document(for: path)
+            let isTransient = (openDoc == nil)
+
+            let resolved: Document
+            if let openDoc {
+                resolved = openDoc
+            } else {
+                // Cheap pre-check on the raw file: skip loading a doc that has
+                // no occurrence at all (the common case across a large binder).
+                if let body = try? String(contentsOf: docURL, encoding: .utf8),
+                   WikiLinkRewriter.rewrite(
+                       body: body, oldTitle: oldTitle, newTitle: newTitle) == nil {
+                    continue
+                }
+                do {
+                    resolved = try await Document.load(
+                        url: docURL,
+                        device: "wiki-rename",
+                        session: "wiki-rename-\(UUID().uuidString.prefix(8))",
+                        presenter: documentStore?.presenter)
+                } catch {
+                    projectStoreLog.error(
+                        "Wiki-rename: failed to load \(path, privacy: .public) for propagation: \(error.localizedDescription, privacy: .public)")
+                    continue
+                }
+            }
+
+            // Rewrite on display form. nil → no occurrence; nothing to do.
+            // Close a transiently-loaded doc on this early-out path too.
             guard let rewritten = WikiLinkRewriter.rewrite(
-                body: body, oldTitle: oldTitle, newTitle: newTitle) else {
+                body: resolved.displayText,
+                oldTitle: oldTitle, newTitle: newTitle) else {
+                if isTransient { await resolved.close() }
                 continue
             }
-            try? rewritten.write(
-                to: fileURL, atomically: true, encoding: .utf8)
+
+            // Commit through the same path normal typing uses (appends an op).
+            resolved.setFullText(rewritten)
+
             // Refresh per-doc word-count cache since the body changed.
             let count = WritingModeFactory.mode(for: path)
                 .metrics(rewritten).wordCount
             recordWordCount(forDocumentId: doc.id, wordCount: count)
+
+            // Persist + tear down a transiently-loaded doc, AWAITED exactly
+            // once. close() flushes the burst so the `.md` + op log are durable.
+            // An already-open doc is left to its live schedulers (its editor
+            // binding already reflects the new displayText) — do NOT close it.
+            if isTransient { await resolved.close() }
         }
     }
 
