@@ -125,6 +125,58 @@ final class TripwireGrepTests: XCTestCase {
             + "Offenders:\n" + offenders.joined(separator: "\n"))
     }
 
+    // MARK: - Identity-string literal tripwire (tripwire 13)
+
+    /// Recurrence-tripper: prevents hardcoded `"maugham"` / `"Maugham"` identity
+    /// literals from reappearing in Maugham/ source outside the one sanctioned
+    /// home (`BuildVariant.swift`). The six variant-dependent identity values
+    /// (bundle id, display name, support-folder name, MCP socket path, Claude
+    /// Desktop config key, MCP serverInfo.name) vary between stable and dev
+    /// builds and MUST be derived from `BuildVariant.current`.
+    ///
+    /// Allowed exceptions (documented here as the authoritative list):
+    ///   - `BuildVariant.swift` — the one canonical source of truth; excluded by
+    ///     `allowedFiles`.
+    ///   - `GitHubReleasesAPI.swift` — `repo: String = "Maugham"` is the GitHub
+    ///     repository name. Dev and stable builds update from the SAME repo, so
+    ///     this is a genuinely-constant string, not a variant identity value.
+    ///     Routing it through BuildVariant would be wrong.
+    ///   - `ProjectFolderPresenter.swift` — `"com.maugham.ProjectFolderPresenter"`
+    ///     is an OperationQueue debug label. It does NOT match the exact quoted
+    ///     patterns `"maugham"` or `"Maugham"` (it is a longer string containing
+    ///     the substring), so it is not caught by this tripwire — no exclusion
+    ///     needed. Noted here for audit completeness.
+    func test_noHardcodedIdentityStringsInMacSources() throws {
+        // The one sanctioned home for Maugham/ identity literals.
+        let allowedFiles: Set<String> = ["BuildVariant.swift"]
+
+        // Genuinely-constant literals that contain "maugham"/"Maugham" but are
+        // NOT variant-identity values — excluded by line predicate.
+        let isAllowedConstantLine: (String) -> Bool = { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            // Comment lines — tripwire explanation comments are fine.
+            if trimmed.hasPrefix("//") || trimmed.hasPrefix("///") { return true }
+            // GitHubReleasesAPI: repo name is constant across variants (both
+            // stable and dev update from dtrouton/Maugham on GitHub).
+            if trimmed.contains("repo:") && trimmed.contains("\"Maugham\"") { return true }
+            return false
+        }
+
+        let offenders = try grepSwift(
+            in: sourceDir,
+            patterns: ["\"maugham\"", "\"Maugham\""],
+            allowed: allowedFiles,
+            excludeLine: isAllowedConstantLine
+        )
+        XCTAssertTrue(offenders.isEmpty,
+            "Hardcoded \"maugham\"/\"Maugham\" identity strings found in Maugham/ "
+            + "outside BuildVariant.swift. Route variant-dependent values through "
+            + "BuildVariant.current (tripwire 13). If the literal is genuinely "
+            + "constant (e.g. a GitHub repo path), add it to isAllowedConstantLine "
+            + "with a reason. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
     // MARK: - Typed user-content mover tripwire (tripwire 14)
 
     /// The `ProjectStore+*` seams that relocate/delete user-editable paths
@@ -197,6 +249,74 @@ final class TripwireGrepTests: XCTestCase {
             + "If this move is genuinely on an internal staging/scratch path, add "
             + "the token to isInternalMoveLine. Offenders:\n"
             + offenders.joined(separator: "\n"))
+    }
+
+    // MARK: - Meta-tests: tripwires fire on planted offenders (task 4.8 / test gap #14)
+
+    /// Self-check: prove the op-log filename tripwire FIRES on a planted
+    /// `hasPrefix("d_")` call. Writes a synthetic Swift file into a temp dir
+    /// and confirms the grep catches it (guarding against a tripwire that
+    /// silently never matches).
+    func test_opLogFilenameTripwireFiresOnPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-docid-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        let planted = tmp.appendingPathComponent("BadParser.swift")
+        try """
+        func parseDocId(_ filename: String) -> Bool {
+            return filename.hasPrefix(\"d_\")  // hand-rolled — should be caught
+        }
+        """.write(to: planted, atomically: true, encoding: .utf8)
+
+        let offenders = try grepSwift(
+            in: tmp,
+            patterns: ["hasPrefix(\"d_\")"]
+        )
+        XCTAssertEqual(offenders.count, 1,
+            "Self-check expected exactly one offender for hasPrefix(\"d_\"). Got:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.first?.contains("hasPrefix") == true,
+            "Self-check: the planted hasPrefix(\"d_\") call should be the one caught.")
+    }
+
+    /// Self-check: prove the `hashValue` tripwire FIRES on a planted offender.
+    /// Confirms the pattern catches a bare `.hashValue` expression and that the
+    /// allowed exclusions (Hashable conformance, comment lines) still pass.
+    func test_hashValueTripwireFiresOnPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-hashvalue-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        let planted = tmp.appendingPathComponent("BadIdBuilder.swift")
+        try """
+        // This is allowed: var id: Int { hashValue }  // Hashable conformance
+        // Also allowed: comment explaining the hazard — .hashValue is randomised
+        func buildDocId(_ s: String) -> String {
+            return String(s.hashValue)  // forbidden: persisted id from hashValue
+        }
+        """.write(to: planted, atomically: true, encoding: .utf8)
+
+        let offenders = try grepSwift(
+            in: tmp,
+            patterns: [".hashValue"],
+            excludeLine: { line in
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.contains("Identifiable") || trimmed.contains("Hashable") { return true }
+                if trimmed.hasPrefix("//") { return true }
+                return false
+            }
+        )
+        // Only the executable expression fires; comment + Hashable lines are excluded.
+        XCTAssertEqual(offenders.count, 1,
+            "Self-check expected exactly the executable .hashValue call to fire. Got:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.first?.contains("String(s.hashValue)") == true,
+            "Self-check: the planted String(s.hashValue) offender should be the one caught.")
     }
 
     /// Self-check: prove the tripwire FIRES on a planted offender. Writes a

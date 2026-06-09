@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 public enum TectonicCache {
 
@@ -12,8 +13,11 @@ public enum TectonicCache {
         else {
             throw Error.noCachesDirectory
         }
+        // Use the variant's support-folder name so dev and stable builds write
+        // separate tectonic caches (avoids cache pollution when both variants
+        // run on the same machine). Routes through BuildVariant per tripwire 13.
         return caches
-            .appendingPathComponent("Maugham", isDirectory: true)
+            .appendingPathComponent(BuildVariant.current.supportFolderName, isDirectory: true)
             .appendingPathComponent("tectonic", isDirectory: true)
     }
 

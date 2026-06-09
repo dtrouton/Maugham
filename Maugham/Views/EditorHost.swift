@@ -133,6 +133,15 @@ struct EditorHost: View {
         .onChange(of: selectedItemId) { _, _ in
             Task { await loadDocumentIfNeeded() }
         }
+        // READ-ONLY BY CONTRACT — must never write back into the binding here.
+        // This .onChange is a metrics mirror only: it forwards displayText
+        // changes to ProjectWindow's inspector + goal-indicator callbacks.
+        // All writes go through the EditorSurface → Document.setFullText path
+        // (the single Binding(get:/set:) seam). Any future edit that writes
+        // into `document.displayText` or calls `setFullText` from inside this
+        // closure would reopen the parallel-observable-state cursor races
+        // described in tripwires 6 and 7, and would trip the
+        // `applyExternalText` regression net in EditorIntegrationHarnessTests.
         .onChange(of: document?.displayText) { _, newValue in
             // Mirror text changes out to ProjectWindow for inspector metrics
             // + goal-indicator updates. Op-log recording, paragraph diffing,
