@@ -285,7 +285,11 @@ extension ProjectStore {
         staging: URL, from pieceFolderURL: URL, docName: String
     ) throws {
         let newDocURL = staging.appendingPathComponent("manuscript/\(docName)")
-        try FileManager.default.moveItem(
+        // internal-move: into the promote-to-project `staging/` temp tree.
+        // promotePieceToProject already closes+flushes the live doc (line ~205)
+        // before staging begins, so this move doesn't race a live autosave —
+        // it's not the tripwire-14 user-path class. (TripwireGrepTests exclusion)
+        try FileManager.default.moveItem( // internal-move: staging
             at: pieceFolderURL.appendingPathComponent(docName),
             to: newDocURL)
     }
@@ -296,7 +300,9 @@ extension ProjectStore {
         let pieceResearchURL = pieceFolderURL.appendingPathComponent("research")
         let newResearchURL = staging.appendingPathComponent("research")
         if FileManager.default.fileExists(atPath: pieceResearchURL.path) {
-            try FileManager.default.moveItem(at: pieceResearchURL, to: newResearchURL)
+            // internal-move: into the promote-to-project `staging/` temp tree
+            // (close+flush already ran upstream). (TripwireGrepTests exclusion)
+            try FileManager.default.moveItem(at: pieceResearchURL, to: newResearchURL) // internal-move: staging
         } else {
             try FileManager.default.createDirectory(
                 at: newResearchURL, withIntermediateDirectories: true)
@@ -363,7 +369,9 @@ extension ProjectStore {
             _ = try FileManager.default.replaceItemAt(
                 destination, withItemAt: staging)
         } else {
-            try FileManager.default.moveItem(at: staging, to: destination)
+            // internal-move: final staging→destination swap of the promoted
+            // project tree (not a live user-edited path). (TripwireGrepTests exclusion)
+            try FileManager.default.moveItem(at: staging, to: destination) // internal-move: staging
         }
     }
 
@@ -609,49 +617,55 @@ extension ProjectStore {
             updatedPieces.append(copy)
         }
 
-        // Close any open Documents whose piece folders are about to move.
-        // Without this, the doc's 750ms autosave would race with the
-        // two-phase folder move and re-create the file at the old path
-        // (or worse, fail because the path no longer exists). Same race
-        // class as renamePiece / renameStructureItem.
-        if let ds = documentStore {
-            for rewrite in folderRewrites {
-                // Find the piece by old folder; close its doc at the old
-                // path if open.
-                if let piece = reordered.first(where: {
-                    guard let p = $0.path else { return false }
-                    return (p as NSString).deletingLastPathComponent
-                        == rewrite.oldRel
-                }), let oldPath = piece.path,
-                   let openDoc = ds.document(for: oldPath) {
-                    await openDoc.close()
-                    ds.unregister(path: oldPath)
-                }
-            }
-            // Flush any pending research-note debounced save before the folder
-            // move. Research notes persist via DocumentStore.scheduleFileSave
-            // (not through Document), so closing the manuscript isn't enough —
-            // a queued write would fire at the OLD path after the rename,
-            // failing silently and losing the last-edited content. (Tripwire 14)
-            try? await ds.flushPendingSave()
+        // 3. Move the piece folders on disk through the typed user-content
+        //    mover. `relocateUserContent` runs the close-before-FS-surgery
+        //    discipline (close+unregister every open piece Document so its
+        //    750ms autosave can't race the move; flush the research-note
+        //    debounce so a queued `scheduleFileSave` can't land at the OLD
+        //    path) INTERNALLY before the `perform` closure runs the move
+        //    (tripwire 14, enforce-by-construction). The closure preserves the
+        //    two-phase temp-suffix swap that avoids collisions when pieces swap
+        //    positions (e.g. swap 01 and 02 would have a direct move fail
+        //    because the destination exists).
+        // The open Document paths inside the folders about to move.
+        let affectedPiecePaths: [String] = folderRewrites.compactMap { rewrite in
+            reordered.first {
+                guard let p = $0.path else { return false }
+                return (p as NSString).deletingLastPathComponent == rewrite.oldRel
+            }?.path
         }
-
-        // 3. Move folders on disk. Use a two-phase rename via temp names to
-        //    avoid collisions when pieces swap positions (e.g. swap 01 and 02
-        //    would have moveItem fail because the destination exists).
-        let fm = FileManager.default
         let tmpSuffix = "-mv-\(UUID().uuidString.prefix(8))"
-        // Phase A: oldRel -> oldRel + tmpSuffix
-        for rewrite in folderRewrites {
-            let oldURL = url.appendingPathComponent(rewrite.oldRel)
-            let tmpURL = url.appendingPathComponent("\(rewrite.oldRel)\(tmpSuffix)")
-            try fm.moveItem(at: oldURL, to: tmpURL)
+        let fm = FileManager.default
+        // Coordinated move when a DocumentStore is present (production); raw
+        // move is the safe fallback when nil (load-only context — no
+        // registry/scheduler to race). (TripwireGrepTests exclusion)
+        func move(_ from: URL, _ to: URL) async throws {
+            if let ds = documentStore {
+                try await ds.coordinatedMove(from: from, to: to)
+            } else {
+                try fm.moveItem(at: from, to: to) // internal-move: no DocumentStore (no registry to race)
+            }
         }
-        // Phase B: oldRel + tmpSuffix -> newRel
-        for rewrite in folderRewrites {
-            let tmpURL = url.appendingPathComponent("\(rewrite.oldRel)\(tmpSuffix)")
-            let newURL = url.appendingPathComponent(rewrite.newRel)
-            try fm.moveItem(at: tmpURL, to: newURL)
+        let projectURL = url
+        let swapFolders: () async throws -> Void = {
+            // Phase A: oldRel -> oldRel + tmpSuffix
+            for rewrite in folderRewrites {
+                let oldURL = projectURL.appendingPathComponent(rewrite.oldRel)
+                let tmpURL = projectURL.appendingPathComponent("\(rewrite.oldRel)\(tmpSuffix)")
+                try await move(oldURL, tmpURL)
+            }
+            // Phase B: oldRel + tmpSuffix -> newRel
+            for rewrite in folderRewrites {
+                let tmpURL = projectURL.appendingPathComponent("\(rewrite.oldRel)\(tmpSuffix)")
+                let newURL = projectURL.appendingPathComponent(rewrite.newRel)
+                try await move(tmpURL, newURL)
+            }
+        }
+        if let ds = documentStore {
+            try await ds.relocateUserContent(
+                affectedPaths: affectedPiecePaths, perform: swapFolders)
+        } else {
+            try await swapFolders()
         }
 
         // 4. Rewrite per-piece research item paths.
@@ -718,45 +732,55 @@ extension ProjectStore {
         let oldFolderURL = url.appendingPathComponent(oldFolderRel)
         let newFolderURL = url.appendingPathComponent(newFolderRel)
 
-        // Close the open Document (if any) at the OLD piece path before
-        // moving the enclosing folder. Same race fix as
-        // `renameStructureItem` for Novel/Screenplay docs: the open
-        // doc's 750ms autosave would otherwise re-create the file at
-        // its known path right after we move the folder out from
-        // under it, leaving phantom files behind.
-        if let ds = documentStore {
-            if let openDoc = ds.document(for: oldPath) {
-                await openDoc.close()
-                ds.unregister(path: oldPath)
-            }
-            // Flush any pending research-note debounced save before the folder
-            // move. Research notes persist via DocumentStore.scheduleFileSave
-            // (not through Document), so closing the manuscript isn't enough —
-            // a queued write would fire at the OLD path after the rename,
-            // failing silently and losing the last-edited content. (Tripwire 14)
-            try? await ds.flushPendingSave()
-        }
-
-        // 1. Move the parent folder.
-        if oldFolderURL.path != newFolderURL.path {
-            try fm.moveItem(at: oldFolderURL, to: newFolderURL)
-        }
-
-        // 2. For loose pieces, rename the main doc inside the new folder.
+        // Move the piece folder (and rename the loose doc inside) through the
+        // typed user-content mover. `relocateUserContent` closes+unregisters
+        // the open Document at oldPath and flushes the research-note debounce
+        // INTERNALLY before the `perform` closure — so the open doc's 750ms
+        // autosave can't re-create a phantom at its old path, and a queued
+        // research-note `scheduleFileSave` can't land at the OLD folder
+        // (tripwire 14, enforce-by-construction). Same race class as
+        // renameStructureItem. The closure preserves the folder-then-inner-doc
+        // two-step.
         let newDocBaseName: String
         if piece.pieceKind == .loose {
             let oldDocName = (oldPath as NSString).lastPathComponent
             let oldExt = (oldDocName as NSString).pathExtension
-            let newDocName = "\(slug).\(oldExt)"
-            if oldDocName != newDocName {
-                try fm.moveItem(
-                    at: newFolderURL.appendingPathComponent(oldDocName),
-                    to: newFolderURL.appendingPathComponent(newDocName))
-            }
-            newDocBaseName = newDocName
+            newDocBaseName = "\(slug).\(oldExt)"
         } else {
             // References keep .maugham-link.json
             newDocBaseName = (oldPath as NSString).lastPathComponent
+        }
+        let finalDocBaseName = newDocBaseName
+        // Coordinated move when a DocumentStore is present (production); raw
+        // move is the safe fallback when nil (load-only context — no
+        // registry/scheduler to race). (TripwireGrepTests exclusion)
+        func move(_ from: URL, _ to: URL) async throws {
+            if let ds = documentStore {
+                try await ds.coordinatedMove(from: from, to: to)
+            } else {
+                try FileManager.default.moveItem(at: from, to: to) // internal-move: no DocumentStore (no registry to race)
+            }
+        }
+        let renameFolderAndDoc: () async throws -> Void = {
+            // 1. Move the parent folder.
+            if oldFolderURL.path != newFolderURL.path {
+                try await move(oldFolderURL, newFolderURL)
+            }
+            // 2. For loose pieces, rename the main doc inside the new folder.
+            if piece.pieceKind == .loose {
+                let oldDocName = (oldPath as NSString).lastPathComponent
+                if oldDocName != finalDocBaseName {
+                    try await move(
+                        newFolderURL.appendingPathComponent(oldDocName),
+                        newFolderURL.appendingPathComponent(finalDocBaseName))
+                }
+            }
+        }
+        if let ds = documentStore {
+            try await ds.relocateUserContent(
+                affectedPaths: [oldPath], perform: renameFolderAndDoc)
+        } else {
+            try await renameFolderAndDoc()
         }
 
         let newPiecePath = "\(newFolderRel)/\(newDocBaseName)"

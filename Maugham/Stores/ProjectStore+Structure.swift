@@ -176,7 +176,7 @@ extension ProjectStore {
         guard let documentStore else {
             throw ProjectStoreError.fileSystemError("DocumentStore not available")
         }
-        try await documentStore.executeRenamePlan(plan)
+        try await documentStore.relocate(plan: plan)
 
         removeFromStructure(id: id)
         replaceChildren(parentId: toParentId, with: newDestSiblings)
@@ -329,21 +329,24 @@ extension ProjectStore {
         let newPath = parentPath.isEmpty ? newFilename : "\(parentPath)/\(newFilename)"
         let newURL = url.appendingPathComponent(newPath)
 
-        // Close the open Document (if any) at the OLD path before moving.
-        // Otherwise its 750ms autosave would re-create the file at the old
-        // path after the move — leaving a phantom file behind under the
-        // pre-rename name. close() flushes any pending burst + autosave
-        // first so no unsaved typing is lost; unregister() removes it
-        // from the presenter registry so external-change callbacks don't
-        // fire against the now-moved path.
-        if let ds = documentStore, let openDoc = ds.document(for: oldPath) {
-            await openDoc.close()
-            ds.unregister(path: oldPath)
-        }
-
-        // Move on disk
+        // Move on disk through the typed user-content mover. It runs the
+        // close-before-FS-surgery discipline (close+unregister the open
+        // Document at oldPath so its 750ms autosave can't re-create a phantom
+        // at the pre-rename name; flush the research-note debounce) INTERNALLY
+        // before the coordinated move (tripwire 14, enforce-by-construction).
+        let oldDocURL = url.appendingPathComponent(oldPath)
         do {
-            try fm.moveItem(at: url.appendingPathComponent(oldPath), to: newURL)
+            if let ds = documentStore {
+                try await ds.relocateUserContent(affectedPaths: [oldPath]) {
+                    try await ds.coordinatedMove(from: oldDocURL, to: newURL)
+                }
+            } else {
+                // No DocumentStore (load-only context, e.g. a unit test): no
+                // registry and no debounced research saves exist, so the
+                // close+flush discipline is a provable no-op and the move is
+                // safe to run directly. (TripwireGrepTests exclusion)
+                try fm.moveItem(at: oldDocURL, to: newURL) // internal-move: no DocumentStore (no registry to race)
+            }
         } catch {
             throw ProjectStoreError.fileSystemError(error.localizedDescription)
         }
@@ -636,7 +639,7 @@ extension ProjectStore {
         }
 
         let plan = try RenamePlan(steps: renameSteps)
-        try await documentStore.executeRenamePlan(plan)
+        try await documentStore.relocate(plan: plan)
         replaceChildren(parentId: parentId, with: newSiblings)
         manifest.modified = Date()
         try await saveManifest()
@@ -752,23 +755,29 @@ extension ProjectStore {
         let index = currentIndex(of: id, parentId: parentId)
         let metadata = try JSONEncoder().encode(item)
 
-        // Close the open Document (if any) before moving the file to trash.
-        // The 750ms autosave on the open doc would otherwise re-create the
-        // file at the original manuscript/ path after we move it — leaving
-        // a phantom alongside the trashed copy.
-        if !path.isEmpty,
-           let ds = documentStore,
-           let openDoc = ds.document(for: path) {
-            await openDoc.close()
-            ds.unregister(path: path)
+        // Trash through the typed user-content mover. It closes+unregisters the
+        // open Document and flushes the research-note debounce INTERNALLY before
+        // the move, so the 750ms autosave can't re-create a phantom alongside
+        // the trashed copy (tripwire 14, enforce-by-construction). With no
+        // DocumentStore (load-only context) the discipline is a provable no-op,
+        // so the trash move runs directly via the TrashStore.
+        let entry: TrashEntry
+        if let ds = documentStore {
+            entry = try await ds.trash(
+                relativePath: path,
+                using: trashStore,
+                itemMetadata: metadata,
+                originalParentId: parentId,
+                originalIndex: index,
+                displayTitle: item.title)
+        } else {
+            entry = try await trashStore.moveToTrash( // internal-move: no DocumentStore (no registry to race)
+                fileRelativePath: path,
+                itemMetadata: metadata,
+                originalParentId: parentId,
+                originalIndex: index,
+                displayTitle: item.title)
         }
-
-        let entry = try await trashStore.moveToTrash(
-            fileRelativePath: path,
-            itemMetadata: metadata,
-            originalParentId: parentId,
-            originalIndex: index,
-            displayTitle: item.title)
 
         removeFromStructure(id: id)
         manifest.modified = Date()
