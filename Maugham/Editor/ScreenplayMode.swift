@@ -18,6 +18,17 @@ public struct ScreenplayMode: WritingMode {
     public func tokenize(_ text: String) -> [Token] {
         guard !text.isEmpty else { return [] }
         let script = parser.parse(text)
+        return tokens(from: script, text: text)
+    }
+
+    /// Derive syntax tokens from an already-parsed `FountainScript` without
+    /// re-parsing. `text` must be the same source `script` was parsed from —
+    /// it's needed for the boneyard discriminator's NSString substring work.
+    /// `retokenizeAndStyle` parses once and threads the script through both this
+    /// and `applyTypography(parsedScript:)`, avoiding the redundant per-keystroke
+    /// re-parses (see CLAUDE.md P1-editor / Editor AREA.md).
+    func tokens(from script: FountainScript, text: String) -> [Token] {
+        guard !text.isEmpty else { return [] }
         var tokens: [Token] = script.lines.map { line in
             Token(
                 range: line.range,
@@ -98,7 +109,8 @@ public struct ScreenplayMode: WritingMode {
         in storage: NSTextStorage,
         theme: Theme,
         typography: TypographySettings,
-        tokens: [Token]
+        tokens: [Token],
+        parsedScript: FountainScript? = nil
     ) {
         let resolved = theme.resolved(systemAppearanceIsDark: Self.systemIsDark())
         let palette = resolved.palette
@@ -111,8 +123,12 @@ public struct ScreenplayMode: WritingMode {
         let fullRange = NSRange(location: 0, length: storage.length)
         storage.setAttributes(bodyAttrs, range: fullRange)
 
-        // Parse early to detect title page for first-body-line spacing.
-        let script = parser.parse(storage.string)
+        // Use the caller's pre-parsed script when supplied (the hot
+        // per-keystroke path threads ONE parse through tokenize + here); fall
+        // back to parsing `storage.string` for resolver-less / test callers.
+        // `storage.string == textView.string` at the production call site, so
+        // the threaded script is identical to what this would parse.
+        let script = parsedScript ?? parser.parse(storage.string)
         let hasTitlePage = (script.titlePage != nil)
 
         // First pass — per-line element styling driven by tokens.

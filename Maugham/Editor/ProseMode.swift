@@ -49,8 +49,12 @@ public struct ProseMode: WritingMode {
         in storage: NSTextStorage,
         theme: Theme,
         typography: TypographySettings,
-        tokens: [Token]
+        tokens: [Token],
+        parsedScript: FountainScript? = nil
     ) {
+        // ProseMode (Markdown) doesn't parse Fountain; `parsedScript` is
+        // ignored. The param exists only to satisfy the shared protocol so the
+        // screenplay hot path can thread its single parse through.
         applyTypography(in: storage, theme: theme, typography: typography,
                         tokens: tokens, wikiLinkResolver: nil)
     }

@@ -29,11 +29,16 @@ public protocol WritingMode: Sendable {
     func tokenize(_ text: String) -> [Token]
 
     /// Apply theme + typography attributes to a text storage based on tokens.
+    /// `parsedScript` lets a Fountain-aware mode reuse a script the caller
+    /// already parsed (the `EditorCoordinator` hot path parses once and threads
+    /// it through both `tokenize` and here); modes that don't parse Fountain
+    /// ignore it. Defaults to `nil` so existing callers are unaffected.
     func applyTypography(
         in storage: NSTextStorage,
         theme: Theme,
         typography: TypographySettings,
-        tokens: [Token]
+        tokens: [Token],
+        parsedScript: FountainScript?
     )
 
     /// Attributes to use for the NSTextView's `typingAttributes` so the caret
