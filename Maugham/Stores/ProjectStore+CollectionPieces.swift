@@ -620,6 +620,12 @@ extension ProjectStore {
                     ds.unregister(path: oldPath)
                 }
             }
+            // Flush any pending research-note debounced save before the folder
+            // move. Research notes persist via DocumentStore.scheduleFileSave
+            // (not through Document), so closing the manuscript isn't enough —
+            // a queued write would fire at the OLD path after the rename,
+            // failing silently and losing the last-edited content. (Tripwire 14)
+            try? await ds.flushPendingSave()
         }
 
         // 3. Move folders on disk. Use a two-phase rename via temp names to
@@ -710,9 +716,17 @@ extension ProjectStore {
         // doc's 750ms autosave would otherwise re-create the file at
         // its known path right after we move the folder out from
         // under it, leaving phantom files behind.
-        if let ds = documentStore, let openDoc = ds.document(for: oldPath) {
-            await openDoc.close()
-            ds.unregister(path: oldPath)
+        if let ds = documentStore {
+            if let openDoc = ds.document(for: oldPath) {
+                await openDoc.close()
+                ds.unregister(path: oldPath)
+            }
+            // Flush any pending research-note debounced save before the folder
+            // move. Research notes persist via DocumentStore.scheduleFileSave
+            // (not through Document), so closing the manuscript isn't enough —
+            // a queued write would fire at the OLD path after the rename,
+            // failing silently and losing the last-edited content. (Tripwire 14)
+            try? await ds.flushPendingSave()
         }
 
         // 1. Move the parent folder.
