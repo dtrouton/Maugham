@@ -45,6 +45,15 @@ public enum AddNoteTool: MCPTool {
             parentId: params.parent_group_id,
             title: params.title)
 
+        // Drain any pending `scheduleFileSave` for this project BEFORE writing
+        // the body. Without this flush, a queued 750ms debounce (e.g. the user
+        // was editing a research note that happened to share the same path as
+        // the new file) can fire AFTER the body write and overwrite it with
+        // empty content — the classic tripwire-14 research-note race.
+        // `flushPendingSave` is a no-op when documentStore is nil (tests that
+        // don't wire a DocumentStore) or when no save is pending.
+        try? await store.documentStore?.flushPendingSave()
+
         // Write the supplied body to the freshly-created file.
         if let path = created.path {
             let absURL = entry.url.appendingPathComponent(path)

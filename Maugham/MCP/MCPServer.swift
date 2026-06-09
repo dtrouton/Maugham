@@ -168,13 +168,49 @@ public final class MCPServer {
                 if response.isEmpty { continue }
                 var out = response
                 out.append(0x0A)
-                let sent = out.withUnsafeBytes { send(clientFD, $0.baseAddress, out.count, 0) }
-                if sent < 0 {
-                    // Peer closed (EPIPE) or connection reset (ECONNRESET) — exit this
-                    // connection's loop cleanly. The listening socket stays up.
+                // Drain loop — see `sendAll(data:writer:)` for the algorithm
+                // and its unit-testable pure form. Mirrors the bridge's
+                // `writeLine` drain shape so the two stay consistent.
+                let drained = Self.sendAll(data: out) { ptr, count in
+                    Darwin.send(clientFD, ptr, count, 0)
+                }
+                if !drained {
+                    // Peer closed (EPIPE) or connection reset (ECONNRESET) — exit
+                    // this connection's loop cleanly. Listening socket stays up.
                     return
                 }
             }
+        }
+    }
+
+    /// Drain-write `data` by calling `writer` repeatedly until all bytes are
+    /// sent. Returns `true` when all bytes are sent; `false` on a real write
+    /// error (EPIPE, ECONNRESET, or an unexpected zero-byte return). EINTR is
+    /// retried transparently.
+    ///
+    /// This is a pure helper (no socket coupling) so it can be exercised by
+    /// unit tests with an injected writer closure — e.g. one that returns a
+    /// short count on the first call and the remainder on the second.
+    ///
+    /// Mirrors the bridge's `writeLine` drain loop exactly so the two stay
+    /// in sync: both treat `w <= 0` (after EINTR retry) as connection-close.
+    ///
+    /// `nonisolated` because the helper touches no actor state — it is a pure
+    /// byte-pumping loop over the supplied `writer` closure.
+    nonisolated static func sendAll(data: Data, writer: (UnsafeRawPointer, Int) -> Int) -> Bool {
+        data.withUnsafeBytes { rawBytes -> Bool in
+            guard let base = rawBytes.baseAddress, !rawBytes.isEmpty else { return true }
+            var sent = 0
+            while sent < data.count {
+                let w = writer(base + sent, data.count - sent)
+                if w < 0 {
+                    if errno == EINTR { continue }
+                    return false  // EPIPE / ECONNRESET / other real error
+                }
+                if w == 0 { return false }  // unexpected: peer closed mid-send
+                sent += w
+            }
+            return true
         }
     }
 
