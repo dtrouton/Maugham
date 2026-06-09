@@ -305,53 +305,12 @@ final class CrossDeviceIntegrationTests: XCTestCase {
                 + "names")
     }
 
-    // MARK: - Case 4 — skewed-clock same-paragraph LWW (DEFERRED, NOT a gate)
-
-    /// Drives: `OpLogStore.mergeSortedDedup` + `Deriver.derive` on two devices
-    /// that edit the SAME paragraph, where the device with the LATER real edit
-    /// has the EARLIER wall clock (lower ULID prefix) and so loses on
-    /// opId-order merge.
-    ///
-    /// DEFERRED — authored for documentation, NOT gated. Per the plan's
-    /// single-editor decision (M2), skew-aware LWW + same-paragraph conflict
-    /// surfacing is owned by the collaboration milestone, not Milestone 1. We
-    /// skip so this scenario is recorded without being a failing gate.
-    func test_case4_skewedClockSameParagraphLWW_DEFERRED() throws {
-        throw XCTSkip(
-            "deferred: skew-aware LWW / same-paragraph conflict surfacing owned "
-                + "by the collaboration milestone — see plan M2. The scenario is "
-                + "authored in `skewedClockScenario_documentationOnly` for the "
-                + "record; it is NOT a Milestone-1 gate.")
-    }
-
-    /// Documents (does NOT gate) the skew-induced cross-device LWW loss: device
-    /// B's clock is 5 minutes BEHIND device A. B makes the LATER real edit to a
-    /// shared paragraph, but its lower wall clock → lower ULID prefix → its op
-    /// sorts BEFORE A's and loses the opId-order LWW race, with no conflict
-    /// surfaced (log-merge re-derives silently). Intentionally unreferenced —
-    /// the deferral lives in `test_case4_…_DEFERRED` above (audit 0.2; plan M2).
-    private func skewedClockScenario_documentationOnly() -> Deriver.DerivedState {
-        let pid = "aaaa"
-        // A: edited EARLIER in real time, but LATER wall clock (higher ULID).
-        let changeA = Op.ParagraphChange(
-            paragraphId: pid, prior: nil, next: "A's older text")
-        let opA = Op(
-            opId: "01HZK09", docId: "doc-skew",
-            at: Date(timeIntervalSince1970: 100), device: "mac-A", session: "s",
-            kind: .typingBurst, changes: [changeA], sequence: [pid])
-        // B: edited LATER in real time, but SKEWED-BEHIND wall clock (lower ULID).
-        let changeB = Op.ParagraphChange(
-            paragraphId: pid, prior: nil, next: "B's NEWER text")
-        let opB = Op(
-            opId: "01HZK01", docId: "doc-skew",
-            at: Date(timeIntervalSince1970: 400), device: "mac-B", session: "s",
-            kind: .typingBurst, changes: [changeB], sequence: [pid])
-
-        let merged = OpLogStore.mergeSortedDedup([opA, opB])
-        // Today: opId-order keeps A's older text. Skew-aware LWW (collaboration
-        // milestone) would keep B's newer text. Returned for the record only.
-        return Deriver.derive(ops: merged)
-    }
+    // NOTE: skew-aware same-paragraph LWW (two devices edit one paragraph; the
+    // later real edit has the earlier wall clock → lower ULID → loses the
+    // opId-order merge, no conflict surfaced) is DEFERRED to the collaboration
+    // milestone per the single-editor decision — see audit finding 0.2 + plan
+    // M2. No test here: it would be inert until that resolution API exists;
+    // TDD it red against the real skew-aware merge when the milestone starts.
 
     // MARK: - Manuscript-project fixture (real Document.load path)
 
