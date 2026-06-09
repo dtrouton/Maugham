@@ -92,6 +92,20 @@ public final class Document {
     /// cache to derive tasks without an async hop.
     public var opLogSnapshot: [Op] { _opLogMirror }
 
+    /// Append `op` to this document's persistent op store AND to the in-memory
+    /// mirror in a single step, so the opId-set echo guard in
+    /// `Document+ExternalChange` recognises it as self-authored and filters it
+    /// on the next NSFilePresenter callback.
+    ///
+    /// Use this for ops whose write is initiated *outside* the normal
+    /// `flushBurstNow` / annotation path but must still be reflected in the
+    /// live Document's mirror — currently only the checkpoint breadcrumb op
+    /// written by `CheckpointCapture.run`.
+    public func appendMirrored(_ op: Op) async throws {
+        try await opStore.append(op)
+        _opLogMirror.append(op)
+    }
+
     /// Sticky flag: true once the doc has ever had an annotation op
     /// (creation OR lifecycle). Lets the hot typing path short-circuit
     /// per-keystroke annotation work (invalidateAnnotationsCache + sweep)
