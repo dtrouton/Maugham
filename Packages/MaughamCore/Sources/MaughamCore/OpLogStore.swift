@@ -44,16 +44,32 @@ public final class OpLogStore {
     /// with another doc. Format is `doc-<hex>` / `scene-<hex>` (ADR 0008) or the
     /// synthetic `__project__`.
     public func load(docId: String) async throws -> [Op] {
+        try await loadDiagnosed(docId: docId).ops
+    }
+
+    /// Like `load(docId:)` but also surfaces the lines that failed to decode in
+    /// any of the globbed per-device files, merged into one `ParseDiagnostics`.
+    /// A torn/corrupt line (e.g. a crash mid-`append` leaving a truncated final
+    /// line) is excluded from `ops` and reported in `diagnostics.skipped` so the
+    /// caller can write a forensic record (`IntegrityQuarantine`) instead of
+    /// dropping it silently. `load(docId:)` delegates here and discards the
+    /// diagnostics, so existing callers are unaffected.
+    public func loadDiagnosed(docId: String)
+        async throws -> (ops: [Op], diagnostics: ParseDiagnostics)
+    {
         let urls = Self.opLogFileURLs(forDocId: docId, in: projectURL)
-        guard !urls.isEmpty else { return [] }
+        guard !urls.isEmpty else { return ([], ParseDiagnostics()) }
         var merged: [Op] = []
+        var skipped: [ParseDiagnostics.SkippedLine] = []
         for url in urls {
             let store = JSONLAppendStore<Op>(
                 fileURL: url, presenter: presenter,
                 dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
-            merged.append(contentsOf: try await store.load())
+            let result = try await store.loadDiagnosed()
+            merged.append(contentsOf: result.elements)
+            skipped.append(contentsOf: result.diagnostics.skipped)
         }
-        return Self.mergeSortedDedup(merged)
+        return (Self.mergeSortedDedup(merged), ParseDiagnostics(skipped: skipped))
     }
 
     /// Append to the writer's own per-device file, keyed by `op.device`.

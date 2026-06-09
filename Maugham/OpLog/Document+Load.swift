@@ -190,7 +190,28 @@ extension Document {
         let pending = PendingBuffer(projectURL: projectURL, docId: docId, device: device)
         try await pending.loadFromDisk()
 
-        var ops = try await opStore.load(docId: docId)
+        let loaded = try await opStore.loadDiagnosed(docId: docId)
+        var ops = loaded.ops
+
+        // Forensics (audit 0.6 / Sweep 6): any op-log line that failed to decode
+        // — a crash/power-loss mid-`append` leaving a torn final line, or a line
+        // written by a newer schema this build can't read — is dropped from the
+        // op stream by `loadDiagnosed`. Before, that drop was silent on the
+        // normal load path (`IntegrityQuarantine` only ran from the backup gate).
+        // Persist a forensic record so nothing vanishes without a trace. This is
+        // best-effort: a quarantine-write failure must NEVER abort the load —
+        // the manuscript still opens; quarantining is forensics, not a gate.
+        if !loaded.diagnostics.skipped.isEmpty {
+            let stamp = ISO8601DateFormatter.quarantineStamp(from: Date())
+            do {
+                _ = try IntegrityQuarantine.record(
+                    skipped: loaded.diagnostics.skipped,
+                    forDocId: docId, in: projectURL, stamp: stamp)
+            } catch {
+                documentLog.error(
+                    "quarantine-record write failed for \(docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
 
         // Crash recovery: fold any pending changes into a real op.
         // Capture sequence from the parsed .md — autosave wrote the .md
@@ -336,4 +357,18 @@ private func findItemByPath(_ path: String, in items: [StructureItem]) -> Struct
 @MainActor
 private final class WeakBurstHolder {
     weak var document: Document?
+}
+
+extension ISO8601DateFormatter {
+    /// A filesystem-safe timestamp for `.maugham/` sidecar filenames: ISO8601
+    /// with fractional seconds, `:` replaced by `-` (colons are illegal in some
+    /// filesystems / awkward in URLs). Mirrors the conflict-archive stamp in
+    /// `DocumentStore.archiveManifestForConflict` so the two conventions match.
+    /// Lives Mac-side because MaughamCore is wall-clock-free (the stamp is
+    /// injected into `IntegrityQuarantine.record`).
+    static func quarantineStamp(from date: Date) -> String {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f.string(from: date).replacingOccurrences(of: ":", with: "-")
+    }
 }
