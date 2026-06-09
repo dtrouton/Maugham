@@ -110,7 +110,15 @@ extension ProjectStore {
                 "Selected folder is not a Maugham project: \(targetURL.path)")
         }
         let data = try Data(contentsOf: targetManifestURL)
-        let targetManifest = try ProjectManifest.makeDecoder().decode(ProjectManifest.self, from: data)
+        // Respect the schemaVersion gate (ADR 0014): don't add a reference to a
+        // project written by a newer Maugham this build can't fully read.
+        let targetManifest: ProjectManifest
+        do {
+            targetManifest = try ProjectManifest.decodeGuardingSchema(data)
+        } catch let e as ProjectManifest.SchemaTooNewError {
+            throw ProjectStoreError.manifestSchemaTooNew(
+                found: e.found, supported: e.supported)
+        }
         let title = targetManifest.title
 
         // Slug from title; dedup against existing pieces by folder slug.

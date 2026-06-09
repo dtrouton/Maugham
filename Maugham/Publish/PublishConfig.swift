@@ -118,6 +118,18 @@ public struct PublishConfig: Codable, Equatable, Sendable {
     public enum Format: String, Codable, Equatable, Sendable, CaseIterable {
         case pdf
         case epub
+
+        /// Cross-version forward-tolerance (ADR 0014): an unknown output format
+        /// from a newer build decodes to `.pdf` rather than throwing and making
+        /// the whole `config.json` unloadable. `Format` lives in a
+        /// `[Format]` array (`formats_enabled`), where one bad element would
+        /// otherwise sink the entire `Outputs` block. `config.json` is Mac-only
+        /// and already mostly `?? PublishConfig()`-guarded; this shores up the
+        /// in-array case.
+        public init(from decoder: Decoder) throws {
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            self = Format(rawValue: raw) ?? .pdf
+        }
     }
 
     public struct Cover: Codable, Equatable, Sendable {
@@ -195,6 +207,15 @@ public struct PublishConfig: Codable, Equatable, Sendable {
         case any
         case recto
         case verso
+
+        /// Cross-version forward-tolerance (ADR 0014): an unknown page-parity
+        /// value from a newer build decodes to `.any` (the no-constraint
+        /// default) rather than throwing. `Section.init(from:)` already defaults
+        /// a *missing* key to `.any`; this covers a *present-but-unknown* value.
+        public init(from decoder: Decoder) throws {
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            self = StartOn(rawValue: raw) ?? .any
+        }
     }
 
     public struct EPUBOverrides: Codable, Equatable, Sendable {

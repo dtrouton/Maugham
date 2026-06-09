@@ -32,6 +32,35 @@ public struct TypographySettings: Codable, Equatable, Sendable {
         self.ellipsisAutoReplace = ellipsisAutoReplace
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case fontFamily, fontSize, lineHeightMultiplier, pageWidthCharacters,
+             paragraphSpacingMultiplier, smartQuotes, emDashAutoReplace,
+             ellipsisAutoReplace
+    }
+
+    /// Cross-version forward-tolerance (ADR 0014). All eight fields are
+    /// non-optional — the synthesized decoder throws `keyNotFound` if any is
+    /// absent, which is a landmine for the next field added: old
+    /// `project.maugham.json` / preferences written before the field exists
+    /// would fail to decode the whole `typography` block. `decodeIfPresent`
+    /// against `.defaults` makes a missing field fall back instead of throwing,
+    /// so adding a ninth field later doesn't break decode of older data. (Note
+    /// this decodes against prose `.defaults`; per-project screenplay overrides
+    /// always write all fields, so a partial screenplay override is not a real
+    /// on-disk shape.)
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = TypographySettings.defaults
+        self.fontFamily = try c.decodeIfPresent(String.self, forKey: .fontFamily) ?? d.fontFamily
+        self.fontSize = try c.decodeIfPresent(Int.self, forKey: .fontSize) ?? d.fontSize
+        self.lineHeightMultiplier = try c.decodeIfPresent(Double.self, forKey: .lineHeightMultiplier) ?? d.lineHeightMultiplier
+        self.pageWidthCharacters = try c.decodeIfPresent(Int.self, forKey: .pageWidthCharacters) ?? d.pageWidthCharacters
+        self.paragraphSpacingMultiplier = try c.decodeIfPresent(Double.self, forKey: .paragraphSpacingMultiplier) ?? d.paragraphSpacingMultiplier
+        self.smartQuotes = try c.decodeIfPresent(Bool.self, forKey: .smartQuotes) ?? d.smartQuotes
+        self.emDashAutoReplace = try c.decodeIfPresent(Bool.self, forKey: .emDashAutoReplace) ?? d.emDashAutoReplace
+        self.ellipsisAutoReplace = try c.decodeIfPresent(Bool.self, forKey: .ellipsisAutoReplace) ?? d.ellipsisAutoReplace
+    }
+
     public static let defaults = TypographySettings(
         fontFamily: "Iowan Old Style",
         fontSize: 17,

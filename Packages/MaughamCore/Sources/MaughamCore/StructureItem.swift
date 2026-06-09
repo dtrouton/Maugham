@@ -5,6 +5,20 @@ import Foundation
 public struct StructureItem: Codable, Equatable, Identifiable, Sendable, TreeNode {
     public enum ItemType: String, Codable, Sendable {
         case group, document
+
+        /// Cross-version forward-tolerance (ADR 0014). An item `type` written by
+        /// a newer Maugham decodes to `.document` (a benign leaf) rather than
+        /// throwing — which, because the whole `project.maugham.json` is one JSON
+        /// object, would make the ENTIRE project unopenable on the older build.
+        /// Defaulting to `.document` (not a third `.unknown` state) keeps the
+        /// binary group/document invariant the tree-walk + ~15 exhaustive
+        /// switches rely on. The manifest `schemaVersion` gate refuses a
+        /// genuinely newer-schema project up front, so this only fires for a
+        /// same-schema file with an unexpected value — graceful degradation.
+        public init(from decoder: Decoder) throws {
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            self = ItemType(rawValue: raw) ?? .document
+        }
     }
 
     public var id: String

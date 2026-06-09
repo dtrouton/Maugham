@@ -374,6 +374,10 @@ private struct HistoryRow: View {
              .taskCreate, .taskStatusChange, .taskPriorityChange,
              .taskParentChange, .taskBodyEdit, .taskArchive:
             return false
+        case .unknown:
+            // Newer-build op (ADR 0014): treated as inert by the Deriver, so
+            // it doesn't mutate the manuscript on this build.
+            return false
         }
     }
 
@@ -466,6 +470,11 @@ private struct HistoryRow: View {
                 } else {
                     EmptyView()
                 }
+            case .unknown:
+                // An op written by a newer Maugham build (ADR 0014). Show a
+                // neutral placeholder rather than crash; a future named kind
+                // makes this switch a compile error, forcing a real label.
+                Text("Newer-version entry").font(.caption).foregroundStyle(.secondary)
             }
         case .checkpoint(let cp):
             Text("\(cp.manuscriptWordCount) words · \(cp.label)")
@@ -546,6 +555,7 @@ private struct HistoryRow: View {
             case .taskParentChange: return "Task nested"
             case .taskBodyEdit: return "Task edited"
             case .taskArchive: return "Task archived"
+            case .unknown: return "Newer version"
             }
         case .checkpoint:
             return "Checkpoint"
@@ -569,6 +579,7 @@ private struct HistoryRow: View {
             case .taskCreate, .taskStatusChange, .taskPriorityChange,
                  .taskParentChange, .taskBodyEdit, .taskArchive:
                 return "checklist"
+            case .unknown: return "questionmark.square.dashed"
             }
         case .checkpoint: return "flag"
         }
@@ -590,6 +601,7 @@ private struct HistoryRow: View {
             case .taskCreate, .taskStatusChange, .taskPriorityChange,
                  .taskParentChange, .taskBodyEdit, .taskArchive:
                 return Color(red: 0.38, green: 0.76, blue: 0.45)
+            case .unknown: return .gray
             }
         case .checkpoint: return .green
         }

@@ -125,7 +125,11 @@ public enum Deriver {
         return DerivedState(paragraphs: paragraphs, sequence: sequence)
     }
 
-    private static func appliesToManuscript(_ kind: OpKind) -> Bool {
+    /// Whether an op of this kind mutates the derived manuscript text.
+    /// `internal` (not `private`) so the schema-evolution tests can assert the
+    /// `.unknown` op is inert. The exhaustive switch is the compile-forcing
+    /// gate for future kinds (ADR 0014).
+    static func appliesToManuscript(_ kind: OpKind) -> Bool {
         switch kind {
         case .typingBurst, .bootstrap, .externalEdit,
              .checkpointRestore, .claudeAccept:
@@ -134,6 +138,14 @@ public enum Deriver {
              .claudeQuery, .claudeCraftNote, .claudeReject, .claudeArchive,
              .taskCreate, .taskStatusChange, .taskPriorityChange,
              .taskParentChange, .taskBodyEdit, .taskArchive:
+            return false
+        case .unknown:
+            // An op kind written by a newer build. We can't know whether it
+            // mutates the manuscript, so we treat it as inert — never apply it
+            // to derived text. The op stays in the log (not quarantined) so the
+            // newer build still sees it. When a future kind is added as a named
+            // case, this exhaustive switch FAILS TO COMPILE here, forcing the
+            // dev to classify it as manuscript-affecting or not. See ADR 0014.
             return false
         }
     }

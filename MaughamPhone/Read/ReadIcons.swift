@@ -13,6 +13,7 @@ enum ReadIcons {
         case .novel: return "book.closed"
         case .screenplay: return "film"
         case .collection: return "books.vertical"
+        case .unknown: return "questionmark.folder"   // newer-build project type (ADR 0014)
         }
     }
 
