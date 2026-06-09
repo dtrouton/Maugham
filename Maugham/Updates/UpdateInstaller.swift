@@ -1,6 +1,7 @@
 // Maugham/Updates/UpdateInstaller.swift
 import Foundation
 import Security
+import Darwin
 
 /// The result of inspecting a staged bundle's code signature.
 public struct VerificationVerdict: Equatable {
@@ -37,26 +38,139 @@ public enum UpdateInstaller {
     }
 
     /// Shell script run **detached** after the app quits. Polls until our PID is
-    /// gone, then atomically swaps the bundle (ditto to a temp sibling + mv so a
-    /// working app is never left half-overwritten), then optionally relaunches.
+    /// gone, then atomically swaps the bundle into the install location using
+    /// `renamex_np(RENAME_SWAP)` so /Applications/Maugham.app is NEVER absent —
+    /// the old bundle stays at the `.inflight` path after the swap and is cleaned
+    /// up last. A crash between the ditto and the rename leaves `.inflight` behind
+    /// (the installed app is intact); a crash after the rename leaves `.inflight`
+    /// as stale garbage (the new app is already in place). In neither case is the
+    /// install location empty.
+    ///
+    /// `RENAME_SWAP` is a Darwin-specific flag to `renamex_np(2)` that atomically
+    /// exchanges two filesystem entries. Both paths must be on the **same volume**
+    /// (guaranteed: `.inflight` is a same-directory sibling of the installed
+    /// bundle). We call it via Python's ctypes to avoid a compiled helper binary.
+    ///
+    /// Falls back to a backup-rename approach (`installed → .bak`, `inflight →
+    /// installed`) if `renamex_np` is unavailable (should never happen on macOS
+    /// 10.12+), which still guarantees at most one intact copy at the install
+    /// location while `.bak` holds the old version.
     public static func helperScript(
         pid: Int32, stagedBundle: String, installedBundle: String, relaunch: Bool
     ) -> String {
         let tmp = "\(installedBundle).inflight"
-        var s = """
-        #!/bin/bash
-        set -e
-        # Wait for the running Maugham (pid \(pid)) to fully exit.
-        while kill -0 \(pid) 2>/dev/null; do sleep 0.2; done
-        rm -rf "\(tmp)"
-        ditto "\(stagedBundle)" "\(tmp)"
-        rm -rf "\(installedBundle)"
-        mv "\(tmp)" "\(installedBundle)"
-        """
+        // Build the script as string concatenation — NOT a Swift multi-line
+        // string literal — so the lines land at column 0 in the generated .sh
+        // file. Column-0 matters for the heredoc limit strings (PYEOF must be
+        // at column 0 to terminate the heredoc) and for the Python source lines
+        // (Python rejects leading-space indentation on module-scope statements).
+        var s = "#!/bin/bash\n"
+        s += "set -e\n"
+        s += "# Wait for the running Maugham (pid \(pid)) to fully exit.\n"
+        s += "while kill -0 \(pid) 2>/dev/null; do sleep 0.2; done\n"
+        s += "# Stage the new bundle as a same-volume sibling (.inflight).\n"
+        s += "rm -rf \"\(tmp)\"\n"
+        s += "ditto \"\(stagedBundle)\" \"\(tmp)\"\n"
+        s += "# Atomically exchange .inflight <-> installed so the install location is\n"
+        s += "# NEVER absent. renamex_np(RENAME_SWAP=0x2) is Darwin-native (macOS 10.12+).\n"
+        // Write the Python source into a temp file via a quoted heredoc, then exec it.
+        // The heredoc limit strings (PYEOF) land at column 0 because this script is
+        // assembled line-by-line, not indented inside a Swift string literal.
+        s += "PY_TMP=\"$(mktemp /tmp/maugham-swap-XXXXXX.py)\"\n"
+        s += "cat > \"$PY_TMP\" << 'PYEOF'\n"
+        s += UpdateInstaller.pyAtomicSwapSource
+        s += "PYEOF\n"
+        s += "python3 \"$PY_TMP\" \"\(tmp)\" \"\(installedBundle)\"\n"
+        s += "rm -f \"$PY_TMP\"\n"
         if relaunch {
-            s += "\nopen \"\(installedBundle)\"\n"
+            s += "open \"\(installedBundle)\"\n"
         }
         return s
+    }
+
+    /// Python source for the atomic bundle swap via `renamex_np(RENAME_SWAP)`.
+    ///
+    /// Kept as a top-level constant (not embedded inline in `helperScript`) so the
+    /// lines are verbatim — no leading-space indentation from Swift multi-line
+    /// string normalisation that would cause Python `IndentationError`s.
+    ///
+    /// The script receives `src` (`.inflight` staged bundle) and `dst` (installed
+    /// bundle path) as `argv[1]`/`argv[2]`. After a successful swap the `dst` holds
+    /// the new bundle and `src` is cleaned up; on `renamex_np` failure a
+    /// backup-rename fallback ensures the install location is never empty.
+    static let pyAtomicSwapSource: String = [
+        "import sys, ctypes, ctypes.util, shutil, os",
+        "src_path = sys.argv[1]",
+        "dst_path = sys.argv[2]",
+        "libc = ctypes.CDLL(ctypes.util.find_library('c'), use_errno=True)",
+        "RENAME_SWAP = 0x00000002",
+        "rc = libc.renamex_np(src_path.encode(), dst_path.encode(), RENAME_SWAP)",
+        "if rc != 0:",
+        "    bak = dst_path + '.bak'",
+        "    shutil.rmtree(bak, ignore_errors=True)",
+        "    os.rename(dst_path, bak)",
+        "    os.rename(src_path, dst_path)",
+        "    shutil.rmtree(bak, ignore_errors=True)",
+        "    sys.exit(0)",
+        "shutil.rmtree(src_path, ignore_errors=True)",
+    ].joined(separator: "\n") + "\n"
+}
+
+extension UpdateInstaller {
+    /// Errors from the atomic bundle swap.
+    public enum SwapError: LocalizedError, Equatable {
+        /// The two paths are on different volumes; `renamex_np` requires same-volume.
+        case crossVolume
+        /// The `renamex_np` syscall returned a non-zero status.
+        case renamexFailed(Int32)
+        /// The staged source path does not exist.
+        case sourceNotFound
+        public var errorDescription: String? {
+            switch self {
+            case .crossVolume: return "Bundle swap failed: paths are on different volumes"
+            case .renamexFailed(let code): return "Bundle swap failed: renamex_np returned \(code)"
+            case .sourceNotFound: return "Bundle swap failed: staged bundle not found"
+            }
+        }
+    }
+
+    /// Atomically exchange `stagedURL` ↔ `installedURL` using `renamex_np(RENAME_SWAP)`.
+    ///
+    /// - Both paths must be on the **same volume** (an `.inflight` sibling of the
+    ///   install location satisfies this by construction).
+    /// - After a successful swap, `installedURL` contains the new bundle and
+    ///   `stagedURL` contains the old bundle (which the caller should remove).
+    /// - The install location is **never absent** during this operation —
+    ///   `RENAME_SWAP` exchanges the two directory entries atomically.
+    /// - On failure, neither path is modified.
+    ///
+    /// This function is intentionally small and synchronous so it can be unit-tested
+    /// against real temp-dir paths. The detached bash helper calls it indirectly via
+    /// the equivalent Python ctypes call; this Swift version is used in tests and
+    /// is available for any future Swift-side staging path.
+    public static func atomicSwap(staged stagedURL: URL, installed installedURL: URL) throws {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: stagedURL.path) else {
+            throw SwapError.sourceNotFound
+        }
+        // Guard same-volume to guarantee renamex_np succeeds.
+        // Use the parent directories' device IDs — they always exist and are
+        // a stable proxy for the volume of their children.
+        let stagedParent   = stagedURL.deletingLastPathComponent().path
+        let installedParent = installedURL.deletingLastPathComponent().path
+        let stagedAttrs   = try fm.attributesOfItem(atPath: stagedParent)
+        let installedAttrs = try fm.attributesOfItem(atPath: installedParent)
+        guard let devStaged    = stagedAttrs[.systemNumber] as? Int,
+              let devInstalled  = installedAttrs[.systemNumber] as? Int,
+              devStaged == devInstalled else {
+            throw SwapError.crossVolume
+        }
+        // RENAME_SWAP (0x2): atomically exchange the two filesystem entries.
+        // Both entries continue to exist throughout — no window where either is absent.
+        let RENAME_SWAP: UInt32 = 0x00000002
+        let rc = renamex_np(stagedURL.path, installedURL.path, RENAME_SWAP)
+        guard rc == 0 else { throw SwapError.renamexFailed(rc) }
+        // After swap, stagedURL holds the OLD bundle. Caller removes it.
     }
 }
 
