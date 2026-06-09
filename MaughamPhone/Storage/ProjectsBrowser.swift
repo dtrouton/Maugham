@@ -94,8 +94,11 @@ final class ProjectsBrowser {
                 try await downloads.ensureDownloaded(manifestURL)
                 let data = try io.coordinatedRead(at: manifestURL)
                 // Use the shared manifest decoder from MaughamCore so date
-                // strategy stays in sync with the Mac writer automatically.
-                let manifest = try ProjectManifest.makeDecoder().decode(ProjectManifest.self, from: data)
+                // strategy stays in sync with the Mac writer automatically, and
+                // honour the schemaVersion gate (ADR 0015): a project written by
+                // a newer Maugham surfaces as a per-project failure rather than a
+                // silent misparse.
+                let manifest = try ProjectManifest.decodeGuardingSchema(data)
                 found.append(BrowsedProject(
                     id: Self.resolveId(manifest: manifest, folder: child),
                     url: child,

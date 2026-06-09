@@ -43,22 +43,63 @@ These hold by construction. If you find code that violates one, treat it as a bu
 - **Op log is append-only.** No mutation, no deletion. Checkpoints capture state; they don't truncate history.
 - **`¶id` anchors are 4-char.** No exceptions. Tests that use 1-char IDs are wrong and silently bypass validation.
 - **Task anchors are 6-char.** Same alphabet as paragraph anchors. `<!--t-XXXXXX-->` only — no uppercase, no other prefix.
-- **Paragraph-keyed LWW.** Concurrent writes to the same paragraph resolve by timestamp, not by line position. Cross-Mac merges depend on this.
+- **Paragraph-keyed LWW, by opId.** Concurrent writes to the same paragraph resolve by **opId order** (ULIDs give a deterministic total order), not by line position. Cross-Mac merges depend on this. See the merge/derive contract below for the exact rule.
 - **`Bootstrap.run` is idempotent.** Calling it twice on the same document is safe (it skips paragraphs that already have anchors).
 - **`.md` on disk is derived.** A reader can always rebuild it from `op-log.jsonl` + the renderer. Don't introduce any state that lives *only* in .md and not in the op log.
 - **Checkpoints can do partial restore.** Restore-this-document, not restore-everything.
+
+## Merge / derive resolution contract
+
+Two devices with **identical logs must derive identical text**, regardless of load
+order. This is plain merge correctness (not concurrency-conflict resolution), and
+it is now enforced:
+
+- **`OpLogStore.mergeSortedDedup` is opId-ordered, content-deterministic, and
+  load-order-independent.** It sorts on a TOTAL order `(opId, canonicalEncoding)`
+  — where `canonicalEncoding` is the op's stable `.sortedKeys`+ISO8601-fractional
+  JSON — then first-wins dedupes by opId. Production feeds it from
+  `contentsOfDirectory` enumeration, whose order is not guaranteed; the total
+  order makes the survivor of a same-opId collision a function of content alone,
+  so file-enumeration order can't change the result. `load` + `loadSyncMerged`
+  both go through it.
+- **`Deriver.derive` sorts its input by the SAME `(opId, canonicalEncoding)`
+  order itself** before folding — order-independent by construction, no unenforced
+  "caller must sort" precondition. `deriveWithSequenceFallback` does the same.
+  (`derive(ops:upTo:)` in `Deriver+Rewind.swift` is intentionally the exception:
+  "state as of a cursor" is a timeline prefix, so it respects the caller's
+  already-opId-sorted order and must NOT re-sort.)
+- **A same-opId collision whose payloads DIVERGE is a corruption signal**, not a
+  normal case — ULIDs don't collide, so a divergent same-opId pair means a
+  replay / hand-recovery / duplicated op. We pick a deterministic survivor (merge
+  stays correct); surfacing it (e.g. `IntegrityQuarantine`) is worth doing later
+  but the pure merge fn lacks the `projectURL`/stamp to do so — don't entangle it.
+- **`Op.at` is DISPLAY-ONLY.** It is NOT consulted for resolution (resolution is
+  by opId). Don't introduce wall-clock comparisons into the merge/derive path.
+- **Deferred to the collaboration milestone:** a skew-proof logical clock and
+  same-paragraph **conflict surfacing** (two devices genuinely editing the same
+  paragraph concurrently). Single-editor by ethos today, so skew-induced LWW loss
+  is near-zero risk and not gated here. The audit's 0.2 (skew LWW) + the
+  `prior`-snapshot divergence-detection idea are the starting point for that work
+  (see `docs/superpowers/notes/2026-06-07-codebase-audit.md`). Tests:
+  `CrossMacMergeTests`, `OpLogStorePartitioningTests`, `DeriverTests`,
+  `CrossDeviceIntegrationTests` (case 1 = determinism; case 4 = the deferred skew
+  scenario, `XCTSkip`-marked).
 
 ## RenderFilter's three matching tiers (subtle)
 
 When the renderer encounters a paragraph in the .md that doesn't have a `¶id` anchor (e.g., external edit), it tries to attach it to a known op-log paragraph in three tiers:
 
 1. **Exact text match** — text == known paragraph.
-2. **Shingle Jaccard ≥ threshold** — `ShingleMatcher` (k-shingle similarity).
-3. **Character bigram match ≥ 0.6** — added late in T16 as a fallback for very-short paragraphs where shingling underperforms. **This third tier exists in `RenderFilter` but NOT in `ShingleMatcher`.** That's not a bug, but it's a planned cleanup — when you unify them, preserve the bigram threshold.
+2. **Word-shingle overlap ≥ 0.6** — `ShingleMatcher.bestMatch` (k=4-word shingles; picks the single highest-scoring candidate). Semantically the strongest tier.
+3. **Character bigram overlap ≥ 0.6 *with a second-best margin*** — added late in T16 as a fallback for very-short paragraphs (< k words on either side) where word-shingles collapse to whole-string equality. **This third tier lives in `RenderFilter`, not `ShingleMatcher`** (it calls `ShingleMatcher.bigramOverlap` but owns the reuse policy). The bigram tier is a *fallback*, reached only when tier 2 misses — it never overrides a tier-2 match.
+
+**Resolution contract (enforced, not hand-waved):**
+- **Tier precedence (tier-2-vs-tier-3 disagreement).** The tiers run in order; tier 2 wins whenever it clears 0.6, so a higher tier-3 bigram score can never steal an id from a paragraph tier 2 already paired. This blocks the near-duplicate-substring false positive (e.g. survivor `"the cat sat on the mat"` vs candidates `"…the rug"` (shingle 0.667) and `"the mat"` (bigram 1.0) → reattaches to `"…the rug"`, the substring keeps its own id). Pinned by `RenderFilterTests.test_restoreComments_tier2WordShingleWins_overTier3BigramFalsePositive`.
+- **Bigram margin-over-second-best** (`RenderFilter.bigramReuseThreshold = 0.6`, `bigramReuseMargin = 0.1`). The bigram tier reuses the best candidate's id ONLY when `best ≥ 0.6` AND `best − secondBest ≥ 0.1`. On a zero-/sub-margin tie among 2+ candidates the match is *ambiguous* (the survivor could be inheriting a DELETED sibling's id — e.g. dialogue `"Yes."`/`"Yes?"` both tying a survivor `"Yes!"` at 0.667) → mint fresh. A **single** high-overlap candidate has no competitor, so it is reused (a lightly-edited short paragraph keeps its id — the common minor-edit case `"First."` → `"First, edited."`). A delete-and-retype is byte-identical to an in-place edit from `restoreComments`' vantage, so single-candidate id-retention is the deliberate safe default. Pinned by `CrossDeviceIntegrationTests.test_case3a_singleCandidateMinorEdit_keepsItsId` (single-candidate keeps id) + `…test_case3b_nearDuplicateTie_reusesIdWithNoMargin` (ambiguous tie mints fresh).
 
 Failure modes:
 - All three tiers miss → orphan paragraph (logged, surfaced in the audit).
-- Tier 2 matches the wrong paragraph (false positive on near-duplicate scenes) → silent corruption. The bigram tier doesn't cause this; tier 2 alone could.
+- Tier 2 matches the wrong paragraph (false positive on near-duplicate scenes) → silent corruption. The bigram tier no longer compounds this: tier 2's precedence + tier 3's margin rule together mint fresh on ambiguity rather than steal an id.
 
 ## Tripwires
 
@@ -85,7 +126,7 @@ Failure modes:
 Known thin coverage (file an issue before relying on these areas for novel behavior):
 
 - `Reconciler` tier-selection on subtle external edits (whitespace shifts, near-duplicate paragraphs) is only indirectly covered through `EditorIntegrationHarnessTests`.
-- `RenderFilter`'s third (bigram) matching tier doesn't have a focused tier-2-vs-tier-3 disagreement test.
+- `RenderFilter`'s tier-2-vs-tier-3 resolution IS now covered: `RenderFilterTests.test_restoreComments_tier2WordShingleWins_overTier3BigramFalsePositive` (precedence) + `CrossDeviceIntegrationTests.test_case3a/3b` (bigram margin rule). See the resolution contract above.
 
 ## What's intentionally NOT here
 

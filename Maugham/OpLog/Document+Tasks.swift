@@ -195,8 +195,19 @@ extension Document {
         // Annotation cache only invalidates for annotation ops — task ops
         // don't change annotation derivation, so skip the bump.
         let store = opStore
+        let docId = self.docId
         Task { @MainActor in
-            try? await store.append(op)
+            // LOG (can't propagate): the enclosing `appendTaskOpInternal` is a
+            // sync fire-and-forget; the Task outlives it so there's no throwing
+            // surface to bubble to. A swallowed `try?` would let a task op vanish
+            // from `.maugham/ops/` with no signal while the in-memory mirror
+            // claims success. Surface it; the mirror keeps the UI correct and a
+            // re-derive on reload reconciles, but the drop must leave a trace.
+            do { try await store.append(op) }
+            catch {
+                documentLog.error(
+                    "task op append failed for doc \(docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
         }
     }
 

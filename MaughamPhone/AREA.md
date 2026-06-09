@@ -112,6 +112,16 @@ Fountain renderers; their bold/italic emphasis is pinned by `ScreenplayEmphasis`
 (MaughamCore) + `ScreenplayEmphasisContractTests` in both targets. See CLAUDE.md →
 Editor pointer.
 
+## Releasing to TestFlight / App Store
+
+See `docs/RELEASING.md` → "Phone releases" for the full pipeline. Key facts here for quick reference:
+
+- Cut script: `scripts/cut-phone-release.sh` (mirrors Mac; `phone-v*` tags).
+- **Dry run = integration test.** Five on-device bugs surfaced that were invisible to `xcodebuild test` and debug builds. Cut throwaway `phone-v0.0.x` tags to prove a fix on device.
+- **Bundle id is `com.Maugham.MaughamPhone` — capital "M".** The App ID was registered with a capital M; Apple namespaces IDs case-insensitively so the lowercase form can't be re-registered without deleting the App ID. Codesign is case-sensitive, so `PRODUCT_BUNDLE_IDENTIFIER` in `project.yml` and `provisioningProfiles` in `ExportOptions.plist` MUST stay capital-M and in sync.
+- App icon: editable SVG sources + `render.sh` in `scripts/phone-icon/`.
+- Phase-G forensics: `docs/superpowers/notes/2026-05-31-phone-testflight-status.md` + `memory/project_milestone_iphone_companion_phase_g.md`.
+
 ## The smoke lesson
 
 Manual smoke on a running build found **six** real bugs a green unit suite hid

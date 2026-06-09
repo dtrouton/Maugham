@@ -16,6 +16,17 @@ public struct InboxEntry: Codable, Equatable, Sendable, Identifiable {
     /// never the manifest file itself; that distinction is `InboxFileKind`.)
     public enum Kind: String, Codable, Equatable, Sendable {
         case text, image, audio
+
+        /// Cross-version forward-tolerance (ADR 0015): an unknown `kind` from a
+        /// newer build decodes to `.text` rather than throwing (which would
+        /// quarantine the whole inbox row). `.text` is the benign default —
+        /// inline-only, no asset lookup. The schemaVersion guard doesn't cover
+        /// the inbox (it's an append-only per-device JSONL, not the manifest),
+        /// so the safe default is the only line of defence here.
+        public init(from decoder: Decoder) throws {
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            self = Kind(rawValue: raw) ?? .text
+        }
     }
 
     /// Lifecycle of an audio entry's transcript. Non-audio entries are `.none`.
@@ -25,6 +36,16 @@ public struct InboxEntry: Codable, Equatable, Sendable, Identifiable {
         case whisperFinal = "whisper_final"
         case userEdited = "user_edited"   // the writer owns this transcript; the worker leaves it alone
         case failed
+
+        /// Cross-version forward-tolerance (ADR 0015): an unknown state decodes
+        /// to `.failed`, which is NOT worker-eligible (only `.none`/
+        /// `.onDeviceDraft` are). Defaulting to `.none` would risk a
+        /// cross-version re-transcription loop against a state a newer build
+        /// owns; `.failed` is the inert, safe choice.
+        public init(from decoder: Decoder) throws {
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            self = TranscriptionState(rawValue: raw) ?? .failed
+        }
     }
 
     /// Triage status. Only `.new` entries surface in the inbox pane; promoted /
@@ -33,6 +54,15 @@ public struct InboxEntry: Codable, Equatable, Sendable, Identifiable {
         case new
         case promoted
         case trashed
+
+        /// Cross-version forward-tolerance (ADR 0015): an unknown status decodes
+        /// to `.new` so the entry stays visible and triageable rather than being
+        /// silently hidden (the failure mode if we defaulted to a terminal
+        /// state). Non-destructive: the writer can still act on it.
+        public init(from decoder: Decoder) throws {
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            self = Status(rawValue: raw) ?? .new
+        }
     }
 
     public var id: String                       // ULID

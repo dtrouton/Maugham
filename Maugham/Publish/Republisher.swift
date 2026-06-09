@@ -1,5 +1,20 @@
 import Foundation
 
+// MARK: - Errors
+
+public enum RepublishError: Error, LocalizedError {
+    /// The snapshot's `PublishConfig` failed validation (e.g. traversal in
+    /// `outputs.directory` or `filenameTemplate`). Fail loudly rather than
+    /// writing output files outside the allowed roots (finding 1.5).
+    case invalidSnapshotConfig(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .invalidSnapshotConfig(let msg): return msg
+        }
+    }
+}
+
 public struct Republisher {
 
     public typealias Outcome = CompileOrchestrator.Outcome
@@ -34,6 +49,19 @@ public struct Republisher {
         label: String?
     ) async throws -> Outcome {
         let snap = try snapshotStore.load(id: snapshotID)
+
+        // Traversal guard (finding 1.5): the snapshot's config is validated
+        // here before it reaches PDFCompiler/EPUBCompiler, where
+        // `outputs.directory` is appended to `projectURL` to form the output
+        // path. A crafted `"../../outside"` would escape the project root.
+        // `republish` trusts the snapshot, so we must re-check it rather than
+        // relying only on `set_publish_config`'s write-time validation.
+        let configErrors = PublishConfigValidator.validate(snap.config)
+        if !configErrors.isEmpty {
+            throw RepublishError.invalidSnapshotConfig(
+                "Snapshot config failed validation: " +
+                configErrors.map { "\($0.field): \($0.message)" }.joined(separator: "; "))
+        }
 
         // Stage the snapshot's publish files to a temp project-shaped tree.
         let stage = FileManager.default.temporaryDirectory

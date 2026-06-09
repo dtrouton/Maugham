@@ -30,7 +30,18 @@ public enum LaTeXBodyEmitter {
         let styled = ov?.styleFile != nil
         if let styleFile = ov?.styleFile {
             out.append("\\begingroup")
-            out.append("\\input{pieces/\(styleFile)}")
+            // LaTeX injection guard (finding 1.4): validate the styleFile name
+            // at emit time as a second line of defence. `set_piece_style` already
+            // validates via `LaTeXSafeFilename` before writing to disk, but a
+            // config.json edited outside MCP (or a snapshot carrying an old
+            // value) could bypass that gate. Emit a compile-failing placeholder
+            // instead of injecting unsafe content — tectonic will surface a
+            // clear error rather than execute the injected TeX.
+            if LaTeXSafeFilename(styleFile) != nil {
+                out.append("\\input{pieces/\(styleFile)}")
+            } else {
+                out.append("\\undefined_style_file_unsafe_name")
+            }
         }
         // Each piece starts on a fresh page. The first piece follows the
         // frontmatter (which already broke the page) so it's skipped to avoid

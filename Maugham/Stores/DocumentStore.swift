@@ -73,7 +73,12 @@ public final class DocumentStore {
 
     private var uiStateScheduler: DebounceScheduler<UIState>!
 
-    private var lastObservedManifestModified: Date?
+    /// Content-signature echo of the manifest bytes we last wrote (or loaded at
+    /// open). Mirrors `Document.lastDiskEcho` for the project manifest: lets
+    /// `handleManifestChanged` distinguish our own coordinated `writeManifest`
+    /// (echo → no archive) from a genuine external change (content differs →
+    /// archive). See `ManifestEcho` + findings 1.2 / O2.
+    private var lastWrittenManifest: ManifestEcho?
 
     /// Tracks the active writing session in-memory. Driven by
     /// `recordSessionActivity(...)` and the idle timer below; flushed on
@@ -152,13 +157,12 @@ public final class DocumentStore {
             documentStoreLog.warning("WARNING: \(entries.count, privacy: .public) stragglers in \(scratchDir.path, privacy: .public) — likely from a crashed reorder/tidy. Manual inspection recommended.")
         }
 
-        // Seed lastObservedManifestModified so the first presenter callback
-        // doesn't trigger a spurious archive of an unchanged manifest.
+        // Seed the manifest echo from the bytes on disk at open, so the first
+        // presenter callback (if it's our own subsequent write, or an unchanged
+        // re-read) doesn't trigger a spurious conflict archive.
         let manifestURL = url.appendingPathComponent(ProjectManifest.fileName)
         if let data = try? Data(contentsOf: manifestURL) {
-            if let m = try? ProjectManifest.makeDecoder().decode(ProjectManifest.self, from: data) {
-                store.lastObservedManifestModified = m.modified
-            }
+            store.lastWrittenManifest = .initialLoad(bytes: data)
         }
 
         let presenter = ProjectFolderPresenter(
@@ -246,6 +250,12 @@ public final class DocumentStore {
                 let tmpURL = writeURL.appendingPathExtension("tmp")
                 try data.write(to: tmpURL, options: [.atomic])
                 _ = try FileManager.default.replaceItemAt(writeURL, withItemAt: tmpURL)
+                // Stamp the echo synchronously inside the coordinated block —
+                // mirrors `Document.performAutosave` setting `lastDiskEcho`
+                // inside its write block, so a presenter callback racing this
+                // write can't see a half-updated state. The bytes are exactly
+                // what we wrote.
+                self.lastWrittenManifest = .afterWrite(bytes: data)
             } catch {
                 writeError = error
             }
@@ -417,25 +427,43 @@ public final class DocumentStore {
         }
     }
 
-    /// Execute a RenamePlan. Phase 1 moves colliding items to scratch; Phase 2
-    /// moves scratch items to final destinations and direct items to their
-    /// final destinations. Coordinated through NSFileCoordinator.
-    public func executeRenamePlan(_ plan: RenamePlan) async throws {
+    // MARK: - Typed user-content mover (tripwire 14, enforce-by-construction)
+    //
+    // `relocate(plan:)`, `relocateUserContent(...)`, and `trash(...)` are THE
+    // only legal way to move or delete a path the user might be editing
+    // (manuscript `.md`/`.fountain`, a Collection piece folder, or a research
+    // note/folder). Each runs the close-before-FS-surgery discipline —
+    // `document(for:)?.close() + unregister()` for every affected open Document
+    // PLUS `flushPendingSave()` for the path-keyed research-note debounce —
+    // INTERNALLY, before any FS call, so no caller can forget either half.
+    // A pending autosave (manuscript) or debounced research-note write would
+    // otherwise land at the OLD path moments after a coordinated move, leaving
+    // a phantom file (tripwire 14; findings 1.3 / 1.6). `TripwireGrepTests`
+    // forbids raw `FileManager.moveItem`/`moveToTrash`/`String.write(to:` on
+    // manuscript / piece-folder paths outside this file + `Document`.
+    //
+    // INTERNAL non-user-path moves (scratch/staging, `executeCopy` Duplicate,
+    // `.maugham/` writes) are deliberately NOT routed here — they don't touch a
+    // path the user is editing, so the close/flush discipline doesn't apply.
+
+    /// Execute a `RenamePlan` (rename / reorder of user-editable paths). Phase 1
+    /// moves colliding items to scratch; Phase 2 moves scratch items to final
+    /// destinations and direct items to their final destinations. Coordinated
+    /// through NSFileCoordinator. Closes+unregisters every open Document at a
+    /// moved path AND flushes the research-note debounce BEFORE any move
+    /// (tripwire 14). The caller saves the manifest afterward (Phase 3).
+    public func relocate(plan: RenamePlan) async throws {
         guard !plan.steps.isEmpty else { return }
 
-        // Close any open Documents at the paths the plan is about to move.
-        // The 750ms autosave on an open Document would otherwise race the
-        // coordinated move and re-create the file at the OLD path — same
-        // race class as renameStructureItem / renamePiece, surfaced here
-        // when a binder reorder renumbers multiple siblings at once. The
-        // doc re-loads via EditorHost.loadDocumentIfNeeded after the move
-        // when the writer re-selects it.
-        for step in plan.steps {
-            if let openDoc = openDocuments[step.oldRelativePath] {
-                await openDoc.close()
-                openDocuments.removeValue(forKey: step.oldRelativePath)
-            }
-        }
+        // Close+unregister+flush every affected user-editable path before the
+        // coordinated moves. The 750ms autosave on an open Document (or a
+        // queued research-note `scheduleFileSave`) would otherwise race the
+        // move and re-create the file at the OLD path — same race class as
+        // renameStructureItem / renamePiece, surfaced here when a binder
+        // reorder renumbers multiple siblings at once. Docs re-load via
+        // EditorHost.loadDocumentIfNeeded when the writer re-selects them.
+        await closeFlushAndUnregister(
+            affectedPaths: plan.steps.map(\.oldRelativePath))
 
         let scratchDir = projectURL.appendingPathComponent(".maugham/scratch")
         try FileManager.default.createDirectory(
@@ -473,6 +501,98 @@ public final class DocumentStore {
         }
     }
 
+    /// Relocate user-editable content whose move can't be expressed as a flat
+    /// `RenamePlan` — e.g. a Collection piece's two-phase temp-suffix folder
+    /// swap, or a research note plus its sibling `<slug>_assets/` folder. Runs
+    /// the close-before-FS-surgery discipline for every `affectedPath`
+    /// (close+unregister open Documents, flush the research-note debounce)
+    /// BEFORE invoking `perform`, which does the bespoke FS surgery. This keeps
+    /// the tripwire-14 discipline structural while letting each caller preserve
+    /// its own collision-avoidance / asset-folder logic.
+    ///
+    /// `affectedPaths` are project-relative; for a folder move, pass the open
+    /// manuscript path(s) inside it (the ones that could be in `openDocuments`).
+    /// The flush is path-agnostic (it drains the whole research-note scheduler),
+    /// so research notes anywhere under a moved folder are covered.
+    public func relocateUserContent(
+        affectedPaths: [String],
+        perform: () async throws -> Void
+    ) async throws {
+        await closeFlushAndUnregister(affectedPaths: affectedPaths)
+        try await perform()
+    }
+
+    /// Move a user-editable path (and its descendants) into the project trash.
+    /// Closes+unregisters any open Document at `relativePath` and flushes the
+    /// research-note debounce BEFORE the trash move (tripwire 14), then delegates
+    /// to `trashStore.moveToTrash`. `TrashStore` lives on `ProjectStore`, so it's
+    /// passed in; this is the only blessed trash entry point for user content.
+    @discardableResult
+    public func trash(
+        relativePath: String,
+        using trashStore: TrashStore,
+        itemMetadata: Data,
+        originalParentId: String?,
+        originalIndex: Int,
+        displayTitle: String
+    ) async throws -> TrashEntry {
+        await closeFlushAndUnregister(affectedPaths: [relativePath])
+        return try await trashStore.moveToTrash(
+            fileRelativePath: relativePath,
+            itemMetadata: itemMetadata,
+            originalParentId: originalParentId,
+            originalIndex: originalIndex,
+            displayTitle: displayTitle)
+    }
+
+    /// The shared close-before-FS-surgery primitive. For each affected
+    /// project-relative path: close+unregister the open Document (if any) so
+    /// its autosave can't re-create the file at the old path. Then flush the
+    /// path-keyed research-note debounce ONCE so a queued `scheduleFileSave`
+    /// can't land at an old path post-move. Both halves run BEFORE any caller
+    /// FS surgery — this is what makes tripwire 14 unbypassable. The flush is
+    /// best-effort (`try?`): a flush failure must not abort the move.
+    private func closeFlushAndUnregister(affectedPaths: [String]) async {
+        for path in affectedPaths {
+            if let openDoc = openDocuments[path] {
+                await openDoc.close()
+                openDocuments.removeValue(forKey: path)
+            }
+        }
+        // Drain the research-note debounce so no pending save lands at the old
+        // path after the move. A flush failure must not abort the move (the FS
+        // surgery still needs to proceed), but — per the M1.1 de-`try?`
+        // discipline — it must NOT be swallowed silently: record it so a lost
+        // last-edit before a move leaves a forensic trace.
+        do {
+            try await flushPendingSave()
+        } catch {
+            documentStoreLog.error(
+                "closeFlushAndUnregister: pre-move flushPendingSave failed; proceeding with the move (a pending research-note save may be lost): \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Coordinated atomic write of `text` to `fileURL`. Used by the research
+    /// asset-rename path to rewrite a just-moved note's internal `_assets/`
+    /// refs through NSFileCoordinator (not a raw `String.write`). Call only
+    /// from inside a `relocateUserContent(perform:)` closure for user content.
+    public func coordinatedWrite(text: String, to fileURL: URL) async throws {
+        let coordinator = NSFileCoordinator(filePresenter: presenter)
+        var coordError: NSError?
+        var writeError: Error?
+        coordinator.coordinate(
+            writingItemAt: fileURL, options: .forReplacing, error: &coordError
+        ) { writeURL in
+            do {
+                try text.data(using: .utf8)?.write(to: writeURL, options: [.atomic])
+            } catch {
+                writeError = error
+            }
+        }
+        if let coordError { throw coordError }
+        if let writeError { throw writeError }
+    }
+
     /// Coordinated copy of a file or folder. Used by Duplicate.
     public func executeCopy(from sourceURL: URL, to destinationURL: URL) async throws {
         let coordinator = NSFileCoordinator(filePresenter: presenter)
@@ -494,8 +614,11 @@ public final class DocumentStore {
     }
 
     /// Coordinated move of a file or folder. Wraps NSFileCoordinator's
-    /// reading + writing pair for the source/destination.
-    private func coordinatedMove(from sourceURL: URL, to destinationURL: URL) async throws {
+    /// reading + writing pair for the source/destination. Public so the bespoke
+    /// user-content movers (piece-folder swap, research-asset rename) can run
+    /// their FS surgery coordinated AND through the typed mover — call it only
+    /// from inside a `relocateUserContent(perform:)` closure, never raw.
+    public func coordinatedMove(from sourceURL: URL, to destinationURL: URL) async throws {
         let coordinator = NSFileCoordinator(filePresenter: presenter)
         var coordError: NSError?
         var moveError: Error?
@@ -620,7 +743,7 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
                 transcriptionWorker.onInboxChanged()
             }
 
-        case .sessionLog, .uiState, .conflictBackup, .scratch, .trash,
+        case .sessionLog, .uiState, .conflictBackup, .scratch, .pending, .trash,
              .publishTemplate, .publishStyles, .publishConfig, .publishAsset,
              .publishBuild, .publicationsLog, .publicationSnapshot,
              .unknownSidecar, .outsideProject:
@@ -640,16 +763,25 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
     private func handleManifestChanged() {
         let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
         guard let data = try? Data(contentsOf: manifestURL) else { return }
-        guard let diskManifest = try? ProjectManifest.makeDecoder().decode(
-            ProjectManifest.self, from: data) else { return }
+        // Decode to confirm the bytes are a well-formed manifest before reacting
+        // (a partial/torn write isn't a conflict to archive).
+        guard (try? ProjectManifest.makeDecoder().decode(
+            ProjectManifest.self, from: data)) != nil else { return }
 
-        // Per master spec: "Last-writer-wins by `modified` timestamp; the loser
-        // is preserved as `.maugham/conflicts/manifest-<timestamp>.json`."
-        // We archive the disk version when it's newer than what we last saw.
-        if let last = lastObservedManifestModified, diskManifest.modified > last {
-            archiveManifestForConflict(data: data)
+        // Content-hash echo guard (findings 1.2 + O2). If the disk content
+        // matches what we last wrote (or loaded at open), this callback is an
+        // echo of our own coordinated write — NOT an external change — so we
+        // must not archive. Only when the bytes genuinely DIFFER is it a real
+        // external manifest, which we preserve per the master spec:
+        // "Last-writer-wins; the loser is `.maugham/conflicts/manifest-<ts>.json`."
+        // Using a content hash (not a whole-second-truncated timestamp) means a
+        // same-second external change is still detected (O2).
+        let diskEcho = ManifestEcho.afterWrite(bytes: data)
+        if diskEcho == lastWrittenManifest {
+            return
         }
-        lastObservedManifestModified = diskManifest.modified
+        archiveManifestForConflict(data: data)
+        lastWrittenManifest = diskEcho
     }
 
     private func archiveManifestForConflict(data: Data) {
@@ -662,6 +794,14 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
             .replacingOccurrences(of: ":", with: "-")
         let backupURL = conflictsDir
             .appendingPathComponent("manifest-\(stamp).json")
-        try? data.write(to: backupURL, options: [.atomic])
+        // LOG (sync, non-throwing context): this is the conflict backup — the
+        // *loser* of a cloud manifest conflict, i.e. the safety net itself. A
+        // swallowed `try?` would let that safety net vanish silently on a write
+        // error, exactly when it's needed. Surface the failure.
+        do { try data.write(to: backupURL, options: [.atomic]) }
+        catch {
+            documentStoreLog.error(
+                "conflict-backup write failed at \(backupURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
     }
 }

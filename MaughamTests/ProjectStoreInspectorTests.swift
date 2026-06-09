@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 @MainActor
@@ -96,13 +97,17 @@ final class ProjectStoreInspectorTests: XCTestCase {
             id: chapter1.id, newTitle: "The Opening")
 
         // Re-read chapter 2's body after rename: the wiki link should now
-        // reference the new title.
+        // reference the new title. The rewrite is now op-routed (M1.2 —
+        // Document.load → setFullText → close), so the on-disk `.md` is
+        // materialized WITH `¶id` anchors; strip them to compare the body.
         let updated = try String(
             contentsOf: url.appendingPathComponent(
                 store.manifest.structure[1].path!),
             encoding: .utf8)
+        let body = MarkdownDisplayFilter.stripAnchors(updated)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         XCTAssertEqual(
-            updated,
+            body,
             "Margaret revisits [[The Opening]] and reflects.")
         await ds.close()
     }

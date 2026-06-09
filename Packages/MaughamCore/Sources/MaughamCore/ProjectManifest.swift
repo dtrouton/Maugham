@@ -64,6 +64,44 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// (show for screenplay projects). Set explicitly to false to hide.
     public var showElementGutter: Bool?
 
+    /// Thrown by `decodeGuardingSchema` when a manifest's on-disk
+    /// `schemaVersion` is GREATER than this build understands.
+    ///
+    /// This is the PRIMARY cross-version defence (ADR 0015). Refusing a
+    /// genuinely-newer-schema project up front prevents the degrade-and-resave
+    /// corruption: if an old build instead loaded a newer manifest via the
+    /// per-enum safe-default decoders and then re-saved, it would overwrite the
+    /// newer values it couldn't represent — silent forward-data-loss, worse
+    /// than not opening. The per-enum tolerance is the *within-version* safety
+    /// net (a same-schemaVersion file carrying an unexpected value degrades one
+    /// item gracefully); the schemaVersion gate is what makes that safe.
+    public struct SchemaTooNewError: Error, Equatable {
+        public let found: Int
+        public let supported: Int
+        public init(found: Int, supported: Int) {
+            self.found = found
+            self.supported = supported
+        }
+    }
+
+    /// Decode a manifest from raw bytes, REFUSING any whose `schemaVersion`
+    /// exceeds this build's `currentSchemaVersion`. Mirrors the `UIState` /
+    /// `SessionLog` schemaVersion guards (the in-codebase template). Both the
+    /// Mac (`ProjectStore.load`) and the phone (`ProjectsBrowser`) decode
+    /// manifests; routing both through this keeps the gate in one place.
+    ///
+    /// Throws `SchemaTooNewError` for a too-new schema, or rethrows the
+    /// underlying decode error for malformed/incompatible bytes.
+    public static func decodeGuardingSchema(_ data: Data) throws -> ProjectManifest {
+        let manifest = try makeDecoder().decode(ProjectManifest.self, from: data)
+        guard manifest.schemaVersion <= currentSchemaVersion else {
+            throw SchemaTooNewError(
+                found: manifest.schemaVersion,
+                supported: currentSchemaVersion)
+        }
+        return manifest
+    }
+
     public init(
         schemaVersion: Int = ProjectManifest.currentSchemaVersion,
         id: String? = nil,

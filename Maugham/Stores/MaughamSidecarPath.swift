@@ -10,16 +10,16 @@ import MaughamCore
 /// The canonical `.maugham/` subdir layout (see `Maugham/Stores/AREA.md`)
 /// is encoded here as explicit cases. Subdirs that exist but don't yet
 /// have presenter routing (`sessions`, `ui-state`, `conflicts`, `scratch`,
-/// `trash`) parse to their own cases so a future owner-wiring is a
+/// `pending`, `trash`) parse to their own cases so a future owner-wiring is a
 /// one-case edit rather than a free-string regex change.
 internal enum MaughamSidecarPath: Equatable {
 
     /// Top-level manifest.
     case manifest
 
-    /// `.maugham/ops/<docId>.jsonl` — the per-doc op log. Excludes the
-    /// `.pending.jsonl` companion used by `PendingBuffer` (which is a
-    /// crash-recovery artifact, not a routing target).
+    /// `.maugham/ops/<docId>.jsonl` — the per-doc op log. `PendingBuffer`'s
+    /// crash-recovery companion lives under `.maugham/pending/` (see `.pending`),
+    /// not here, so it can't be matched by the op-log glob.
     case opLog(docId: String)
 
     /// `.maugham/checkpoints.jsonl` — project-scope checkpoint log.
@@ -40,6 +40,14 @@ internal enum MaughamSidecarPath: Equatable {
 
     /// `.maugham/scratch/*` — transient writes that are safe to ignore.
     case scratch(relativePath: String)
+
+    /// `.maugham/pending/<docId>.<slug>.pending.jsonl` — `PendingBuffer`'s
+    /// device-partitioned crash-recovery buffer. Derived/ephemeral (real edits
+    /// already hit the op log at each burst boundary); relocated out of
+    /// `.maugham/ops/` so it can't match the op-log glob. Routing intent:
+    /// ignore (a device reads only its OWN pending file, on its own reopen —
+    /// never reactively from a presenter callback).
+    case pending(relativePath: String)
 
     /// `.maugham/trash/*` — owned by `TrashStore`. No presenter routing today.
     case trash(relativePath: String)
@@ -77,8 +85,7 @@ internal enum MaughamSidecarPath: Equatable {
     case inbox(kind: InboxFileKind, relativePath: String)
 
     /// A path under `.maugham/` that doesn't match any known subdir.
-    /// Includes `.pending.jsonl` companions for `PendingBuffer`. Routing
-    /// intent: ignore.
+    /// Routing intent: ignore.
     case unknownSidecar(relativePath: String)
 
     /// A path under the project but outside both the manifest and the
@@ -152,6 +159,10 @@ internal enum MaughamSidecarPath: Equatable {
 
         if relativePath.hasPrefix(".maugham/scratch/") {
             return .scratch(relativePath: relativePath)
+        }
+
+        if relativePath.hasPrefix(".maugham/pending/") {
+            return .pending(relativePath: relativePath)
         }
 
         if relativePath.hasPrefix(".maugham/trash/") {

@@ -58,6 +58,17 @@ public enum SetPieceStyleTool: MCPTool {
             name = PieceStyleSlug.slug(item.title) + ".tex"
         }
 
+        // LaTeX injection guard (finding 1.4): `name` is interpolated directly
+        // into `\input{pieces/<name>}` by LaTeXBodyEmitter. Reject any value
+        // that is not a `LaTeXSafeFilename` (TeX specials, path separators,
+        // `..` traversal, null bytes) BEFORE writing anything to disk.
+        guard LaTeXSafeFilename(name) != nil else {
+            throw MCPError.invalidArgument(
+                "style_file filename '\(name)' contains characters that are unsafe in a " +
+                "LaTeX \\input{} argument. Allowed: alphanumerics, '-', '_', '.'. " +
+                "Rejected: TeX specials ({}, %, $, #, &, ~, ^, \\), '/', '..', null bytes.")
+        }
+
         let rel = "pieces/\(name)"
         let url = try PublishPath.validateAndResolve(relativePath: rel, in: entry.url)
 

@@ -37,7 +37,9 @@ public struct TrashStore {
                 trashedAt: trashedAt,
                 originalRelativePath: meta.originalRelativePath,
                 displayTitle: meta.displayTitle,
-                itemMetadata: meta.itemMetadata))
+                itemMetadata: meta.itemMetadata,
+                originalParentId: meta.originalParentId,
+                originalIndex: meta.originalIndex))
         }
         return entries.sorted { $0.trashedAt > $1.trashedAt }
     }
@@ -99,7 +101,9 @@ public struct TrashStore {
             trashedAt: trashedAt,
             originalRelativePath: meta.originalRelativePath,
             displayTitle: meta.displayTitle,
-            itemMetadata: meta.itemMetadata)
+            itemMetadata: meta.itemMetadata,
+            originalParentId: meta.originalParentId,
+            originalIndex: meta.originalIndex)
     }
 
     /// Move a file or folder from its original project-relative path into

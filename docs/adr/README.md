@@ -36,6 +36,7 @@ Keep them short. One to two pages is the right scale. If an ADR keeps growing, i
 | [0011](0011-tasks-first-class-with-inline-anchors.md) | Tasks first-class with inline anchors | Proposed | 2026-05-25 |
 | [0013](0013-publishing-pipeline.md) | Publishing pipeline: Claude-authored bespoke typography | Accepted | 2026-05-29 |
 | [0014](0014-backup-and-integrity.md) | Backup & integrity: filesystem-only, integrity-gated, restore-beside | Accepted | 2026-06-07 |
+| [0015](0015-persisted-schema-evolution.md) | Persisted-schema evolution: schemaVersion gate + graceful enum/field decoding | Accepted | 2026-06-08 |
 
 ## How to write a new ADR
 

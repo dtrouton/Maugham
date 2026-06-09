@@ -8,6 +8,14 @@ import MaughamCore
 /// This is the load-bearing accept contract — the phone writes `claudeAccept`
 /// lifecycle ops and the Mac's shared `Deriver` must apply them. Modeled on
 /// `MaughamPhoneTests/AnnotationWriterTests.test_makeAccept_suggestedChange_copiesChangeVerbatim_andMaterializes`.
+///
+/// NB: `Deriver.derive` sorts by `opId` internally (load-order independence,
+/// M2.1) and production opIds are ULIDs — i.e. opId order == causal order. So
+/// these fixtures use causally-ordered ids (`op-1-…` < `op-2-…` < `op-3-…`):
+/// the base burst must sort before the suggestion before the accept, exactly as
+/// a real timeline would. Non-causal ids (e.g. plain `op-accept` < `op-base`)
+/// would make the burst re-overwrite the accept after the sort — a fixture
+/// artifact, not a production case.
 final class DeriverAcceptContractTests: XCTestCase {
 
     private let docId = "d_01HQ7T3JKM2N4P5R6S8VWX0Y2Z"
@@ -33,13 +41,13 @@ final class DeriverAcceptContractTests: XCTestCase {
     /// live paragraph — it is a proposal, not a commit.
     func test_suggestion_doesNotMaterializeChange() {
         let base = makeOp(
-            opId: "op-base", kind: .typingBurst,
+            opId: "op-1-base", kind: .typingBurst,
             changes: [.init(paragraphId: "k7m3", prior: nil,
                             next: "The sun was setting.")],
             sequence: ["k7m3"])
 
         let suggestion = makeOp(
-            opId: "op-suggest", kind: .claudeSuggestion,
+            opId: "op-2-suggest", kind: .claudeSuggestion,
             changes: [.init(paragraphId: "k7m3",
                             prior: "The sun was setting.",
                             next: "The sun bled into the horizon.")],
@@ -62,25 +70,25 @@ final class DeriverAcceptContractTests: XCTestCase {
     /// an accept op.
     func test_accept_materializesChange() {
         let base = makeOp(
-            opId: "op-base", kind: .typingBurst,
+            opId: "op-1-base", kind: .typingBurst,
             changes: [.init(paragraphId: "k7m3", prior: nil,
                             next: "The sun was setting.")],
             sequence: ["k7m3"])
 
         let suggestion = makeOp(
-            opId: "op-suggest", kind: .claudeSuggestion,
+            opId: "op-2-suggest", kind: .claudeSuggestion,
             changes: [.init(paragraphId: "k7m3",
                             prior: "The sun was setting.",
                             next: "The sun bled into the horizon.")],
             provenance: .init(sessionId: "s", annotationBody: "stronger image"))
 
         let accept = makeOp(
-            opId: "op-accept", kind: .claudeAccept,
+            opId: "op-3-accept", kind: .claudeAccept,
             changes: [.init(paragraphId: "k7m3",
                             prior: "The sun was setting.",
                             next: "The sun bled into the horizon.")],
             provenance: .init(sessionId: "s",
-                              sourceAnnotationId: "op-suggest"))
+                              sourceAnnotationId: "op-2-suggest"))
 
         let state = Deriver.derive(ops: [base, suggestion, accept])
 
@@ -97,18 +105,18 @@ final class DeriverAcceptContractTests: XCTestCase {
     /// accept op ALONE must be sufficient to materialize.
     func test_accept_withoutSuggestionInStream_stillMaterializes() {
         let base = makeOp(
-            opId: "op-base", kind: .typingBurst,
+            opId: "op-1-base", kind: .typingBurst,
             changes: [.init(paragraphId: "k7m3", prior: nil,
                             next: "The sun was setting.")],
             sequence: ["k7m3"])
 
         let accept = makeOp(
-            opId: "op-accept", kind: .claudeAccept,
+            opId: "op-3-accept", kind: .claudeAccept,
             changes: [.init(paragraphId: "k7m3",
                             prior: "The sun was setting.",
                             next: "The sun bled into the horizon.")],
             provenance: .init(sessionId: "s",
-                              sourceAnnotationId: "op-suggest"))
+                              sourceAnnotationId: "op-2-suggest"))
 
         let state = Deriver.derive(ops: [base, accept])
 
@@ -123,15 +131,15 @@ final class DeriverAcceptContractTests: XCTestCase {
     /// changes and must never mutate the manuscript.
     func test_reject_doesNotMaterialize() {
         let base = makeOp(
-            opId: "op-base", kind: .typingBurst,
+            opId: "op-1-base", kind: .typingBurst,
             changes: [.init(paragraphId: "k7m3", prior: nil,
                             next: "The sun was setting.")],
             sequence: ["k7m3"])
 
         let reject = makeOp(
-            opId: "op-reject", kind: .claudeReject,
+            opId: "op-2-reject", kind: .claudeReject,
             changes: [],
-            provenance: .init(sessionId: "s", sourceAnnotationId: "op-suggest",
+            provenance: .init(sessionId: "s", sourceAnnotationId: "op-2-suggest",
                               userResponse: "Works as-is."))
 
         let state = Deriver.derive(ops: [base, reject])
@@ -143,13 +151,13 @@ final class DeriverAcceptContractTests: XCTestCase {
 
     func test_archive_doesNotMaterialize() {
         let base = makeOp(
-            opId: "op-base", kind: .typingBurst,
+            opId: "op-1-base", kind: .typingBurst,
             changes: [.init(paragraphId: "k7m3", prior: nil,
                             next: "The sun was setting.")],
             sequence: ["k7m3"])
 
         let archive = makeOp(
-            opId: "op-archive", kind: .claudeArchive,
+            opId: "op-2-archive", kind: .claudeArchive,
             changes: [],
             provenance: .init(sessionId: "s", sourceAnnotationId: "op-comment"))
 

@@ -6,7 +6,9 @@ import os
 
 // Subsystem from the running bundle id so dev/stable logs separate without
 // hardcoding "com.maugham" (tripwire 13 spirit).
-private let projectStoreLog = Logger(
+// `internal` (not `private`) so the `ProjectStore+*.swift` peer extensions can
+// log source-of-truth op-append failures through the same facility.
+internal let projectStoreLog = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "com.maugham.Maugham",
     category: "ProjectStore")
 
@@ -19,6 +21,9 @@ public enum ProjectStoreError: Error, Equatable {
     case manifestNotFound
     case manifestUnreadable(String)
     case manifestUnwritable(String)
+    /// The on-disk manifest declares a `schemaVersion` newer than this build
+    /// supports. Refused rather than degraded — see ADR 0015.
+    case manifestSchemaTooNew(found: Int, supported: Int)
     case structureMissing
     case parentNotFound(String)
     case fileSystemError(String)
@@ -154,7 +159,14 @@ public final class ProjectStore {
         var manifest: ProjectManifest
         do {
             let data = try Data(contentsOf: manifestURL)
-            manifest = try ProjectManifest.makeDecoder().decode(ProjectManifest.self, from: data)
+            // Schema-version gate (ADR 0015): refuse a project written by a
+            // NEWER Maugham rather than degrade-and-resave it (which would
+            // overwrite values this build can't represent). The per-enum
+            // safe-default decoders only handle same-schema unexpected values.
+            manifest = try ProjectManifest.decodeGuardingSchema(data)
+        } catch let e as ProjectManifest.SchemaTooNewError {
+            throw ProjectStoreError.manifestSchemaTooNew(
+                found: e.found, supported: e.supported)
         } catch {
             // The live manifest is unreadable (corrupt / truncated). Recover from the
             // verified shadow if one exists, and repair the live file from it — so a

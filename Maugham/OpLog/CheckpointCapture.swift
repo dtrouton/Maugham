@@ -12,7 +12,8 @@ public enum CheckpointCapture {
         allDocIds: [String],
         device: String,
         session: String,
-        label: String?
+        label: String?,
+        activeDocument: Document? = nil
     ) async throws -> Checkpoint {
         let opStore = OpLogStore(projectURL: projectURL)
 
@@ -37,7 +38,19 @@ public enum CheckpointCapture {
             changes: [],
             sequence: nil,
             provenance: nil)
-        try await opStore.append(cpOp)
+
+        // If the live Document is provided, route the append through it so
+        // its _opLogMirror learns the cpOp's opId. The existing opId-set echo
+        // guard in Document+ExternalChange then filters this write on the next
+        // NSFilePresenter callback, avoiding a redundant re-derive on every ⌘S.
+        // When no live Document is supplied (no open doc / older callers /
+        // tests that don't pass one), fall back to the fresh opStore so
+        // behaviour is unchanged.
+        if let activeDocument {
+            try await activeDocument.appendMirrored(cpOp)
+        } else {
+            try await opStore.append(cpOp)
+        }
 
         // Compute word count over all docs.
         var totalWords = 0

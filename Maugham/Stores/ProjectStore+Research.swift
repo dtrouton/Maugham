@@ -323,7 +323,7 @@ extension ProjectStore {
             let plan = try RenamePlan(steps: [
                 .init(oldRelativePath: oldPath, newRelativePath: newPath)
             ])
-            try await documentStore.executeRenamePlan(plan)
+            try await documentStore.relocate(plan: plan)
 
             var copy = item
             copy.path = newPath
@@ -481,18 +481,30 @@ extension ProjectStore {
         let index = currentResearchIndex(of: id, parentId: parentId)
 
         if let path = item.path, !path.isEmpty {
-            // Flush any pending research-note autosave before trashing. A
-            // queued save would otherwise land on the original path moments
-            // after the trash move, re-creating the file. Same race fix as
-            // the deleteStructureItem manuscript close.
-            try? await documentStore?.flushPendingSave()
+            // Trash through the typed user-content mover. It flushes the
+            // research-note debounce (and closes+unregisters any open Document)
+            // INTERNALLY before the move, so a queued `scheduleFileSave` can't
+            // land on the original path post-move and re-create the file
+            // (tripwire 14, enforce-by-construction). With no DocumentStore
+            // (load-only context) the discipline is a provable no-op.
             let metadata = try JSONEncoder().encode(item)
-            let entry = try await trashStore.moveToTrash(
-                fileRelativePath: path,
-                itemMetadata: metadata,
-                originalParentId: parentId,
-                originalIndex: index,
-                displayTitle: item.title)
+            let entry: TrashEntry
+            if let ds = documentStore {
+                entry = try await ds.trash(
+                    relativePath: path,
+                    using: trashStore,
+                    itemMetadata: metadata,
+                    originalParentId: parentId,
+                    originalIndex: index,
+                    displayTitle: item.title)
+            } else {
+                entry = try await trashStore.moveToTrash( // internal-move: no DocumentStore (no registry to race)
+                    fileRelativePath: path,
+                    itemMetadata: metadata,
+                    originalParentId: parentId,
+                    originalIndex: index,
+                    displayTitle: item.title)
+            }
             removeResearchItem(id: id)
             manifest.modified = Date()
             try await saveManifest()
@@ -593,18 +605,31 @@ extension ProjectStore {
         var newPathForRenamed: String?
         var childPathRewrites: [(String, String)] = []
         if let newTitle = title, newTitle != oldItem.title {
-            // Flush any pending research-note autosave before the disk
-            // move. Research notes save via `DocumentStore.scheduleFileSave`
-            // on a 750ms debounce; if a save is pending it'd land on the
-            // OLD path moments after our move, re-creating a phantom file.
-            // Same race-class as the manuscript Document close-before-FS
-            // pattern, but research notes don't have a Document handle to
-            // close — instead we flush the path-keyed scheduler.
-            try? await documentStore?.flushPendingSave()
-            if let result = try renameResearchPath(
-                item: oldItem, oldTitle: oldItem.title, newTitle: newTitle) {
-                newPathForRenamed = result.newPath
-                childPathRewrites = result.childPathRewrites
+            // Rename the backing file/folder through the typed user-content
+            // mover. It closes+unregisters any open Document and flushes the
+            // research-note debounce INTERNALLY before `renameResearchPath`
+            // runs its coordinated moves, so a queued `scheduleFileSave` can't
+            // land on the OLD path post-move and re-create a phantom file
+            // (tripwire 14, enforce-by-construction). `affectedPaths` is the
+            // item's own old path; the flush is path-agnostic so child notes
+            // under a renamed group folder are covered too.
+            let affected = oldItem.path.map { [$0] } ?? []
+            let renameBody: () async throws -> Void = { [self] in
+                if let result = try await renameResearchPath(
+                    item: oldItem, oldTitle: oldItem.title, newTitle: newTitle,
+                    via: documentStore) {
+                    newPathForRenamed = result.newPath
+                    childPathRewrites = result.childPathRewrites
+                }
+            }
+            if let ds = documentStore {
+                try await ds.relocateUserContent(
+                    affectedPaths: affected, perform: renameBody)
+            } else {
+                // No DocumentStore (load-only context): no registry/scheduler to
+                // race, so the discipline is a provable no-op. renameResearchPath
+                // falls back to raw moves internally when `via` is nil.
+                try await renameBody()
             }
         }
 
@@ -626,12 +651,18 @@ extension ProjectStore {
     }
 
     /// Rename the backing file or folder when a research item's title changes.
-    /// Returns (newRelativePath, childPathRewrites) or nil if no rename is needed.
+    /// Returns (newRelativePath, childPathRewrites) or nil if no rename is
+    /// needed. Runs its moves through `ds.coordinatedMove` / `coordinatedWrite`
+    /// (not raw `FileManager`) and is invoked only from inside the typed mover's
+    /// `relocateUserContent(perform:)` closure, so the close+flush discipline
+    /// has already run (tripwire 14). The `via` DocumentStore supplies the
+    /// coordinated FS primitives.
     func renameResearchPath(
         item: ResearchItem,
         oldTitle: String,
-        newTitle: String
-    ) throws -> (newPath: String, childPathRewrites: [(String, String)])? {
+        newTitle: String,
+        via ds: DocumentStore?
+    ) async throws -> (newPath: String, childPathRewrites: [(String, String)])? {
         guard let oldRelPath = item.path else { return nil }
         let oldURL = url.appendingPathComponent(oldRelPath)
         let oldSlug = Slugifier.slug(from:oldTitle)
@@ -640,6 +671,17 @@ extension ProjectStore {
 
         let parentDir = oldURL.deletingLastPathComponent()
 
+        // Coordinated move when a DocumentStore is present (the production
+        // path); a raw move is the safe fallback when it's nil (load-only
+        // context — no registry/scheduler to race). (TripwireGrepTests exclusion)
+        func move(_ from: URL, _ to: URL) async throws {
+            if let ds {
+                try await ds.coordinatedMove(from: from, to: to)
+            } else {
+                try FileManager.default.moveItem(at: from, to: to) // internal-move: no DocumentStore (no registry to race)
+            }
+        }
+
         if item.type == .group {
             // Rename folder; collect child path rewrites.
             let dedupedSlug = Self.dedupedName(newSlug) {
@@ -647,7 +689,7 @@ extension ProjectStore {
                     atPath: parentDir.appendingPathComponent($0).path)
             }
             let newURL = parentDir.appendingPathComponent(dedupedSlug)
-            try FileManager.default.moveItem(at: oldURL, to: newURL)
+            try await move(oldURL, newURL)
             let newRelative = relativeResearchPath(newURL)
             // Compute child rewrites.
             let oldPrefix = oldRelPath + "/"
@@ -678,13 +720,13 @@ extension ProjectStore {
                     ? parentDir.appendingPathComponent(dedupedSlug)
                     : parentDir.appendingPathComponent("\(dedupedSlug).\(ext)")
             }
-            try FileManager.default.moveItem(at: oldURL, to: newURL)
+            try await move(oldURL, newURL)
 
             // Propagate to sibling <slug>_assets/ folder if it exists.
             let oldAssetsURL = parentDir.appendingPathComponent("\(oldSlug)_assets")
             let newAssetsURL = parentDir.appendingPathComponent("\(dedupedSlug)_assets")
             if FileManager.default.fileExists(atPath: oldAssetsURL.path) {
-                try FileManager.default.moveItem(at: oldAssetsURL, to: newAssetsURL)
+                try await move(oldAssetsURL, newAssetsURL)
 
                 // Update internal refs in the renamed note
                 if let content = try? String(contentsOf: newURL, encoding: .utf8) {
@@ -692,7 +734,11 @@ extension ProjectStore {
                     let newRef = "./\(dedupedSlug)_assets/"
                     let rewritten = content.replacingOccurrences(of: oldRef, with: newRef)
                     if rewritten != content {
-                        try rewritten.write(to: newURL, atomically: true, encoding: .utf8)
+                        if let ds {
+                            try await ds.coordinatedWrite(text: rewritten, to: newURL)
+                        } else {
+                            try rewritten.write(to: newURL, atomically: true, encoding: .utf8)
+                        }
                     }
                 }
             }

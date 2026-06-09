@@ -383,13 +383,26 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
 
     private func retokenizeAndStyle() {
         guard let textView, let storage = textView.textStorage else { return }
-        let tokens = mode.tokenize(textView.string)
-        self.lastTokens = tokens
-        if mode is ScreenplayMode {
-            lastParsedScript = FountainTokenizer().parse(textView.string)
+        let text = textView.string
+        // P1-editor: parse the Fountain script EXACTLY ONCE per keystroke and
+        // thread it through token derivation + styling + the scene-navigator
+        // notification, instead of parsing the whole document three times
+        // (tokenize, lastParsedScript, applyTypography). O(N²)→O(N) when typing
+        // a long screenplay. The prose path doesn't parse Fountain and is
+        // unchanged. See Editor AREA.md and the hardening plan task 4.7.
+        let tokens: [Token]
+        if let screenplay = mode as? ScreenplayMode {
+            // Always parse (even empty text → `.empty`) so `lastParsedScript`
+            // and the scene-navigator notification keep their prior payload;
+            // `tokens(from:text:)` returns `[]` for empty text on its own.
+            let script = FountainTokenizer().parse(text)
+            lastParsedScript = script
+            tokens = screenplay.tokens(from: script, text: text)
         } else {
+            tokens = mode.tokenize(text)
             lastParsedScript = nil
         }
+        self.lastTokens = tokens
         // Notify subscribers (e.g., scene navigator) that the script changed.
         if let script = lastParsedScript {
             NotificationCenter.default.post(
@@ -410,7 +423,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                 in: storage,
                 theme: theme,
                 typography: typography,
-                tokens: tokens)
+                tokens: tokens,
+                parsedScript: lastParsedScript)
         }
         // Sync typing attributes so the caret on empty lines matches the
         // body font/paragraph style instead of the system default.
@@ -433,25 +447,17 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         guard let replacementString,
               !isApplyingExternalUpdate else { return true }
 
-        // Smart typography handling
-        if let substitute = mode.smartTypographyTransform(
+        // Smart typography handling.
+        // `transform` returns the substitute glyph AND the full replacement range
+        // (including any preceding ASCII run to consume). The coordinator uses
+        // the range directly — it never back-computes how many chars to eat.
+        if let result = mode.smartTypographyTransform(
             currentText: textView.string,
             replacementRange: affectedCharRange,
             replacement: replacementString,
             settings: typography
         ) {
-            // The transform returns just the substitute glyph; the coordinator
-            // is responsible for consuming the preceding ASCII run that the
-            // substitute replaces. Em dash eats one "-"; ellipsis eats two ".".
-            var range = affectedCharRange
-            if substitute == "—" && range.location > 0 {
-                range = NSRange(location: range.location - 1,
-                                length: range.length + 1)
-            } else if substitute == "…" && range.location > 1 {
-                range = NSRange(location: range.location - 2,
-                                length: range.length + 2)
-            }
-            textView.insertText(substitute, replacementRange: range)
+            textView.insertText(result.substitute, replacementRange: result.range)
             return false
         }
         return true

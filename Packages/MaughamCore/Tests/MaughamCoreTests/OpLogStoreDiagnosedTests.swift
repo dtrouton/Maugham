@@ -1,0 +1,106 @@
+import XCTest
+@testable import MaughamCore
+
+/// Covers `OpLogStore.loadDiagnosed(docId:)` — the glob+merge variant that
+/// surfaces per-file `ParseDiagnostics` so a torn/corrupt op-log line gets a
+/// forensic record instead of vanishing. Tripwire 8: any id crossing the
+/// `.md`↔op-log boundary uses the 4-char alphabet / `ParagraphID.mint()`.
+@MainActor
+final class OpLogStoreDiagnosedTests: XCTestCase {
+    private var tmp: URL!
+
+    override func setUp() async throws {
+        tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OLD-\(UUID())")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tmp)
+    }
+
+    private func makeOp(opId: String) -> Op {
+        Op(opId: opId, docId: "doc-1", at: Date(timeIntervalSince1970: 0),
+           device: "m", session: "s", kind: .typingBurst,
+           changes: [.init(paragraphId: ParagraphID.mint(), prior: nil, next: "x")])
+    }
+
+    /// Plant N valid op lines, then a TRUNCATED final line (a valid op JSON with
+    /// its tail chopped, no trailing newline — exactly a crash mid-`append`).
+    /// `loadDiagnosed` must (a) return exactly the N valid ops, never the torn
+    /// one, and (b) report the torn line in `diagnostics.skipped`.
+    func test_loadDiagnosed_tornFinalLine_quarantinedAndExcludedFromStream() async throws {
+        let store = OpLogStore(projectURL: tmp)
+        try await store.append(makeOp(opId: "01HZK01"))
+        try await store.append(makeOp(opId: "01HZK02"))
+
+        // Manually append a truncated final line to the per-device file.
+        let slug = DeviceSlug.make(from: "m")
+        let fileURL = OpLogStore.opLogFileURL(
+            forDocId: "doc-1", deviceSlug: slug, in: tmp)
+        // Encode a full op line, then chop its last 10 bytes so the JSON is
+        // unterminated and cannot decode.
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = JSONLAppendStore<Op>.dateEncoding
+        enc.outputFormatting = [.sortedKeys]
+        let full = try enc.encode(makeOp(opId: "01HZK03"))
+        let torn = full.prefix(full.count - 10)   // no trailing newline either
+        let handle = try FileHandle(forWritingTo: fileURL)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data(torn))
+        try handle.close()
+
+        // Sanity: the torn bytes really don't decode as an Op.
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = JSONLAppendStore<Op>.dateDecoding
+        XCTAssertNil(try? dec.decode(Op.self, from: Data(torn)),
+                     "test precondition: the truncated line must be undecodable")
+
+        let result = try await store.loadDiagnosed(docId: "doc-1")
+        XCTAssertEqual(result.ops.map(\.opId), ["01HZK01", "01HZK02"],
+                       "torn line must never enter the op stream")
+        XCTAssertEqual(result.diagnostics.skipped.count, 1,
+                       "torn line must be reported in diagnostics")
+
+        // And `load` still returns the valid ops (drops diagnostics).
+        let loaded = try await store.load(docId: "doc-1")
+        XCTAssertEqual(loaded.map(\.opId), ["01HZK01", "01HZK02"])
+    }
+
+    /// Diagnostics from MULTIPLE per-device files must merge into one
+    /// `ParseDiagnostics`.
+    func test_loadDiagnosed_mergesSkippedAcrossPerDeviceFiles() async throws {
+        let store = OpLogStore(projectURL: tmp)
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent(".maugham/ops"),
+            withIntermediateDirectories: true)
+        // Two device files, each with one valid op + one garbage line.
+        for (device, opId) in [("m", "01HZK01"), ("p", "01HZK02")] {
+            let slug = DeviceSlug.make(from: device)
+            let fileURL = OpLogStore.opLogFileURL(
+                forDocId: "doc-1", deviceSlug: slug, in: tmp)
+            let op = Op(opId: opId, docId: "doc-1", at: Date(timeIntervalSince1970: 0),
+                        device: device, session: "s", kind: .typingBurst,
+                        changes: [.init(paragraphId: ParagraphID.mint(), prior: nil, next: "x")])
+            let enc = JSONEncoder()
+            enc.dateEncodingStrategy = JSONLAppendStore<Op>.dateEncoding
+            enc.outputFormatting = [.sortedKeys]
+            let line = String(data: try enc.encode(op), encoding: .utf8)!
+            try (line + "\nGARBAGE-\(device)\n").write(to: fileURL, atomically: true, encoding: .utf8)
+        }
+
+        let result = try await store.loadDiagnosed(docId: "doc-1")
+        XCTAssertEqual(result.ops.map(\.opId), ["01HZK01", "01HZK02"])
+        XCTAssertEqual(result.diagnostics.skipped.count, 2,
+                       "skipped lines from both device files must merge")
+    }
+
+    /// Clean files report no diagnostics.
+    func test_loadDiagnosed_cleanFile_reportsNothing() async throws {
+        let store = OpLogStore(projectURL: tmp)
+        try await store.append(makeOp(opId: "01HZK01"))
+        let result = try await store.loadDiagnosed(docId: "doc-1")
+        XCTAssertEqual(result.ops.count, 1)
+        XCTAssertTrue(result.diagnostics.isClean)
+    }
+}

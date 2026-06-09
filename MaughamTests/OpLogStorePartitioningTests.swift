@@ -1,5 +1,5 @@
 import XCTest
-import MaughamCore
+@testable import MaughamCore
 @testable import Maugham
 
 /// Phase B0 — per-device JSONL partitioning (ADR 0012, spec §3.12).
@@ -60,22 +60,60 @@ final class OpLogStorePartitioningTests: XCTestCase {
             atPath: opsDir(root).appendingPathComponent("\(docId).\(phoneSlug).jsonl").path))
     }
 
-    func test_load_mergesLegacyAndPerDeviceFiles_sortedAndDeduped() async throws {
-        let root = try makeProject()
-        // Legacy file (one writer, pre-partitioning history).
-        try await seed(opsDir(root).appendingPathComponent("\(docId).jsonl"),
-                       [op("op-b", device: "legacy", next: "B")])
-        // Two per-device files; op-a duplicated across files to exercise dedup.
-        try await seed(opsDir(root).appendingPathComponent("\(docId).maca.jsonl"),
-                       [op("op-a", device: "macA", next: "A"),
-                        op("op-c", device: "macA", next: "C")])
-        try await seed(opsDir(root).appendingPathComponent("\(docId).phoneb.jsonl"),
-                       [op("op-a", device: "phoneB", next: "A"),
-                        op("op-d", device: "phoneB", next: "D")])
+    // RED until M1/M2 — asserts post-fix load-order-independent merge on a
+    // DIVERGENT-content same-opId collision across files; see plan 0.2/0.4 +
+    // finding 0.4. The old test duplicated op-a with BYTE-IDENTICAL payloads, so
+    // the dangerous divergent-content merge path was never exercised: first-wins
+    // over a non-stable sort + filesystem-enumeration-order reads is silently
+    // load-order-dependent and that was never caught.
+    func test_load_mergesAcrossFiles_isDeterministicOnDivergentCollision() async throws {
+        // op-a appears in BOTH per-device files with DIFFERENT `next`
+        // ("A-macA" vs "A-phoneB") — a genuine divergent-content opId collision.
+        let opA_macA = op("op-a", device: "macA", next: "A-macA")
+        let opA_phoneB = op("op-a", device: "phoneB", next: "A-phoneB")
+        let opB = op("op-b", device: "legacy", next: "B")
+        let opC = op("op-c", device: "macA", next: "C")
+        let opD = op("op-d", device: "phoneB", next: "D")
 
-        let merged = try await OpLogStore(projectURL: root).load(docId: docId)
-        XCTAssertEqual(merged.map(\.opId), ["op-a", "op-b", "op-c", "op-d"],
+        // `contentsOfDirectory` enumeration order is not guaranteed, so the file
+        // layout already exercises "either file could be read first." We can't
+        // control that order, so we assert determinism two ways:
+        //  (1) the loaded result equals a reference computed from an explicit
+        //      canonical ordering of the SAME logical ops, and
+        //  (2) the reference is itself order-independent — flipping which copy
+        //      of op-a comes first in the canonical input yields the same merge.
+        let root = try makeProject()
+        try await seed(opsDir(root).appendingPathComponent("\(docId).jsonl"), [opB])
+        try await seed(opsDir(root).appendingPathComponent("\(docId).maca.jsonl"),
+                       [opA_macA, opC])
+        try await seed(opsDir(root).appendingPathComponent("\(docId).phoneb.jsonl"),
+                       [opA_phoneB, opD])
+
+        let loaded = try await OpLogStore(projectURL: root).load(docId: docId)
+
+        // Dedup + opId-sort across all files still holds.
+        XCTAssertEqual(loaded.map(\.opId), ["op-a", "op-b", "op-c", "op-d"],
                        "merge is opId-sorted and deduped across all files")
+
+        // Determinism = LOAD-ORDER INDEPENDENCE. Reference merges of the same
+        // logical ops, differing ONLY in which copy of the colliding op-a is
+        // seen first, must agree — and `load`'s result (whatever the filesystem
+        // enumeration order was) must equal them. We do NOT pin which payload
+        // wins; that survivor rule is M2.1's unmade decision.
+        let refXY = OpLogStore.mergeSortedDedup([opA_macA, opA_phoneB, opB, opC, opD])
+        let refYX = OpLogStore.mergeSortedDedup([opA_phoneB, opA_macA, opB, opC, opD])
+        XCTAssertEqual(refXY.first { $0.opId == "op-a" }?.changes.first?.next,
+                       refYX.first { $0.opId == "op-a" }?.changes.first?.next,
+                       "divergent same-opId collision must resolve the same "
+                           + "regardless of input order")
+        XCTAssertEqual(loaded.first { $0.opId == "op-a" }?.changes.first?.next,
+                       refXY.first { $0.opId == "op-a" }?.changes.first?.next,
+                       "load() must be deterministic regardless of which file "
+                           + "the OS enumerates first")
+
+        // And the same load-order independence holds for derived state.
+        XCTAssertEqual(Deriver.derive(ops: loaded), Deriver.derive(ops: refXY),
+                       "storage/enumeration order must not change derived state")
     }
 
     func test_load_backwardCompat_onlyLegacyFile() async throws {

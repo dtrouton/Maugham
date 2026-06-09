@@ -29,11 +29,16 @@ public protocol WritingMode: Sendable {
     func tokenize(_ text: String) -> [Token]
 
     /// Apply theme + typography attributes to a text storage based on tokens.
+    /// `parsedScript` lets a Fountain-aware mode reuse a script the caller
+    /// already parsed (the `EditorCoordinator` hot path parses once and threads
+    /// it through both `tokenize` and here); modes that don't parse Fountain
+    /// ignore it. Defaults to `nil` so existing callers are unaffected.
     func applyTypography(
         in storage: NSTextStorage,
         theme: Theme,
         typography: TypographySettings,
-        tokens: [Token]
+        tokens: [Token],
+        parsedScript: FountainScript?
     )
 
     /// Attributes to use for the NSTextView's `typingAttributes` so the caret
@@ -44,13 +49,14 @@ public protocol WritingMode: Sendable {
     ) -> [NSAttributedString.Key: Any]
 
     /// If the user's typed replacement should auto-transform (em dash, etc.),
-    /// return the substitution; otherwise nil.
+    /// return a `TransformResult` carrying both the substitute glyph and the
+    /// full replacement range; otherwise nil.
     func smartTypographyTransform(
         currentText: String,
         replacementRange: NSRange,
         replacement: String,
         settings: TypographySettings
-    ) -> String?
+    ) -> SmartTypography.TransformResult?
 
     /// Compute metrics for the manuscript.
     func metrics(_ text: String) -> EditorMetrics

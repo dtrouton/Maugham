@@ -44,6 +44,72 @@ final class TripwirePhoneGrepTest: XCTestCase {
                       + offenders.joined(separator: "\n"))
     }
 
+    // MARK: - Meta-tests: tripwires fire on planted offenders (task 4.8 / test gap #14)
+
+    /// Self-check: prove the identity-string tripwire FIRES on a planted
+    /// `"maugham"` / `"Maugham"` literal. Writes a synthetic Swift file into a
+    /// temp dir (not under MaughamPhone/) and confirms the grep catches it.
+    func test_identityLiteralTripwireFiresOnPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("phone-tripwire-identity-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        // Plant a standalone "Maugham" literal — the kind that should route
+        // through BuildVariant.current.displayName, not be hardcoded directly.
+        let planted = tmp.appendingPathComponent("BadIdentity.swift")
+        try """
+        let name = \"Maugham\"  // should be caught — route through BuildVariant
+        """.write(to: planted, atomically: true, encoding: .utf8)
+
+        var offenders: [String] = []
+        let text = try String(contentsOf: planted, encoding: .utf8)
+        for (index, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+            if line.contains("\"maugham\"") || line.contains("\"Maugham\"") {
+                offenders.append("\(planted.lastPathComponent):\(index + 1): "
+                    + line.trimmingCharacters(in: .whitespaces))
+            }
+        }
+        XCTAssertEqual(offenders.count, 1,
+            "Self-check expected exactly one identity-literal offender. Got:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.first?.contains("\"Maugham\"") == true,
+            "Self-check: the planted \"Maugham\" literal should be caught.")
+    }
+
+    /// Self-check: prove the op-log filename tripwire FIRES on a planted
+    /// `hasPrefix("d_")` call. Writes a synthetic Swift file into a temp dir and
+    /// confirms the grep pattern matches it.
+    func test_phoneOpLogFilenameTripwireFiresOnPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("phone-tripwire-oplog-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        let planted = tmp.appendingPathComponent("BadDocIdParser.swift")
+        try """
+        func isDocId(_ s: String) -> Bool {
+            return s.hasPrefix(\"d_\")  // hand-rolled: should be caught
+        }
+        """.write(to: planted, atomically: true, encoding: .utf8)
+
+        let forbidden = ["hasPrefix(\"d_\")", ".hasSuffix(\".jsonl\")", ".jsonl\""]
+        let text = try String(contentsOf: planted, encoding: .utf8)
+        var offenders: [String] = []
+        for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+            for pat in forbidden where line.contains(pat) {
+                offenders.append("\(planted.lastPathComponent):\(i + 1): \(line.trimmingCharacters(in: .whitespaces))")
+            }
+        }
+        XCTAssertEqual(offenders.count, 1,
+            "Self-check expected exactly one op-log filename offender. Got:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.first?.contains("hasPrefix") == true,
+            "Self-check: the planted hasPrefix(\"d_\") call should be caught.")
+    }
+
     /// Action-triggered guard: surface code must not hand-roll op-log filename /
     /// docId parsing — it must call OpLogStore. Catches the phone-v0.1.1 footgun
     /// class. Allowlist = files that legitimately ARE the choke-point or its tests.

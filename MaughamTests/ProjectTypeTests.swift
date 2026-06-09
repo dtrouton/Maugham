@@ -22,8 +22,17 @@ final class ProjectTypeTests: XCTestCase {
         XCTAssertEqual(decoded, original)
     }
 
-    func test_decodingUnknownValueThrows() {
+    // ADR 0015: an unknown `type` written by a newer Maugham must NOT throw
+    // (which would make the whole project.maugham.json undecodable → project
+    // unopenable). It degrades to `.unknown`; the schemaVersion gate is the
+    // primary defence against genuinely-newer-schema projects.
+    func test_decodingUnknownValueDegradesToUnknownNotThrow() throws {
         let data = "\"poem\"".data(using: .utf8)!
-        XCTAssertThrowsError(try JSONDecoder().decode(ProjectType.self, from: data))
+        XCTAssertEqual(try JSONDecoder().decode(ProjectType.self, from: data), .unknown)
+    }
+
+    // `.unknown` is decode-only and excluded from the picker's allCases.
+    func test_unknownIsExcludedFromAllCases() {
+        XCTAssertFalse(ProjectType.allCases.contains(.unknown))
     }
 }

@@ -16,13 +16,16 @@ final class PublishConfigValidatorTests: XCTestCase {
         XCTAssertTrue(errs.contains(where: { $0.field == "metadata.title" }))
     }
 
-    func testRejects_unknownStartOn() throws {
-        // Decoder enforces enum, so we test via raw JSON.
+    // ADR 0015: an unknown `start_on` written by a newer Maugham must NOT throw
+    // (which would make the whole config.json unloadable). It degrades to
+    // `.any` (the no-constraint default) so the rest of the config survives.
+    func testUnknownStartOn_degradesToAny() throws {
         let json = """
         {"title_override":null,"start_on":"sideways","include_in_toc":true}
         """
-        XCTAssertThrowsError(try JSONDecoder().decode(
-            PublishConfig.Section.self, from: Data(json.utf8)))
+        let section = try JSONDecoder().decode(
+            PublishConfig.Section.self, from: Data(json.utf8))
+        XCTAssertEqual(section.startOn, .any)
     }
 
     func testRejects_negativeYear() {

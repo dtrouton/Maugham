@@ -70,6 +70,7 @@ struct NewProjectSheet: View {
         case .novel: return "Novel"
         case .screenplay: return "Screenplay"
         case .collection: return "Collection"
+        case .unknown: return "Unknown"   // excluded from allCases; never offered here
         }
     }
 
@@ -79,6 +80,7 @@ struct NewProjectSheet: View {
         case .novel: return "A multi-file novel with a hierarchical binder."
         case .screenplay: return "A Fountain-format screenplay (no parser yet — plain monospace)."
         case .collection: return "A collection placeholder; depth arrives in Phase 2."
+        case .unknown: return ""   // excluded from allCases; never offered here
         }
     }
 
@@ -118,6 +120,12 @@ struct NewProjectSheet: View {
             case .collection:
                 url = try await ProjectFactory.createCollectionProject(
                     named: name, in: parent)
+            case .unknown:
+                // `.unknown` is decode-only (a newer build's project type) and
+                // is excluded from `allCases`, so the picker never offers it.
+                // Defensive: refuse rather than fabricate a project.
+                errorMessage = "Unsupported project type."
+                return
             }
             onCreated(url)
             dismiss()

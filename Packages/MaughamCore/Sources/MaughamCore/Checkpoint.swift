@@ -12,6 +12,16 @@ public struct Checkpoint: Codable, Equatable, Hashable, Sendable {
 
     public enum LabelSource: String, Codable, Hashable, Sendable {
         case user, auto
+
+        /// Cross-version forward-tolerance (ADR 0015): an unknown label source
+        /// from a newer build decodes to `.auto` rather than throwing (which
+        /// would quarantine the whole checkpoint row). `.auto` is the benign
+        /// default — checkpoints are forensic; the only consumer distinction is
+        /// a cosmetic label.
+        public init(from decoder: Decoder) throws {
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            self = LabelSource(rawValue: raw) ?? .auto
+        }
     }
 
     enum CodingKeys: String, CodingKey {

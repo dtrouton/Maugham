@@ -176,7 +176,7 @@ extension ProjectStore {
         guard let documentStore else {
             throw ProjectStoreError.fileSystemError("DocumentStore not available")
         }
-        try await documentStore.executeRenamePlan(plan)
+        try await documentStore.relocate(plan: plan)
 
         removeFromStructure(id: id)
         replaceChildren(parentId: toParentId, with: newDestSiblings)
@@ -329,21 +329,24 @@ extension ProjectStore {
         let newPath = parentPath.isEmpty ? newFilename : "\(parentPath)/\(newFilename)"
         let newURL = url.appendingPathComponent(newPath)
 
-        // Close the open Document (if any) at the OLD path before moving.
-        // Otherwise its 750ms autosave would re-create the file at the old
-        // path after the move — leaving a phantom file behind under the
-        // pre-rename name. close() flushes any pending burst + autosave
-        // first so no unsaved typing is lost; unregister() removes it
-        // from the presenter registry so external-change callbacks don't
-        // fire against the now-moved path.
-        if let ds = documentStore, let openDoc = ds.document(for: oldPath) {
-            await openDoc.close()
-            ds.unregister(path: oldPath)
-        }
-
-        // Move on disk
+        // Move on disk through the typed user-content mover. It runs the
+        // close-before-FS-surgery discipline (close+unregister the open
+        // Document at oldPath so its 750ms autosave can't re-create a phantom
+        // at the pre-rename name; flush the research-note debounce) INTERNALLY
+        // before the coordinated move (tripwire 14, enforce-by-construction).
+        let oldDocURL = url.appendingPathComponent(oldPath)
         do {
-            try fm.moveItem(at: url.appendingPathComponent(oldPath), to: newURL)
+            if let ds = documentStore {
+                try await ds.relocateUserContent(affectedPaths: [oldPath]) {
+                    try await ds.coordinatedMove(from: oldDocURL, to: newURL)
+                }
+            } else {
+                // No DocumentStore (load-only context, e.g. a unit test): no
+                // registry and no debounced research saves exist, so the
+                // close+flush discipline is a provable no-op and the move is
+                // safe to run directly. (TripwireGrepTests exclusion)
+                try fm.moveItem(at: oldDocURL, to: newURL) // internal-move: no DocumentStore (no registry to race)
+            }
         } catch {
             throw ProjectStoreError.fileSystemError(error.localizedDescription)
         }
@@ -375,28 +378,82 @@ extension ProjectStore {
     }
 
     /// Walk every other manuscript document; if its body references
-    /// `[[oldTitle]]`, rewrite to `[[newTitle]]` and persist via direct
-    /// disk write (these documents aren't necessarily the currently-open
-    /// one in DocumentStore, so we go straight to file).
+    /// `[[oldTitle]]`, rewrite to `[[newTitle]]` THROUGH THE OP LOG.
+    ///
+    /// The op log is the source of truth for manuscripts; the `.md` on disk is
+    /// derived (hard invariant #1). So this rewrite must produce ops, not raw
+    /// bytes — the same discipline as `ProjectStore+Search.swift`'s
+    /// `replaceInManuscript`. A raw `String.write(to:)` here (the historical
+    /// shape) corrupted manuscripts on every rename: for a CLOSED doc the `.md`
+    /// diverged from its op log (the reconciler had to guess on the next load);
+    /// for an OPEN doc the live `Document` re-materialized and clobbered the
+    /// raw write (tripwires 7 + 14, finding 0.1).
+    ///
+    /// Per-doc failures (a transient load or close that throws) are logged via
+    /// `projectStoreLog` and skipped — one bad doc must not abort propagation
+    /// to the rest — never swallowed by a bare `try?`. The method stays
+    /// non-throwing so a single I/O hiccup can't unwind the whole rename.
     func propagateWikiLinkRename(
         excludeId: String, oldTitle: String, newTitle: String
     ) async {
         for doc in Self.collectDocuments(in: manifest.structure)
         where doc.id != excludeId {
             guard let path = doc.path else { continue }
-            let fileURL = url.appendingPathComponent(path)
-            guard let body = try? String(contentsOf: fileURL,
-                                         encoding: .utf8) else { continue }
+
+            // Obtain the Document — the live registry instance if this doc is
+            // open, else a transient load. The wiki link appears identically
+            // in display form (it isn't an anchor), so we compute the rewrite
+            // on `displayText`.
+            let docURL = url.appendingPathComponent(path)
+            let openDoc = documentStore?.document(for: path)
+            let isTransient = (openDoc == nil)
+
+            let resolved: Document
+            if let openDoc {
+                resolved = openDoc
+            } else {
+                // Cheap pre-check on the raw file: skip loading a doc that has
+                // no occurrence at all (the common case across a large binder).
+                if let body = try? String(contentsOf: docURL, encoding: .utf8),
+                   WikiLinkRewriter.rewrite(
+                       body: body, oldTitle: oldTitle, newTitle: newTitle) == nil {
+                    continue
+                }
+                do {
+                    resolved = try await Document.load(
+                        url: docURL,
+                        device: "wiki-rename",
+                        session: "wiki-rename-\(UUID().uuidString.prefix(8))",
+                        presenter: documentStore?.presenter)
+                } catch {
+                    projectStoreLog.error(
+                        "Wiki-rename: failed to load \(path, privacy: .public) for propagation: \(error.localizedDescription, privacy: .public)")
+                    continue
+                }
+            }
+
+            // Rewrite on display form. nil → no occurrence; nothing to do.
+            // Close a transiently-loaded doc on this early-out path too.
             guard let rewritten = WikiLinkRewriter.rewrite(
-                body: body, oldTitle: oldTitle, newTitle: newTitle) else {
+                body: resolved.displayText,
+                oldTitle: oldTitle, newTitle: newTitle) else {
+                if isTransient { await resolved.close() }
                 continue
             }
-            try? rewritten.write(
-                to: fileURL, atomically: true, encoding: .utf8)
+
+            // Commit through the same path normal typing uses (appends an op).
+            resolved.setFullText(rewritten)
+
             // Refresh per-doc word-count cache since the body changed.
             let count = WritingModeFactory.mode(for: path)
                 .metrics(rewritten).wordCount
             recordWordCount(forDocumentId: doc.id, wordCount: count)
+
+            // Persist + tear down a transiently-loaded doc, AWAITED exactly
+            // once. close() flushes the burst so the `.md` + op log are durable.
+            // An already-open doc is left to its live schedulers (its editor
+            // binding already reflects the new displayText) — do NOT close it.
+            if isTransient { await resolved.close() }
         }
     }
 
@@ -582,7 +639,7 @@ extension ProjectStore {
         }
 
         let plan = try RenamePlan(steps: renameSteps)
-        try await documentStore.executeRenamePlan(plan)
+        try await documentStore.relocate(plan: plan)
         replaceChildren(parentId: parentId, with: newSiblings)
         manifest.modified = Date()
         try await saveManifest()
@@ -698,23 +755,29 @@ extension ProjectStore {
         let index = currentIndex(of: id, parentId: parentId)
         let metadata = try JSONEncoder().encode(item)
 
-        // Close the open Document (if any) before moving the file to trash.
-        // The 750ms autosave on the open doc would otherwise re-create the
-        // file at the original manuscript/ path after we move it — leaving
-        // a phantom alongside the trashed copy.
-        if !path.isEmpty,
-           let ds = documentStore,
-           let openDoc = ds.document(for: path) {
-            await openDoc.close()
-            ds.unregister(path: path)
+        // Trash through the typed user-content mover. It closes+unregisters the
+        // open Document and flushes the research-note debounce INTERNALLY before
+        // the move, so the 750ms autosave can't re-create a phantom alongside
+        // the trashed copy (tripwire 14, enforce-by-construction). With no
+        // DocumentStore (load-only context) the discipline is a provable no-op,
+        // so the trash move runs directly via the TrashStore.
+        let entry: TrashEntry
+        if let ds = documentStore {
+            entry = try await ds.trash(
+                relativePath: path,
+                using: trashStore,
+                itemMetadata: metadata,
+                originalParentId: parentId,
+                originalIndex: index,
+                displayTitle: item.title)
+        } else {
+            entry = try await trashStore.moveToTrash( // internal-move: no DocumentStore (no registry to race)
+                fileRelativePath: path,
+                itemMetadata: metadata,
+                originalParentId: parentId,
+                originalIndex: index,
+                displayTitle: item.title)
         }
-
-        let entry = try await trashStore.moveToTrash(
-            fileRelativePath: path,
-            itemMetadata: metadata,
-            originalParentId: parentId,
-            originalIndex: index,
-            displayTitle: item.title)
 
         removeFromStructure(id: id)
         manifest.modified = Date()

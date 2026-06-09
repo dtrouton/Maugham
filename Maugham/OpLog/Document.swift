@@ -1,6 +1,15 @@
 import Foundation
 import MaughamCore
 import AppKit
+import os
+
+// Subsystem from the running bundle id so dev/stable logs separate without
+// hardcoding "com.maugham" (tripwire 13 spirit). Mirrors DocumentStore's logger.
+// `internal` (not `private`) so the `Document+*.swift` peer extensions can log
+// source-of-truth op-append failures through the same facility.
+internal let documentLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.maugham.Maugham",
+    category: "Document")
 
 /// Per-manuscript canonical state. Owns its op log + pending buffer +
 /// burst scheduler + autosave + conflict detection. The single
@@ -83,6 +92,20 @@ public final class Document {
     /// cache to derive tasks without an async hop.
     public var opLogSnapshot: [Op] { _opLogMirror }
 
+    /// Append `op` to this document's persistent op store AND to the in-memory
+    /// mirror in a single step, so the opId-set echo guard in
+    /// `Document+ExternalChange` recognises it as self-authored and filters it
+    /// on the next NSFilePresenter callback.
+    ///
+    /// Use this for ops whose write is initiated *outside* the normal
+    /// `flushBurstNow` / annotation path but must still be reflected in the
+    /// live Document's mirror — currently only the checkpoint breadcrumb op
+    /// written by `CheckpointCapture.run`.
+    public func appendMirrored(_ op: Op) async throws {
+        try await opStore.append(op)
+        _opLogMirror.append(op)
+    }
+
     /// Sticky flag: true once the doc has ever had an annotation op
     /// (creation OR lifecycle). Lets the hot typing path short-circuit
     /// per-keystroke annotation work (invalidateAnnotationsCache + sweep)
@@ -123,6 +146,12 @@ public final class Document {
 
     /// Internal autosave debounce (replaces DocumentStore.scheduleSave).
     internal var autosaveScheduler: DebounceScheduler<Void>!
+
+    /// Test-observable count of close-time burst-flush failures that were
+    /// handled (logged + pending durably re-flushed) rather than swallowed.
+    /// Lets a regression test assert the failure was surfaced non-silently.
+    /// Production code never reads it.
+    internal private(set) var closeBurstFlushFailures: Int = 0
 
     internal init(
         url: URL, docId: String, device: String, session: String,
@@ -192,28 +221,38 @@ public final class Document {
     }
 
     /// Returns the paragraph id of the paragraph containing `location` in
-    /// `displayText`, or nil if no `<!-- ¶id -->` comment precedes `location`
-    /// in the current materialized text. The id is recovered by scanning
-    /// backwards from `location` for the nearest preceding inline-comment
-    /// anchor in the materialized (stored) form, which includes the anchors
-    /// that `displayText` strips.
+    /// `displayText`, or nil if no paragraph id can be determined.
+    ///
+    /// `location` is a **UTF-16 offset** expressed against `displayText`
+    /// (i.e. the value of `textView.selectedRange.location` in the editor,
+    /// which is an `NSRange` over `textView.string` — the stripped display
+    /// form).  Both the clamp and the per-paragraph length must therefore use
+    /// `NSString.length` (UTF-16 code units), not Swift `String.count`
+    /// (Unicode grapheme clusters), and must operate on the **stripped**
+    /// paragraph text — the same form that `recomputeDisplayText` produces —
+    /// so that emoji (U+1F389 = 2 UTF-16 units, 1 grapheme) and task anchors
+    /// (stripped by `RenderFilter.stripTaskAnchorsInline`) don't shift offsets.
+    ///
+    /// This mirrors `displayRange(forParagraphId:)` and the private
+    /// `TaskAnchorAlignment.cursorParagraph`, both of which already use
+    /// `(stripped as NSString).length`.
     ///
     /// Cost: O(characters up to `location`). Fine at human typing speed
     /// (a few times per second) even for large manuscripts (~100 KB).
     public func paragraphId(at location: Int) -> String? {
-        // We need the materialized form (which retains <!-- ¶id --> anchors)
-        // because displayText strips them. Walk the materialized text up to
-        // the corresponding offset and remember the last anchor seen.
-        //
-        // Mapping from displayText offset to materialized offset is
-        // non-trivial, so instead we walk the paragraphs in sequence order —
-        // the same order as displayText — accumulating display-offset to find
-        // which paragraph the cursor is in, then return that paragraph's id.
-        let clamped = max(0, min(location, displayText.count))
+        // Walk paragraphs in sequence order — the same order as displayText —
+        // accumulating the UTF-16 display-offset to find which paragraph the
+        // cursor is in, then return that paragraph's id.
+        let displayLength = (displayText as NSString).length
+        let clamped = max(0, min(location, displayLength))
         var offset = 0
         for id in sequence {
             guard let text = paragraphs[id] else { continue }
-            let length = text.count
+            // Strip inline task anchors before measuring — they are invisible
+            // in displayText, so raw text.count would over-count the length
+            // and push subsequent paragraphs' offset windows forward.
+            let stripped = RenderFilter.stripTaskAnchorsInline(text)
+            let length = (stripped as NSString).length
             // The paragraph covers [offset, offset + length).
             // The "\n\n" separator is at [offset+length, offset+length+2).
             // Cursor at offset+length is still "inside" this paragraph
@@ -221,7 +260,7 @@ public final class Document {
             if clamped <= offset + length {
                 return id
             }
-            offset += length + 2  // +2 for "\n\n" separator
+            offset += length + 2  // +2 for "\n\n" separator (2 UTF-16 code units)
         }
         // Cursor is past all paragraphs — return the last id if any.
         return sequence.last
@@ -590,7 +629,30 @@ public final class Document {
     public func close() async {
         // Flush any pending burst so editorial classification survives the
         // close (matches EditorHost's onDocChange behaviour).
-        try? await flushBurstNow()
+        //
+        // `close()` runs on app quit AND every FS-surgery path. The burst this
+        // flushes is the LAST edits before the close — exactly the ones we most
+        // want to survive — so a swallowed `try?` here was a Tier-0
+        // silent-manuscript-loss bug (sweep 7). On append failure we must not
+        // drop the burst silently.
+        //
+        // Recovery guarantee: `flushBurstNow` clears the pending buffer ONLY
+        // after a successful `opStore.append` — so on an append failure the
+        // in-memory `PendingBuffer` is still intact. We durably re-persist it
+        // to `.maugham/ops/<docId>.pending.jsonl`, which the next
+        // `Document.load` folds back into a real op via the crash-recovery
+        // path. That makes the durable re-persist explicit and local to
+        // `close()` rather than leaning on `performAutosave`'s incidental
+        // `flushToDisk`. We also record the failure non-silently (os.Logger +
+        // a test-observable counter) so the drop leaves a forensic trace.
+        do {
+            try await flushBurstNow()
+        } catch {
+            try? await pending.flushToDisk()
+            closeBurstFlushFailures += 1
+            documentLog.error(
+                "close() burst flush failed for doc \(self.docId, privacy: .public); pending buffer re-flushed to disk for crash recovery: \(error.localizedDescription, privacy: .public)")
+        }
         // Flush any pending autosave so the .md reflects the final state.
         await autosaveScheduler.flush()
     }

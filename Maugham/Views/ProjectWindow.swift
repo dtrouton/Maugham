@@ -121,15 +121,16 @@ struct ProjectWindow: View {
                         onConfirm: { label in
                             showingCheckpointLabelSheet = false
                             Task { @MainActor in
-                                try? await activeDocument(in: store, documentStore: documentStore)?
-                                    .flushBurstNow()
+                                let activeDoc = activeDocument(in: store, documentStore: documentStore)
+                                try? await activeDoc?.flushBurstNow()
                                 _ = try? await CheckpointCapture.run(
                                     projectURL: projectURL,
                                     activeDocId: activeDocId,
                                     allDocIds: allDocIds,
                                     device: _checkpointDeviceId,
                                     session: _checkpointSessionId,
-                                    label: label)
+                                    label: label,
+                                    activeDocument: activeDoc)
                             }
                         },
                         onCancel: { showingCheckpointLabelSheet = false }
@@ -974,6 +975,9 @@ struct ProjectWindow: View {
             loadError = "No project.maugham.json was found in this folder."
         } catch ProjectStoreError.manifestUnreadable(let msg) {
             loadError = "Manifest is corrupt or unreadable: \(msg)"
+        } catch ProjectStoreError.manifestSchemaTooNew {
+            loadError = "This project was created by a newer version of "
+                + "Maugham. Update Maugham to open it."
         } catch {
             loadError = error.localizedDescription
         }
@@ -1017,7 +1021,8 @@ private struct CheckpointModifier: ViewModifier {
                         allDocIds: allDocIds,
                         device: _checkpointDeviceId,
                         session: _checkpointSessionId,
-                        label: nil)
+                        label: nil,
+                        activeDocument: activeDoc)
                     onSaveFlash()
                     // Back up after the checkpoint is durable. The coordinator
                     // hops off-main internally and records status.

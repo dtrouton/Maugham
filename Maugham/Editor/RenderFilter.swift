@@ -7,6 +7,22 @@ import MaughamCore
 /// trip: parse the prior stored form to know existing IDs, then reattach
 /// IDs to the display-edited paragraphs by positional + shingle match.
 public enum RenderFilter {
+    /// Minimum char-bigram overlap for the third (bigram-fallback) tier to
+    /// consider reusing a stored id. (T16 fallback for sub-k-word paragraphs.)
+    static let bigramReuseThreshold = 0.6
+
+    /// The best bigram candidate must beat the SECOND-best by at least this
+    /// margin before its id is reused — the margin-over-second-best rule that
+    /// guards against ambiguous near-duplicate ties (e.g. "Yes." / "Yes?" both
+    /// tying a survivor "Yes!" at 0.667). 0.1 ≈ one differing character on a
+    /// 5-char string (e.g. "Yes!"→"Yes." flips ~1 of ~3 shared bigrams ⇒ a 0.33
+    /// gap, comfortably clearing 0.1) while a genuine tie has gap 0.0 < 0.1 ⇒
+    /// mint fresh. Bigram overlaps are coarse-grained on short strings, so the
+    /// margin only has to separate "exact tie / near-tie" (mint fresh) from "one
+    /// candidate is clearly closer" (reuse) — 0.1 sits well below the smallest
+    /// real one-character separation yet above floating-point tie noise.
+    static let bigramReuseMargin = 0.1
+
     /// Strip the manuscript's display anchors (own-line `<!-- ¶id -->`
     /// paragraph anchors + inline `<!--t-XXXXXX-->` task anchors). Delegates to
     /// the shared `MarkdownDisplayFilter` — the single source of truth used by
@@ -79,13 +95,29 @@ public enum RenderFilter {
             // Character-bigram fallback for short paragraphs (< k words on
             // either side) where word-shingles collapse to whole-string equality
             // and so can only match exactly.
-            if let m = unmatchedById.max(by: {
-                ShingleMatcher.bigramOverlap(d.text, $0.value)
-                    < ShingleMatcher.bigramOverlap(d.text, $1.value)
-            }), ShingleMatcher.bigramOverlap(d.text, m.value) >= 0.6 {
-                pairs.append((m.key, d.text))
-                unmatchedById.removeValue(forKey: m.key)
-                continue
+            //
+            // Reuse the best-matching id ONLY when it both clears the 0.6
+            // threshold AND beats the second-best candidate by a margin. On a
+            // zero- (or sub-) margin tie among 2+ candidates the match is
+            // *ambiguous* — the survivor could be inheriting the DELETED
+            // sibling's id rather than its own (e.g. dialogue "Yes." / "Yes?"
+            // with a survivor "Yes!" that ties both at 0.667). Reattaching one
+            // arbitrarily records `prior`/`next` against the wrong identity =
+            // silent corruption, so we mint fresh instead. A *single*
+            // high-overlap candidate has no competitor, so it is reused (a
+            // lightly-edited short paragraph keeps its id — the common minor-edit
+            // case, e.g. "First." → "First, edited.").
+            let ranked = unmatchedById
+                .map { (id: $0.key, score: ShingleMatcher.bigramOverlap(d.text, $0.value)) }
+                .sorted { $0.score > $1.score }
+            if let best = ranked.first, best.score >= bigramReuseThreshold {
+                let secondScore = ranked.count > 1 ? ranked[1].score : 0.0
+                if best.score - secondScore >= bigramReuseMargin {
+                    pairs.append((best.id, d.text))
+                    unmatchedById.removeValue(forKey: best.id)
+                    continue
+                }
+                // Ambiguous within-margin tie → fall through and mint fresh.
             }
             // Mint fresh.
             pairs.append((ParagraphID.mint(), d.text))

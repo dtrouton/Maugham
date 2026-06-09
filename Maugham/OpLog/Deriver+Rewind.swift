@@ -16,6 +16,15 @@ extension Deriver {
     /// When `cursor` references an op_id not present in `ops`, returns the full
     /// derivation — defensive against stale UI cursors that survived a cross-Mac
     /// merge that compacted the source op away.
+    ///
+    /// Unlike `derive(ops:)` this is INTENTIONALLY order-dependent on its input:
+    /// "state as of a cursor" means the prefix of the timeline up to and
+    /// including the cursor op, so it must respect the caller's opId-ordered
+    /// sequence (the only caller, `RewindWindow`, feeds `OpLogStore.load`'s
+    /// already-merged opId-sorted ops). It must NOT re-sort — that would change
+    /// which ops fall in the prefix. The inner `deriveWithSequenceFallback` fold
+    /// is itself order-independent, so re-deriving the (already-sorted) prefix is
+    /// a no-op on ordering and keeps LWW correct.
     public static func derive(ops: [Op], upTo cursor: RewindCursor) -> DerivedState {
         switch cursor {
         case .now:
