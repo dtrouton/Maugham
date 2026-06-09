@@ -8,18 +8,31 @@ public struct TrashEntry: Identifiable, Equatable, Sendable {
     public let displayTitle: String
     public let itemMetadata: Data
 
+    /// The manifest id of the parent node (group or nil = root) at the time of
+    /// deletion. Used by `ProjectStore.restoreTrashEntry` to re-insert the item
+    /// at its original position rather than appending to root (finding 1.8).
+    public let originalParentId: String?
+
+    /// The index within the parent's children (or root) at the time of deletion.
+    /// `restoreTrashEntry` clamps this to the current child count on restore.
+    public let originalIndex: Int
+
     public init(
         id: String,
         trashedAt: Date,
         originalRelativePath: String,
         displayTitle: String,
-        itemMetadata: Data
+        itemMetadata: Data,
+        originalParentId: String? = nil,
+        originalIndex: Int = 0
     ) {
         self.id = id
         self.trashedAt = trashedAt
         self.originalRelativePath = originalRelativePath
         self.displayTitle = displayTitle
         self.itemMetadata = itemMetadata
+        self.originalParentId = originalParentId
+        self.originalIndex = originalIndex
     }
 
     /// Days remaining before the 30-day sweep removes this entry.
