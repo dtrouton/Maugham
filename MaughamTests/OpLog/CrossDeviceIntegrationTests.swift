@@ -220,24 +220,30 @@ final class CrossDeviceIntegrationTests: XCTestCase {
     /// `Document.setFullText`). The char-bigram (≥0.6) fallback tier reattaches
     /// ids for short paragraphs where word-shingles collapse.
     ///
-    /// Scenario A (deterministic, single candidate): the writer DELETES the only
-    /// stored paragraph "Yes." (id `aaaa`) and types a genuinely different short
-    /// line "Yes?" in its place. The new paragraph should get a FRESH id. But
-    /// `bigramOverlap("Yes?", "Yes.") == 0.667 ≥ 0.6`, so the bigram tier
-    /// REATTACHES the deleted paragraph's id `aaaa` to the new line — identity
-    /// corruption (the op log records `prior`/`next` against the wrong identity).
+    /// Scenario A — single-candidate high-overlap = minor edit ⇒ KEEPS its id
+    /// (REFRAMED 2026-06-09; the original assertion pinned the wrong behavior).
     ///
-    /// Scenario B (the audit's named tie): two near-duplicate dialogue lines
-    /// "Yes." / "Yes?" — a survivor "Yes!" ties both candidates at 0.667, so the
-    /// surviving paragraph can steal EITHER sibling's id non-deterministically.
+    /// The writer has ONE stored short paragraph "Yes." (id `aaaa`) and ends up
+    /// with "Yes?" (`bigramOverlap == 0.667 ≥ 0.6`). From `restoreComments`'
+    /// vantage — it sees only `stored` + `displayEdited` — a delete-and-retype
+    /// is BYTE-IDENTICAL to an in-place one-character edit. The only safe,
+    /// self-consistent default for a single high-overlap candidate is therefore
+    /// to KEEP the id: that is exactly the common minor-edit case the production
+    /// `RenderFilterTests.test_restoreComments_reattachesIdsByContentMatch`
+    /// pins ("First." → "First, edited." at overlap 0.8 must keep `a3f9`). They
+    /// are the same shape; forcing this one to mint fresh would break legit
+    /// minor-edit reattach. The genuine corruption hazard is the *ambiguous*
+    /// multi-candidate tie — covered by 3b, where the new margin-over-second-best
+    /// rule mints fresh because there is no clear winner.
     ///
-    /// RED until M1 — the bigram tier has no margin/uniqueness/own-id check
-    /// (AREA.md calls tier-2/3 mis-pairing "silent corruption"; the disagreement
-    /// test is missing). See plan 0.3 + finding O1/RenderFilter.
-    func test_case3a_drasticRewrite_doesNotStealDeletedSiblingId() {
+    /// (Original 3a asserted "must NOT inherit `aaaa`" on a single candidate.
+    /// That conflicts with the legit-minor-edit contract above and was an
+    /// instance of the audit's "a test pinning the wrong behavior" lesson; the
+    /// margin rule deliberately reuses a *uniquely* best single candidate.)
+    func test_case3a_singleCandidateMinorEdit_keepsItsId() {
         // Single stored paragraph "Yes." with id `aaaa`.
         let stored = "<!-- ¶aaaa -->\n\nYes.\n"
-        // Writer deletes "Yes." and types a different short line "Yes?".
+        // The displayed form is a lightly-edited "Yes?" — one stored candidate.
         let displayEdited = "Yes?"
 
         let restored = RenderFilter.restoreComments(
@@ -245,15 +251,17 @@ final class CrossDeviceIntegrationTests: XCTestCase {
         let parsed = ParagraphParser.parse(restored)
 
         XCTAssertEqual(parsed.count, 1)
-        // RED until M1 — "Yes?" is a genuinely different paragraph than the
-        // deleted "Yes."; it must mint a FRESH id, not inherit `aaaa` via the
-        // unguarded bigram tier (overlap 0.667 ≥ 0.6 on a single candidate ⇒
-        // deterministic steal).
-        XCTAssertNotEqual(
+        // A single high-overlap candidate has no competitor to be ambiguous
+        // against, so the margin rule reuses it — identical to the
+        // "First." → "First, edited." minor-edit case. Reattaching `aaaa` is the
+        // correct, identity-preserving behavior here; the corruption case is the
+        // ambiguous multi-candidate tie in 3b.
+        XCTAssertEqual(
             parsed.first?.id, "aaaa",
-            "a drastically-different short paragraph must NOT inherit a deleted "
-                + "sibling's id by char-bigram match — id-steal = identity "
-                + "corruption (plan 0.3 + RenderFilter O1)")
+            "a lightly-edited single short paragraph must KEEP its id — a "
+                + "delete+retype is byte-identical to an in-place edit, so id "
+                + "retention is the safe single-candidate default (the corruption "
+                + "case is the ambiguous tie in 3b)")
     }
 
     func test_case3b_nearDuplicateTie_reusesIdWithNoMargin() {
