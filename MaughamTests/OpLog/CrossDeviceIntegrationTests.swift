@@ -149,25 +149,30 @@ final class CrossDeviceIntegrationTests: XCTestCase {
     /// docId is unchanged; only the physical file layout differs.
     private func tmpDocIdForReload(_ docId: String) -> String { docId }
 
-    // MARK: - Case 2 — external `.md` deletion of an anchored paragraph
+    // MARK: - Case 2 — external `.md` deletion must NOT remove an op-log paragraph
 
     /// Drives: `Document.load` (production open) → `doc.handleExternalDiskChange`
     /// (the live external-edit seam, which calls `Reconciler.classify`).
     ///
     /// Scenario: op log + `.md` agree on anchored paragraphs [p1, p2, p3]; an
-    /// external editor deletes p2's text+anchor from the `.md` while Maugham is
-    /// running. We feed that disk bytes through the SAME path the NSFilePresenter
-    /// callback uses.
+    /// external editor (or a stale iCloud `.md`) deletes p2's text+anchor from the
+    /// `.md` while Maugham is running. We feed that disk bytes through the SAME
+    /// path the NSFilePresenter callback uses.
     ///
-    /// Contract: the deletion must be OBSERVED — p2 must NOT survive in the
-    /// reconciled manuscript state.
+    /// Contract: the op log is the SOURCE OF TRUTH; the `.md` is derived. An
+    /// external mutation of the `.md` — including a deletion — must NOT remove a
+    /// paragraph the op log still authoritatively holds. p2 SURVIVES, and a
+    /// re-materialize restores it to the `.md` (Maugham blows away the external
+    /// edit). Honoring an outside deletion would let any external actor (another
+    /// editor, a botched sync, a stale `.md`) silently delete authoritative
+    /// manuscript content — the opposite of what we want.
     ///
-    /// RED until M1 — `Reconciler.classify` iterates DISK paragraphs only, so a
-    /// disk-deleted paragraph produces no change entry and classifies as `.echo`
-    /// (or a `.silentIngest` that omits it); p2's id lingers in `paragraphs` +
-    /// `sequence` and `materialize()` still emits it. See plan 0.3 +
-    /// Reconciler-deletion finding (audit Tier-2 / sweep 3).
-    func test_case2_externalDeletionOfAnchoredParagraph_isObserved() async throws {
+    /// (Decision 2026-06-09, user: external `.md` edits are not a supported input
+    /// channel — editing is through Maugham, which appends ops; cross-device sync
+    /// flows through the op-log MERGE, ADR 0012, not `.md` reconcile. The audit's
+    /// "deletion must be observed" framing had the polarity backwards. This test
+    /// is the GUARD that protects op-log authority.)
+    func test_case2_externalMdDeletion_doesNotRemoveOpLogParagraph() async throws {
         // Anchored on-disk .md with three paragraphs (4-char restricted ids).
         let p1 = "aaaa", p2 = "bbbb", p3 = "cccc"
         let initialMd = Materializer.materialize(
@@ -192,21 +197,20 @@ final class CrossDeviceIntegrationTests: XCTestCase {
         // body). This routes through Reconciler.classify.
         try await doc.handleExternalDiskChange(diskMd: editedMd)
 
-        // RED until M1 — the deletion must be observed. Today p2 survives because
-        // the classifier never sees its absence.
-        XCTAssertFalse(
+        // The op log wins: p2 must SURVIVE the external deletion.
+        XCTAssertTrue(
             doc.displayText.contains("Para two."),
-            "external deletion of anchored paragraph p2 must be observed — "
-                + "Reconciler.classify iterates disk paragraphs only, so the "
-                + "deleted paragraph silently survives (plan 0.3 + "
-                + "Reconciler-deletion finding)")
+            "external `.md` deletion must NOT remove an op-log-anchored paragraph "
+                + "— the op log is the source of truth; honoring an outside "
+                + "deletion would let any external actor silently delete "
+                + "authoritative manuscript content")
 
-        // Stronger: the reconciled/materialized manuscript must not re-emit p2.
+        // And a re-materialize restores p2 to the `.md` (external edit discarded).
         let rematerialized = doc.materialize()
-        XCTAssertFalse(
+        XCTAssertTrue(
             ParagraphParser.parse(rematerialized).contains { $0.id == p2 },
-            "deleted paragraph id \(p2) must not linger in the derived "
-                + "manuscript state after the external deletion is ingested")
+            "re-materializing must re-emit p2 (id \(p2)) — Maugham blows away the "
+                + "external `.md` edit and re-derives from the authoritative op log")
     }
 
     // MARK: - Case 3 — drastic-rewrite / near-duplicate id-reattach (id steal)

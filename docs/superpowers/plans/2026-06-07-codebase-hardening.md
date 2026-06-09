@@ -56,12 +56,23 @@ harness + CI are green-on-correct.
   `MaughamTests/OpLog/CrossDeviceIntegrationTests` driving the *production*
   load/merge/derive/reconcile path with: divergent-content opId collision →
   deterministic survivor (0.4, M2.1); external `.md` deletion of an anchored
-  paragraph (Reconciler can't see deletions today — sweep 3); drastic-rewrite
+  paragraph — a **GUARD** asserting the op log WINS (deletion is discarded,
+  paragraph survives, re-materialize restores the `.md`); drastic-rewrite
   id-reattach where the bigram tier could mis-pair (O1/RenderFilter). Plus a
   skewed-clock same-paragraph case authored but **marked expected-deferred**
   (single-editor ethos — owned by the collaboration milestone, not a gate). The
   active cases **fail initially** and define done for M1. Model: **opus**.
-  _Findings: 0.4, Reconciler-deletion, O1; 0.2 documented-deferred._
+  _Findings: 0.4, O1; 0.2 documented-deferred._
+  > **Decision (2026-06-09, user): the deletion-ingest item is REJECTED, not
+  > deferred.** External `.md` edits are not a supported input channel — editing
+  > is through Maugham (which appends ops), and cross-device sync flows through
+  > the op-log MERGE (ADR 0012), not `.md` reconcile. So an external `.md`
+  > deletion being ignored is the CORRECT behavior (op log is source of truth),
+  > not silent loss — the audit had the polarity backwards. Case 2 is therefore
+  > **inverted into a green guard** (op-log authority is protected), no Reconciler
+  > "first-class deletion" work is done, and the "recovery secretly depends on
+  > the `.md`" worry dissolves for sync. (User: "I don't care if we blow away
+  > changes to the .md outside of Maugham, that's fine.")
 - **0.4 — Tier-1 doc corrections** (cheap; the docs are wrong *now*):
   CLAUDE.md tripwire 19 reworded ("recurrence-tripper, not a fence; the real net
   is the round-trip integration tests"); the "op log is source of truth"
@@ -111,8 +122,10 @@ Each lands with the matching M0 test going green. Not multi-device-design-gated.
   `flushPendingSave()` before the folder move (or fold into the M3 typed mover).
   Model: **sonnet**. _Finding: 1.3._
 
-**M1 acceptance:** the non-LWW M0/0.3 cases (deletion ingest, torn-append,
-pending-partition) go green; wiki-rename + close-flush tests pass.
+**M1 acceptance:** the non-LWW M0/0.3 cases (torn-append, pending-partition) go
+green; the external-`.md`-deletion case is a green **guard** (op log wins — no
+fix, deletion-ingest rejected per the 2026-06-09 decision above); wiki-rename +
+close-flush tests pass.
 
 ---
 
