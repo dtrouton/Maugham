@@ -42,10 +42,15 @@ public enum SmartTypography {
             let nsText = currentText as NSString
             let prevRange = NSRange(location: replacementRange.location - 1, length: 1)
             if nsText.substring(with: prevRange) == "-" {
-                // Full range: the preceding "-" plus the just-typed "-".
+                // This runs in `shouldChangeTextIn` — BEFORE the just-typed "-"
+                // is in the storage — so the range covers ONLY the existing
+                // preceding "-". The newly-typed "-" is suppressed (the
+                // coordinator returns false); the "—" substitute stands in for
+                // it. Consuming length 2 here would eat the character AFTER the
+                // caret, which isn't the new dash (it isn't in the string yet).
                 let fullRange = NSRange(
                     location: replacementRange.location - 1,
-                    length: 2)
+                    length: 1)
                 return TransformResult(substitute: "—", range: fullRange)
             }
         }
@@ -68,10 +73,13 @@ public enum SmartTypography {
                         return nil
                     }
                 }
-                // Full range: the two preceding dots plus the just-typed ".".
+                // Pre-insert: covers ONLY the two existing preceding dots. The
+                // just-typed "." is suppressed (coordinator returns false) and
+                // the "…" stands in for it. Length 3 would eat the character
+                // after the caret (the new "." isn't in the string yet).
                 let fullRange = NSRange(
                     location: replacementRange.location - 2,
-                    length: 3)
+                    length: 2)
                 return TransformResult(substitute: "…", range: fullRange)
             }
         }

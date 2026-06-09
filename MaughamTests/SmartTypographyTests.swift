@@ -16,17 +16,34 @@ final class SmartTypographyTests: XCTestCase {
         XCTAssertEqual(result?.substitute, "—")
     }
 
-    func test_emDash_rangeConsumesLeadingHyphen() {
-        // The returned range must eat the preceding "-" so the coordinator
-        // doesn't have to back-compute it.
+    func test_emDash_rangeCoversOnlyExistingHyphen() {
+        // transform runs in `shouldChangeTextIn` — BEFORE the just-typed "-" is
+        // in `currentText` — so the range covers ONLY the existing preceding
+        // "-" (length 1), NOT the not-yet-inserted new one. Length 2 would eat
+        // the character after the caret.
         let result = SmartTypography.transform(
             currentText: "He said-",
             replacementRange: NSRange(location: 8, length: 0),
             replacement: "-",
             settings: .defaults
         )
-        // Full replacement: location=7 (the preceding "-"), length=2 (that "-" + typed "-")
-        XCTAssertEqual(result?.range, NSRange(location: 7, length: 2))
+        XCTAssertEqual(result?.range, NSRange(location: 7, length: 1))
+    }
+
+    /// Regression net for the "deletes a character in front" bug: model the real
+    /// `insertText(substitute, replacementRange:)` apply against a PRE-insert
+    /// string with a char AFTER the caret, and assert that char survives.
+    func test_emDash_appliedMidText_doesNotEatFollowingChar() {
+        // Pre-insert "a-b", caret between "-" and "b" (location 2); user types "-".
+        let result = SmartTypography.transform(
+            currentText: "a-b",
+            replacementRange: NSRange(location: 2, length: 0),
+            replacement: "-",
+            settings: .defaults
+        )
+        let applied = ("a-b" as NSString).replacingCharacters(
+            in: result!.range, with: result!.substitute)
+        XCTAssertEqual(applied, "a—b", "the following 'b' must not be consumed")
     }
 
     func test_emDash_singleHyphenIsNotTransformed() {
@@ -88,16 +105,31 @@ final class SmartTypographyTests: XCTestCase {
         XCTAssertEqual(result?.substitute, "…")
     }
 
-    func test_ellipsis_rangeConsumesBothLeadingDots() {
-        // The returned range must cover both preceding dots.
+    func test_ellipsis_rangeCoversOnlyExistingDots() {
+        // Pre-insert: the just-typed "." isn't in `currentText` yet, so the range
+        // covers ONLY the two existing dots (length 2). Length 3 would eat the
+        // character after the caret.
         let result = SmartTypography.transform(
             currentText: "Wait..",
             replacementRange: NSRange(location: 6, length: 0),
             replacement: ".",
             settings: .defaults
         )
-        // Full replacement: location=4 (the first "."), length=3 (".."+typed ".")
-        XCTAssertEqual(result?.range, NSRange(location: 4, length: 3))
+        XCTAssertEqual(result?.range, NSRange(location: 4, length: 2))
+    }
+
+    /// Regression net: applied mid-text, the char after the caret survives.
+    func test_ellipsis_appliedMidText_doesNotEatFollowingChar() {
+        // Pre-insert "a..b", caret between the 2nd "." and "b" (location 3).
+        let result = SmartTypography.transform(
+            currentText: "a..b",
+            replacementRange: NSRange(location: 3, length: 0),
+            replacement: ".",
+            settings: .defaults
+        )
+        let applied = ("a..b" as NSString).replacingCharacters(
+            in: result!.range, with: result!.substitute)
+        XCTAssertEqual(applied, "a…b", "the following 'b' must not be consumed")
     }
 
     // MARK: - Ellipsis digit-guard (the REAL guard: don't collapse inside a version/number)
