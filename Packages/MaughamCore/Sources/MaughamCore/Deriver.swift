@@ -15,8 +15,32 @@ public enum Deriver {
         }
     }
 
-    /// Fold ops in the given order into a paragraph_id → text map and the
-    /// current sequence. Caller sorts by `op_id` first.
+    /// A total order over ops `(opId, canonicalContentEncoding)` — the SAME order
+    /// `OpLogStore.mergeSortedDedup` uses, so derive is correct-by-construction
+    /// regardless of input order (defense in depth: a caller that forgets to
+    /// pre-sort still derives the documented result). For a given paragraph,
+    /// last-write-wins is BY opId; the canonical-content tiebreaker only matters
+    /// for the astronomically-unlikely same-opId/divergent-content collision and
+    /// keeps even that deterministic. The canonical encoding is the store's
+    /// `.sortedKeys` + ISO8601-fractional JSON — a stable function of content.
+    static func opOrder(_ a: Op, _ b: Op) -> Bool {
+        if a.opId != b.opId { return a.opId < b.opId }
+        func canonical(_ op: Op) -> String {
+            let enc = JSONEncoder()
+            enc.dateEncodingStrategy = JSONLAppendStore<Op>.dateEncoding
+            enc.outputFormatting = [.sortedKeys]
+            return (try? enc.encode(op)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        }
+        return canonical(a) < canonical(b)
+    }
+
+    /// Fold ops into a paragraph_id → text map and the current sequence.
+    ///
+    /// Order-independent by construction: derive sorts its input by the total
+    /// `(opId, canonicalContent)` order itself before folding, so last-write-wins
+    /// per paragraph is BY opId no matter what order the caller passes (no
+    /// unenforced "caller must sort" precondition). Two devices with identical
+    /// logs derive identical state.
     ///
     /// Only manuscript-mutation ops contribute paragraph text. Annotation
     /// creation ops (claude_comment/claude_query/claude_suggestion/
@@ -29,7 +53,7 @@ public enum Deriver {
     public static func derive(ops: [Op]) -> DerivedState {
         var paragraphs: [String: String] = [:]
         var sequence: [String] = []
-        for op in ops {
+        for op in ops.sorted(by: opOrder) {
             if Deriver.appliesToManuscript(op.kind) {
                 for change in op.changes {
                     paragraphs[change.paragraphId] = change.next
@@ -77,7 +101,10 @@ public enum Deriver {
         var synthesized: [String] = []
         var synthesizedSet: Set<String> = []
         var sequenceWasExplicit = false
-        for op in ops {
+        // Same internal opId-order sort as `derive(ops:)` for full determinism.
+        // The first-appearance sequence synthesis below then runs over the
+        // canonical order, so the fallback sequence is also order-independent.
+        for op in ops.sorted(by: opOrder) {
             if Deriver.appliesToManuscript(op.kind) {
                 for change in op.changes {
                     paragraphs[change.paragraphId] = change.next

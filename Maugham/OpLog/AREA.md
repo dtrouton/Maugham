@@ -43,10 +43,47 @@ These hold by construction. If you find code that violates one, treat it as a bu
 - **Op log is append-only.** No mutation, no deletion. Checkpoints capture state; they don't truncate history.
 - **`¶id` anchors are 4-char.** No exceptions. Tests that use 1-char IDs are wrong and silently bypass validation.
 - **Task anchors are 6-char.** Same alphabet as paragraph anchors. `<!--t-XXXXXX-->` only — no uppercase, no other prefix.
-- **Paragraph-keyed LWW.** Concurrent writes to the same paragraph resolve by timestamp, not by line position. Cross-Mac merges depend on this.
+- **Paragraph-keyed LWW, by opId.** Concurrent writes to the same paragraph resolve by **opId order** (ULIDs give a deterministic total order), not by line position. Cross-Mac merges depend on this. See the merge/derive contract below for the exact rule.
 - **`Bootstrap.run` is idempotent.** Calling it twice on the same document is safe (it skips paragraphs that already have anchors).
 - **`.md` on disk is derived.** A reader can always rebuild it from `op-log.jsonl` + the renderer. Don't introduce any state that lives *only* in .md and not in the op log.
 - **Checkpoints can do partial restore.** Restore-this-document, not restore-everything.
+
+## Merge / derive resolution contract
+
+Two devices with **identical logs must derive identical text**, regardless of load
+order. This is plain merge correctness (not concurrency-conflict resolution), and
+it is now enforced:
+
+- **`OpLogStore.mergeSortedDedup` is opId-ordered, content-deterministic, and
+  load-order-independent.** It sorts on a TOTAL order `(opId, canonicalEncoding)`
+  — where `canonicalEncoding` is the op's stable `.sortedKeys`+ISO8601-fractional
+  JSON — then first-wins dedupes by opId. Production feeds it from
+  `contentsOfDirectory` enumeration, whose order is not guaranteed; the total
+  order makes the survivor of a same-opId collision a function of content alone,
+  so file-enumeration order can't change the result. `load` + `loadSyncMerged`
+  both go through it.
+- **`Deriver.derive` sorts its input by the SAME `(opId, canonicalEncoding)`
+  order itself** before folding — order-independent by construction, no unenforced
+  "caller must sort" precondition. `deriveWithSequenceFallback` does the same.
+  (`derive(ops:upTo:)` in `Deriver+Rewind.swift` is intentionally the exception:
+  "state as of a cursor" is a timeline prefix, so it respects the caller's
+  already-opId-sorted order and must NOT re-sort.)
+- **A same-opId collision whose payloads DIVERGE is a corruption signal**, not a
+  normal case — ULIDs don't collide, so a divergent same-opId pair means a
+  replay / hand-recovery / duplicated op. We pick a deterministic survivor (merge
+  stays correct); surfacing it (e.g. `IntegrityQuarantine`) is worth doing later
+  but the pure merge fn lacks the `projectURL`/stamp to do so — don't entangle it.
+- **`Op.at` is DISPLAY-ONLY.** It is NOT consulted for resolution (resolution is
+  by opId). Don't introduce wall-clock comparisons into the merge/derive path.
+- **Deferred to the collaboration milestone:** a skew-proof logical clock and
+  same-paragraph **conflict surfacing** (two devices genuinely editing the same
+  paragraph concurrently). Single-editor by ethos today, so skew-induced LWW loss
+  is near-zero risk and not gated here. The audit's 0.2 (skew LWW) + the
+  `prior`-snapshot divergence-detection idea are the starting point for that work
+  (see `docs/superpowers/notes/2026-06-07-codebase-audit.md`). Tests:
+  `CrossMacMergeTests`, `OpLogStorePartitioningTests`, `DeriverTests`,
+  `CrossDeviceIntegrationTests` (case 1 = determinism; case 4 = the deferred skew
+  scenario, `XCTSkip`-marked).
 
 ## RenderFilter's three matching tiers (subtle)
 

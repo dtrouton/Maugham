@@ -169,13 +169,45 @@ public final class OpLogStore {
         return mergeSortedDedup(ops)
     }
 
-    /// Collapse a union of op arrays: opId-sorted, first-wins dedupe. Each
-    /// source file is already internally deduped+sorted; this collapses any
-    /// cross-file opId overlap (e.g. an op in both legacy and a per-device file).
+    /// Collapse a union of op arrays into the canonical merged log: opId-sorted,
+    /// **content-deterministic, load-order-independent** dedupe. Each source file
+    /// is already internally deduped+sorted; this collapses any cross-file opId
+    /// overlap (e.g. an op in both legacy and a per-device file).
+    ///
+    /// The survivor of a same-opId collision must be the SAME regardless of the
+    /// order the inputs arrive in — production feeds this from
+    /// `contentsOfDirectory` enumeration, whose order is NOT guaranteed, so two
+    /// devices with identical logs must still derive identical text. A plain
+    /// `.sorted { $0.opId < $1.opId }` is not a stable sort, so a same-opId pair
+    /// with DIFFERENT content could survive non-deterministically (the loser
+    /// depended on file-enumeration order). We fix that by sorting on a TOTAL
+    /// order `(opId, canonicalEncoding)`: two ops with the same opId but different
+    /// content always order the same way (by their canonical `.sortedKeys` JSON),
+    /// so first-wins-by-opId after the sort yields a deterministic survivor.
+    ///
+    /// NOTE: a same-opId collision whose payloads DIVERGE is a corruption signal
+    /// (ULIDs don't collide; a divergent collision means a replay / hand-recovery
+    /// / duplicated op). Picking a deterministic survivor here keeps merge correct;
+    /// SURFACING the collision (e.g. via `IntegrityQuarantine`) is worth doing
+    /// later but needs the `projectURL`/stamp this pure fn deliberately lacks —
+    /// don't entangle it here. See `OpLog/AREA.md` for the resolution contract.
     nonisolated static func mergeSortedDedup(_ ops: [Op]) -> [Op] {
+        // Canonical, content-deterministic encoding of an op — the same
+        // `.sortedKeys` + ISO8601-fractional date coding the store writes to
+        // disk, so the tiebreaker is a stable function of content alone (no
+        // ordering/clock/enumeration dependence).
+        func canonical(_ op: Op) -> String {
+            let enc = JSONEncoder()
+            enc.dateEncodingStrategy = JSONLAppendStore<Op>.dateEncoding
+            enc.outputFormatting = [.sortedKeys]
+            return (try? enc.encode(op)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        }
         var seen = Set<String>()
         return ops
-            .sorted { $0.opId < $1.opId }
+            .sorted { a, b in
+                if a.opId != b.opId { return a.opId < b.opId }
+                return canonical(a) < canonical(b)
+            }
             .filter { seen.insert($0.opId).inserted }
     }
 }
