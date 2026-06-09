@@ -221,28 +221,38 @@ public final class Document {
     }
 
     /// Returns the paragraph id of the paragraph containing `location` in
-    /// `displayText`, or nil if no `<!-- ¶id -->` comment precedes `location`
-    /// in the current materialized text. The id is recovered by scanning
-    /// backwards from `location` for the nearest preceding inline-comment
-    /// anchor in the materialized (stored) form, which includes the anchors
-    /// that `displayText` strips.
+    /// `displayText`, or nil if no paragraph id can be determined.
+    ///
+    /// `location` is a **UTF-16 offset** expressed against `displayText`
+    /// (i.e. the value of `textView.selectedRange.location` in the editor,
+    /// which is an `NSRange` over `textView.string` — the stripped display
+    /// form).  Both the clamp and the per-paragraph length must therefore use
+    /// `NSString.length` (UTF-16 code units), not Swift `String.count`
+    /// (Unicode grapheme clusters), and must operate on the **stripped**
+    /// paragraph text — the same form that `recomputeDisplayText` produces —
+    /// so that emoji (U+1F389 = 2 UTF-16 units, 1 grapheme) and task anchors
+    /// (stripped by `RenderFilter.stripTaskAnchorsInline`) don't shift offsets.
+    ///
+    /// This mirrors `displayRange(forParagraphId:)` and the private
+    /// `TaskAnchorAlignment.cursorParagraph`, both of which already use
+    /// `(stripped as NSString).length`.
     ///
     /// Cost: O(characters up to `location`). Fine at human typing speed
     /// (a few times per second) even for large manuscripts (~100 KB).
     public func paragraphId(at location: Int) -> String? {
-        // We need the materialized form (which retains <!-- ¶id --> anchors)
-        // because displayText strips them. Walk the materialized text up to
-        // the corresponding offset and remember the last anchor seen.
-        //
-        // Mapping from displayText offset to materialized offset is
-        // non-trivial, so instead we walk the paragraphs in sequence order —
-        // the same order as displayText — accumulating display-offset to find
-        // which paragraph the cursor is in, then return that paragraph's id.
-        let clamped = max(0, min(location, displayText.count))
+        // Walk paragraphs in sequence order — the same order as displayText —
+        // accumulating the UTF-16 display-offset to find which paragraph the
+        // cursor is in, then return that paragraph's id.
+        let displayLength = (displayText as NSString).length
+        let clamped = max(0, min(location, displayLength))
         var offset = 0
         for id in sequence {
             guard let text = paragraphs[id] else { continue }
-            let length = text.count
+            // Strip inline task anchors before measuring — they are invisible
+            // in displayText, so raw text.count would over-count the length
+            // and push subsequent paragraphs' offset windows forward.
+            let stripped = RenderFilter.stripTaskAnchorsInline(text)
+            let length = (stripped as NSString).length
             // The paragraph covers [offset, offset + length).
             // The "\n\n" separator is at [offset+length, offset+length+2).
             // Cursor at offset+length is still "inside" this paragraph
@@ -250,7 +260,7 @@ public final class Document {
             if clamped <= offset + length {
                 return id
             }
-            offset += length + 2  // +2 for "\n\n" separator
+            offset += length + 2  // +2 for "\n\n" separator (2 UTF-16 code units)
         }
         // Cursor is past all paragraphs — return the last id if any.
         return sequence.last
