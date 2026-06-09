@@ -433,25 +433,17 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         guard let replacementString,
               !isApplyingExternalUpdate else { return true }
 
-        // Smart typography handling
-        if let substitute = mode.smartTypographyTransform(
+        // Smart typography handling.
+        // `transform` returns the substitute glyph AND the full replacement range
+        // (including any preceding ASCII run to consume). The coordinator uses
+        // the range directly — it never back-computes how many chars to eat.
+        if let result = mode.smartTypographyTransform(
             currentText: textView.string,
             replacementRange: affectedCharRange,
             replacement: replacementString,
             settings: typography
         ) {
-            // The transform returns just the substitute glyph; the coordinator
-            // is responsible for consuming the preceding ASCII run that the
-            // substitute replaces. Em dash eats one "-"; ellipsis eats two ".".
-            var range = affectedCharRange
-            if substitute == "—" && range.location > 0 {
-                range = NSRange(location: range.location - 1,
-                                length: range.length + 1)
-            } else if substitute == "…" && range.location > 1 {
-                range = NSRange(location: range.location - 2,
-                                length: range.length + 2)
-            }
-            textView.insertText(substitute, replacementRange: range)
+            textView.insertText(result.substitute, replacementRange: result.range)
             return false
         }
         return true

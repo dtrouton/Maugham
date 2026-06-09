@@ -36,7 +36,7 @@ final class ProseModeTests: XCTestCase {
             replacementRange: NSRange(location: 3, length: 0),
             replacement: "-",
             settings: .defaults)
-        XCTAssertEqual(result, "—")
+        XCTAssertEqual(result?.substitute, "—")
     }
 
     func test_applyTypography_setsBackgroundAndAttributes() {

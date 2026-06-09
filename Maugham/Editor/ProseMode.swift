@@ -20,7 +20,7 @@ public struct ProseMode: WritingMode {
         replacementRange: NSRange,
         replacement: String,
         settings: TypographySettings
-    ) -> String? {
+    ) -> SmartTypography.TransformResult? {
         SmartTypography.transform(
             currentText: currentText,
             replacementRange: replacementRange,

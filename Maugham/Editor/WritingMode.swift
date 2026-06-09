@@ -44,13 +44,14 @@ public protocol WritingMode: Sendable {
     ) -> [NSAttributedString.Key: Any]
 
     /// If the user's typed replacement should auto-transform (em dash, etc.),
-    /// return the substitution; otherwise nil.
+    /// return a `TransformResult` carrying both the substitute glyph and the
+    /// full replacement range; otherwise nil.
     func smartTypographyTransform(
         currentText: String,
         replacementRange: NSRange,
         replacement: String,
         settings: TypographySettings
-    ) -> String?
+    ) -> SmartTypography.TransformResult?
 
     /// Compute metrics for the manuscript.
     func metrics(_ text: String) -> EditorMetrics

@@ -75,7 +75,7 @@ public struct ScreenplayMode: WritingMode {
         replacementRange: NSRange,
         replacement: String,
         settings: TypographySettings
-    ) -> String? {
+    ) -> SmartTypography.TransformResult? {
         nil
     }
 
