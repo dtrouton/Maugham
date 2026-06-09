@@ -30,6 +30,24 @@ public enum PublishConfigValidator {
 
         if cfg.outputs.directory.isEmpty {
             errs.append(.init(field: "outputs.directory", message: "directory must not be empty"))
+        } else {
+            // Traversal checks on outputs.directory (finding 1.5): reject leading '/',
+            // and any path segment that is exactly '..'. Plain subdirs ("Exports",
+            // "output/books") are fine; "../../outside" or "/absolute" are not.
+            if cfg.outputs.directory.hasPrefix("/") {
+                errs.append(.init(
+                    field: "outputs.directory",
+                    message: "directory must be a relative path (no leading '/')"))
+            } else {
+                let dirSegments = cfg.outputs.directory
+                    .split(separator: "/", omittingEmptySubsequences: false)
+                    .map(String.init)
+                if dirSegments.contains("..") {
+                    errs.append(.init(
+                        field: "outputs.directory",
+                        message: "directory must not contain '..' path traversal segments"))
+                }
+            }
         }
 
         if !cfg.outputs.filenameTemplate.contains("{title}") ||
@@ -38,6 +56,13 @@ public enum PublishConfigValidator {
             errs.append(.init(
                 field: "outputs.filename_template",
                 message: "filename_template must include {title}, {version}, and {ext}"))
+        } else if cfg.outputs.filenameTemplate.contains("/") || cfg.outputs.filenameTemplate.contains("..") {
+            // Traversal check on filenameTemplate (finding 1.5): a '/' or '..' in the
+            // template expands to a path that escapes the outputs.directory on write.
+            // The template is a filename, not a path — no separators are allowed.
+            errs.append(.init(
+                field: "outputs.filename_template",
+                message: "filename_template must not contain '/' or '..' (path traversal)"))
         }
 
         if cfg.outputs.formatsEnabled.isEmpty {

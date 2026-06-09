@@ -176,6 +176,66 @@ final class PieceStyleToolsTests: XCTestCase {
 
     // MARK: - New: unknown piece_id validation + default filename from title
 
+    // MARK: - LaTeX injection validation (finding 1.4)
+
+    func test_setPieceStyle_rejectsTeXSpecialInFilename_closeBrace() async throws {
+        // `}` in a filename closes the \input{} argument — injection vector.
+        let params = #"{"project_id":"\#(pid!)","piece_id":"\#(realPieceID!)","content":"% x","filename":"bad}inject.tex"}"#
+        do {
+            _ = try await SetPieceStyleTool.handle(paramsJSON: Data(params.utf8), registry: registry)
+            XCTFail("Expected rejection of filename with '}'")
+        } catch MCPError.invalidArgument {
+            // Expected
+        }
+        // No file should exist
+        let fileURL = publishRoot.appendingPathComponent("pieces/bad}inject.tex")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
+    func test_setPieceStyle_rejectsPathTraversalInFilename() async throws {
+        // `../` traversal bypasses the pieces/ directory.
+        let params = #"{"project_id":"\#(pid!)","piece_id":"\#(realPieceID!)","content":"% x","filename":"../escape.tex"}"#
+        do {
+            _ = try await SetPieceStyleTool.handle(paramsJSON: Data(params.utf8), registry: registry)
+            XCTFail("Expected rejection of filename with '../'")
+        } catch MCPError.invalidArgument {
+            // Expected
+        }
+    }
+
+    func test_setPieceStyle_rejectsSlashInFilename() async throws {
+        // A `/` in the filename would create a nested path.
+        let params = #"{"project_id":"\#(pid!)","piece_id":"\#(realPieceID!)","content":"% x","filename":"sub/dir.tex"}"#
+        do {
+            _ = try await SetPieceStyleTool.handle(paramsJSON: Data(params.utf8), registry: registry)
+            XCTFail("Expected rejection of filename with '/'")
+        } catch MCPError.invalidArgument {
+            // Expected
+        }
+    }
+
+    func test_setPieceStyle_rejectsTeXPercent() async throws {
+        // `%` starts a TeX comment — could hide injected content after it.
+        let params = #"{"project_id":"\#(pid!)","piece_id":"\#(realPieceID!)","content":"% x","filename":"comment%inject.tex"}"#
+        do {
+            _ = try await SetPieceStyleTool.handle(paramsJSON: Data(params.utf8), registry: registry)
+            XCTFail("Expected rejection of filename with '%'")
+        } catch MCPError.invalidArgument {
+            // Expected
+        }
+    }
+
+    func test_setPieceStyle_acceptsSafeFilename() async throws {
+        // A purely safe filename should be accepted.
+        let params = #"{"project_id":"\#(pid!)","piece_id":"\#(realPieceID!)","content":"% safe","filename":"my-style_v2.tex"}"#
+        let data = try await SetPieceStyleTool.handle(paramsJSON: Data(params.utf8), registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(resp?["status"] as? String, "set")
+        XCTAssertEqual(resp?["style_file"] as? String, "my-style_v2.tex")
+    }
+
+    // MARK: - New: unknown piece_id validation + default filename from title
+
     func test_setPieceStyle_unknownPieceID_throws() async throws {
         // "doc-deadbeef" is not a real piece in this project; the tool must reject it loudly.
         let params = #"{"project_id":"\#(pid!)","piece_id":"doc-deadbeef","content":"% bad","filename":"bad.tex"}"#
