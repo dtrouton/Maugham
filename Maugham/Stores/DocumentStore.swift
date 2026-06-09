@@ -62,7 +62,12 @@ public final class DocumentStore {
 
     private var uiStateScheduler: DebounceScheduler<UIState>!
 
-    private var lastObservedManifestModified: Date?
+    /// Content-signature echo of the manifest bytes we last wrote (or loaded at
+    /// open). Mirrors `Document.lastDiskEcho` for the project manifest: lets
+    /// `handleManifestChanged` distinguish our own coordinated `writeManifest`
+    /// (echo → no archive) from a genuine external change (content differs →
+    /// archive). See `ManifestEcho` + findings 1.2 / O2.
+    private var lastWrittenManifest: ManifestEcho?
 
     /// Tracks the active writing session in-memory. Driven by
     /// `recordSessionActivity(...)` and the idle timer below; flushed on
@@ -141,13 +146,12 @@ public final class DocumentStore {
             documentStoreLog.warning("WARNING: \(entries.count, privacy: .public) stragglers in \(scratchDir.path, privacy: .public) — likely from a crashed reorder/tidy. Manual inspection recommended.")
         }
 
-        // Seed lastObservedManifestModified so the first presenter callback
-        // doesn't trigger a spurious archive of an unchanged manifest.
+        // Seed the manifest echo from the bytes on disk at open, so the first
+        // presenter callback (if it's our own subsequent write, or an unchanged
+        // re-read) doesn't trigger a spurious conflict archive.
         let manifestURL = url.appendingPathComponent(ProjectManifest.fileName)
         if let data = try? Data(contentsOf: manifestURL) {
-            if let m = try? ProjectManifest.makeDecoder().decode(ProjectManifest.self, from: data) {
-                store.lastObservedManifestModified = m.modified
-            }
+            store.lastWrittenManifest = .initialLoad(bytes: data)
         }
 
         let presenter = ProjectFolderPresenter(
@@ -235,6 +239,12 @@ public final class DocumentStore {
                 let tmpURL = writeURL.appendingPathExtension("tmp")
                 try data.write(to: tmpURL, options: [.atomic])
                 _ = try FileManager.default.replaceItemAt(writeURL, withItemAt: tmpURL)
+                // Stamp the echo synchronously inside the coordinated block —
+                // mirrors `Document.performAutosave` setting `lastDiskEcho`
+                // inside its write block, so a presenter callback racing this
+                // write can't see a half-updated state. The bytes are exactly
+                // what we wrote.
+                self.lastWrittenManifest = .afterWrite(bytes: data)
             } catch {
                 writeError = error
             }
@@ -624,16 +634,25 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
     private func handleManifestChanged() {
         let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
         guard let data = try? Data(contentsOf: manifestURL) else { return }
-        guard let diskManifest = try? ProjectManifest.makeDecoder().decode(
-            ProjectManifest.self, from: data) else { return }
+        // Decode to confirm the bytes are a well-formed manifest before reacting
+        // (a partial/torn write isn't a conflict to archive).
+        guard (try? ProjectManifest.makeDecoder().decode(
+            ProjectManifest.self, from: data)) != nil else { return }
 
-        // Per master spec: "Last-writer-wins by `modified` timestamp; the loser
-        // is preserved as `.maugham/conflicts/manifest-<timestamp>.json`."
-        // We archive the disk version when it's newer than what we last saw.
-        if let last = lastObservedManifestModified, diskManifest.modified > last {
-            archiveManifestForConflict(data: data)
+        // Content-hash echo guard (findings 1.2 + O2). If the disk content
+        // matches what we last wrote (or loaded at open), this callback is an
+        // echo of our own coordinated write — NOT an external change — so we
+        // must not archive. Only when the bytes genuinely DIFFER is it a real
+        // external manifest, which we preserve per the master spec:
+        // "Last-writer-wins; the loser is `.maugham/conflicts/manifest-<ts>.json`."
+        // Using a content hash (not a whole-second-truncated timestamp) means a
+        // same-second external change is still detected (O2).
+        let diskEcho = ManifestEcho.afterWrite(bytes: data)
+        if diskEcho == lastWrittenManifest {
+            return
         }
-        lastObservedManifestModified = diskManifest.modified
+        archiveManifestForConflict(data: data)
+        lastWrittenManifest = diskEcho
     }
 
     private func archiveManifestForConflict(data: Data) {
