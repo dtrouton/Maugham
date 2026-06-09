@@ -36,16 +36,23 @@ applies that principle to the whole project.
 - **Every number is computed.** The only hand-written content is prose that changes
   rarely (district meanings, the state paragraph) or is authored once per milestone
   (the two card prose fields).
+- An **interactive viewer**: a single self-contained `atlas.html` (all data embedded,
+  vanilla JS, opens from `file://`) that adds the two things static markdown can't do —
+  **scrolling through time** (scrub the change-card timeline and watch the map relight)
+  and **click-to-drill** (district → vitals/scars/cards; card → story → file-level diff
+  stats → full diff).
 - The whole system runs in **both** session environments: the Mac (Xcode CLT) and
   Claude's cloud Linux containers. No third-party dependencies.
 - A test fails when the district registry stops covering the source tree.
 
 ## Non-goals
 
-- **No HTML dashboard, no app UI surface.** The rendering target is GitHub-flavored
-  markdown + mermaid; GitHub *is* the UI. (The "every data type needs a UI surface" rule
-  is about writer-facing app data; this is repo tooling about the codebase, and its
-  inspection surface is the rendered repo.)
+- **No server, no build step, no JS dependencies.** The viewer is one generated HTML
+  file with everything inlined — no localhost process, no npm, no CDN fetch (works
+  offline). If it can't be done in vanilla JS + generated SVG/CSS, it waits.
+- **No app UI surface.** (The "every data type needs a UI surface" rule is about
+  writer-facing app data; this is repo tooling about the codebase, and its inspection
+  surfaces are the rendered repo and the viewer file.)
 - **No screenshot automation.** Views-district changes are best shown as before/after
   screenshots; v1 allows manually attaching images to a card (`images:` field), and
   automation is future work.
@@ -71,6 +78,7 @@ docs/atlas/
   cards/
     001-cross-surface-contracts.md     # one card per milestone, NNN ordered like ADRs
     002-inline-emphasis-contract.md
+  atlas.html             # GENERATED, UNTRACKED (gitignored) — the interactive viewer
 scripts/
   atlas.py               # the tool (python3, stdlib only)
 ```
@@ -95,7 +103,8 @@ The path→district mapping is data, not code. One entry per district:
       "scars": [2, 3, 5, 6, 7],
       "risk": "expensive",
       "meaning": "Typing, cursor, tokenization, focus — the fragile AppKit↔SwiftUI seam.",
-      "area": "Maugham/Editor/AREA.md"
+      "area": "Maugham/Editor/AREA.md",
+      "grid": {"section": "mac", "row": 0, "col": 1}
     }
   ]
 }
@@ -126,6 +135,7 @@ Subcommands:
 |---|---|
 | `atlas.py gen` | Regenerate `ATLAS.md` + `districts/*.md` from registry + repo measurement + cards |
 | `atlas.py card <range> --slug <slug>` | Emit `cards/NNN-<slug>.md` skeleton with all computed fields filled |
+| `atlas.py html [--embed-diffs]` | Generate the interactive viewer `docs/atlas/atlas.html` |
 | `atlas.py check` | Registry coverage, card front-matter validity, generated-header stamps |
 
 Measurement per district (computed by `gen`): source file count, source LOC, test LOC,
@@ -191,6 +201,50 @@ district's AREA.md (the curated prose stays where it lives today; the Atlas poin
 does not duplicate) + the cards that touched this district (full list, newest first) +
 scar list with tripwire text excerpted from CLAUDE.md by number.
 
+### The viewer (`atlas.html`)
+
+One generated, self-contained HTML file: all card/registry/measurement data inlined as a
+single JSON blob, the map as generated inline SVG, behavior in vanilla JS. Opens from
+`file://` on the Mac, or — in cloud sessions — Claude generates it and sends the file
+directly to the owner's device. Untracked (gitignored): it's a *view*, regenerable from
+tracked sources in one command, and tracking it would bloat every release diff.
+
+**Layout.** Three regions:
+
+1. **The map** (top): district tiles in a fixed CSS-grid layout defined by the registry
+   (`grid` field per district) — same positions every time, per the base-map rule. Tile
+   size class ∝ source LOC band; border color = risk class; fill = heat. The Mac/phone/
+   Core grouping and dependency direction are drawn as grid sections, mirroring the
+   mermaid zoning map.
+2. **The timeline** (bottom): one dot per change card, chronological, with title on
+   hover. A scrubber: click a card, or ←/→ to walk time. A **"Now"** stop at the right
+   end shows the current-state Atlas.
+3. **The detail panel** (side): contents depend on what's selected.
+
+**Time scrubbing.** Selecting card *N* relights the map with that card's touched
+districts (everything else dims), and heat shows *cumulative* activity up to card *N* —
+so dragging the scrubber left-to-right literally replays where work has happened.
+Selecting **Now** restores the live Atlas state. v1 scrubs **cards** (milestones), not
+arbitrary commits; per-snapshot historical LOC is deferred (see future work) — the map's
+size/number labels always show current values, only lighting and heat travel in time.
+
+**Drill-down paths** (mirrors the altitude ladder):
+
+- *Map → district:* click a tile → panel shows vitals, the registry `meaning`, scars with
+  tripwire text, hotspot files, and every card that touched the district (each clickable,
+  which also moves the scrubber).
+- *Timeline → card:* panel shows the card's "For the writer" / "For the system" prose,
+  line split, risk + note, then **the story** (linked commit list) and **the diff
+  detail**: per-file insertions/deletions grouped by district (from `--numstat`, embedded
+  at generation time).
+- *Card → full diff:* each file row and the card header link out to GitHub
+  (commit URLs / `compare/<range>` view). With `--embed-diffs`, per-file diffs are
+  inlined collapsed (capped at 400 lines/file, truncation marked) so the whole ladder
+  works offline; default is off to keep the file small.
+- *Panel footer, always:* "Deeper than this? Ask Claude."
+
+**Size budget:** ≤ ~500 KB without `--embed-diffs`. No external fetches of any kind.
+
 ### Workflow integration
 
 1. **Finishing a milestone includes its card.** Added to CLAUDE.md's "Default workflow":
@@ -212,7 +266,8 @@ scar list with tripwire text excerpted from CLAUDE.md by number.
 - Backfilled **card 001**: cross-surface contracts baseline (v0.6.1 arc) and **card 002**:
   inline emphasis contract — both ranges are in reachable history and serve as the worked
   examples for the format.
-- First generated `ATLAS.md` + district pages.
+- First generated `ATLAS.md` + district pages, and a first `atlas.html` sent to the
+  owner for layout/taste review (plus the `.gitignore` entry).
 - `state.md` first draft (Claude writes, owner adjusts wording taste once).
 
 ## Acceptance criteria
@@ -234,10 +289,23 @@ scar list with tripwire text excerpted from CLAUDE.md by number.
 6. `cut-release.sh` regenerates the Atlas as part of cutting a release.
 7. CLAUDE.md gains the card-per-milestone workflow line and an `docs/atlas/` pointer in
    the per-area table.
+8. `python3 scripts/atlas.py html` produces a single `atlas.html` ≤ ~500 KB that opens
+   from `file://` with no network access: map renders, clicking a district opens its
+   panel, scrubbing the timeline relights the map per card and replays cumulative heat,
+   a card's panel shows prose + story + per-file diff stats with working GitHub links,
+   and ←/→ walk the timeline. `--embed-diffs` inlines capped per-file diffs.
+9. `atlas.html` is gitignored; `atlas.py check` flags it if tracked.
 
 ## Future work (explicitly deferred)
 
-- **Screenshots for Views cards** — attach from the manual smoke pass now; automate later.
+- **Historical LOC in the time scrub** — make the map's sizes/numbers travel in time too
+  (computable from `git ls-tree`/`cat-file` at each card's end commit; limited by shallow
+  clones, so it needs the Mac's full clone).
+- **Publishing the viewer** — GitHub Pages (or an artifact attached to each release) so
+  the owner can open the latest `atlas.html` from the phone without a session. Until
+  then: Claude regenerates and sends the file on request.
+- **Screenshots for Views cards** — attach from the manual smoke pass now; automate
+  later; the viewer's card panel already reserves an image strip via the `images:` field.
 - **Filesystem-schema page** — the `.maugham/` layout as a generated L2 page (the
   EMISSION.md treatment); highest-value next map, separate spec.
 - **Promise–enforcement matrix as generated artifact** — currently prose in the
