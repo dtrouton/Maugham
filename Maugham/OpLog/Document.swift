@@ -567,7 +567,10 @@ public final class Document {
     }
 
     public func insertParagraph(after: String?, text: String) -> String {
-        let newId = ParagraphID.mint()
+        // Unique against the doc's live id population (birthday hazard over
+        // the ~1.05M id space — see ParagraphID.mintUnique).
+        let newId = ParagraphID.mintUnique(
+            excluding: Set(sequence).union(paragraphs.keys))
         paragraphs[newId] = text
         if let after, let idx = sequence.firstIndex(of: after) {
             sequence.insert(newId, at: idx + 1)

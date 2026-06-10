@@ -190,11 +190,16 @@ enum TaskAnchorAlignment {
             offset: preEditCursor,
             sequence: priorSequence,
             paragraphsById: priorById)
+        // first-wins merge, NOT uniqueKeysWithValues: duplicate paragraph ids
+        // can reach the editor from documents written before the
+        // mintUnique fix (2026-06-10 paste crash) — a legacy dup must degrade
+        // to first-occurrence cursor resolution, never trap the writer.
         let destPid = cursorParagraph(
             offset: postEditCursor,
             sequence: nextSequence,
-            paragraphsById: Dictionary(uniqueKeysWithValues:
-                nextParagraphs.map { ($0.id, $0.text) }))
+            paragraphsById: Dictionary(
+                nextParagraphs.map { ($0.id, $0.text) },
+                uniquingKeysWith: { first, _ in first }))
 
         // Pairing: for each unpaired-new line, look for unpaired-prior
         // lines with the same body. If exactly one match exists AND the
@@ -251,8 +256,10 @@ enum TaskAnchorAlignment {
         // re-attach the prior anchor to the new line, and remove the
         // prior from `unpairedPriors` (so it doesn't become an archive).
         // We need to mutate the per-paragraph state map for the new line.
+        // first-wins, same legacy-duplicate-id tolerance as destPid above.
         var statesByPid: [String: ParaState] = Dictionary(
-            uniqueKeysWithValues: paraStates.map { ($0.pid, $0) })
+            paraStates.map { ($0.pid, $0) },
+            uniquingKeysWith: { first, _ in first })
         var carriedAnchors: [String: [(lineIdx: Int, anchorId: String, hint: RenderFilter.AnchorPositionHint)]] = [:]
         let claimedPriorSet = Set(crossMoves.map(\.priorIdx))
         for move in crossMoves {

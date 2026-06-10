@@ -136,6 +136,15 @@ public enum RenderFilter {
         }
         for key in exactIndex.keys { exactIndex[key]!.reverse() }
 
+        // Every id this pass must never re-issue: all stored ids (claimed or
+        // not — an unclaimed stored id still exists in the document universe)
+        // plus every fresh mint below. Seeding from `priorByIdStripped.keys`
+        // (not just `storedOrder`) is belt-and-braces for callers whose order
+        // array is a subset. Without this, large pastes mint colliding ids
+        // with near-certainty (birthday over a ~1.05M space; the 2026-06-10
+        // paste crash) — see `ParagraphID.mintUnique`.
+        var usedIds = Set(priorByIdStripped.keys).union(storedOrder)
+
         var pairs: [(id: String, text: String)] = []
         pairs.reserveCapacity(displayParsed.count)
         for d in displayParsed {
@@ -192,8 +201,11 @@ public enum RenderFilter {
                 }
                 // Ambiguous within-margin tie → fall through and mint fresh.
             }
-            // Mint fresh.
-            pairs.append((ParagraphID.mint(), d.text))
+            // Mint fresh — unique against every stored id AND every prior
+            // mint in this pass (see usedIds above).
+            let fresh = ParagraphID.mintUnique(excluding: usedIds)
+            usedIds.insert(fresh)
+            pairs.append((fresh, d.text))
         }
         return pairs
     }

@@ -31,12 +31,24 @@ public enum Bootstrap {
             return Result(bootstrapped: false, paragraphIds: [])
         }
 
-        // Mint new ids for any missing.
+        // Mint new ids for any missing — UNIQUE against both the doc's
+        // existing anchored ids and the other mints in this pass. A whole-doc
+        // bootstrap can mint hundreds-to-thousands of ids at once; with plain
+        // mint() over the ~1.05M id space a same-pass birthday collision is
+        // probable at that scale (≈55% at 1,300 paragraphs) and would
+        // silently merge two paragraphs under one identity in the op log.
+        var usedIds = Set(parsed.compactMap(\.id))
         var sequence: [String] = []
         var paragraphMap: [String: String] = [:]
         var changes: [Op.ParagraphChange] = []
         for p in parsed {
-            let id = p.id ?? ParagraphID.mint()
+            let id: String
+            if let existing = p.id {
+                id = existing
+            } else {
+                id = ParagraphID.mintUnique(excluding: usedIds)
+                usedIds.insert(id)
+            }
             sequence.append(id)
             paragraphMap[id] = p.text
             changes.append(.init(paragraphId: id, prior: nil, next: p.text))
