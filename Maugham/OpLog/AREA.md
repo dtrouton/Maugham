@@ -75,6 +75,15 @@ it is now enforced:
   but the pure merge fn lacks the `projectURL`/stamp to do so — don't entangle it.
 - **`Op.at` is DISPLAY-ONLY.** It is NOT consulted for resolution (resolution is
   by opId). Don't introduce wall-clock comparisons into the merge/derive path.
+- **`sequence: nil` on a typing burst means "ordering unchanged-by-construction"
+  — not legacy-only — from M1 (ADR 0016) on.** `flushBurstNow` attaches
+  `sequence` only when ordering changed since the last sequence-bearing burst,
+  at the keyframe floor (`Document.sequenceKeyframeInterval`), or on the first
+  burst after load. The deriver carries the last explicit sequence forward, so
+  state-at-cursor ordering is exact at every rewind cursor (pinned by
+  `SequenceKeyframingTests.test_keyframedLog_derivesIdenticalToFullCapture`).
+  A text-only burst can no longer stamp a stale sequence over a concurrent
+  remote reorder (pinned by `…test_concurrentReorder_survivesTextOnlyBurstMerge`).
 - **Deferred to the collaboration milestone:** a skew-proof logical clock and
   same-paragraph **conflict surfacing** (two devices genuinely editing the same
   paragraph concurrently). Single-editor by ethos today, so skew-induced LWW loss
