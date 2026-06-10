@@ -99,6 +99,95 @@ final class WindowedTypographyEquivalenceTests: XCTestCase {
     Morales everything, and let the afternoon fall where it might.
     """
 
+    /// Dual-dialogue fixture: LARRY speaks, then BARRY's cue carries the
+    /// trailing `^` making his block the dual-second column — his
+    /// parenthetical and dialogue lines INHERIT `isDualSecond` from the cue
+    /// without their own text encoding it (FountainTokenizer). Used by the
+    /// dual-caret regression cases below.
+    private let dualDialogueDoc = """
+    INT. BAR - NIGHT
+
+    Larry and Barry argue across the counter, neither one listening.
+
+    LARRY
+    I can't believe you did that. After everything we talked about.
+
+    BARRY ^
+    (overlapping)
+    You never believe anything. That's your whole problem, Larry.
+
+    The bartender slides a glass between them.
+
+    MORALES
+    Gentlemen. Take it outside.
+
+    They don't take it outside.
+    """
+
+    // MARK: - Dual-dialogue regression (review HIGH: inherited isDualSecond)
+
+    /// Deleting the trailing ` ^` from a dual-second cue must de-dual the
+    /// FOLLOWING parenthetical + dialogue lines too — their `isDualSecond` is
+    /// inherited from the cue, not encoded in their own text, so without
+    /// `isDualSecond` in token identity they matched (kind, length) and kept
+    /// stale dual-column indents. (The originally-shipped windowing failed
+    /// exactly here.)
+    func test_screenplay_removeDualCaret_deDualsInheritedFollowers() {
+        let edit = Edit(replace: "BARRY ^", with: "BARRY")
+        assertEquivalent(doc: dualDialogueDoc, edit: edit, mode: .screenplay)
+    }
+
+    /// The symmetric direction: adding ` ^` to a solo cue must dual-ify the
+    /// followers.
+    func test_screenplay_addDualCaret_dualsInheritedFollowers() {
+        let edit = Edit(replace: "MORALES", with: "MORALES ^")
+        assertEquivalent(doc: dualDialogueDoc, edit: edit, mode: .screenplay)
+    }
+
+    /// The deeper hole that drove the token-identity fix (option 2 over a
+    /// window-extension heuristic): a SAME-LENGTH overtype of the `^`
+    /// (`BARRY ^` → `BARRY X`) changes `isDualSecond` for the cue and its
+    /// followers without changing ANY token's length — only identity-aware
+    /// tokens let the diff see it at all.
+    func test_screenplay_sameLengthCaretOvertype_deDuals() {
+        let edit = Edit(replace: "BARRY ^", with: "BARRY X")
+        assertEquivalent(doc: dualDialogueDoc, edit: edit, mode: .screenplay)
+    }
+
+    /// Non-vacuity guard for the dual-caret pins: the removeDualCaret edit
+    /// must produce a PROPER SUB-WINDOW (covering the cue + inherited
+    /// followers) — not a full-document fallback, which would make the
+    /// equivalence assertions above prove nothing about the windowed path.
+    func test_removeDualCaret_producesProperSubWindow() {
+        let oldTokens = tokenize(dualDialogueDoc, mode: .screenplay)
+        let ns = dualDialogueDoc as NSString
+        let r = ns.range(of: "BARRY ^")
+        let newText = ns.replacingCharacters(in: r, with: "BARRY")
+        let newTokens = tokenize(newText, mode: .screenplay)
+        let decision = TokenRestyleWindow.decide(
+            oldTokens: oldTokens, newTokens: newTokens,
+            storageLength: (newText as NSString).length)
+        guard case .window(let w) = decision else {
+            return XCTFail("expected a sub-window, got \(decision)")
+        }
+        let newNS = newText as NSString
+        XCTAssertLessThan(w.length, newNS.length,
+                          "window covered the whole document — not actually windowed")
+        XCTAssertGreaterThan(w.location, 0,
+                             "window started at 0 — head was not trimmed")
+        XCTAssertLessThan(NSMaxRange(w), newNS.length,
+                          "window ran to end of document — tail was not trimmed")
+        // The window must reach THROUGH the inherited-dual followers: the cue,
+        // the parenthetical, and the dialogue line must all be inside it.
+        for needle in ["BARRY", "(overlapping)", "your whole problem"] {
+            let hit = newNS.range(of: needle)
+            XCTAssertNotEqual(hit.location, NSNotFound, "fixture drifted: \(needle)")
+            XCTAssertTrue(
+                NSIntersectionRange(hit, w).length == hit.length,
+                "window \(w) does not fully cover follower text '\(needle)' at \(hit)")
+        }
+    }
+
     // MARK: - Screenplay edit cases
 
     func test_screenplay_editInsideAction() {

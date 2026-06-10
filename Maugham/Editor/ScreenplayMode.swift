@@ -32,7 +32,9 @@ public struct ScreenplayMode: WritingMode {
         var tokens: [Token] = script.lines.map { line in
             Token(
                 range: line.range,
-                kind: .fountainElement(line.element, isForced: line.isForced))
+                kind: .fountainElement(line.element,
+                                       isForced: line.isForced,
+                                       isDualSecond: line.isDualSecond))
         }
         // Inline `[[todo:]]` / `[[done:]]` boneyard discriminator. Each
         // occurrence emits a `.checkbox` token over the 5-char `todo:` /
@@ -154,7 +156,8 @@ public struct ScreenplayMode: WritingMode {
 
         for token in tokens {
             guard NSMaxRange(token.range) <= storage.length else { continue }
-            guard case let .fountainElement(element, _) = token.kind else { continue }
+            guard case let .fountainElement(element, _, isDualSecond) = token.kind
+            else { continue }
 
             // Skip titlePage elements (handled by applyTitlePageStyling).
             if case .titlePage = element { continue }
@@ -169,16 +172,10 @@ public struct ScreenplayMode: WritingMode {
             isFirstBody = false
 
             // Out-of-window tokens keep their (shifted-correct) attributes; skip
-            // the expensive isDualSecond lookup + attribute synthesis + write.
-            // This is the keystroke win: the per-element loop body costs O(1)
-            // per out-of-window token instead of O(N) (the isDualSecond search
-            // is linear, making the whole-doc pass O(N²)).
+            // attribute synthesis + write. `isDualSecond` rides on the token
+            // itself (part of token identity — see Token.Kind), so the old O(N)
+            // per-token script search is gone on every path.
             guard inWindow(token.range) else { continue }
-
-            // Look up isDualSecond from the parsed script by range match.
-            let isDualSecond = script.lines.first(where: {
-                $0.range.location == token.range.location
-            })?.isDualSecond ?? false
 
             var attrs = self.attributes(
                 for: element,
