@@ -61,28 +61,101 @@ public enum RenderFilter {
         let storedParsed = ParagraphParser.parse(stored)
         let displayParsed = ParagraphParser.parse(displayEdited)
 
-        var unmatchedById: [String: String] = [:]
+        // Build the {id: task-anchor-stripped prior text} map the matcher
+        // pairs against, plus the ids in stored order for deterministic
+        // exact-tier FIFO claiming. (See `restorePairs` for why the comparison
+        // text is anchor-stripped.)
+        var priorById: [String: String] = [:]
+        var storedOrder: [String] = []
         for p in storedParsed {
-            // Strip task anchors from the prior text before pairing.
-            // The displayed text comes in anchor-stripped (the editor
-            // surface never carries `<!--t-XXXX-->` in displayText), so
-            // comparing raw-anchored prior against anchor-free displayed
-            // would push paragraph-pairing into the char-bigram fallback
-            // for any anchored paragraph. Symmetric strip → exact-match
-            // works again; the anchor itself is re-injected later by
-            // `TaskAnchorAlignment`.
             if let id = p.id {
-                unmatchedById[id] = stripTaskAnchorsInline(p.text)
+                priorById[id] = stripTaskAnchorsInline(p.text)
+                storedOrder.append(id)
             }
         }
 
-        var pairs: [(String, String)] = []
+        let pairs = restorePairs(
+            priorByIdStripped: priorById, storedOrder: storedOrder,
+            displayParsed: displayParsed)
+
+        var paragraphs: [String: String] = [:]
+        var sequence: [String] = []
+        for pair in pairs {
+            paragraphs[pair.id] = pair.text
+            sequence.append(pair.id)
+        }
+        return Materializer.materialize(paragraphs: paragraphs, sequence: sequence)
+    }
+
+    /// The three-tier id-reattachment matcher, factored out of the public
+    /// `restoreComments(stored:displayEdited:)` wrapper so the per-keystroke
+    /// `Document.setFullText` path can call it WITHOUT re-parsing the stored
+    /// form: `setFullText` already holds the {id: text} map in
+    /// `paragraphs`/`sequence`, so it skips the materialize→parse roundtrip
+    /// that the wrapper performs only to rebuild this dictionary.
+    ///
+    /// `priorByIdStripped` MUST be keyed by id with TASK-ANCHOR-STRIPPED text
+    /// values — the displayed text comes in anchor-free (the editor surface
+    /// never carries `<!--t-XXXX-->` in displayText), so comparing raw-anchored
+    /// prior against anchor-free displayed would push paragraph-pairing into
+    /// the char-bigram fallback for any anchored paragraph. Symmetric strip →
+    /// exact-match works again; the anchor itself is re-injected later by
+    /// `TaskAnchorAlignment`. The public wrapper strips before calling; the
+    /// `setFullText` caller likewise strips its `paragraphs` values.
+    ///
+    /// Returns `[(id, text)]` in display order — each entry's `text` is the
+    /// display paragraph's text, and `id` is either a reused stored id (claimed
+    /// at most once, by the first display paragraph that wins it across all
+    /// three tiers) or a freshly minted id.
+    ///
+    /// `storedOrder` lists ids in stored (sequence) order so the exact-tier
+    /// index claims duplicate-text paragraphs FIFO by stored position —
+    /// deterministic regardless of Dictionary iteration order.
+    ///
+    /// Matching is unchanged from the prior inline implementation EXCEPT the
+    /// exact tier: instead of a per-display linear scan of all stored entries
+    /// (`first(where:)`, O(N) per display ⇒ O(N²) overall), it consults a
+    /// prebuilt `[strippedText: [ids in stored order]]` index and claims FIFO
+    /// (stored order). That is a strict refinement of the prior behavior —
+    /// `Dictionary.first(where:)` picked an UNSPECIFIED id among equal-text
+    /// candidates; stored-order FIFO is deterministic and positionally sensible
+    /// within the same "each stored id claimed at most once" contract.
+    internal static func restorePairs(
+        priorByIdStripped: [String: String],
+        storedOrder: [String],
+        displayParsed: [ParsedParagraph]
+    ) -> [(id: String, text: String)] {
+        var unmatchedById = priorByIdStripped
+
+        // Build the exact-match index in stored order. Each bucket is reversed
+        // so `popLast()` yields the EARLIEST stored id first (FIFO).
+        var exactIndex: [String: [String]] = [:]
+        for id in storedOrder {
+            guard let text = unmatchedById[id] else { continue }
+            exactIndex[text, default: []].append(id)
+        }
+        for key in exactIndex.keys { exactIndex[key]!.reverse() }
+
+        var pairs: [(id: String, text: String)] = []
+        pairs.reserveCapacity(displayParsed.count)
         for d in displayParsed {
-            // Exact match first.
-            if let id = unmatchedById.first(where: { $0.value == d.text })?.key {
-                pairs.append((id, d.text))
-                unmatchedById.removeValue(forKey: id)
-                continue
+            // Exact match first — O(1) amortized via the prebuilt index.
+            // Pop-and-skip any ids a prior tier already claimed (no longer in
+            // `unmatchedById`); each id pops at most once across the whole walk.
+            if var bucket = exactIndex[d.text] {
+                var claimed: String? = nil
+                while let candidate = bucket.popLast() {
+                    if unmatchedById[candidate] != nil {
+                        claimed = candidate
+                        break
+                    }
+                }
+                exactIndex[d.text] = bucket
+                if let id = claimed {
+                    pairs.append((id, d.text))
+                    unmatchedById.removeValue(forKey: id)
+                    continue
+                }
             }
             // Word-shingle match (good for prose-length paragraphs).
             if let m = ShingleMatcher.bestMatch(
@@ -122,14 +195,7 @@ public enum RenderFilter {
             // Mint fresh.
             pairs.append((ParagraphID.mint(), d.text))
         }
-
-        var paragraphs: [String: String] = [:]
-        var sequence: [String] = []
-        for (id, text) in pairs {
-            paragraphs[id] = text
-            sequence.append(id)
-        }
-        return Materializer.materialize(paragraphs: paragraphs, sequence: sequence)
+        return pairs
     }
 
     // MARK: - Task anchor restore (single-paragraph, Pass 1 of V2 alignment)

@@ -356,27 +356,41 @@ public final class Document {
         preEditCursor: Int? = nil,
         postEditCursor: Int? = nil
     ) {
-        // Build the next stored form by running restoreComments against
-        // the current materialized state. This is the same parse+diff
-        // that EditorHost used to do; relocating it to Document.
-        let priorStored = Materializer.materialize(
-            paragraphs: paragraphs, sequence: sequence)
-        let nextStored = RenderFilter.restoreComments(
-            stored: priorStored, displayEdited: text)
-
-        // Parse the new stored form to extract paragraph-level changes.
-        let priorParsed = ParagraphParser.parse(priorStored)
-        let nextParsed = ParagraphParser.parse(nextStored)
+        // Parse-once keystroke path (perf fix B). The prior stored state is
+        // already in hand as `paragraphs`/`sequence` — the load path and this
+        // method's own orphan-prune below enforce `paragraphs.keys ⊆ sequence`,
+        // so `{id: paragraphs[id]}` over `sequence` IS the same {id: anchored
+        // text} map that `parse(materialize(paragraphs, sequence))` produced
+        // before. We therefore skip the prior-side materialize→parse roundtrip
+        // (two whole-doc parses) AND the next-side re-parse (another two): the
+        // ONLY new bytes are the display `text`, so we parse exactly that once
+        // and let `RenderFilter.restorePairs` reattach ids in-process.
+        //
+        // `priorById` carries the *anchored* prior text (V2 alignment + change
+        // detection need the anchors). `restorePairs`, by contrast, compares
+        // against anchor-STRIPPED text (the displayed text is anchor-free), so
+        // it gets its own stripped map. Two distinct dictionaries — kept
+        // distinct deliberately (see RenderFilter.restorePairs doc).
         var priorById: [String: String] = [:]
-        for p in priorParsed {
-            if let id = p.id { priorById[id] = p.text }
+        var priorByIdStripped: [String: String] = [:]
+        for id in sequence {
+            guard let anchored = paragraphs[id] else { continue }
+            priorById[id] = anchored
+            priorByIdStripped[id] = RenderFilter.stripTaskAnchorsInline(anchored)
         }
+
+        let displayParsed = ParagraphParser.parse(text)
+        // `pairs` is exactly what `parse(restoreComments(...))` yielded before:
+        // ids in display order paired with the (anchor-free) display text.
+        let pairs = RenderFilter.restorePairs(
+            priorByIdStripped: priorByIdStripped,
+            storedOrder: sequence,
+            displayParsed: displayParsed)
 
         // V2 task-anchor alignment (spec §2.4.1). Inputs:
         //   - priorById[id] is the *anchored* prior paragraph text.
-        //   - nextParsed[*].text is the *anchor-free* new paragraph text
-        //     (restoreComments parses the displayEdited form which strips
-        //     task anchors).
+        //   - pairs[*].text is the *anchor-free* new paragraph text
+        //     (the display text strips task anchors).
         // The aligner re-injects task anchors per paragraph, runs a
         // cross-paragraph correlation pass to detect cut/paste with
         // cursor bias, and reports anchors that couldn't be paired —
@@ -386,24 +400,21 @@ public final class Document {
         _pendingPostEditCursor = nil
         let alignment = TaskAnchorAlignment.align(
             priorById: priorById,
-            nextParagraphs: nextParsed.compactMap { p -> (id: String, text: String)? in
-                guard let id = p.id else { return nil }
-                return (id, p.text)
-            },
+            nextParagraphs: pairs.map { (id: $0.id, text: $0.text) },
             priorSequence: sequence,
-            nextSequence: nextParsed.compactMap(\.id),
+            nextSequence: pairs.map(\.id),
             preEditCursor: effectivePre,
             postEditCursor: effectivePost)
 
         // Collect changes and the new sequence. Use the V2-restored
-        // (anchor-bearing) paragraph text rather than the raw nextParsed
+        // (anchor-bearing) paragraph text rather than the raw display
         // text so the on-disk .md keeps its anchors across the round-trip.
         var changes: [Op.ParagraphChange] = []
         var newSequence: [String] = []
-        for p in nextParsed {
-            guard let id = p.id else { continue }
+        for pair in pairs {
+            let id = pair.id
             newSequence.append(id)
-            let restored = alignment.restoredById[id] ?? p.text
+            let restored = alignment.restoredById[id] ?? pair.text
             let prior = priorById[id]
             if prior != restored {
                 changes.append(.init(paragraphId: id, prior: prior, next: restored))
