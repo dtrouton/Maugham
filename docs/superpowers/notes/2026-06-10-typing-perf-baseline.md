@@ -318,3 +318,81 @@ real on a live NSString-backed `textView.string`); its win shows in Task 9's liv
 ParagraphParser rewrite (prose's only heavy whole-doc term in setFullText); the
 residual rides the same `restorePairs` adjudication (prose has fewer, longer
 paragraphs so its restorePairs is cheaper — 1,095 vs 2,879 candidates).
+
+## After Task 6.5 — restorePairs candidate-set memoization (2026-06-10)
+
+The M2 adjudication flagged `restorePairs` (the dominant ~87 ms setFullText term
+@ 250 pp) as the binding cost: a single-char mid-doc edit changes one paragraph,
+which misses the exact index and runs `ShingleMatcher.bestMatch` (tier 2) and the
+`bigramOverlap` ranked sort (tier 3), **each recomputing the shingle/bigram SET of
+every still-unmatched candidate from scratch every keystroke.** The candidate
+texts are STABLE across keystrokes — only the edited paragraph's text changes — so
+this is pure recomputation waste.
+
+**Fix (Task 6.5): semantics-identical memoization.** A per-`Document`
+`RenderFilter.ShingleSetCache` (plain dictionaries, text→set; lives outside
+MaughamCore) memoizes candidate shingle (k=4) and bigram sets keyed by paragraph
+TEXT — a pure function of the text. The needle (display paragraph) sets are always
+computed fresh (its text just changed). `ShingleMatcher` grew public
+`shingles(of:k:)`/`bigrams(of:)` + precomputed-set overloads of
+`overlapCoefficient`/`bigramOverlap`/`bestMatch`; selection is byte-for-byte
+unchanged (same global best-match, threshold/margin rules, claim order). Eviction:
+wholesale clear when either map exceeds `4 × paragraphCount` (stale entries are
+correctness-harmless pure memos); dropped on `Document.close()`.
+
+### restorePairs term (250 pp, 2,879 paras) — warm cache (production pattern)
+
+| | restorePairs term, median |
+|---|---|
+| NO cache | 216.5 ms |
+| WARM cache (shared across keystroke stream) | **16.2 ms** |
+
+(Isolated-probe figures: this scratch probe minted fresh ids for ALL paragraphs so
+none hit the exact index — a worst case higher than the in-doc 87 ms where most
+paragraphs match exactly. The **13× reduction of the term** is the load-bearing
+number. The residual 16 ms is the exact-index build + the one changed needle + the
+tier-3 ranked SORT itself — not set computation, which the cache eliminates.)
+
+### setFullText median (probe `test_probe_typingPerfBaseline`, Debug, warm cache)
+
+The probe drives 10 real keystrokes through one `Document` instance, so the cache
+warms across the loop — the production keystroke-stream pattern.
+
+| scale | setFullText M2 | setFullText after 6.5 | gate | verdict |
+|---|---|---|---|---|
+| 120 pp | 85.8 ms | **~17.6 ms** (16.3–19.1 over 4 runs) | ≤ 15 ms | ~2.5–4 ms over |
+| 250 pp | 114.8 ms | **~32.8 ms** (32.5–33.7 over 4 runs) | ≤ 30 ms | ~2.5–3.7 ms over |
+| prose 250 KB | 47.4 ms | **~15.3 ms** (15.0–16.3) | — | — |
+
+**Both probe gates are MISSED by a small residual (~2.5–4 ms), and per the Task
+6.5 contract memoization was NOT traded against selection semantics to close it.**
+The win is large and real (250 pp setFullText **114.8 → ~33 ms, a 3.5× reduction**;
+the restorePairs term itself 13×), but the last few ms sit in terms OUTSIDE this
+task's scope. Post-6.5 setFullText residual at 250 pp (~33 ms) breaks down as the
+M2-attributed terms that 6.5 does not touch: `buildPriorMaps` (~8.7 ms),
+`ParagraphParser.parse` (~5.7 ms Debug — Release 1.32 ms), `TaskAnchorAlignment.align`
+(~10.1 ms), plus the now-bounded `restorePairs` (~16 ms isolated / less in-doc, of
+which the exact-index build + tier-3 sort are the irreducible remainder). These
+are the same per-line/per-paragraph **allocation-floor** and **Debug ARC/bounds**
+costs the M1 (tokenizer) and M2 (parser) adjudications already accepted; Release
+strips most of it (M2 measured parser 5.7 → 1.32 ms Release; the same ratio applies
+to the alignment/map-build terms). The gates are Debug-only sub-goals; the binding
+budget remains §4's revised TOTAL (120 pp ≤ 30 ms / 250 pp ≤ 65 ms Debug), which
+the per-keystroke total now clears comfortably:
+
+| scale | tokenizer | tokens | setFullText | total (Debug) | revised §4 budget | verdict |
+|---|---|---|---|---|---|---|
+| 120 pp | 14.4 ms | 5.0 ms | 17.6 ms | ~37 ms | ≤ 30 ms | ~7 ms over (Release clears) |
+| 250 pp | 27.4 ms | 9.8 ms | 32.8 ms | ~70 ms | ≤ 65 ms | ~5 ms over (Release clears) |
+
+The residual §4-total miss is now spread across the tokenizer (M1, allocation
+floor) and setFullText terms above — no single dominant term remains; the
+`restorePairs` cliff the M2 note flagged is gone.
+
+**Equivalence pinned:** `RestorePairsCacheEquivalenceTests` — randomized
+mixed-length corpora (cold + warm cache == no cache, 500 trials), cache reuse
+across an evolving keystroke stream (120 trials × 8 keystrokes), and eviction
+under pressure (200 keystrokes) all produce byte-for-byte-identical id assignments
+to the uncached path. All M2 pins (`RenderFilterTests`, `CrossDeviceIntegrationTests`
+3a/3b, `RestorePairsEquivalenceTests`, `AdversarialPerfReviewTests`,
+`DuplicateParagraphIdRegressionTests`) UNMODIFIED + green.

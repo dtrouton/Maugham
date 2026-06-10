@@ -23,6 +23,81 @@ public enum RenderFilter {
     /// real one-character separation yet above floating-point tie noise.
     static let bigramReuseMargin = 0.1
 
+    /// Per-`Document` memo of candidate shingle/bigram SETS, keyed by paragraph
+    /// TEXT. A text's shingle set is a pure function of `(text, k)` and its
+    /// bigram set a pure function of `text`, so caching by text value is
+    /// semantics-identical — `restorePairs` selection is unchanged, only the set
+    /// computation is reused.
+    ///
+    /// Why it pays off: on a single-keystroke mid-doc edit, exactly ONE
+    /// paragraph's text changes; every other candidate text is byte-identical to
+    /// the prior keystroke. Tier 2 (`ShingleMatcher.bestMatch`) and tier 3
+    /// (`bigramOverlap` ranking) otherwise recompute the word-shingle / bigram
+    /// set of every still-unmatched candidate (≈ N/2) from scratch each
+    /// keystroke. The cache turns that into a dictionary hit.
+    ///
+    /// **k is fixed at 4** here — `restorePairs`' tier-2 call and the public
+    /// `restoreComments` wrapper both use k=4 word-shingles. The shingle map is
+    /// therefore keyed by text alone (k is implicit). If a future caller needs a
+    /// different k it must use a separate cache instance (or the key must grow a
+    /// k component); asserted by `shingleK`.
+    ///
+    /// **Eviction:** bounded, not invalidated. Stale entries (texts that no
+    /// longer appear in the document) are harmless — they're pure memos that are
+    /// simply never read again — so we never need to evict for correctness, only
+    /// to bound memory. When the entry count exceeds `4 × paragraphCount` (a
+    /// generous slack over the live working set, absorbing the churn of an edit
+    /// sequence without thrashing), the cache is cleared wholesale and refills
+    /// lazily. `Document.close()` drops the instance entirely. Value semantics
+    /// (text → set) make a wholesale clear safe at any point.
+    ///
+    /// Not thread-safe; lives behind `Document`'s `@MainActor` isolation (the
+    /// only `setFullText` caller). A plain dictionary, not `NSCache` — entries
+    /// are small, the working set is bounded and known (≈ paragraph count), and
+    /// we want deterministic, allocation-free hits on the hot path rather than
+    /// `NSCache`'s opaque, purgeable, Obj-C-bridged storage.
+    public final class ShingleSetCache {
+        /// The fixed shingle width this cache is valid for (see class doc).
+        public static let shingleK = 4
+
+        private var shingleSets: [String: Set<String>] = [:]
+        private var bigramSets: [String: Set<String>] = [:]
+
+        public init() {}
+
+        /// k=4 word-shingle set for `text`, memoized.
+        func shingles(of text: String) -> Set<String> {
+            if let hit = shingleSets[text] { return hit }
+            let s = ShingleMatcher.shingles(of: text, k: Self.shingleK)
+            shingleSets[text] = s
+            return s
+        }
+
+        /// Character-bigram set for `text`, memoized.
+        func bigrams(of text: String) -> Set<String> {
+            if let hit = bigramSets[text] { return hit }
+            let s = ShingleMatcher.bigrams(of: text)
+            bigramSets[text] = s
+            return s
+        }
+
+        /// Bound memory: clear wholesale once either map outgrows
+        /// `4 × paragraphCount`. Called by `restorePairs` after each pass with
+        /// the current paragraph count. Stale entries are correctness-harmless
+        /// (pure memos), so a wholesale clear is safe — it just refills lazily.
+        func evictIfOversized(paragraphCount: Int) {
+            let cap = max(64, paragraphCount * 4)
+            if shingleSets.count > cap { shingleSets.removeAll(keepingCapacity: true) }
+            if bigramSets.count > cap { bigramSets.removeAll(keepingCapacity: true) }
+        }
+
+        /// Drop all memoized sets (called on `Document.close()`).
+        public func clear() {
+            shingleSets.removeAll()
+            bigramSets.removeAll()
+        }
+    }
+
     /// Strip the manuscript's display anchors (own-line `<!-- ¶id -->`
     /// paragraph anchors + inline `<!--t-XXXXXX-->` task anchors). Delegates to
     /// the shared `MarkdownDisplayFilter` — the single source of truth used by
@@ -120,11 +195,33 @@ public enum RenderFilter {
     /// `Dictionary.first(where:)` picked an UNSPECIFIED id among equal-text
     /// candidates; stored-order FIFO is deterministic and positionally sensible
     /// within the same "each stored id claimed at most once" contract.
+    ///
+    /// `cache` (optional) memoizes the CANDIDATE shingle/bigram sets across
+    /// calls so the per-keystroke `setFullText` path doesn't recompute the
+    /// stable candidate sets every keystroke (the dominant `restorePairs` cost
+    /// at scale — see the typing-perf baseline note). Selection is byte-for-byte
+    /// identical with or without it: the cache is a pure memo of
+    /// `ShingleMatcher.shingles(of:k:4)` / `.bigrams(of:)`, and the needle's
+    /// (display paragraph's) sets are always computed fresh inside the matcher.
+    /// The public `restoreComments` wrapper passes `nil`; `Document.setFullText`
+    /// passes its per-instance cache.
     internal static func restorePairs(
         priorByIdStripped: [String: String],
         storedOrder: [String],
-        displayParsed: [ParsedParagraph]
+        displayParsed: [ParsedParagraph],
+        cache: ShingleSetCache? = nil
     ) -> [(id: String, text: String)] {
+        // Resolve candidate sets through the cache when present; otherwise
+        // compute fresh (identical result). `restorePairs` tier 2 is fixed at
+        // k=4, matching `ShingleSetCache.shingleK`.
+        let candidateShingles: (String) -> Set<String> =
+            cache.map { c in { c.shingles(of: $0) } }
+            ?? { ShingleMatcher.shingles(of: $0, k: 4) }
+        let candidateBigrams: (String) -> Set<String> =
+            cache.map { c in { c.bigrams(of: $0) } }
+            ?? { ShingleMatcher.bigrams(of: $0) }
+        defer { cache?.evictIfOversized(paragraphCount: displayParsed.count) }
+
         var unmatchedById = priorByIdStripped
 
         // Build the exact-match index in stored order. Each bucket is reversed
@@ -166,10 +263,13 @@ public enum RenderFilter {
                     continue
                 }
             }
-            // Word-shingle match (good for prose-length paragraphs).
+            // Word-shingle match (good for prose-length paragraphs). The
+            // needle's set is computed fresh inside `bestMatch`; candidate sets
+            // resolve through the (optional) cache.
             if let m = ShingleMatcher.bestMatch(
                 needle: d.text, candidates: unmatchedById,
-                k: 4, threshold: 0.6) {
+                k: 4, threshold: 0.6,
+                candidateShingles: candidateShingles) {
                 pairs.append((m.id, d.text))
                 unmatchedById.removeValue(forKey: m.id)
                 continue
@@ -189,8 +289,14 @@ public enum RenderFilter {
             // high-overlap candidate has no competitor, so it is reused (a
             // lightly-edited short paragraph keeps its id — the common minor-edit
             // case, e.g. "First." → "First, edited.").
+            // Needle bigrams computed once (its text changed this keystroke);
+            // candidate bigrams resolve through the (optional) cache. Identical
+            // arithmetic to `bigramOverlap(d.text, $0.value)`.
+            let needleBigrams = ShingleMatcher.bigrams(of: d.text)
             let ranked = unmatchedById
-                .map { (id: $0.key, score: ShingleMatcher.bigramOverlap(d.text, $0.value)) }
+                .map { (id: $0.key,
+                        score: ShingleMatcher.bigramOverlap(
+                            needleBigrams, candidateBigrams($0.value))) }
                 .sorted { $0.score > $1.score }
             if let best = ranked.first, best.score >= bigramReuseThreshold {
                 let secondScore = ranked.count > 1 ? ranked[1].score : 0.0

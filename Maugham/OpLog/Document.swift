@@ -128,6 +128,14 @@ public final class Document {
     /// detection) — see spec §2.4.3.
     private var _pendingPostEditCursor: Int? = nil
 
+    /// Per-instance memo of candidate shingle/bigram sets for the
+    /// `RenderFilter.restorePairs` fuzzy-match tiers. Candidate paragraph texts
+    /// are stable across keystrokes (only the edited paragraph changes), so
+    /// caching their (pure) set computation by text value pays off across the
+    /// keystroke stream. Semantics-identical to the uncached path — see
+    /// `RenderFilter.ShingleSetCache`. Dropped on `close()`.
+    private let _shingleSetCache = RenderFilter.ShingleSetCache()
+
     /// Pending orphan-annotation sweep carrying the *exact* paragraph ids
     /// observed disappearing since the last sweep. Replaces the older
     /// `_pendingOrphanSweep: Bool` flag — see `SweepReason.swift` for the
@@ -392,7 +400,8 @@ public final class Document {
         let pairs = RenderFilter.restorePairs(
             priorByIdStripped: priorByIdStripped,
             storedOrder: sequence,
-            displayParsed: displayParsed)
+            displayParsed: displayParsed,
+            cache: _shingleSetCache)
 
         // V2 task-anchor alignment (spec §2.4.1). Inputs:
         //   - priorById[id] is the *anchored* prior paragraph text.
@@ -736,5 +745,8 @@ public final class Document {
             documentLog.error(
                 "op-log seal failed for \(self.docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
+
+        // Drop the per-keystroke shingle/bigram memo — the doc is going away.
+        _shingleSetCache.clear()
     }
 }
