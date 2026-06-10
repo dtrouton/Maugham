@@ -181,6 +181,8 @@ final class SequenceKeyframingTests: XCTestCase {
                device: device, session: "s", kind: kind,
                changes: changes, sequence: sequence)
         }
+        // opIds are deliberately lexicographically ordered ("01-boot" <
+        // "02-reorder" < "03-text"): the deriver/merge sorts by opId string.
         // Shared history: bootstrap [p1, p2].
         try await store.append(op("01-boot", device: "deviceB", kind: .bootstrap,
             changes: [.init(paragraphId: "p1", prior: nil, next: "one"),
@@ -251,7 +253,9 @@ final class SequenceKeyframingTests: XCTestCase {
         do {
             try await doc.flushBurstNow()
             XCTFail("flush should rethrow the injected append failure")
-        } catch {}
+        } catch is Boom {
+            // expected: the injected failure propagates
+        }
 
         // Recovery: the next successful flush must still carry the sequence.
         doc.opStore.appendFailureForTesting = nil
