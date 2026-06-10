@@ -7,10 +7,15 @@ struct SceneNavigatorPane: View {
     let onSelect: (Int) -> Void
 
     var body: some View {
-        if let scenes = scenes, !scenes.isEmpty {
+        // Compute every scene's page number + length in ONE O(document) pass,
+        // here, instead of two O(document) walks per row per render (tripwire
+        // 4). With N scenes this turns O(N × document) per render into
+        // O(document). The rows read pre-computed values only.
+        let summaries = script?.sceneSummaries() ?? []
+        if !summaries.isEmpty {
             List {
-                ForEach(Array(scenes.enumerated()), id: \.offset) { _, scene in
-                    sceneRow(for: scene)
+                ForEach(Array(summaries.enumerated()), id: \.offset) { _, summary in
+                    sceneRow(for: summary)
                 }
             }
             .listStyle(.sidebar)
@@ -28,22 +33,18 @@ struct SceneNavigatorPane: View {
         }
     }
 
-    private var scenes: [FountainLine]? {
-        script?.lines.filter { $0.element == .sceneHeading }
-    }
-
     @ViewBuilder
-    private func sceneRow(for scene: FountainLine) -> some View {
+    private func sceneRow(for summary: FountainScript.SceneSummary) -> some View {
         Button {
-            onSelect(scene.range.location)
+            onSelect(summary.line.range.location)
         } label: {
             HStack(spacing: 8) {
-                Text(scene.content)
+                Text(summary.line.content)
                     .font(.system(.body, design: .monospaced))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 4)
-                Text(rowCaption(for: scene))
+                Text(Self.rowCaption(for: summary))
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .monospacedDigit()
@@ -54,22 +55,15 @@ struct SceneNavigatorPane: View {
         .buttonStyle(.plain)
     }
 
-    /// Returns the compact "p1 · ¼" trailing caption. Empty when no length info.
-    private func rowCaption(for scene: FountainLine) -> String {
-        let page = pageNumber(for: scene)
-        let length = Self.formatPagesCompact(lengthValue(for: scene))
+    /// Returns the compact "p1 · ¼" trailing caption from pre-computed scene
+    /// metrics. Empty length info collapses to just "p\(page)". Format is
+    /// pixel-identical to the prior per-scene version.
+    static func rowCaption(for summary: FountainScript.SceneSummary) -> String {
+        let length = formatPagesCompact(summary.length)
         if length.isEmpty {
-            return "p\(page)"
+            return "p\(summary.pageNumber)"
         }
-        return "p\(page) · \(length)"
-    }
-
-    private func lengthValue(for scene: FountainLine) -> Double {
-        script?.sceneLength(startingAt: scene) ?? 0
-    }
-
-    private func pageNumber(for scene: FountainLine) -> Int {
-        script?.pageNumber(at: scene) ?? 1
+        return "p\(summary.pageNumber) · \(length)"
     }
 
     /// Formats fractional pages compactly: "0" hidden as "—", "0.25" as "¼p",

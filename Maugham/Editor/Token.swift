@@ -15,7 +15,16 @@ public struct Token: Equatable, Sendable {
         case horizontalRule
         case syntaxPunctuation
         case plain
-        case fountainElement(ScreenplayElement, isForced: Bool)
+        /// `isDualSecond` is part of token IDENTITY on purpose: dual-dialogue
+        /// state is inherited by dialogue/parenthetical lines from the
+        /// preceding CHARACTER cue's trailing `^` (see FountainTokenizer), so
+        /// it can change without the line's own text changing. Carrying it
+        /// here means `TokenRestyleWindow`'s (kind, length) diff sees the
+        /// followers (and a same-length `^`-overtype on the cue itself) as
+        /// changed and re-styles them — without it, a `BARRY ^` → `BARRY`
+        /// edit strands the followers' dual-column indents. Pinned by
+        /// `WindowedTypographyEquivalenceTests` dual-caret cases.
+        case fountainElement(ScreenplayElement, isForced: Bool, isDualSecond: Bool)
         /// `- [ ]` / `- [x]` markdown checkbox glyph. The `range` on the
         /// containing `Token` covers exactly the 3 chars of `[ ]`/`[x]`.
         /// The line prefix (`(\s*)- `) is emitted as `.syntaxPunctuation`

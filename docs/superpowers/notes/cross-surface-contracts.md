@@ -14,8 +14,9 @@ Full audit + execution order: `docs/superpowers/notes/2026-06-03-cross-surface-a
 
 | Contract | Tier | Choke-point / contract type | Test | Status |
 |---|---|---|---|---|
-| op-log filename ↔ docId (parse) | 1 | `OpLogStore.docId(fromOpLogFilename:)` / `docIds(…)` | `OpLogFilenameTests` + `OpLogFilenameContractTests` (both); tripwire `test_noReachAroundOpLogFilenameParsing` | ✅ |
+| op-log filename ↔ docId (parse) | 1 | `OpLogStore.docId(fromOpLogFilename:)` / `docIds(…)` — recognizes both the `.jsonl` tail and the sealed `<docId>.<slug>.seg<NNNN>.mzseg` segment (ADR 0016) | `OpLogFilenameTests` + `OpLogFilenameContractTests` + `OpLogStoreSegmentTests` (both); tripwire `test_noReachAroundOpLogFilenameParsing` | ✅ |
 | op-log filename (build) | 1 | `OpLogStore.opLogFileURL(forDocId:deviceSlug:in:)` | builder round-trip (both); tripwire on hand-rolled `.jsonl` | ✅ |
+| op-log segment filename (build) | 1 | `OpLogStore.segmentFileURL(forDocId:deviceSlug:index:in:)` | `OpLogStoreSegmentTests` + `.mzseg` grep tripwires (both targets, plan Task 11) | ✅ |
 | inbox manifest filename | 1 | `InboxManifest.inboxManifestURL(forDeviceSlug:in:)` | builder round-trip (both) | ✅ |
 | manifest filename literal | 1 | `ProjectManifest.fileName` | referenced, not literal | ✅ |
 | manifest date strategy | 1 | `ProjectManifest.makeEncoder()` / `makeDecoder()` | round-trip (both) | ✅ |

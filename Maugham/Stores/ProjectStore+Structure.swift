@@ -446,7 +446,7 @@ extension ProjectStore {
 
             // Refresh per-doc word-count cache since the body changed.
             let count = WritingModeFactory.mode(for: path)
-                .metrics(rewritten).wordCount
+                .wordCount(rewritten)
             recordWordCount(forDocumentId: doc.id, wordCount: count)
 
             // Persist + tear down a transiently-loaded doc, AWAITED exactly

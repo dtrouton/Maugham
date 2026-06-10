@@ -27,7 +27,7 @@ final class ScreenplayModeTests: XCTestCase {
     func test_tokenize_actionLine_producesFountainElementToken() {
         let tokens = mode.tokenize("Larry sits at the bar.")
         XCTAssertEqual(tokens.count, 1)
-        if case let .fountainElement(element, isForced) = tokens[0].kind {
+        if case let .fountainElement(element, isForced, _) = tokens[0].kind {
             XCTAssertEqual(element, .action)
             XCTAssertEqual(isForced, false)
         } else {
@@ -38,7 +38,7 @@ final class ScreenplayModeTests: XCTestCase {
     func test_tokenize_sceneHeading_producesSceneHeadingToken() {
         let tokens = mode.tokenize("INT. KITCHEN - DAY")
         XCTAssertEqual(tokens.count, 1)
-        if case let .fountainElement(element, _) = tokens[0].kind {
+        if case let .fountainElement(element, _, _) = tokens[0].kind {
             XCTAssertEqual(element, .sceneHeading)
         } else {
             XCTFail("Expected .fountainElement(.sceneHeading)")

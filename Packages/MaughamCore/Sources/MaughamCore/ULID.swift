@@ -4,6 +4,16 @@ import Security
 /// Pure-Swift ULID (Universally Unique Lexicographically Sortable Identifier).
 /// 26 chars, Crockford base32. First 10 chars encode the unix-millis timestamp
 /// (sortable); last 16 chars encode 80 bits of randomness.
+///
+/// MONOTONIC within the process (ULID spec §"Monotonicity"): two `generate()`
+/// calls in the same millisecond increment the previous random part instead of
+/// re-rolling it, so generation order == lexicographic order even within one
+/// millisecond. This matters because `Deriver.derive` sorts ops by opId for
+/// last-write-wins — without monotonicity, two bursts flushed in the same
+/// millisecond had a ~50% chance of deriving in reverse order, letting the
+/// OLDER paragraph text win (caught by SequenceKeyframingTests T5 flaking on
+/// its fresh-reload assertion). Cross-device ordering is unchanged (still
+/// timestamp + randomness); this only pins same-process generation order.
 public enum ULID {
     private static let alphabet = Array("0123456789ABCDEFGHJKMNPQRSTVWXYZ")
     private static let alphabetIndex: [Character: Int] = {
@@ -12,13 +22,53 @@ public enum ULID {
         return d
     }()
 
+    /// Monotonicity state, guarded by `stateLock`. `lastMillis == 0` means
+    /// "no ULID generated yet this process".
+    private static let stateLock = NSLock()
+    nonisolated(unsafe) private static var lastMillis: UInt64 = 0
+    nonisolated(unsafe) private static var lastRandom = [UInt8](repeating: 0, count: 10)
+
     public static func generate() -> String {
-        let millis = UInt64(Date().timeIntervalSince1970 * 1000)
-        let timePart = encode(millis, length: 10)
-        var randomBytes = [UInt8](repeating: 0, count: 10)
-        _ = SecRandomCopyBytes(kSecRandomDefault, randomBytes.count, &randomBytes)
-        let randomPart = encodeBytes(randomBytes, length: 16)
-        return timePart + randomPart
+        let nowMillis = UInt64(Date().timeIntervalSince1970 * 1000)
+
+        stateLock.lock()
+        defer { stateLock.unlock() }
+
+        var millis = nowMillis
+        var randomBytes: [UInt8]
+        if nowMillis > lastMillis {
+            // New millisecond: fresh randomness.
+            randomBytes = [UInt8](repeating: 0, count: 10)
+            _ = SecRandomCopyBytes(kSecRandomDefault, randomBytes.count, &randomBytes)
+        } else {
+            // Same millisecond (or clock stepped backwards — treat identically
+            // so process-local monotonicity survives skew): increment the
+            // previous 80-bit random part as a big-endian integer.
+            millis = lastMillis
+            randomBytes = lastRandom
+            var i = randomBytes.count - 1
+            while i >= 0 {
+                if randomBytes[i] == 0xFF {
+                    randomBytes[i] = 0
+                    i -= 1
+                } else {
+                    randomBytes[i] += 1
+                    break
+                }
+            }
+            if i < 0 {
+                // 80-bit overflow (needs 2^80 same-ms calls — effectively
+                // unreachable, but don't silently wrap to a SMALLER id):
+                // borrow the next millisecond and re-roll.
+                millis += 1
+                randomBytes = [UInt8](repeating: 0, count: 10)
+                _ = SecRandomCopyBytes(kSecRandomDefault, randomBytes.count, &randomBytes)
+            }
+        }
+        lastMillis = millis
+        lastRandom = randomBytes
+
+        return encode(millis, length: 10) + encodeBytes(randomBytes, length: 16)
     }
 
     public static func timestampMillis(of ulid: String) -> UInt64? {

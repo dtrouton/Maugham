@@ -127,14 +127,17 @@ internal enum MaughamSidecarPath: Equatable {
     ) -> MaughamSidecarPath {
         let opsPrefix = ".maugham/ops/"
         if relativePath.hasPrefix(opsPrefix)
-            && relativePath.hasSuffix(".jsonl")
-            && !relativePath.hasSuffix(".pending.jsonl") {
+            && !relativePath.hasSuffix(".pending.jsonl")
+            && (relativePath.hasSuffix(".jsonl") || relativePath.hasSuffix(".mzseg")) {
             // Per-device partitioning (ADR 0012): a file is either the legacy
-            // `<docId>.jsonl` or `<docId>.<deviceSlug>.jsonl`. The docId (a
-            // `d_`+ULID, or `__project__`) never contains a dot, so it is the
-            // component before the FIRST dot — `deletingPathExtension` would
-            // strip only `.jsonl`, folding the device slug into the docId and
-            // misrouting the op-log change notification.
+            // `<docId>.jsonl`, the per-device `<docId>.<deviceSlug>.jsonl`, or a
+            // sealed segment `<docId>.<deviceSlug>.seg<NNNN>.mzseg` (ADR 0016).
+            // The docId (a `d_`+ULID, or `__project__`) never contains a dot, so
+            // it is the component before the FIRST dot — `deletingPathExtension`
+            // would strip only the extension, folding the device slug into the
+            // docId and misrouting the op-log change notification. A sealed
+            // segment delivers as an op-log change (re-derive); the deriver
+            // collapses the now-redundant ops to a no-op (T11).
             let filename = (relativePath as NSString).lastPathComponent
             let docId = filename.prefix { $0 != "." }
             return .opLog(docId: String(docId))

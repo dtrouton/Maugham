@@ -83,6 +83,18 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// textDidChange knows to leave lastCycleTarget alone.
     private var isApplyingTabCycle = false
 
+    /// Trailing-edge debounce for the `.maughamScriptDidUpdate` post on the
+    /// typing fast path. Posting the whole parsed `FountainScript` on every
+    /// keystroke drove deep SwiftUI `Equatable` deep-compares of the entire
+    /// script (and per-row O(document) walks in the scene navigator) — the
+    /// 2026-06-10 live profile's dominant Scenes-sidebar cost. We coalesce the
+    /// outbound notification to a ~350ms trailing edge while typing; whole-doc
+    /// callers (`attach`, `applyExternalText`, theme/typography/focus changes)
+    /// still post immediately. `lastParsedScript`/`lastTokens` are updated per
+    /// keystroke exactly as before — ONLY the notification is debounced.
+    /// Mirrors `EditorHost.metricsMirrorTask`.
+    private var scriptUpdateNotifyTask: Task<Void, Never>?
+
     /// Observer token for `maughamNavigateToScene` notifications.
     private var navigateObserver: NSObjectProtocol?
 
@@ -225,6 +237,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     }
 
     deinit {
+        scriptUpdateNotifyTask?.cancel()
         if let token = navigateObserver {
             NotificationCenter.default.removeObserver(token)
         }
@@ -242,6 +255,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// Set the text view from outside (called by EditorSurface.makeNSView).
     func attach(to textView: NSTextView) {
         self.textView = textView
+        // Drop any debounced script post still pending from a prior text so a
+        // stale script can't land on the freshly-attached doc's navigator.
+        scriptUpdateNotifyTask?.cancel()
+        scriptUpdateNotifyTask = nil
         applyAppearance(theme: theme, typography: typography)
         retokenizeAndStyle()
         if let location = initialCursorLocation {
@@ -263,6 +280,11 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// External (binding-side) update — replace text without disturbing user.
     func applyExternalText(_ text: String) {
         applyExternalTextCallCount += 1
+        // Cloud-conflict resolution replaces the whole buffer — drop any
+        // debounced typing-path script post so it can't land after the
+        // immediate whole-doc post this call's retokenizeAndStyle emits.
+        scriptUpdateNotifyTask?.cancel()
+        scriptUpdateNotifyTask = nil
         guard let textView, textView.string != text else { return }
         isApplyingExternalUpdate = true
         defer { isApplyingExternalUpdate = false }
@@ -381,9 +403,31 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                 kind: marker.kind)
     }
 
-    private func retokenizeAndStyle() {
+    /// Re-tokenize the whole document and apply typography.
+    ///
+    /// `windowedTyping` is set to `true` ONLY from the `textDidChange` typing
+    /// path. When true, the structural attribute application is restricted to
+    /// the classification-changed window (diffed against `lastTokens` via
+    /// `TokenRestyleWindow`) instead of the whole document — the keystroke
+    /// fast path (see Editor AREA.md / `WindowedTypographyEquivalenceTests`).
+    /// Every other caller (initial attach, `applyExternalText`, theme /
+    /// typography / focus changes) leaves it `false` and gets the whole-doc
+    /// application, which is the contract those paths rely on. Tokenization
+    /// itself is always whole-document either way.
+    private func retokenizeAndStyle(windowedTyping: Bool = false) {
         guard let textView, let storage = textView.textStorage else { return }
-        let text = textView.string
+        // Bridge the AppKit-backed string to NATIVE Swift storage before any
+        // scanning. `textView.string` is NSString-backed ("foreign"): every
+        // Character/Substring walk over it pays per-character objc_msgSend —
+        // the 2026-06-10 live profile showed FountainTokenizer 5–20× slower
+        // on foreign strings than the native ones our headless tests use.
+        // One O(N) UTF-8 copy here makes the whole-doc tokenize run at
+        // native speed.
+        var text = textView.string
+        text.makeContiguousUTF8()
+        // Capture the pre-restyle tokens BEFORE we overwrite `lastTokens`, so
+        // the window diff compares old→new. nil when not windowing.
+        let priorTokens = lastTokens
         // P1-editor: parse the Fountain script EXACTLY ONCE per keystroke and
         // thread it through token derivation + styling + the scene-navigator
         // notification, instead of parsing the whole document three times
@@ -404,10 +448,34 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         }
         self.lastTokens = tokens
         // Notify subscribers (e.g., scene navigator) that the script changed.
+        // On the typing fast path, coalesce to a trailing edge so the scene
+        // navigator's per-keystroke deep-compare + per-row walks don't run on
+        // every key. Whole-doc callers post immediately. See AREA tripwire 4
+        // and `scriptUpdateNotifyTask`.
         if let script = lastParsedScript {
-            NotificationCenter.default.post(
-                name: .maughamScriptDidUpdate,
-                object: script)
+            postScriptDidUpdate(script, debounced: windowedTyping)
+        }
+        // On the typing fast path, restrict structural attribute application to
+        // the classification-changed window (diffed old→new tokens). Any
+        // structural inconsistency falls back to whole-doc (window == nil).
+        // NSTextStorage shifts attributes with the text automatically, so the
+        // unchanged head/tail of the document keeps its (already correct)
+        // attributes and only the window is re-applied. See TokenRestyleWindow.
+        var restyleWindow: NSRange? = nil
+        if windowedTyping {
+            switch TokenRestyleWindow.decide(
+                oldTokens: priorTokens,
+                newTokens: tokens,
+                storageLength: storage.length) {
+            case .noChange:
+                // Identical (kind,length) stream: attributes already correct.
+                // Apply an empty window so the modes do no structural writes.
+                restyleWindow = NSRange(location: 0, length: 0)
+            case .window(let range):
+                restyleWindow = range
+            case .fullDocument:
+                restyleWindow = nil
+            }
         }
         // ProseMode supports an optional wiki-link resolver for `[[Title]]`
         // styling. Other modes use the protocol's resolver-less call.
@@ -417,14 +485,16 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                 theme: theme,
                 typography: typography,
                 tokens: tokens,
-                wikiLinkResolver: wikiLinkResolver)
+                wikiLinkResolver: wikiLinkResolver,
+                restyleWindow: restyleWindow)
         } else {
             mode.applyTypography(
                 in: storage,
                 theme: theme,
                 typography: typography,
                 tokens: tokens,
-                parsedScript: lastParsedScript)
+                parsedScript: lastParsedScript,
+                restyleWindow: restyleWindow)
         }
         // Sync typing attributes so the caret on empty lines matches the
         // body font/paragraph style instead of the system default.
@@ -437,6 +507,33 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // cursor without moving the selection, so we must fire here too (not
         // only from textViewDidChangeSelection).
         onElementChanged?(currentElementAbbreviation(in: textView))
+    }
+
+    /// Posts `.maughamScriptDidUpdate` carrying `script`. When `debounced`,
+    /// coalesces to a ~350ms trailing edge (cancel-and-reschedule), so the
+    /// scene navigator's deep-compare + per-row walks fire once per typing
+    /// burst rather than once per keystroke. When not debounced (whole-doc
+    /// callers), cancels any in-flight debounced post first — so a stale
+    /// script post can't land AFTER an immediate whole-doc one — then posts
+    /// synchronously. `deinit` and `applyExternalText`/`attach` cancel the
+    /// pending task, so a doc switch mid-debounce never strands a stale
+    /// script post on the new document's navigator.
+    private func postScriptDidUpdate(_ script: FountainScript, debounced: Bool) {
+        guard debounced else {
+            scriptUpdateNotifyTask?.cancel()
+            scriptUpdateNotifyTask = nil
+            NotificationCenter.default.post(
+                name: .maughamScriptDidUpdate, object: script)
+            return
+        }
+        scriptUpdateNotifyTask?.cancel()
+        scriptUpdateNotifyTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled else { return }
+            self?.scriptUpdateNotifyTask = nil
+            NotificationCenter.default.post(
+                name: .maughamScriptDidUpdate, object: script)
+        }
     }
 
     // MARK: - NSTextViewDelegate
@@ -517,8 +614,17 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // following setFullText call. Must fire BEFORE binding-set so the
         // host has a chance to stash the value on the Document.
         onPostEditCursor?(postEditSelection.location)
-        binding.wrappedValue = textView.string
-        retokenizeAndStyle()
+        // Nativize before handing the text to the Swift pipeline (setFullText
+        // parse, word counting): NSString-backed strings pay per-character
+        // objc dispatch on every scan — see the matching note in
+        // retokenizeAndStyle. One O(N) copy per keystroke, 5–20× faster scans.
+        var editedText = textView.string
+        editedText.makeContiguousUTF8()
+        binding.wrappedValue = editedText
+        // Typing fast path: window the structural restyle to the
+        // classification-changed region. All other restyle callers stay
+        // whole-document.
+        retokenizeAndStyle(windowedTyping: true)
         // Autocomplete trigger deferred — see milestone-3b notes.
         if !skipCursorRestore {
             // Sync restore covers paste-induced cursor jostle from

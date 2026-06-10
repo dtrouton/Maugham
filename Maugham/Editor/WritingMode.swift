@@ -33,12 +33,24 @@ public protocol WritingMode: Sendable {
     /// already parsed (the `EditorCoordinator` hot path parses once and threads
     /// it through both `tokenize` and here); modes that don't parse Fountain
     /// ignore it. Defaults to `nil` so existing callers are unaffected.
+    ///
+    /// `restyleWindow`, when non-nil, restricts the *structural* attribute
+    /// writes (the whole-storage body reset + per-token element/inline/marker
+    /// passes) to that character range — the keystroke fast path, where only
+    /// the classification-changed window needs re-application because
+    /// NSTextStorage shifts attributes with the text automatically. Passes that
+    /// stamp location-encoding attributes (checkbox markers) still run
+    /// document-wide so those stamps stay current outside the window. nil
+    /// (the default) applies attributes to the whole document — the contract
+    /// every non-typing caller relies on. See `TokenRestyleWindow` and the
+    /// Editor AREA guide.
     func applyTypography(
         in storage: NSTextStorage,
         theme: Theme,
         typography: TypographySettings,
         tokens: [Token],
-        parsedScript: FountainScript?
+        parsedScript: FountainScript?,
+        restyleWindow: NSRange?
     )
 
     /// Attributes to use for the NSTextView's `typingAttributes` so the caret
@@ -63,4 +75,38 @@ public protocol WritingMode: Sendable {
 
     /// Body text column width in points, given the configured page width.
     func textColumnWidth(typography: TypographySettings) -> CGFloat
+}
+
+public extension WritingMode {
+    /// Word count alone, WITHOUT the full `metrics(_:)` computation. Both
+    /// modes' `metrics` derive `wordCount` from this exact trimmed
+    /// whitespace-split — but `ScreenplayMode.metrics` ADDITIONALLY runs a
+    /// whole-document Fountain parse purely for `pageCount`. Callers that
+    /// only need the word count (the per-keystroke session/word bookkeeping
+    /// in `DocumentStore.recordEditorTextWrite`, project word-count rebuilds)
+    /// MUST use this instead: the 2026-06-10 live profile showed the
+    /// per-keystroke `metrics` call burning a full Fountain parse per
+    /// keystroke for a value it discarded.
+    func wordCount(_ text: String) -> Int {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty
+            ? 0
+            : trimmed.split(whereSeparator: \.isWhitespace).count
+    }
+
+    /// Back-compat overload: whole-document attribute application (no window).
+    /// Existing callers and tests that don't thread a restyle window route
+    /// through here. Defaults `restyleWindow` to nil so behavior is identical
+    /// to the pre-windowing contract.
+    func applyTypography(
+        in storage: NSTextStorage,
+        theme: Theme,
+        typography: TypographySettings,
+        tokens: [Token],
+        parsedScript: FountainScript? = nil
+    ) {
+        applyTypography(
+            in: storage, theme: theme, typography: typography,
+            tokens: tokens, parsedScript: parsedScript, restyleWindow: nil)
+    }
 }

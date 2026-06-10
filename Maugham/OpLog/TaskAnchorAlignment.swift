@@ -76,6 +76,24 @@ enum TaskAnchorAlignment {
 
         for (pid, displayed) in nextParagraphs {
             let prior = priorById[pid] ?? ""
+
+            // Unchanged-paragraph early-out. A paragraph whose prior text
+            // carries NO task anchor (`<!--` absent) has an identity strip, so
+            // `stripTaskAnchorsInline(prior) == prior`. If, additionally, the
+            // incoming displayed text equals that prior, this paragraph did not
+            // change: Pass 1 would pair every line, reinject nothing (no anchor
+            // to extract), contribute no unpaired-prior anchors (no archives)
+            // and no unpaired-new lines (no cross-paragraph candidates). Its
+            // restored output is exactly `displayed`. We therefore skip adding
+            // it to `paraStates` entirely — the final render loop's
+            // `statesByPid[pid] == nil` fallback already emits
+            // `restoredById[pid] = displayed`, which is correct and identical.
+            // This avoids the per-line strip/pairing passes for the
+            // overwhelming majority of paragraphs (only the edited one differs).
+            if !prior.contains("<!--") && prior == displayed {
+                continue
+            }
+
             let priorLines = prior.split(
                 separator: "\n", omittingEmptySubsequences: false
             ).map(String.init)
@@ -87,7 +105,13 @@ enum TaskAnchorAlignment {
             // Pass 1a (body-match) + Pass 1b (positional zip) to the
             // shared helper in RenderFilter — the single implementation that
             // is also property-tested by RenderFilterTaskAnchorTests.
-            let priorStripped = priorLines.map(RenderFilter.stripTaskAnchorsInline)
+            // Fast path: a line with no `<!--` cannot carry a task anchor, so
+            // its strip is the identity — skip the regex for those.
+            let priorStripped = priorLines.map { line in
+                line.contains("<!--")
+                    ? RenderFilter.stripTaskAnchorsInline(line)
+                    : line
+            }
             let (pairing, claimedPrior) = RenderFilter.computePass1Pairing(
                 priorStripped: priorStripped,
                 displayedLines: displayedLines,
@@ -166,11 +190,16 @@ enum TaskAnchorAlignment {
             offset: preEditCursor,
             sequence: priorSequence,
             paragraphsById: priorById)
+        // first-wins merge, NOT uniqueKeysWithValues: duplicate paragraph ids
+        // can reach the editor from documents written before the
+        // mintUnique fix (2026-06-10 paste crash) — a legacy dup must degrade
+        // to first-occurrence cursor resolution, never trap the writer.
         let destPid = cursorParagraph(
             offset: postEditCursor,
             sequence: nextSequence,
-            paragraphsById: Dictionary(uniqueKeysWithValues:
-                nextParagraphs.map { ($0.id, $0.text) }))
+            paragraphsById: Dictionary(
+                nextParagraphs.map { ($0.id, $0.text) },
+                uniquingKeysWith: { first, _ in first }))
 
         // Pairing: for each unpaired-new line, look for unpaired-prior
         // lines with the same body. If exactly one match exists AND the
@@ -227,8 +256,10 @@ enum TaskAnchorAlignment {
         // re-attach the prior anchor to the new line, and remove the
         // prior from `unpairedPriors` (so it doesn't become an archive).
         // We need to mutate the per-paragraph state map for the new line.
+        // first-wins, same legacy-duplicate-id tolerance as destPid above.
         var statesByPid: [String: ParaState] = Dictionary(
-            uniqueKeysWithValues: paraStates.map { ($0.pid, $0) })
+            paraStates.map { ($0.pid, $0) },
+            uniquingKeysWith: { first, _ in first })
         var carriedAnchors: [String: [(lineIdx: Int, anchorId: String, hint: RenderFilter.AnchorPositionHint)]] = [:]
         let claimedPriorSet = Set(crossMoves.map(\.priorIdx))
         for move in crossMoves {

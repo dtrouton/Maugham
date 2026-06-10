@@ -144,6 +144,24 @@ public final class Document {
     /// sweeps (gate on pending and never run sweep on legitimate deletions).
     internal var _pendingSweep: SweepReason? = nil
 
+    /// Keyframe floor (ADR 0016 / growth spec §4.1 rule 2): emit an explicit
+    /// `sequence` at least every Nth burst even when ordering is unchanged —
+    /// a robustness anchor bounding how far back a reader reconstructs
+    /// ordering. Default confirmed against the M0 baseline (spec §9.1).
+    internal static let sequenceKeyframeInterval = 50
+
+    /// Accumulated "paragraph ordering changed since the last sequence-bearing
+    /// burst" flag (growth spec §4.2). Starts TRUE so the first burst after
+    /// load always carries an ordering anchor (rule 3). Set by every in-place
+    /// sequence mutator; cleared ONLY after a *successful* sequence-bearing
+    /// append — on append failure it survives so the durable re-flush still
+    /// carries the ordering signal (T7). Per-instance, not persisted — same
+    /// lifecycle shape as `_pendingSweep`.
+    internal var _orderingDirty: Bool = true
+
+    /// Consecutive bursts emitted without an explicit `sequence` (rule 2 counter).
+    internal var _burstsSinceKeyframe: Int = 0
+
     /// Internal autosave debounce (replaces DocumentStore.scheduleSave).
     internal var autosaveScheduler: DebounceScheduler<Void>!
 
@@ -152,6 +170,10 @@ public final class Document {
     /// Lets a regression test assert the failure was surfaced non-silently.
     /// Production code never reads it.
     internal private(set) var closeBurstFlushFailures: Int = 0
+
+    /// Test-only override for the seal threshold used by close()/open-time
+    /// maintenance. Production reads `OpLogStore.segmentSealThreshold`.
+    internal static var segmentSealThresholdForTesting: Int? = nil
 
     internal init(
         url: URL, docId: String, device: String, session: String,
@@ -334,27 +356,48 @@ public final class Document {
         preEditCursor: Int? = nil,
         postEditCursor: Int? = nil
     ) {
-        // Build the next stored form by running restoreComments against
-        // the current materialized state. This is the same parse+diff
-        // that EditorHost used to do; relocating it to Document.
-        let priorStored = Materializer.materialize(
-            paragraphs: paragraphs, sequence: sequence)
-        let nextStored = RenderFilter.restoreComments(
-            stored: priorStored, displayEdited: text)
-
-        // Parse the new stored form to extract paragraph-level changes.
-        let priorParsed = ParagraphParser.parse(priorStored)
-        let nextParsed = ParagraphParser.parse(nextStored)
+        // Parse-once keystroke path (perf fix B). The prior stored state is
+        // already in hand as `paragraphs`/`sequence` — the load path and this
+        // method's own orphan-prune below enforce `paragraphs.keys ⊆ sequence`,
+        // so `{id: paragraphs[id]}` over `sequence` IS the same {id: anchored
+        // text} map that `parse(materialize(paragraphs, sequence))` produced
+        // before. We therefore skip the prior-side materialize→parse roundtrip
+        // (two whole-doc parses) AND the next-side re-parse (another two): the
+        // ONLY new bytes are the display `text`, so we parse exactly that once
+        // and let `RenderFilter.restorePairs` reattach ids in-process.
+        //
+        // `priorById` carries the *anchored* prior text (V2 alignment + change
+        // detection need the anchors). `restorePairs`, by contrast, compares
+        // against anchor-STRIPPED text (the displayed text is anchor-free), so
+        // it gets its own stripped map. Two distinct dictionaries — kept
+        // distinct deliberately (see RenderFilter.restorePairs doc).
         var priorById: [String: String] = [:]
-        for p in priorParsed {
-            if let id = p.id { priorById[id] = p.text }
+        var priorByIdStripped: [String: String] = [:]
+        for id in sequence {
+            guard let anchored = paragraphs[id] else { continue }
+            priorById[id] = anchored
+            // Strip is the identity for any paragraph carrying no `<!--`
+            // (a task anchor is `<!--t-…-->`), so skip the regex for the
+            // overwhelming majority of paragraphs — only the anchored few
+            // pay the NSRegularExpression. Behavior-identical: the regex
+            // literal requires `<!--` to match.
+            priorByIdStripped[id] = anchored.contains("<!--")
+                ? RenderFilter.stripTaskAnchorsInline(anchored)
+                : anchored
         }
+
+        let displayParsed = ParagraphParser.parse(text)
+        // `pairs` is exactly what `parse(restoreComments(...))` yielded before:
+        // ids in display order paired with the (anchor-free) display text.
+        let pairs = RenderFilter.restorePairs(
+            priorByIdStripped: priorByIdStripped,
+            storedOrder: sequence,
+            displayParsed: displayParsed)
 
         // V2 task-anchor alignment (spec §2.4.1). Inputs:
         //   - priorById[id] is the *anchored* prior paragraph text.
-        //   - nextParsed[*].text is the *anchor-free* new paragraph text
-        //     (restoreComments parses the displayEdited form which strips
-        //     task anchors).
+        //   - pairs[*].text is the *anchor-free* new paragraph text
+        //     (the display text strips task anchors).
         // The aligner re-injects task anchors per paragraph, runs a
         // cross-paragraph correlation pass to detect cut/paste with
         // cursor bias, and reports anchors that couldn't be paired —
@@ -364,24 +407,21 @@ public final class Document {
         _pendingPostEditCursor = nil
         let alignment = TaskAnchorAlignment.align(
             priorById: priorById,
-            nextParagraphs: nextParsed.compactMap { p -> (id: String, text: String)? in
-                guard let id = p.id else { return nil }
-                return (id, p.text)
-            },
+            nextParagraphs: pairs.map { (id: $0.id, text: $0.text) },
             priorSequence: sequence,
-            nextSequence: nextParsed.compactMap(\.id),
+            nextSequence: pairs.map(\.id),
             preEditCursor: effectivePre,
             postEditCursor: effectivePost)
 
         // Collect changes and the new sequence. Use the V2-restored
-        // (anchor-bearing) paragraph text rather than the raw nextParsed
+        // (anchor-bearing) paragraph text rather than the raw display
         // text so the on-disk .md keeps its anchors across the round-trip.
         var changes: [Op.ParagraphChange] = []
         var newSequence: [String] = []
-        for p in nextParsed {
-            guard let id = p.id else { continue }
+        for pair in pairs {
+            let id = pair.id
             newSequence.append(id)
-            let restored = alignment.restoredById[id] ?? p.text
+            let restored = alignment.restoredById[id] ?? pair.text
             let prior = priorById[id]
             if prior != restored {
                 changes.append(.init(paragraphId: id, prior: prior, next: restored))
@@ -396,6 +436,7 @@ public final class Document {
             newParagraphs[change.paragraphId] = change.next
         }
         let sequenceChanged = (newSequence != sequence)
+        if sequenceChanged { _orderingDirty = true }
         // Detect paragraph DELETIONS — any id in the prior sequence that's
         // missing from the next sequence. Flag a sweep so the next burst
         // flush archives annotations anchored to removed paragraphs.
@@ -526,13 +567,17 @@ public final class Document {
     }
 
     public func insertParagraph(after: String?, text: String) -> String {
-        let newId = ParagraphID.mint()
+        // Unique against the doc's live id population (birthday hazard over
+        // the ~1.05M id space — see ParagraphID.mintUnique).
+        let newId = ParagraphID.mintUnique(
+            excluding: Set(sequence).union(paragraphs.keys))
         paragraphs[newId] = text
         if let after, let idx = sequence.firstIndex(of: after) {
             sequence.insert(newId, at: idx + 1)
         } else {
             sequence.append(newId)
         }
+        _orderingDirty = true
         pending.recordChange(paragraphId: newId, prior: nil, next: text)
         burstScheduler.recordActivity()
         autosaveScheduler.schedule(())
@@ -548,6 +593,7 @@ public final class Document {
         let priorText = paragraphs[id]
         paragraphs.removeValue(forKey: id)
         sequence.removeAll { $0 == id }
+        _orderingDirty = true
         if let reason = SweepReason.userTyped(removed: [id]) {
             flagSweep(reason)
         }
@@ -565,6 +611,7 @@ public final class Document {
 
     public func reorder(sequence: [String]) {
         self.sequence = sequence
+        _orderingDirty = true
         // No paragraph-change ops for pure reorder; the next typing_burst
         // emission will carry the new sequence as its `sequence` field.
         burstScheduler.recordActivity()
@@ -579,18 +626,35 @@ public final class Document {
         let hadPending = !pending.isEmpty()
         if hadPending {
             let changes = pending.snapshot()
-            // Capture the latest sequence on the burst so cross-Mac merge sees
-            // ordering changes.
+            // Keyframed sequence emission (ADR 0016 / growth spec §4.1):
+            // attach `sequence` only when the ordering changed since the last
+            // sequence-bearing burst (`_orderingDirty`, which starts true so
+            // the first burst after load anchors the session), or every
+            // `sequenceKeyframeInterval`th burst as a robustness floor.
+            // Otherwise emit nil — the deriver carries the last explicit
+            // sequence forward (`Deriver.derive`), so cross-Mac merge still
+            // sees every ordering change.
+            let emitSequence = _orderingDirty
+                || _burstsSinceKeyframe >= Self.sequenceKeyframeInterval
             let op = Op(
                 opId: ULID.generate(),
                 docId: docId, at: Date(),
                 device: device, session: session,
                 kind: .typingBurst,
                 changes: changes,
-                sequence: sequence,
+                sequence: emitSequence ? sequence : nil,
                 provenance: nil)
             try await opStore.append(op)
             _opLogMirror.append(op)
+            // Clear the ordering signal ONLY after the append succeeded — a
+            // throw above leaves `_orderingDirty` set so the close()-path
+            // durable re-flush still carries it (spec §4.2 / T7).
+            if emitSequence {
+                _orderingDirty = false
+                _burstsSinceKeyframe = 0
+            } else {
+                _burstsSinceKeyframe += 1
+            }
             try await pending.clear()
             // Inline tasks are derived from paragraph text — any pending
             // typing change may have added/removed/toggled a `- [ ]` line.
@@ -655,5 +719,22 @@ public final class Document {
         }
         // Flush any pending autosave so the .md reflects the final state.
         await autosaveScheduler.flush()
+
+        // Seal-on-close (ADR 0016 / growth spec §5.2): rotate this device's
+        // own oversized tail into an immutable compressed segment. Threshold-
+        // gated (usually a no-op) and best-effort — a seal failure must never
+        // block close; the next close or project-open maintenance retries.
+        // Never mid-typing, never another device's file, never the legacy
+        // unsuffixed file (sealTailIfNeeded's scope rules).
+        do {
+            _ = try await opStore.sealTailIfNeeded(
+                docId: docId,
+                deviceSlug: DeviceSlug.make(from: device),
+                threshold: Self.segmentSealThresholdForTesting
+                    ?? OpLogStore.segmentSealThreshold)
+        } catch {
+            documentLog.error(
+                "op-log seal failed for \(self.docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
     }
 }

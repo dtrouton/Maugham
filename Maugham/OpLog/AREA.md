@@ -40,7 +40,7 @@ Key machinery:
 
 These hold by construction. If you find code that violates one, treat it as a bug.
 
-- **Op log is append-only.** No mutation, no deletion. Checkpoints capture state; they don't truncate history.
+- **Op log is append-only.** No mutation, no deletion. Checkpoints capture state; they don't truncate history. Sealing (ADR 0016) is a storage-layout change to a single-writer file; the logical log is untouched — the merged, opId-deduped set is identical before and after a seal.
 - **`¶id` anchors are 4-char.** No exceptions. Tests that use 1-char IDs are wrong and silently bypass validation.
 - **Task anchors are 6-char.** Same alphabet as paragraph anchors. `<!--t-XXXXXX-->` only — no uppercase, no other prefix.
 - **Paragraph-keyed LWW, by opId.** Concurrent writes to the same paragraph resolve by **opId order** (ULIDs give a deterministic total order), not by line position. Cross-Mac merges depend on this. See the merge/derive contract below for the exact rule.
@@ -75,6 +75,15 @@ it is now enforced:
   but the pure merge fn lacks the `projectURL`/stamp to do so — don't entangle it.
 - **`Op.at` is DISPLAY-ONLY.** It is NOT consulted for resolution (resolution is
   by opId). Don't introduce wall-clock comparisons into the merge/derive path.
+- **`sequence: nil` on a typing burst means "ordering unchanged-by-construction"
+  — not legacy-only — from M1 (ADR 0016) on.** `flushBurstNow` attaches
+  `sequence` only when ordering changed since the last sequence-bearing burst,
+  at the keyframe floor (`Document.sequenceKeyframeInterval`), or on the first
+  burst after load. The deriver carries the last explicit sequence forward, so
+  state-at-cursor ordering is exact at every rewind cursor (pinned by
+  `SequenceKeyframingTests.test_keyframedLog_derivesIdenticalToFullCapture`).
+  A text-only burst can no longer stamp a stale sequence over a concurrent
+  remote reorder (pinned by `…test_concurrentReorder_survivesTextOnlyBurstMerge`).
 - **Deferred to the collaboration milestone:** a skew-proof logical clock and
   same-paragraph **conflict surfacing** (two devices genuinely editing the same
   paragraph concurrently). Single-editor by ethos today, so skew-induced LWW loss
@@ -84,6 +93,25 @@ it is now enforced:
   `CrossMacMergeTests`, `OpLogStorePartitioningTests`, `DeriverTests`,
   `CrossDeviceIntegrationTests` (case 1 = determinism; case 4 = the deferred skew
   scenario, `XCTSkip`-marked).
+
+## Sealed segments (ADR 0016, M2)
+
+When a device's own live tail `<docId>.<slug>.jsonl` exceeds
+`OpLogStore.segmentSealThreshold`, `Document.close()` / project-open
+maintenance rotate it into an immutable, LZFSE-compressed, SHA-256-checksummed
+`<docId>.<slug>.seg<NNNN>.mzseg` (container: `OpLogSegment`, MaughamCore).
+Readers see one merged `[Op]` exactly as before — recognition lives ONLY in
+`OpLogStore.opLogFileURLs` / `docId(fromOpLogFilename:)` / `loadFileDiagnosed`
+/ `loadSyncMerged` (single-source helpers; grep tripwires on both targets).
+Scope: never the legacy unsuffixed file, never another device's tail, never
+`__project__`/inbox/pending, never mid-typing, Mac-only in v1. Crash window
+between segment-write and tail-delete is safe by construction
+(`mergeSortedDedup` collapses the duplicates; the next seal converges).
+A checksum failure quarantines + marks the doc unhealthy (backups pause) while
+salvageable ops still derive. Non-Mac-editor tails (phone annotation writes,
+MCP) never seal and that is accepted: they carry only rare, tiny lifecycle ops
+and cannot realistically reach the threshold. Tests: `OpLogSegmentTests`,
+`OpLogStoreSegmentTests`, `SegmentSealTriggerTests`, `SegmentIntegrityTests`.
 
 ## RenderFilter's three matching tiers (subtle)
 

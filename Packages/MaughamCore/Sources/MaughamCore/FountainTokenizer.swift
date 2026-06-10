@@ -12,6 +12,39 @@ public struct FountainTokenizer: Sendable {
         case noteBlock
     }
 
+    /// Trim leading/trailing `CharacterSet.whitespaces` (space, tab, Unicode
+    /// `Zs`). Hot path: this tokenizer trims every line once per keystroke on
+    /// the whole document. A pure-ASCII line is trimmed by a manual byte scan
+    /// that allocates a single `String` from the trimmed `Substring`; the
+    /// moment any non-ASCII byte appears we defer to Foundation so Unicode
+    /// whitespace (U+00A0 etc.) keeps EXACT semantics. The result is identical
+    /// to `String(raw).trimmingCharacters(in: .whitespaces)`.
+    @inline(__always)
+    static func fastTrimWhitespaces(_ raw: String) -> String {
+        let utf8 = raw.utf8
+        // Reject (defer) on any non-ASCII byte: a multibyte scalar could be a
+        // `Zs` separator that Foundation would trim and we must not mis-handle.
+        for byte in utf8 where byte >= 0x80 {
+            return raw.trimmingCharacters(in: .whitespaces)
+        }
+        // Pure ASCII: trim space (0x20) / tab (0x09) from both ends over the
+        // String's own indices (1 scalar == 1 UTF-8 byte == 1 Character here).
+        var lo = raw.startIndex
+        let hi0 = raw.endIndex
+        var hi = hi0
+        while lo < hi {
+            let c = raw[lo]
+            if c == " " || c == "\t" { lo = raw.index(after: lo) } else { break }
+        }
+        while hi > lo {
+            let before = raw.index(before: hi)
+            let c = raw[before]
+            if c == " " || c == "\t" { hi = before } else { break }
+        }
+        if lo == raw.startIndex && hi == hi0 { return raw }
+        return String(raw[lo..<hi])
+    }
+
     public func parse(_ text: String) -> FountainScript {
         guard !text.isEmpty else { return .empty }
         let nsText = text as NSString
@@ -35,7 +68,7 @@ public struct FountainTokenizer: Sendable {
             // Don't update prevBlank/prevElement so body classification starts
             // from the same initial state regardless of title page close mode.
             if enclosingRange.location < titlePageEndOffset {
-                let trimmed = raw.trimmingCharacters(in: .whitespaces)
+                let trimmed = Self.fastTrimWhitespaces(raw)
                 lines.append(FountainLine(
                     range: enclosingRange,
                     element: .titlePage,
@@ -46,7 +79,7 @@ public struct FountainTokenizer: Sendable {
                 return
             }
 
-            let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            let trimmed = Self.fastTrimWhitespaces(raw)
 
             // While inside a multi-line block, classify the line as that
             // block kind. Exit on the closing marker.
@@ -436,10 +469,19 @@ public struct FountainTokenizer: Sendable {
                 kind: .emphasisMarker))
         }
 
-        // 3. Underline _text_.
-        result.append(contentsOf: scanRegex(
-            pattern: #"_([^_\n]+)_"#,
-            in: raw, lineRange: lineRange, kind: .underline))
+        // 3. Underline _text_. A line with fewer than two underscores cannot
+        // contain a `_…_` span — skip the NSRegularExpression entirely (it runs
+        // per line otherwise). Cheap byte count over UTF-8 (`_` is ASCII 0x5F).
+        var underscoreCount = 0
+        for b in rawLine.utf8 where b == 0x5F {
+            underscoreCount += 1
+            if underscoreCount >= 2 { break }
+        }
+        if underscoreCount >= 2 {
+            result.append(contentsOf: scanRegex(
+                pattern: #"_([^_\n]+)_"#,
+                in: raw, lineRange: lineRange, kind: .underline))
+        }
 
         return result
     }

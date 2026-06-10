@@ -175,11 +175,25 @@ struct RewindWindow: View {
     private var previewArea: some View {
         ScrollView {
             if previewMode == .doc {
-                Text(renderedDoc(state: derivedState))
-                    .font(.system(.body, design: .serif))
-                    .padding(40)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
+                // Per-paragraph LazyVStack, NOT one whole-document Text:
+                // SwiftUI Text silently renders BLANK past roughly ~200 KB,
+                // which made every rewind cursor whose derived doc exceeded
+                // that look like lost history (2026-06-10 smoke, 250-page
+                // screenplay — derived states of 400-500 KB at the latest
+                // cursors). Lazy rows keep per-row cost bounded at any doc
+                // size; identity is positional (sequence order) so legacy
+                // docs carrying duplicate ¶ids can't trip ForEach.
+                LazyVStack(alignment: .leading, spacing: 16) {
+                    ForEach(Array(derivedState.sequence.enumerated()),
+                            id: \.offset) { _, pid in
+                        Text(RenderFilter.stripTaskAnchorsInline(
+                            derivedState.paragraphs[pid] ?? ""))
+                            .font(.system(.body, design: .serif))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                    }
+                }
+                .padding(40)
             } else {
                 diffView
             }
@@ -388,17 +402,6 @@ struct RewindWindow: View {
             .map { $0.split { $0.isWhitespace || $0.isNewline }.count }
             .reduce(0, +)
         return "Restoring would undo \(words) words / \(removed.count) paragraph\(removed.count == 1 ? "" : "s") written after this point."
-    }
-
-    private func renderedDoc(state: Deriver.DerivedState) -> String {
-        // The Materializer name in this codebase is `Materializer.materialize`
-        // (not `.render`). Strip ¶id HTML-comment anchors so the preview is
-        // clean prose.
-        Materializer.materialize(paragraphs: state.paragraphs, sequence: state.sequence)
-            .replacingOccurrences(
-                of: #"<!--\s*¶[0-9a-z]{4,}\s*-->\n?"#,
-                with: "",
-                options: .regularExpression)
     }
 
     private func color(for kind: OpKind) -> Color {
