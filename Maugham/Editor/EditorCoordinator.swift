@@ -414,7 +414,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// typography / focus changes) leaves it `false` and gets the whole-doc
     /// application, which is the contract those paths rely on. Tokenization
     /// itself is always whole-document either way.
-    private func retokenizeAndStyle(windowedTyping: Bool = false) {
+    private func retokenizeAndStyle(windowedTyping: Bool = false,
+                                    nativizedText: String? = nil) {
         guard let textView, let storage = textView.textStorage else { return }
         // Bridge the AppKit-backed string to NATIVE Swift storage before any
         // scanning. `textView.string` is NSString-backed ("foreign"): every
@@ -423,8 +424,20 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // on foreign strings than the native ones our headless tests use.
         // One O(N) UTF-8 copy here makes the whole-doc tokenize run at
         // native speed.
-        var text = textView.string
-        text.makeContiguousUTF8()
+        //
+        // One nativization per keystroke: textDidChange nativizes once and
+        // threads the SAME string here (it is byte-identical to
+        // textView.string — assigned in the same MainActor slice with no
+        // intervening edit). Other callers (attach, applyExternalText, theme)
+        // pass nil and self-nativize. The windowed-diff storageLength guard
+        // still falls back to whole-doc on any mismatch.
+        var text: String
+        if let nativizedText {
+            text = nativizedText
+        } else {
+            text = textView.string
+            text.makeContiguousUTF8()
+        }
         // Capture the pre-restyle tokens BEFORE we overwrite `lastTokens`, so
         // the window diff compares old→new. nil when not windowing.
         let priorTokens = lastTokens
@@ -623,8 +636,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         binding.wrappedValue = editedText
         // Typing fast path: window the structural restyle to the
         // classification-changed region. All other restyle callers stay
-        // whole-document.
-        retokenizeAndStyle(windowedTyping: true)
+        // whole-document. Thread the already-nativized `editedText` so the
+        // keystroke nativizes exactly once (it is byte-identical to
+        // textView.string here — same MainActor slice, no intervening edit).
+        retokenizeAndStyle(windowedTyping: true, nativizedText: editedText)
         // Autocomplete trigger deferred — see milestone-3b notes.
         if !skipCursorRestore {
             // Sync restore covers paste-induced cursor jostle from
