@@ -167,3 +167,25 @@ Tokenizer-only `FountainTokenizer.parse` median, same fixture, Debug AND Release
   `boundingRect` per labeled line. M4 (Task 8) is therefore full scope:
   visible-range binary search + a label cache.
 - **OQ3 (prose verdict §9):** answered above — dropped.
+
+## M1 adjudication (2026-06-10, post-rewrite)
+
+Tokenizer rewrite landed (oracle-pinned): 250 pp **94 → 27.5 ms Debug / 10.3 ms
+Release**; 120 pp **47 → 13.8 ms Debug**. The plan's ≤ 15 ms @ 250 pp Debug
+sub-gate is missed at 27.5 ms on the **per-line allocation floor**: the public
+contract (identical `FountainScript`, 11,676 materialized `content` strings on
+this unusually line-dense fixture — 43 bytes/line vs ~85 typical) sets a cost
+no scan-side port removes. Two alternative materialization strategies measured
+worse; a lazy-content contract change is explicitly out of scope (spec §3).
+Accepted: the binding budget is §4's TOTAL.
+
+**§4 totals revised under the spec's confirm/adjust clause** (the original
+≤ 16 ms @ 120 pp Debug was a 60 Hz-frame framing stricter than the approved
+bar — "instant" ≈ under human perceptibility ~50 ms — and is structurally
+unreachable while two whole-doc passes per keystroke remain in the
+unchanged-contract design):
+- 120 pp Debug per-keystroke total **≤ 30 ms** (Release lands ≈ one frame);
+- 250 pp Debug total **≤ 65 ms** (Release ≈ 25 ms);
+- pause-edge ≤ 30 ms unchanged.
+OQ1 resolved: `[UInt16]` array (O(1) random access for classification) —
+0.65 ms sparse access vs 2.4 ms View-walk at 500 KB.

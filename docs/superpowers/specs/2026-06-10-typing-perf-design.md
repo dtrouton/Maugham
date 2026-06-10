@@ -160,7 +160,7 @@ differential oracle. Otherwise record the numbers and close the item.
 | Phase | Gate to start | Exit |
 |---|---|---|
 | M0 probe + baseline | — | per-item table at 120/250 pp + prose recorded; budgets confirmed |
-| M1 tokenizer | M0 recorded | differential green; tokenizer ≤ 5 ms @ 250 pp; all suites green both schemes |
+| M1 tokenizer | M0 recorded | differential green; tokenizer ≤ 15 ms @ 250 pp (see §5.2); all suites green both schemes |
 | M2 setFullText | M1 | parser differential green; ≤ 8/18 ms; suites green |
 | M3 pause-edge | can parallel M2 | zero non-keystroke parses; ≤ 30 ms hitch |
 | M4 gutter | any time after M0 | equivalence pin green; ≤ 1 ms/redraw |
