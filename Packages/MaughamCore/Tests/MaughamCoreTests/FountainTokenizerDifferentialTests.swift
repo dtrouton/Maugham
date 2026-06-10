@@ -103,6 +103,11 @@ final class FountainTokenizerDifferentialTests: XCTestCase {
             ("emoji + CJK", "她说 🎬\n\nBARRY\n你好 *世界*\n"),
             ("ZWSP in cue", "BAR\u{200B}RY\nLine.\n"),
             ("combining marks", "Cafe\u{0301} scene description.\n"),
+            // dotless ı (U+0131) uppercases to "I" — a non-ASCII line whose
+            // uppercased() form matches a scene-heading prefix. Pins that the
+            // ASCII fast paths defer to uppercased() for non-ASCII lines.
+            ("dotless-i scene prefix", "\u{0131}nt. room - day\n\nAction.\n"),
+            ("dotless-i transition suffix", "\n\nCU\u{0131} TO:\n"),
         ]
         for (label, text) in cases { assertParity(text, label) }
     }

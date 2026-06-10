@@ -12,6 +12,168 @@ public struct FountainTokenizer: Sendable {
         case noteBlock
     }
 
+    /// One physical line of the source, located by a single buffer pass.
+    ///
+    /// INTENT (spec §5.1): this is the seam a future INCREMENTAL tokenizer
+    /// re-derives from — it is a real, documented type, not an inlined
+    /// implementation detail. An incremental pass would re-scan only the
+    /// dirty `LineRecord`s and splice them back into the line array, re-running
+    /// classification on the affected window. Keep the classification inputs
+    /// explicit (range, content range, blank/ASCII flags, first code unit) so
+    /// that future seam needs no re-derivation from the raw buffer.
+    ///
+    /// Ranges are UTF-16 (the token coordinate space, matching `NSRange` over
+    /// `textView.string`). `range` includes the line's trailing terminator (so
+    /// consecutive records are contiguous, exactly as `.byLines`'
+    /// `enclosingRange` is); `contentRange` excludes it.
+    struct LineRecord {
+        /// UTF-16 range including the trailing terminator (\n, \r, \r\n as one,
+        /// U+0085, U+2028, U+2029). Matches `.byLines` enclosingRange.
+        let range: NSRange
+        /// UTF-16 range excluding the terminator. Matches `.byLines` substring
+        /// range. Length 0 for a blank line that is just a terminator.
+        let contentRange: NSRange
+        /// `contentRange` with leading/trailing ASCII space/tab removed — the
+        /// classification input, equal to `fastTrimWhitespaces` over an ASCII
+        /// line. For a NON-ASCII line this is left equal to `contentRange`
+        /// (the line materializes-and-Foundation-trims in the fallback path).
+        let trimmedRange: NSRange
+        /// True when the content (terminator excluded) is entirely ASCII
+        /// whitespace (space/tab) or empty — i.e. `fastTrimWhitespaces` would
+        /// yield "". Pure-ASCII fast path; non-ASCII content is never flagged
+        /// blank here (it defers to Foundation).
+        let isBlank: Bool
+        /// True when every content code unit is < 0x80 — enables the ASCII
+        /// classification fast paths; false routes the line through the
+        /// materialize-and-use-existing-logic Foundation fallback.
+        let isASCII: Bool
+        /// First non-whitespace ASCII code unit of the content, or 0 when the
+        /// line is blank / non-ASCII. Cheap forced-marker dispatch input.
+        let firstUnit: UInt16
+        /// True when the content contains any `*`, `_`, or `[` — the only chars
+        /// that can open an inline span. When false the inline-span scan is
+        /// provably empty and is skipped. Computed in the single scan pass.
+        let hasMarkup: Bool
+    }
+
+    /// Materialize a String from a UTF-16 buffer slice known to be pure ASCII
+    /// (every code unit < 0x80, so each is its own Unicode scalar). Faster than
+    /// the NSString substring bridge on the per-line hot path; identical result
+    /// to `(nsText as String).substring(with: range)` for ASCII ranges.
+    /// (Measured 2026-06-10: `String(utf16CodeUnits:)` beats a hand-rolled
+    /// `String(unsafeUninitializedCapacity:)` UTF-8 fill in Debug, where the
+    /// per-byte bounds-checked loop dominates.)
+    @inline(__always)
+    static func asciiString(_ buffer: [UInt16], _ range: NSRange) -> String {
+        if range.length == 0 { return "" }
+        return buffer[range.location ..< (range.location + range.length)]
+            .withUnsafeBufferPointer { String(utf16CodeUnits: $0.baseAddress!, count: $0.count) }
+    }
+
+    /// Single pass over the UTF-16 buffer producing `LineRecord`s. Terminators
+    /// are recognized EXACTLY as `NSString.enumerateSubstrings(.byLines)` does:
+    /// `\n` (LF), `\r` (CR), `\r\n` (CRLF — ONE terminator, only when adjacent),
+    /// U+0085 (NEL), U+2028 (LS), U+2029 (PS).
+    ///
+    /// Matches `.byLines` enclosingRange semantics verified empirically
+    /// (2026-06-10): a trailing terminator does NOT yield a final empty record
+    /// (the caller appends the trailing zero-length line for a trailing `\n`,
+    /// preserving the production contract); an interior blank line yields a
+    /// zero-content record covering its terminator.
+    static func scanLines(_ buffer: [UInt16]) -> [LineRecord] {
+        var records: [LineRecord] = []
+        let n = buffer.count
+        // Pre-reserve: line density floor of ~1 record per 16 units avoids most
+        // growth reallocations on real screenplay text.
+        records.reserveCapacity(n / 16 + 1)
+        // Hot loop over an unsafe pointer — strips Array bounds checks (a
+        // measurable Debug win on a buffer this size).
+        buffer.withUnsafeBufferPointer { buf in
+            var i = 0
+            let CR: UInt16 = 0x0D
+            let LF: UInt16 = 0x0A
+            let NEL: UInt16 = 0x0085
+            let LS: UInt16 = 0x2028
+            let PS: UInt16 = 0x2029
+            let SPACE: UInt16 = 0x20
+            let TAB: UInt16 = 0x09
+
+            while i < n {
+                let lineStart = i
+                // Walk to the next terminator.
+                while i < n {
+                    let u = buf[i]
+                    if u == LF || u == CR || u == NEL || u == LS || u == PS { break }
+                    i += 1
+                }
+                let contentEnd = i   // exclusive; excludes terminator
+                // Determine terminator length (CRLF merges only when adjacent).
+                var termLen = 0
+                if i < n {
+                    if buf[i] == CR && i + 1 < n && buf[i + 1] == LF {
+                        termLen = 2
+                    } else {
+                        termLen = 1
+                    }
+                }
+                let lineEnd = i + termLen   // exclusive; includes terminator
+
+                // Characterize the content [lineStart, contentEnd) in ONE walk:
+                // ASCII-purity AND inline-markup presence (`*` 0x2A, `_` 0x5F,
+                // `[` 0x5B). Folding markup detection here removes the separate
+                // per-line buffer walk `lineMayHaveInlineMarkup` did.
+                var isASCII = true
+                var hasMarkup = false
+                var j = lineStart
+                while j < contentEnd {
+                    let u = buf[j]
+                    if u >= 0x80 { isASCII = false }
+                    else if u == 0x2A || u == 0x5F || u == 0x5B { hasMarkup = true }
+                    j += 1
+                }
+
+                var trimLo = lineStart
+                var trimHi = contentEnd   // exclusive
+                var firstUnit: UInt16 = 0
+                if isASCII {
+                    // ASCII fast trim — leading/trailing space (0x20) / tab
+                    // (0x09), identical to fastTrimWhitespaces over ASCII.
+                    while trimLo < trimHi {
+                        let u = buf[trimLo]
+                        if u == SPACE || u == TAB { trimLo += 1 } else { break }
+                    }
+                    while trimHi > trimLo {
+                        let u = buf[trimHi - 1]
+                        if u == SPACE || u == TAB { trimHi -= 1 } else { break }
+                    }
+                    if trimLo < trimHi { firstUnit = buf[trimLo] }
+                } else {
+                    // Non-ASCII: leave trimmedRange == contentRange; the line is
+                    // materialized and Foundation-trimmed in the fallback path.
+                    trimLo = lineStart
+                    trimHi = contentEnd
+                }
+                // isBlank: pure-ASCII fast path only (matches fastTrim, which
+                // defers non-ASCII to Foundation; a non-ASCII line is never
+                // treated as blank and routes through materialization).
+                let isBlank = isASCII && (trimLo == trimHi)
+
+                records.append(LineRecord(
+                    range: NSRange(location: lineStart, length: lineEnd - lineStart),
+                    contentRange: NSRange(location: lineStart, length: contentEnd - lineStart),
+                    trimmedRange: NSRange(location: trimLo, length: trimHi - trimLo),
+                    isBlank: isBlank,
+                    isASCII: isASCII,
+                    firstUnit: isASCII ? firstUnit : 0,
+                    hasMarkup: hasMarkup))
+
+                i = lineEnd
+                if termLen == 0 { break }
+            }
+        }
+        return records
+    }
+
     /// Trim leading/trailing `CharacterSet.whitespaces` (space, tab, Unicode
     /// `Zs`). Hot path: this tokenizer trims every line once per keystroke on
     /// the whole document. A pure-ASCII line is trimmed by a manual byte scan
@@ -54,21 +216,45 @@ public struct FountainTokenizer: Sendable {
         let (titlePage, titlePageEndOffset) = Self.parseTitlePage(
             nsText: nsText, fullRange: fullRange)
 
+        // Single UTF-16 buffer pass: split the document into LineRecords once,
+        // then drive the existing per-line state machine off them. Each line's
+        // `raw` String is materialized exactly once from the record's content
+        // range (replacing enumerateSubstrings' per-line String + thunk).
+        let buffer = Array(text.utf16)
+        let records = Self.scanLines(buffer)
+
         var lines: [FountainLine] = []
+        lines.reserveCapacity(records.count + 1)
         var prevBlank = true
         var prevElement: ScreenplayElement = .action
         var prevWasDualSecond = false
         var blockState: BlockState = .normal
 
-        nsText.enumerateSubstrings(in: fullRange, options: .byLines) {
-            substring, _, enclosingRange, _ in
-            guard let raw = substring else { return }
+        for record in records {
+            let enclosingRange = record.range
+
+            // FACET: derive `trimmed` from the record's code-unit trimmed range
+            // for ASCII lines (the common case) — one String materialization,
+            // no `raw` substring + separate `fastTrimWhitespaces` pass. Non-
+            // ASCII lines materialize the raw content and Foundation-trim it,
+            // identical to the pre-rewrite path. `raw` (full content, untrimmed)
+            // is materialized LAZILY below only when the inline-span scan needs
+            // it (markup present).
+            let trimmed: String
+            if record.isASCII {
+                // Materialize directly from the UTF-16 buffer slice (the line is
+                // pure ASCII so every unit is a self-contained scalar) — avoids
+                // the NSString substring bridge on the per-line hot path.
+                trimmed = Self.asciiString(buffer, record.trimmedRange)
+            } else {
+                trimmed = nsText.substring(with: record.contentRange)
+                    .trimmingCharacters(in: .whitespaces)
+            }
 
             // If this line is inside the title page block, classify as .titlePage.
             // Don't update prevBlank/prevElement so body classification starts
             // from the same initial state regardless of title page close mode.
             if enclosingRange.location < titlePageEndOffset {
-                let trimmed = Self.fastTrimWhitespaces(raw)
                 lines.append(FountainLine(
                     range: enclosingRange,
                     element: .titlePage,
@@ -76,10 +262,8 @@ public struct FountainTokenizer: Sendable {
                     isForced: false,
                     sourceCase: Self.sourceCase(of: trimmed),
                     inlineSpans: []))
-                return
+                continue
             }
-
-            let trimmed = Self.fastTrimWhitespaces(raw)
 
             // While inside a multi-line block, classify the line as that
             // block kind. Exit on the closing marker.
@@ -95,7 +279,7 @@ public struct FountainTokenizer: Sendable {
                 prevBlank = false
                 prevElement = .boneyard
                 prevWasDualSecond = false
-                return
+                continue
             case .noteBlock:
                 lines.append(FountainLine(
                     range: enclosingRange,
@@ -107,7 +291,7 @@ public struct FountainTokenizer: Sendable {
                 prevBlank = false
                 prevElement = .note
                 prevWasDualSecond = false
-                return
+                continue
             case .normal:
                 break
             }
@@ -122,12 +306,14 @@ public struct FountainTokenizer: Sendable {
                 prevBlank = true
                 prevElement = .action
                 prevWasDualSecond = false
-                return
+                continue
             }
 
             // Boneyard open on this line — single-line if "*/" appears,
-            // otherwise enter .boneyard state.
-            if trimmed.hasPrefix("/*") {
+            // otherwise enter .boneyard state. firstUnit gate: `/` (0x2F) or
+            // non-ASCII (0 → must check).
+            if (record.firstUnit == 0x2F || record.firstUnit == 0),
+               trimmed.hasPrefix("/*") {
                 let closesOnLine = trimmed.dropFirst(2).contains("*/")
                 if !closesOnLine { blockState = .boneyard }
                 lines.append(FountainLine(
@@ -139,12 +325,14 @@ public struct FountainTokenizer: Sendable {
                 prevBlank = false
                 prevElement = .boneyard
                 prevWasDualSecond = false
-                return
+                continue
             }
 
             // Block note open: line starts with [[ and either lacks ]] (multi-
-            // line) or is entirely [[...]] (single-line block note).
-            if trimmed.hasPrefix("[[") {
+            // line) or is entirely [[...]] (single-line block note). firstUnit
+            // gate: `[` (0x5B) or non-ASCII (0 → must check).
+            if (record.firstUnit == 0x5B || record.firstUnit == 0),
+               trimmed.hasPrefix("[[") {
                 let closesOnLine = trimmed.contains("]]")
                 if !closesOnLine { blockState = .noteBlock }
                 lines.append(FountainLine(
@@ -156,21 +344,37 @@ public struct FountainTokenizer: Sendable {
                 prevBlank = false
                 prevElement = .note
                 prevWasDualSecond = false
-                return
+                continue
             }
 
             let classified = Self.classify(
                 line: trimmed,
                 prevBlank: prevBlank,
-                prevElement: prevElement)
+                prevElement: prevElement,
+                firstUnit: record.firstUnit)
 
             // Inline span pass: locate notes, bold, italic, and underline spans
             // within the line, recorded relative to the enclosing line range.
-            let inlineSpans = Self.inlineSpans(
-                in: trimmed,
-                lineRange: enclosingRange,
-                rawLine: raw,
-                nsText: nsText)
+            // FACET: gate on code units — only lines containing `*`, `_`, or
+            // `[` can carry inline markup (emphasis, underline, or [[note]]).
+            // The overwhelming majority of lines have none, so this skips the
+            // NSString materialization + InlineEmphasisScanner + scanNotes +
+            // regex entirely. Identical output to always-call by construction
+            // (the scanners emit nothing when their trigger chars are absent),
+            // pinned by the differential corpus' emphasis/note cases.
+            let inlineSpans: [FountainInlineSpan]
+            if record.hasMarkup {
+                // Materialize the raw (untrimmed) line only here — the scanners
+                // need positions relative to the full content range.
+                let raw = nsText.substring(with: record.contentRange)
+                inlineSpans = Self.inlineSpans(
+                    in: trimmed,
+                    lineRange: enclosingRange,
+                    rawLine: raw,
+                    nsText: nsText)
+            } else {
+                inlineSpans = []
+            }
 
             // Compute isDualSecond for this line.
             var lineIsDualSecond = false
@@ -226,11 +430,37 @@ public struct FountainTokenizer: Sendable {
         let isForced: Bool
     }
 
+    /// Forced-marker first-character set, as ASCII code units:
+    /// `=`(0x3D) page-break/synopsis, `#`(0x23) section, `.`(0x2E) forced
+    /// scene, `!`(0x21) forced action, `>`(0x3E) centered/transition,
+    /// `~`(0x7E) lyric, `@`(0x40) forced character. When the line's first
+    /// non-whitespace code unit is ASCII and NOT in this set, the entire
+    /// forced-marker dispatch is skipped — the line is action/scene/cue/
+    /// dialogue, decided by the context-sensitive checks below.
+    @inline(__always)
+    private static func firstUnitMayBeForced(_ u: UInt16) -> Bool {
+        // u == 0 means "non-ASCII / unknown" → must check everything.
+        if u == 0 { return true }
+        switch u {
+        case 0x3D, 0x23, 0x2E, 0x21, 0x3E, 0x7E, 0x40: return true
+        default: return false
+        }
+    }
+
     private static func classify(
         line: String,
         prevBlank: Bool,
-        prevElement: ScreenplayElement
+        prevElement: ScreenplayElement,
+        firstUnit: UInt16
     ) -> Classified {
+        // FACET: skip every forced-marker check when the first ASCII code unit
+        // rules them all out (the common action/dialogue case). Non-ASCII lines
+        // (firstUnit == 0) fall through to the full check set unchanged.
+        guard Self.firstUnitMayBeForced(firstUnit) else {
+            return Self.classifyContextual(
+                line: line, prevBlank: prevBlank, prevElement: prevElement)
+        }
+
         // Page break: three or more = with no other content.
         if Self.isPageBreak(line) {
             return Classified(
@@ -311,6 +541,19 @@ public struct FountainTokenizer: Sendable {
                 isForced: true)
         }
 
+        return Self.classifyContextual(
+            line: line, prevBlank: prevBlank, prevElement: prevElement)
+    }
+
+    /// The non-forced (context-sensitive) classification tail: scene heading /
+    /// contextual transition / cue / dialogue / parenthetical / action. Reached
+    /// either when no forced marker matched, OR directly (forced-marker block
+    /// skipped) when the first code unit cannot be a forced marker.
+    private static func classifyContextual(
+        line: String,
+        prevBlank: Bool,
+        prevElement: ScreenplayElement
+    ) -> Classified {
         // Context-sensitive scene heading: starts with INT./EXT./EST./I/E./
         // INT/EXT., case-insensitive, and has a blank line above.
         if prevBlank && Self.isSceneHeadingPrefix(line) {
@@ -386,8 +629,26 @@ public struct FountainTokenizer: Sendable {
         return hasLetter
     }
 
+    /// True if every scalar in `line` is ASCII (< 0x80). A non-ASCII line can
+    /// change LENGTH or fold unexpectedly under `uppercased()` (e.g. ß→SS,
+    /// dotless ı→I), so the ASCII fast paths below MUST defer to the original
+    /// `uppercased()` logic for it.
+    @inline(__always)
+    private static func isPureASCII(_ line: String) -> Bool {
+        for b in line.utf8 where b >= 0x80 { return false }
+        return true
+    }
+
     private static func isContextualTransition(_ line: String) -> Bool {
-        guard line.uppercased().hasSuffix("TO:") else { return false }
+        // FACET: case-insensitive "TO:" suffix check without allocating a full
+        // uppercased copy — only the last 3 scalars matter — but ONLY for pure-
+        // ASCII lines. Non-ASCII lines keep the exact `uppercased().hasSuffix`
+        // path so locale-independent Unicode folding is preserved.
+        if Self.isPureASCII(line) {
+            guard Self.hasCaseInsensitiveASCIISuffix(line, "TO:") else { return false }
+        } else {
+            guard line.uppercased().hasSuffix("TO:") else { return false }
+        }
         return Self.isAllCapsCueCandidate(line)
     }
 
@@ -396,6 +657,17 @@ public struct FountainTokenizer: Sendable {
     ]
 
     private static func isSceneHeadingPrefix(_ line: String) -> Bool {
+        // FACET: case-insensitive prefix match without allocating `uppercased()`
+        // of the whole line — but ONLY for pure-ASCII lines. Non-ASCII lines
+        // fall back to the exact original comparison.
+        if Self.isPureASCII(line) {
+            for prefix in sceneHeadingPrefixes {
+                if Self.hasCaseInsensitiveASCIIPrefix(line, prefix, requireFollowingSpaceOrEnd: true) {
+                    return true
+                }
+            }
+            return false
+        }
         let upper = line.uppercased()
         for prefix in sceneHeadingPrefixes {
             if upper.hasPrefix(prefix + " ") || upper == prefix {
@@ -403,6 +675,57 @@ public struct FountainTokenizer: Sendable {
             }
         }
         return false
+    }
+
+    /// True if `line` begins with `prefix` compared case-insensitively over
+    /// ASCII, AND (when required) the next scalar is a space or the prefix is
+    /// the entire line. `prefix` MUST be pure ASCII (the scene-heading
+    /// prefixes are). Matches the original `uppercased().hasPrefix(prefix+" ")
+    /// || uppercased() == prefix`.
+    private static func hasCaseInsensitiveASCIIPrefix(
+        _ line: String, _ prefix: String, requireFollowingSpaceOrEnd: Bool
+    ) -> Bool {
+        let lu = line.unicodeScalars
+        let pu = prefix.unicodeScalars
+        var li = lu.startIndex
+        var pi = pu.startIndex
+        while pi != pu.endIndex {
+            guard li != lu.endIndex else { return false }
+            let a = lu[li].value
+            let b = pu[pi].value
+            // ASCII-fold both to upper.
+            let af = (a >= 0x61 && a <= 0x7A) ? a - 0x20 : a
+            let bf = (b >= 0x61 && b <= 0x7A) ? b - 0x20 : b
+            if af != bf { return false }
+            li = lu.index(after: li)
+            pi = pu.index(after: pi)
+        }
+        if !requireFollowingSpaceOrEnd { return true }
+        // prefix matched; require a following space or end-of-line.
+        if li == lu.endIndex { return true }
+        return lu[li] == " "
+    }
+
+    /// True if `line` ends with `suffix` compared case-insensitively over
+    /// ASCII. `suffix` MUST be pure ASCII.
+    private static func hasCaseInsensitiveASCIISuffix(
+        _ line: String, _ suffix: String
+    ) -> Bool {
+        let lu = line.unicodeScalars
+        let su = suffix.unicodeScalars
+        var li = lu.endIndex
+        var si = su.endIndex
+        while si != su.startIndex {
+            guard li != lu.startIndex else { return false }
+            li = lu.index(before: li)
+            si = su.index(before: si)
+            let a = lu[li].value
+            let b = su[si].value
+            let af = (a >= 0x61 && a <= 0x7A) ? a - 0x20 : a
+            let bf = (b >= 0x61 && b <= 0x7A) ? b - 0x20 : b
+            if af != bf { return false }
+        }
+        return true
     }
 
     private static func isPageBreak(_ line: String) -> Bool {
@@ -424,6 +747,34 @@ public struct FountainTokenizer: Sendable {
     }
 
     static func sourceCase(of text: String) -> SourceCase {
+        // FACET: ASCII fast path on UTF-8 bytes. The moment any non-ASCII byte
+        // appears we restart on the Character loop so Unicode letters/casing
+        // keep EXACT Foundation semantics (e.g. "É" is an uppercase letter,
+        // CJK/emoji are non-letters). Pure-ASCII lines — the overwhelming
+        // majority of screenplay text — never touch grapheme iteration.
+        var hasUpper = false
+        var hasLower = false
+        var hasLetter = false
+        for byte in text.utf8 {
+            if byte >= 0x80 {
+                // Non-ASCII: defer the WHOLE line to the grapheme path.
+                return sourceCaseUnicode(of: text)
+            }
+            if byte >= 0x41 && byte <= 0x5A {        // A–Z
+                hasLetter = true; hasUpper = true
+            } else if byte >= 0x61 && byte <= 0x7A { // a–z
+                hasLetter = true; hasLower = true
+            }
+        }
+        if !hasLetter { return .neutral }
+        if hasUpper && hasLower { return .mixed }
+        if hasUpper { return .upper }
+        return .lower
+    }
+
+    /// Foundation-semantics casing classification for lines containing any
+    /// non-ASCII scalar. Identical to the pre-rewrite `sourceCase` body.
+    private static func sourceCaseUnicode(of text: String) -> SourceCase {
         var hasUpper = false
         var hasLower = false
         var hasLetter = false

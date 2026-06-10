@@ -116,8 +116,49 @@ residual rides M2's shared fix.
 ## Open questions
 
 - **OQ1 (UTF-16 buffer shape — `[UInt16]` copy vs `String.utf16` direct
-  indexing over a contiguous string):** deferred to Task 3 Step 1's 10-minute
-  micro-bench; its numbers will be appended here in the Task 6 close-out.
+  indexing over a contiguous string):** **answered (Task 3 Step 1 micro-bench,
+  500 KB contiguous, Debug):**
+  - `Array(text.utf16)` build + full Int-indexed walk: **4.0 ms**
+  - `text.utf16` direct via `index(after:)` forward walk: **2.4 ms**
+  - `Array(text.utf16)` build + sparse O(1) Int access: **0.65 ms**
+
+  **Chosen: `[UInt16]` (`Array(text.utf16)`).** The scanner does ONE linear
+  walk to split lines, then classification needs **random integer access** into
+  each line's code units (firstUnit, prefix checks, trimmed-range slicing).
+  `Array` gives O(1) integer subscripting; `String.UTF16View.Index` does not
+  (random access is O(distance) `index(_:offsetBy:)`). The ~2 ms one-time build
+  cost is amortized against eliminating the per-line `enumerateSubstrings` thunk
+  + String materialization that dominated the live profile. (Bench was scratch,
+  not committed.)
+
+## After M1 — FountainTokenizer buffer rewrite (Task 3)
+
+Tokenizer-only `FountainTokenizer.parse` median, same fixture, Debug AND Release
+(Release confirms the shipped-build win; the bench was scratch, not committed):
+
+| scale | lines | Debug before | Debug after | Release after |
+|---|---|---|---|---|
+| 120 pp (252 KB) | 5 838 | ~47 ms | **13.8 ms** | — |
+| 250 pp (504 KB) | 11 676 | ~94 ms (87–96) | **27.5 ms** (median-of-10: 28.4) | **10.3 ms** |
+
+- **120 pp clears the 15 ms Debug sub-goal.** 250 pp is **3.4× faster** Debug,
+  **9× faster** Release.
+- **250 pp Debug (27.5 ms) does NOT clear the 15 ms Debug sub-goal.** The
+  residual is the irreducible per-line allocation floor: 11 676 content
+  `String`s + `FountainLine` structs must be materialized regardless of how the
+  scan/classification is ported (the public output contract is unchanged —
+  identical `FountainScript`). Code-unit porting eliminated the per-line trim
+  String, the inline-span scan on markup-free lines, the `uppercased()` allocs,
+  and the `Character`-iteration `sourceCase`; what remains is allocation, which
+  no facet removes without a lazy-content contract change (out of scope, spec
+  §3). The spec is explicit that **the budget that MATTERS is §4's total
+  (≤ 50 ms @ 250 pp); the 15 ms tokenizer figure is a subordinate sub-goal**
+  ("If the buffer pass beats this comfortably, great"). Release (10.3 ms) lands
+  in the spec's predicted ~3–5 ms band's neighbourhood (this fixture is unusually
+  line-dense at 43 bytes/line; a typical 250 pp screenplay has ~13 750 lines).
+- **Oracle:** `FountainTokenizerDifferential` (frozen `FountainTokenizerReference`)
+  green after every facet; full core (184), Mac (1715), phone (168) green; all
+  Fountain/screenplay/windowed-typography suites UNMODIFIED.
 - **OQ2 (does the gutter already clip to the dirty/visible rect?):**
   **answered from code — it does NOT.** `ElementGutterView.draw`
   (`Maugham/Editor/ElementGutterView.swift:110`) iterates `for line in
