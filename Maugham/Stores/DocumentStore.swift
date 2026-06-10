@@ -402,7 +402,11 @@ public final class DocumentStore {
         mode: any WritingMode,
         store: ProjectStore
     ) {
-        let count = mode.metrics(newText).wordCount
+        // wordCount(_:) NOT metrics(_:): metrics runs a whole-document
+        // Fountain parse for pageCount, which this per-keystroke path
+        // discards (2026-06-10 live profile — one of three redundant
+        // per-keystroke parses behind the 5-10s typing stalls at 70pp).
+        let count = mode.wordCount(newText)
         store.recordWordCount(forDocumentId: documentId, wordCount: count)
         recordSessionActivity(
             documentId: documentId,

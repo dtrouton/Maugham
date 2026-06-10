@@ -78,6 +78,22 @@ public protocol WritingMode: Sendable {
 }
 
 public extension WritingMode {
+    /// Word count alone, WITHOUT the full `metrics(_:)` computation. Both
+    /// modes' `metrics` derive `wordCount` from this exact trimmed
+    /// whitespace-split — but `ScreenplayMode.metrics` ADDITIONALLY runs a
+    /// whole-document Fountain parse purely for `pageCount`. Callers that
+    /// only need the word count (the per-keystroke session/word bookkeeping
+    /// in `DocumentStore.recordEditorTextWrite`, project word-count rebuilds)
+    /// MUST use this instead: the 2026-06-10 live profile showed the
+    /// per-keystroke `metrics` call burning a full Fountain parse per
+    /// keystroke for a value it discarded.
+    func wordCount(_ text: String) -> Int {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty
+            ? 0
+            : trimmed.split(whereSeparator: \.isWhitespace).count
+    }
+
     /// Back-compat overload: whole-document attribute application (no window).
     /// Existing callers and tests that don't thread a restyle window route
     /// through here. Defaults `restyleWindow` to nil so behavior is identical

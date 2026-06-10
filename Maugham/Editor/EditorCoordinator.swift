@@ -394,7 +394,15 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// itself is always whole-document either way.
     private func retokenizeAndStyle(windowedTyping: Bool = false) {
         guard let textView, let storage = textView.textStorage else { return }
-        let text = textView.string
+        // Bridge the AppKit-backed string to NATIVE Swift storage before any
+        // scanning. `textView.string` is NSString-backed ("foreign"): every
+        // Character/Substring walk over it pays per-character objc_msgSend —
+        // the 2026-06-10 live profile showed FountainTokenizer 5–20× slower
+        // on foreign strings than the native ones our headless tests use.
+        // One O(N) UTF-8 copy here makes the whole-doc tokenize run at
+        // native speed.
+        var text = textView.string
+        text.makeContiguousUTF8()
         // Capture the pre-restyle tokens BEFORE we overwrite `lastTokens`, so
         // the window diff compares old→new. nil when not windowing.
         let priorTokens = lastTokens
@@ -555,7 +563,13 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // following setFullText call. Must fire BEFORE binding-set so the
         // host has a chance to stash the value on the Document.
         onPostEditCursor?(postEditSelection.location)
-        binding.wrappedValue = textView.string
+        // Nativize before handing the text to the Swift pipeline (setFullText
+        // parse, word counting): NSString-backed strings pay per-character
+        // objc dispatch on every scan — see the matching note in
+        // retokenizeAndStyle. One O(N) copy per keystroke, 5–20× faster scans.
+        var editedText = textView.string
+        editedText.makeContiguousUTF8()
+        binding.wrappedValue = editedText
         // Typing fast path: window the structural restyle to the
         // classification-changed region. All other restyle callers stay
         // whole-document.

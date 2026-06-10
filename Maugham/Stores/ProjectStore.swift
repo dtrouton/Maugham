@@ -229,7 +229,7 @@ public final class ProjectStore {
             guard let text = try? String(contentsOf: fileURL,
                                          encoding: .utf8) else { continue }
             let count = WritingModeFactory.mode(for: path)
-                .metrics(text).wordCount
+                .wordCount(text)
             store.recordWordCount(forDocumentId: item.id, wordCount: count)
         }
     }
