@@ -234,6 +234,28 @@ final class OpLogStoreSegmentTests: XCTestCase {
         XCTAssertTrue(segs.isEmpty)
     }
 
+    // T14 — the legacy unsuffixed `<docId>.jsonl` has no unambiguous owner
+    // and is NEVER sealed; only the caller's own per-device tail is.
+    func test_legacyFile_neverSealed() async throws {
+        let legacyURL = projectURL
+            .appendingPathComponent(".maugham/ops/\(docId).jsonl")
+        let store = JSONLAppendStore<Op>(
+            fileURL: legacyURL, dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
+        for i in 0..<10 {
+            try await store.append(op(String(format: "05%04d", i),
+                                      next: String(repeating: "L", count: 500)))
+        }
+        // Sealing for any slug must not touch the legacy file: there is no
+        // per-device tail, so this is a no-op even at threshold 0.
+        let sealed = try await OpLogStore(projectURL: projectURL)
+            .sealTailIfNeeded(docId: docId, deviceSlug: "maca", threshold: 0)
+        XCTAssertNil(sealed)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: legacyURL.path),
+                      "legacy file must survive untouched")
+        let loaded = try await OpLogStore(projectURL: projectURL).load(docId: docId)
+        XCTAssertEqual(loaded.count, 10)
+    }
+
     // T10 (convergence half) — re-running the seal after a crash window converges.
     func test_sealAfterCrashWindow_converges() async throws {
         let store = OpLogStore(projectURL: projectURL)

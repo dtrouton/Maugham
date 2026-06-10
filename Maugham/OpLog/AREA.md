@@ -40,7 +40,7 @@ Key machinery:
 
 These hold by construction. If you find code that violates one, treat it as a bug.
 
-- **Op log is append-only.** No mutation, no deletion. Checkpoints capture state; they don't truncate history.
+- **Op log is append-only.** No mutation, no deletion. Checkpoints capture state; they don't truncate history. Sealing (ADR 0016) is a storage-layout change to a single-writer file; the logical log is untouched — the merged, opId-deduped set is identical before and after a seal.
 - **`¶id` anchors are 4-char.** No exceptions. Tests that use 1-char IDs are wrong and silently bypass validation.
 - **Task anchors are 6-char.** Same alphabet as paragraph anchors. `<!--t-XXXXXX-->` only — no uppercase, no other prefix.
 - **Paragraph-keyed LWW, by opId.** Concurrent writes to the same paragraph resolve by **opId order** (ULIDs give a deterministic total order), not by line position. Cross-Mac merges depend on this. See the merge/derive contract below for the exact rule.
@@ -93,6 +93,23 @@ it is now enforced:
   `CrossMacMergeTests`, `OpLogStorePartitioningTests`, `DeriverTests`,
   `CrossDeviceIntegrationTests` (case 1 = determinism; case 4 = the deferred skew
   scenario, `XCTSkip`-marked).
+
+## Sealed segments (ADR 0016, M2)
+
+When a device's own live tail `<docId>.<slug>.jsonl` exceeds
+`OpLogStore.segmentSealThreshold`, `Document.close()` / project-open
+maintenance rotate it into an immutable, LZFSE-compressed, SHA-256-checksummed
+`<docId>.<slug>.seg<NNNN>.mzseg` (container: `OpLogSegment`, MaughamCore).
+Readers see one merged `[Op]` exactly as before — recognition lives ONLY in
+`OpLogStore.opLogFileURLs` / `docId(fromOpLogFilename:)` / `loadFileDiagnosed`
+/ `loadSyncMerged` (single-source helpers; grep tripwires on both targets).
+Scope: never the legacy unsuffixed file, never another device's tail, never
+`__project__`/inbox/pending, never mid-typing, Mac-only in v1. Crash window
+between segment-write and tail-delete is safe by construction
+(`mergeSortedDedup` collapses the duplicates; the next seal converges).
+A checksum failure quarantines + marks the doc unhealthy (backups pause) while
+salvageable ops still derive. Tests: `OpLogSegmentTests`,
+`OpLogStoreSegmentTests`, `SegmentSealTriggerTests`, `SegmentIntegrityTests`.
 
 ## RenderFilter's three matching tiers (subtle)
 

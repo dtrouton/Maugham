@@ -351,4 +351,44 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertTrue(offenders.first?.contains("oldURL") == true,
             "Self-check: the planted oldURL→newURL offender should be the one caught.")
     }
+
+    // MARK: - Sealed-segment name tripwire (ADR 0016)
+
+    /// Recurrence-tripper: segment filenames/extension are built ONLY by
+    /// `OpLogStore.segmentFileURL` (MaughamCore). A hand-rolled ".mzseg"
+    /// template in Maugham/ is the same reach-around class as the phone's
+    /// doc-id parser bug. Sealing is invoked ONLY via sealTailIfNeeded on
+    /// the device's own slug (CLAUDE.md tripwire 17 footnote).
+    func test_noHandRolledSegmentNamesInMacSources() throws {
+        let offenders = try grepSwift(
+            in: sourceDir,
+            patterns: [".mzseg"],
+            allowed: ["MaughamSidecarPath.swift"],   // routes by suffix, sanctioned
+            excludeLine: { line in
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                return trimmed.hasPrefix("//") || trimmed.hasPrefix("///")
+            }
+        )
+        XCTAssertTrue(offenders.isEmpty,
+            "Hand-rolled .mzseg segment naming in Maugham/. Use "
+            + "OpLogStore.segmentFileURL / opLogFileURLs (MaughamCore). "
+            + "See docs/superpowers/notes/cross-surface-contracts.md. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    func test_segmentNameTripwireFiresOnPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-mzseg-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        try """
+        func badSegmentName(_ docId: String) -> String {
+            return "\\(docId).mac.seg0001.mzseg"
+        }
+        """.write(to: tmp.appendingPathComponent("BadSeg.swift"),
+                  atomically: true, encoding: .utf8)
+        let offenders = try grepSwift(in: tmp, patterns: [".mzseg"])
+        XCTAssertEqual(offenders.count, 1)
+    }
 }
