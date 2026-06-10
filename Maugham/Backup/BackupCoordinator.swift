@@ -4,7 +4,19 @@ import MaughamCore
 @MainActor
 @Observable
 public final class BackupCoordinator {
-    public init() {}
+    /// The integrity gate, injectable so the throws-blocks-backup path is testable
+    /// (production is `ProjectIntegrity.check`). A throw here is treated as a
+    /// corruption signal and blocks the backup — see `backupNow`.
+    private let integrityCheck: (URL) async throws -> IntegrityReport
+
+    public init() {
+        self.integrityCheck = { try await ProjectIntegrity.check(projectURL: $0) }
+    }
+
+    /// Test seam: inject a custom integrity gate (e.g. one that throws).
+    init(integrityCheck: @escaping (URL) async throws -> IntegrityReport) {
+        self.integrityCheck = integrityCheck
+    }
 
     /// Resolved destinations to back up to. Set from UserPreferences at app launch
     /// and whenever the config changes.
@@ -39,10 +51,21 @@ public final class BackupCoordinator {
         let key = Self.resultKey(projectURL)
         guard !destinations.isEmpty else { resultsByProject[key] = .noDestinations; return }
 
-        // Integrity-before-backup (decision 2026-06-07).
-        if let report = try? await ProjectIntegrity.check(projectURL: projectURL), !report.isHealthy {
-            let summary = "skips:\(report.docSkips.count) twins:\(report.conflictTwins.count) dangling:\(report.danglingPointers.count) bad-ids:\(report.invalidParagraphIds.count)"
-            resultsByProject[key] = .integrityFailed(summary: summary)
+        // Integrity-before-backup (decision 2026-06-07). A *throwing* check is the
+        // strongest corruption signal there is — the check itself couldn't complete
+        // — so it must BLOCK the backup, not be swallowed. The prior `try?` collapsed
+        // a throw to nil, the `if let` fell through, and the backup proceeded over
+        // an unverifiable source (audit N1 / item 1b). Treat throw and "unhealthy"
+        // identically: surface and skip.
+        do {
+            let report = try await integrityCheck(projectURL)
+            if !report.isHealthy {
+                let summary = "skips:\(report.docSkips.count) twins:\(report.conflictTwins.count) dangling:\(report.danglingPointers.count) bad-ids:\(report.invalidParagraphIds.count)"
+                resultsByProject[key] = .integrityFailed(summary: summary)
+                return
+            }
+        } catch {
+            resultsByProject[key] = .integrityFailed(summary: "integrity check failed: \(error.localizedDescription)")
             return
         }
 

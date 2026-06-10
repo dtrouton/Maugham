@@ -192,4 +192,37 @@ final class SchemaEvolutionToleranceTests: XCTestCase {
     func testUnknownCheckpointLabelSourceDegradesToAuto() throws {
         XCTAssertEqual(try JSONDecoder().decode(Checkpoint.LabelSource.self, from: Data(#""ai_suggested""#.utf8)), .auto)
     }
+
+    // MARK: - Lossy `.unknown` re-encode is a DOCUMENTED choice (audit N4)
+    //
+    // The three tolerant enums with a literal `.unknown` case re-encode it as the
+    // literal string "unknown" — the original future raw value is NOT preserved.
+    // This is by design (preserving raw would mean dropping the String-raw
+    // conformance every call site relies on) and is SAFE only because
+    // `decodeGuardingSchema`'s schemaVersion gate refuses genuinely-newer-schema
+    // files before this path is reached. These tests pin the loss so it can never
+    // become an accidental surprise: a change that started preserving raw values
+    // must update the SCHEMA CONTRACT docs deliberately, not silently.
+
+    func testUnknownOpKindReEncodesLossilyToLiteralUnknown() throws {
+        let decoded = try JSONDecoder().decode(OpKind.self, from: Data(#""op_kind_from_the_future""#.utf8))
+        XCTAssertEqual(decoded, .unknown)
+        let reEncoded = String(decoding: try JSONEncoder().encode(decoded), as: UTF8.self)
+        XCTAssertEqual(reEncoded, #""unknown""#,
+            "round-trip is LOSSY by design — original raw value is not preserved (see SCHEMA CONTRACT)")
+    }
+
+    func testUnknownProjectTypeReEncodesLossilyToLiteralUnknown() throws {
+        let decoded = try JSONDecoder().decode(ProjectType.self, from: Data(#""graphic_novel""#.utf8))
+        XCTAssertEqual(decoded, .unknown)
+        let reEncoded = String(decoding: try JSONEncoder().encode(decoded), as: UTF8.self)
+        XCTAssertEqual(reEncoded, #""unknown""#)
+    }
+
+    func testUnknownSynthesisSourceReEncodesLossilyToLiteralUnknown() throws {
+        let decoded = try JSONDecoder().decode(SynthesisSource.self, from: Data(#""some_future_cause""#.utf8))
+        XCTAssertEqual(decoded, .unknown)
+        let reEncoded = String(decoding: try JSONEncoder().encode(decoded), as: UTF8.self)
+        XCTAssertEqual(reEncoded, #""unknown""#)
+    }
 }

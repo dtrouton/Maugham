@@ -66,6 +66,19 @@ public enum UpdateInstaller {
         // (Python rejects leading-space indentation on module-scope statements).
         var s = "#!/bin/bash\n"
         s += "set -e\n"
+        // python3 guard (audit N2): the atomic swap runs via `python3` (ctypes →
+        // renamex_np). python3 is NOT guaranteed on a clean macOS — it ships with
+        // the Command Line Tools, which a fresh machine may lack. Under `set -e`,
+        // a missing python3 would abort the helper AFTER the app has already quit
+        // and the bundle has been staged/swapped-partway → a failed-update state.
+        // Probe it HERE, before the quit-wait and before any destructive step, so
+        // a CLT-less Mac aborts cleanly with the running app entirely untouched.
+        // (The Swift caller `launchSwapHelper` also pre-checks and routes to the
+        // Finder-reveal fallback before quitting; this is the in-helper backstop.)
+        s += "if ! command -v python3 >/dev/null 2>&1; then\n"
+        s += "  echo \"maugham-update: python3 not found; aborting in-place swap (app left untouched)\" >&2\n"
+        s += "  exit 1\n"
+        s += "fi\n"
         s += "# Wait for the running Maugham (pid \(pid)) to fully exit.\n"
         s += "while kill -0 \(pid) 2>/dev/null; do sleep 0.2; done\n"
         s += "# Stage the new bundle as a same-volume sibling (.inflight).\n"
@@ -175,6 +188,21 @@ extension UpdateInstaller {
 }
 
 extension UpdateInstaller {
+    /// Whether `python3` is resolvable on PATH (it backs the atomic swap via
+    /// ctypes → `renamex_np`). Ships with the Command Line Tools, which a clean
+    /// macOS may lack — see audit N2. Used as a pre-quit gate in `launchSwapHelper`.
+    static func python3Available() -> Bool {
+        let p = Process()
+        // `command -v` is a bash builtin (mirrors the helper script's own guard).
+        p.executableURL = URL(fileURLWithPath: "/bin/bash")
+        p.arguments = ["-c", "command -v python3"]
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        do { try p.run() } catch { return false }
+        p.waitUntilExit()
+        return p.terminationStatus == 0
+    }
+
     /// Decide how to install based on whether the installed bundle is writable
     /// by the current user. Defaults are injected for testability.
     public static func installMode(
@@ -287,10 +315,16 @@ extension UpdateInstaller {
     /// defaults to the running app's own location so we replace the right copy.
     @discardableResult
     static func launchSwapHelper(stagedBundle: URL, relaunch: Bool,
-                                 installedBundlePath: String = Bundle.main.bundlePath) -> Bool {
+                                 installedBundlePath: String = Bundle.main.bundlePath,
+                                 python3Available: () -> Bool = UpdateInstaller.python3Available) -> Bool {
         guard installMode(installedBundlePath: installedBundlePath) == .inPlace else {
             return false  // not writable → caller does Finder fallback
         }
+        // The detached swap depends on python3 (ctypes → renamex_np). If it's
+        // missing (CLT-less Mac), don't quit into a doomed helper — return false
+        // now, while the app is still alive, so the caller takes the Finder-reveal
+        // fallback (audit N2). The helper script also guards as a backstop.
+        guard python3Available() else { return false }
         let script = helperScript(pid: ProcessInfo.processInfo.processIdentifier,
                                   stagedBundle: stagedBundle.path,
                                   installedBundle: installedBundlePath,

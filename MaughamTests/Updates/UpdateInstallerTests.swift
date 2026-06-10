@@ -67,6 +67,33 @@ final class UpdateInstallerTests: XCTestCase {
                        "Script must not rm -rf the installed bundle — that leaves it missing on crash")
     }
 
+    /// Audit N2: the script must probe `python3` and bail BEFORE any destructive
+    /// step (and before the quit-wait), so a CLT-less Mac aborts with the running
+    /// app untouched rather than dying mid-swap after the app has quit.
+    func test_helperScript_python3GuardPrecedesFirstDestructiveStep() {
+        let script = UpdateInstaller.helperScript(
+            pid: 9, stagedBundle: "/staged/Maugham.app",
+            installedBundle: "/Applications/Maugham.app", relaunch: false)
+
+        // The guard exists.
+        let guardIdx = script.range(of: "command -v python3")
+        XCTAssertNotNil(guardIdx, "Script must guard on python3 availability")
+
+        // It precedes the quit-wait (so the app is still alive when we abort) AND
+        // every destructive command (ditto / the swap invocation / rm of staging).
+        guard let guardLower = guardIdx?.lowerBound else { return XCTFail() }
+        for destructive in ["while kill -0", "ditto", "rm -rf", "python3 \""] {
+            let idx = script.range(of: destructive)
+            XCTAssertNotNil(idx, "expected \(destructive) in script")
+            if let d = idx?.lowerBound {
+                XCTAssertTrue(guardLower < d,
+                    "python3 guard must come before `\(destructive)`")
+            }
+        }
+        // And it exits non-zero on the missing case.
+        XCTAssertTrue(script.contains("exit 1"))
+    }
+
     /// The Python swap source must be flush-left (no leading spaces on any line).
     /// A leading space on any module-scope statement is a Python IndentationError.
     func test_pyAtomicSwapSource_noLeadingSpacesOnTopLevelLines() {

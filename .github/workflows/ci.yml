@@ -38,6 +38,9 @@ jobs:
   mac-tests:
     name: Mac tests (Maugham scheme)
     runs-on: macos-15
+    # Recent green runs finish in ~7 min; 30 caps a hung simulator/process well
+    # below the 6 h GitHub default (which would burn macOS-runner minutes).
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -46,11 +49,13 @@ jobs:
           # .git/config (env-block injection defence, per CI-hardening notes).
           persist-credentials: false
 
-      - name: Set up Xcode 26.5
+      - name: Set up Xcode 26.3
         # Pinned to a specific version (NOT latest-stable) so an unexpected
-        # Xcode bump can't silently break the gate between releases.
-        # The developer machine runs Xcode 26.5; this matches that.
-        # SHA is the canonical commit for maxim-lobanov/setup-xcode v1.7.0.
+        # Xcode bump can't silently break the gate between releases. The pin is
+        # 26.3 because that is the newest Xcode the macos-15 runner has installed
+        # (26.5 exists only on the developer machine — pinning it would fail the
+        # runner; see commit a20e0da). SHA is the canonical commit for
+        # maxim-lobanov/setup-xcode v1.7.0.
         uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
           xcode-version: '26.3'
@@ -68,6 +73,22 @@ jobs:
         # Maugham.xcodeproj is generated (gitignored). Always run gen.sh before
         # any xcodebuild invocation.
         run: ./gen.sh
+
+      - name: Cache SPM dependencies
+        # Cache the resolved Swift Package sources (WhisperKit is the big one) so
+        # every run doesn't re-fetch them. SourcePackages only — NOT build
+        # products, which would risk staleness across Xcode/toolchain changes.
+        # Key on the tracked dependency-source files: project.yml carries the
+        # pinned WhisperKit revision and MaughamCore's Package.swift its deps.
+        # (Package.resolved lives under the generated .xcodeproj and isn't
+        # tracked, so it can't anchor the key.) SHA-pinned like every action here
+        # (actions/cache v5.0.5).
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('project.yml', 'Packages/MaughamCore/Package.swift') }}
+          restore-keys: |
+            spm-${{ runner.os }}-
 
       - name: Run Mac tests
         run: |
@@ -92,13 +113,18 @@ jobs:
   phone-tests:
     name: Phone tests (MaughamPhone scheme)
     runs-on: macos-15
+    # 30 min: room for the documented one simulator-boot retry without ever
+    # approaching the 6 h GitHub default on a hung sim.
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 
-      - name: Set up Xcode 26.5
+      - name: Set up Xcode 26.3
+        # 26.3 = newest Xcode on the macos-15 runner (26.5 is dev-machine-only;
+        # pinning it would fail the runner — commit a20e0da).
         uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
           xcode-version: '26.3'
@@ -114,6 +140,16 @@ jobs:
 
       - name: Generate project
         run: ./gen.sh
+
+      - name: Cache SPM dependencies
+        # SourcePackages only (see the Mac job for rationale). SHA-pinned
+        # actions/cache v5.0.5.
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('project.yml', 'Packages/MaughamCore/Package.swift') }}
+          restore-keys: |
+            spm-${{ runner.os }}-
 
       - name: Run Phone tests (with one retry for sim flakiness)
         # The iOS simulator can fail with "Busy / failed preflight checks" on
@@ -170,13 +206,17 @@ jobs:
   concurrency-warnings:
     name: Strict-concurrency warning scan
     runs-on: macos-15
+    # Build-only, no sim; 30 min is ample and caps a hung build.
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 
-      - name: Set up Xcode 26.5
+      - name: Set up Xcode 26.3
+        # 26.3 = newest Xcode on the macos-15 runner (26.5 is dev-machine-only;
+        # pinning it would fail the runner — commit a20e0da).
         uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
           xcode-version: '26.3'
@@ -186,6 +226,16 @@ jobs:
 
       - name: Generate project
         run: ./gen.sh
+
+      - name: Cache SPM dependencies
+        # SourcePackages only (see the Mac job for rationale). SHA-pinned
+        # actions/cache v5.0.5.
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('project.yml', 'Packages/MaughamCore/Package.swift') }}
+          restore-keys: |
+            spm-${{ runner.os }}-
 
       - name: Build with SWIFT_STRICT_CONCURRENCY=complete (warnings only)
         # Build but do NOT test — this step is purely for surfacing diagnostics.
