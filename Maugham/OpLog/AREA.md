@@ -108,7 +108,9 @@ Scope: never the legacy unsuffixed file, never another device's tail, never
 between segment-write and tail-delete is safe by construction
 (`mergeSortedDedup` collapses the duplicates; the next seal converges).
 A checksum failure quarantines + marks the doc unhealthy (backups pause) while
-salvageable ops still derive. Tests: `OpLogSegmentTests`,
+salvageable ops still derive. Non-Mac-editor tails (phone annotation writes,
+MCP) never seal and that is accepted: they carry only rare, tiny lifecycle ops
+and cannot realistically reach the threshold. Tests: `OpLogSegmentTests`,
 `OpLogStoreSegmentTests`, `SegmentSealTriggerTests`, `SegmentIntegrityTests`.
 
 ## RenderFilter's three matching tiers (subtle)

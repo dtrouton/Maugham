@@ -163,6 +163,16 @@ public final class OpLogStore {
     /// operation, never reused across operations). The unprotected gap between
     /// them is exactly the crash window the dedupe/converge contract already
     /// covers, so a single long-held coordinator would buy nothing.
+    ///
+    /// NOTE the dedupe/converge contract covers the CRASH case (same ops in
+    /// both files). A concurrent APPEND into this same tail landing inside the
+    /// read→delete gap would be deleted without being in the segment — that
+    /// case is excluded by ADR 0012's single-writer-per-(device, project)
+    /// guarantee: only this device's editor process writes this tail, and the
+    /// seal runs on the same MainActor as every append, so the interleaving
+    /// requires two same-variant app instances on one Mac, which the app's
+    /// single-instance model rules out. If that model ever changes, this gap
+    /// needs a single coordinated read+rewrite instead.
     @discardableResult
     public func sealTailIfNeeded(
         docId: String, deviceSlug: String,
