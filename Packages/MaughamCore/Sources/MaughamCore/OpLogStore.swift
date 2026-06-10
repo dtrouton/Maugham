@@ -135,6 +135,91 @@ public final class OpLogStore {
             sortedBy: { $0.opId < $1.opId })
     }
 
+    // MARK: - Seal (tail → immutable segment)
+
+    /// Tail size above which a device's live per-doc file is sealed into an
+    /// immutable compressed segment (ADR 0016 / growth spec §5.2). Default
+    /// confirmed against the M0 baseline (spec §9.1).
+    public static let segmentSealThreshold = 512 * 1024
+
+    /// Seal THIS device's live tail for `docId` into the next-numbered
+    /// `.mzseg` segment, iff the tail exceeds `threshold` bytes. Returns the
+    /// segment URL, or nil when nothing was sealed (missing/small/torn tail).
+    ///
+    /// Scope rules (enforced by tests T13/T14): only ever the caller's OWN
+    /// per-device tail — sealing is a rewrite of a single-writer file, the
+    /// exact case ADR 0012 makes conflict-twin-free. NEVER the legacy
+    /// unsuffixed `<docId>.jsonl` (no unambiguous owner; frozen since ADR
+    /// 0012), never another device's file, never `__project__`.
+    ///
+    /// Crash safety is by construction, not by care: dying between the
+    /// segment write and the tail delete leaves the same ops in both files —
+    /// `mergeSortedDedup` collapses them by opId, and the next seal converges
+    /// (the still-oversized tail becomes the next segment). A half-written
+    /// temp file is ignored forever (wrong extension, never renamed).
+    ///
+    /// Coordinator policy: a fresh `NSFileCoordinator` for the read and another
+    /// for the delete, matching `JSONLAppendStore` (one coordinator per file
+    /// operation, never reused across operations). The unprotected gap between
+    /// them is exactly the crash window the dedupe/converge contract already
+    /// covers, so a single long-held coordinator would buy nothing.
+    @discardableResult
+    public func sealTailIfNeeded(
+        docId: String, deviceSlug: String,
+        threshold: Int = OpLogStore.segmentSealThreshold
+    ) async throws -> URL? {
+        guard docId != "__project__" else { return nil }
+        let fm = FileManager.default
+        let tailURL = Self.opLogFileURL(
+            forDocId: docId, deviceSlug: deviceSlug, in: projectURL)
+        let size = ((try? fm.attributesOfItem(atPath: tailURL.path))?[.size] as? Int) ?? 0
+        guard size > threshold else { return nil }
+
+        // 1. Coordinated read of the tail's exact bytes; abort on any torn
+        //    line — never bake unparseable bytes into a checksummed segment
+        //    (the existing quarantine path owns torn tails).
+        let coord = NSFileCoordinator(filePresenter: presenter)
+        var coordErr: NSError?
+        var tailBytes: Data?
+        coord.coordinate(readingItemAt: tailURL, options: [], error: &coordErr) { ru in
+            tailBytes = try? Data(contentsOf: ru)
+        }
+        if let coordErr { throw coordErr }
+        guard let bytes = tailBytes, !bytes.isEmpty else { return nil }
+        let parsed = JSONLAppendStore<Op>.parse(bytes: bytes)
+        guard parsed.diagnostics.skipped.isEmpty else { return nil }
+
+        // 2. Next index = max existing + 1 for this (docId, slug); write the
+        //    container to a temp name, then atomic-rename. Never overwrite.
+        let existing = Self.opLogFileURLs(forDocId: docId, in: projectURL)
+            .compactMap {
+                Self.segmentIndex(fromFilename: $0.lastPathComponent,
+                                  docId: docId, deviceSlug: deviceSlug)
+            }
+        let index = (existing.max() ?? 0) + 1
+        let segURL = Self.segmentFileURL(
+            forDocId: docId, deviceSlug: deviceSlug, index: index, in: projectURL)
+        guard !fm.fileExists(atPath: segURL.path) else { return nil }
+        let container = try OpLogSegment.encode(jsonl: bytes)
+        let tmpURL = segURL.deletingLastPathComponent()
+            .appendingPathComponent(".seal-tmp-\(UUID().uuidString)")
+        try container.write(to: tmpURL, options: .atomic)
+        try fm.moveItem(at: tmpURL, to: segURL)
+
+        // 3. Coordinated delete of the tail; the next append recreates it via
+        //    JSONLAppendStore.append's create branch.
+        let delCoord = NSFileCoordinator(filePresenter: presenter)
+        var delErr: NSError?
+        var removeErr: Error?
+        delCoord.coordinate(writingItemAt: tailURL, options: .forDeleting,
+                            error: &delErr) { wu in
+            do { try fm.removeItem(at: wu) } catch { removeErr = error }
+        }
+        if let delErr { throw delErr }
+        if let removeErr { throw removeErr }
+        return segURL
+    }
+
     // MARK: - Glob helpers (shared with synchronous readers)
 
     /// The op-log file URL a writer for `docId` on device `deviceSlug` appends to:

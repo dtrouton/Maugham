@@ -150,4 +150,111 @@ final class OpLogStoreSegmentTests: XCTestCase {
         ])
         XCTAssertEqual(twins, ["doc-seg1.maca 2.jsonl"])
     }
+
+    // --- Seal procedure (spec §5.2) ---
+    //
+    // The `op` helper's `device` is "maca"; `append` partitions by
+    // `DeviceSlug.make(from:)`, which appends an fnv1a32 suffix (collision
+    // resistance, ADR 0012). So the live tail / seal slug is the DERIVED slug,
+    // not the bare "maca" — the seal must operate on the exact file the writer
+    // created. `sealSlug` is that derived value; expected filenames build from it.
+    private var sealSlug: String { DeviceSlug.make(from: "maca") }
+
+    private func fillTail(_ store: OpLogStore, opCount: Int) async throws {
+        for i in 0..<opCount {
+            try await store.append(op(String(format: "02%04d", i),
+                                      next: String(repeating: "x", count: 200)))
+        }
+    }
+
+    func test_seal_underThreshold_isNoOp() async throws {
+        let store = OpLogStore(projectURL: projectURL)
+        try await fillTail(store, opCount: 3)
+        let sealed = try await store.sealTailIfNeeded(
+            docId: docId, deviceSlug: sealSlug, threshold: 1024 * 1024)
+        XCTAssertNil(sealed)
+    }
+
+    func test_seal_rotatesTail_preservesOps_andRecreatesOnNextAppend() async throws {
+        let store = OpLogStore(projectURL: projectURL)
+        try await fillTail(store, opCount: 20)
+        let before = try await store.load(docId: docId)
+
+        let segURL = try await store.sealTailIfNeeded(
+            docId: docId, deviceSlug: sealSlug, threshold: 1)   // tiny: force seal
+        XCTAssertNotNil(segURL)
+        XCTAssertEqual(segURL?.pathExtension, "mzseg")
+
+        let tailURL = OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: sealSlug, in: projectURL)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: tailURL.path),
+                       "tail must be deleted after a successful seal")
+        let afterSeal = try await store.load(docId: docId)
+        XCTAssertEqual(afterSeal, before,
+                       "sealing must not change the logical op log")
+
+        // Next append recreates the tail via the existing create branch.
+        try await store.append(op("03zzzz", next: "after seal"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: tailURL.path))
+        let afterAppend = try await store.load(docId: docId)
+        XCTAssertEqual(afterAppend.count, before.count + 1)
+    }
+
+    func test_seal_indicesIncrement_neverOverwrite() async throws {
+        let store = OpLogStore(projectURL: projectURL)
+        try await fillTail(store, opCount: 5)
+        let first = try await store.sealTailIfNeeded(
+            docId: docId, deviceSlug: sealSlug, threshold: 1)
+        try await store.append(op("04aaaa", next: "second wave"))
+        let second = try await store.sealTailIfNeeded(
+            docId: docId, deviceSlug: sealSlug, threshold: 1)
+        XCTAssertEqual(first?.lastPathComponent, "doc-seg1.\(sealSlug).seg0001.mzseg")
+        XCTAssertEqual(second?.lastPathComponent, "doc-seg1.\(sealSlug).seg0002.mzseg")
+        let loaded = try await store.load(docId: docId)
+        XCTAssertEqual(loaded.map(\.opId).count, 6)
+    }
+
+    // T13 — a torn tail line aborts the seal; tail left for quarantine.
+    func test_tornTail_abortsSeal() async throws {
+        let store = OpLogStore(projectURL: projectURL)
+        try await fillTail(store, opCount: 3)
+        let tailURL = OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: sealSlug, in: projectURL)
+        var bytes = try Data(contentsOf: tailURL)
+        bytes.append(Data("{\"op_id\":\"torn".utf8))   // no newline, truncated JSON
+        try bytes.write(to: tailURL)
+
+        let sealed = try await store.sealTailIfNeeded(
+            docId: docId, deviceSlug: sealSlug, threshold: 1)
+        XCTAssertNil(sealed, "a tail with a skipped line must never be sealed")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: tailURL.path),
+                      "tail must be left untouched for the quarantine path")
+        let segs = OpLogStore.opLogFileURLs(forDocId: docId, in: projectURL)
+            .filter { $0.pathExtension == "mzseg" }
+        XCTAssertTrue(segs.isEmpty)
+    }
+
+    // T10 (convergence half) — re-running the seal after a crash window converges.
+    func test_sealAfterCrashWindow_converges() async throws {
+        let store = OpLogStore(projectURL: projectURL)
+        try await fillTail(store, opCount: 5)
+        // Simulate the crash: segment written, tail NOT deleted.
+        let tailURL = OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: sealSlug, in: projectURL)
+        let tailBytes = try Data(contentsOf: tailURL)
+        try OpLogSegment.encode(jsonl: tailBytes).write(
+            to: OpLogStore.segmentFileURL(
+                forDocId: docId, deviceSlug: sealSlug, index: 1, in: projectURL))
+        let before = try await store.load(docId: docId)
+        XCTAssertEqual(before.count, 5, "duplicates dedupe in the interim")
+
+        // Re-running the seal sees the still-oversized tail and converges:
+        // the tail's ops land in seg0002; the log is unchanged.
+        let segURL = try await store.sealTailIfNeeded(
+            docId: docId, deviceSlug: sealSlug, threshold: 1)
+        XCTAssertEqual(segURL?.lastPathComponent, "doc-seg1.\(sealSlug).seg0002.mzseg")
+        let converged = try await store.load(docId: docId)
+        XCTAssertEqual(converged, before)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: tailURL.path))
+    }
 }
