@@ -221,6 +221,9 @@ extension Document {
         // bursted op said (often a stale shape from before the user split
         // / inserted paragraphs), which strands new paragraph ids out of
         // sequence and collapses displayText to the stale ordering.
+        // NOTE (growth spec §4.2): this recovery op keeps capturing `sequence`
+        // from the parsed .md UNCONDITIONALLY — it is a recovery op; correctness
+        // over bytes. Keyframing applies only to flushBurstNow.
         if !pending.isEmpty() {
             let recoveredSequence = parsed.compactMap(\.id)
             let recovered = Op(

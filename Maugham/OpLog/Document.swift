@@ -144,6 +144,24 @@ public final class Document {
     /// sweeps (gate on pending and never run sweep on legitimate deletions).
     internal var _pendingSweep: SweepReason? = nil
 
+    /// Keyframe floor (ADR 0016 / growth spec §4.1 rule 2): emit an explicit
+    /// `sequence` at least every Nth burst even when ordering is unchanged —
+    /// a robustness anchor bounding how far back a reader reconstructs
+    /// ordering. Default confirmed against the M0 baseline (spec §9.1).
+    internal static let sequenceKeyframeInterval = 50
+
+    /// Accumulated "paragraph ordering changed since the last sequence-bearing
+    /// burst" flag (growth spec §4.2). Starts TRUE so the first burst after
+    /// load always carries an ordering anchor (rule 3). Set by every in-place
+    /// sequence mutator; cleared ONLY after a *successful* sequence-bearing
+    /// append — on append failure it survives so the durable re-flush still
+    /// carries the ordering signal (T7). Per-instance, not persisted — same
+    /// lifecycle shape as `_pendingSweep`.
+    internal var _orderingDirty: Bool = true
+
+    /// Consecutive bursts emitted without an explicit `sequence` (rule 2 counter).
+    internal var _burstsSinceKeyframe: Int = 0
+
     /// Internal autosave debounce (replaces DocumentStore.scheduleSave).
     internal var autosaveScheduler: DebounceScheduler<Void>!
 
@@ -396,6 +414,7 @@ public final class Document {
             newParagraphs[change.paragraphId] = change.next
         }
         let sequenceChanged = (newSequence != sequence)
+        if sequenceChanged { _orderingDirty = true }
         // Detect paragraph DELETIONS — any id in the prior sequence that's
         // missing from the next sequence. Flag a sweep so the next burst
         // flush archives annotations anchored to removed paragraphs.
@@ -533,6 +552,7 @@ public final class Document {
         } else {
             sequence.append(newId)
         }
+        _orderingDirty = true
         pending.recordChange(paragraphId: newId, prior: nil, next: text)
         burstScheduler.recordActivity()
         autosaveScheduler.schedule(())
@@ -548,6 +568,7 @@ public final class Document {
         let priorText = paragraphs[id]
         paragraphs.removeValue(forKey: id)
         sequence.removeAll { $0 == id }
+        _orderingDirty = true
         if let reason = SweepReason.userTyped(removed: [id]) {
             flagSweep(reason)
         }
@@ -565,6 +586,7 @@ public final class Document {
 
     public func reorder(sequence: [String]) {
         self.sequence = sequence
+        _orderingDirty = true
         // No paragraph-change ops for pure reorder; the next typing_burst
         // emission will carry the new sequence as its `sequence` field.
         burstScheduler.recordActivity()
@@ -579,18 +601,35 @@ public final class Document {
         let hadPending = !pending.isEmpty()
         if hadPending {
             let changes = pending.snapshot()
-            // Capture the latest sequence on the burst so cross-Mac merge sees
-            // ordering changes.
+            // Keyframed sequence emission (ADR 0016 / growth spec §4.1):
+            // attach `sequence` only when the ordering changed since the last
+            // sequence-bearing burst (`_orderingDirty`, which starts true so
+            // the first burst after load anchors the session), or every
+            // `sequenceKeyframeInterval`th burst as a robustness floor.
+            // Otherwise emit nil — the deriver carries the last explicit
+            // sequence forward (`Deriver.derive`), so cross-Mac merge still
+            // sees every ordering change.
+            let emitSequence = _orderingDirty
+                || _burstsSinceKeyframe >= Self.sequenceKeyframeInterval
             let op = Op(
                 opId: ULID.generate(),
                 docId: docId, at: Date(),
                 device: device, session: session,
                 kind: .typingBurst,
                 changes: changes,
-                sequence: sequence,
+                sequence: emitSequence ? sequence : nil,
                 provenance: nil)
             try await opStore.append(op)
             _opLogMirror.append(op)
+            // Clear the ordering signal ONLY after the append succeeded — a
+            // throw above leaves `_orderingDirty` set so the close()-path
+            // durable re-flush still carries it (spec §4.2 / T7).
+            if emitSequence {
+                _orderingDirty = false
+                _burstsSinceKeyframe = 0
+            } else {
+                _burstsSinceKeyframe += 1
+            }
             try await pending.clear()
             // Inline tasks are derived from paragraph text — any pending
             // typing change may have added/removed/toggled a `- [ ]` line.
