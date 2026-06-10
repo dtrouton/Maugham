@@ -9,6 +9,23 @@ import Foundation
 /// additive optional field, schema stays 1, no migration. Decodes as nil
 /// for pre-`id` manifests; `ProjectStore.load` backfills a minted ULID.
 public struct ProjectManifest: Codable, Equatable, Sendable {
+    /// The schema version this build writes and is the ceiling
+    /// `decodeGuardingSchema` will accept.
+    ///
+    /// SCHEMA CONTRACT (ADR 0015, audit N4) — the destination for every tolerant
+    /// `.unknown` enum's "adding a case ⇒ bump this" note (`OpKind`,
+    /// `ProjectType`, `SynthesisSource`): **adding a case to any tolerant enum, or
+    /// any other non-additive schema change, MUST bump this number.** Why it's
+    /// load-bearing: each tolerant enum decodes an unrecognized raw value to
+    /// `.unknown`, which re-encodes LOSSILY as the literal `"unknown"` (the
+    /// String-raw encoder keeps no memory of the original). For append-only data
+    /// (the op log) that's benign, but the manifest is rewritten on every
+    /// structural edit — an old build that opened a newer manifest would
+    /// permanently degrade the unknown value on its next save. `decodeGuardingSchema`
+    /// is the actual protection: it REFUSES a file whose `schemaVersion` exceeds
+    /// this, so the lossy `.unknown` path is only ever reached for a *same-version*
+    /// file carrying an unexpected value — which only stays safe as long as every
+    /// genuinely-new case is accompanied by a bump here.
     public static let currentSchemaVersion = 1
 
     /// The filename used by every Maugham project for its manifest.

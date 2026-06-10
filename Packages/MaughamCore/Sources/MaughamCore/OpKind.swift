@@ -36,6 +36,15 @@ public enum OpKind: String, Codable, Equatable, Sendable {
     /// manufacture one; a future real kind must be a named case, and the
     /// exhaustive switch over `OpKind` (`Deriver.appliesToManuscript`) then
     /// becomes a compile error forcing the dev to classify it. See ADR 0015.
+    ///
+    /// SCHEMA CONTRACT (ADR 0015, audit N4): **adding a case ⇒ bump
+    /// `ProjectManifest.currentSchemaVersion`.** `decodeGuardingSchema` is the
+    /// real protection (it refuses a genuinely-newer-schema file up front); this
+    /// `.unknown` tolerance is only the within-version safety net. `.unknown`
+    /// re-encodes LOSSILY as the literal `"unknown"` (the synthesized String-raw
+    /// encoder has no memory of the original raw value) — harmless for the
+    /// append-only op log (ops aren't rewritten), but the bump is what guarantees
+    /// an old build never silently degrades a newer file it then re-saves.
     case unknown
 
     public init(from decoder: Decoder) throws {

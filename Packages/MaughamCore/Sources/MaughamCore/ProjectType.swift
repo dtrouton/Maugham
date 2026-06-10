@@ -18,6 +18,14 @@ public enum ProjectType: String, Codable, CaseIterable, Equatable, Sendable {
     /// arises for a same-schema file carrying an unexpected value — graceful
     /// degradation of one project, not a brick. Excluded from `allCases` so it
     /// never appears in pickers.
+    ///
+    /// SCHEMA CONTRACT (ADR 0015, audit N4): **adding a case ⇒ bump
+    /// `ProjectManifest.currentSchemaVersion`.** `decodeGuardingSchema` is the
+    /// real protection; this tolerance is the within-version net. `.unknown`
+    /// re-encodes LOSSILY as the literal `"unknown"` — and the manifest IS
+    /// rewritten on every structural edit, so without the bump an old build that
+    /// opened a newer manifest could permanently degrade its `type` on the next
+    /// save. The schemaVersion gate is what prevents that.
     case unknown
 
     public static var allCases: [ProjectType] {

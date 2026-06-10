@@ -17,6 +17,13 @@ public enum SynthesisSource: String, Codable, Equatable, Hashable, Sendable {
     /// `synthesisSource` is forensic/provenance metadata (consumed only by the
     /// HistoryPane display, which already has `default:` arms), so an unknown
     /// cause degrades to a generic label, never to data loss.
+    ///
+    /// SCHEMA CONTRACT (ADR 0015, audit N4): **adding a case ⇒ bump
+    /// `ProjectManifest.currentSchemaVersion`.** `decodeGuardingSchema` is the
+    /// real protection; this tolerance is the within-version net. `.unknown`
+    /// re-encodes LOSSILY as the literal `"unknown"`. Carried on `Op` (append-only
+    /// log, not rewritten), so the lossy re-encode is benign here; the bump
+    /// remains the discipline that keeps the gate honest.
     case unknown
 
     public init(from decoder: Decoder) throws {
