@@ -208,3 +208,136 @@ already under budget (43 → 37 ms). The final M3 gate is still measured
 has already pulled the only over-budget surface back under the line. Sync churn
 (the M2 motivation) fell 38% (novel) / 73% (screenplay) purely from not
 re-serializing the sequence on every burst.
+
+## After M2 (sealed segments, commits 6013752..6343675)
+
+Re-run of the same env-gated harness against the same seed-42 corpus, on branch
+`oplog-growth` at commit 6343675 (M2 sealed compressed segments: `OpLogSegment`
+container, threshold-gated seal at `Document.close()` + project-open
+maintenance). Verbatim harness output (the header still reads "M0 BASELINE" —
+the print string is shared; these are the post-M2 numbers). **The "total op-log
+bytes on disk" line now sums any `.mzseg` segments + the live tail**; sealing
+fires for the screenplay during fixture generation once its tail crosses the
+512 KB threshold (each fixture session closes the Document, the seal trigger).
+
+```
+===== M0 BASELINE — novel =====
+docs: 30, bursts: 7200, ops: 7230
+total op-log bytes on disk:      11192822
+encoded op bytes (canonical):    11185592
+sequence-attributable bytes:     1312020 (11.7% of encoded)
+tail bytes rewritten (sync churn proxy): 1417911331
+Document.load (largest doc, min of 3):   0.03587975 seconds
+Deriver.derive (full log, min of 5):     0.000216042 seconds
+compression probe (largest tail):
+  LZFSE: 403750 → 21274 B (19.0×) in 0.001214625 seconds
+  LZMA : 403750 → 16376 B (24.7×) in 0.016066042 seconds
+=======================================
+```
+
+```
+===== M0 BASELINE — screenplay =====
+docs: 1, bursts: 240, ops: 241
+total op-log bytes on disk:      221255
+encoded op bytes (canonical):    1234976
+sequence-attributable bytes:     777481 (63.0% of encoded)
+tail bytes rewritten (sync churn proxy): 69162556
+Document.load (largest doc, min of 3):   0.0988145 seconds
+Deriver.derive (full log, min of 5):     0.0007105 seconds
+compression probe (largest tail):
+  LZFSE: 157027 → 14324 B (11.0×) in 0.000534167 seconds
+  LZMA : 157027 → 11552 B (13.6×) in 0.008351042 seconds
+=======================================
+```
+
+### Did sealing fire? — yes (inferred from the totals, mechanism pinned by tests)
+
+The fixture's `.maugham/ops/` dir is deleted by the test's `defer`, so we read
+the seal off the totals rather than the dir listing (the mechanism itself is
+pinned by `SegmentSealTriggerTests`, not inferred here):
+
+- **Screenplay total: 1,235,048 B (post-M1) → 221,255 B (post-M2), −82.1%.** The
+  `total op-log bytes on disk` line counts segments + tail; a logical log that
+  encodes to 1,234,976 B of canonical op bytes now occupies only 221,255 B on
+  disk → the bulk was rotated into compressed `.mzseg` segments. A no-seal world
+  would show on-disk ≈ encoded (it did pre-M2: 1,235,048 ≈ 1,234,807). Segments
+  + LZFSE are active.
+- **The compression probe's "largest tail" shrank 1,235,048 → 157,027 B.** The
+  probe runs against the live tail file; post-seal the tail holds only the ops
+  appended *after* the last seal (157 KB < the 512 KB threshold, as expected for
+  an un-sealed remainder). Pre-M2 the probe saw the whole 1.2 MB unsealed log.
+- **Novel total is essentially unchanged (11,192,774 → 11,192,822 B, +48 B).**
+  No novel doc's tail ever crosses 512 KB at fixture scale (busiest novel tail
+  ≈ 404 KB per the probe), so no novel doc seals — exactly the threshold
+  behaviour the design predicts. The +48 B is run-to-run ULID/timestamp jitter
+  in the canonical encoding, not a regression.
+
+### Per-doc on-disk arithmetic vs the < ~1 MB/doc drafting-month gate
+
+| Surface | On-disk total | Docs | Per-doc | vs ~1 MB gate |
+|---|---|---|---|---|
+| Novel | 11,192,822 B | 30 | **373,094 B (~364 KB/doc)** | **PASS** (~0.36×) |
+| Screenplay | 221,255 B | 1 | **221,255 B (~216 KB)** | **PASS** (~0.22×) |
+
+Both fixture surfaces — each a month-scale drafting history — sit comfortably
+under the ~1 MB/doc budget. The screenplay, the only surface that was *over*
+1 MB pre-M1 (5.5 MB) and the M2 sealing target, lands at ~216 KB post-seal: M1
+(−77.6% via keyframing) and M2 (sealing the ≥512 KB tail at ~22× LZFSE)
+compound. **M2 exit gate "fixture drafting-month < ~1 MB/doc" — MET.**
+
+### M3 go/no-go verdict — **NO-GO (M3 does NOT ship)**
+
+The post-M2 `Document.load` at fixture scale is the deciding number for whether
+plan Tasks 13–14 (the M3 derived-state cache) run *at all*:
+
+| Surface | `Document.load` (largest doc, post-M2) | 150 ms budget |
+|---|---|---|
+| Novel | **35.9 ms** | under (~0.24×) |
+| Screenplay | **98.8 ms** | under (~0.66×) |
+
+Both surfaces are **under** the 150 ms M3 line — the screenplay, the only
+surface that was ever over budget (208 ms pre-M1), sits at 98.8 ms. Per spec §6
+("Ships **only if** the post-M2 load-time budget is violated") and §8 ("M3:
+gate to start = only if post-M2 load > budget"), **the M3 gate is NOT violated,
+so M3 / plan Tasks 13–14 do NOT run.** The load win came from M1's byte
+reduction (208 → 97 ms); M2 held the screenplay flat (97 → 99 ms — sealing
+trades a slightly larger logical history for one decompress, net neutral at this
+scale) while delivering its on-disk/sync wins. Derive stays ≤ 0.7 ms throughout
+— load was always JSONL-decode-bound, and there is no longer enough of it to
+justify a cache.
+
+### Sync-churn trajectory M0 → M1 → M2
+
+`tail bytes rewritten` is the sync-churn proxy: total bytes a sync layer would
+re-upload as the tail is re-serialized on every burst.
+
+| Surface | M0 (pre) | M1 | M2 | M0→M2 |
+|---|---|---|---|---|
+| Novel | 2,285,546,611 | 1,417,904,939 | 1,417,911,331 | **−38.0%** |
+| Screenplay | 701,596,500 | 187,436,824 | **69,162,556** | **−90.1%** |
+
+M1 took the first cut on both surfaces by not re-serializing `sequence` every
+burst. **M2 then collapsed the screenplay's churn a further 63%** (187 M →
+69 M): once the tail seals into an immutable `.mzseg`, those bytes leave the
+"rewritten on the next append" set entirely — the live tail a sync layer
+re-touches is only the post-seal remainder (157 KB), not the whole 1.2 MB log.
+The novel is flat M1→M2 (no doc seals at fixture scale), as expected. Net
+M0→M2: the single-file screenplay — the pathological case ADR 0016 named — drops
+**90%** of its sync-churn write amplification.
+
+### Backup-blip observation (spec §5.4 documentation duty)
+
+`MerkleManifest` and `BackupSignature` (`Packages/MaughamCore/Sources/MaughamCore/MerkleManifest.swift`,
+`BackupSignature.swift`; consumed by `BackupRunner`/`BackupSignature`/
+`BackupGeneration`/`BackupWriter`) hash op-log files **as files** — a backup
+generation is a signature over the file-set. A seal mutates that file-set
+exactly once (the tail file shrinks/rotates and one new `.mzseg` appears), so
+each seal produces **exactly one extra backup generation** and no more. This is
+the accepted, expected one-generation blip per spec §5.4. Critically, sealed
+segments are **immutable thereafter**: once a `.mzseg` exists its hash never
+changes, so the backup layer's skip-unchanged path gets *more* stable after a
+seal, not less — the segment is hashed once and then skipped on every
+subsequent generation. No code change; signature semantics already produce the
+desired behaviour by construction. (Mechanism for the integrity side is pinned
+by `SegmentIntegrityTests` / T12; the backup-blip itself is a documented
+observation, not a newly-tested assertion.)
