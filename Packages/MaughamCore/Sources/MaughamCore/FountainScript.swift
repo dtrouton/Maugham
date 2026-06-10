@@ -179,6 +179,113 @@ public struct FountainScript: Equatable, Sendable {
         return adjustment
     }
 
+    /// One scene's heading line plus its derived navigator metrics.
+    public struct SceneSummary: Equatable, Sendable {
+        /// The `.sceneHeading` line that starts this scene.
+        public let line: FountainLine
+        /// 1-indexed page number where this scene begins. Equals
+        /// `pageNumber(at: line)`.
+        public let pageNumber: Int
+        /// Estimated length of this scene in pages (fractional). Equals
+        /// `sceneLength(startingAt: line)`.
+        public let length: Double
+
+        public init(line: FountainLine, pageNumber: Int, length: Double) {
+            self.line = line
+            self.pageNumber = pageNumber
+            self.length = length
+        }
+    }
+
+    /// All scene headings with their page number and length, computed in a
+    /// SINGLE O(lines) pass. This is the cached/one-pass replacement for
+    /// calling `pageNumber(at:)` + `sceneLength(startingAt:)` per scene per
+    /// render (each of which is an O(document) walk — tripwire 4). The page-
+    /// number arithmetic reuses the exact state machine of `pageNumber(at:)`,
+    /// and each scene's length reuses `lineCount(for:)` + `dualPairAdjustment`
+    /// over the scene's slice — same formulas, no duplication. Verified line-
+    /// for-line against the per-call APIs by `SceneSummariesParityTests`.
+    public func sceneSummaries() -> [SceneSummary] {
+        let linesPerPage = 55
+
+        // --- pageNumber(at:) running state, replayed once over all lines. ---
+        var totalLines = 0
+        var adjustmentAccrued = 0
+        var previousBlockLines: Int? = nil
+        var currentBlockLines: Int? = nil
+        var currentBlockIsDualSecond = false
+
+        // --- per-scene length accumulation ---
+        var summaries: [SceneSummary] = []
+        var pendingHeading: FountainLine? = nil
+        var pendingHeadingPage = 1
+        var pendingSceneLines: [FountainLine] = []
+
+        func finalizePendingScene() {
+            guard let heading = pendingHeading else { return }
+            let rawTotal = pendingSceneLines.reduce(0) { $0 + Self.lineCount(for: $1) }
+            let adjustment = Self.dualPairAdjustment(lines: pendingSceneLines)
+            let length = Double(max(0, rawTotal - adjustment)) / Double(linesPerPage)
+            summaries.append(
+                SceneSummary(line: heading, pageNumber: pendingHeadingPage, length: length))
+        }
+
+        for candidate in lines {
+            if candidate.element == .sceneHeading {
+                // Snapshot the page number for THIS heading using the same
+                // "finalize any in-flight pair for the return value only"
+                // rule pageNumber(at:) uses — without mutating the persistent
+                // running state (pageNumber(at:) returns before mutating it).
+                var pairBonus = 0
+                if let prev = previousBlockLines, let cur = currentBlockLines,
+                   currentBlockIsDualSecond {
+                    pairBonus = min(prev, cur)
+                }
+                let adjusted = max(0, totalLines - (adjustmentAccrued + pairBonus))
+                let page = (adjusted / linesPerPage) + 1
+
+                // The previous scene ends just before this heading.
+                finalizePendingScene()
+                pendingHeading = candidate
+                pendingHeadingPage = page
+                pendingSceneLines = [candidate]
+            } else if pendingHeading != nil {
+                pendingSceneLines.append(candidate)
+            }
+
+            // Advance the pageNumber(at:) state machine past this line.
+            let candidateCount = Self.lineCount(for: candidate)
+            totalLines += candidateCount
+            switch candidate.element {
+            case .character:
+                if let prev = previousBlockLines, let cur = currentBlockLines,
+                   currentBlockIsDualSecond {
+                    adjustmentAccrued += min(prev, cur)
+                    previousBlockLines = nil
+                    currentBlockLines = nil
+                    currentBlockIsDualSecond = false
+                }
+                if currentBlockLines != nil {
+                    previousBlockLines = currentBlockLines
+                }
+                currentBlockLines = candidateCount
+                currentBlockIsDualSecond = candidate.isDualSecond
+            case .dialogue, .parenthetical:
+                currentBlockLines = (currentBlockLines ?? 0) + candidateCount
+            default:
+                if let prev = previousBlockLines, let cur = currentBlockLines,
+                   currentBlockIsDualSecond {
+                    adjustmentAccrued += min(prev, cur)
+                }
+                previousBlockLines = nil
+                currentBlockLines = nil
+                currentBlockIsDualSecond = false
+            }
+        }
+        finalizePendingScene()
+        return summaries
+    }
+
     /// Distinct uppercased character names mentioned in the script. Populated
     /// from `.character` lines; used by 3b autocomplete.
     public var characterNames: Set<String> {

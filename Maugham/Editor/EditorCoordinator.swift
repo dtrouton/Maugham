@@ -83,6 +83,18 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// textDidChange knows to leave lastCycleTarget alone.
     private var isApplyingTabCycle = false
 
+    /// Trailing-edge debounce for the `.maughamScriptDidUpdate` post on the
+    /// typing fast path. Posting the whole parsed `FountainScript` on every
+    /// keystroke drove deep SwiftUI `Equatable` deep-compares of the entire
+    /// script (and per-row O(document) walks in the scene navigator) — the
+    /// 2026-06-10 live profile's dominant Scenes-sidebar cost. We coalesce the
+    /// outbound notification to a ~350ms trailing edge while typing; whole-doc
+    /// callers (`attach`, `applyExternalText`, theme/typography/focus changes)
+    /// still post immediately. `lastParsedScript`/`lastTokens` are updated per
+    /// keystroke exactly as before — ONLY the notification is debounced.
+    /// Mirrors `EditorHost.metricsMirrorTask`.
+    private var scriptUpdateNotifyTask: Task<Void, Never>?
+
     /// Observer token for `maughamNavigateToScene` notifications.
     private var navigateObserver: NSObjectProtocol?
 
@@ -225,6 +237,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     }
 
     deinit {
+        scriptUpdateNotifyTask?.cancel()
         if let token = navigateObserver {
             NotificationCenter.default.removeObserver(token)
         }
@@ -242,6 +255,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// Set the text view from outside (called by EditorSurface.makeNSView).
     func attach(to textView: NSTextView) {
         self.textView = textView
+        // Drop any debounced script post still pending from a prior text so a
+        // stale script can't land on the freshly-attached doc's navigator.
+        scriptUpdateNotifyTask?.cancel()
+        scriptUpdateNotifyTask = nil
         applyAppearance(theme: theme, typography: typography)
         retokenizeAndStyle()
         if let location = initialCursorLocation {
@@ -263,6 +280,11 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// External (binding-side) update — replace text without disturbing user.
     func applyExternalText(_ text: String) {
         applyExternalTextCallCount += 1
+        // Cloud-conflict resolution replaces the whole buffer — drop any
+        // debounced typing-path script post so it can't land after the
+        // immediate whole-doc post this call's retokenizeAndStyle emits.
+        scriptUpdateNotifyTask?.cancel()
+        scriptUpdateNotifyTask = nil
         guard let textView, textView.string != text else { return }
         isApplyingExternalUpdate = true
         defer { isApplyingExternalUpdate = false }
@@ -426,10 +448,12 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         }
         self.lastTokens = tokens
         // Notify subscribers (e.g., scene navigator) that the script changed.
+        // On the typing fast path, coalesce to a trailing edge so the scene
+        // navigator's per-keystroke deep-compare + per-row walks don't run on
+        // every key. Whole-doc callers post immediately. See AREA tripwire 4
+        // and `scriptUpdateNotifyTask`.
         if let script = lastParsedScript {
-            NotificationCenter.default.post(
-                name: .maughamScriptDidUpdate,
-                object: script)
+            postScriptDidUpdate(script, debounced: windowedTyping)
         }
         // On the typing fast path, restrict structural attribute application to
         // the classification-changed window (diffed old→new tokens). Any
@@ -483,6 +507,33 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // cursor without moving the selection, so we must fire here too (not
         // only from textViewDidChangeSelection).
         onElementChanged?(currentElementAbbreviation(in: textView))
+    }
+
+    /// Posts `.maughamScriptDidUpdate` carrying `script`. When `debounced`,
+    /// coalesces to a ~350ms trailing edge (cancel-and-reschedule), so the
+    /// scene navigator's deep-compare + per-row walks fire once per typing
+    /// burst rather than once per keystroke. When not debounced (whole-doc
+    /// callers), cancels any in-flight debounced post first — so a stale
+    /// script post can't land AFTER an immediate whole-doc one — then posts
+    /// synchronously. `deinit` and `applyExternalText`/`attach` cancel the
+    /// pending task, so a doc switch mid-debounce never strands a stale
+    /// script post on the new document's navigator.
+    private func postScriptDidUpdate(_ script: FountainScript, debounced: Bool) {
+        guard debounced else {
+            scriptUpdateNotifyTask?.cancel()
+            scriptUpdateNotifyTask = nil
+            NotificationCenter.default.post(
+                name: .maughamScriptDidUpdate, object: script)
+            return
+        }
+        scriptUpdateNotifyTask?.cancel()
+        scriptUpdateNotifyTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled else { return }
+            self?.scriptUpdateNotifyTask = nil
+            NotificationCenter.default.post(
+                name: .maughamScriptDidUpdate, object: script)
+        }
     }
 
     // MARK: - NSTextViewDelegate
