@@ -381,9 +381,23 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                 kind: marker.kind)
     }
 
-    private func retokenizeAndStyle() {
+    /// Re-tokenize the whole document and apply typography.
+    ///
+    /// `windowedTyping` is set to `true` ONLY from the `textDidChange` typing
+    /// path. When true, the structural attribute application is restricted to
+    /// the classification-changed window (diffed against `lastTokens` via
+    /// `TokenRestyleWindow`) instead of the whole document — the keystroke
+    /// fast path (see Editor AREA.md / `WindowedTypographyEquivalenceTests`).
+    /// Every other caller (initial attach, `applyExternalText`, theme /
+    /// typography / focus changes) leaves it `false` and gets the whole-doc
+    /// application, which is the contract those paths rely on. Tokenization
+    /// itself is always whole-document either way.
+    private func retokenizeAndStyle(windowedTyping: Bool = false) {
         guard let textView, let storage = textView.textStorage else { return }
         let text = textView.string
+        // Capture the pre-restyle tokens BEFORE we overwrite `lastTokens`, so
+        // the window diff compares old→new. nil when not windowing.
+        let priorTokens = lastTokens
         // P1-editor: parse the Fountain script EXACTLY ONCE per keystroke and
         // thread it through token derivation + styling + the scene-navigator
         // notification, instead of parsing the whole document three times
@@ -409,6 +423,28 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                 name: .maughamScriptDidUpdate,
                 object: script)
         }
+        // On the typing fast path, restrict structural attribute application to
+        // the classification-changed window (diffed old→new tokens). Any
+        // structural inconsistency falls back to whole-doc (window == nil).
+        // NSTextStorage shifts attributes with the text automatically, so the
+        // unchanged head/tail of the document keeps its (already correct)
+        // attributes and only the window is re-applied. See TokenRestyleWindow.
+        var restyleWindow: NSRange? = nil
+        if windowedTyping {
+            switch TokenRestyleWindow.decide(
+                oldTokens: priorTokens,
+                newTokens: tokens,
+                storageLength: storage.length) {
+            case .noChange:
+                // Identical (kind,length) stream: attributes already correct.
+                // Apply an empty window so the modes do no structural writes.
+                restyleWindow = NSRange(location: 0, length: 0)
+            case .window(let range):
+                restyleWindow = range
+            case .fullDocument:
+                restyleWindow = nil
+            }
+        }
         // ProseMode supports an optional wiki-link resolver for `[[Title]]`
         // styling. Other modes use the protocol's resolver-less call.
         if let prose = mode as? ProseMode {
@@ -417,14 +453,16 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                 theme: theme,
                 typography: typography,
                 tokens: tokens,
-                wikiLinkResolver: wikiLinkResolver)
+                wikiLinkResolver: wikiLinkResolver,
+                restyleWindow: restyleWindow)
         } else {
             mode.applyTypography(
                 in: storage,
                 theme: theme,
                 typography: typography,
                 tokens: tokens,
-                parsedScript: lastParsedScript)
+                parsedScript: lastParsedScript,
+                restyleWindow: restyleWindow)
         }
         // Sync typing attributes so the caret on empty lines matches the
         // body font/paragraph style instead of the system default.
@@ -518,7 +556,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // host has a chance to stash the value on the Document.
         onPostEditCursor?(postEditSelection.location)
         binding.wrappedValue = textView.string
-        retokenizeAndStyle()
+        // Typing fast path: window the structural restyle to the
+        // classification-changed region. All other restyle callers stay
+        // whole-document.
+        retokenizeAndStyle(windowedTyping: true)
         // Autocomplete trigger deferred — see milestone-3b notes.
         if !skipCursorRestore {
             // Sync restore covers paste-induced cursor jostle from

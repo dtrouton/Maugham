@@ -50,13 +50,15 @@ public struct ProseMode: WritingMode {
         theme: Theme,
         typography: TypographySettings,
         tokens: [Token],
-        parsedScript: FountainScript? = nil
+        parsedScript: FountainScript? = nil,
+        restyleWindow: NSRange? = nil
     ) {
         // ProseMode (Markdown) doesn't parse Fountain; `parsedScript` is
         // ignored. The param exists only to satisfy the shared protocol so the
         // screenplay hot path can thread its single parse through.
         applyTypography(in: storage, theme: theme, typography: typography,
-                        tokens: tokens, wikiLinkResolver: nil)
+                        tokens: tokens, wikiLinkResolver: nil,
+                        restyleWindow: restyleWindow)
     }
 
     public func applyTypography(
@@ -64,7 +66,8 @@ public struct ProseMode: WritingMode {
         theme: Theme,
         typography: TypographySettings,
         tokens: [Token],
-        wikiLinkResolver: ((String) -> Bool)?
+        wikiLinkResolver: ((String) -> Bool)?,
+        restyleWindow: NSRange? = nil
     ) {
         let resolved = theme.resolved(systemAppearanceIsDark: Self.systemIsDark())
         let palette = resolved.palette
@@ -72,12 +75,34 @@ public struct ProseMode: WritingMode {
         let bodyAttrs = bodyAttributes(palette: palette, baseFont: baseFont,
                                        typography: typography)
 
+        // Structural restyle window (see TokenRestyleWindow / WritingMode doc).
+        // nil → whole document. The checkbox pass that stamps a location-
+        // encoding `MaughamCheckboxAttr` runs document-wide regardless so those
+        // stamps stay current outside the window.
+        let fullStorage = NSRange(location: 0, length: storage.length)
+        let window = restyleWindow.map {
+            NSIntersectionRange($0, fullStorage)
+        } ?? fullStorage
+        func inWindow(_ range: NSRange) -> Bool {
+            NSIntersectionRange(range, window).length > 0
+                || (range.length == 0
+                    && range.location >= window.location
+                    && range.location <= NSMaxRange(window))
+        }
+
         storage.beginEditing()
-        let fullRange = NSRange(location: 0, length: storage.length)
-        storage.setAttributes(bodyAttrs, range: fullRange)
+        storage.setAttributes(bodyAttrs, range: window)
 
         for token in tokens {
             guard NSMaxRange(token.range) <= storage.length else { continue }
+            // The checkbox pass stamps a location-encoding marker that must
+            // stay current document-wide; every other token's styling is
+            // purely local and gated to the window.
+            if case .checkbox = token.kind {
+                // fall through — handled below without a window gate
+            } else if !inWindow(token.range) {
+                continue
+            }
             if case .wikiLink(let title) = token.kind {
                 var attrs: [NSAttributedString.Key: Any] = [:]
                 attrs[.foregroundColor] = palette.link

@@ -110,7 +110,8 @@ public struct ScreenplayMode: WritingMode {
         theme: Theme,
         typography: TypographySettings,
         tokens: [Token],
-        parsedScript: FountainScript? = nil
+        parsedScript: FountainScript? = nil,
+        restyleWindow: NSRange? = nil
     ) {
         let resolved = theme.resolved(systemAppearanceIsDark: Self.systemIsDark())
         let palette = resolved.palette
@@ -119,9 +120,26 @@ public struct ScreenplayMode: WritingMode {
         let bodyAttrs = bodyAttributes(palette: palette, baseFont: baseFont,
                                        typography: typography)
 
+        // The character range whose *structural* attributes (body reset +
+        // per-element/inline/marker styling) get re-applied. nil → whole doc.
+        // Clamped to storage bounds so a stale window can't over-run.
+        let fullStorage = NSRange(location: 0, length: storage.length)
+        let window = restyleWindow.map {
+            NSIntersectionRange($0, fullStorage)
+        } ?? fullStorage
+        // A token participates in the structural passes iff it intersects the
+        // window. With a whole-doc window this is always true (the legacy path).
+        func inWindow(_ range: NSRange) -> Bool {
+            NSIntersectionRange(range, window).length > 0
+                // Zero-length tokens (empty trailing line) intersect the window
+                // when their location falls within it.
+                || (range.length == 0
+                    && range.location >= window.location
+                    && range.location <= NSMaxRange(window))
+        }
+
         storage.beginEditing()
-        let fullRange = NSRange(location: 0, length: storage.length)
-        storage.setAttributes(bodyAttrs, range: fullRange)
+        storage.setAttributes(bodyAttrs, range: window)
 
         // Use the caller's pre-parsed script when supplied (the hot
         // per-keystroke path threads ONE parse through tokenize + here); fall
@@ -141,6 +159,22 @@ public struct ScreenplayMode: WritingMode {
             // Skip titlePage elements (handled by applyTitlePageStyling).
             if case .titlePage = element { continue }
 
+            // `isFirstBody` is POSITIONAL — it must advance for the first body
+            // token in document order whether or not that token is inside the
+            // restyle window, so a windowed pass that lands entirely below the
+            // first body element still attributes the rest of the document
+            // identically to the whole-doc path. Capture-then-advance is cheap
+            // (no per-token script lookup), so it stays OUTSIDE the window guard.
+            let tokenIsFirstBody = isFirstBody
+            isFirstBody = false
+
+            // Out-of-window tokens keep their (shifted-correct) attributes; skip
+            // the expensive isDualSecond lookup + attribute synthesis + write.
+            // This is the keystroke win: the per-element loop body costs O(1)
+            // per out-of-window token instead of O(N) (the isDualSecond search
+            // is linear, making the whole-doc pass O(N²)).
+            guard inWindow(token.range) else { continue }
+
             // Look up isDualSecond from the parsed script by range match.
             let isDualSecond = script.lines.first(where: {
                 $0.range.location == token.range.location
@@ -156,7 +190,7 @@ public struct ScreenplayMode: WritingMode {
 
             // Add paragraph spacing before the first body element when there's
             // a title page above.
-            if hasTitlePage && isFirstBody {
+            if hasTitlePage && tokenIsFirstBody {
                 let mutable: NSMutableParagraphStyle
                 if let existing = attrs[.paragraphStyle] as? NSParagraphStyle {
                     mutable = (existing.mutableCopy() as! NSMutableParagraphStyle)
@@ -165,7 +199,6 @@ public struct ScreenplayMode: WritingMode {
                 }
                 mutable.paragraphSpacingBefore = baseFont.pointSize * 2.0
                 attrs[.paragraphStyle] = mutable
-                isFirstBody = false
             }
 
             storage.addAttributes(attrs, range: token.range)
@@ -178,6 +211,7 @@ public struct ScreenplayMode: WritingMode {
             if line.element == .note { continue }
             for span in line.inlineSpans {
                 guard NSMaxRange(span.range) <= storage.length else { continue }
+                guard inWindow(span.range) else { continue }
                 applyInlineSpan(span, in: storage, palette: palette,
                                 baseFont: baseFont)
             }
@@ -188,8 +222,12 @@ public struct ScreenplayMode: WritingMode {
         // syntactic marker characters get the dimmed syntaxPunctuation color.
         // Mirrors prose mode's quiet-syntax treatment of ** asterisks.
         for line in script.lines {
+            // Skip the substring/marker scan entirely for lines outside the
+            // window — their markers already carry the (shifted-correct) fade.
+            guard inWindow(line.range) else { continue }
             for markerRange in markerRanges(in: line, storage: storage) {
                 guard NSMaxRange(markerRange) <= storage.length else { continue }
+                guard inWindow(markerRange) else { continue }
                 storage.addAttribute(
                     .foregroundColor,
                     value: palette.syntaxPunctuation,
@@ -204,7 +242,8 @@ public struct ScreenplayMode: WritingMode {
             script: script,
             palette: palette,
             baseFont: baseFont,
-            typography: typography)
+            typography: typography,
+            inWindow: inWindow)
 
         // Fifth pass — paint `MaughamCheckboxAttr` over each `[[todo:]]` /
         // `[[done:]]` prefix found in tokens. CRITICAL: this must run AFTER
@@ -682,11 +721,13 @@ public struct ScreenplayMode: WritingMode {
         script: FountainScript,
         palette: ThemePalette,
         baseFont: NSFont,
-        typography: TypographySettings
+        typography: TypographySettings,
+        inWindow: (NSRange) -> Bool = { _ in true }
     ) {
         guard let titlePage = script.titlePage else { return }
         for field in titlePage {
             guard NSMaxRange(field.range) <= storage.length else { continue }
+            guard inWindow(field.range) else { continue }
             let lineSource = (storage.string as NSString)
                 .substring(with: field.range)
 
