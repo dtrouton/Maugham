@@ -16,16 +16,28 @@ public enum ParagraphParser {
     /// its id to that paragraph. Stray comments without a following text
     /// block are discarded.
     ///
-    /// Hot path: runs once per keystroke on the whole display text. The
-    /// per-line work is hand-tuned to avoid Foundation bridging on the
-    /// overwhelmingly-common pure-ASCII line — see `isBlankLine` and
-    /// `mightBeAnchorComment` — while preserving EXACT behavior by falling
-    /// back to the Foundation path the moment a line carries any non-ASCII
-    /// scalar (where Unicode whitespace like U+00A0 could differ).
+    /// Hot path: runs once per keystroke on the whole display text. This is a
+    /// SINGLE UTF-8 byte-buffer pass — the line split, the blank pre-check, and
+    /// the `<!--` anchor pre-check all read raw bytes, and each content line is
+    /// materialized as a `String` exactly once from its byte range. The line
+    /// terminators recognized are EXACTLY `Character.isNewline`'s set
+    /// (`\n`, `\r`, `\r\n` as ONE terminator, U+0085 NEL, U+2028 LS, U+2029 PS),
+    /// reproducing `markdown.split(whereSeparator: \.isNewline,
+    /// omittingEmptySubsequences: false)` byte-for-byte — pinned by
+    /// `PerfFastPathDifferentialTests` against the pre-fast-path Foundation
+    /// reference. Pure-ASCII lines take the fast classification path; any
+    /// non-ASCII byte routes that line's blank/anchor check through Foundation
+    /// (where Unicode whitespace like U+00A0 could differ) — the fix-C deferral
+    /// pattern, unchanged in meaning.
     public static func parse(_ markdown: String) -> [ParsedParagraph] {
+        guard !markdown.isEmpty else { return [] }
+
         var result: [ParsedParagraph] = []
         var pendingId: String? = nil
-        var buffer: [Substring] = []
+        // Accumulates the materialized content lines of the in-progress
+        // paragraph; joined with "\n" and `.newlines`-trimmed on flush, exactly
+        // as the prior `buffer.joined(separator: "\n")` did.
+        var buffer: [String] = []
 
         func flushParagraph() {
             guard !buffer.isEmpty else { return }
@@ -38,59 +50,112 @@ public enum ParagraphParser {
             pendingId = nil
         }
 
-        let lines = markdown.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
-        for line in lines {
-            if isBlankLine(line) {
-                flushParagraph()
-                continue
+        let utf8 = Array(markdown.utf8)
+        let n = utf8.count
+        utf8.withUnsafeBufferPointer { buf in
+            var i = 0
+            // The split keeps empty subsequences (omittingEmptySubsequences:
+            // false), so a trailing terminator yields a trailing empty line and
+            // consecutive terminators yield empty lines between — both blank,
+            // both flush. We replicate that by always emitting a line for the
+            // span before each terminator AND one final span after the last
+            // terminator (even when empty).
+            while true {
+                let lineStart = i
+                // Walk to the next terminator (or EOF).
+                var isASCII = true
+                while i < n {
+                    let b = buf[i]
+                    if b == 0x0A || b == 0x0D { break }                 // LF, CR
+                    if b == 0xC2, i + 1 < n, buf[i + 1] == 0x85 { break } // NEL
+                    if b == 0xE2, i + 2 < n, buf[i + 1] == 0x80,
+                       (buf[i + 2] == 0xA8 || buf[i + 2] == 0xA9) { break } // LS/PS
+                    if b >= 0x80 { isASCII = false }
+                    i += 1
+                }
+                let contentEnd = i   // exclusive; excludes terminator
+                // Classify + consume this line. Inlined (not a helper taking
+                // `&buffer`/`flushParagraph`) so the exclusivity checker sees a
+                // single access to the captured paragraph state per line.
+                if isBlankSpan(buf, lineStart, contentEnd, isASCII) {
+                    flushParagraph()
+                } else if mightBeAnchorSpan(buf, lineStart, contentEnd, isASCII) {
+                    let lineStr = spanString(buf, lineStart, contentEnd)
+                    if let id = ParagraphID.parseComment(lineStr) {
+                        flushParagraph()
+                        pendingId = id
+                    } else {
+                        buffer.append(lineStr)
+                    }
+                } else {
+                    buffer.append(spanString(buf, lineStart, contentEnd))
+                }
+
+                // Advance past the terminator (CRLF merges as one).
+                if i >= n { break }
+                let b = buf[i]
+                if b == 0x0D {
+                    if i + 1 < n, buf[i + 1] == 0x0A { i += 2 } else { i += 1 }
+                } else if b == 0x0A {
+                    i += 1
+                } else if b == 0xC2 {       // NEL: C2 85
+                    i += 2
+                } else {                    // LS/PS: E2 80 A8/A9
+                    i += 3
+                }
             }
-            if mightBeAnchorComment(line), let id = ParagraphID.parseComment(String(line)) {
-                // Comment lines flush any in-progress buffer and stash the id
-                // for the next paragraph. Existing pendingId (from a prior
-                // stray comment) is replaced.
-                flushParagraph()
-                pendingId = id
-                continue
-            }
-            buffer.append(line)
         }
         flushParagraph()
         return result
     }
 
-    /// True iff `line` is empty after trimming `CharacterSet.whitespaces`
-    /// (space, tab, and the Unicode `Zs` separators). Fast path: a pure-ASCII
-    /// line is blank iff every byte is space (0x20) or tab (0x09). Any
-    /// non-ASCII byte means a scalar that *might* be Unicode whitespace
-    /// (U+00A0 etc.), so we defer to the exact Foundation check rather than
-    /// guess.
+    /// Materialize the line `String` from a UTF-8 byte span exactly once.
     @inline(__always)
-    private static func isBlankLine(_ line: Substring) -> Bool {
-        let utf8 = line.utf8
-        for byte in utf8 {
-            if byte == 0x20 || byte == 0x09 { continue }   // space / tab
-            if byte >= 0x80 {
-                // Non-ASCII present — exact semantics via Foundation.
-                return String(line).trimmingCharacters(in: .whitespaces).isEmpty
-            }
-            return false   // ASCII non-whitespace → not blank
-        }
-        return true   // all space/tab (or empty)
+    private static func spanString(
+        _ buf: UnsafeBufferPointer<UInt8>, _ lo: Int, _ hi: Int
+    ) -> String {
+        if lo == hi { return "" }
+        return String(decoding: UnsafeBufferPointer(rebasing: buf[lo..<hi]),
+                      as: UTF8.self)
     }
 
-    /// Cheap pre-check before the (relatively costly) `ParagraphID.parseComment`
-    /// regex. `parseComment` first trims `.whitespacesAndNewlines` then requires
-    /// the result to start `<!--`. So a line can only be an anchor comment if,
-    /// after skipping leading ASCII whitespace, it begins with `<` (`<!--`).
-    /// Pure-ASCII lines that don't are rejected in O(prefix) with no allocation.
-    /// Any leading non-ASCII byte defers to the full parser (a leading Unicode
-    /// space would be trimmed there).
+    /// True iff the content span is empty after trimming
+    /// `CharacterSet.whitespaces`. Pure-ASCII fast path: blank iff every byte
+    /// is space (0x20) or tab (0x09). Any non-ASCII byte defers to the exact
+    /// Foundation check (a U+00A0 etc. could be `Zs` whitespace). Mirrors the
+    /// prior `isBlankLine`.
     @inline(__always)
-    private static func mightBeAnchorComment(_ line: Substring) -> Bool {
-        for byte in line.utf8 {
-            if byte == 0x20 || byte == 0x09 { continue }   // skip leading space/tab
-            if byte >= 0x80 { return true }                // non-ASCII lead → defer
-            return byte == 0x3C                            // '<'
+    private static func isBlankSpan(
+        _ buf: UnsafeBufferPointer<UInt8>, _ lo: Int, _ hi: Int, _ isASCII: Bool
+    ) -> Bool {
+        if isASCII {
+            var k = lo
+            while k < hi {
+                let b = buf[k]
+                if b != 0x20 && b != 0x09 { return false }
+                k += 1
+            }
+            return true
+        }
+        return spanString(buf, lo, hi)
+            .trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// Cheap pre-check before `ParagraphID.parseComment`'s regex: after skipping
+    /// leading ASCII whitespace a line can only be an anchor comment if it then
+    /// begins with `<` (`<!--`). Any leading non-ASCII byte defers to the full
+    /// parser (a leading Unicode space would be trimmed there). Mirrors the
+    /// prior `mightBeAnchorComment`.
+    @inline(__always)
+    private static func mightBeAnchorSpan(
+        _ buf: UnsafeBufferPointer<UInt8>, _ lo: Int, _ hi: Int, _ isASCII: Bool
+    ) -> Bool {
+        var k = lo
+        while k < hi {
+            let b = buf[k]
+            if b == 0x20 || b == 0x09 { k += 1; continue }  // skip space/tab
+            if b >= 0x80 { return true }                    // non-ASCII → defer
+            return b == 0x3C                                // '<'
         }
         return false   // all whitespace (handled as blank earlier anyway)
     }
