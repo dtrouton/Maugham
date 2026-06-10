@@ -128,3 +128,32 @@ Standard CLAUDE.md smoke (both surfaces):
    Recents → **sentence intact**.
 
 (No `.maugham/cache/` deletion step — M3 not built; see deferred reminders.)
+
+## 2026-06-10 addendum: user smoke PASSED + six smoke-found fixes
+
+The manual smoke (250-page generated screenplay, paste-driven) **passed
+end-to-end**: seal fired at ⌘Q (`seg0001.mzseg`, 44 KB for ~460 KB of tail —
+~10×), relaunch intact, History Rewind scrubbed through sealed history, and
+Restore from inside the sealed segment's range landed correctly
+(`checkpoint_restore` to the pre-paste state, verified in the live tail).
+
+The smoke also surfaced six real pre-existing scale bugs, all fixed on this
+branch with tests (commits `0506638..7b7eb0b`):
+1. Same-millisecond ULID ordering let the OLDER of two bursts win LWW (~50%).
+2-4. Typing latency, three rounds: windowed typography (227→0.8 ms);
+   setFullText parse-once + indexed matching; then live-profile-only finds —
+   two hidden per-keystroke Fountain parses, NSString-backed ("foreign")
+   string tax at pipeline entry, scene-navigator per-row O(doc) captions
+   (tripwire 4). 5–10 s keystroke pileups → instant at 70 pp.
+5. Paragraph-id birthday collisions at paste scale (4-char/1.05M space,
+   unguarded mints) — crashed `Dictionary(uniqueKeysWithValues:)`, or worse,
+   silently merged two paragraphs' histories. `ParagraphID.mintUnique` at all
+   mint sites + first-wins legacy tolerance.
+6. Rewind preview rendered BLANK past ~200 KB derived state (single SwiftUI
+   `Text` ceiling) — looked like lost history; now a per-paragraph LazyVStack.
+
+Known remaining floor (roadmap, future milestone): FountainTokenizer
+whole-doc per-keystroke walk + ElementGutterView.draw + the double UTF-8
+copy + post-pause debounce batch (~30–40 ms/keystroke steady at 140 pp in
+Debug; Release ~2–4× better). Verification method of record: `sample <pid>`
+during live typing — headless probes missed every live-only cost.
