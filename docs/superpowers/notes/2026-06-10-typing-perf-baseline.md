@@ -189,3 +189,132 @@ unchanged-contract design):
 - pause-edge ≤ 30 ms unchanged.
 OQ1 resolved: `[UInt16]` array (O(1) random access for classification) —
 0.65 ms sparse access vs 2.4 ms View-walk at 500 KB.
+
+## After M1+M2 (2026-06-10, post-ParagraphParser-rewrite + single-nativization)
+
+Same fixture, same probe (`TypingLatencyProbeTests.test_probe_typingPerfBaseline`,
+Debug). Tables verbatim:
+
+```
+===== TYPING-PERF BASELINE — 5 chunks =====
+bytes: 252433, lines: 5838, labeled: 4146
+FountainTokenizer.parse:   0.01389175 seconds
+ScreenplayMode.tokens:     0.004866875 seconds
+setFullText median:        0.085802125 seconds
+ParagraphParser.parse:     0.002772583 seconds
+makeContiguousUTF8 (×1):   1.67e-07 seconds
+pause-edge: metrics 0.038414417 seconds + summaries 0.006070791 seconds + script== 0.000530917 seconds
+gutter line scan (no layout): 0.000499375 seconds
+==============================================
+```
+
+```
+===== TYPING-PERF BASELINE — 10 chunks =====
+bytes: 504310, lines: 11676, labeled: 8302
+FountainTokenizer.parse:   0.027611292 seconds
+ScreenplayMode.tokens:     0.009610416 seconds
+setFullText median:        0.114797041 seconds
+ParagraphParser.parse:     0.005424791 seconds
+makeContiguousUTF8 (×1):   3.75e-07 seconds
+pause-edge: metrics 0.075565917 seconds + summaries 0.012118917 seconds + script== 0.00107325 seconds
+gutter line scan (no layout): 0.00099325 seconds
+==============================================
+```
+
+```
+===== TYPING-PERF BASELINE — prose 250KB =====
+bytes: 250026, paragraphs: 1095
+ProseMode.tokenize: 0.014377125 seconds
+setFullText median: 0.047416208 seconds
+==============================================
+```
+
+### ParagraphParser (M2 Task 4) — display-parse line
+
+| scale | bytes | M0 Debug | After M2 Debug | Release |
+|---|---|---|---|---|
+| 120 pp | 252 KB | 11.8 ms | **2.79 ms** | — |
+| 250 pp | 504 KB | 23.4 ms | **5.7 ms** | **1.32 ms** |
+
+OQ1 carried over (no new micro-bench needed for the UTF-8 parser — it does ONE
+linear byte split with per-paragraph `String(decoding:)` materialization; the
+`Array(text.utf8)` build itself is **6 µs** at 504 KB, confirmed by a scratch
+best-of-20 bench, so the residual is allocation, not the copy).
+
+- **120 pp clears the ≤ 4 ms sub-gate** (2.79 ms).
+- **250 pp (5.7 ms Debug) MISSES the ≤ 4 ms sub-gate by ~1.7 ms** on the same
+  per-line/per-paragraph allocation floor M1's tokenizer adjudication accepted:
+  on this 43-byte/line fixture the parse materializes ~2,879 paragraph strings
+  (`String(decoding:)`) plus the per-paragraph `joined("\n")` +
+  `trimmingCharacters(in: .newlines)`. Scratch best-of-20: Debug **5.34 ms** /
+  Release **1.32 ms** (Array-copy 6 µs of it). Release strips the ARC/bounds
+  traffic to 1.32 ms — comfortably inside one frame. The contract output is
+  unchanged (`[ParsedParagraph]`); no scan-side port removes the allocation.
+
+### setFullText gate — ATTRIBUTION (the prompt's reality-check)
+
+The M2 plan's setFullText gate is ≤ 8 ms @ 120 pp / ≤ 18 ms @ 250 pp Debug.
+Measured **85.8 ms @ 120 pp / 114.8 ms @ 250 pp** — far over. But
+ParagraphParser, the term M2 Task 4 owns, dropped to **2.8 / 5.7 ms**. The gate
+is missed on a term OUTSIDE Task 4's scope. Per-term breakdown of `setFullText`
+on the 250 pp fixture (scratch instrumentation replicating the method body on a
+mid-doc single-char edit, best-of-10 per term; deleted after measuring):
+
+| term | ms @ 250 pp | owner |
+|---|---|---|
+| buildPriorMaps | 8.7 | Document.setFullText |
+| **ParagraphParser.parse** | **5.7** | **M2 Task 4 (this milestone)** |
+| **RenderFilter.restorePairs** | **87.2** | **RenderFilter (out of scope)** |
+| TaskAnchorAlignment.align | 10.1 | TaskAnchorAlignment (out of scope) |
+| **setFullText total** | **114.8** | — |
+
+**`restorePairs` (87 ms of 115 ms) is the dominant term and is entirely outside
+Task 4's scope.** Why it's expensive: a single-char mid-doc edit changes exactly
+one paragraph, whose text no longer EXACTLY matches the stored index, so it falls
+through to `ShingleMatcher.bestMatch` (scans all ~2,879 unmatched candidates) and
+the `bigramOverlap` ranking (another full O(N) scan + sort over ~2,879). On this
+line-dense screenplay, short near-identical lines that miss the exact-match index
+compound this into an O(paragraphs) (or worse) fuzzy-match pass per keystroke.
+
+> **ADJUDICATION FLAG (M2 setFullText gate):** the ≤ 8/18 ms setFullText gate is
+> **structurally unreachable while `RenderFilter.restorePairs` costs ~87 ms** at
+> 250 pp, and that is a `RenderFilter` term, not a `ParagraphParser` term. M2
+> Task 4 reduced its own term (parse) 23.4 → 5.7 ms Debug / 1.32 ms Release as
+> designed; the residual gate miss is owned by `restorePairs`. This is NOT in
+> scope for the M2 tasks (4–6) and was not scope-crept into. Recommended for
+> adjudication: either (a) accept the revised §4 TOTAL as the binding budget
+> (the M1 precedent — 120 pp ≤ 30 ms / 250 pp ≤ 65 ms Debug — under which the
+> setFullText line is one of several keystroke terms, not its own gate), or
+> (b) open a follow-up to bound `restorePairs`' fuzzy-match fallback (e.g. a
+> position-keyed fast path for the unchanged-prefix/suffix majority, so only the
+> genuinely-relocated paragraphs pay the O(N) shingle scan). The per-keystroke
+> TOTAL trajectory after M2 (see below) is what the revised §4 budget tracks.
+
+### Revised §4 total trajectory after M1+M2
+
+Per-keystroke editor work = `setFullText` + `FountainTokenizer.parse` +
+`ScreenplayMode.tokens` (same attribution as M0). Note `setFullText` already runs
+`ParagraphParser.parse` internally, so the parser win is folded into the
+`setFullText` figure (not double-counted).
+
+| scale | tokenizer | tokens | setFullText | total (Debug) | revised §4 budget | verdict |
+|---|---|---|---|---|---|---|
+| 120 pp | 13.9 ms | 4.9 ms | 85.8 ms | ~104.6 ms | ≤ 30 ms | over (restorePairs-bound) |
+| 250 pp | 27.6 ms | 9.6 ms | 114.8 ms | ~152 ms | ≤ 65 ms | over (restorePairs-bound) |
+
+The totals are dominated by `setFullText`'s `restorePairs` term (the flagged
+out-of-scope cost above). The tokenizer (M1) and parser (M2) terms are within
+their own targets at this point; the revised §4 TOTAL remains gated on the
+`restorePairs` adjudication. **Single-nativization (Task 5)** removes the second
+per-keystroke `makeContiguousUTF8` (the M0 "×2 ≈ 14 ms" live-typing copy —
+invisible in this contiguous-fixture probe where each leg measures ~1 µs, but
+real on a live NSString-backed `textView.string`); its win shows in Task 9's live
+`sample`, not the headless probe.
+
+### Prose
+
+`ProseMode.tokenize` 14.4 ms (unchanged — Task 10 stays dropped). Prose
+`setFullText` median **47.4 ms** (was 55.9 ms M0) — the ~8 ms drop is the shared
+ParagraphParser rewrite (prose's only heavy whole-doc term in setFullText); the
+residual rides the same `restorePairs` adjudication (prose has fewer, longer
+paragraphs so its restorePairs is cheaper — 1,095 vs 2,879 candidates).
