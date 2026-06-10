@@ -52,14 +52,15 @@ public enum ProjectIntegrity {
             var skips: [ParseDiagnostics.SkippedLine] = []
             var opIds: Set<String> = []
             for url in OpLogStore.opLogFileURLs(forDocId: docId, in: projectURL) {
-                let store = JSONLAppendStore<Op>(
-                    fileURL: url,
-                    dedupKey: { $0.opId },
-                    sortedBy: { $0.opId < $1.opId })
-                let result = try await store.loadDiagnosed()
+                // Shared per-file loader: plain `.jsonl` tail or sealed `.mzseg`
+                // segment, so opIds inside segments stay visible to the
+                // dangling-pointer check exactly as tail opIds are. Without this
+                // a `.mzseg` would be JSONL-parsed as garbage and every segment
+                // would surface as parse skips (growth spec §5.4).
+                let result = try await OpLogStore.loadFileDiagnosed(url: url, presenter: nil)
                 skips.append(contentsOf: result.diagnostics.skipped)
-                opIds.formUnion(result.elements.map(\.opId))
-                allOps.append(contentsOf: result.elements)
+                opIds.formUnion(result.ops.map(\.opId))
+                allOps.append(contentsOf: result.ops)
             }
             if !skips.isEmpty { docSkips.append(.init(docId: docId, skipped: skips)) }
             opsByDoc[docId] = opIds

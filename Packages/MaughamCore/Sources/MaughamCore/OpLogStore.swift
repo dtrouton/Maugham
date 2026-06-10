@@ -62,14 +62,62 @@ public final class OpLogStore {
         var merged: [Op] = []
         var skipped: [ParseDiagnostics.SkippedLine] = []
         for url in urls {
-            let store = JSONLAppendStore<Op>(
-                fileURL: url, presenter: presenter,
-                dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
-            let result = try await store.loadDiagnosed()
-            merged.append(contentsOf: result.elements)
+            let result = try await Self.loadFileDiagnosed(url: url, presenter: presenter)
+            merged.append(contentsOf: result.ops)
             skipped.append(contentsOf: result.diagnostics.skipped)
         }
         return (Self.mergeSortedDedup(merged), ParseDiagnostics(skipped: skipped))
+    }
+
+    /// Load + parse ONE op-log file — plain `.jsonl` tail or sealed `.mzseg`
+    /// segment — into ops + diagnostics. The single per-file read shared by
+    /// `loadDiagnosed(docId:)` and `ProjectIntegrity.check`, so opIds inside
+    /// segments stay visible to the dangling-pointer check exactly as tail
+    /// opIds are (growth spec §5.4).
+    ///
+    /// Segment verification failure (bad magic / decompress / checksum) is a
+    /// data condition, not an error: surfaced as a `ParseDiagnostics.skipped`
+    /// entry (so `ProjectIntegrity.check` marks the doc unhealthy and the
+    /// load path quarantines it) while any salvageable decompressed lines
+    /// still parse — best-effort, never silent (spec §5.3).
+    public static func loadFileDiagnosed(
+        url: URL, presenter: NSFilePresenter?
+    ) async throws -> (ops: [Op], diagnostics: ParseDiagnostics) {
+        if url.pathExtension == OpLogSegment.fileExtension {
+            let coord = NSFileCoordinator(filePresenter: presenter)
+            var coordErr: NSError?
+            var bytes: Data?
+            coord.coordinate(readingItemAt: url, options: [], error: &coordErr) { ru in
+                bytes = try? Data(contentsOf: ru)
+            }
+            if let coordErr { throw coordErr }
+            guard let container = bytes else { return ([], ParseDiagnostics()) }
+
+            let decoded = OpLogSegment.decodeVerifying(container)
+            var skipped: [ParseDiagnostics.SkippedLine] = []
+            if let failure = decoded.failure {
+                skipped.append(.init(
+                    byteOffset: 0,
+                    raw: "<segment \(url.lastPathComponent): \(failure)>"))
+            }
+            guard let jsonl = decoded.jsonl else {
+                return ([], ParseDiagnostics(skipped: skipped))
+            }
+            let parsed = JSONLAppendStore<Op>.parse(
+                bytes: jsonl,
+                dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
+            // Per-line skips inside a salvaged segment only matter when the
+            // container itself verified (otherwise the container record covers it).
+            if decoded.isVerified {
+                skipped.append(contentsOf: parsed.diagnostics.skipped)
+            }
+            return (parsed.elements, ParseDiagnostics(skipped: skipped))
+        }
+        let store = JSONLAppendStore<Op>(
+            fileURL: url, presenter: presenter,
+            dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
+        let result = try await store.loadDiagnosed()
+        return (result.elements, result.diagnostics)
     }
 
     /// Append to the writer's own per-device file, keyed by `op.device`.
@@ -115,8 +163,15 @@ public final class OpLogStore {
     /// phone-v0.1.1 "No open annotations" bug). Enforced by the reach-around
     /// tripwires; see docs/superpowers/notes/cross-surface-contracts.md.
     public nonisolated static func docId(fromOpLogFilename name: String) -> String? {
-        guard name.hasSuffix(".jsonl") else { return nil }
-        let stem = String(name.dropLast(".jsonl".count))
+        let stem: String
+        if name.hasSuffix(".jsonl") {
+            stem = String(name.dropLast(".jsonl".count))
+        } else if name.hasSuffix(".\(OpLogSegment.fileExtension)") {
+            // Sealed segment `<docId>.<slug>.seg<NNNN>.mzseg` (ADR 0016).
+            stem = String(name.dropLast(".\(OpLogSegment.fileExtension)".count))
+        } else {
+            return nil
+        }
         let head = String(stem.split(separator: ".", maxSplits: 1,
                                      omittingEmptySubsequences: false)[0])
         guard !head.isEmpty, head != "__project__" else { return nil }
@@ -144,7 +199,34 @@ public final class OpLogStore {
             let n = url.lastPathComponent
             return n == "\(docId).jsonl"
                 || (n.hasPrefix("\(docId).") && n.hasSuffix(".jsonl"))
+                || (n.hasPrefix("\(docId).") && n.hasSuffix(".\(OpLogSegment.fileExtension)"))
         }
+    }
+
+    /// Sealed-segment URL: `.maugham/ops/<docId>.<deviceSlug>.seg<NNNN>.mzseg`
+    /// (ADR 0016 / growth spec §5.1). SINGLE SOURCE OF TRUTH for segment
+    /// filename construction — never hand-roll the template (grep tripwires
+    /// on both targets enforce; see cross-surface-contracts.md).
+    public nonisolated static func segmentFileURL(
+        forDocId docId: String, deviceSlug: String, index: Int, in projectURL: URL
+    ) -> URL {
+        projectURL
+            .appendingPathComponent(".maugham/ops", isDirectory: true)
+            .appendingPathComponent(
+                "\(docId).\(deviceSlug).seg\(String(format: "%04d", index)).\(OpLogSegment.fileExtension)")
+    }
+
+    /// Parse `<docId>.<deviceSlug>.seg<NNNN>.mzseg` → NNNN, or nil if `name`
+    /// is not a segment of this (docId, deviceSlug) pair.
+    nonisolated static func segmentIndex(
+        fromFilename name: String, docId: String, deviceSlug: String
+    ) -> Int? {
+        let prefix = "\(docId).\(deviceSlug).seg"
+        let suffix = ".\(OpLogSegment.fileExtension)"
+        guard name.hasPrefix(prefix), name.hasSuffix(suffix) else { return nil }
+        let digits = name.dropFirst(prefix.count).dropLast(suffix.count)
+        guard !digits.isEmpty, digits.allSatisfy(\.isNumber) else { return nil }
+        return Int(digits)
     }
 
     /// Synchronous globbed read+merge, bypassing `NSFileCoordinator`. For the
@@ -158,8 +240,13 @@ public final class OpLogStore {
         dec.dateDecodingStrategy = JSONLAppendStore<Op>.dateDecoding
         var ops: [Op] = []
         for url in opLogFileURLs(forDocId: docId, in: projectURL) {
-            guard let data = try? Data(contentsOf: url),
-                  let text = String(data: data, encoding: .utf8) else { continue }
+            guard let data = try? Data(contentsOf: url) else { continue }
+            if url.pathExtension == OpLogSegment.fileExtension {
+                guard let jsonl = OpLogSegment.decodeVerifying(data).jsonl else { continue }
+                ops.append(contentsOf: JSONLAppendStore<Op>.parse(bytes: jsonl).elements)
+                continue
+            }
+            guard let text = String(data: data, encoding: .utf8) else { continue }
             for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
                 guard let lineData = String(line).data(using: .utf8),
                       let op = try? dec.decode(Op.self, from: lineData) else { continue }

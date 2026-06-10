@@ -85,6 +85,18 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
     }
 
     private func parseDiagnosed(bytes: Data) -> (elements: [Element], diagnostics: ParseDiagnostics) {
+        Self.parse(bytes: bytes, dedupKey: dedupKey, sortedBy: sortedBy)
+    }
+
+    /// Parse raw JSONL bytes — the SAME parser the file-backed load uses,
+    /// callable on bytes that arrived another way (a decompressed sealed
+    /// segment, ADR 0016). Nonisolated + static so the synchronous readers
+    /// (`OpLogStore.loadSyncMerged`) can call it.
+    nonisolated static func parse(
+        bytes: Data,
+        dedupKey: ((Element) -> String)? = nil,
+        sortedBy: ((Element, Element) -> Bool)? = nil
+    ) -> (elements: [Element], diagnostics: ParseDiagnostics) {
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = Self.dateDecoding
         var elements: [Element] = []
