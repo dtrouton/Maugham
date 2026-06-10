@@ -376,7 +376,14 @@ public final class Document {
         for id in sequence {
             guard let anchored = paragraphs[id] else { continue }
             priorById[id] = anchored
-            priorByIdStripped[id] = RenderFilter.stripTaskAnchorsInline(anchored)
+            // Strip is the identity for any paragraph carrying no `<!--`
+            // (a task anchor is `<!--t-…-->`), so skip the regex for the
+            // overwhelming majority of paragraphs — only the anchored few
+            // pay the NSRegularExpression. Behavior-identical: the regex
+            // literal requires `<!--` to match.
+            priorByIdStripped[id] = anchored.contains("<!--")
+                ? RenderFilter.stripTaskAnchorsInline(anchored)
+                : anchored
         }
 
         let displayParsed = ParagraphParser.parse(text)
