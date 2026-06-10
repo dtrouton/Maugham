@@ -179,6 +179,14 @@ struct EditorHost: View {
               item.type == .document,
               let path = item.path,
               loadedItemId != item.id else { return }
+        // Cancel any pending metrics mirror armed for the OUTGOING doc. Without
+        // this, a doc switch within the 350 ms window lets the prior doc's
+        // debounced task wake AFTER the load below has already mirrored the new
+        // doc's text, delivering stale text to `updateMetrics` and leaving the
+        // footer/inspector showing the wrong word/page count until the next
+        // keystroke. Outbound-notification path only — does not touch the
+        // binding/setFullText write path (tripwires 3/6/7).
+        metricsMirrorTask?.cancel()
         // Tear down any prior document before loading the new one. close()
         // flushes the pending typing-burst + pending autosave (T6) so a
         // fast-fingered doc switch never drops unflushed paragraph changes.
