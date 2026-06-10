@@ -170,6 +170,31 @@ public final class DocumentStore {
         NSFileCoordinator.addFilePresenter(presenter)
         store._presenter = presenter
 
+        // Project-open seal maintenance (ADR 0016 / growth spec §5.2): rotate
+        // any of THIS Mac's oversized per-doc tails (e.g. grown while another
+        // app instance crashed before close, or a crash-window leftover).
+        // Idempotent; only our own device slug; awaited inline so it cannot
+        // race the first Document.load (spec §9.2 default: seal on open AND
+        // close — revisit if open-time cost shows up in the fixture). Uses the
+        // just-wired presenter so the seal's coordinated read/delete don't
+        // bounce back as our own external-change callbacks.
+        let sealSlug = DeviceSlug.make(from: MacDeviceID.current)
+        let opsDirNames = ((try? FileManager.default.contentsOfDirectory(
+            at: url.appendingPathComponent(".maugham/ops"),
+            includingPropertiesForKeys: nil)) ?? []).map(\.lastPathComponent)
+        let sealStore = OpLogStore(projectURL: url, presenter: store.presenter)
+        for docId in OpLogStore.docIds(inOpsDirectoryFilenames: opsDirNames).sorted() {
+            do {
+                _ = try await sealStore.sealTailIfNeeded(
+                    docId: docId, deviceSlug: sealSlug,
+                    threshold: Document.segmentSealThresholdForTesting
+                        ?? OpLogStore.segmentSealThreshold)
+            } catch {
+                documentStoreLog.error(
+                    "open-time op-log seal failed for \(docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+
         // Transcribe audio that synced while the app was closed: the presenter
         // only fires for changes after open, so pre-existing eligible captures
         // (the common phone-captured-while-Mac-closed case) need one initial

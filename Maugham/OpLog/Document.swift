@@ -171,6 +171,10 @@ public final class Document {
     /// Production code never reads it.
     internal private(set) var closeBurstFlushFailures: Int = 0
 
+    /// Test-only override for the seal threshold used by close()/open-time
+    /// maintenance. Production reads `OpLogStore.segmentSealThreshold`.
+    internal static var segmentSealThresholdForTesting: Int? = nil
+
     internal init(
         url: URL, docId: String, device: String, session: String,
         presenter: NSFilePresenter?, opStore: OpLogStore,
@@ -694,5 +698,22 @@ public final class Document {
         }
         // Flush any pending autosave so the .md reflects the final state.
         await autosaveScheduler.flush()
+
+        // Seal-on-close (ADR 0016 / growth spec §5.2): rotate this device's
+        // own oversized tail into an immutable compressed segment. Threshold-
+        // gated (usually a no-op) and best-effort — a seal failure must never
+        // block close; the next close or project-open maintenance retries.
+        // Never mid-typing, never another device's file, never the legacy
+        // unsuffixed file (sealTailIfNeeded's scope rules).
+        do {
+            _ = try await opStore.sealTailIfNeeded(
+                docId: docId,
+                deviceSlug: DeviceSlug.make(from: device),
+                threshold: Self.segmentSealThresholdForTesting
+                    ?? OpLogStore.segmentSealThreshold)
+        } catch {
+            documentLog.error(
+                "op-log seal failed for \(self.docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
     }
 }
