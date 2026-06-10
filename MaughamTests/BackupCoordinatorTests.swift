@@ -132,6 +132,26 @@ final class BackupCoordinatorTests: XCTestCase {
         if case .integrityFailed = coordinator.lastResult(for: proj) { } else { XCTFail("expected integrityFailed, got \(String(describing: coordinator.lastResult(for: proj)))") }
     }
 
+    private struct IntegrityCheckBlewUp: Error {}
+
+    // Audit N1 / item 1b: a *throwing* integrity check (the check itself couldn't
+    // complete — the strongest corruption signal) must BLOCK the backup, not be
+    // swallowed by `try?`. Before the fix, a throw collapsed to nil and the backup
+    // proceeded over an unverifiable source.
+    func test_backupNow_integrityCheckThrows_blocksBackupAndFlags() async throws {
+        let proj = try tempProjectWithOps(); let dest = destDir()
+        defer { [proj, dest].forEach { try? FileManager.default.removeItem(at: $0) } }
+        let coordinator = BackupCoordinator(integrityCheck: { _ in throw IntegrityCheckBlewUp() })
+        coordinator.destinations = [BackupDestination(url: dest, retention: 5)]
+
+        await coordinator.backupNow(projectURL: proj, generationId: "01GEN", at: Date(timeIntervalSince1970: 1))
+
+        XCTAssertEqual(try BackupWriter.generationIds(at: dest), [])  // nothing backed up
+        if case .integrityFailed = coordinator.lastResult(for: proj) {} else {
+            XCTFail("a throwing integrity check must flag integrityFailed, got \(coordinator.lastResult(for: proj))")
+        }
+    }
+
     // Regression: a corrupt project's integrity failure must NOT bleed into another
     // open project's result (the coordinator is one app-wide object; results are
     // keyed per project so the banner only lights on the failing project's window).
