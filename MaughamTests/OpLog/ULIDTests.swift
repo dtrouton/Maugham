@@ -22,6 +22,19 @@ final class ULIDTests: XCTestCase {
         XCTAssertLessThan(a, b, "earlier ULID should sort before later one")
     }
 
+    // Pinned after SequenceKeyframingTests T5 flaked on its fresh-reload
+    // assertion: Deriver.derive sorts ops by opId for last-write-wins, so
+    // same-millisecond ULIDs must preserve generation order — otherwise two
+    // bursts flushed in the same millisecond derive in reverse ~50% of the
+    // time and the OLDER paragraph text wins.
+    func test_generate_isStrictlyMonotonic_withinSameMillisecond() {
+        let many = (0..<10_000).map { _ in ULID.generate() }
+        for i in 1..<many.count {
+            XCTAssertLessThan(many[i - 1], many[i],
+                "generation order must match lexicographic order (index \(i): \(many[i - 1]) !< \(many[i]))")
+        }
+    }
+
     func test_generate_isUniqueAcrossManyCalls() {
         let many = (0..<10_000).map { _ in ULID.generate() }
         XCTAssertEqual(Set(many).count, many.count, "no duplicates expected")
