@@ -416,13 +416,26 @@ a feel judgment): gutter + AppKit layout wins are live-only and not in these
 headless numbers. Baseline → final: 120 pp ≈ 3.8×, 250 pp ≈ 3.1×, on top of
 v0.10.0's 325 ms → ~40 ms round.
 
-## Live-sample verification of record (2026-06-10, Task 9)
+## Live-sample verification of record (2026-06-10, Task 9 — corrected)
 
-25 s `sample` of the Debug dev app while the user typed continuously into the
-553 KB / ~270 pp smoke document: **no main-thread frame above 66 samples in
-the entire window** (largest: `EditorSurface.updateNSView`, ≈2 ms/keystroke).
-The keystroke pipeline — tokenizer, setFullText, styling, gutter, metrics —
-no longer appears in the profile at all; neither does AppKit layout. User
-verdict at this scale (~3× a real feature script, Debug): "very slightly
-laggy … maybe OK" — accepted. Milestone bar met with margin at every
-realistic size.
+**Take 1 was invalid** — it sampled an idle app (user AFK) and was briefly
+recorded here as a falsely clean profile. Lesson pinned: a live sample MUST
+carry an activity check (count of `textDidChange` frames) before any verdict.
+
+**Take 2 (valid, pre-fix)** caught a real M3 regression the idle sample had
+masked: `deliverMetrics` computed the O(document) word split + page walk at
+debounce ARM time — i.e. per keystroke (~20 ms at 553 KB) — debouncing only
+the delivery. Fixed in `853940d` (compute at FIRE time over the captured
+immutable text); CoordinatorMetricsTests green unmodified.
+
+**Take 3 (valid, post-fix)**: typing-window main-thread cost collapsed
+~18.7 s → ~2.3 s in comparable windows; `computeMetrics` appears only at
+trailing-edge scale. Largest remaining per-keystroke term: the SESSION
+word-count split in `DocumentStore.recordEditorTextWrite` (~22 ms at 553 KB,
+~9 ms at 250 pp, ~5 ms at 120 pp) — binding-side, so headless probes never
+saw it; inside the adjudicated envelope at spec scales. **Follow-up
+candidate** (small): debounce/defer the session word count — session
+semantics (30-min idle windows, wordsToday) don't need keystroke-exact
+values; mind the regression-scarred recordEditorTextWrite contract.
+User verdict at 553 KB pre-fix was already "very slightly laggy … maybe OK";
+post-fix verdict pending below.
