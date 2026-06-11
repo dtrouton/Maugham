@@ -24,6 +24,12 @@ struct EditorSurface: NSViewRepresentable {
     /// Delivers a gutter abbreviation ("CHAR", "SCENE", "DLG", etc.) or nil
     /// in prose mode. Omit at call sites that don't need element tracking.
     var onElementChanged: ((String?) -> Void)? = nil
+    /// Fired with precomputed `EditorMetrics` on the coordinator's debounced
+    /// trailing edge (typing) and immediately on attach / external replace.
+    /// Replaces the old `onTextChange` text mirror: the consumer (ProjectWindow)
+    /// now does zero parsing — the page count comes from the keystroke's own
+    /// parse. Omit at call sites that don't surface metrics.
+    var onMetricsChanged: ((EditorMetrics) -> Void)? = nil
     /// Optional resolver for wiki-link titles. When set, ProseMode underlines
     /// `[[Title]]` tokens whose title matches a manuscript document.
     var wikiLinkResolver: ((String) -> Bool)? = nil
@@ -64,6 +70,7 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.onCursorChanged = onCursorChanged
         coordinator.onPostEditCursor = onPostEditCursor
         coordinator.onElementChanged = onElementChanged
+        coordinator.onMetricsChanged = onMetricsChanged
         coordinator.wikiLinkResolverForClick = wikiLinkClickResolver
         coordinator.imagePasteHandler = imagePasteHandler
         coordinator.paragraphRangeProvider = paragraphRangeProvider

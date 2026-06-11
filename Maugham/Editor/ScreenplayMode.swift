@@ -6,7 +6,10 @@ import AppKit
 /// applies per-element paragraph styling, and computes Final-Draft-heuristic
 /// page count. Phase 3a — single-file screenplays only.
 public struct ScreenplayMode: WritingMode {
-    private static let wordsPerMinute = 200
+    /// Reading-speed divisor shared with `EditorCoordinator.computeMetrics`,
+    /// which derives `readingMinutes` from the keystroke's own parse without
+    /// re-entering `metrics(_:)`. Internal so that path stays in lockstep.
+    static let wordsPerMinute = 200
     private static let canonicalPageWidthChars = 60
 
     private let parser: FountainTokenizer

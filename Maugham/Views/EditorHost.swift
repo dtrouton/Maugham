@@ -17,9 +17,12 @@ struct EditorHost: View {
     @Bindable var store: ProjectStore
     @Bindable var documentStore: DocumentStore
     let selectedItemId: String?
-    /// Called whenever the document text changes. ProjectWindow uses this
-    /// to recompute live metrics for the inspector and goal indicator.
-    var onTextChange: ((String) -> Void)? = nil
+    /// Called with precomputed `EditorMetrics` for the inspector + goal
+    /// indicator. The EditorCoordinator computes these from the keystroke's
+    /// own parse (zero extra parsing) and delivers them on its own debounced
+    /// trailing edge while typing, immediately on attach. This replaces the
+    /// old per-keystroke text mirror + EditorHost-side debounce (spec §7).
+    var onMetricsChanged: ((EditorMetrics) -> Void)? = nil
     /// Called when the cursor's screenplay element changes. Delivers the gutter
     /// abbreviation ("CHAR", "SCENE", "DLG", etc.) or nil in prose mode.
     /// Default is a no-op; only the manuscript call site in ProjectWindow
@@ -41,17 +44,6 @@ struct EditorHost: View {
     /// previously-bound Document from the DocumentStore registry when the
     /// editor switches away.
     @State private var priorLoadedPath: String?
-
-    /// Debouncer for the outbound metrics mirror (`onTextChange`).
-    /// ProjectWindow's `updateMetrics` consumer runs full `metrics(_:)` —
-    /// which for screenplays includes a whole-document Fountain parse for
-    /// the page count — so firing it per keystroke was one of the three
-    /// redundant per-keystroke parses behind the 5–10 s typing stalls at
-    /// 70-page scale (2026-06-10 live profile). 350 ms keeps the footer
-    /// feeling live while typing stays off the parse. Outbound notification
-    /// ONLY — the binding/setFullText write path is untouched (tripwires
-    /// 3/6/7), and document-load still mirrors immediately.
-    @State private var metricsMirrorTask: Task<Void, Never>? = nil
 
     /// Session id stable for the lifetime of this app launch. Stamped onto
     /// every `typing_burst` Op so multi-window edits can be merged across
@@ -101,6 +93,7 @@ struct EditorHost: View {
                     },
                     onPostEditCursor: { doc.recordPostEditCursor($0) },
                     onElementChanged: onElementChanged,
+                    onMetricsChanged: onMetricsChanged,
                     wikiLinkResolver: wikiLinkResolver,
                     wikiLinkClickResolver: wikiLinkClickResolver,
                     showElementGutter: store.manifest.showElementGutter ?? true,
@@ -144,28 +137,13 @@ struct EditorHost: View {
         .onChange(of: selectedItemId) { _, _ in
             Task { await loadDocumentIfNeeded() }
         }
-        // READ-ONLY BY CONTRACT — must never write back into the binding here.
-        // This .onChange is a metrics mirror only: it forwards displayText
-        // changes to ProjectWindow's inspector + goal-indicator callbacks.
-        // All writes go through the EditorSurface → Document.setFullText path
-        // (the single Binding(get:/set:) seam). Any future edit that writes
-        // into `document.displayText` or calls `setFullText` from inside this
-        // closure would reopen the parallel-observable-state cursor races
-        // described in tripwires 6 and 7, and would trip the
-        // `applyExternalText` regression net in EditorIntegrationHarnessTests.
-        .onChange(of: document?.displayText) { _, newValue in
-            // Mirror text changes out to ProjectWindow for inspector metrics
-            // + goal-indicator updates. Op-log recording, paragraph diffing,
-            // and autosave all happen inside Document.setFullText now.
-            // Debounced: see `metricsMirrorTask`.
-            guard let text = newValue else { return }
-            metricsMirrorTask?.cancel()
-            metricsMirrorTask = Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(350))
-                guard !Task.isCancelled else { return }
-                onTextChange?(text)
-            }
-        }
+        // The inspector/goal-indicator metrics mirror now lives entirely in the
+        // EditorCoordinator (spec §7): it delivers precomputed `EditorMetrics`
+        // via `onMetricsChanged` on its own debounced trailing edge while typing
+        // and immediately on attach. The former `.onChange(of: displayText)`
+        // mirror + `metricsMirrorTask` here is deleted — re-introducing any
+        // read of `document.displayText` into this view's body would reopen the
+        // parallel-observable-state cursor races (tripwires 6 and 7).
         .task { await loadDocumentIfNeeded() }
     }
 
@@ -179,14 +157,11 @@ struct EditorHost: View {
               item.type == .document,
               let path = item.path,
               loadedItemId != item.id else { return }
-        // Cancel any pending metrics mirror armed for the OUTGOING doc. Without
-        // this, a doc switch within the 350 ms window lets the prior doc's
-        // debounced task wake AFTER the load below has already mirrored the new
-        // doc's text, delivering stale text to `updateMetrics` and leaving the
-        // footer/inspector showing the wrong word/page count until the next
-        // keystroke. Outbound-notification path only — does not touch the
-        // binding/setFullText write path (tripwires 3/6/7).
-        metricsMirrorTask?.cancel()
+        // The outgoing doc's pending metrics mirror is cancelled inside the
+        // coordinator's own teardown/attach now (a doc switch makes a fresh
+        // EditorSurface via `.id(path)`, whose coordinator's `attach` cancels
+        // any stranded debounced metrics post and delivers the new doc's
+        // metrics immediately). No EditorHost-side cancel is needed.
         // Tear down any prior document before loading the new one. close()
         // flushes the pending typing-burst + pending autosave (T6) so a
         // fast-fingered doc switch never drops unflushed paragraph changes.
@@ -204,7 +179,9 @@ struct EditorHost: View {
             document = doc
             loadedItemId = item.id
             priorLoadedPath = path
-            onTextChange?(doc.displayText)
+            // Metrics for the freshly-loaded doc are delivered by the new
+            // EditorSurface's coordinator `attach` (immediate, non-debounced) —
+            // no EditorHost-side mirror call.
         } catch {
             document = nil
             loadedItemId = item.id

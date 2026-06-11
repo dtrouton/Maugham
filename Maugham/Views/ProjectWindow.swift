@@ -207,6 +207,15 @@ struct ProjectWindow: View {
         }
         .onChange(of: selectedItemId) { _, newValue in
             documentStore?.updateUIState { $0.selectedItemId = newValue }
+            // Zero the inspector/footer metrics when the new selection is not a
+            // document (group, no selection). The EditorCoordinator only
+            // delivers `onMetricsChanged` while a document is bound, so it can't
+            // clear them on deselection — this preserves the zeroing the old
+            // `updateMetrics(for:)` guard performed.
+            if !selectionIsDocument(newValue) {
+                metrics = EditorMetrics(
+                    wordCount: 0, characterCount: 0, readingMinutes: 0)
+            }
         }
         .onChange(of: binderSegment) { _, newValue in
             documentStore?.updateUIState { $0.binderSegment = newValue }
@@ -666,7 +675,7 @@ struct ProjectWindow: View {
                 store: store,
                 documentStore: documentStore,
                 selectedItemId: selectedItemId,
-                onTextChange: { text in updateMetrics(for: text) },
+                onMetricsChanged: { metrics = $0 },
                 onElementChanged: { currentElement = $0 },
                 wikiLinkResolver: { title in
                     store.resolveDocumentId(forTitle: title) != nil
@@ -837,14 +846,13 @@ struct ProjectWindow: View {
 
     // MARK: - Helpers
 
-    private func updateMetrics(for text: String) {
-        guard let store, let id = selectedItemId,
-              let item = TreeWalk.find(id: id, in: store.manifest.structure),
-              item.type == .document, let path = item.path else {
-            metrics = EditorMetrics(wordCount: 0, characterCount: 0, readingMinutes: 0)
-            return
-        }
-        metrics = WritingModeFactory.mode(for: path).metrics(text)
+    /// Whether the given selection id resolves to a manuscript document (the
+    /// only selection kind for which the EditorCoordinator delivers metrics).
+    private func selectionIsDocument(_ id: String?) -> Bool {
+        guard let store, let id,
+              let item = TreeWalk.find(id: id, in: store.manifest.structure)
+        else { return false }
+        return item.type == .document && item.path != nil
     }
 
     private var goalIndicatorState: GoalIndicatorState {

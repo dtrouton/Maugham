@@ -43,6 +43,15 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// without moving the selection).
     var onElementChanged: ((String?) -> Void)?
 
+    /// Fired with precomputed `EditorMetrics` on the same debounced trailing
+    /// edge as the script broadcast (typing path), and immediately on attach /
+    /// applyExternalText / theme. Consumers (ProjectWindow inspector + goal
+    /// indicator) do ZERO parsing — the page count comes from the keystroke's
+    /// own parse (`lastParsedScript`), the word count from one whitespace split
+    /// of the already-nativized text (spec §7). Supersedes the EditorHost
+    /// metrics mirror, which this replaces.
+    var onMetricsChanged: ((EditorMetrics) -> Void)?
+
     /// Optional resolver for wiki-link titles. When set, ProseMode underlines
     /// `[[Title]]` tokens whose title resolves to a manuscript document.
     var wikiLinkResolver: ((String) -> Bool)?
@@ -92,8 +101,16 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// callers (`attach`, `applyExternalText`, theme/typography/focus changes)
     /// still post immediately. `lastParsedScript`/`lastTokens` are updated per
     /// keystroke exactly as before — ONLY the notification is debounced.
-    /// Mirrors `EditorHost.metricsMirrorTask`.
+    /// Mirrored by `metricsNotifyTask` (the metrics post on the same edge).
     private var scriptUpdateNotifyTask: Task<Void, Never>?
+
+    /// Trailing-edge debounce for `onMetricsChanged` on the typing fast path —
+    /// the metrics mirror that used to live on `EditorHost`. Coalesced to the
+    /// same ~350ms trailing edge as the script broadcast so the footer/inspector
+    /// stay live while typing pays only one whitespace split per burst (the page
+    /// count is free — it reads the keystroke's own `lastParsedScript`). Whole-
+    /// doc callers (attach, applyExternalText, theme) deliver immediately.
+    private var metricsNotifyTask: Task<Void, Never>?
 
     /// Observer token for `maughamNavigateToScene` notifications.
     private var navigateObserver: NSObjectProtocol?
@@ -238,6 +255,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
 
     deinit {
         scriptUpdateNotifyTask?.cancel()
+        metricsNotifyTask?.cancel()
         if let token = navigateObserver {
             NotificationCenter.default.removeObserver(token)
         }
@@ -259,6 +277,11 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // stale script can't land on the freshly-attached doc's navigator.
         scriptUpdateNotifyTask?.cancel()
         scriptUpdateNotifyTask = nil
+        // Same for a pending metrics mirror — the immediate post below carries
+        // the freshly-attached doc's metrics; a stale debounced one must not
+        // land after it.
+        metricsNotifyTask?.cancel()
+        metricsNotifyTask = nil
         applyAppearance(theme: theme, typography: typography)
         retokenizeAndStyle()
         if let location = initialCursorLocation {
@@ -285,6 +308,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // immediate whole-doc post this call's retokenizeAndStyle emits.
         scriptUpdateNotifyTask?.cancel()
         scriptUpdateNotifyTask = nil
+        metricsNotifyTask?.cancel()
+        metricsNotifyTask = nil
         guard let textView, textView.string != text else { return }
         isApplyingExternalUpdate = true
         defer { isApplyingExternalUpdate = false }
@@ -468,6 +493,12 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         if let script = lastParsedScript {
             postScriptDidUpdate(script, debounced: windowedTyping)
         }
+        // Deliver precomputed metrics on the SAME timing as the script post:
+        // coalesced to the trailing edge while typing, immediate for whole-doc
+        // callers. The page count rides `lastParsedScript` (no extra parse); the
+        // word count is one whitespace split of the already-nativized `text`.
+        // This supersedes EditorHost's `metricsMirrorTask`. See spec §7.
+        deliverMetrics(text: text, debounced: windowedTyping)
         // On the typing fast path, restrict structural attribute application to
         // the classification-changed window (diffed old→new tokens). Any
         // structural inconsistency falls back to whole-doc (window == nil).
@@ -546,6 +577,50 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             self?.scriptUpdateNotifyTask = nil
             NotificationCenter.default.post(
                 name: .maughamScriptDidUpdate, object: script)
+        }
+    }
+
+    /// Compute `EditorMetrics` for `text` WITHOUT a fresh whole-doc parse on
+    /// the screenplay path: the page count reads the keystroke's own
+    /// `lastParsedScript`, and the word/character counts come from the same
+    /// trimmed whitespace split `WritingMode.metrics` uses (so the footer and
+    /// the session/word bookkeeping in `DocumentStore.recordEditorTextWrite`
+    /// can't drift apart — both go through `WritingMode.wordCount`). Prose mode
+    /// is already parse-free, so it delegates to `mode.metrics` unchanged.
+    private func computeMetrics(text: String) -> EditorMetrics {
+        guard let script = lastParsedScript else {
+            // Prose (and any non-Fountain mode): metrics is parse-free already.
+            return mode.metrics(text)
+        }
+        let words = mode.wordCount(text)
+        return EditorMetrics(
+            wordCount: words,
+            characterCount: (text as NSString).length,
+            readingMinutes: words / ScreenplayMode.wordsPerMinute,
+            pageCount: script.estimatedPageCount)
+    }
+
+    /// Delivers precomputed metrics through `onMetricsChanged`, on the same
+    /// timing discipline as `postScriptDidUpdate`: coalesced to a ~350ms
+    /// trailing edge while typing (so a burst pays one whitespace split), and
+    /// immediate for whole-doc callers (attach / applyExternalText / theme).
+    /// The metrics are computed at ARM time and captured into the task, so the
+    /// trailing edge can't re-read a since-changed `textView.string`.
+    private func deliverMetrics(text: String, debounced: Bool) {
+        guard onMetricsChanged != nil else { return }
+        guard debounced else {
+            metricsNotifyTask?.cancel()
+            metricsNotifyTask = nil
+            onMetricsChanged?(computeMetrics(text: text))
+            return
+        }
+        let metrics = computeMetrics(text: text)
+        metricsNotifyTask?.cancel()
+        metricsNotifyTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled else { return }
+            self?.metricsNotifyTask = nil
+            self?.onMetricsChanged?(metrics)
         }
     }
 
