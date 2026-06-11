@@ -614,13 +614,21 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             onMetricsChanged?(computeMetrics(text: text))
             return
         }
-        let metrics = computeMetrics(text: text)
+        // Defer the COMPUTATION to the trailing edge too, not just delivery:
+        // computeMetrics' word-count split is O(document), and computing at
+        // arm time re-paid it on EVERY keystroke — a live-profile regression
+        // (2026-06-10 sample 7: ~20 ms/keystroke at 553 KB) that the debounce
+        // was supposed to prevent. Capturing the immutable `text` is free; at
+        // fire time it is exactly the last arming keystroke's text
+        // (cancel-and-rearm), and `lastParsedScript` matches it — every path
+        // that changes the script out-of-band (attach, applyExternalText)
+        // cancels this task before posting its own immediate delivery.
         metricsNotifyTask?.cancel()
         metricsNotifyTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(350))
-            guard !Task.isCancelled else { return }
-            self?.metricsNotifyTask = nil
-            self?.onMetricsChanged?(metrics)
+            guard !Task.isCancelled, let self else { return }
+            self.metricsNotifyTask = nil
+            self.onMetricsChanged?(self.computeMetrics(text: text))
         }
     }
 
