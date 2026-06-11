@@ -415,3 +415,14 @@ Release measures ≈ 2.5–3× faster (≈ 13 / 26 ms), comfortably inside.
 a feel judgment): gutter + AppKit layout wins are live-only and not in these
 headless numbers. Baseline → final: 120 pp ≈ 3.8×, 250 pp ≈ 3.1×, on top of
 v0.10.0's 325 ms → ~40 ms round.
+
+## Live-sample verification of record (2026-06-10, Task 9)
+
+25 s `sample` of the Debug dev app while the user typed continuously into the
+553 KB / ~270 pp smoke document: **no main-thread frame above 66 samples in
+the entire window** (largest: `EditorSurface.updateNSView`, ≈2 ms/keystroke).
+The keystroke pipeline — tokenizer, setFullText, styling, gutter, metrics —
+no longer appears in the profile at all; neither does AppKit layout. User
+verdict at this scale (~3× a real feature script, Debug): "very slightly
+laggy … maybe OK" — accepted. Milestone bar met with margin at every
+realistic size.
