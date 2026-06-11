@@ -396,3 +396,22 @@ under pressure (200 keystrokes) all produce byte-for-byte-identical id assignmen
 to the uncached path. All M2 pins (`RenderFilterTests`, `CrossDeviceIntegrationTests`
 3a/3b, `RestorePairsEquivalenceTests`, `AdversarialPerfReviewTests`,
 `DuplicateParagraphIdRegressionTests`) UNMODIFIED + green.
+
+## After M1–M4 (final, Debug)
+
+| term | 120 pp before → after | 250 pp before → after |
+|---|---|---|
+| FountainTokenizer.parse | 43.2 → **13.7 ms** | 87.3 → **27.4 ms** |
+| setFullText median | 94.4 → **17.6 ms** | 130.2 → **34.5 ms** |
+| ParagraphParser.parse | 11.8 → **2.7 ms** | 23.4 → **5.6 ms** |
+| prose setFullText (250 KB) | 55.9 → **14.8 ms** | — |
+| realized typing-path pause-edge | ~74 → **~28 ms** (word split 22 + summaries 5.9 + `==` 0.0005; the probe's `metrics` line measures the COLD-caller API, which the typing pipeline no longer calls — pinned by CoordinatorMetricsTests) | — |
+
+Estimated per-keystroke totals (tokenizer + tokens + setFullText + windowed
+apply): **~37 ms @ 120 pp, ~73 ms @ 250 pp Debug** vs the revised budgets
+(≤ 30 / ≤ 65) — ~10% over on the adjudicated Debug allocation/ARC floor;
+Release measures ≈ 2.5–3× faster (≈ 13 / 26 ms), comfortably inside.
+**Final verdict belongs to the live smoke** (the approved bar is "instant",
+a feel judgment): gutter + AppKit layout wins are live-only and not in these
+headless numbers. Baseline → final: 120 pp ≈ 3.8×, 250 pp ≈ 3.1×, on top of
+v0.10.0's 325 ms → ~40 ms round.

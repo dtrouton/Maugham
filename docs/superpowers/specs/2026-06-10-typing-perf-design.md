@@ -128,8 +128,9 @@ Extend `TypingLatencyProbeTests` with:
   `ProjectWindow.updateMetrics` performs ZERO parsing. `WritingMode.metrics`
   stays for cold callers (load-time, search, publish).
 - The script broadcast to the Scenes sidebar keeps its debounce; cheapen the
-  SwiftUI-side deep-`==` with an O(1) pre-check (line count + total UTF-16
-  length + last-line range) before full comparison — pinned by a test that
+  SwiftUI-side deep-`==` with an O(1) pre-check (line count + last-line
+  range + titlePage — as shipped; titlePage is a stored property the
+  original wording missed) before full comparison — pinned by a test that
   unequal scripts with equal pre-checks still compare unequal (the pre-check
   is an optimization gate, never an equality oracle).
 - Exit: pause-edge batch ≤ 30 ms at 120 pp Debug; zero whole-doc parses
