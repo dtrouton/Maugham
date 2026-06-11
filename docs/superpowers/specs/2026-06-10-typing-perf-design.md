@@ -128,8 +128,9 @@ Extend `TypingLatencyProbeTests` with:
   `ProjectWindow.updateMetrics` performs ZERO parsing. `WritingMode.metrics`
   stays for cold callers (load-time, search, publish).
 - The script broadcast to the Scenes sidebar keeps its debounce; cheapen the
-  SwiftUI-side deep-`==` with an O(1) pre-check (line count + total UTF-16
-  length + last-line range) before full comparison — pinned by a test that
+  SwiftUI-side deep-`==` with an O(1) pre-check (line count + last-line
+  range + titlePage — as shipped; titlePage is a stored property the
+  original wording missed) before full comparison — pinned by a test that
   unequal scripts with equal pre-checks still compare unequal (the pre-check
   is an optimization gate, never an equality oracle).
 - Exit: pause-edge batch ≤ 30 ms at 120 pp Debug; zero whole-doc parses
@@ -160,7 +161,7 @@ differential oracle. Otherwise record the numbers and close the item.
 | Phase | Gate to start | Exit |
 |---|---|---|
 | M0 probe + baseline | — | per-item table at 120/250 pp + prose recorded; budgets confirmed |
-| M1 tokenizer | M0 recorded | differential green; tokenizer ≤ 5 ms @ 250 pp; all suites green both schemes |
+| M1 tokenizer | M0 recorded | differential green; tokenizer ≤ 15 ms @ 250 pp (see §5.2); all suites green both schemes |
 | M2 setFullText | M1 | parser differential green; ≤ 8/18 ms; suites green |
 | M3 pause-edge | can parallel M2 | zero non-keystroke parses; ≤ 30 ms hitch |
 | M4 gutter | any time after M0 | equivalence pin green; ≤ 1 ms/redraw |

@@ -10,6 +10,23 @@ public struct FountainScript: Equatable, Sendable {
         self.titlePage = titlePage
     }
 
+    /// Custom `Equatable` with O(1) REJECTION gates before the elementwise
+    /// line compare. Typing always changes the line count, the last line's
+    /// range (every edit shifts the document tail), or the title page — so the
+    /// per-pause deep compare the Scenes sidebar pays collapses to a few integer
+    /// checks in the common (unequal) case. The gates are rejection-ONLY: equal
+    /// gates fall through to the full `lines == lines` compare, so two scripts
+    /// that differ only in a middle line still compare UNEQUAL (pinned by
+    /// `test_precheckEqualButContentUnequal_comparesUnequal`). `lines` and
+    /// `titlePage` are the only stored properties — `estimatedPageCount` and the
+    /// rest are computed — so comparing both is a complete equality.
+    public static func == (lhs: FountainScript, rhs: FountainScript) -> Bool {
+        guard lhs.lines.count == rhs.lines.count,
+              lhs.lines.last?.range == rhs.lines.last?.range,
+              lhs.titlePage == rhs.titlePage else { return false }
+        return lhs.lines == rhs.lines
+    }
+
     public static let empty = FountainScript()
 
     /// Estimated page count using the Final Draft line-wrap heuristic.

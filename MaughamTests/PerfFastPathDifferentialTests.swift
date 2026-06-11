@@ -80,6 +80,57 @@ final class PerfFastPathDifferentialTests: XCTestCase {
         docs.append("\t\t<!-- ¶c4d5 -->\n\ntab-indented anchor")
         docs.append("trailing spaces here   \n\nand here\t\t")
 
+        // -- M2 Task 4: six-separator zoo (Character.isNewline set:
+        // \n \r \r\n U+0085 NEL U+2028 LS U+2029 PS; \r\n is ONE Character) --
+        let zooSeps = ["\n", "\r", "\r\n", "\u{0085}", "\u{2028}", "\u{2029}"]
+        let zooBody = ["First paragraph line one.", "still para one",
+                       "", "Second paragraph.", "", "Third paragraph."]
+        for sep in zooSeps {
+            docs.append(zooBody.joined(separator: sep))
+        }
+        // Mixed separators in one document (incl. an adjacent CR then LF that
+        // must merge as a single Character/separator).
+        docs.append("Para one.\r\nstill one.\rPara two.\u{2028}Para three.\u{0085}\u{0085}Para four.\n")
+        // NEL / LS / PS adjacent to anchor-comment lines.
+        docs.append("<!-- ¶ab2c -->\u{0085}\u{0085}NEL after anchor.")
+        docs.append("Body.\u{2028}\u{2028}<!-- ¶q9rs -->\u{2028}\u{2028}LS around anchor.")
+        docs.append("<!-- ¶c4d5 -->\u{2029}\u{2029}PS after anchor.\u{2029}\u{2029}More.")
+        // Empty / blank-only / single-paragraph docs (some already above; add
+        // explicit single-paragraph + blank-only-with-mixed-seps forms).
+        docs.append("Just one single paragraph, no separators at all.")
+        docs.append("  \u{0085}\t\u{2028}   \u{2029}  ")   // blank-only, mixed seps
+        // A 1,000-paragraph generated doc: deterministic SplitMix64, every 3rd
+        // paragraph preceded by an anchor comment, some multi-line paragraphs,
+        // mixed separators between paragraphs.
+        do {
+            var rng = SplitMix64(seed: 0x9A2B)
+            var parts: [String] = []
+            for p in 0..<1000 {
+                if p % 3 == 0 {
+                    // Anchor comment with a valid 4-char id from the alphabet.
+                    let alpha = Array("0123456789abcdefghjkmnpqrstvwxyz")
+                    var id = ""
+                    for _ in 0..<4 { id.append(alpha[Int(rng.next() % UInt64(alpha.count))]) }
+                    parts.append("<!-- ¶\(id) -->")
+                }
+                let lineCount = 1 + Int(rng.next() % 3)
+                var para: [String] = []
+                for l in 0..<lineCount {
+                    para.append("Paragraph \(p) line \(l) word\(rng.next() % 5000).")
+                }
+                parts.append(para.joined(separator: "\n"))
+            }
+            // Interleave with a blank line between blocks, varying the
+            // separator that ends each blank line.
+            let interSeps = ["\n\n", "\r\n\r\n", "\u{2029}\u{2029}", "\u{0085}\u{0085}"]
+            var doc = ""
+            for (i, part) in parts.enumerated() {
+                doc += part
+                if i < parts.count - 1 { doc += interSeps[i % interSeps.count] }
+            }
+            docs.append(doc)
+        }
+
         // Randomized assembly.
         var rng = SystemRandomNumberGenerator()
         let snippets = [
