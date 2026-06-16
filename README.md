@@ -94,3 +94,9 @@ The iOS companion is a separate scheme (read [`MaughamPhone/AREA.md`](MaughamPho
 Per-milestone smokes, designs, plans, and post-mortem memory are anchored by date in `docs/superpowers/`. The MEMORY/auto-memory file in `~/.claude/projects/-Users-denver-src-Maugham/memory/` summarizes each shipped milestone's API surface and carry-forwards.
 
 This codebase is built with Claude Code's agent-driven workflow. Per-milestone plans live in `docs/superpowers/plans/`; they're dispatched task-by-task to subagents via the `subagent-driven-development` skill. The dated specs and plans are the historical record of how each milestone got shaped.
+
+## License
+
+Maugham's source is licensed under the **PolyForm Noncommercial License 1.0.0** — see [`LICENSE.md`](LICENSE.md). In short: you may read it, build it, and use it for personal and other noncommercial purposes, but you may not sell it or ship a commercial product based on it. All commercial rights are reserved by the copyright holder.
+
+Bundled third-party components (WhisperKit, Tectonic) keep their own MIT licenses — see [`THIRD-PARTY-LICENSES.md`](THIRD-PARTY-LICENSES.md).
