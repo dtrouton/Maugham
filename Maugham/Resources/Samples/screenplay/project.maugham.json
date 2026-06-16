@@ -1,0 +1,20 @@
+{
+  "author" : "",
+  "created" : "2026-06-16T00:00:00Z",
+  "modified" : "2026-06-16T00:00:00Z",
+  "research" : [
+
+  ],
+  "schemaVersion" : 1,
+  "structure" : [
+    {
+      "id" : "doc-001",
+      "path" : "manuscript\/01-welcome.fountain",
+      "status" : "draft",
+      "title" : "Welcome",
+      "type" : "document"
+    }
+  ],
+  "title" : "Maugham Sample Screenplay",
+  "type" : "screenplay"
+}
