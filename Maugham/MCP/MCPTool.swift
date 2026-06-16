@@ -76,7 +76,8 @@ public enum MCPToolCatalog {
         ListInboxTool.self,
         ReadInboxEntryTool.self,
         PromoteInboxEntryTool.self,
-        ListMaughamToolsTool.self
+        ListMaughamToolsTool.self,
+        GetHelpTool.self
     ]
 
     /// Registers every catalog tool on the given router. Called from
