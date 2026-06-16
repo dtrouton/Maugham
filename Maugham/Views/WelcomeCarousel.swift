@@ -17,7 +17,7 @@ struct WelcomeSlide: Identifiable, Equatable {
         .init(id: .focus,      symbol: "scope",               heading: "Disappear into the page",
               body: "Focus mode, typewriter scroll, sentence dimming, smart dashes & quotes. ⌘\\ hides everything but the words."),
         .init(id: .organize,   symbol: "rectangle.3.group",   heading: "Keep the threads",
-              body: "Synopses, status, tags, word targets, [[wiki-links]], an Outline corkboard, research beside the draft."),
+              body: "Synopses, status, tags, word targets, to-do checklists, [[wiki-links]], an Outline corkboard, research beside the draft."),
         .init(id: .collaborate,symbol: "bubble.left.and.text.bubble.right", heading: "A reader who never rewrites you",
               body: "Claude Desktop can read, annotate and research — but never edits your manuscript. That stays yours."),
         .init(id: .publish,    symbol: "books.vertical",      heading: "Publish, beautifully",

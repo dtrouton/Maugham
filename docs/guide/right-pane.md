@@ -21,3 +21,5 @@ Either a **table** view (Title / Status / Synopsis / Words) or a **cards** view 
 Layout choice persists per project.
 
 ⌘⌥I toggles the whole right pane visibility.
+
+The right pane also has a **Tasks** mode (⌘⌥5) — see [Tasks & To-Dos](tasks.md).

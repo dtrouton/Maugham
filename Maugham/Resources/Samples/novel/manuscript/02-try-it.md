@@ -17,3 +17,11 @@ You can link between documents by wrapping a title in double brackets. This samp
 ## The Outline
 
 Press ⌘⌥3 to swap the right pane into the Outline. It shows every chapter as a card or a table row, with synopsis and word count, so you can see the shape of the whole book at a glance.
+
+## To-dos
+
+Start any line with `- [ ]` to make a checkbox. Maugham gathers every checkbox across your project into the Tasks pane — open it with ⌘⌥5. Try these, then check them off:
+
+- [ ] Open the Tasks pane with ⌘⌥5
+- [ ] Check this box and watch it move to done
+- [ ] Add a standalone task with the + button in the Tasks pane
