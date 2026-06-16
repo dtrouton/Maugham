@@ -1146,6 +1146,7 @@ private struct ParagraphNavModifier: ViewModifier {
     /// `object: nil`, so every open window receives it; we act only when key.
     let window: NSWindow?
     @Binding var binderSegment: BinderSegment
+    @Environment(\.openWindow) private var openWindow
 
     func body(content: Content) -> some View {
         content
@@ -1156,6 +1157,12 @@ private struct ParagraphNavModifier: ViewModifier {
                 // Anchored scroll-to-paragraph is a follow-up.
                 _ = note.userInfo?["paragraph_id"] as? String
                 binderSegment = .manuscript
+            }
+            // `.maughamShowHelp` is posted with `object: nil`, so every window
+            // receives it; `openWindow(id:)` for a singleton Window is idempotent
+            // (it brings the one Help window forward), so no key-window guard.
+            .onReceive(NotificationCenter.default.publisher(for: .maughamShowHelp)) { _ in
+                openWindow(id: "help")
             }
     }
 }

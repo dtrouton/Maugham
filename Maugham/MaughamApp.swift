@@ -240,6 +240,10 @@ struct MaughamApp: App {
                 .keyboardShortcut("z", modifiers: [.command, .option])
             }
             CommandGroup(replacing: .help) {
+                Button("Maugham Help") {
+                    NotificationCenter.default.post(name: .maughamShowHelp, object: nil)
+                }
+                .keyboardShortcut("?", modifiers: .command)
                 Button("Syntax Reference") {
                     NotificationCenter.default.post(
                         name: .maughamShowSyntaxHelp, object: nil)
@@ -295,6 +299,11 @@ struct MaughamApp: App {
         }
         .windowResizability(.contentSize)
         .defaultPosition(.center)
+
+        Window("Maugham Help", id: "help") {
+            HelpWindow()
+        }
+        .windowResizability(.contentMinSize)
     }
 
     @MainActor
@@ -373,6 +382,9 @@ private struct WelcomeHost: View {
             } else {
                 openViaPanel()
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .maughamShowHelp)) { _ in
+            openWindow(id: "help")
         }
     }
 
