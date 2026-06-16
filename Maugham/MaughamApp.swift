@@ -10,6 +10,7 @@ struct MaughamApp: App {
     @State private var mcpRouter = MCPRouter()
     @State private var mcpRegistry = ProjectRegistry()
     @State private var mcpServer: MCPServer?
+    @State private var onboarding = OnboardingModel()
 
     private var mcpSocketPath: String {
         BuildVariant.current.mcpSocketPath
@@ -52,6 +53,7 @@ struct MaughamApp: App {
             WelcomeHost()
                 .environment(recents)
                 .environment(userPreferences)
+                .environment(onboarding)
                 .task {
                     Self.registerTools(router: mcpRouter, registry: mcpRegistry)
                     let server = MCPServer(
@@ -240,35 +242,7 @@ struct MaughamApp: App {
                 }
                 .keyboardShortcut("z", modifiers: [.command, .option])
             }
-            CommandGroup(replacing: .help) {
-                Button("Maugham Help") {
-                    NotificationCenter.default.post(name: .maughamShowHelp, object: nil)
-                }
-                .keyboardShortcut("?", modifiers: .command)
-                Button("Welcome to Maugham") {
-                    NotificationCenter.default.post(name: .maughamShowWelcome, object: nil)
-                }
-                Menu("Sample Projects") {
-                    Button("Novel") {
-                        NotificationCenter.default.post(name: .maughamOpenSample,
-                            object: nil, userInfo: ["kind": "novel"])
-                    }
-                    Button("Screenplay") {
-                        NotificationCenter.default.post(name: .maughamOpenSample,
-                            object: nil, userInfo: ["kind": "screenplay"])
-                    }
-                }
-                Divider()
-                Button("Syntax Reference") {
-                    NotificationCenter.default.post(
-                        name: .maughamShowSyntaxHelp, object: nil)
-                }
-                .keyboardShortcut("/", modifiers: .command)
-                Button("Set up Claude Desktop…") {
-                    NotificationCenter.default.post(
-                        name: .maughamShowClaudeDesktopHelp, object: nil)
-                }
-            }
+            HelpCommands(onboarding: onboarding)
         }
 
         WindowGroup(id: "project", for: URL.self) { $url in
@@ -372,10 +346,54 @@ private struct FocusedRestoreButton: View {
     }
 }
 
+/// Help menu. Extracted into a `Commands` type (mirroring `UpdateMenuCommand`)
+/// so it can use `@Environment(\.openWindow)` — inline `.commands { }` closures
+/// cannot. The Welcome / Sample-Projects items write a shared intent on
+/// `OnboardingModel` and then open the singleton Welcome window, so `WelcomeHost`
+/// exists to consume the intent even when that window was previously closed.
+private struct HelpCommands: Commands {
+    let onboarding: OnboardingModel
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandGroup(replacing: .help) {
+            Button("Maugham Help") {
+                NotificationCenter.default.post(name: .maughamShowHelp, object: nil)
+            }
+            .keyboardShortcut("?", modifiers: .command)
+            Button("Welcome to Maugham") {
+                onboarding.carouselRequested = true
+                openWindow(id: "welcome")
+            }
+            Menu("Sample Projects") {
+                Button("Novel") {
+                    onboarding.sampleRequested = .novel
+                    openWindow(id: "welcome")
+                }
+                Button("Screenplay") {
+                    onboarding.sampleRequested = .screenplay
+                    openWindow(id: "welcome")
+                }
+            }
+            Divider()
+            Button("Syntax Reference") {
+                NotificationCenter.default.post(
+                    name: .maughamShowSyntaxHelp, object: nil)
+            }
+            .keyboardShortcut("/", modifiers: .command)
+            Button("Set up Claude Desktop…") {
+                NotificationCenter.default.post(
+                    name: .maughamShowClaudeDesktopHelp, object: nil)
+            }
+        }
+    }
+}
+
 private struct WelcomeHost: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(RecentsStore.self) private var recents
     @Environment(UserPreferences.self) private var prefs
+    @Environment(OnboardingModel.self) private var onboarding
     @State private var showingNewProject = false
     @State private var showingWelcome = false
     @State private var pendingSampleError: String?
@@ -409,6 +427,13 @@ private struct WelcomeHost: View {
         }
         .onAppear {
             if !prefs.hasCompletedWelcome { showingWelcome = true }
+            consumeOnboardingIntent()
+        }
+        .onChange(of: onboarding.carouselRequested) { _, v in
+            if v { consumeOnboardingIntent() }
+        }
+        .onChange(of: onboarding.sampleRequested) { _, v in
+            if v != nil { consumeOnboardingIntent() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .maughamNewProject)) { _ in
             showingNewProject = true
@@ -423,11 +448,15 @@ private struct WelcomeHost: View {
         .onReceive(NotificationCenter.default.publisher(for: .maughamShowHelp)) { _ in
             openWindow(id: "help")
         }
-        .onReceive(NotificationCenter.default.publisher(for: .maughamShowWelcome)) { _ in
+    }
+
+    @MainActor private func consumeOnboardingIntent() {
+        if onboarding.carouselRequested {
+            onboarding.carouselRequested = false
             showingWelcome = true
         }
-        .onReceive(NotificationCenter.default.publisher(for: .maughamOpenSample)) { note in
-            let kind = (note.userInfo?["kind"] as? String) == "screenplay" ? SampleProjectBuilder.Kind.screenplay : .novel
+        if let kind = onboarding.sampleRequested {
+            onboarding.sampleRequested = nil
             openSample(kind)
         }
     }

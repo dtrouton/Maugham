@@ -19,8 +19,6 @@ extension Notification.Name {
     public static let maughamNavigateToScene = Notification.Name("maugham.navigate.to.scene")
     public static let maughamShowSyntaxHelp = Notification.Name("maugham.show.syntax.help")
     public static let maughamShowHelp = Notification.Name("maugham.show.help")
-    public static let maughamShowWelcome = Notification.Name("maugham.show.welcome")
-    public static let maughamOpenSample = Notification.Name("maugham.open.sample")
     public static let maughamRestoreLastDeleted = Notification.Name("maugham.restore.last.deleted")
     public static let maughamToggleResearchPreview = Notification.Name("maugham.toggle.research.preview")
     public static let maughamFindMatchSelected = Notification.Name("maugham.find.match.selected")
