@@ -16,6 +16,7 @@ public final class UserPreferences {
     private static let paragraphFocusKey = "maugham.paragraphFocus"
     private static let goalIndicatorsKey = "maugham.goalIndicatorsVisible"
     private static let mcpEnabledKey = "maugham.mcpEnabled"
+    private static let hasCompletedWelcomeKey = "maugham.hasCompletedWelcome"
     private static let backupDestinationsKey = "maugham.backupDestinations"
 
     private let defaults: UserDefaults
@@ -52,6 +53,10 @@ public final class UserPreferences {
 
     public var mcpEnabled: Bool {
         didSet { defaults.set(mcpEnabled, forKey: Self.mcpEnabledKey) }
+    }
+
+    public var hasCompletedWelcome: Bool {
+        didSet { defaults.set(hasCompletedWelcome, forKey: Self.hasCompletedWelcomeKey) }
     }
 
     public var backupDestinations: [BackupDestinationConfig] {
@@ -91,6 +96,8 @@ public final class UserPreferences {
             defaults.object(forKey: Self.goalIndicatorsKey) as? Bool ?? true
         self.mcpEnabled =
             defaults.object(forKey: Self.mcpEnabledKey) as? Bool ?? true
+        self.hasCompletedWelcome =
+            defaults.object(forKey: Self.hasCompletedWelcomeKey) as? Bool ?? false
 
         if let data = defaults.data(forKey: Self.backupDestinationsKey),
            let decoded = try? JSONDecoder().decode([BackupDestinationConfig].self, from: data) {
