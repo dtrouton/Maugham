@@ -3,7 +3,13 @@
   "created" : "2026-06-16T00:00:00Z",
   "modified" : "2026-06-16T00:00:00Z",
   "research" : [
-
+    {
+      "id" : "res-001",
+      "kind" : "document",
+      "path" : "research\/about-this-sample.md",
+      "title" : "About This Sample",
+      "type" : "asset"
+    }
   ],
   "schemaVersion" : 1,
   "structure" : [
