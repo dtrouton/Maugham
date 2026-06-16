@@ -1,0 +1,12 @@
+[
+  { "slug": "getting-started",     "title": "Getting Started",        "order": 1 },
+  { "slug": "editor-and-focus",    "title": "The Editor & Focus",     "order": 2 },
+  { "slug": "structure-and-binder","title": "Structure & the Binder", "order": 3 },
+  { "slug": "research",            "title": "Research",               "order": 4 },
+  { "slug": "right-pane",          "title": "Inspector, Research & Outline", "order": 5 },
+  { "slug": "tasks",               "title": "Tasks & To-Dos",         "order": 6 },
+  { "slug": "screenplay",          "title": "Screenplays",            "order": 7 },
+  { "slug": "claude-desktop",      "title": "Writing with Claude",    "order": 8 },
+  { "slug": "publishing",          "title": "Publishing to PDF & EPUB","order": 9 },
+  { "slug": "reference",           "title": "Reference",              "order": 10 }
+]

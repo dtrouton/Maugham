@@ -36,9 +36,14 @@ targets:
           - "**/AREA.md"
           - "Resources/PublishStarter/**"
           - "Resources/bin/**"
+          - "Resources/Samples/**"
       - path: Maugham/Resources/PublishStarter
         type: folder
       - path: Maugham/Resources/bin
+        type: folder
+      - path: docs/guide
+        type: folder
+      - path: Maugham/Resources/Samples
         type: folder
     info:
       path: Maugham/Info.plist

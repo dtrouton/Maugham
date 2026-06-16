@@ -76,4 +76,17 @@ final class UserPreferencesTests: XCTestCase {
         let other = UserPreferences(defaults: defaults)
         XCTAssertFalse(other.goalIndicatorsVisible)
     }
+
+    func test_hasCompletedWelcome_defaultsFalseAndPersists() {
+        let suite = "test-welcome-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let prefs = UserPreferences(defaults: defaults)
+        XCTAssertFalse(prefs.hasCompletedWelcome)
+        prefs.hasCompletedWelcome = true
+
+        let reloaded = UserPreferences(defaults: defaults)
+        XCTAssertTrue(reloaded.hasCompletedWelcome)
+    }
 }

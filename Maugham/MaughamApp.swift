@@ -10,6 +10,7 @@ struct MaughamApp: App {
     @State private var mcpRouter = MCPRouter()
     @State private var mcpRegistry = ProjectRegistry()
     @State private var mcpServer: MCPServer?
+    @State private var onboarding = OnboardingModel()
 
     private var mcpSocketPath: String {
         BuildVariant.current.mcpSocketPath
@@ -51,6 +52,8 @@ struct MaughamApp: App {
         Window("Maugham — Welcome", id: "welcome") {
             WelcomeHost()
                 .environment(recents)
+                .environment(userPreferences)
+                .environment(onboarding)
                 .task {
                     Self.registerTools(router: mcpRouter, registry: mcpRegistry)
                     let server = MCPServer(
@@ -239,17 +242,7 @@ struct MaughamApp: App {
                 }
                 .keyboardShortcut("z", modifiers: [.command, .option])
             }
-            CommandGroup(replacing: .help) {
-                Button("Syntax Reference") {
-                    NotificationCenter.default.post(
-                        name: .maughamShowSyntaxHelp, object: nil)
-                }
-                .keyboardShortcut("/", modifiers: .command)
-                Button("Set up Claude Desktop…") {
-                    NotificationCenter.default.post(
-                        name: .maughamShowClaudeDesktopHelp, object: nil)
-                }
-            }
+            HelpCommands(onboarding: onboarding)
         }
 
         WindowGroup(id: "project", for: URL.self) { $url in
@@ -295,6 +288,11 @@ struct MaughamApp: App {
         }
         .windowResizability(.contentSize)
         .defaultPosition(.center)
+
+        Window("Maugham Help", id: "help") {
+            HelpWindow()
+        }
+        .windowResizability(.contentMinSize)
     }
 
     @MainActor
@@ -348,10 +346,57 @@ private struct FocusedRestoreButton: View {
     }
 }
 
+/// Help menu. Extracted into a `Commands` type (mirroring `UpdateMenuCommand`)
+/// so it can use `@Environment(\.openWindow)` — inline `.commands { }` closures
+/// cannot. The Welcome / Sample-Projects items write a shared intent on
+/// `OnboardingModel` and then open the singleton Welcome window, so `WelcomeHost`
+/// exists to consume the intent even when that window was previously closed.
+private struct HelpCommands: Commands {
+    let onboarding: OnboardingModel
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandGroup(replacing: .help) {
+            Button("Maugham Help") {
+                NotificationCenter.default.post(name: .maughamShowHelp, object: nil)
+            }
+            .keyboardShortcut("?", modifiers: .command)
+            Button("Welcome to Maugham") {
+                onboarding.carouselRequested = true
+                openWindow(id: "welcome")
+            }
+            Menu("Sample Projects") {
+                Button("Novel") {
+                    onboarding.sampleRequested = .novel
+                    openWindow(id: "welcome")
+                }
+                Button("Screenplay") {
+                    onboarding.sampleRequested = .screenplay
+                    openWindow(id: "welcome")
+                }
+            }
+            Divider()
+            Button("Syntax Reference") {
+                NotificationCenter.default.post(
+                    name: .maughamShowSyntaxHelp, object: nil)
+            }
+            .keyboardShortcut("/", modifiers: .command)
+            Button("Set up Claude Desktop…") {
+                NotificationCenter.default.post(
+                    name: .maughamShowClaudeDesktopHelp, object: nil)
+            }
+        }
+    }
+}
+
 private struct WelcomeHost: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(RecentsStore.self) private var recents
+    @Environment(UserPreferences.self) private var prefs
+    @Environment(OnboardingModel.self) private var onboarding
     @State private var showingNewProject = false
+    @State private var showingWelcome = false
+    @State private var pendingSampleError: String?
 
     var body: some View {
         WelcomeView(
@@ -364,6 +409,32 @@ private struct WelcomeHost: View {
         .sheet(isPresented: $showingNewProject) {
             NewProjectSheet(onCreated: open)
         }
+        .sheet(isPresented: $showingWelcome) {
+            WelcomeCarousel(
+                onSampleNovel:      { completeWelcome(); openSample(.novel) },
+                onSampleScreenplay: { completeWelcome(); openSample(.screenplay) },
+                onNewProject:       { completeWelcome(); showingNewProject = true },
+                onSkip:             { completeWelcome() }
+            )
+        }
+        .alert("Couldn’t create sample project",
+               isPresented: Binding(
+                   get: { pendingSampleError != nil },
+                   set: { if !$0 { pendingSampleError = nil } })) {
+            Button("OK", role: .cancel) { pendingSampleError = nil }
+        } message: {
+            Text(pendingSampleError ?? "")
+        }
+        .onAppear {
+            if !prefs.hasCompletedWelcome { showingWelcome = true }
+            consumeOnboardingIntent()
+        }
+        .onChange(of: onboarding.carouselRequested) { _, v in
+            if v { consumeOnboardingIntent() }
+        }
+        .onChange(of: onboarding.sampleRequested) { _, v in
+            if v != nil { consumeOnboardingIntent() }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .maughamNewProject)) { _ in
             showingNewProject = true
         }
@@ -372,6 +443,36 @@ private struct WelcomeHost: View {
                 open(url)
             } else {
                 openViaPanel()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .maughamShowHelp)) { _ in
+            openWindow(id: "help")
+        }
+    }
+
+    @MainActor private func consumeOnboardingIntent() {
+        if onboarding.carouselRequested {
+            onboarding.carouselRequested = false
+            showingWelcome = true
+        }
+        if let kind = onboarding.sampleRequested {
+            onboarding.sampleRequested = nil
+            openSample(kind)
+        }
+    }
+
+    @MainActor private func completeWelcome() {
+        prefs.hasCompletedWelcome = true
+        showingWelcome = false
+    }
+
+    @MainActor private func openSample(_ kind: SampleProjectBuilder.Kind) {
+        Task {
+            do {
+                let url = try await SampleProjectBuilder.buildInDocuments(kind)
+                open(url)   // records in Recents + opens the project window
+            } catch {
+                pendingSampleError = error.localizedDescription
             }
         }
     }
