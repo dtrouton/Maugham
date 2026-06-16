@@ -1,0 +1,36 @@
+# Structure & the Binder
+
+The binder shows your manuscript structure. For a novel, that's parts and chapters; for a screenplay, scenes.
+
+### Adding items
+
+Right-click a row in the binder:
+
+- **New Document** — adds a sibling document; rename it inline.
+- **New Group** — adds a folder (e.g., "Act One"). Drag chapters into it.
+- **Duplicate** — copies the document or group with fresh IDs.
+- **Delete** — moves to Maugham's project-local Trash (see below).
+
+Drag items to reorder. Move chapters between groups; folders physically move on disk. Filenames keep an `NN-` prefix so the on-disk order matches the binder order.
+
+If gaps appear in numbering after deletes, **Tidy Filenames** (right-click a group, or File → Tidy All Filenames) renumbers cleanly.
+
+### The Inspector
+
+Click an item to see its metadata:
+
+- **Synopsis** — short summary. Shows in the Outline view (see Right pane below).
+- **Status** — Draft / Revising / Final, surfaced as a colored dot in the binder.
+- **Tags** — comma-separated. Search by tag via Claude Desktop's `list_documents_by_tag` tool.
+- **Word target** — per-document goal. Drives the bottom-right goal capsule.
+- **Linked research** — research items linked to this document (see Research below).
+- **Linked from** — backlinks: documents that wiki-link to this one.
+
+### Wiki links
+
+Type `[[Chapter 2]]` in any document. Maugham renders it blue + underlined. Click to navigate. Rename Chapter 2 in the binder and the wiki links in other documents update automatically.
+
+### Find
+
+- **⌘F** — find within the current document (standard AppKit find bar; ⌘G next, ⌘⇧G previous).
+- **⌘⌥F** — find across the whole project. Opens a panel with grouped results (per document), case-sensitive and whole-word toggles. Click a result to jump.
