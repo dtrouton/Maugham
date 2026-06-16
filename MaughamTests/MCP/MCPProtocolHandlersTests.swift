@@ -50,7 +50,7 @@ final class MCPProtocolHandlersTests: XCTestCase {
             "list_publications", "read_publication_page", "republish",
             "set_piece_style", "clear_piece_style",
             "list_inbox", "read_inbox_entry", "promote_inbox_entry",
-            "list_maugham_tools"
+            "list_maugham_tools", "get_help"
         ]))
     }
 
@@ -61,7 +61,7 @@ final class MCPProtocolHandlersTests: XCTestCase {
               case .array(let tools) = obj["tools"] else {
             return XCTFail("expected {tools: [...]}")
         }
-        XCTAssertEqual(tools.count, 43)
+        XCTAssertEqual(tools.count, 44)
         for t in tools {
             guard case .object(let o) = t else { return XCTFail("tool not object") }
             XCTAssertNotNil(o["name"])
