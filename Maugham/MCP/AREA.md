@@ -6,6 +6,70 @@ The local MCP server that lets Claude Desktop read and contribute to projects. R
 
 The in-app MCP server: tool registration, JSON-RPC handling, the read/search/discover surface for projects, the `add_note` write path (research-only), the annotation layer (paragraph-anchored comments from Claude), and the bridge between Claude Desktop's stdio and Maugham's Unix socket.
 
+## Tool catalogue (44)
+
+**Discovery / identity**
+- `list_projects` — enumerate all open Maugham projects
+- `list_maugham_tools` — flat, authoritative list of every tool + server identity block
+- `get_help` — read Maugham's bundled user documentation by topic (read-only)
+
+**Project read**
+- `get_metadata` — title, type, tags, word targets, session stats for a project
+- `get_outline` — hierarchical binder structure (groups + documents)
+- `list_scenes` — slugline-level scene list for screenplay projects
+- `get_session_stats` — per-doc session word-count and activity stats
+
+**Document read**
+- `read_document` — full manuscript text (or image with crop-on-demand for images)
+- `search_text` — cross-document full-text search within a project
+- `find_references` — wiki-link back-references to a document
+- `list_documents_by_tag` — filter binder documents by tag
+
+**Research / links**
+- `add_note` — write a new research note under `research/` (the only write tool)
+- `list_research` — enumerate research items in a project
+- `link_research` — create a research ↔ manuscript link
+- `unlink_research` — remove a research ↔ manuscript link
+- `list_all_links` — all research–manuscript links for a project
+
+**Annotations (parallel comment layer)**
+- `add_comment` — paragraph-anchored general comment
+- `add_suggested_change` — paragraph-anchored suggested edit
+- `add_query` — paragraph-anchored open question
+- `add_craft_note` — paragraph-anchored craft/technique observation
+- `list_annotations` — read annotations for a document (filtered by kind/status)
+- `get_annotation` — fetch a single annotation by ID
+
+**Tasks**
+- `list_tasks` — enumerate task annotations for a project
+- `get_task` — fetch a single task by ID
+
+**Publishing**
+- `initialize_publish_template` — scaffold a LaTeX/EPUB template for a project
+- `get_publish_config` — read publish config (`config.json`)
+- `set_publish_config` — write publish config fields
+- `list_publish_files` — enumerate files under `.maugham/publish/`
+- `read_publish_file` — read a publish template or config file
+- `read_publish_image` — read a publish image with crop-on-demand
+- `write_publish_file` — write a template or config file
+- `delete_publish_file` — delete a publish file
+- `compile` — compile a project to PDF or EPUB via bundled tectonic
+- `preview_compile` — dry-run compile (no output written)
+- `compile_status` — poll an in-progress compile job
+- `compile_cancel` — cancel an in-progress compile job
+- `list_publications` — enumerate past publication outputs
+- `read_publication_page` — read a page from a compiled PDF
+- `republish` — re-run the last successful compile
+
+**Piece style**
+- `set_piece_style` — attach per-piece LaTeX style overrides
+- `clear_piece_style` — remove per-piece style overrides
+
+**Inbox / capture**
+- `list_inbox` — enumerate capture inbox entries (voice/text/photo)
+- `read_inbox_entry` — read the content of a single inbox entry
+- `promote_inbox_entry` — promote an inbox entry to a manuscript document
+
 ## Layout
 
 - `MCPServer.swift` — Unix socket server, connection lifecycle, SIGPIPE handling. **SIGPIPE handling is idempotent and required** — don't simplify it away.
