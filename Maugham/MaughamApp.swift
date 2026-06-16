@@ -293,6 +293,11 @@ struct MaughamApp: App {
             HelpWindow()
         }
         .windowResizability(.contentMinSize)
+
+        Window("Acknowledgements", id: "acknowledgements") {
+            AcknowledgementsWindow()
+        }
+        .windowResizability(.contentMinSize)
     }
 
     @MainActor
@@ -385,6 +390,8 @@ private struct HelpCommands: Commands {
                 NotificationCenter.default.post(
                     name: .maughamShowClaudeDesktopHelp, object: nil)
             }
+            Divider()
+            Button("Acknowledgements") { openWindow(id: "acknowledgements") }
         }
     }
 }
