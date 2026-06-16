@@ -17,29 +17,58 @@ struct GuideMarkdownView: View {
         var blocks: [Block] = []
         var inCode = false
         var codeLines: [String] = []
+        // Consecutive plain lines reflow into one paragraph (Markdown semantics:
+        // a hard-wrapped source paragraph is a single paragraph; line breaks
+        // collapse to spaces). Flushed on a blank line, heading, bullet, code
+        // fence, or end of input — otherwise every wrapped source line would
+        // render as its own line.
+        var para: [String] = []
+        func flushParagraph() {
+            if !para.isEmpty {
+                blocks.append(.paragraph(para.joined(separator: " ")))
+                para.removeAll()
+            }
+        }
+
         for raw in text.components(separatedBy: "\n") {
             let line = raw
 
             if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-                if inCode { blocks.append(.code(codeLines.joined(separator: "\n"))); codeLines = [] }
+                if inCode {
+                    blocks.append(.code(codeLines.joined(separator: "\n")))
+                    codeLines = []
+                } else {
+                    flushParagraph()
+                }
                 inCode.toggle()
                 continue
             }
             if inCode { codeLines.append(line); continue }
 
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.isEmpty { continue }
+            var trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty { flushParagraph(); continue }
+
+            // Blockquote: render the quote as ordinary paragraph text (no
+            // dedicated quote styling on this read-only surface).
+            if trimmed.hasPrefix(">") {
+                trimmed = String(trimmed.dropFirst()).trimmingCharacters(in: .whitespaces)
+                if trimmed.isEmpty { continue }
+            }
+
             if trimmed.hasPrefix("#") {
+                flushParagraph()
                 let hashes = trimmed.prefix { $0 == "#" }.count
                 let body = trimmed.drop { $0 == "#" }.trimmingCharacters(in: .whitespaces)
                 blocks.append(.heading(level: min(hashes, 6), text: body))
             } else if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") {
+                flushParagraph()
                 blocks.append(.bullet(String(trimmed.dropFirst(2))))
             } else {
-                blocks.append(.paragraph(trimmed))
+                para.append(trimmed)
             }
         }
         if inCode, !codeLines.isEmpty { blocks.append(.code(codeLines.joined(separator: "\n"))) }
+        flushParagraph()
         return blocks
     }
 
