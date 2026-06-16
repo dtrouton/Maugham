@@ -51,6 +51,7 @@ struct MaughamApp: App {
         Window("Maugham — Welcome", id: "welcome") {
             WelcomeHost()
                 .environment(recents)
+                .environment(userPreferences)
                 .task {
                     Self.registerTools(router: mcpRouter, registry: mcpRegistry)
                     let server = MCPServer(
@@ -244,6 +245,20 @@ struct MaughamApp: App {
                     NotificationCenter.default.post(name: .maughamShowHelp, object: nil)
                 }
                 .keyboardShortcut("?", modifiers: .command)
+                Button("Welcome to Maugham") {
+                    NotificationCenter.default.post(name: .maughamShowWelcome, object: nil)
+                }
+                Menu("Sample Projects") {
+                    Button("Novel") {
+                        NotificationCenter.default.post(name: .maughamOpenSample,
+                            object: nil, userInfo: ["kind": "novel"])
+                    }
+                    Button("Screenplay") {
+                        NotificationCenter.default.post(name: .maughamOpenSample,
+                            object: nil, userInfo: ["kind": "screenplay"])
+                    }
+                }
+                Divider()
                 Button("Syntax Reference") {
                     NotificationCenter.default.post(
                         name: .maughamShowSyntaxHelp, object: nil)
@@ -360,7 +375,10 @@ private struct FocusedRestoreButton: View {
 private struct WelcomeHost: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(RecentsStore.self) private var recents
+    @Environment(UserPreferences.self) private var prefs
     @State private var showingNewProject = false
+    @State private var showingWelcome = false
+    @State private var pendingSampleError: String?
 
     var body: some View {
         WelcomeView(
@@ -372,6 +390,25 @@ private struct WelcomeHost: View {
         )
         .sheet(isPresented: $showingNewProject) {
             NewProjectSheet(onCreated: open)
+        }
+        .sheet(isPresented: $showingWelcome) {
+            WelcomeCarousel(
+                onSampleNovel:      { completeWelcome(); openSample(.novel) },
+                onSampleScreenplay: { completeWelcome(); openSample(.screenplay) },
+                onNewProject:       { completeWelcome(); showingNewProject = true },
+                onSkip:             { completeWelcome() }
+            )
+        }
+        .alert("Couldn’t create sample project",
+               isPresented: Binding(
+                   get: { pendingSampleError != nil },
+                   set: { if !$0 { pendingSampleError = nil } })) {
+            Button("OK", role: .cancel) { pendingSampleError = nil }
+        } message: {
+            Text(pendingSampleError ?? "")
+        }
+        .onAppear {
+            if !prefs.hasCompletedWelcome { showingWelcome = true }
         }
         .onReceive(NotificationCenter.default.publisher(for: .maughamNewProject)) { _ in
             showingNewProject = true
@@ -385,6 +422,29 @@ private struct WelcomeHost: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .maughamShowHelp)) { _ in
             openWindow(id: "help")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .maughamShowWelcome)) { _ in
+            showingWelcome = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .maughamOpenSample)) { note in
+            let kind = (note.userInfo?["kind"] as? String) == "screenplay" ? SampleProjectBuilder.Kind.screenplay : .novel
+            openSample(kind)
+        }
+    }
+
+    @MainActor private func completeWelcome() {
+        prefs.hasCompletedWelcome = true
+        showingWelcome = false
+    }
+
+    @MainActor private func openSample(_ kind: SampleProjectBuilder.Kind) {
+        Task {
+            do {
+                let url = try await SampleProjectBuilder.buildInDocuments(kind)
+                open(url)   // records in Recents + opens the project window
+            } catch {
+                pendingSampleError = error.localizedDescription
+            }
         }
     }
 
