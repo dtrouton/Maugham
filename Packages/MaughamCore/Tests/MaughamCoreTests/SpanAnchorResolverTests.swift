@@ -32,3 +32,16 @@ final class SpanAnchorResolverTests: XCTestCase {
         XCTAssertNil(SpanAnchorResolver.resolve(anchor: anchor, in: "anything"))
     }
 }
+
+extension SpanAnchorResolverTests {
+    func test_minorEditInsideSpan_stillAnchors() {
+        let text = "it was for the excercise, half true."   // misspelling in current text
+        let anchor = SpanAnchor(quote: "for the exercise", prefix: "was ", suffix: ", half", posHint: 7)
+        XCTAssertNotNil(SpanAnchorResolver.resolve(anchor: anchor, in: text))
+    }
+    func test_spanFullyRewritten_goesStale() {
+        let text = "it was a kind of penance, half true."
+        let anchor = SpanAnchor(quote: "for the exercise", prefix: "was ", suffix: ", half", posHint: 7)
+        XCTAssertNil(SpanAnchorResolver.resolve(anchor: anchor, in: text))
+    }
+}

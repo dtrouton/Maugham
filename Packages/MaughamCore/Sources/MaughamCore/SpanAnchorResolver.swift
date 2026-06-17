@@ -19,7 +19,37 @@ public enum SpanAnchorResolver {
             let best = disambiguate(occ, anchor: anchor, normalized: nChars)
             return mapNormalizedRangeToRaw(best, normalized: nChars, raw: chars, text: text, nText: nText, quote: anchor.quote)
         }
-        return nil // Tier 2 (fuzzy) added in Task 4.
+        // Tier 2: fuzzy window (lenient). Reuse ShingleMatcher bigram overlap.
+        if let fuzzy = fuzzyWindow(quote: nQuote, in: nChars, anchor: anchor) {
+            return mapNormalizedRangeToRaw(fuzzy, normalized: nChars, raw: chars, text: text, nText: nText, quote: anchor.quote)
+        }
+        return nil
+    }
+
+    static let fuzzyThreshold = 0.6
+    static let fuzzyMargin = 0.1
+
+    static func fuzzyWindow(quote: [Character], in hay: [Character], anchor: SpanAnchor) -> Range<Int>? {
+        guard !quote.isEmpty, hay.count >= 2 else { return nil }
+        let qBigrams = ShingleMatcher.bigrams(of: String(quote))
+        let qLen = quote.count
+        let lengths = Set([qLen, max(1, qLen - 1), qLen + 1, max(1, qLen - 2), qLen + 2]).sorted()
+        var scored: [(range: Range<Int>, score: Double)] = []
+        for len in lengths where len <= hay.count {
+            for start in 0...(hay.count - len) {
+                let window = String(hay[start..<start+len])
+                let score = ShingleMatcher.bigramOverlap(ShingleMatcher.bigrams(of: window), qBigrams)
+                scored.append((start..<start+len, score))
+            }
+        }
+        let ranked = scored.sorted { $0.score > $1.score }
+        guard let best = ranked.first, best.score >= fuzzyThreshold else { return nil }
+        if let runnerUp = ranked.dropFirst().first(where: { !$0.range.overlaps(best.range) }),
+           best.score - runnerUp.score < fuzzyMargin {
+            let nearBest = ranked.filter { best.score - $0.score < fuzzyMargin }
+            return nearBest.min(by: { abs($0.range.lowerBound - anchor.posHint) < abs($1.range.lowerBound - anchor.posHint) })?.range
+        }
+        return best.range
     }
 
     static func occurrences(of needle: [Character], in hay: [Character]) -> [Range<Int>] {
