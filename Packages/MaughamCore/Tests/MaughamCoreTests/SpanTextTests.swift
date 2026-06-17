@@ -14,4 +14,26 @@ final class SpanTextTests: XCTestCase {
         let once = SpanText.normalize("the  \u{201C}cat\u{201D}")
         XCTAssertEqual(SpanText.normalize(once), once)
     }
+
+    /// Load-bearing invariant: the exact tier of SpanAnchorResolver searches the
+    /// `normalized` output of `normalizeWithMap` but disambiguates/compares against
+    /// `normalize`. If the two ever produced different normalized text, the index
+    /// map would point into a string the matcher never saw. Pin them identical.
+    func test_normalizeWithMap_normalizedOutput_equalsNormalize() {
+        let fixtures: [String] = [
+            "plain ascii sentence here",                       // plain ASCII
+            "don\u{2019}t say \u{2018}hi\u{2019} \u{201C}now\u{201D}", // smart quotes
+            "a \u{2014} b \u{2013} c",                          // em + en dash
+            "well\u{2026} then",                               // ellipsis
+            "   leading and trailing   ",                      // leading/trailing whitespace
+            "for   the\t\texercise\nhere",                     // interior whitespace runs (spaces/tabs/newlines)
+            "",                                                // empty string
+            "She paused\u{2026} \u{201C}well\u{201D} \u{2014} then she\trested.", // mixed real sentence
+        ]
+        for s in fixtures {
+            let mapped = String(SpanText.normalizeWithMap(s).normalized)
+            XCTAssertEqual(mapped, SpanText.normalize(s),
+                           "normalizeWithMap diverged from normalize for fixture: \(s.debugDescription)")
+        }
+    }
 }
