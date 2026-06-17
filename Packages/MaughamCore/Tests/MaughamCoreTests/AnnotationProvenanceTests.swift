@@ -34,3 +34,41 @@ extension AnnotationProvenanceTests {
         XCTAssertNil(legacyDecoded.spanQuote)
     }
 }
+
+extension AnnotationProvenanceTests {
+    private func annotationOp(opId: String, pid: String, span: SpanAnchor?, author: AnnotationAuthor) -> Op {
+        Op(opId: opId, docId: "doc-1", at: Date(timeIntervalSince1970: 1), device: "d", session: "s",
+           kind: .claudeComment,
+           changes: [Op.ParagraphChange(paragraphId: pid, prior: nil, next: "note")],
+           provenance: Op.Provenance(
+               annotationBody: "note",
+               authorSourceKind: author.sourceKind.rawValue,
+               authorDisplayName: author.displayName,
+               authorCollaboratorId: author.collaboratorId,
+               spanQuote: span?.quote, spanPrefix: span?.prefix,
+               spanSuffix: span?.suffix, spanPosHint: span?.posHint))
+    }
+
+    func test_deriver_surfacesAuthorAndResolvesSpan() {
+        let para = "She told herself it was for the exercise, half true."
+        let span = SpanAnchor(quote: "for the exercise", prefix: "was ", suffix: ", half", posHint: 24)
+        let op = annotationOp(opId: "01AAAA", pid: "ab12", span: span,
+                              author: .init(sourceKind: .human, displayName: "Marian", collaboratorId: "c-1"))
+        let a = AnnotationDeriver.derive(ops: [op], paragraphs: ["ab12": para]).first!
+        XCTAssertEqual(a.author?.sourceKind, .human)
+        XCTAssertEqual(a.author?.displayName, "Marian")
+        XCTAssertEqual(a.span?.quote, "for the exercise")
+        XCTAssertNotNil(a.resolvedSpanRange)
+        XCTAssertFalse(a.isStale)
+    }
+
+    func test_deriver_lostSpan_marksStale() {
+        let para = "completely rewritten paragraph."
+        let span = SpanAnchor(quote: "for the exercise", prefix: "was ", suffix: ", half", posHint: 24)
+        let op = annotationOp(opId: "01BBBB", pid: "ab12", span: span,
+                              author: .init(sourceKind: .claude, displayName: "Claude"))
+        let a = AnnotationDeriver.derive(ops: [op], paragraphs: ["ab12": para]).first!
+        XCTAssertNil(a.resolvedSpanRange)
+        XCTAssertTrue(a.isStale)
+    }
+}

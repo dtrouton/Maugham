@@ -37,11 +37,29 @@ public enum AnnotationDeriver {
             let (status, userResponse, resolvedAt) = resolution(
                 creation: op, lifecycle: lifecycle)
 
-            let isStale: Bool = {
+            let paragraphStale: Bool = {
                 guard kind != .craftNote, let pid = paragraphId,
                       let captured = priorText else { return false }
                 return paragraphs[pid] != captured
             }()
+
+            // Author + span anchor are carried on the op's provenance; the span
+            // is re-resolved against the live paragraph on every derive.
+            let prov = op.provenance
+            let author = prov?.authorSourceKind
+                .flatMap { AnnotationAuthor.SourceKind(rawValue: $0) }
+                .map { AnnotationAuthor(sourceKind: $0, displayName: prov?.authorDisplayName ?? "", collaboratorId: prov?.authorCollaboratorId) }
+            let span = prov?.spanQuote.map {
+                SpanAnchor(quote: $0, prefix: prov?.spanPrefix ?? "", suffix: prov?.spanSuffix ?? "", posHint: prov?.spanPosHint ?? 0)
+            }
+            let resolvedSpanRange: Range<Int>?
+            if let span, let pid = paragraphId, let text = paragraphs[pid] {
+                resolvedSpanRange = SpanAnchorResolver.resolve(anchor: span, in: text)
+            } else {
+                resolvedSpanRange = nil
+            }
+            let spanIsStale = (span != nil && resolvedSpanRange == nil)
+            let isStale = paragraphStale || spanIsStale
 
             result.append(Annotation(
                 id: op.opId,
@@ -55,7 +73,10 @@ public enum AnnotationDeriver {
                 status: status,
                 userResponse: userResponse,
                 resolvedAt: resolvedAt,
-                isStale: isStale))
+                isStale: isStale,
+                author: author,
+                span: span,
+                resolvedSpanRange: resolvedSpanRange))
         }
         // Newest first by createdAt; tie-break by op_id (descending) for
         // stable ordering of same-instant ops.
