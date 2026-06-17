@@ -16,3 +16,21 @@ final class AnnotationProvenanceTests: XCTestCase {
         XCTAssertEqual(decoded, author)
     }
 }
+
+extension AnnotationProvenanceTests {
+    func test_provenance_carriesAuthorAndSpan_andLegacyDecodesNil() throws {
+        let prov = Op.Provenance(
+            annotationBody: "undersells her",
+            authorSourceKind: "human", authorDisplayName: "Marian", authorCollaboratorId: "c-1",
+            spanQuote: "for the exercise", spanPrefix: "was ", spanSuffix: ", half", spanPosHint: 7)
+        let data = try JSONEncoder().encode(prov)
+        let decoded = try JSONDecoder().decode(Op.Provenance.self, from: data)
+        XCTAssertEqual(decoded.authorSourceKind, "human")
+        XCTAssertEqual(decoded.spanQuote, "for the exercise")
+        XCTAssertEqual(decoded.spanPosHint, 7)
+        let legacy = #"{"annotation_body":"hi"}"#.data(using: .utf8)!
+        let legacyDecoded = try JSONDecoder().decode(Op.Provenance.self, from: legacy)
+        XCTAssertNil(legacyDecoded.authorSourceKind)
+        XCTAssertNil(legacyDecoded.spanQuote)
+    }
+}

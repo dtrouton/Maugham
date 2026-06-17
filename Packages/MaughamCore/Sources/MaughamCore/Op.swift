@@ -57,6 +57,21 @@ public struct Op: Codable, Equatable, Sendable {
         public let appVersion: String?
         public let osVersion: String?
 
+        // Annotation author — who created the annotation (source-agnostic kind;
+        // provenance is the authority for "who"). Surfaced as AnnotationAuthor
+        // by the deriver. Additive: legacy op logs decode with all nil.
+        public let authorSourceKind: String?
+        public let authorDisplayName: String?
+        public let authorCollaboratorId: String?
+
+        // Sub-paragraph span anchor — the quoted span plus surrounding context
+        // for stateless re-find. Surfaced as SpanAnchor by the deriver, which
+        // resolves it against the live paragraph on every derive.
+        public let spanQuote: String?
+        public let spanPrefix: String?
+        public let spanSuffix: String?
+        public let spanPosHint: Int?
+
         enum CodingKeys: String, CodingKey {
             case sessionId = "session_id"
             case prompt
@@ -75,6 +90,13 @@ public struct Op: Codable, Equatable, Sendable {
             case taskKind = "task_kind"
             case appVersion = "app_version"
             case osVersion = "os_version"
+            case authorSourceKind = "author_source_kind"
+            case authorDisplayName = "author_display_name"
+            case authorCollaboratorId = "author_collaborator_id"
+            case spanQuote = "span_quote"
+            case spanPrefix = "span_prefix"
+            case spanSuffix = "span_suffix"
+            case spanPosHint = "span_pos_hint"
         }
 
         public init(
@@ -86,7 +108,11 @@ public struct Op: Codable, Equatable, Sendable {
             taskId: String? = nil, taskBody: String? = nil,
             taskStatus: String? = nil, taskPriority: Double? = nil,
             taskParentId: String? = nil, taskKind: String? = nil,
-            appVersion: String? = nil, osVersion: String? = nil
+            appVersion: String? = nil, osVersion: String? = nil,
+            authorSourceKind: String? = nil, authorDisplayName: String? = nil,
+            authorCollaboratorId: String? = nil,
+            spanQuote: String? = nil, spanPrefix: String? = nil,
+            spanSuffix: String? = nil, spanPosHint: Int? = nil
         ) {
             self.sessionId = sessionId
             self.prompt = prompt
@@ -105,6 +131,13 @@ public struct Op: Codable, Equatable, Sendable {
             self.taskKind = taskKind
             self.appVersion = appVersion
             self.osVersion = osVersion
+            self.authorSourceKind = authorSourceKind
+            self.authorDisplayName = authorDisplayName
+            self.authorCollaboratorId = authorCollaboratorId
+            self.spanQuote = spanQuote
+            self.spanPrefix = spanPrefix
+            self.spanSuffix = spanSuffix
+            self.spanPosHint = spanPosHint
         }
     }
 
