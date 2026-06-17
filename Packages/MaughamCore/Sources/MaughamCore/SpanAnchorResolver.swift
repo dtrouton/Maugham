@@ -26,6 +26,19 @@ public enum SpanAnchorResolver {
         return nil
     }
 
+    /// Build an anchor for a selected grapheme range in `text`.
+    public static func capture(in text: String, range: Range<Int>, contextLength: Int = 24) -> SpanAnchor {
+        let chars = Array(text)
+        let lo = max(0, min(range.lowerBound, chars.count))
+        let hi = max(lo, min(range.upperBound, chars.count))
+        let quote = String(chars[lo..<hi])
+        let preLo = max(0, lo - contextLength)
+        let sufHi = min(chars.count, hi + contextLength)
+        let prefix = String(chars[preLo..<lo])
+        let suffix = String(chars[hi..<sufHi])
+        return SpanAnchor(quote: quote, prefix: prefix, suffix: suffix, posHint: lo)
+    }
+
     static let fuzzyThreshold = 0.6
     static let fuzzyMargin = 0.1
 

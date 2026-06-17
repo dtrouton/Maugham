@@ -45,3 +45,17 @@ extension SpanAnchorResolverTests {
         XCTAssertNil(SpanAnchorResolver.resolve(anchor: anchor, in: text))
     }
 }
+
+extension SpanAnchorResolverTests {
+    func test_capture_thenResolve_roundTrips() {
+        let text = "She told herself it was for the exercise, half true."
+        let chars = Array(text)
+        let lo = text.distance(from: text.startIndex, to: text.range(of: "for the exercise")!.lowerBound)
+        let anchor = SpanAnchorResolver.capture(in: text, range: lo..<(lo+16), contextLength: 8)
+        XCTAssertEqual(anchor.quote, "for the exercise")
+        XCTAssertEqual(anchor.posHint, lo)
+        XCTAssertFalse(anchor.prefix.isEmpty)
+        let r = SpanAnchorResolver.resolve(anchor: anchor, in: text)!
+        XCTAssertEqual(String(chars[r]), "for the exercise")
+    }
+}
