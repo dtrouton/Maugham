@@ -71,4 +71,21 @@ extension AnnotationProvenanceTests {
         XCTAssertNil(a.resolvedSpanRange)
         XCTAssertTrue(a.isStale)
     }
+
+    func test_deriver_resolvesSpanInDisplayCoordinates_whenParagraphHasInlineAnchor() {
+        // Raw paragraph carries an inline task anchor BEFORE the quote, so raw vs
+        // display offsets differ by the anchor length. The resolved range must be
+        // in DISPLAY coordinates (anchors stripped) — otherwise indexing the
+        // shorter display string with raw coordinates mismatches or traps.
+        let raw = "She told <!--t-abcdef-->herself it was for the exercise, half true."
+        let display = MarkdownDisplayFilter.stripTaskAnchorsInline(raw)
+        XCTAssertFalse(display.contains("<!--t-"), "precondition: anchor is stripped from display text")
+        let span = SpanAnchor(quote: "for the exercise", prefix: "was ", suffix: ", half", posHint: 0)
+        let op = annotationOp(opId: "01CCCC", pid: "ab12", span: span,
+                              author: .init(sourceKind: .claude, displayName: "Claude"))
+        let a = AnnotationDeriver.derive(ops: [op], paragraphs: ["ab12": raw]).first!
+        let r = try! XCTUnwrap(a.resolvedSpanRange)
+        XCTAssertEqual(String(Array(display)[r]), "for the exercise")
+        XCTAssertFalse(a.isStale)
+    }
 }

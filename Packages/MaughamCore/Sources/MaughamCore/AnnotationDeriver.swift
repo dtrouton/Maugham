@@ -54,7 +54,12 @@ public enum AnnotationDeriver {
             }
             let resolvedSpanRange: Range<Int>?
             if let span, let pid = paragraphId, let text = paragraphs[pid] {
-                resolvedSpanRange = SpanAnchorResolver.resolve(anchor: span, in: text)
+                // Re-find against DISPLAY text (anchors stripped) so the resolved
+                // range is in display coordinates — matching the surface the span
+                // was captured against and what the editor highlights. Idempotent
+                // (no-op) when the paragraph has no inline anchors.
+                let displayText = MarkdownDisplayFilter.stripTaskAnchorsInline(text)
+                resolvedSpanRange = SpanAnchorResolver.resolve(anchor: span, in: displayText)
             } else {
                 resolvedSpanRange = nil
             }
