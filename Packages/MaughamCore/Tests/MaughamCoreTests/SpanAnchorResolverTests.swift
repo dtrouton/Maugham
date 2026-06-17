@@ -59,3 +59,15 @@ extension SpanAnchorResolverTests {
         XCTAssertEqual(String(chars[r]), "for the exercise")
     }
 }
+
+extension SpanAnchorResolverTests {
+    func test_repeatedSpan_contextDecides_whenPositionIsEquidistant() {
+        // "the cat sat. the cat ran." — quote "cat" twice, at lower bounds 4 and 17.
+        // posHint placed exactly between them so position can't break the tie;
+        // suffix " ran" must select the 2nd occurrence (index 17).
+        let text = "the cat sat. the cat ran."
+        let anchor = SpanAnchor(quote: "cat", prefix: "the ", suffix: " ran", posHint: 10)
+        let r = SpanAnchorResolver.resolve(anchor: anchor, in: text)!
+        XCTAssertEqual(r.lowerBound, 17)
+    }
+}

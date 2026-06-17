@@ -78,17 +78,42 @@ public enum SpanAnchorResolver {
 
     /// Pick the occurrence whose surrounding context best matches prefix/suffix,
     /// breaking ties by proximity to posHint.
+    ///
+    /// Context matching is whitespace-tolerant: both the text-side slice and the
+    /// stored prefix/suffix are run through `SpanText.normalize` (the SAME
+    /// function), so their internal spaces align and a boundary space that
+    /// `normalize` trims from the prefix/suffix can no longer defeat the match.
+    /// The prefix is scored by the longest common SUFFIX between the normalized
+    /// text-before-occurrence and the normalized prefix; the suffix by the
+    /// longest common PREFIX between the normalized text-after-occurrence and the
+    /// normalized suffix.
     static func disambiguate(_ occ: [Range<Int>], anchor: SpanAnchor, normalized: [Character]) -> Range<Int> {
         if occ.count == 1 { return occ[0] }
         let nPrefix = Array(SpanText.normalize(anchor.prefix))
         let nSuffix = Array(SpanText.normalize(anchor.suffix))
-        func contextScore(_ r: Range<Int>) -> Int {
-            var s = 0
-            var i = r.lowerBound - 1, j = nPrefix.count - 1
-            while i >= 0 && j >= 0 && normalized[i] == nPrefix[j] { s += 1; i -= 1; j -= 1 }
-            var k = r.upperBound, m = 0
-            while k < normalized.count && m < nSuffix.count && normalized[k] == nSuffix[m] { s += 1; k += 1; m += 1 }
+        func longestCommonSuffix(_ a: [Character], _ b: [Character]) -> Int {
+            var s = 0, i = a.count - 1, j = b.count - 1
+            while i >= 0 && j >= 0 && a[i] == b[j] { s += 1; i -= 1; j -= 1 }
             return s
+        }
+        func longestCommonPrefix(_ a: [Character], _ b: [Character]) -> Int {
+            var s = 0, i = 0, j = 0
+            while i < a.count && j < b.count && a[i] == b[j] { s += 1; i += 1; j += 1 }
+            return s
+        }
+        func contextScore(_ r: Range<Int>) -> Int {
+            // Re-normalize the boundary slices so collapsed/trimmed whitespace on
+            // the stored prefix/suffix aligns with the live text's whitespace.
+            // Slice a window at least as long as the stored context (plus slack
+            // for whitespace that normalize may collapse) so the full prefix/
+            // suffix can match.
+            let preWindow = max(nPrefix.count + 2, 1)
+            let sufWindow = max(nSuffix.count + 2, 1)
+            let beforeLo = max(0, r.lowerBound - preWindow)
+            let before = Array(SpanText.normalize(String(normalized[beforeLo..<r.lowerBound])))
+            let afterHi = min(normalized.count, r.upperBound + sufWindow)
+            let after = Array(SpanText.normalize(String(normalized[r.upperBound..<afterHi])))
+            return longestCommonSuffix(before, nPrefix) + longestCommonPrefix(after, nSuffix)
         }
         return occ.max(by: { a, b in
             let sa = contextScore(a), sb = contextScore(b)
