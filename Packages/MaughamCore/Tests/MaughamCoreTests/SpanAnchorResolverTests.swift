@@ -70,4 +70,13 @@ extension SpanAnchorResolverTests {
         let r = SpanAnchorResolver.resolve(anchor: anchor, in: text)!
         XCTAssertEqual(r.lowerBound, 17)
     }
+
+    func test_lengthChangingNormalization_stillMapsToRawRange() {
+        // stored quote uses straight quotes + literal "..."; current text uses curly quotes + a real ellipsis char.
+        let text = "She paused\u{2026} \u{201C}well\u{201D} then."   // "…" and curly quotes
+        let anchor = SpanAnchor(quote: "paused... \"well\"", prefix: "She ", suffix: " then", posHint: 4)
+        let r = SpanAnchorResolver.resolve(anchor: anchor, in: text)!
+        // the matched RAW substring should be the curly/ellipsis form actually present
+        XCTAssertEqual(String(Array(text)[r]), "paused\u{2026} \u{201C}well\u{201D}")
+    }
 }

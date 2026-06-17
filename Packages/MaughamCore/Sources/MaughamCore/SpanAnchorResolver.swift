@@ -7,9 +7,8 @@ public enum SpanAnchorResolver {
     public static func resolve(anchor: SpanAnchor, in text: String) -> Range<Int>? {
         guard !anchor.quote.isEmpty else { return nil } // empty == paragraph-level
 
-        let chars = Array(text)
-        let nText = SpanText.normalize(text)
-        let nChars = Array(nText)
+        let rawCount = text.count
+        let (nChars, rawIndexForNormalized) = SpanText.normalizeWithMap(text)
         let nQuote = Array(SpanText.normalize(anchor.quote))
         guard !nQuote.isEmpty else { return nil }
 
@@ -17,11 +16,11 @@ public enum SpanAnchorResolver {
         let occ = occurrences(of: nQuote, in: nChars)
         if !occ.isEmpty {
             let best = disambiguate(occ, anchor: anchor, normalized: nChars)
-            return mapNormalizedRangeToRaw(best, normalized: nChars, raw: chars, text: text, nText: nText, quote: anchor.quote)
+            return mapNormalizedRangeToRaw(best, map: rawIndexForNormalized, rawCount: rawCount)
         }
         // Tier 2: fuzzy window (lenient). Reuse ShingleMatcher bigram overlap.
         if let fuzzy = fuzzyWindow(quote: nQuote, in: nChars, anchor: anchor) {
-            return mapNormalizedRangeToRaw(fuzzy, normalized: nChars, raw: chars, text: text, nText: nText, quote: anchor.quote)
+            return mapNormalizedRangeToRaw(fuzzy, map: rawIndexForNormalized, rawCount: rawCount)
         }
         return nil
     }
@@ -122,14 +121,21 @@ public enum SpanAnchorResolver {
         })!
     }
 
-    /// Map a range found in normalized space back to raw grapheme offsets.
-    static func mapNormalizedRangeToRaw(_ r: Range<Int>, normalized: [Character], raw: [Character], text: String, nText: String, quote: String) -> Range<Int>? {
-        if normalized.count == raw.count { return r }
-        let rawQuote = Array(quote)
-        let rawOcc = occurrences(of: rawQuote, in: raw)
-        guard let nearest = rawOcc.min(by: { abs($0.lowerBound - r.lowerBound) < abs($1.lowerBound - r.lowerBound) }) else {
-            return nil
-        }
-        return nearest
+    /// Map a range found in normalized space back to exact raw grapheme offsets
+    /// using the normalized→raw index correspondence from `normalizeWithMap`.
+    ///
+    /// `map[k]` is the raw index that normalized char `k` came from. The raw
+    /// lower bound is `map[r.lowerBound]`. The raw upper bound is one past the
+    /// raw source of the LAST included normalized char (`map[r.upperBound - 1]`);
+    /// multi-char expansions (`…`→`...`) all share that single raw index, so
+    /// `+1` correctly spans the whole source grapheme regardless of where inside
+    /// the expansion the range happens to end. Robust to length-changing
+    /// normalization — no re-search of the verbatim quote is performed.
+    static func mapNormalizedRangeToRaw(_ r: Range<Int>, map: [Int], rawCount: Int) -> Range<Int>? {
+        guard !r.isEmpty, r.lowerBound >= 0, r.upperBound <= map.count else { return nil }
+        let rawLo = map[r.lowerBound]
+        let rawHi = map[r.upperBound - 1] + 1
+        guard rawLo >= 0, rawHi <= rawCount, rawLo < rawHi else { return nil }
+        return rawLo..<rawHi
     }
 }
