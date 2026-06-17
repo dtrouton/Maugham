@@ -143,6 +143,94 @@ final class AnnotationCreationToolsTests: XCTestCase {
         await h.documentStore.close()
     }
 
+    // MARK: - quote span + provenance
+
+    func test_addComment_withQuote_capturesSpanAndStampsClaude() async throws {
+        let h = try await makeHarness()
+
+        let log = try await h.doc.opLog()
+        guard let pid = log.first(where: { $0.kind == .bootstrap })?
+            .changes.first?.paragraphId
+        else { return XCTFail("no bootstrap paragraph") }
+
+        let quote = "First"
+        let params: [String: Any] = [
+            "project_id": h.projectId,
+            "document_id": h.doc.docId,
+            "paragraph_id": pid,
+            "body": "anchor on the first word",
+            "quote": quote
+        ]
+        let paramsData = try JSONSerialization.data(withJSONObject: params)
+        let resultData = try await AddCommentTool.handle(
+            paramsJSON: paramsData, registry: h.registry)
+        let result = try JSONDecoder().decode(
+            AddCommentTool.Result.self, from: resultData)
+
+        let ann = h.doc.annotations().first { $0.id == result.annotation_id }
+        XCTAssertNotNil(ann, "derived annotation not found")
+        XCTAssertEqual(ann?.author?.sourceKind, .claude)
+        XCTAssertEqual(ann?.span?.quote, quote)
+
+        await h.documentStore.close()
+    }
+
+    func test_addComment_withMissingQuote_returnsSpanNotFound() async throws {
+        let h = try await makeHarness()
+
+        let log = try await h.doc.opLog()
+        guard let pid = log.first(where: { $0.kind == .bootstrap })?
+            .changes.first?.paragraphId
+        else { return XCTFail("no bootstrap paragraph") }
+
+        let params: [String: Any] = [
+            "project_id": h.projectId,
+            "document_id": h.doc.docId,
+            "paragraph_id": pid,
+            "body": "this quote isn't there",
+            "quote": "nonexistent phrase that does not appear"
+        ]
+        let paramsData = try JSONSerialization.data(withJSONObject: params)
+
+        do {
+            _ = try await AddCommentTool.handle(
+                paramsJSON: paramsData, registry: h.registry)
+            XCTFail("expected span_not_found")
+        } catch let MCPError.toolError(payload) {
+            XCTAssertEqual(payload.error, "span_not_found")
+        }
+
+        await h.documentStore.close()
+    }
+
+    func test_addComment_noQuote_stampsClaudeProvenance() async throws {
+        let h = try await makeHarness()
+
+        let log = try await h.doc.opLog()
+        guard let pid = log.first(where: { $0.kind == .bootstrap })?
+            .changes.first?.paragraphId
+        else { return XCTFail("no bootstrap paragraph") }
+
+        let params: [String: Any] = [
+            "project_id": h.projectId,
+            "document_id": h.doc.docId,
+            "paragraph_id": pid,
+            "body": "whole-paragraph comment"
+        ]
+        let paramsData = try JSONSerialization.data(withJSONObject: params)
+        let resultData = try await AddCommentTool.handle(
+            paramsJSON: paramsData, registry: h.registry)
+        let result = try JSONDecoder().decode(
+            AddCommentTool.Result.self, from: resultData)
+
+        let ann = h.doc.annotations().first { $0.id == result.annotation_id }
+        XCTAssertNotNil(ann, "derived annotation not found")
+        XCTAssertEqual(ann?.author?.sourceKind, .claude)
+        XCTAssertNil(ann?.span)
+
+        await h.documentStore.close()
+    }
+
     // MARK: - add_craft_note
 
     func test_addCraftNote_acceptsNoParagraphId() async throws {

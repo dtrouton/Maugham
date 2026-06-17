@@ -56,3 +56,39 @@ func withAnnotationDocument<T>(
     Task { await doc.close() }
     return result
 }
+
+/// The author stamp for every annotation emitted through the MCP bridge.
+/// All MCP annotations originate from Claude, so they carry `.claude`
+/// provenance regardless of whether a sub-paragraph `quote` was supplied.
+let claudeAnnotationAuthor = AnnotationAuthor(sourceKind: .claude, displayName: "Claude")
+
+/// Resolve an optional `quote` into a `SpanAnchor` captured against the
+/// paragraph's *display* text — the same text Claude sees via `read_document`.
+///
+/// The paragraph's stored text may contain inline task anchors (HTML
+/// comments); those are stripped first so the quote Claude copied from the
+/// rendered manuscript matches. Returns nil when `quote` is nil/empty (the
+/// annotation anchors the whole paragraph). Throws `MCPError.spanNotFound`
+/// when a non-empty quote isn't present in the paragraph.
+///
+/// `doc` is the live (or transient) Document. When the paragraph isn't present
+/// at all this returns nil rather than throwing, so the downstream
+/// `addAnnotation` validation surfaces the more specific
+/// `paragraph_not_found` error (and an empty quote always anchors the whole
+/// paragraph). A non-empty quote that the paragraph *does* hold but doesn't
+/// match throws `MCPError.spanNotFound`.
+@MainActor
+func resolveSpanAnchor(
+    quote: String?, paragraphId: String, in doc: Document
+) throws -> SpanAnchor? {
+    guard let q = quote, !q.isEmpty else { return nil }
+    guard let raw = doc.paragraphs[paragraphId] else { return nil }
+    let paraText = MarkdownDisplayFilter.stripTaskAnchorsInline(raw)
+    guard let r = SpanAnchorResolver.resolve(
+        anchor: SpanAnchor(quote: q, prefix: "", suffix: "", posHint: 0),
+        in: paraText)
+    else {
+        throw MCPError.spanNotFound(paragraphId: paragraphId, quote: q)
+    }
+    return SpanAnchorResolver.capture(in: paraText, range: r)
+}

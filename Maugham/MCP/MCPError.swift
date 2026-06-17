@@ -119,6 +119,19 @@ public enum MCPError: Error, Equatable {
             ]))
     }
 
+    /// `span_not_found` — the caller passed a `quote` that doesn't match any
+    /// span within the target paragraph's current (display) text. Most common
+    /// cause: the quote was paraphrased, copied with surrounding markup, or
+    /// taken from a stale read. The whole-paragraph anchor is always available
+    /// by omitting `quote`.
+    public static func spanNotFound(paragraphId: String, quote: String) -> MCPError {
+        .toolError(payload: .init(
+            error: "span_not_found",
+            message: "The quoted span was not found in paragraph '\(paragraphId)'.",
+            hint: "Re-read the paragraph with read_document and quote an exact phrase from it, or omit `quote` to anchor the whole paragraph.",
+            fields: ["paragraph_id": .string(paragraphId), "quote": .string(quote)]))
+    }
+
     /// `prior_text_capture_failed` — paragraph exists in the sequence
     /// but its text snapshot couldn't be captured. Indicates an internal
     /// consistency bug; defensive check for the future.

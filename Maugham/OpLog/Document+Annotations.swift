@@ -49,7 +49,9 @@ extension Document {
         body: String,
         suggestedText: String? = nil,
         prompt: String? = nil,
-        toolArgs: String? = nil
+        toolArgs: String? = nil,
+        span: SpanAnchor? = nil,
+        author: AnnotationAuthor? = nil
     ) async throws -> String {
         let opKind: OpKind = {
             switch kind {
@@ -116,7 +118,14 @@ extension Document {
                 sessionId: session,
                 prompt: prompt,
                 toolArgs: toolArgs,
-                annotationBody: body))
+                annotationBody: body,
+                authorSourceKind: author?.sourceKind.rawValue,
+                authorDisplayName: author?.displayName,
+                authorCollaboratorId: author?.collaboratorId,
+                spanQuote: span?.quote,
+                spanPrefix: span?.prefix,
+                spanSuffix: span?.suffix,
+                spanPosHint: span?.posHint))
         try await opStore.append(op)
         _opLogMirror.append(op)
         _hasAnyAnnotationOps = true
