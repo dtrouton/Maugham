@@ -239,10 +239,10 @@ final class SpanAnchorResolverTests: XCTestCase {
         let text = "he said. she said again."
         let anchor = SpanAnchor(quote: "said", prefix: "she ", suffix: " again", posHint: 11)
         let r = SpanAnchorResolver.resolve(anchor: anchor, in: text)!
-        XCTAssertEqual(r.lowerBound, 10) // the 2nd "said"
+        XCTAssertEqual(r.lowerBound, 13) // the 2nd "said" (index 13 in "he said. she said again.")
     }
 
-    func test_quoteAbsent_returnsNil(stale)() {
+    func test_quoteAbsent_returnsNilStale() {
         let text = "completely different sentence."
         let anchor = SpanAnchor(quote: "for the exercise", prefix: "", suffix: "", posHint: 0)
         XCTAssertNil(SpanAnchorResolver.resolve(anchor: anchor, in: text))
@@ -255,8 +255,6 @@ final class SpanAnchorResolverTests: XCTestCase {
     }
 }
 ```
-
-> Note: rename `test_quoteAbsent_returnsNilStale` (the `(stale)` above is illustrative — use a valid identifier).
 
 - [ ] **Step 2: Run test to verify it fails**
 
