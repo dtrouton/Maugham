@@ -185,6 +185,31 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// Comment/Query. Minimal by design — Task 5 restyles it into a margin slip.
     private weak var annotationComposer: ReviewAnnotationComposerView?
 
+    // MARK: - Crafted review render (Task 5 / Component F)
+
+    /// Open annotations to render in review mode. Pushed ONE-WAY from
+    /// EditorSurface.updateNSView (sourced from the host's `Document`), versioned
+    /// so the recompute only fires when the set actually changes. Nothing reads
+    /// this back into a binding (tripwires 2 & 6).
+    private var reviewAnnotations: [Annotation] = []
+    /// Resolves a paragraphId to its DISPLAY text — used to convert an
+    /// annotation's grapheme-offset `resolvedSpanRange` to UTF-16 within the
+    /// paragraph. Wired by EditorHost from `Document.paragraph(id:)` stripped.
+    var reviewParagraphTextProvider: ((String) -> String?)?
+    /// Resolves a paragraphId to its UTF-16 NSRange in the full display string.
+    /// Wired by EditorHost from `Document.displayRange(forParagraphId:)`.
+    var reviewParagraphRangeProvider: ((String) -> NSRange?)?
+    /// Cached, resolved-to-absolute marks. Recomputed when the annotation set or
+    /// the text changes — never per draw (tripwire 4). The overlay views read
+    /// this directly.
+    private(set) var resolvedReviewMarks: [ResolvedReviewMark] = []
+    private let reviewPalette = ReviewPalette()
+
+    /// Inline-mark overlay + right-margin rail, installed lazily on the text
+    /// view (like the gutter) and shown only in review mode.
+    private weak var markRenderer: AnnotationMarkRenderer?
+    private weak var marginRail: ReviewMarginRailView?
+
     /// Number of times applyExternalText has been called. Internal so
     /// @testable importers (EditorIntegrationHarness) can assert invariants
     /// about typing not triggering external-text replacement. Production
@@ -429,6 +454,121 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // Hide the toolbar when leaving review; show-on-selection resumes via
         // textViewDidChangeSelection while review is on.
         updateSelectionToolbar(in: textView)
+        // Crafted-render overlays follow the review posture.
+        syncReviewOverlays()
+    }
+
+    // MARK: - Crafted review render wiring (Task 5)
+
+    /// Push the open-annotation set for the crafted review render. Called
+    /// ONE-WAY from EditorSurface.updateNSView. Recomputes resolved marks (and
+    /// redraws the overlays) only when the set actually changed — updateNSView
+    /// runs every layout pass, so this is guarded against no-op churn the same
+    /// way `setReviewMode` is.
+    func setReviewAnnotations(_ annotations: [Annotation]) {
+        guard annotations != reviewAnnotations else { return }
+        reviewAnnotations = annotations
+        recomputeReviewMarks()
+        refreshReviewOverlays()
+    }
+
+    /// Resolve every review annotation to absolute UTF-16 coordinates against the
+    /// current display string. Span-anchored marks get an `absoluteRange`;
+    /// paragraph-level / stale-span ones are rail-only (`absoluteRange == nil`)
+    /// but still anchored at the paragraph start. Cached in `resolvedReviewMarks`;
+    /// the overlay draws read the cache, never recompute (tripwire 4).
+    private func recomputeReviewMarks() {
+        var marks: [ResolvedReviewMark] = []
+        for ann in reviewAnnotations {
+            let color = reviewPalette.color(for: ann.author)
+            let authorName = ann.author?.displayName.isEmpty == false
+                ? ann.author!.displayName
+                : (ann.author?.sourceKind == .claude ? "Claude" : "Reviewer")
+
+            var absolute: NSRange?
+            var railAnchor = 0
+
+            if let pid = ann.paragraphId,
+               let paraRange = reviewParagraphRangeProvider?(pid) {
+                railAnchor = paraRange.location
+                if let grapheme = ann.resolvedSpanRange,
+                   let paraText = reviewParagraphTextProvider?(pid),
+                   let utf16 = ReviewSpanCapture.graphemeRangeToUTF16(grapheme, in: paraText),
+                   utf16.length > 0 {
+                    let abs = NSRange(
+                        location: paraRange.location + utf16.location,
+                        length: utf16.length)
+                    absolute = abs
+                    railAnchor = abs.location
+                }
+            }
+
+            marks.append(ResolvedReviewMark(
+                id: ann.id,
+                kind: ann.kind,
+                color: color,
+                absoluteRange: absolute,
+                railAnchorLocation: railAnchor,
+                authorName: authorName,
+                body: ann.body,
+                suggestedText: ann.suggestedText))
+        }
+        resolvedReviewMarks = marks
+    }
+
+    /// Install the overlays if missing and reconcile their visibility with the
+    /// review posture. Idempotent.
+    private func syncReviewOverlays() {
+        guard let textView else { return }
+        if isReviewMode {
+            installReviewOverlaysIfNeeded(in: textView)
+        }
+        markRenderer?.isHidden = !isReviewMode
+        marginRail?.isHidden = !isReviewMode
+        layoutReviewOverlays(in: textView)
+        refreshReviewOverlays()
+    }
+
+    private func installReviewOverlaysIfNeeded(in textView: NSTextView) {
+        if markRenderer == nil {
+            let r = AnnotationMarkRenderer(frame: textView.bounds)
+            r.coordinator = self
+            r.associatedTextView = textView
+            r.autoresizingMask = [.width, .height]
+            textView.addSubview(r)
+            markRenderer = r
+        }
+        if marginRail == nil {
+            let rail = ReviewMarginRailView(frame: .zero)
+            rail.coordinator = self
+            rail.associatedTextView = textView
+            rail.autoresizingMask = [.height]
+            textView.addSubview(rail)
+            marginRail = rail
+        }
+    }
+
+    /// Frame the overlays: the mark renderer covers the whole text view (it draws
+    /// over glyphs); the rail occupies the right inset gutter.
+    func layoutReviewOverlays(in textView: NSTextView) {
+        markRenderer?.frame = textView.bounds
+        if let rail = marginRail {
+            let inset = textView.textContainerInset.width
+            // Right gutter spans from the column's right edge to the view edge.
+            let railWidth = max(0, inset)
+            rail.frame = NSRect(
+                x: textView.bounds.width - railWidth,
+                y: 0,
+                width: railWidth,
+                height: max(textView.bounds.height, textView.frame.height))
+        }
+    }
+
+    /// Mark both overlays dirty (cheap — they bound their own work to the visible
+    /// range). Called on annotation-change, text-change, scroll, and resize.
+    func refreshReviewOverlays() {
+        markRenderer?.needsDisplay = true
+        marginRail?.needsDisplay = true
     }
 
     /// Focus mode settings changed — update and re-dim immediately.
@@ -829,6 +969,13 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             // The full-range restyle perturbed the scroll origin; put it back.
             scrollView.contentView.scroll(to: origin)
             scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
+        // Text edits shift every absolute mark position; recompute + redraw the
+        // crafted-render overlays. (In review posture text is read-only, so this
+        // is a no-op there; it keeps the cache honest on the rare edit path.)
+        if isReviewMode {
+            recomputeReviewMarks()
+            refreshReviewOverlays()
         }
     }
 

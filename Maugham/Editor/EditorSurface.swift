@@ -71,6 +71,15 @@ struct EditorSurface: NSViewRepresentable {
     /// (Suggest only; nil for Comment/Query). Wired to
     /// `Document.addReviewerAnnotation(...)`.
     var createAnnotationHandler: ((AnnotationKind, String, SpanAnchor, String, String?) -> Void)? = nil
+    /// Open annotations to render in review mode (Component F). Threaded ONE-WAY;
+    /// pushed onto the coordinator in updateNSView. Sourced from the host's
+    /// `Document` and recomputed whenever `annotationsVersion` changes (which
+    /// re-runs SwiftUI's body and lands here).
+    var reviewAnnotations: [Annotation] = []
+    /// Resolves a paragraphId → its display text (for grapheme→UTF-16 of spans).
+    var reviewParagraphTextProvider: ((String) -> String?)? = nil
+    /// Resolves a paragraphId → its UTF-16 NSRange in the full display string.
+    var reviewParagraphRangeProvider: ((String) -> NSRange?)? = nil
 
     func makeCoordinator() -> EditorCoordinator {
         let coordinator = EditorCoordinator(
@@ -92,6 +101,8 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.checkboxToggleHandler = checkboxToggleHandler
         coordinator.paragraphRangeAtLocation = paragraphRangeAtLocation
         coordinator.createAnnotationHandler = createAnnotationHandler
+        coordinator.reviewParagraphTextProvider = reviewParagraphTextProvider
+        coordinator.reviewParagraphRangeProvider = reviewParagraphRangeProvider
         return coordinator
     }
 
@@ -208,15 +219,23 @@ struct EditorSurface: NSViewRepresentable {
         } else if !needsGutter && textView.gutterView != nil {
             textView.removeGutter()
         }
-        // Review posture is threaded ONE-WAY: push it onto the coordinator
-        // (setReviewMode is guarded against no-op churn). Nothing reads it back.
-        context.coordinator.setReviewMode(isReviewMode)
         context.coordinator.imagePasteHandler = imagePasteHandler
         context.coordinator.paragraphRangeProvider = paragraphRangeProvider
         context.coordinator.paragraphLocator = paragraphLocator
         context.coordinator.checkboxToggleHandler = checkboxToggleHandler
         context.coordinator.paragraphRangeAtLocation = paragraphRangeAtLocation
         context.coordinator.createAnnotationHandler = createAnnotationHandler
+        // Crafted-render providers BEFORE the annotation set (recompute reads
+        // them) and BEFORE setReviewMode (which installs/refreshes overlays).
+        context.coordinator.reviewParagraphTextProvider = reviewParagraphTextProvider
+        context.coordinator.reviewParagraphRangeProvider = reviewParagraphRangeProvider
+        // Review posture is threaded ONE-WAY: push it onto the coordinator
+        // (setReviewMode is guarded against no-op churn). Nothing reads it back.
+        context.coordinator.setReviewMode(isReviewMode)
+        // Push the open annotation set (guarded against no-op churn). A change to
+        // the Document's annotationsVersion re-runs SwiftUI's body, re-deriving
+        // this array, which lands here and recomputes the resolved marks.
+        context.coordinator.setReviewAnnotations(reviewAnnotations)
     }
 }
 
@@ -358,6 +377,11 @@ private final class MaughamTextView: NSTextView {
         // viewport height changes on resize, so recompute here. The method is
         // guarded against no-op churn, so this won't loop with setFrameSize.
         coordinator?.refreshTypewriterInset(in: self)
+
+        // Re-frame the crafted-render overlays (mark layer covers the view; rail
+        // sits in the right inset) on every resize, like the gutter above.
+        coordinator?.layoutReviewOverlays(in: self)
+        coordinator?.refreshReviewOverlays()
     }
 
     func installGutter(coordinator: EditorCoordinator) {

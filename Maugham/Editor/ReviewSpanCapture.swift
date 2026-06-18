@@ -17,6 +17,30 @@ import MaughamCore
 /// reports for the selection's start). A selection with no overlap returns nil.
 enum ReviewSpanCapture {
 
+    /// Convert a grapheme `Range<Int>` against `text` into a UTF-16 `NSRange`
+    /// against the same text. The inverse of the UTF-16→grapheme mapping inside
+    /// `captureSpan`. Returns nil if the grapheme bounds fall outside `text`.
+    ///
+    /// `Annotation.resolvedSpanRange` is in GRAPHEME offsets into the paragraph's
+    /// display text; the crafted review render needs UTF-16 offsets to map onto
+    /// glyphs in the NSTextView. This is the shared converter for that step.
+    static func graphemeRangeToUTF16(_ range: Range<Int>, in text: String) -> NSRange? {
+        guard range.lowerBound >= 0, range.lowerBound <= range.upperBound else {
+            return nil
+        }
+        guard let lo = text.index(
+                text.startIndex, offsetBy: range.lowerBound,
+                limitedBy: text.endIndex),
+              let hi = text.index(
+                text.startIndex, offsetBy: range.upperBound,
+                limitedBy: text.endIndex)
+        else { return nil }
+        let utf16 = text.utf16
+        let loU16 = utf16.distance(from: utf16.startIndex, to: lo.samePosition(in: utf16) ?? utf16.startIndex)
+        let hiU16 = utf16.distance(from: utf16.startIndex, to: hi.samePosition(in: utf16) ?? utf16.startIndex)
+        return NSRange(location: loU16, length: hiU16 - loU16)
+    }
+
     /// Intersect an absolute selection with a paragraph's range and express the
     /// result relative to the paragraph's start. All four bounds are in the
     /// same unit (UTF-16 code units against the display text).

@@ -150,6 +150,27 @@ struct EditorHost: View {
                                 suggestedText: suggestedText,
                                 authorName: userPreferences.collaboratorDisplayName)
                         }
+                    },
+                    // Crafted review render (Component F). Reading
+                    // `doc.annotationsVersion` here makes SwiftUI re-evaluate the
+                    // body — and thus re-derive `reviewAnnotations` and re-push it
+                    // through updateNSView — whenever the annotation set changes.
+                    // This is safe (unlike reading `displayText`): it never feeds
+                    // the text binding, so the cursor-race triad (tripwires 6/7)
+                    // stays closed. Only computed in review mode to avoid deriving
+                    // annotations during normal authoring.
+                    reviewAnnotations: isReviewMode
+                        ? { _ = doc.annotationsVersion
+                            return doc.annotations(
+                                filter: AnnotationFilter(statuses: [.open])) }()
+                        : [],
+                    reviewParagraphTextProvider: { pid in
+                        doc.paragraph(id: pid).map {
+                            RenderFilter.stripTaskAnchorsInline($0)
+                        }
+                    },
+                    reviewParagraphRangeProvider: { pid in
+                        doc.displayRange(forParagraphId: pid)
                     }
                 )
                 .id(path)
