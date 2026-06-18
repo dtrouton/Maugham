@@ -62,6 +62,13 @@ struct EditorSurface: NSViewRepresentable {
     /// dispatching by `MaughamCheckboxKind` to `MarkdownCheckboxScanner.flipBracket`
     /// or `FountainBoneyardScanner.flipTodoDone`.
     var checkboxToggleHandler: ((String, Int, MaughamCheckboxKind) -> Void)? = nil
+    /// Maps a doc-wide UTF-16 location to the containing paragraph's id + range.
+    /// Wired to `Document.paragraphRange(at:)`. Used by the review toolbar to
+    /// capture a paragraph-relative span anchor for the selection.
+    var paragraphRangeAtLocation: ((Int) -> (id: String, range: NSRange)?)? = nil
+    /// Invoked when the reviewer commits a Comment/Query annotation from the
+    /// selection toolbar. Wired to `Document.addReviewerAnnotation(...)`.
+    var createAnnotationHandler: ((AnnotationKind, String, SpanAnchor, String) -> Void)? = nil
 
     func makeCoordinator() -> EditorCoordinator {
         let coordinator = EditorCoordinator(
@@ -81,6 +88,8 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.paragraphRangeProvider = paragraphRangeProvider
         coordinator.paragraphLocator = paragraphLocator
         coordinator.checkboxToggleHandler = checkboxToggleHandler
+        coordinator.paragraphRangeAtLocation = paragraphRangeAtLocation
+        coordinator.createAnnotationHandler = createAnnotationHandler
         return coordinator
     }
 
@@ -204,6 +213,8 @@ struct EditorSurface: NSViewRepresentable {
         context.coordinator.paragraphRangeProvider = paragraphRangeProvider
         context.coordinator.paragraphLocator = paragraphLocator
         context.coordinator.checkboxToggleHandler = checkboxToggleHandler
+        context.coordinator.paragraphRangeAtLocation = paragraphRangeAtLocation
+        context.coordinator.createAnnotationHandler = createAnnotationHandler
     }
 }
 

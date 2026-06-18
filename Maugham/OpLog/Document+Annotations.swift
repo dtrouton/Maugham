@@ -134,6 +134,32 @@ extension Document {
         return op.opId
     }
 
+    /// Create a human-authored annotation (review toolbar / collaborator
+    /// review). Thin wrapper over `addAnnotation` that stamps the provenance
+    /// author as `.human` with the reviewer's display name + optional
+    /// collaborator id. Span-anchored to a sub-paragraph quote when supplied.
+    @discardableResult
+    public func addReviewerAnnotation(
+        kind: AnnotationKind,
+        paragraphId: String,
+        span: SpanAnchor?,
+        body: String,
+        suggestedText: String? = nil,
+        authorName: String,
+        authorId: String? = nil
+    ) async throws -> String {
+        try await addAnnotation(
+            kind: kind,
+            paragraphId: paragraphId,
+            body: body,
+            suggestedText: suggestedText,
+            span: span,
+            author: AnnotationAuthor(
+                sourceKind: .human,
+                displayName: authorName,
+                collaboratorId: authorId))
+    }
+
     public func acceptAnnotation(
         id: String,
         userResponse: String? = nil

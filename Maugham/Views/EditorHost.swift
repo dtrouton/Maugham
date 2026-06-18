@@ -130,6 +130,25 @@ struct EditorHost: View {
                         }
                         guard flipped != para else { return }
                         doc.setParagraph(id: paragraphId, text: flipped)
+                    },
+                    paragraphRangeAtLocation: { location in
+                        doc.paragraphRange(at: location)
+                    },
+                    createAnnotationHandler: { kind, paragraphId, span, body in
+                        // Annotation creation is an op-log append, not a text
+                        // mutation — it doesn't write the editor binding, so the
+                        // applyExternalText tripwires (6/7) don't apply. The
+                        // AnnotationsPane re-renders automatically off the
+                        // Document's `annotationsVersion` bump (invalidated
+                        // inside addAnnotation).
+                        Task {
+                            try? await doc.addReviewerAnnotation(
+                                kind: kind,
+                                paragraphId: paragraphId,
+                                span: span,
+                                body: body,
+                                authorName: userPreferences.collaboratorDisplayName)
+                        }
                     }
                 )
                 .id(path)
