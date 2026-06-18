@@ -24,10 +24,14 @@ final class ReviewAnnotationComposerView: NSView, NSTextFieldDelegate {
         self.onCancel = onCancel
         super.init(frame: NSRect(x: 0, y: 0, width: 260, height: 30))
         wantsLayer = true
-        layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         layer?.cornerRadius = 6
         layer?.borderWidth = 1
-        layer?.borderColor = NSColor.separatorColor.cgColor
+        // Background + border are dynamic NSColors; a `.cgColor` captures the
+        // colour for the appearance current at construction and never adapts on
+        // a later light/dark switch. Resolve them in
+        // `viewDidChangeEffectiveAppearance()` (called once on first display and
+        // again on every appearance change).
+        applyAdaptiveLayerColors()
         shadow = {
             let s = NSShadow()
             s.shadowColor = NSColor.black.withAlphaComponent(0.25)
@@ -38,8 +42,16 @@ final class ReviewAnnotationComposerView: NSView, NSTextFieldDelegate {
 
         field.placeholderString = placeholder
         field.stringValue = initialText
-        field.isBezeled = false
-        field.drawsBackground = false
+        // A standard bezeled/bordered field draws the system field appearance,
+        // which is adaptive: dark-on-light in light mode, light-on-dark in dark
+        // mode. The previous borderless/no-background field combined with the
+        // composer's own layer background produced white-on-white text in dark
+        // mode. `.labelColor` keeps the text legible against the field's own
+        // (system, adaptive) background.
+        field.isBezeled = true
+        field.bezelStyle = .roundedBezel
+        field.drawsBackground = true
+        field.textColor = .labelColor
         field.focusRingType = .none
         field.delegate = self
 
@@ -66,6 +78,22 @@ final class ReviewAnnotationComposerView: NSView, NSTextFieldDelegate {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
+
+    /// Re-resolve the layer's dynamic colours against the current effective
+    /// appearance. Layer colours are plain CGColors with no appearance binding,
+    /// so they must be re-set here (called on first display and on every
+    /// light/dark switch) rather than once in `init`.
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyAdaptiveLayerColors()
+    }
+
+    private func applyAdaptiveLayerColors() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+            layer?.borderColor = NSColor.separatorColor.cgColor
+        }
+    }
 
     /// Make the field first responder so the reviewer can type immediately.
     /// With pre-filled text, place the caret at the end so the reviewer edits

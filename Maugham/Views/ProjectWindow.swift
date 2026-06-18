@@ -600,6 +600,12 @@ struct ProjectWindow: View {
             .safeAreaInset(edge: .top) {
                 conflictBanner(documentStore: documentStore)
             }
+            .safeAreaInset(edge: .top) {
+                if isReviewModeOn {
+                    ReviewModeIndicator(
+                        collaboratorName: userPreferences.collaboratorDisplayName)
+                }
+            }
             .navigationSplitViewColumnWidth(min: 480, ideal: 720)
     }
 

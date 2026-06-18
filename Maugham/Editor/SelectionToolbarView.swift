@@ -29,10 +29,14 @@ final class SelectionToolbarView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         layer?.cornerRadius = 6
         layer?.borderWidth = 1
-        layer?.borderColor = NSColor.separatorColor.cgColor
+        // Background + border are dynamic NSColors; a `.cgColor` captures the
+        // colour for the appearance at construction and never adapts on a later
+        // light/dark switch (and is wrong if the toolbar is first built under
+        // the other appearance). Resolve them in
+        // `viewDidChangeEffectiveAppearance()` instead.
+        applyAdaptiveLayerColors()
         // A subtle shadow lifts it off the text.
         shadow = {
             let s = NSShadow()
@@ -77,6 +81,21 @@ final class SelectionToolbarView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
+
+    /// Re-resolve the layer's dynamic colours against the current effective
+    /// appearance. Layer CGColors carry no appearance binding, so they must be
+    /// re-set here (on first display and on every light/dark switch).
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyAdaptiveLayerColors()
+    }
+
+    private func applyAdaptiveLayerColors() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+            layer?.borderColor = NSColor.separatorColor.cgColor
+        }
+    }
 
     @objc private func buttonTapped(_ sender: NSButton) {
         let kind = Kind.allCases[sender.tag]
