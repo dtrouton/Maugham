@@ -172,13 +172,14 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// an absolute selection into a paragraph-relative span anchor.
     var paragraphRangeAtLocation: ((Int) -> (id: String, range: NSRange)?)?
 
-    /// Invoked when the reviewer completes a Comment/Query annotation from the
-    /// selection toolbar's inline composer. Delivers the annotation kind, the
-    /// anchored paragraph id, the sub-paragraph span, and the typed body.
-    /// EditorHost wires this to `Document.addReviewerAnnotation(...)`. Routing
-    /// is one-way (no write-back into a binding) — annotation creation is an
-    /// op-log append, not a text mutation, so tripwires 6/7 don't apply.
-    var createAnnotationHandler: ((AnnotationKind, String, SpanAnchor, String) -> Void)?
+    /// Invoked when the reviewer completes a Comment/Query/Suggest annotation
+    /// from the selection toolbar's inline composer. Delivers the annotation
+    /// kind, the anchored paragraph id, the sub-paragraph span, the typed body,
+    /// and (Suggest only) the replacement text. EditorHost wires this to
+    /// `Document.addReviewerAnnotation(...)`. Routing is one-way (no write-back
+    /// into a binding) — annotation creation is an op-log append, not a text
+    /// mutation, so tripwires 6/7 don't apply.
+    var createAnnotationHandler: ((AnnotationKind, String, SpanAnchor, String, String?) -> Void)?
 
     /// The inline composer (a small NSTextField) shown when the reviewer clicks
     /// Comment/Query. Minimal by design — Task 5 restyles it into a margin slip.
@@ -1133,20 +1134,23 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
 
     // MARK: - Review annotation authoring (Task 3)
 
-    /// Map a `SelectionToolbarView.Kind` to the annotation flow. Comment and
-    /// Query open the inline composer; Suggest is deferred to Task 4.
+    /// Map a `SelectionToolbarView.Kind` to the annotation flow. All three open
+    /// the inline composer; Suggest pre-fills it with the selected text so the
+    /// reviewer edits it into the replacement.
     private func handleToolbarAction(_ kind: SelectionToolbarView.Kind) {
         switch kind {
         case .comment: beginAuthoringAnnotation(kind: .comment)
         case .query:   beginAuthoringAnnotation(kind: .query)
-        case .suggest: break  // Task 4
+        case .suggest: beginAuthoringAnnotation(kind: .suggestedChange)
         }
     }
 
     /// Capture the paragraph id + sub-paragraph span for the current selection,
-    /// then present a minimal inline composer to collect the body. On commit,
-    /// invoke `createAnnotationHandler`. No-op if the selection can't be mapped
-    /// to a paragraph-relative span.
+    /// then present a minimal inline composer. Comment/Query collect a body and
+    /// start empty; Suggest pre-fills with the selected text and the reviewer
+    /// edits it into the replacement (→ a `.suggestedChange` annotation with
+    /// `original` = selected text, `suggestedText` = replacement). No-op if the
+    /// selection can't be mapped to a paragraph-relative span.
     private func beginAuthoringAnnotation(kind: AnnotationKind) {
         guard let textView,
               let parent = selectionToolbar?.superview,
@@ -1156,14 +1160,25 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // Tear down any prior composer before showing a new one.
         annotationComposer?.dismiss()
 
+        let isSuggest = (kind == .suggestedChange)
+        let placeholder: String
+        switch kind {
+        case .comment:         placeholder = "Comment…"
+        case .query:           placeholder = "Query…"
+        case .suggestedChange: placeholder = "Replacement…"
+        default:               placeholder = "Note…"
+        }
+
         let composer = ReviewAnnotationComposerView(
-            placeholder: kind == .comment ? "Comment…" : "Query…",
-            onCommit: { [weak self] body in
+            placeholder: placeholder,
+            initialText: isSuggest ? captured.selectedText : "",
+            onCommit: { [weak self] value in
                 self?.commitAnnotation(
                     kind: kind,
                     paragraphId: captured.paragraphId,
                     span: captured.span,
-                    body: body)
+                    originalText: captured.selectedText,
+                    composerValue: value)
             },
             onCancel: { [weak self] in
                 self?.annotationComposer?.dismiss()
@@ -1181,12 +1196,15 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         composer.focus()
     }
 
-    /// Compute (paragraphId, SpanAnchor) for the current non-empty selection,
-    /// clamped to the paragraph at the selection's start. Returns nil if the
-    /// selection is empty, can't be located, or yields no usable span.
+    /// Compute (paragraphId, SpanAnchor, selectedText) for the current non-empty
+    /// selection, clamped to the paragraph at the selection's start. Returns nil
+    /// if the selection is empty, can't be located, or yields no usable span.
+    /// `selectedText` is the clamped (within-paragraph) display text — the same
+    /// substring the span anchors — used to pre-fill Suggest and as the diff's
+    /// original.
     private func capturedSpanForSelection(
         in textView: NSTextView
-    ) -> (paragraphId: String, span: SpanAnchor)? {
+    ) -> (paragraphId: String, span: SpanAnchor, selectedText: String)? {
         let sel = textView.selectedRange()
         guard sel.length > 0,
               let provider = paragraphRangeAtLocation,
@@ -1205,19 +1223,53 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         let paragraphText = ns.substring(with: located.range)
         guard let span = ReviewSpanCapture.captureSpan(
                 in: paragraphText, relativeUTF16: relative) else { return nil }
-        return (located.id, span)
+        // The selected text is the clamped relative range against the paragraph
+        // display text (UTF-16, the same unit `relative` is in).
+        let paraNS = paragraphText as NSString
+        let selectedText = paraNS.substring(
+            with: NSRange(location: relative.lowerBound,
+                          length: relative.upperBound - relative.lowerBound))
+        return (located.id, span, selectedText)
     }
 
+    /// Commit a composed annotation. Comment/Query use `composerValue` as the
+    /// body (empty → cancel). Suggest diffs the composer value against the
+    /// original selected text via `SuggestedEditDiff`; an unchanged/empty edit
+    /// creates nothing (just dismisses).
     private func commitAnnotation(
         kind: AnnotationKind, paragraphId: String,
-        span: SpanAnchor, body: String
+        span: SpanAnchor, originalText: String, composerValue: String
     ) {
         annotationComposer?.dismiss()
         annotationComposer = nil
-        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }  // empty body → cancel
-        createAnnotationHandler?(kind, paragraphId, span, trimmed)
-        // Collapse the selection so the toolbar hides on the next selection pass.
+
+        let body: String
+        let suggestedText: String?
+        if kind == .suggestedChange {
+            guard let diff = SuggestedEditDiff.make(
+                    original: originalText, edited: composerValue) else {
+                // Unchanged / empty → nothing to suggest.
+                restoreToolbarAfterDismiss()
+                return
+            }
+            body = diff.body
+            suggestedText = diff.suggestedText
+        } else {
+            let trimmed = composerValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {  // empty body → cancel
+                restoreToolbarAfterDismiss()
+                return
+            }
+            body = trimmed
+            suggestedText = nil
+        }
+
+        createAnnotationHandler?(kind, paragraphId, span, body, suggestedText)
+        restoreToolbarAfterDismiss()
+    }
+
+    /// Collapse the selection so the toolbar hides on the next selection pass.
+    private func restoreToolbarAfterDismiss() {
         textView?.setSelectedRange(
             NSRange(location: textView?.selectedRange().location ?? 0, length: 0))
         if let textView { updateSelectionToolbar(in: textView) }

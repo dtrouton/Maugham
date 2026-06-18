@@ -66,9 +66,11 @@ struct EditorSurface: NSViewRepresentable {
     /// Wired to `Document.paragraphRange(at:)`. Used by the review toolbar to
     /// capture a paragraph-relative span anchor for the selection.
     var paragraphRangeAtLocation: ((Int) -> (id: String, range: NSRange)?)? = nil
-    /// Invoked when the reviewer commits a Comment/Query annotation from the
-    /// selection toolbar. Wired to `Document.addReviewerAnnotation(...)`.
-    var createAnnotationHandler: ((AnnotationKind, String, SpanAnchor, String) -> Void)? = nil
+    /// Invoked when the reviewer commits a Comment/Query/Suggest annotation from
+    /// the selection toolbar. The trailing `String?` is the replacement text
+    /// (Suggest only; nil for Comment/Query). Wired to
+    /// `Document.addReviewerAnnotation(...)`.
+    var createAnnotationHandler: ((AnnotationKind, String, SpanAnchor, String, String?) -> Void)? = nil
 
     func makeCoordinator() -> EditorCoordinator {
         let coordinator = EditorCoordinator(

@@ -134,7 +134,7 @@ struct EditorHost: View {
                     paragraphRangeAtLocation: { location in
                         doc.paragraphRange(at: location)
                     },
-                    createAnnotationHandler: { kind, paragraphId, span, body in
+                    createAnnotationHandler: { kind, paragraphId, span, body, suggestedText in
                         // Annotation creation is an op-log append, not a text
                         // mutation — it doesn't write the editor binding, so the
                         // applyExternalText tripwires (6/7) don't apply. The
@@ -147,6 +147,7 @@ struct EditorHost: View {
                                 paragraphId: paragraphId,
                                 span: span,
                                 body: body,
+                                suggestedText: suggestedText,
                                 authorName: userPreferences.collaboratorDisplayName)
                         }
                     }

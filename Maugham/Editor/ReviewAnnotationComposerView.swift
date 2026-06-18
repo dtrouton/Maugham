@@ -13,7 +13,11 @@ final class ReviewAnnotationComposerView: NSView, NSTextFieldDelegate {
     private let onCommit: (String) -> Void
     private let onCancel: () -> Void
 
+    /// - Parameter initialText: pre-fills the field (e.g. the selected text for
+    ///   a Suggest, which the reviewer edits into the replacement). Empty for
+    ///   Comment/Query.
     init(placeholder: String,
+         initialText: String = "",
          onCommit: @escaping (String) -> Void,
          onCancel: @escaping () -> Void) {
         self.onCommit = onCommit
@@ -33,6 +37,7 @@ final class ReviewAnnotationComposerView: NSView, NSTextFieldDelegate {
         }()
 
         field.placeholderString = placeholder
+        field.stringValue = initialText
         field.isBezeled = false
         field.drawsBackground = false
         field.focusRingType = .none
@@ -50,8 +55,14 @@ final class ReviewAnnotationComposerView: NSView, NSTextFieldDelegate {
     required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
 
     /// Make the field first responder so the reviewer can type immediately.
+    /// With pre-filled text, place the caret at the end so the reviewer edits
+    /// the replacement rather than the whole thing being select-all-overwritten
+    /// on the first keystroke.
     func focus() {
         window?.makeFirstResponder(field)
+        if let editor = field.currentEditor() {
+            editor.selectedRange = NSRange(location: field.stringValue.count, length: 0)
+        }
     }
 
     func dismiss() {
