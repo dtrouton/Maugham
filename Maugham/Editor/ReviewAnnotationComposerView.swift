@@ -42,13 +42,26 @@ final class ReviewAnnotationComposerView: NSView, NSTextFieldDelegate {
         field.drawsBackground = false
         field.focusRingType = .none
         field.delegate = self
-        field.translatesAutoresizingMaskIntoConstraints = false
+
+        // This composer is positioned MANUALLY by the coordinator (its frame
+        // origin is set to where the toolbar sat), so it keeps
+        // `translatesAutoresizingMaskIntoConstraints == true` and AppKit
+        // synthesises a width/height constraint from its frame. To avoid that
+        // synthesised size fighting Auto Layout pins on the inner field (the
+        // same `width == 0`-class conflict that bit SelectionToolbarView), we
+        // size the field with the autoresizing mask instead of constraints:
+        // inset 8pt horizontally and centre it vertically, tracking the
+        // container's fixed frame. No Auto Layout touches this view.
+        let inset: CGFloat = 8
+        let fieldHeight = field.fittingSize.height
+        field.frame = NSRect(
+            x: inset,
+            y: (bounds.height - fieldHeight) / 2,
+            width: bounds.width - inset * 2,
+            height: fieldHeight)
+        field.translatesAutoresizingMaskIntoConstraints = true
+        field.autoresizingMask = [.width, .minYMargin, .maxYMargin]
         addSubview(field)
-        NSLayoutConstraint.activate([
-            field.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            field.centerYAnchor.constraint(equalTo: centerYAnchor)
-        ])
     }
 
     @available(*, unavailable)

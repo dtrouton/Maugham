@@ -1262,7 +1262,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // for the scroll view's clip/scroll offset automatically, so as the
         // document scrolls the toolbar tracks the on-screen selection.
         let rectInParent = textView.convert(rectInTextView, to: parent)
-        let size = toolbar.fittingSize
+        // The toolbar is pure-frame (no Auto Layout): it sized itself to its
+        // content at construction, so read its actual frame size rather than
+        // `fittingSize` (which is .zero for an unconstrained NSView).
+        let size = toolbar.frame.size
         let gap: CGFloat = 6
         // Position just ABOVE the selection. AppKit's default coordinate system
         // is y-up (flipped == false for the scroll view's superview), so

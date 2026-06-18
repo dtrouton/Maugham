@@ -45,14 +45,6 @@ final class SelectionToolbarView: NSView {
         stack.orientation = .horizontal
         stack.spacing = 4
         stack.edgeInsets = NSEdgeInsets(top: 4, left: 6, bottom: 4, right: 6)
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
-            stack.topAnchor.constraint(equalTo: topAnchor),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor)
-        ])
 
         for kind in Kind.allCases {
             let button = NSButton(title: kind.rawValue, target: self,
@@ -62,6 +54,25 @@ final class SelectionToolbarView: NSView {
             button.tag = Kind.allCases.firstIndex(of: kind)!
             stack.addArrangedSubview(button)
         }
+
+        // This toolbar is positioned MANUALLY (the coordinator sets its frame
+        // origin in `updateSelectionToolbar`), so it keeps
+        // `translatesAutoresizingMaskIntoConstraints == true` (the default).
+        // That means AppKit synthesises an autoresizing constraint from its
+        // frame size. If we left the inner stack pinned to our edges with Auto
+        // Layout AND started from a zero frame, the synthesised `width == 0`
+        // would fight the stack's intrinsic width → the runtime conflict.
+        //
+        // Fix: don't constrain the stack at all. Size ourselves to the stack's
+        // fitting size up front and let the stack autoresize to fill us. No
+        // Auto Layout touches this view, so there is no width==0 constraint and
+        // nothing to conflict.
+        let fitting = stack.fittingSize        // buttons are fixed → stable
+        setFrameSize(fitting)
+        stack.translatesAutoresizingMaskIntoConstraints = true
+        stack.frame = bounds
+        stack.autoresizingMask = [.width, .height]
+        addSubview(stack)
     }
 
     @available(*, unavailable)
