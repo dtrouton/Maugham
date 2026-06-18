@@ -78,9 +78,9 @@ func test_reviewMode_disallowsTextMutation() {
 
 ---
 
-## Task 4 — Suggested change via scoped inline editing (or fallback)
+## Task 4 — Suggested change via explicit replacement composer
 
-Implement the spike's chosen approach for scoped inline editing. **If the spike found it too risky, implement the explicit-replacement-field fallback instead** (a small composer where the reviewer types the replacement) — the spec sanctions this fallback, and full Suggesting mode is explicitly deferred.
+**DECIDED by the Task-1 spike: use the explicit replacement-field composer, NOT scoped inline editing.** The spike found a live in-place edit flows binding→`setFullText`→op-log append→autosave before the reviewer commits, so reverting it without mutating the manuscript fights the source-of-truth invariant and the parallel-state tripwires (6/7). The composer keeps the text view fully read-only: original = the selected text, replacement = the composer value → `suggestedChange` annotation. Zero live mutation. (True scoped inline editing / full Suggesting mode is deferred to a later iteration.) The composer is a small `NSTextField`/SwiftUI field hung off the selection toolbar overlay, pre-filled with the selected text.
 
 **Files:** `Maugham/Editor/EditorCoordinator.swift`, `EditorSurface.swift`; the suggested-change emit reuses `addReviewerAnnotation(kind: .suggestedChange, …)` plus the `suggestedText`.
 
