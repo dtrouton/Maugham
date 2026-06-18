@@ -6,10 +6,15 @@ struct AnnotationsPane: View {
     @Bindable var document: Document
 
     @State private var kindFilter: KindOption = .all
+    @State private var authorFilter: String = AnnotationAuthorFilter.all
     @State private var showResolved: Bool = false
     @State private var rejectSheet: Annotation?
     @State private var querySheet: Annotation?
     @State private var staleConfirm: Annotation?
+    /// Annotation ids currently showing the transient "stet" flourish after a
+    /// reject of a suggested change. Keyed per-row so it survives the brief
+    /// window between the reject op and the row leaving the open list.
+    @State private var stetIds: Set<String> = []
 
     enum KindOption: String, CaseIterable, Identifiable, FilterRowItem {
         case all, comments, suggestions, queries, craft
@@ -53,10 +58,42 @@ struct AnnotationsPane: View {
         return AnnotationFilter(kinds: kinds, statuses: statuses)
     }
 
-    private var visibleAnnotations: [Annotation] {
+    /// Annotations after the kind/status filter, before the author filter.
+    /// The distinct-authors list derives from these so it reflects everything
+    /// currently in scope regardless of which author is selected.
+    private var kindStatusAnnotations: [Annotation] {
         // Observing annotationsVersion forces re-render when cache invalidates.
         _ = document.annotationsVersion
         return document.annotations(filter: filter)
+    }
+
+    /// The author filter, ignored when its target is no longer in scope (e.g.
+    /// the status filter changed and that contributor's only rows fell away).
+    /// Prevents a stale selection from hiding everything with no way to reset.
+    private var effectiveAuthorFilter: String {
+        guard authorFilter != AnnotationAuthorFilter.all else { return authorFilter }
+        return authorLabels.contains(authorFilter) ? authorFilter : AnnotationAuthorFilter.all
+    }
+
+    private var visibleAnnotations: [Annotation] {
+        var rows = kindStatusAnnotations
+        // Keep any row mid-"stet" on screen even after its reject flips the
+        // status out of the open filter, so the flourish is visible. Preserve
+        // the original ordering by splicing the retained row at its prior index.
+        if !stetIds.isEmpty {
+            let present = Set(rows.map(\.id))
+            let retained = document.annotations(filter: AnnotationFilter(statuses: nil))
+                .filter { stetIds.contains($0.id) && !present.contains($0.id) }
+            rows.append(contentsOf: retained)
+        }
+        let selected = effectiveAuthorFilter
+        return rows.filter {
+            AnnotationAuthorFilter.matches($0, selected: selected)
+        }
+    }
+
+    private var authorLabels: [String] {
+        AnnotationAuthorFilter.distinctLabels(in: kindStatusAnnotations)
     }
 
     var body: some View {
@@ -75,6 +112,7 @@ struct AnnotationsPane: View {
                         ForEach(visibleAnnotations) { ann in
                             AnnotationRow(
                                 annotation: ann,
+                                showingStet: stetIds.contains(ann.id),
                                 onAccept: { accept(ann) },
                                 onReject: { rejectSheet = ann },
                                 onArchive: { archive(ann) },
@@ -89,8 +127,7 @@ struct AnnotationsPane: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .sheet(item: $rejectSheet) { ann in
             RejectReasoningSheet(annotation: ann) { reason in
-                Task { try? await document.rejectAnnotation(
-                    id: ann.id, userResponse: reason) }
+                reject(ann, reason: reason)
                 rejectSheet = nil
             } onCancel: { rejectSheet = nil }
         }
@@ -127,6 +164,7 @@ struct AnnotationsPane: View {
                 selection: $kindFilter)
                 .layoutPriority(1)
             Spacer(minLength: 4)
+            authorMenu
             Button {
                 showResolved.toggle()
             } label: {
@@ -143,12 +181,54 @@ struct AnnotationsPane: View {
         .padding(.horizontal, 8).padding(.vertical, 6)
     }
 
+    @ViewBuilder
+    private var authorMenu: some View {
+        let labels = authorLabels
+        // Only worth showing when more than one contributor is present.
+        if labels.count > 1 {
+            Menu {
+                Button(AnnotationAuthorFilter.all) {
+                    authorFilter = AnnotationAuthorFilter.all
+                }
+                Divider()
+                ForEach(labels, id: \.self) { name in
+                    Button(name) { authorFilter = name }
+                }
+            } label: {
+                Label(
+                    authorFilter == AnnotationAuthorFilter.all ? "Author" : authorFilter,
+                    systemImage: "person.crop.circle")
+                    .font(.caption)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Filter annotations by who wrote them")
+        }
+    }
+
     private func accept(_ ann: Annotation) {
         if ann.kind == .suggestedChange && ann.isStale {
             staleConfirm = ann
             return
         }
         Task { try? await document.acceptAnnotation(id: ann.id) }
+    }
+
+    private func reject(_ ann: Annotation, reason: String) {
+        // For a suggested change, show the proofreader's "stet" flourish briefly
+        // before the rejected row leaves the open list. The op is recorded
+        // immediately (never blocked); the stet flag keeps the row on-screen for
+        // ~1.5s so the strike-through resolves back with a "stet" mark.
+        if ann.kind == .suggestedChange {
+            stetIds.insert(ann.id)
+            Task {
+                try? await document.rejectAnnotation(id: ann.id, userResponse: reason)
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                stetIds.remove(ann.id)
+            }
+        } else {
+            Task { try? await document.rejectAnnotation(id: ann.id, userResponse: reason) }
+        }
     }
 
     private func archive(_ ann: Annotation) {
@@ -167,6 +247,7 @@ struct AnnotationsPane: View {
 @MainActor
 struct AnnotationRow: View {
     let annotation: Annotation
+    var showingStet: Bool = false
     let onAccept: () -> Void
     let onReject: () -> Void
     let onArchive: () -> Void
@@ -187,6 +268,7 @@ struct AnnotationRow: View {
         .padding(.horizontal, 12).padding(.vertical, 10)
         .contentShape(Rectangle())
         .onTapGesture { onJumpToParagraph() }
+        .animation(.easeInOut(duration: 0.2), value: showingStet)
     }
 
     @ViewBuilder
@@ -196,6 +278,7 @@ struct AnnotationRow: View {
                 .labelStyle(.titleAndIcon)
                 .font(.caption)
                 .foregroundStyle(kindColor)
+            authorBadge
             if annotation.isStale {
                 Text("Stale")
                     .font(.caption2.smallCaps())
@@ -210,6 +293,26 @@ struct AnnotationRow: View {
         }
     }
 
+    /// Author provenance badge: a colour dot (matching the editor review marks
+    /// via `ReviewPalette`) plus the author's display label. nil author → Claude
+    /// with the reserved terracotta dot.
+    @ViewBuilder
+    private var authorBadge: some View {
+        HStack(spacing: 3) {
+            Circle()
+                .fill(authorColor)
+                .frame(width: 7, height: 7)
+            Text(AnnotationAuthorPresentation.label(for: annotation.author))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .help("Authored by \(AnnotationAuthorPresentation.label(for: annotation.author))")
+    }
+
+    private var authorColor: Color {
+        Color(nsColor: ReviewPalette().color(for: annotation.author))
+    }
+
     /// Strips inline task anchors (`<!--t-XXXXXX-->`) from annotation text before
     /// display. Mirrors `AnnotationDetailView.displayText` on the phone side.
     /// Pure + nonisolated so it's directly unit-testable.
@@ -219,25 +322,52 @@ struct AnnotationRow: View {
 
     @ViewBuilder
     private var diffCard: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            if let prior = annotation.priorText {
-                Text("\u{2212} \(AnnotationRow.displayText(prior))")
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.red)
-                    .padding(.horizontal, 6).padding(.vertical, 3)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.red.opacity(0.08))
+        if showingStet {
+            stetCard
+        } else {
+            VStack(alignment: .leading, spacing: 1) {
+                if let prior = annotation.priorText {
+                    Text("\u{2212} \(AnnotationRow.displayText(prior))")
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.red)
+                        .padding(.horizontal, 6).padding(.vertical, 3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.red.opacity(0.08))
+                }
+                if let suggested = annotation.suggestedText {
+                    Text("+ \(AnnotationRow.displayText(suggested))")
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.green)
+                        .padding(.horizontal, 6).padding(.vertical, 3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.green.opacity(0.08))
+                }
             }
-            if let suggested = annotation.suggestedText {
-                Text("+ \(AnnotationRow.displayText(suggested))")
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.green)
-                    .padding(.horizontal, 6).padding(.vertical, 3)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.green.opacity(0.08))
-            }
+            .clipShape(RoundedRectangle(cornerRadius: 4))
         }
+    }
+
+    /// The proofreader's "stet" treatment shown briefly on rejecting a suggested
+    /// change: the struck prior text is reinstated (no strike), marked with a
+    /// dotted underline and a small "stet" caret to say "let it stand".
+    @ViewBuilder
+    private var stetCard: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            if let prior = annotation.priorText {
+                Text(AnnotationRow.displayText(prior))
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.primary)
+                    .underline(true, pattern: .dot)
+            }
+            Text("stet")
+                .font(.caption2.italic())
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 6).padding(.vertical, 3)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.secondary.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 4))
+        .transition(.opacity)
     }
 
     @ViewBuilder
