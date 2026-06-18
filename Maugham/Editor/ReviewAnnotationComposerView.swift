@@ -61,7 +61,7 @@ final class ReviewAnnotationComposerView: NSView, NSTextFieldDelegate {
     func focus() {
         window?.makeFirstResponder(field)
         if let editor = field.currentEditor() {
-            editor.selectedRange = NSRange(location: field.stringValue.count, length: 0)
+            editor.selectedRange = NSRange(location: (field.stringValue as NSString).length, length: 0)
         }
     }
 

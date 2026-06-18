@@ -78,8 +78,10 @@ struct AnnotationsPane: View {
     private var visibleAnnotations: [Annotation] {
         var rows = kindStatusAnnotations
         // Keep any row mid-"stet" on screen even after its reject flips the
-        // status out of the open filter, so the flourish is visible. Preserve
-        // the original ordering by splicing the retained row at its prior index.
+        // status out of the open filter, so the ~1.5s flourish is visible. The
+        // retained row is appended at the end (not re-spliced at its prior
+        // index) — it only lingers briefly before the stet completes and it
+        // drops out.
         if !stetIds.isEmpty {
             let present = Set(rows.map(\.id))
             let retained = document.annotations(filter: AnnotationFilter(statuses: nil))

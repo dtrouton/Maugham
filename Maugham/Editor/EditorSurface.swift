@@ -153,12 +153,6 @@ struct EditorSurface: NSViewRepresentable {
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = false
 
-        context.coordinator.attach(to: textView)
-        textView.coordinator = context.coordinator
-        if mode is ScreenplayMode && showElementGutter {
-            textView.installGutter(coordinator: context.coordinator)
-        }
-
         // Install the floating selection toolbar. It is added directly to the
         // NSScrollView (NOT to documentView and NOT to contentView), so it
         // floats above the scrolled text and is NOT clipped by the content clip
@@ -166,11 +160,36 @@ struct EditorSurface: NSViewRepresentable {
         // coordinator positions it in this parent's coordinate space via
         // `textView.convert(_:to:)` and only un-hides it while review posture is
         // on (see EditorCoordinator.updateSelectionToolbar).
+        //
+        // This MUST be assigned BEFORE `attach(to:)`, which wires
+        // `selectionToolbar?.onAction`. If the toolbar is nil at attach time the
+        // optional-chain no-ops and the entire Comment/Query/Suggest authoring
+        // flow goes dead (clicking a toolbar button hits nothing). The toolbar
+        // depends only on the already-created scrollView, not on anything attach
+        // sets up, so this ordering is safe.
         let toolbar = SelectionToolbarView(frame: .zero)
         toolbar.isHidden = true
         toolbar.translatesAutoresizingMaskIntoConstraints = true
         scrollView.addSubview(toolbar)
         context.coordinator.selectionToolbar = toolbar
+
+        context.coordinator.attach(to: textView)
+        textView.coordinator = context.coordinator
+        if mode is ScreenplayMode && showElementGutter {
+            textView.installGutter(coordinator: context.coordinator)
+        }
+
+        // Guard the wiring above: `attach` sets `selectionToolbar?.onAction`,
+        // so the toolbar MUST already be assigned (it is, four lines up). If
+        // this ever regresses to a nil toolbar at attach time the whole
+        // Comment/Query/Suggest authoring flow goes dead. This path can't be
+        // driven from a unit test (NSViewRepresentable.Context is unsynthesizable);
+        // the coordinator-side contract is covered by a test, this is the
+        // production-path backstop. (Smoke-only otherwise.)
+        #if DEBUG
+        assert(context.coordinator.selectionToolbar?.onAction != nil,
+               "selection toolbar onAction must be wired after makeNSView")
+        #endif
 
         // Push the initial review posture before the surface goes live.
         context.coordinator.setReviewMode(isReviewMode)

@@ -177,10 +177,16 @@ final class ReviewMarginRailView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
+        // Leader lines run from the annotated span (which sits to the LEFT of
+        // the rail, i.e. at a negative local X) across to the slip card. With
+        // the default masked layer those left-of-origin segments are clipped at
+        // the rail's leading edge; opt out so the leader renders the full way.
+        layer?.masksToBounds = false
     }
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         wantsLayer = true
+        layer?.masksToBounds = false
     }
 
     override func viewDidMoveToWindow() {
