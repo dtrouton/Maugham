@@ -131,6 +131,22 @@ struct EditorSurface: NSViewRepresentable {
         if mode is ScreenplayMode && showElementGutter {
             textView.installGutter(coordinator: context.coordinator)
         }
+
+        // SPIKE (collab review): install the floating selection toolbar.
+        // Behind a scratch flag so it can be toggled off for normal use.
+        // It is added directly to the NSScrollView (NOT to documentView and
+        // NOT to contentView), so it floats above the scrolled text and is
+        // NOT clipped by the content clip view — the standard place for a
+        // scroll-view accessory overlay. The coordinator positions it in this
+        // parent's coordinate space via `textView.convert(_:to:)`.
+        if EditorSpikeFlags.selectionToolbar {
+            let toolbar = SelectionToolbarView(frame: .zero)
+            toolbar.isHidden = true
+            toolbar.translatesAutoresizingMaskIntoConstraints = true
+            scrollView.addSubview(toolbar)
+            context.coordinator.selectionToolbar = toolbar
+        }
+
         return scrollView
     }
 

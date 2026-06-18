@@ -19,6 +19,21 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     private var isApplyingExternalUpdate = false
     weak var textView: NSTextView?
 
+    /// SPIKE (collab review): when true, the manuscript text is read-only —
+    /// `textView(_:shouldChangeTextIn:)` rejects every mutation (typing, paste,
+    /// delete). Selection, scrolling, and copy are unaffected (they don't go
+    /// through shouldChangeTextIn). Plain stored property, no observers, so it
+    /// can't drive a SwiftUI↔AppKit loop (tripwire 5). Throwaway; behind the
+    /// scratch flag below for the spike. Real "annotate mode" wiring is a later
+    /// plan deliverable.
+    var isAnnotateOnly = false
+
+    /// SPIKE: weak handle to the floating selection toolbar overlay so the
+    /// selection-change callback can position/show/hide it. Lives in the scroll
+    /// view's superview (see EditorSurface), NOT a subview of the clipped
+    /// content view, so it can float above the text near the selection.
+    weak var selectionToolbar: SelectionToolbarView?
+
     /// Cursor location to restore after the next attach. Set by EditorSurface
     /// when the user revisits a previously-open document.
     var initialCursorLocation: Int?
@@ -273,6 +288,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// Set the text view from outside (called by EditorSurface.makeNSView).
     func attach(to textView: NSTextView) {
         self.textView = textView
+        // SPIKE (collab review): pick up the scratch flag so a flag flip (or a
+        // future debug keybinding setting `isAnnotateOnly`) makes the manuscript
+        // read-only without any other wiring.
+        if EditorSpikeFlags.annotateOnly { isAnnotateOnly = true }
         // Drop any debounced script post still pending from a prior text so a
         // stale script can't land on the freshly-attached doc's navigator.
         scriptUpdateNotifyTask?.cancel()
@@ -637,6 +656,15 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     func textView(_ textView: NSTextView,
                   shouldChangeTextIn affectedCharRange: NSRange,
                   replacementString: String?) -> Bool {
+        // SPIKE (collab review): annotate-only read-only guard. When set, the
+        // manuscript text cannot be mutated through the editor. This is the
+        // single choke point for every text mutation (typing, paste, delete,
+        // drag-drop, smart-typography re-insert) because AppKit funnels them
+        // all through shouldChangeTextIn. Selection / scroll / copy do NOT pass
+        // through here, so they keep working. Returning false here also stops
+        // the smart-typography path below from running its insertText, so no
+        // mutation leaks. Placed at the very top, before the existing guard.
+        if isAnnotateOnly { return false }
         guard let replacementString,
               !isApplyingExternalUpdate else { return true }
 
@@ -771,6 +799,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         applyFocusDim(in: textView)
         onCursorChanged?(textView.selectedRange().location)
         onElementChanged?(currentElementAbbreviation(in: textView))
+        // SPIKE (collab review): one-way drive of the floating selection
+        // toolbar. No write-back into SwiftUI state.
+        updateSelectionToolbar(in: textView)
     }
 
     // MARK: - Tab/Shift+Tab cycle
@@ -983,6 +1014,67 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         textView.setSelectedRange(range)
         textView.scrollRangeToVisible(range)
         textView.window?.makeFirstResponder(textView)
+    }
+
+    /// SPIKE (collab review): the selection's bounding rect in TEXT-VIEW
+    /// coordinates (the same space as `textView.frame` / a subview's frame),
+    /// or nil when the selection is empty.
+    ///
+    /// `boundingRect(forGlyphRange:in:)` returns container-space coordinates.
+    /// The text view offsets its container by `textContainerInset` (the column
+    /// is centered horizontally via `.width`, and `.height` is the top inset —
+    /// 24pt normally, ~half a viewport under typewriter scroll). Adding the
+    /// inset to the rect's origin lands it in view space. This mirrors
+    /// `scrollSelectionToVerticalCenter`'s `lineRect.midY + inset.height`
+    /// correction and `ElementGutterView`'s `lineRect.origin.y + yOffset`.
+    func selectionViewRect(in textView: NSTextView) -> NSRect? {
+        let selection = textView.selectedRange()
+        guard selection.length > 0,
+              let layoutManager = textView.layoutManager,
+              let container = textView.textContainer else { return nil }
+        let glyphRange = layoutManager.glyphRange(
+            forCharacterRange: selection, actualCharacterRange: nil)
+        let containerRect = layoutManager.boundingRect(
+            forGlyphRange: glyphRange, in: container)
+        let inset = textView.textContainerInset
+        return NSRect(
+            x: containerRect.origin.x + inset.width,
+            y: containerRect.origin.y + inset.height,
+            width: containerRect.size.width,
+            height: containerRect.size.height)
+    }
+
+    /// SPIKE (collab review): drive the floating selection toolbar one-way from
+    /// the AppKit selection callback. Show + position above the selection when
+    /// non-empty; hide otherwise. No SwiftUI state round-trip (tripwire 5): the
+    /// toolbar is a plain NSView the coordinator owns by weak reference.
+    private func updateSelectionToolbar(in textView: NSTextView) {
+        guard let toolbar = selectionToolbar,
+              let parent = toolbar.superview else { return }
+        guard let rectInTextView = selectionViewRect(in: textView) else {
+            toolbar.isHidden = true
+            return
+        }
+        // Convert the selection rect from text-view coords into the overlay
+        // parent's coords. `convert(_:to:)` walks the view tree and accounts
+        // for the scroll view's clip/scroll offset automatically, so as the
+        // document scrolls the toolbar tracks the on-screen selection.
+        let rectInParent = textView.convert(rectInTextView, to: parent)
+        let size = toolbar.fittingSize
+        let gap: CGFloat = 6
+        // Position just ABOVE the selection. AppKit's default coordinate system
+        // is y-up (flipped == false for the scroll view's superview), so
+        // "above" means a HIGHER maxY. Place the toolbar's bottom edge `gap`
+        // above the selection's top edge (rectInParent.maxY).
+        var originX = rectInParent.midX - size.width / 2
+        var originY = rectInParent.maxY + gap
+        // Clamp within the parent's bounds so it never clips off-edge.
+        originX = max(parent.bounds.minX,
+                      min(originX, parent.bounds.maxX - size.width))
+        originY = max(parent.bounds.minY,
+                      min(originY, parent.bounds.maxY - size.height))
+        toolbar.setFrameOrigin(NSPoint(x: originX, y: originY))
+        toolbar.isHidden = false
     }
 
     private func scrollSelectionToVerticalCenter(in textView: NSTextView) {
