@@ -70,7 +70,7 @@ struct EditorSurface: NSViewRepresentable {
     /// the selection toolbar. The trailing `String?` is the replacement text
     /// (Suggest only; nil for Comment/Query). Wired to
     /// `Document.addReviewerAnnotation(...)`.
-    var createAnnotationHandler: ((AnnotationKind, String, SpanAnchor, String, String?) -> Void)? = nil
+    var createAnnotationHandler: ((AnnotationKind, String, SpanAnchor, String, String?) async -> Void)? = nil
     /// Open annotations to render in review mode (Component F). Threaded ONE-WAY;
     /// pushed onto the coordinator in updateNSView. Sourced from the host's
     /// `Document` and recomputed whenever `annotationsVersion` changes (which

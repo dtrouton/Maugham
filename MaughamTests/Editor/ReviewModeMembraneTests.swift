@@ -113,4 +113,94 @@ final class ReviewModeMembraneTests: XCTestCase {
             "entering review must pull the current annotation set from the provider and resolve marks immediately")
         XCTAssertEqual(coordinator.resolvedReviewMarks.first?.id, "op1")
     }
+
+    /// Create-while-in-review regression: a reviewer who creates a Comment/Query/
+    /// Suggest while ALREADY in review mode must see its mark + rail card appear
+    /// immediately, with NO review toggle. `commitAnnotation` awaits the op-log
+    /// append then calls `refreshReviewMarksFromProvider()`, which re-pulls the
+    /// (now larger) set from `reviewAnnotationsProvider` and recomputes marks.
+    /// Before the fix the SwiftUI observation→push chain off `annotationsVersion`
+    /// did not fire promptly, so the just-created annotation only rendered after
+    /// the reviewer toggled review off/on.
+    @MainActor
+    func test_refreshReviewMarksFromProvider_rendersNewlyCreatedAnnotation_withoutToggle() {
+        final class TextBox { var value = "Hello world" }
+        let box = TextBox()
+        let coordinator = EditorCoordinator(
+            text: Binding(get: { box.value }, set: { box.value = $0 }),
+            mode: ProseMode(),
+            theme: .light, typography: .defaults,
+            typewriterScroll: false,
+            sentenceFocus: false, paragraphFocus: false)
+
+        let tv = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+        tv.string = box.value
+        tv.delegate = coordinator
+        coordinator.attach(to: tv)
+
+        // The provider's backing set — mutated to simulate a create persisting.
+        final class Store { var annotations: [Annotation] = [] }
+        let backing = Store()
+        coordinator.reviewAnnotationsProvider = { backing.annotations }
+        coordinator.reviewParagraphRangeProvider = { pid in
+            pid == "ab12" ? NSRange(location: 0, length: 5) : nil
+        }
+
+        // Enter review with NO annotations yet — no marks.
+        coordinator.setReviewMode(true)
+        XCTAssertTrue(
+            coordinator.resolvedReviewMarks.isEmpty,
+            "no marks before any annotation exists")
+
+        // Simulate the create completing: the op-log append has landed, so the
+        // provider now returns the new annotation. (In production this mutation
+        // is the awaited `doc.addReviewerAnnotation`; here we mutate the backing
+        // store directly to model "the persist finished".)
+        backing.annotations = [
+            Annotation(
+                id: "op1", kind: .comment, paragraphId: "ab12",
+                body: "needs work", suggestedText: nil, priorText: nil,
+                createdAt: Date(), createdBySession: nil,
+                status: .open, userResponse: nil,
+                resolvedAt: nil, isStale: false)
+        ]
+
+        // The refresh the commit flow invokes after awaiting the append.
+        coordinator.refreshReviewMarksFromProvider()
+
+        XCTAssertEqual(
+            coordinator.resolvedReviewMarks.count, 1,
+            "creating an annotation while in review must resolve its mark immediately (no toggle)")
+        XCTAssertEqual(coordinator.resolvedReviewMarks.first?.id, "op1")
+    }
+
+    /// The refresh is review-mode-gated: when review is OFF the provider is never
+    /// invoked (no per-keystroke / out-of-review derivation).
+    @MainActor
+    func test_refreshReviewMarksFromProvider_isNoOpWhenReviewOff() {
+        final class TextBox { var value = "Hello world" }
+        let box = TextBox()
+        let coordinator = EditorCoordinator(
+            text: Binding(get: { box.value }, set: { box.value = $0 }),
+            mode: ProseMode(),
+            theme: .light, typography: .defaults,
+            typewriterScroll: false,
+            sentenceFocus: false, paragraphFocus: false)
+
+        let tv = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+        tv.string = box.value
+        tv.delegate = coordinator
+        coordinator.attach(to: tv)
+
+        var providerCalls = 0
+        coordinator.reviewAnnotationsProvider = {
+            providerCalls += 1
+            return []
+        }
+
+        // Review is OFF — refresh must not call the provider.
+        coordinator.refreshReviewMarksFromProvider()
+        XCTAssertEqual(providerCalls, 0,
+            "refresh must be a no-op (provider untouched) while review is off")
+    }
 }

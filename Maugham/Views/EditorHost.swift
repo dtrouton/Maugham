@@ -140,16 +140,18 @@ struct EditorHost: View {
                         // applyExternalText tripwires (6/7) don't apply. The
                         // AnnotationsPane re-renders automatically off the
                         // Document's `annotationsVersion` bump (invalidated
-                        // inside addAnnotation).
-                        Task {
-                            try? await doc.addReviewerAnnotation(
-                                kind: kind,
-                                paragraphId: paragraphId,
-                                span: span,
-                                body: body,
-                                suggestedText: suggestedText,
-                                authorName: userPreferences.collaboratorDisplayName)
-                        }
+                        // inside addAnnotation). The handler is async so the
+                        // coordinator can await this append, then re-pull the
+                        // annotation set and refresh the crafted marks — so a
+                        // just-created annotation renders immediately in review
+                        // mode without a toggle.
+                        try? await doc.addReviewerAnnotation(
+                            kind: kind,
+                            paragraphId: paragraphId,
+                            span: span,
+                            body: body,
+                            suggestedText: suggestedText,
+                            authorName: userPreferences.collaboratorDisplayName)
                     },
                     // Crafted review render (Component F). Reading
                     // `doc.annotationsVersion` here makes SwiftUI re-evaluate the

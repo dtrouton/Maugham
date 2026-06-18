@@ -191,7 +191,13 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// `Document.addReviewerAnnotation(...)`. Routing is one-way (no write-back
     /// into a binding) — annotation creation is an op-log append, not a text
     /// mutation, so tripwires 6/7 don't apply.
-    var createAnnotationHandler: ((AnnotationKind, String, SpanAnchor, String, String?) -> Void)?
+    /// Async so the commit flow can AWAIT the op-log append before re-pulling the
+    /// annotation set — that's what makes a just-created annotation's mark + rail
+    /// card appear immediately, without the reviewer toggling review off/on. The
+    /// lagged `setReviewAnnotations` push (off `annotationsVersion`) remains the
+    /// reconciler for annotations created elsewhere; the await + provider-pull is
+    /// the deterministic path for the LOCAL create.
+    var createAnnotationHandler: ((AnnotationKind, String, SpanAnchor, String, String?) async -> Void)?
 
     /// The inline composer (a small NSTextField) shown when the reviewer clicks
     /// Comment/Query. Minimal by design — Task 5 restyles it into a margin slip.
@@ -527,6 +533,25 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     func setReviewAnnotations(_ annotations: [Annotation]) {
         guard annotations != reviewAnnotations else { return }
         reviewAnnotations = annotations
+        recomputeReviewMarks()
+        refreshReviewOverlays()
+    }
+
+    /// Re-pull the current open-annotation set from `reviewAnnotationsProvider`
+    /// and recompute marks. Reuses the same pull path as `setReviewMode`'s
+    /// entry case so a just-created annotation renders IMMEDIATELY without the
+    /// reviewer toggling review off/on (the SwiftUI observation→push chain off
+    /// `annotationsVersion` is unreliable for the local-create case). Invoked
+    /// from `commitAnnotation` AFTER the create's op-log append has been awaited.
+    /// Only acts in review mode with a provider wired, and is no-op-guarded the
+    /// same way as the push, so a subsequent `setReviewAnnotations` with the same
+    /// set won't double-recompute. The provider is called on entry + after an
+    /// explicit create only — never per keystroke.
+    func refreshReviewMarksFromProvider() {
+        guard isReviewMode, let provider = reviewAnnotationsProvider else { return }
+        let pulled = provider()
+        guard pulled != reviewAnnotations else { return }
+        reviewAnnotations = pulled
         recomputeReviewMarks()
         refreshReviewOverlays()
     }
@@ -1473,7 +1498,18 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             suggestedText = nil
         }
 
-        createAnnotationHandler?(kind, paragraphId, span, body, suggestedText)
+        // Await the op-log append, THEN re-pull the annotation set so the new
+        // annotation's inline mark + rail card render immediately (no review
+        // toggle). The lagged SwiftUI push off `annotationsVersion` stays the
+        // reconciler for annotations created elsewhere; this is the deterministic
+        // local-create path. The toolbar dismiss is synchronous (UI), independent
+        // of the persist.
+        if let handler = createAnnotationHandler {
+            Task { @MainActor [weak self] in
+                await handler(kind, paragraphId, span, body, suggestedText)
+                self?.refreshReviewMarksFromProvider()
+            }
+        }
         restoreToolbarAfterDismiss()
     }
 
