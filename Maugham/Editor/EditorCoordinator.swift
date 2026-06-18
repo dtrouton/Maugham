@@ -260,6 +260,13 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// on the rail) so a redraw / recompute can reconcile it.
     private(set) var selectedReviewCardId: String?
 
+    /// The annotation id of a just-rejected suggested change whose margin card is
+    /// holding the brief "stet" acknowledgement before it resolves out of the open
+    /// set. While set, `ReviewMarginRailView.drawCard` paints the STET treatment on
+    /// that card and the mark is deliberately NOT refreshed away. Mirrors the
+    /// AnnotationsPane `stetIds` dwell so the gesture reads in both surfaces.
+    private(set) var stetReviewCardId: String?
+
     /// Handlers for the interactive margin-card actions, threaded ONE-WAY from
     /// EditorHost (like `createAnnotationHandler`). Each is async so the card can
     /// await the op-log append before refreshing marks. `reply` carries the reply
@@ -602,6 +609,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// way `setReviewMode` is.
     func setReviewAnnotations(_ annotations: [Annotation]) {
         guard annotations != reviewAnnotations else { return }
+        // A reject's annotationsVersion bump can drive this push DURING the stet
+        // dwell. Defer it so the held STET card isn't recomputed away early; the
+        // dwell completion (`rejectReviewCardWithStet`) re-pulls the fresh set.
+        if stetReviewCardId != nil { return }
         reviewAnnotations = annotations
         recomputeReviewMarks()
         refreshReviewOverlays()
@@ -812,7 +823,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         case .accept:
             runReviewAction { [weak self] in await self?.reviewAcceptHandler?(id) }
         case .reject:
-            runReviewAction { [weak self] in await self?.reviewRejectHandler?(id) }
+            rejectReviewCardWithStet(id: id)
         case .archive:
             runReviewAction { [weak self] in await self?.reviewArchiveHandler?(id) }
         case .reply:
@@ -848,6 +859,25 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             }
         case .delete:
             confirmDeleteCard(id: id, authorName: mark.authorName)
+        }
+    }
+
+    /// Reject from the margin card with the proofreader's "stet" acknowledgement.
+    /// Records the reject immediately (never blocked), dismisses the actions row,
+    /// then holds the card on-screen with a STET treatment for ~2s before
+    /// refreshing the marks (which drops the now-rejected annotation out of the
+    /// open set). Mirrors the AnnotationsPane dwell so the gesture reads here too.
+    private func rejectReviewCardWithStet(id: String) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.reviewRejectHandler?(id)
+            // Keep the card present (don't refresh it away yet) and paint STET.
+            self.stetReviewCardId = id
+            self.clearReviewCardSelection()  // hides the actions row + redraws; card stays
+            self.refreshReviewOverlays()     // repaint rail (STET) + inline (strike off)
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            self.stetReviewCardId = nil
+            self.refreshReviewMarksFromProvider()
         }
     }
 

@@ -19,7 +19,7 @@ struct AnnotationsPane: View {
     /// The annotation pending a withdraw (delete) confirmation.
     @State private var withdrawConfirm: Annotation?
     /// Annotation ids currently showing the transient "stet" flourish after a
-    /// reject of a suggested change. Keyed per-row so it survives the brief
+    /// reject of a suggested change. Keyed per-row so it survives the ~2.5s
     /// window between the reject op and the row leaving the open list.
     @State private var stetIds: Set<String> = []
 
@@ -85,7 +85,7 @@ struct AnnotationsPane: View {
     private var visibleAnnotations: [Annotation] {
         var rows = kindStatusAnnotations
         // Keep any row mid-"stet" on screen even after its reject flips the
-        // status out of the open filter, so the ~1.5s flourish is visible. The
+        // status out of the open filter, so the ~2.5s flourish is visible. The
         // retained row is appended at the end (not re-spliced at its prior
         // index) — it only lingers briefly before the stet completes and it
         // drops out.
@@ -256,7 +256,10 @@ struct AnnotationsPane: View {
             stetIds.insert(ann.id)
             Task {
                 try? await document.rejectAnnotation(id: ann.id, userResponse: reason)
-                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                // Hold ~2.5s so the strike-removed "prior" text + the STET badge
+                // read clearly before the row resolves out of the open list. The
+                // op above already landed; this only governs the visual dwell.
+                try? await Task.sleep(nanoseconds: 2_500_000_000)
                 stetIds.remove(ann.id)
             }
         } else {
@@ -349,7 +352,7 @@ struct AnnotationRow: View {
         .padding(.horizontal, 12).padding(.vertical, 10)
         .contentShape(Rectangle())
         .onTapGesture { onJumpToParagraph() }
-        .animation(.easeInOut(duration: 0.2), value: showingStet)
+        .animation(.easeInOut(duration: 0.3), value: showingStet)
     }
 
     @ViewBuilder
@@ -430,26 +433,45 @@ struct AnnotationRow: View {
 
     /// The proofreader's "stet" treatment shown briefly on rejecting a suggested
     /// change: the struck prior text is reinstated (no strike), marked with a
-    /// dotted underline and a small "stet" caret to say "let it stand".
+    /// dotted underline, and headed by a clear "STET — let it stand" badge so the
+    /// gesture is unmistakable rather than a faint italic aside. A subtle tinted
+    /// card + the row-level fade give the eye something to catch in the ~2.5s
+    /// dwell before the row resolves.
     @ViewBuilder
     private var stetCard: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text("STET")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(stetAccent)
+                    .clipShape(Capsule())
+                Text("let it stand")
+                    .font(.caption2.italic())
+                    .foregroundStyle(stetAccent)
+            }
             if let prior = annotation.priorText {
                 Text(AnnotationRow.displayText(prior))
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.primary)
-                    .underline(true, pattern: .dot)
+                    .underline(true, pattern: .dot, color: stetAccent)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            Text("stet")
-                .font(.caption2.italic())
-                .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 6).padding(.vertical, 3)
+        .padding(.horizontal, 8).padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.secondary.opacity(0.08))
+        .background(stetAccent.opacity(0.12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 4)
+                .strokeBorder(stetAccent.opacity(0.5), lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 4))
         .transition(.opacity)
     }
+
+    /// A legible, intentional editor's-ink colour for the stet mark — distinct
+    /// from the red/green diff so the eye reads it as a separate gesture.
+    private var stetAccent: Color { Color(red: 0.20, green: 0.45, blue: 0.78) }
 
     @ViewBuilder
     private var actionRow: some View {

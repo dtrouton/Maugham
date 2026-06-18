@@ -101,6 +101,9 @@ final class AnnotationMarkRenderer: NSView {
             forGlyphRange: visibleGlyphRange, actualGlyphRange: nil)
 
         for mark in marks {
+            // A card mid-"stet" reinstates the text — drop its inline strike so
+            // the manuscript reads as left-standing during the brief dwell.
+            if coordinator.stetReviewCardId == mark.id { continue }
             guard let range = mark.absoluteRange,
                   NSIntersectionRange(range, visibleCharRange).length > 0 else { continue }
             let glyphRange = layoutManager.glyphRange(
@@ -371,7 +374,8 @@ final class ReviewMarginRailView: NSView {
             let cardRect = NSRect(
                 x: railX, y: p.cardY, width: cardWidth, height: p.height)
             cardRects.append((id: p.mark.id, rect: cardRect))
-            drawCard(p.mark, in: cardRect, selected: p.mark.id == selectedId)
+            let isStet = (coordinator.stetReviewCardId == p.mark.id)
+            drawCard(p.mark, in: cardRect, selected: p.mark.id == selectedId, stet: isStet)
             // Leader: from the span's right edge (in text-view coords, which is
             // to the LEFT of this view's origin → negative x here) to the card.
             drawLeader(
@@ -412,7 +416,15 @@ final class ReviewMarginRailView: NSView {
         return max(14, ceil(bounds.height))
     }
 
-    private func drawCard(_ mark: ResolvedReviewMark, in rect: NSRect, selected: Bool) {
+    /// Editor's-ink colour for the STET acknowledgement — distinct from the
+    /// author colour and the red/green diff so it reads as its own gesture.
+    private let stetColor = NSColor(
+        calibratedRed: 0.20, green: 0.45, blue: 0.78, alpha: 1)
+
+    private func drawCard(
+        _ mark: ResolvedReviewMark, in rect: NSRect, selected: Bool, stet: Bool = false
+    ) {
+        if stet { drawStetCard(mark, in: rect); return }
         // Selected cards get a subtle lift: a soft author-colour glow ring drawn
         // just outside the card edge so the emphasis reads without shifting layout.
         if selected {
@@ -455,6 +467,72 @@ final class ReviewMarginRailView: NSView {
             attributes: [
                 .font: bodyFont,
                 .foregroundColor: NSColor.labelColor])
+        let bodyRect = NSRect(
+            x: rect.minX + cardPadding,
+            y: rect.minY + cardPadding + authorLineHeight + 2,
+            width: cardWidth - 2 * cardPadding - 4,
+            height: rect.height - cardPadding * 2 - authorLineHeight - 2)
+        bodyAttr.draw(with: bodyRect, options: [.usesLineFragmentOrigin, .usesFontLeading])
+    }
+
+    /// The "stet" acknowledgement painted briefly on a card whose suggested
+    /// change was just rejected: a tinted card, a bold "STET" chip + "let it
+    /// stand", and the suggestion's text reinstated with a dotted underline (the
+    /// proofreader's "leave it as it was" mark). Held ~2s by the coordinator.
+    private func drawStetCard(_ mark: ResolvedReviewMark, in rect: NSRect) {
+        // Card background + tinted border in the stet ink.
+        let bg = NSColor.textBackgroundColor.withAlphaComponent(0.96)
+        let bgPath = NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4)
+        bg.setFill(); bgPath.fill()
+        stetColor.withAlphaComponent(0.12).setFill(); bgPath.fill()
+        stetColor.withAlphaComponent(0.55).setStroke()
+        bgPath.lineWidth = 1.0
+        bgPath.stroke()
+        // Left border in stet ink.
+        let border = NSRect(x: rect.minX, y: rect.minY, width: 3, height: rect.height)
+        stetColor.setFill()
+        NSBezierPath(rect: border).fill()
+
+        // "STET" chip.
+        let chipFont = NSFont.systemFont(ofSize: 9, weight: .bold)
+        let chipText = NSAttributedString(
+            string: "STET",
+            attributes: [.font: chipFont, .foregroundColor: NSColor.white, .kern: 0.5])
+        let chipTextSize = chipText.size()
+        let chipPadX: CGFloat = 4, chipPadY: CGFloat = 1
+        let chipRect = NSRect(
+            x: rect.minX + cardPadding,
+            y: rect.minY + cardPadding,
+            width: chipTextSize.width + chipPadX * 2,
+            height: chipTextSize.height + chipPadY * 2)
+        let chipPath = NSBezierPath(roundedRect: chipRect, xRadius: 3, yRadius: 3)
+        stetColor.setFill(); chipPath.fill()
+        chipText.draw(at: NSPoint(x: chipRect.minX + chipPadX, y: chipRect.minY + chipPadY))
+
+        // "let it stand" beside the chip.
+        let standFont = NSFont(
+            descriptor: NSFont.systemFont(ofSize: 10).fontDescriptor
+                .withSymbolicTraits(.italic),
+            size: 10) ?? NSFont.systemFont(ofSize: 10)
+        let stand = NSAttributedString(
+            string: "let it stand",
+            attributes: [.font: standFont, .foregroundColor: stetColor])
+        stand.draw(at: NSPoint(
+            x: chipRect.maxX + 5,
+            y: rect.minY + cardPadding + (chipRect.height - stand.size().height) / 2))
+
+        // Reinstated text (the suggestion text struck-no-more), dotted-underlined.
+        let reinstated = railBodyText(mark)
+        let para = NSMutableParagraphStyle()
+        let bodyAttr = NSAttributedString(
+            string: reinstated,
+            attributes: [
+                .font: bodyFont,
+                .foregroundColor: NSColor.labelColor,
+                .underlineStyle: (NSUnderlineStyle.single.rawValue
+                    | NSUnderlineStyle.patternDot.rawValue),
+                .underlineColor: stetColor,
+                .paragraphStyle: para])
         let bodyRect = NSRect(
             x: rect.minX + cardPadding,
             y: rect.minY + cardPadding + authorLineHeight + 2,
