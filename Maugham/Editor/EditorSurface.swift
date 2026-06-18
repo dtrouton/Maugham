@@ -191,6 +191,12 @@ struct EditorSurface: NSViewRepresentable {
                "selection toolbar onAction must be wired after makeNSView")
         #endif
 
+        // Seed the open annotation set BEFORE flipping review posture so a
+        // fresh-launch-straight-into-review shows existing marks + rail on the
+        // first frame (Bug A) — setReviewMode recomputes marks on entry, and it
+        // needs the annotations already present. updateNSView re-pushes both and
+        // is no-op-guarded, so this seeding is not duplicate steady-state work.
+        context.coordinator.setReviewAnnotations(reviewAnnotations)
         // Push the initial review posture before the surface goes live.
         context.coordinator.setReviewMode(isReviewMode)
 

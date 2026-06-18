@@ -101,29 +101,41 @@ final class AnnotationMarkRenderer: NSView {
                   NSIntersectionRange(range, visibleCharRange).length > 0 else { continue }
             let glyphRange = layoutManager.glyphRange(
                 forCharacterRange: range, actualCharacterRange: nil)
-            let rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: container)
-            let drawRect = NSRect(
-                x: rect.origin.x + inset.width,
-                y: rect.origin.y + inset.height,
-                width: rect.size.width,
-                height: rect.size.height)
-            draw(mark: mark, in: drawRect)
+
+            // Draw the underline/strike PER LINE FRAGMENT, not from a single
+            // union boundingRect (Bug C): a span that wraps onto a second visual
+            // line yields a union rect whose single horizontal stroke lands
+            // between the two lines (invisible) or mis-placed. enumerate one rect
+            // per visual line the glyph range covers and stroke each. The end
+            // marker (query/caret) goes after the LAST fragment.
+            var fragmentRects: [NSRect] = []
+            layoutManager.enumerateEnclosingRects(
+                forGlyphRange: glyphRange,
+                withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0),
+                in: container
+            ) { rect, _ in
+                fragmentRects.append(NSRect(
+                    x: rect.origin.x + inset.width,
+                    y: rect.origin.y + inset.height,
+                    width: rect.size.width,
+                    height: rect.size.height))
+            }
+            guard !fragmentRects.isEmpty else { continue }
+            draw(mark: mark, inFragments: fragmentRects)
         }
     }
 
-    private func draw(mark: ResolvedReviewMark, in rect: NSRect) {
+    private func draw(mark: ResolvedReviewMark, inFragments rects: [NSRect]) {
         let color = mark.color
         switch mark.kind {
-        case .comment:
-            drawUnderline(in: rect, color: color)
+        case .comment, .craftNote:
+            for rect in rects { drawUnderline(in: rect, color: color) }
         case .query:
-            drawUnderline(in: rect, color: color)
-            drawEndMarker("?", at: rect, color: color)
+            for rect in rects { drawUnderline(in: rect, color: color) }
+            drawQueryMarker(at: rects[rects.count - 1], color: color)
         case .suggestedChange:
-            drawStrikethrough(in: rect, color: color)
-            drawEndMarker("\u{2038}", at: rect, color: color)  // ‸ caret
-        case .craftNote:
-            drawUnderline(in: rect, color: color)
+            for rect in rects { drawStrikethrough(in: rect, color: color) }
+            drawEndMarker("\u{2038}", at: rects[rects.count - 1], color: color)  // ‸ caret
         }
     }
 
@@ -156,6 +168,39 @@ final class AnnotationMarkRenderer: NSView {
         // Place just past the span's end, vertically centred on the line.
         let p = NSPoint(x: rect.maxX + 1, y: rect.midY - size.height / 2)
         attributed.draw(at: p)
+    }
+
+    /// The proofreader's query mark (Bug D): a legible small-caps "Qy?" in the
+    /// author colour, set on a subtle rounded chip so it reads as an editorial
+    /// mark rather than a stray "?" floating after the span.
+    private func drawQueryMarker(at rect: NSRect, color: NSColor) {
+        let baseSize = associatedTextView?.font?.pointSize ?? 13
+        let font = NSFont.systemFont(ofSize: baseSize * 0.72, weight: .bold)
+        let attributed = NSAttributedString(
+            string: "Qy?",
+            attributes: [.font: font, .foregroundColor: color, .kern: 0.3])
+        let textSize = attributed.size()
+
+        let padX: CGFloat = 3
+        let padY: CGFloat = 1
+        let chipWidth = textSize.width + padX * 2
+        let chipHeight = textSize.height + padY * 2
+        let chipRect = NSRect(
+            x: rect.maxX + 2,
+            y: rect.midY - chipHeight / 2,
+            width: chipWidth,
+            height: chipHeight)
+
+        let chip = NSBezierPath(roundedRect: chipRect, xRadius: 3, yRadius: 3)
+        color.withAlphaComponent(0.12).setFill()
+        chip.fill()
+        color.withAlphaComponent(0.45).setStroke()
+        chip.lineWidth = 0.75
+        chip.stroke()
+
+        attributed.draw(at: NSPoint(
+            x: chipRect.minX + padX,
+            y: chipRect.minY + padY))
     }
 }
 

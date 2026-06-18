@@ -143,6 +143,18 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// to when the user clicks an annotation row.
     private var paragraphNavigateObserver: NSObjectProtocol?
 
+    /// Observer token for `maughamToggleReviewMode` (⌘⌥R). Flips the membrane
+    /// SYNCHRONOUSLY in the key window's coordinator so `isReviewMode` is correct
+    /// before the next key event — closing the race where a fast Enter pressed
+    /// right after ⌘⌥R slipped a newline through `shouldChangeTextIn` before the
+    /// SwiftUI render round-trip pushed the new posture (Bug B). `ProjectWindow`
+    /// still toggles `isReviewModeOn` on the SAME notification (source of truth
+    /// for the indicator + annotation derive + persistence); `updateNSView`'s
+    /// `setReviewMode(isReviewModeOn)` is the no-op-guarded reconciler the two
+    /// paths converge through. Both toggle the same boolean from the same value,
+    /// so they can't diverge; the reconciler re-converges if state ever drifts.
+    private var reviewToggleObserver: NSObjectProtocol?
+
     /// Closure that maps a paragraph_id to its NSRange in textView.string.
     /// Set by EditorSurface.updateNSView so the coordinator can resolve
     /// ranges against the live Document's `displayRange(forParagraphId:)`.
@@ -312,6 +324,21 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                 textView.window?.makeFirstResponder(textView)
             }
         }
+        reviewToggleObserver = NotificationCenter.default.addObserver(
+            forName: .maughamToggleReviewMode,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                // Mirror FocusPostureModifier's key-window guard: the toggle is
+                // posted to every open window, but only the key window's editor
+                // (and ProjectWindow) acts. Flip the membrane synchronously to
+                // the toggled value so the very next keystroke sees it.
+                guard self.textView?.window?.isKeyWindow == true else { return }
+                self.setReviewMode(!self.isReviewMode)
+            }
+        }
     }
 
     deinit {
@@ -327,6 +354,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = paragraphNavigateObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+        if let token = reviewToggleObserver {
             NotificationCenter.default.removeObserver(token)
         }
     }
@@ -454,6 +484,16 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // Hide the toolbar when leaving review; show-on-selection resumes via
         // textViewDidChangeSelection while review is on.
         updateSelectionToolbar(in: textView)
+        // Entering review must show existing open annotations' marks + rail
+        // PROMPTLY, not only after some later unrelated update (Bug A). Recompute
+        // from whatever annotation set is currently held — when the toggle path
+        // flips this synchronously the set was already pushed by a prior
+        // updateNSView; on fresh launch makeNSView seeds it (see EditorSurface).
+        // A subsequent setReviewAnnotations with the same set no-ops, so this is
+        // not redundant work on the steady-state path.
+        if enabled {
+            recomputeReviewMarks()
+        }
         // Crafted-render overlays follow the review posture.
         syncReviewOverlays()
     }
