@@ -211,6 +211,15 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// Resolves a paragraphId to its UTF-16 NSRange in the full display string.
     /// Wired by EditorHost from `Document.displayRange(forParagraphId:)`.
     var reviewParagraphRangeProvider: ((String) -> NSRange?)?
+    /// Pulls the CURRENT open-annotation set on demand. Wired by EditorHost from
+    /// `Document.annotations(filter: .open)` — NOT gated on isReviewMode (it's
+    /// only CALLED on review entry, so it never re-derives during authoring).
+    /// Used by `setReviewMode(_:)` so entering review resolves marks
+    /// synchronously from the real set instead of waiting for the lagged
+    /// `setReviewAnnotations` push (which, on the first toggle after launch,
+    /// arrives only on the next SwiftUI render). One-way; nothing reads it back
+    /// (no tripwire-2 loop).
+    var reviewAnnotationsProvider: (() -> [Annotation])?
     /// Cached, resolved-to-absolute marks. Recomputed when the annotation set or
     /// the text changes — never per draw (tripwire 4). The overlay views read
     /// this directly.
@@ -485,13 +494,23 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // textViewDidChangeSelection while review is on.
         updateSelectionToolbar(in: textView)
         // Entering review must show existing open annotations' marks + rail
-        // PROMPTLY, not only after some later unrelated update (Bug A). Recompute
-        // from whatever annotation set is currently held — when the toggle path
-        // flips this synchronously the set was already pushed by a prior
-        // updateNSView; on fresh launch makeNSView seeds it (see EditorSurface).
-        // A subsequent setReviewAnnotations with the same set no-ops, so this is
-        // not redundant work on the steady-state path.
+        // PROMPTLY, not only after some later unrelated update (Bug A). PULL the
+        // current set directly from the provider so this never depends on the
+        // lagged `setReviewAnnotations` push: on the first toggle after launch
+        // the coordinator's stored `reviewAnnotations` is still empty (review was
+        // off, so EditorHost gated its derivation to []) and the real set only
+        // arrives on the NEXT SwiftUI render — pulling here resolves marks from
+        // the real set immediately. The assignment mirrors `setReviewAnnotations`'
+        // no-op guard, so a subsequent push with the same set no-ops and there's
+        // no double recompute. (The provider is only invoked here, on entry, so
+        // it never re-derives annotations during authoring.)
         if enabled {
+            if let provider = reviewAnnotationsProvider {
+                let pulled = provider()
+                if pulled != reviewAnnotations {
+                    reviewAnnotations = pulled
+                }
+            }
             recomputeReviewMarks()
         }
         // Crafted-render overlays follow the review posture.

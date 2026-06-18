@@ -80,6 +80,9 @@ struct EditorSurface: NSViewRepresentable {
     var reviewParagraphTextProvider: ((String) -> String?)? = nil
     /// Resolves a paragraphId → its UTF-16 NSRange in the full display string.
     var reviewParagraphRangeProvider: ((String) -> NSRange?)? = nil
+    /// Pulls the CURRENT open-annotation set on demand — used by the coordinator
+    /// to resolve marks synchronously on review entry (first-toggle marks fix).
+    var reviewAnnotationsProvider: (() -> [Annotation])? = nil
 
     func makeCoordinator() -> EditorCoordinator {
         let coordinator = EditorCoordinator(
@@ -103,6 +106,7 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.createAnnotationHandler = createAnnotationHandler
         coordinator.reviewParagraphTextProvider = reviewParagraphTextProvider
         coordinator.reviewParagraphRangeProvider = reviewParagraphRangeProvider
+        coordinator.reviewAnnotationsProvider = reviewAnnotationsProvider
         return coordinator
     }
 
@@ -254,6 +258,9 @@ struct EditorSurface: NSViewRepresentable {
         // them) and BEFORE setReviewMode (which installs/refreshes overlays).
         context.coordinator.reviewParagraphTextProvider = reviewParagraphTextProvider
         context.coordinator.reviewParagraphRangeProvider = reviewParagraphRangeProvider
+        // Pull-on-entry provider must be set BEFORE setReviewMode so the
+        // synchronous membrane toggle can resolve the real annotation set.
+        context.coordinator.reviewAnnotationsProvider = reviewAnnotationsProvider
         // Review posture is threaded ONE-WAY: push it onto the coordinator
         // (setReviewMode is guarded against no-op churn). Nothing reads it back.
         context.coordinator.setReviewMode(isReviewMode)

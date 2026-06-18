@@ -171,6 +171,17 @@ struct EditorHost: View {
                     },
                     reviewParagraphRangeProvider: { pid in
                         doc.displayRange(forParagraphId: pid)
+                    },
+                    // Pull-on-entry: the coordinator invokes this ONLY when
+                    // entering review (membrane toggle OR fresh launch), so it
+                    // derives the current open annotations on demand without the
+                    // lagged `reviewAnnotations` push. NOT gated on isReviewMode —
+                    // gating would defeat the purpose (the first toggle's entry
+                    // happens while isReviewMode is still flipping). It's never
+                    // called during authoring, so no per-keystroke derivation.
+                    reviewAnnotationsProvider: {
+                        doc.annotations(
+                            filter: AnnotationFilter(statuses: [.open]))
                     }
                 )
                 .id(path)
