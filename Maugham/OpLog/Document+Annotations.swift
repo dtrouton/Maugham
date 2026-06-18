@@ -6,7 +6,8 @@ extension Document {
     internal static func isAnnotationOpKind(_ kind: OpKind) -> Bool {
         switch kind {
         case .claudeComment, .claudeSuggestion, .claudeQuery, .claudeCraftNote,
-             .claudeAccept, .claudeReject, .claudeArchive:
+             .claudeAccept, .claudeReject, .claudeArchive,
+             .annotationEdit, .annotationWithdraw:
             return true
         default:
             return false
@@ -158,6 +159,81 @@ extension Document {
                 sourceKind: .human,
                 displayName: authorName,
                 collaboratorId: authorId))
+    }
+
+    /// Author self-service: edit YOUR OWN annotation's body (and, for a
+    /// suggested change, the replacement text). Appends an `annotationEdit` op
+    /// referencing the creation op via `sourceAnnotationId`; the creation op is
+    /// never mutated (append-only). The deriver applies the latest edit by
+    /// opId. Stamps the local human author identically to
+    /// `addReviewerAnnotation` so the forensic record carries who edited it.
+    ///
+    /// Ownership is enforced at the UI layer (`AnnotationOwnership.isOwn`): the
+    /// Edit affordance only appears on the reviewer's own rows. This method
+    /// trusts that gate — there are no accounts in WF1-local.
+    public func editReviewerAnnotation(
+        id: String,
+        newBody: String,
+        newSuggestedText: String?,
+        authorName: String,
+        authorId: String? = nil
+    ) async throws {
+        // Carry the new suggested replacement through the same channel the
+        // original suggestion uses: ParagraphChange.next. Only attach it when
+        // the caller supplied one (editing a suggestion). A nil leaves the
+        // original suggestion intact in the deriver.
+        let changes: [Op.ParagraphChange] = {
+            guard let suggested = newSuggestedText,
+                  let creation = _opLogMirror.first(where: { $0.opId == id }),
+                  let pid = creation.changes.first?.paragraphId else { return [] }
+            return [.init(paragraphId: pid,
+                          prior: creation.changes.first?.prior,
+                          next: suggested)]
+        }()
+        let op = Op(
+            opId: ULID.generate(),
+            docId: docId, at: Date(),
+            device: device, session: session,
+            kind: .annotationEdit, changes: changes, sequence: nil,
+            provenance: Op.Provenance(
+                sessionId: session,
+                annotationBody: newBody,
+                sourceAnnotationId: id,
+                authorSourceKind: AnnotationAuthor.SourceKind.human.rawValue,
+                authorDisplayName: authorName,
+                authorCollaboratorId: authorId))
+        try await opStore.append(op)
+        _opLogMirror.append(op)
+        _hasAnyAnnotationOps = true
+        invalidateAnnotationsCache()
+        invalidateTasksCache()
+    }
+
+    /// Author self-service: withdraw (delete) YOUR OWN annotation. Appends an
+    /// `annotationWithdraw` op referencing the creation op; the deriver drops
+    /// the annotation from the projection entirely. The op stays in the log
+    /// (append-only / audit / rewind). Ownership gated at the UI layer.
+    public func withdrawReviewerAnnotation(
+        id: String,
+        authorName: String,
+        authorId: String? = nil
+    ) async throws {
+        let op = Op(
+            opId: ULID.generate(),
+            docId: docId, at: Date(),
+            device: device, session: session,
+            kind: .annotationWithdraw, changes: [], sequence: nil,
+            provenance: Op.Provenance(
+                sessionId: session,
+                sourceAnnotationId: id,
+                authorSourceKind: AnnotationAuthor.SourceKind.human.rawValue,
+                authorDisplayName: authorName,
+                authorCollaboratorId: authorId))
+        try await opStore.append(op)
+        _opLogMirror.append(op)
+        _hasAnyAnnotationOps = true
+        invalidateAnnotationsCache()
+        invalidateTasksCache()
     }
 
     public func acceptAnnotation(

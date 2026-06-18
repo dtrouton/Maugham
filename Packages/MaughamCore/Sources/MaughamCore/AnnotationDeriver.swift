@@ -19,19 +19,54 @@ public enum AnnotationDeriver {
             }
         }
 
+        // 1a. Author self-service: edits (latest-by-opId wins per target) and
+        //     withdrawals (target dropped entirely). Both reference the
+        //     creation op via `sourceAnnotationId`. The creation op is never
+        //     mutated — these are separate append-only ops.
+        var latestEdit: [String: Op] = [:]
+        var withdrawn: Set<String> = []
+        for op in ops {
+            guard let src = op.provenance?.sourceAnnotationId else { continue }
+            switch op.kind {
+            case .annotationEdit:
+                if let prior = latestEdit[src] {
+                    if op.opId > prior.opId { latestEdit[src] = op }
+                } else {
+                    latestEdit[src] = op
+                }
+            case .annotationWithdraw:
+                withdrawn.insert(src)
+            default:
+                break
+            }
+        }
+
         // 2. Walk creation ops; build annotations.
         var result: [Annotation] = []
         for op in ops {
             guard let kind = AnnotationKind.fromOpKind(op.kind) else {
                 continue
             }
+            // Withdrawn annotations are dropped from the derived set entirely
+            // (the withdraw op stays in the log for audit/rewind).
+            if withdrawn.contains(op.opId) { continue }
+
             let change = op.changes.first
             let paragraphId: String? = (kind == .craftNote)
                 ? nil : change?.paragraphId
             let priorText = change?.prior
-            let suggested: String? = (kind == .suggestedChange)
-                ? change?.next : nil
-            let body = op.provenance?.annotationBody ?? ""
+
+            // Author self-service edit (latest-by-opId) overrides the body and,
+            // for a suggestedChange, the suggested replacement. An edit without
+            // a suggested payload leaves the original suggestion intact.
+            let edit = latestEdit[op.opId]
+            let suggested: String? = {
+                guard kind == .suggestedChange else { return nil }
+                if let editNext = edit?.changes.first?.next { return editNext }
+                return change?.next
+            }()
+            let body = edit?.provenance?.annotationBody
+                ?? op.provenance?.annotationBody ?? ""
 
             let lifecycle = latestLifecycle[op.opId]
             let (status, userResponse, resolvedAt) = resolution(

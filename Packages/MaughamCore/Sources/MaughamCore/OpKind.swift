@@ -18,6 +18,16 @@ public enum OpKind: String, Codable, Equatable, Sendable {
     // Annotation lifecycle (claudeAccept/claudeReject already exist above)
     case claudeArchive = "claude_archive"
 
+    // Author self-service lifecycle: a reviewer editing or withdrawing THEIR
+    // OWN annotation. Both reference `provenance.sourceAnnotationId` = the
+    // creation op id. `annotationEdit` carries the new `annotationBody` (and,
+    // for a suggestedChange, the new replacement in `changes.first.next` —
+    // mirroring how the original suggestion stores its replacement). The op
+    // log stays append-only; the creation op is never mutated. `.unknown`
+    // decode fallback means older builds tolerate these inertly.
+    case annotationEdit     = "annotation_edit"
+    case annotationWithdraw = "annotation_withdraw"
+
     // Task lifecycle (pane-created tasks; inline status changes use .typingBurst)
     case taskCreate         = "task_create"
     case taskStatusChange   = "task_status_change"

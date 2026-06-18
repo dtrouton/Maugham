@@ -4,6 +4,7 @@ import MaughamCore
 @MainActor
 struct AnnotationsPane: View {
     @Bindable var document: Document
+    @Environment(UserPreferences.self) private var userPreferences
 
     @State private var kindFilter: KindOption = .all
     @State private var authorFilter: String = AnnotationAuthorFilter.all
@@ -11,6 +12,12 @@ struct AnnotationsPane: View {
     @State private var rejectSheet: Annotation?
     @State private var querySheet: Annotation?
     @State private var staleConfirm: Annotation?
+    /// The annotation currently being edited in the inline edit sheet (author
+    /// self-service). Only ever the reviewer's own annotation (gated by the
+    /// Edit affordance's `isOwn` check).
+    @State private var editSheet: Annotation?
+    /// The annotation pending a withdraw (delete) confirmation.
+    @State private var withdrawConfirm: Annotation?
     /// Annotation ids currently showing the transient "stet" flourish after a
     /// reject of a suggested change. Keyed per-row so it survives the brief
     /// window between the reject op and the row leaving the open list.
@@ -115,10 +122,14 @@ struct AnnotationsPane: View {
                             AnnotationRow(
                                 annotation: ann,
                                 showingStet: stetIds.contains(ann.id),
+                                isOwn: AnnotationOwnership.isOwn(
+                                    ann, localName: userPreferences.collaboratorDisplayName),
                                 onAccept: { accept(ann) },
                                 onReject: { rejectSheet = ann },
                                 onArchive: { archive(ann) },
                                 onReply: { querySheet = ann },
+                                onEdit: { editSheet = ann },
+                                onWithdraw: { withdrawConfirm = ann },
                                 onJumpToParagraph: { jump(ann) })
                             Divider()
                         }
@@ -155,6 +166,26 @@ struct AnnotationsPane: View {
             Button("Cancel", role: .cancel) { staleConfirm = nil }
         } message: {
             Text("Applying this suggestion will replace the current paragraph text with the originally-proposed replacement.")
+        }
+        .sheet(item: $editSheet) { ann in
+            EditAnnotationSheet(annotation: ann) { newBody, newSuggested in
+                editOwn(ann, newBody: newBody, newSuggested: newSuggested)
+                editSheet = nil
+            } onCancel: { editSheet = nil }
+        }
+        .alert(
+            "Delete your annotation",
+            isPresented: Binding(
+                get: { withdrawConfirm != nil },
+                set: { if !$0 { withdrawConfirm = nil } })
+        ) {
+            Button("Delete", role: .destructive) {
+                if let ann = withdrawConfirm { withdrawOwn(ann) }
+                withdrawConfirm = nil
+            }
+            Button("Cancel", role: .cancel) { withdrawConfirm = nil }
+        } message: {
+            Text("This removes your annotation. The history is preserved, but the annotation will no longer appear here or in the editor.")
         }
     }
 
@@ -237,6 +268,38 @@ struct AnnotationsPane: View {
         Task { try? await document.archiveAnnotation(id: ann.id) }
     }
 
+    /// Author self-service edit of one's own annotation. The pane updates via
+    /// `annotationsVersion`; the notification refreshes the key-window editor's
+    /// crafted marks immediately (mirrors the create-case refresh).
+    private func editOwn(_ ann: Annotation, newBody: String, newSuggested: String?) {
+        Task {
+            try? await document.editReviewerAnnotation(
+                id: ann.id,
+                newBody: newBody,
+                newSuggestedText: newSuggested,
+                authorName: userPreferences.collaboratorDisplayName)
+            notifyEditorReviewMarksChanged()
+        }
+    }
+
+    /// Author self-service withdraw (delete) of one's own annotation.
+    private func withdrawOwn(_ ann: Annotation) {
+        Task {
+            try? await document.withdrawReviewerAnnotation(
+                id: ann.id,
+                authorName: userPreferences.collaboratorDisplayName)
+            notifyEditorReviewMarksChanged()
+        }
+    }
+
+    /// Tell the key-window editor coordinator to re-pull + recompute its
+    /// crafted review marks so an edited/withdrawn annotation's inline mark +
+    /// rail card update without a review toggle.
+    private func notifyEditorReviewMarksChanged() {
+        NotificationCenter.default.post(
+            name: .maughamReviewAnnotationsChanged, object: nil)
+    }
+
     private func jump(_ ann: Annotation) {
         guard let pid = ann.paragraphId else { return }
         NotificationCenter.default.post(
@@ -250,10 +313,16 @@ struct AnnotationsPane: View {
 struct AnnotationRow: View {
     let annotation: Annotation
     var showingStet: Bool = false
+    /// True iff this is the local reviewer's own human annotation — gates the
+    /// Edit + Delete (withdraw) affordances. Claude's / other humans' rows
+    /// never show them.
+    var isOwn: Bool = false
     let onAccept: () -> Void
     let onReject: () -> Void
     let onArchive: () -> Void
     let onReply: () -> Void
+    var onEdit: () -> Void = {}
+    var onWithdraw: () -> Void = {}
     let onJumpToParagraph: () -> Void
 
     var body: some View {
@@ -391,8 +460,27 @@ struct AnnotationRow: View {
                 Button("Reject\u{2026}", action: onReject).buttonStyle(.bordered)
                 Button("Archive", action: onArchive).buttonStyle(.bordered)
             }
+            if isOwn {
+                Spacer(minLength: 4)
+                ownAffordances
+            }
         }
         .controlSize(.small)
+    }
+
+    /// Edit (pencil) + Delete (trash) for the reviewer's own annotation only.
+    @ViewBuilder
+    private var ownAffordances: some View {
+        Button(action: onEdit) {
+            Image(systemName: "pencil")
+        }
+        .buttonStyle(.bordered)
+        .help("Edit your annotation")
+        Button(action: onWithdraw) {
+            Image(systemName: "trash")
+        }
+        .buttonStyle(.bordered)
+        .help("Delete your annotation")
     }
 
     private var kindColor: Color {
@@ -433,6 +521,69 @@ private struct RejectReasoningSheet: View {
                 Button("Reject") {
                     onReject(reason.trimmingCharacters(
                         in: .whitespacesAndNewlines))
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(20).frame(width: 380)
+    }
+}
+
+/// Inline editor for the reviewer's own annotation (author self-service).
+/// Pre-fills the body; for a suggested change, also exposes the replacement
+/// text. On commit delivers (newBody, newSuggested?) where newSuggested is nil
+/// for non-suggestion kinds. Mirrors the look of the reject/reply sheets.
+@MainActor
+private struct EditAnnotationSheet: View {
+    let annotation: Annotation
+    /// (newBody, newSuggestedText?) — newSuggestedText is nil unless this is a
+    /// suggested change.
+    let onCommit: (String, String?) -> Void
+    let onCancel: () -> Void
+    @State private var noteBody: String
+    @State private var suggested: String
+
+    init(
+        annotation: Annotation,
+        onCommit: @escaping (String, String?) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        self.annotation = annotation
+        self.onCommit = onCommit
+        self.onCancel = onCancel
+        _noteBody = State(initialValue: AnnotationRow.displayText(annotation.body))
+        _suggested = State(initialValue:
+            annotation.suggestedText.map(AnnotationRow.displayText) ?? "")
+    }
+
+    private var isSuggestion: Bool { annotation.kind == .suggestedChange }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Edit your \(annotation.kind.displayName.lowercased())")
+                .font(.headline)
+            Text("Only you can edit or delete your own annotations.")
+                .font(.caption).foregroundStyle(.secondary)
+            Text("Note")
+                .font(.caption.smallCaps()).foregroundStyle(.secondary)
+            TextEditor(text: $noteBody)
+                .frame(minHeight: 70)
+                .border(Color.gray.opacity(0.3))
+            if isSuggestion {
+                Text("Replacement text")
+                    .font(.caption.smallCaps()).foregroundStyle(.secondary)
+                TextEditor(text: $suggested)
+                    .frame(minHeight: 50)
+                    .border(Color.gray.opacity(0.3))
+            }
+            HStack {
+                Spacer()
+                Button("Cancel", action: onCancel)
+                Button("Save") {
+                    onCommit(
+                        noteBody.trimmingCharacters(in: .whitespacesAndNewlines),
+                        isSuggestion ? suggested : nil)
                 }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)

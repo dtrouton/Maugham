@@ -52,4 +52,13 @@ extension Notification.Name {
     /// userInfo["paragraph_id"] contains the paragraph id string.
     public static let maughamNavigateToParagraph = Notification.Name(
         "maughamNavigateToParagraph")
+    /// Posted when the review annotation set is mutated from the AnnotationsPane
+    /// (an author edits or withdraws their own annotation). The key-window
+    /// EditorCoordinator observes this to re-pull + recompute its crafted review
+    /// marks so an edited/withdrawn annotation's inline mark + rail card update
+    /// immediately, without toggling review off/on. Same class of fix as the
+    /// create-case provider re-pull. `object` is nil (broadcast); the observer
+    /// guards on `textView?.window?.isKeyWindow`.
+    public static let maughamReviewAnnotationsChanged = Notification.Name(
+        "maughamReviewAnnotationsChanged")
 }

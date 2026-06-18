@@ -155,6 +155,12 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// so they can't diverge; the reconciler re-converges if state ever drifts.
     private var reviewToggleObserver: NSObjectProtocol?
 
+    /// Observer token for `maughamReviewAnnotationsChanged`. When the
+    /// AnnotationsPane edits or withdraws an annotation, the key-window editor
+    /// re-pulls the open set and recomputes its crafted marks so the inline
+    /// mark + rail card update immediately (no review toggle needed).
+    private var reviewAnnotationsChangedObserver: NSObjectProtocol?
+
     /// Closure that maps a paragraph_id to its NSRange in textView.string.
     /// Set by EditorSurface.updateNSView so the coordinator can resolve
     /// ranges against the live Document's `displayRange(forParagraphId:)`.
@@ -354,6 +360,20 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                 self.setReviewMode(!self.isReviewMode)
             }
         }
+        reviewAnnotationsChangedObserver = NotificationCenter.default.addObserver(
+            forName: .maughamReviewAnnotationsChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                // Only the key window's editor re-pulls (mirrors the review
+                // toggle's key-window guard). `refreshReviewMarksFromProvider`
+                // is itself a no-op when not in review mode.
+                guard self.textView?.window?.isKeyWindow == true else { return }
+                self.refreshReviewMarksFromProvider()
+            }
+        }
     }
 
     deinit {
@@ -372,6 +392,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = reviewToggleObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+        if let token = reviewAnnotationsChangedObserver {
             NotificationCenter.default.removeObserver(token)
         }
     }

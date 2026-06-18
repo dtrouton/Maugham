@@ -371,6 +371,7 @@ private struct HistoryRow: View {
             return true
         case .bootstrap, .checkpoint, .claudeComment, .claudeSuggestion,
              .claudeQuery, .claudeCraftNote, .claudeReject, .claudeArchive,
+             .annotationEdit, .annotationWithdraw,
              .taskCreate, .taskStatusChange, .taskPriorityChange,
              .taskParentChange, .taskBodyEdit, .taskArchive:
             return false
@@ -458,6 +459,13 @@ private struct HistoryRow: View {
                     }() as String)
                     .font(.caption).foregroundStyle(.secondary)
                 }
+            case .annotationEdit:
+                Text(op.provenance?.annotationBody ?? "Annotation edited")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1)
+            case .annotationWithdraw:
+                Text("Annotation withdrawn")
+                    .font(.caption).foregroundStyle(.secondary)
             case .externalEdit:
                 Text("\(op.changes.count) paragraph\(op.changes.count == 1 ? "" : "s") changed externally")
                     .font(.caption).foregroundStyle(.secondary)
@@ -555,6 +563,8 @@ private struct HistoryRow: View {
             case .taskParentChange: return "Task nested"
             case .taskBodyEdit: return "Task edited"
             case .taskArchive: return "Task archived"
+            case .annotationEdit: return "Annotation edited"
+            case .annotationWithdraw: return "Annotation withdrawn"
             case .unknown: return "Newer version"
             }
         case .checkpoint:
@@ -579,6 +589,8 @@ private struct HistoryRow: View {
             case .taskCreate, .taskStatusChange, .taskPriorityChange,
                  .taskParentChange, .taskBodyEdit, .taskArchive:
                 return "checklist"
+            case .annotationEdit: return "pencil"
+            case .annotationWithdraw: return "trash"
             case .unknown: return "questionmark.square.dashed"
             }
         case .checkpoint: return "flag"
@@ -601,6 +613,7 @@ private struct HistoryRow: View {
             case .taskCreate, .taskStatusChange, .taskPriorityChange,
                  .taskParentChange, .taskBodyEdit, .taskArchive:
                 return Color(red: 0.38, green: 0.76, blue: 0.45)
+            case .annotationEdit, .annotationWithdraw: return .orange
             case .unknown: return .gray
             }
         case .checkpoint: return .green
