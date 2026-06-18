@@ -24,6 +24,10 @@ struct ResolvedReviewMark {
     let body: String
     /// Replacement text for `.suggestedChange`; nil otherwise.
     let suggestedText: String?
+    /// True iff authored by the local reviewer (gates Edit / Delete on the
+    /// interactive margin card). Computed in `recomputeReviewMarks` from
+    /// `AnnotationOwnership.isOwn` against the local collaborator name.
+    let isOwn: Bool
 }
 
 /// Wire `target.handleScroll(_:)` to the text view's enclosing scroll view's
@@ -217,7 +221,20 @@ final class ReviewMarginRailView: NSView {
     weak var associatedTextView: NSTextView?
 
     override var isFlipped: Bool { true }
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// Hit-test only the card rects — clicks elsewhere in the rail (the empty
+    /// gutter, leader lines) pass through to the text view so selection still
+    /// works. The actions row is a real subview, so it hit-tests itself.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        // Let the actions-row buttons (a subview) claim their own hits first.
+        if let actions = actionsRow, !actions.isHidden {
+            let inActions = convert(point, to: actions)
+            if let hit = actions.hitTest(inActions) { return hit }
+        }
+        let local = convert(point, from: superview)
+        if cardRects.contains(where: { $0.rect.contains(local) }) { return self }
+        return nil
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -239,12 +256,50 @@ final class ReviewMarginRailView: NSView {
         observeScroll(of: associatedTextView, target: self)
     }
     deinit { NotificationCenter.default.removeObserver(self) }
-    @objc private func handleScroll(_ note: Notification) { needsDisplay = true }
+    @objc private func handleScroll(_ note: Notification) {
+        // Scrolling moves the cards — reposition (or hide) the actions row.
+        needsDisplay = true
+        repositionActionsRow()
+    }
 
     private let cardWidth: CGFloat = 180
     private let cardPadding: CGFloat = 8
     private let cardGap: CGFloat = 8
     private let leaderGap: CGFloat = 6
+    /// Vertical room reserved under the selected card for the inline actions row.
+    private let actionsRowHeight: CGFloat = 26
+
+    // MARK: - Interaction (Part 1)
+
+    /// Per-card rects captured during the last `draw` (in this view's flipped
+    /// coords), used for click hit-testing and to position the actions row.
+    private var cardRects: [(id: String, rect: NSRect)] = []
+    /// The inline actions row (a plain NSStackView of NSButtons) shown on the
+    /// selected card. NOT an NSPopover (tripwire 7). Rebuilt when the selection
+    /// changes; repositioned on scroll/redraw.
+    private var actionsRow: NSStackView?
+
+    override func mouseDown(with event: NSEvent) {
+        let local = convert(event.locationInWindow, from: nil)
+        if let hit = cardRects.first(where: { $0.rect.contains(local) }) {
+            coordinator?.selectReviewCard(id: hit.id)
+        } else {
+            coordinator?.clearReviewCardSelection()
+        }
+    }
+
+    /// The selected card's rect in this view's coords, or nil if not laid out /
+    /// off-screen. Used by the coordinator to place the Edit/Reply composer.
+    func cardRect(forAnnotationId id: String) -> NSRect? {
+        cardRects.first(where: { $0.id == id })?.rect
+    }
+
+    /// Rebuild the actions row for the current selection and redraw. Called by
+    /// the coordinator when `selectedReviewCardId` changes.
+    func reloadCardSelection() {
+        rebuildActionsRow()
+        needsDisplay = true
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
@@ -296,20 +351,27 @@ final class ReviewMarginRailView: NSView {
                 anchorRightX: anchorRightX, cardY: anchorY, height: height))
         }
 
-        // Simple downward-nudge stacking so cards don't overlap (v1).
+        let selectedId = coordinator.selectedReviewCardId
+
+        // Simple downward-nudge stacking so cards don't overlap (v1). The
+        // selected card reserves extra room beneath it for the inline actions
+        // row so the next card doesn't collide with it.
         placed.sort { $0.anchorY < $1.anchorY }
         var cursorY: CGFloat = -.greatestFiniteMagnitude
         for i in placed.indices {
             let y = max(placed[i].anchorY, cursorY)
             placed[i].cardY = y
-            cursorY = y + placed[i].height + cardGap
+            let extra = (placed[i].mark.id == selectedId) ? actionsRowHeight : 0
+            cursorY = y + placed[i].height + extra + cardGap
         }
 
         let railX = bounds.minX + 4
+        cardRects = []
         for p in placed {
             let cardRect = NSRect(
                 x: railX, y: p.cardY, width: cardWidth, height: p.height)
-            drawCard(p.mark, in: cardRect)
+            cardRects.append((id: p.mark.id, rect: cardRect))
+            drawCard(p.mark, in: cardRect, selected: p.mark.id == selectedId)
             // Leader: from the span's right edge (in text-view coords, which is
             // to the LEFT of this view's origin → negative x here) to the card.
             drawLeader(
@@ -317,6 +379,8 @@ final class ReviewMarginRailView: NSView {
                 toX: cardRect.minX, toY: cardRect.minY + 10,
                 color: p.mark.color)
         }
+        // Position the actions row after the card rects are known.
+        repositionActionsRow()
     }
 
     private func cardHeight(for mark: ResolvedReviewMark) -> CGFloat {
@@ -348,15 +412,28 @@ final class ReviewMarginRailView: NSView {
         return max(14, ceil(bounds.height))
     }
 
-    private func drawCard(_ mark: ResolvedReviewMark, in rect: NSRect) {
+    private func drawCard(_ mark: ResolvedReviewMark, in rect: NSRect, selected: Bool) {
+        // Selected cards get a subtle lift: a soft author-colour glow ring drawn
+        // just outside the card edge so the emphasis reads without shifting layout.
+        if selected {
+            let glow = NSBezierPath(
+                roundedRect: rect.insetBy(dx: -1.5, dy: -1.5), xRadius: 5, yRadius: 5)
+            mark.color.withAlphaComponent(0.18).setFill()
+            glow.fill()
+        }
         // Card background.
         let bg = NSColor.textBackgroundColor.withAlphaComponent(0.96)
         let bgPath = NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4)
         bg.setFill()
         bgPath.fill()
-        // Subtle border.
-        NSColor.separatorColor.setStroke()
-        bgPath.lineWidth = 0.5
+        // Border — author colour + heavier when selected, else subtle separator.
+        if selected {
+            mark.color.withAlphaComponent(0.8).setStroke()
+            bgPath.lineWidth = 1.25
+        } else {
+            NSColor.separatorColor.setStroke()
+            bgPath.lineWidth = 0.5
+        }
         bgPath.stroke()
         // Author-colour left border.
         let border = NSRect(x: rect.minX, y: rect.minY, width: 3, height: rect.height)
@@ -395,5 +472,98 @@ final class ReviewMarginRailView: NSView {
         path.lineWidth = 0.75
         color.withAlphaComponent(0.6).setStroke()
         path.stroke()
+    }
+
+    // MARK: - Inline actions row
+
+    /// Tear down + rebuild the actions row for the current selection. The row is
+    /// a plain NSStackView of small NSButtons (NOT an NSPopover — tripwire 7),
+    /// one per `ReviewCardActions.actions(for:isOwn:)`, gated by kind + ownership.
+    private func rebuildActionsRow() {
+        actionsRow?.removeFromSuperview()
+        actionsRow = nil
+        guard let coordinator,
+              let selectedId = coordinator.selectedReviewCardId,
+              let mark = coordinator.resolvedReviewMarks.first(where: { $0.id == selectedId })
+        else { return }
+
+        let actions = ReviewCardActions.actions(for: mark.kind, isOwn: mark.isOwn)
+        guard !actions.isEmpty else { return }
+
+        let stack = NSStackView()
+        stack.orientation = .horizontal
+        stack.spacing = 4
+        stack.alignment = .centerY
+        stack.detachesHiddenViews = true
+        for action in actions {
+            let button = NSButton(
+                title: action.label(for: mark.kind),
+                target: self, action: #selector(actionButtonTapped(_:)))
+            button.bezelStyle = .rounded
+            button.controlSize = .mini
+            button.font = NSFont.systemFont(ofSize: 10)
+            // Destructive tint for Delete; prominent-ish for the primary
+            // disposition on the kind (accept/reply).
+            if action == .delete {
+                button.contentTintColor = .systemRed
+            }
+            button.identifier = NSUserInterfaceItemIdentifier(actionTag(action))
+            stack.addArrangedSubview(button)
+        }
+        addSubview(stack)
+        actionsRow = stack
+        repositionActionsRow()
+    }
+
+    /// Place the actions row just under the selected card (or hide it if the
+    /// selected card scrolled out of the laid-out set).
+    private func repositionActionsRow() {
+        guard let stack = actionsRow,
+              let coordinator,
+              let selectedId = coordinator.selectedReviewCardId,
+              let cardRect = cardRects.first(where: { $0.id == selectedId })?.rect
+        else { actionsRow?.isHidden = true; return }
+        stack.isHidden = false
+        stack.layoutSubtreeIfNeeded()
+        let size = stack.fittingSize
+        stack.setFrameOrigin(NSPoint(
+            x: cardRect.minX + 2,
+            y: cardRect.maxY + 3))
+        stack.setFrameSize(NSSize(
+            width: min(size.width, cardWidth),
+            height: max(size.height, 18)))
+    }
+
+    /// Stable id<->action mapping so the button target/action can recover which
+    /// action + annotation was tapped without capturing closures per button.
+    private func actionTag(_ action: ReviewCardAction) -> String {
+        switch action {
+        case .accept:  return "accept"
+        case .reject:  return "reject"
+        case .archive: return "archive"
+        case .reply:   return "reply"
+        case .edit:    return "edit"
+        case .delete:  return "delete"
+        }
+    }
+
+    private func action(fromTag tag: String?) -> ReviewCardAction? {
+        switch tag {
+        case "accept":  return .accept
+        case "reject":  return .reject
+        case "archive": return .archive
+        case "reply":   return .reply
+        case "edit":    return .edit
+        case "delete":  return .delete
+        default:        return nil
+        }
+    }
+
+    @objc private func actionButtonTapped(_ sender: NSButton) {
+        guard let coordinator,
+              let selectedId = coordinator.selectedReviewCardId,
+              let action = action(fromTag: sender.identifier?.rawValue)
+        else { return }
+        coordinator.performReviewCardAction(action, annotationId: selectedId)
     }
 }

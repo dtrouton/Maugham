@@ -184,6 +184,39 @@ struct EditorHost: View {
                     reviewAnnotationsProvider: {
                         doc.annotations(
                             filter: AnnotationFilter(statuses: [.open]))
+                    },
+                    // Local reviewer name — gates Edit/Delete on margin cards.
+                    reviewLocalAuthorName: { userPreferences.collaboratorDisplayName },
+                    // Interactive margin-card actions (Part 1). Each is an op-log
+                    // append routed through Document — NOT a text-binding write, so
+                    // the applyExternalText tripwires (6/7) don't apply. The
+                    // coordinator refreshes its marks from the provider after each.
+                    reviewAcceptHandler: { id in
+                        try? await doc.acceptAnnotation(id: id)
+                    },
+                    reviewRejectHandler: { id in
+                        // The card has no reasoning field; the reason-capture sheet
+                        // stays in the AnnotationsPane. A card-reject records no
+                        // reason (a follow-up could surface the sheet from here).
+                        try? await doc.rejectAnnotation(id: id)
+                    },
+                    reviewArchiveHandler: { id in
+                        try? await doc.archiveAnnotation(id: id)
+                    },
+                    reviewReplyHandler: { id, reply in
+                        try? await doc.acceptAnnotation(id: id, userResponse: reply)
+                    },
+                    reviewEditHandler: { id, newBody, newSuggested in
+                        try? await doc.editReviewerAnnotation(
+                            id: id,
+                            newBody: newBody,
+                            newSuggestedText: newSuggested,
+                            authorName: userPreferences.collaboratorDisplayName)
+                    },
+                    reviewWithdrawHandler: { id in
+                        try? await doc.withdrawReviewerAnnotation(
+                            id: id,
+                            authorName: userPreferences.collaboratorDisplayName)
                     }
                 )
                 .id(path)

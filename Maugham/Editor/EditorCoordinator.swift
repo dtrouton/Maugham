@@ -143,6 +143,12 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// to when the user clicks an annotation row.
     private var paragraphNavigateObserver: NSObjectProtocol?
 
+    /// Observer token for `maughamNavigateToAnnotation` — span-precise jump.
+    /// Looks the annotation id up in `resolvedReviewMarks`: an `absoluteRange`
+    /// selects the exact span; otherwise it falls back to the paragraph (the
+    /// legacy scroll-to-paragraph behaviour).
+    private var annotationNavigateObserver: NSObjectProtocol?
+
     /// Observer token for `maughamToggleReviewMode` (⌘⌥R). Flips the membrane
     /// SYNCHRONOUSLY in the key window's coordinator so `isReviewMode` is correct
     /// before the next key event — closing the race where a fast Enter pressed
@@ -232,6 +238,11 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// arrives only on the next SwiftUI render). One-way; nothing reads it back
     /// (no tripwire-2 loop).
     var reviewAnnotationsProvider: (() -> [Annotation])?
+    /// The local reviewer's display name (`UserPreferences.collaboratorDisplayName`),
+    /// pulled on demand so ownership (`AnnotationOwnership.isOwn`) can gate the
+    /// Edit / Delete affordances on the interactive margin card. Wired by
+    /// EditorHost; one-way (read-only).
+    var reviewLocalAuthorName: (() -> String)?
     /// Cached, resolved-to-absolute marks. Recomputed when the annotation set or
     /// the text changes — never per draw (tripwire 4). The overlay views read
     /// this directly.
@@ -242,6 +253,25 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// view (like the gutter) and shown only in review mode.
     private weak var markRenderer: AnnotationMarkRenderer?
     private weak var marginRail: ReviewMarginRailView?
+
+    /// The annotation id whose margin card is currently selected (click-to-reveal
+    /// actions). nil = nothing selected. Read by `ReviewMarginRailView` to
+    /// emphasise the selected card; drives the inline actions row. Lives here (not
+    /// on the rail) so a redraw / recompute can reconcile it.
+    private(set) var selectedReviewCardId: String?
+
+    /// Handlers for the interactive margin-card actions, threaded ONE-WAY from
+    /// EditorHost (like `createAnnotationHandler`). Each is async so the card can
+    /// await the op-log append before refreshing marks. `reply` carries the reply
+    /// text; `edit` carries the new body + (suggestion-only) replacement. All
+    /// stamp the local author name on the host side where needed. Nothing reads a
+    /// binding back (tripwires 6/7) — these are op-log appends, not text writes.
+    var reviewAcceptHandler: ((String) async -> Void)?
+    var reviewRejectHandler: ((String) async -> Void)?
+    var reviewArchiveHandler: ((String) async -> Void)?
+    var reviewReplyHandler: ((String, String) async -> Void)?
+    var reviewEditHandler: ((String, String, String?) async -> Void)?
+    var reviewWithdrawHandler: ((String) async -> Void)?
 
     /// Number of times applyExternalText has been called. Internal so
     /// @testable importers (EditorIntegrationHarness) can assert invariants
@@ -345,6 +375,20 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                 textView.window?.makeFirstResponder(textView)
             }
         }
+        annotationNavigateObserver = NotificationCenter.default.addObserver(
+            forName: .maughamNavigateToAnnotation,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            MainActor.assumeIsolated {
+                guard let self,
+                      let annId = note.userInfo?["annotation_id"] as? String,
+                      let textView = self.textView else { return }
+                guard textView.window?.isKeyWindow == true else { return }
+                let pid = note.userInfo?["paragraph_id"] as? String
+                self.navigateToAnnotation(id: annId, fallbackParagraphId: pid, in: textView)
+            }
+        }
         reviewToggleObserver = NotificationCenter.default.addObserver(
             forName: .maughamToggleReviewMode,
             object: nil,
@@ -389,6 +433,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = paragraphNavigateObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+        if let token = annotationNavigateObserver {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = reviewToggleObserver {
@@ -585,6 +632,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// but still anchored at the paragraph start. Cached in `resolvedReviewMarks`;
     /// the overlay draws read the cache, never recompute (tripwire 4).
     private func recomputeReviewMarks() {
+        let localName = reviewLocalAuthorName?() ?? ""
         var marks: [ResolvedReviewMark] = []
         for ann in reviewAnnotations {
             let color = reviewPalette.color(for: ann.author)
@@ -618,9 +666,17 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                 railAnchorLocation: railAnchor,
                 authorName: authorName,
                 body: ann.body,
-                suggestedText: ann.suggestedText))
+                suggestedText: ann.suggestedText,
+                isOwn: AnnotationOwnership.isOwn(ann, localName: localName)))
         }
         resolvedReviewMarks = marks
+        // A recompute can drop the currently-selected card (e.g. it was
+        // withdrawn / accepted out of the open set). Clear the selection so the
+        // actions row doesn't dangle over nothing.
+        if let selected = selectedReviewCardId,
+           !marks.contains(where: { $0.id == selected }) {
+            clearReviewCardSelection()
+        }
     }
 
     /// Install the overlays if missing and reconcile their visibility with the
@@ -676,6 +732,194 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     func refreshReviewOverlays() {
         markRenderer?.needsDisplay = true
         marginRail?.needsDisplay = true
+    }
+
+    // MARK: - Span-precise navigation (Part 2)
+
+    /// Select an annotation's exact span (and scroll it into view). Looks the id
+    /// up in `resolvedReviewMarks`: a resolved `absoluteRange` is selected
+    /// directly; a paragraph-level / stale-span annotation (or one not in the
+    /// resolved set — e.g. review is off) falls back to scrolling to the
+    /// paragraph (the legacy behaviour). Selecting a range in review mode is
+    /// fine: the read-only membrane blocks EDITS, not selection.
+    func navigateToAnnotation(
+        id: String, fallbackParagraphId: String?, in textView: NSTextView
+    ) {
+        let length = (textView.string as NSString).length
+        if let mark = resolvedReviewMarks.first(where: { $0.id == id }),
+           let range = mark.absoluteRange,
+           range.location >= 0, range.location + range.length <= length {
+            textView.setSelectedRange(range)
+            textView.scrollRangeToVisible(range)
+            textView.window?.makeFirstResponder(textView)
+            return
+        }
+        // Fallback: paragraph start (length-0 cursor), mirroring the legacy
+        // `.maughamNavigateToParagraph` handler.
+        guard let pid = fallbackParagraphId,
+              let provider = paragraphRangeProvider,
+              let range = provider(pid),
+              range.location >= 0, range.location + range.length <= length
+        else { return }
+        textView.setSelectedRange(NSRange(location: range.location, length: 0))
+        textView.scrollRangeToVisible(range)
+        textView.window?.makeFirstResponder(textView)
+    }
+
+    // MARK: - Interactive margin cards (Part 1)
+
+    /// Toggle / set the selected margin card. Selecting also navigates to the
+    /// annotation's span (span-precise) and shows the inline actions row;
+    /// re-clicking the same card (or `nil`) clears the selection.
+    func selectReviewCard(id: String?) {
+        if selectedReviewCardId == id {
+            clearReviewCardSelection()
+            return
+        }
+        selectedReviewCardId = id
+        if let id, let textView {
+            // Span-precise select on card click (same path as the pane).
+            let pid = resolvedReviewMarks.first(where: { $0.id == id })
+                .flatMap { _ in reviewAnnotationParagraphId(id) }
+            navigateToAnnotation(id: id, fallbackParagraphId: pid, in: textView)
+        }
+        marginRail?.reloadCardSelection()
+        refreshReviewOverlays()
+    }
+
+    func clearReviewCardSelection() {
+        guard selectedReviewCardId != nil else { return }
+        selectedReviewCardId = nil
+        marginRail?.reloadCardSelection()
+        refreshReviewOverlays()
+    }
+
+    /// The paragraph id for a resolved mark, used as the navigation fallback when
+    /// a card is clicked. Pulled from the live annotation set (the resolved mark
+    /// doesn't carry the pid). Best-effort; nil is a harmless no-fallback.
+    private func reviewAnnotationParagraphId(_ id: String) -> String? {
+        reviewAnnotations.first(where: { $0.id == id })?.paragraphId
+    }
+
+    /// Perform a margin-card action against the annotation. Dispatches to the
+    /// host-threaded handler; Edit / Reply open the inline composer; Delete
+    /// confirms via NSAlert first. After a disposition / edit lands, the marks
+    /// are refreshed from the provider (same path as the pane's notification),
+    /// so the card list updates without a review toggle.
+    func performReviewCardAction(_ action: ReviewCardAction, annotationId id: String) {
+        guard let mark = resolvedReviewMarks.first(where: { $0.id == id }) else { return }
+        switch action {
+        case .accept:
+            runReviewAction { [weak self] in await self?.reviewAcceptHandler?(id) }
+        case .reject:
+            runReviewAction { [weak self] in await self?.reviewRejectHandler?(id) }
+        case .archive:
+            runReviewAction { [weak self] in await self?.reviewArchiveHandler?(id) }
+        case .reply:
+            beginCardComposer(
+                placeholder: "Reply\u{2026}", initialText: "", for: id
+            ) { [weak self] value in
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return }
+                self?.runReviewAction {
+                    await self?.reviewReplyHandler?(id, trimmed)
+                }
+            }
+        case .edit:
+            let isSuggest = (mark.kind == .suggestedChange)
+            let initial = isSuggest ? (mark.suggestedText ?? "") : mark.body
+            beginCardComposer(
+                placeholder: isSuggest ? "Replacement\u{2026}" : "Edit\u{2026}",
+                initialText: initial, for: id
+            ) { [weak self] value in
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return }
+                // For a suggestion the field edits the replacement, keeping the
+                // existing body; for others it edits the body, no replacement.
+                if isSuggest {
+                    self?.runReviewAction {
+                        await self?.reviewEditHandler?(id, mark.body, trimmed)
+                    }
+                } else {
+                    self?.runReviewAction {
+                        await self?.reviewEditHandler?(id, trimmed, nil)
+                    }
+                }
+            }
+        case .delete:
+            confirmDeleteCard(id: id, authorName: mark.authorName)
+        }
+    }
+
+    /// Run a disposition handler, then refresh marks from the provider so the
+    /// card list reconciles (the resolved annotation drops out of the open set).
+    private func runReviewAction(_ work: @escaping () async -> Void) {
+        Task { @MainActor [weak self] in
+            await work()
+            self?.clearReviewCardSelection()
+            self?.refreshReviewMarksFromProvider()
+        }
+    }
+
+    /// Show the inline `ReviewAnnotationComposerView` near the selected card for
+    /// Edit / Reply (re-uses the authoring composer — plain NSView, no popover).
+    /// Positioned at the rail's selected-card rect in the scroll-view overlay
+    /// parent, mirroring `beginAuthoringAnnotation`.
+    private func beginCardComposer(
+        placeholder: String, initialText: String, for id: String,
+        onCommit: @escaping (String) -> Void
+    ) {
+        guard let parent = selectionToolbar?.superview else { return }
+        annotationComposer?.dismiss()
+        let composer = ReviewAnnotationComposerView(
+            placeholder: placeholder,
+            initialText: initialText,
+            onCommit: { [weak self] value in
+                self?.annotationComposer?.dismiss()
+                self?.annotationComposer = nil
+                onCommit(value)
+            },
+            onCancel: { [weak self] in
+                self?.annotationComposer?.dismiss()
+                self?.annotationComposer = nil
+            })
+        parent.addSubview(composer)
+        annotationComposer = composer
+        // Position next to the selected card. The rail reports the card's rect in
+        // its own coords; convert to the overlay parent.
+        if let rail = marginRail,
+           let cardRect = rail.cardRect(forAnnotationId: id) {
+            let inParent = rail.convert(cardRect, to: parent)
+            composer.setFrameOrigin(NSPoint(
+                x: inParent.minX,
+                y: inParent.minY - composer.frame.height - 4))
+        } else if let toolbar = selectionToolbar {
+            composer.setFrameOrigin(toolbar.frame.origin)
+        }
+        composer.focus()
+    }
+
+    /// Confirm-then-withdraw for the reviewer's own annotation. NSAlert is fine
+    /// here — the rail is an AppKit NSView in a real window; the alert sheets off
+    /// it. (Reported in the task as a possible friction point; in practice the
+    /// alert presents cleanly from the text view's window.)
+    private func confirmDeleteCard(id: String, authorName: String) {
+        guard let window = textView?.window else {
+            // No window (test / detached) — withdraw without a prompt.
+            runReviewAction { [weak self] in await self?.reviewWithdrawHandler?(id) }
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Delete your annotation"
+        alert.informativeText =
+            "This removes your annotation. The history is preserved, but the annotation will no longer appear here or in the editor."
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+        alert.alertStyle = .warning
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.runReviewAction { await self?.reviewWithdrawHandler?(id) }
+        }
     }
 
     /// Focus mode settings changed — update and re-dim immediately.

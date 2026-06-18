@@ -301,11 +301,21 @@ struct AnnotationsPane: View {
     }
 
     private func jump(_ ann: Annotation) {
-        guard let pid = ann.paragraphId else { return }
+        // Span-precise navigation: the editor selects the exact resolved span
+        // when it has one, else falls back to the paragraph. Carry both so the
+        // fallback works even when the span is stale / paragraph-level. Also post
+        // the legacy paragraph notification so ProjectWindow still focuses the
+        // manuscript pane.
+        var info: [String: Any] = ["annotation_id": ann.id]
+        if let pid = ann.paragraphId { info["paragraph_id"] = pid }
         NotificationCenter.default.post(
-            name: .maughamNavigateToParagraph,
-            object: nil,
-            userInfo: ["paragraph_id": pid])
+            name: .maughamNavigateToAnnotation, object: nil, userInfo: info)
+        if let pid = ann.paragraphId {
+            NotificationCenter.default.post(
+                name: .maughamNavigateToParagraph,
+                object: nil,
+                userInfo: ["paragraph_id": pid])
+        }
     }
 }
 

@@ -83,6 +83,18 @@ struct EditorSurface: NSViewRepresentable {
     /// Pulls the CURRENT open-annotation set on demand — used by the coordinator
     /// to resolve marks synchronously on review entry (first-toggle marks fix).
     var reviewAnnotationsProvider: (() -> [Annotation])? = nil
+    /// The local reviewer's display name — gates Edit/Delete on the interactive
+    /// margin card (`AnnotationOwnership.isOwn`). Pulled on demand.
+    var reviewLocalAuthorName: (() -> String)? = nil
+    /// Interactive margin-card action handlers (Part 1). Each maps an annotation
+    /// id (+ payload for reply/edit) to the matching `Document` mutation. Threaded
+    /// ONE-WAY; wired in make/update like `createAnnotationHandler`.
+    var reviewAcceptHandler: ((String) async -> Void)? = nil
+    var reviewRejectHandler: ((String) async -> Void)? = nil
+    var reviewArchiveHandler: ((String) async -> Void)? = nil
+    var reviewReplyHandler: ((String, String) async -> Void)? = nil
+    var reviewEditHandler: ((String, String, String?) async -> Void)? = nil
+    var reviewWithdrawHandler: ((String) async -> Void)? = nil
 
     func makeCoordinator() -> EditorCoordinator {
         let coordinator = EditorCoordinator(
@@ -107,7 +119,20 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.reviewParagraphTextProvider = reviewParagraphTextProvider
         coordinator.reviewParagraphRangeProvider = reviewParagraphRangeProvider
         coordinator.reviewAnnotationsProvider = reviewAnnotationsProvider
+        assignReviewCardHandlers(to: coordinator)
         return coordinator
+    }
+
+    /// Thread the interactive-card handlers + local-author provider onto the
+    /// coordinator. Shared by make/update so the wiring can't drift between them.
+    private func assignReviewCardHandlers(to coordinator: EditorCoordinator) {
+        coordinator.reviewLocalAuthorName = reviewLocalAuthorName
+        coordinator.reviewAcceptHandler = reviewAcceptHandler
+        coordinator.reviewRejectHandler = reviewRejectHandler
+        coordinator.reviewArchiveHandler = reviewArchiveHandler
+        coordinator.reviewReplyHandler = reviewReplyHandler
+        coordinator.reviewEditHandler = reviewEditHandler
+        coordinator.reviewWithdrawHandler = reviewWithdrawHandler
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -261,6 +286,9 @@ struct EditorSurface: NSViewRepresentable {
         // Pull-on-entry provider must be set BEFORE setReviewMode so the
         // synchronous membrane toggle can resolve the real annotation set.
         context.coordinator.reviewAnnotationsProvider = reviewAnnotationsProvider
+        // Interactive-card handlers + local-author provider must be set BEFORE
+        // the recompute path (setReviewMode/setReviewAnnotations) reads ownership.
+        assignReviewCardHandlers(to: context.coordinator)
         // Review posture is threaded ONE-WAY: push it onto the coordinator
         // (setReviewMode is guarded against no-op churn). Nothing reads it back.
         context.coordinator.setReviewMode(isReviewMode)

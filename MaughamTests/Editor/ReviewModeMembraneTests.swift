@@ -203,4 +203,85 @@ final class ReviewModeMembraneTests: XCTestCase {
         XCTAssertEqual(providerCalls, 0,
             "refresh must be a no-op (provider untouched) while review is off")
     }
+
+    /// Span-precise navigation (Part 2): an annotation with a resolved span must
+    /// select that EXACT range, not just scroll to the paragraph.
+    @MainActor
+    func test_navigateToAnnotation_selectsResolvedSpan() {
+        final class TextBox { var value = "Hello brave new world" }
+        let box = TextBox()
+        let coordinator = EditorCoordinator(
+            text: Binding(get: { box.value }, set: { box.value = $0 }),
+            mode: ProseMode(),
+            theme: .light, typography: .defaults,
+            typewriterScroll: false,
+            sentenceFocus: false, paragraphFocus: false)
+
+        let tv = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+        tv.string = box.value
+        tv.delegate = coordinator
+        coordinator.attach(to: tv)
+
+        // A span-anchored comment covering "brave" (chars 6..<11), exposed via
+        // the provider with a paragraph→display-text + range mapping so
+        // recompute resolves an absoluteRange.
+        let ann = Annotation(
+            id: "op1", kind: .comment, paragraphId: "ab12",
+            body: "word choice",
+            suggestedText: nil, priorText: nil,
+            createdAt: Date(), createdBySession: nil,
+            status: .open, userResponse: nil,
+            resolvedAt: nil, isStale: false,
+            resolvedSpanRange: 6..<11)
+        coordinator.reviewAnnotationsProvider = { [ann] }
+        coordinator.reviewParagraphRangeProvider = { pid in
+            pid == "ab12" ? NSRange(location: 0, length: 21) : nil
+        }
+        coordinator.reviewParagraphTextProvider = { pid in
+            pid == "ab12" ? "Hello brave new world" : nil
+        }
+        coordinator.setReviewMode(true)
+
+        guard let mark = coordinator.resolvedReviewMarks.first,
+              let range = mark.absoluteRange else {
+            return XCTFail("expected a resolved span for the comment")
+        }
+        XCTAssertEqual(range, NSRange(location: 6, length: 5))
+
+        coordinator.navigateToAnnotation(
+            id: "op1", fallbackParagraphId: "ab12", in: tv)
+        XCTAssertEqual(
+            tv.selectedRange(), NSRange(location: 6, length: 5),
+            "navigation must select the exact resolved span")
+    }
+
+    /// Fallback (Part 2): a paragraph-level annotation (no resolved span) selects
+    /// a length-0 cursor at the paragraph start.
+    @MainActor
+    func test_navigateToAnnotation_fallsBackToParagraphStart() {
+        final class TextBox { var value = "Hello brave new world" }
+        let box = TextBox()
+        let coordinator = EditorCoordinator(
+            text: Binding(get: { box.value }, set: { box.value = $0 }),
+            mode: ProseMode(),
+            theme: .light, typography: .defaults,
+            typewriterScroll: false,
+            sentenceFocus: false, paragraphFocus: false)
+
+        let tv = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+        tv.string = box.value
+        tv.delegate = coordinator
+        coordinator.attach(to: tv)
+
+        // No resolved span in the marks; the paragraph range provider drives the
+        // fallback (same closure the legacy paragraph-nav handler uses).
+        coordinator.paragraphRangeProvider = { pid in
+            pid == "ab12" ? NSRange(location: 6, length: 15) : nil
+        }
+        coordinator.navigateToAnnotation(
+            id: "missing", fallbackParagraphId: "ab12", in: tv)
+        XCTAssertEqual(
+            tv.selectedRange(), NSRange(location: 6, length: 0),
+            "fallback must place a length-0 cursor at the paragraph start")
+    }
 }
