@@ -12,6 +12,11 @@ struct EditorSurface: NSViewRepresentable {
     let typewriterScroll: Bool
     let sentenceFocus: Bool
     let paragraphFocus: Bool
+    /// Review posture (WF1): when true the manuscript is annotate-only
+    /// (read-only text) and focus-dim + typewriter are suppressed. Threaded
+    /// ONE-WAY from ProjectWindow → EditorHost; pushed onto the coordinator in
+    /// updateNSView. Nothing reads it back into a binding (tripwires 2 & 6).
+    var isReviewMode: Bool = false
     /// Cursor location to restore on first attach (nil = leave at 0).
     var initialCursorLocation: Int? = nil
     /// Fired on every selection change with the new caret location.
@@ -132,20 +137,21 @@ struct EditorSurface: NSViewRepresentable {
             textView.installGutter(coordinator: context.coordinator)
         }
 
-        // SPIKE (collab review): install the floating selection toolbar.
-        // Behind a scratch flag so it can be toggled off for normal use.
-        // It is added directly to the NSScrollView (NOT to documentView and
-        // NOT to contentView), so it floats above the scrolled text and is
-        // NOT clipped by the content clip view — the standard place for a
-        // scroll-view accessory overlay. The coordinator positions it in this
-        // parent's coordinate space via `textView.convert(_:to:)`.
-        if EditorSpikeFlags.selectionToolbar {
-            let toolbar = SelectionToolbarView(frame: .zero)
-            toolbar.isHidden = true
-            toolbar.translatesAutoresizingMaskIntoConstraints = true
-            scrollView.addSubview(toolbar)
-            context.coordinator.selectionToolbar = toolbar
-        }
+        // Install the floating selection toolbar. It is added directly to the
+        // NSScrollView (NOT to documentView and NOT to contentView), so it
+        // floats above the scrolled text and is NOT clipped by the content clip
+        // view — the standard place for a scroll-view accessory overlay. The
+        // coordinator positions it in this parent's coordinate space via
+        // `textView.convert(_:to:)` and only un-hides it while review posture is
+        // on (see EditorCoordinator.updateSelectionToolbar).
+        let toolbar = SelectionToolbarView(frame: .zero)
+        toolbar.isHidden = true
+        toolbar.translatesAutoresizingMaskIntoConstraints = true
+        scrollView.addSubview(toolbar)
+        context.coordinator.selectionToolbar = toolbar
+
+        // Push the initial review posture before the surface goes live.
+        context.coordinator.setReviewMode(isReviewMode)
 
         return scrollView
     }
@@ -191,6 +197,9 @@ struct EditorSurface: NSViewRepresentable {
         } else if !needsGutter && textView.gutterView != nil {
             textView.removeGutter()
         }
+        // Review posture is threaded ONE-WAY: push it onto the coordinator
+        // (setReviewMode is guarded against no-op churn). Nothing reads it back.
+        context.coordinator.setReviewMode(isReviewMode)
         context.coordinator.imagePasteHandler = imagePasteHandler
         context.coordinator.paragraphRangeProvider = paragraphRangeProvider
         context.coordinator.paragraphLocator = paragraphLocator

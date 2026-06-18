@@ -19,19 +19,21 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     private var isApplyingExternalUpdate = false
     weak var textView: NSTextView?
 
-    /// SPIKE (collab review): when true, the manuscript text is read-only —
+    /// Review posture (WF1): when true the manuscript text is read-only —
     /// `textView(_:shouldChangeTextIn:)` rejects every mutation (typing, paste,
-    /// delete). Selection, scrolling, and copy are unaffected (they don't go
+    /// delete) via `EditorEditPolicy`, and focus-dim + typewriter centering are
+    /// suppressed. Selection, scrolling, and copy are unaffected (they don't go
     /// through shouldChangeTextIn). Plain stored property, no observers, so it
-    /// can't drive a SwiftUI↔AppKit loop (tripwire 5). Throwaway; behind the
-    /// scratch flag below for the spike. Real "annotate mode" wiring is a later
-    /// plan deliverable.
-    var isAnnotateOnly = false
+    /// can't drive a SwiftUI↔AppKit loop (tripwire 2). Threaded ONE-WAY down
+    /// from ProjectWindow → EditorHost → EditorSurface; nothing reads it back.
+    /// Use `setReviewMode(_:)` to flip it so the posture re-applies immediately.
+    private(set) var isReviewMode = false
 
-    /// SPIKE: weak handle to the floating selection toolbar overlay so the
+    /// Weak handle to the floating selection toolbar overlay so the
     /// selection-change callback can position/show/hide it. Lives in the scroll
     /// view's superview (see EditorSurface), NOT a subview of the clipped
-    /// content view, so it can float above the text near the selection.
+    /// content view, so it can float above the text near the selection. Only
+    /// shown while `isReviewMode` is on.
     weak var selectionToolbar: SelectionToolbarView?
 
     /// Cursor location to restore after the next attach. Set by EditorSurface
@@ -288,10 +290,6 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// Set the text view from outside (called by EditorSurface.makeNSView).
     func attach(to textView: NSTextView) {
         self.textView = textView
-        // SPIKE (collab review): pick up the scratch flag so a flag flip (or a
-        // future debug keybinding setting `isAnnotateOnly`) makes the manuscript
-        // read-only without any other wiring.
-        if EditorSpikeFlags.annotateOnly { isAnnotateOnly = true }
         // Drop any debounced script post still pending from a prior text so a
         // stale script can't land on the freshly-attached doc's navigator.
         scriptUpdateNotifyTask?.cancel()
@@ -353,7 +351,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         self.typewriterScroll = enabled
         guard let textView else { return }
         refreshTypewriterInset(in: textView)
-        if enabled {
+        if enabled && !isReviewMode {
             scrollSelectionToVerticalCenter(in: textView)
         } else {
             // Inset shrank back to default; keep the caret on screen.
@@ -373,12 +371,40 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     func refreshTypewriterInset(in textView: NSTextView) {
         let clipHeight = textView.enclosingScrollView?
             .contentView.bounds.height ?? 0
-        let target = (typewriterScroll && clipHeight > 0)
+        // Review posture suppresses typewriter centering — restore the default
+        // inset so the active line isn't pinned to the viewport center.
+        let target = (typewriterScroll && !isReviewMode && clipHeight > 0)
             ? max(Self.defaultVerticalInset, clipHeight / 2)
             : Self.defaultVerticalInset
         guard abs(textView.textContainerInset.height - target) > 0.5 else { return }
         textView.textContainerInset = NSSize(
             width: textView.textContainerInset.width, height: target)
+    }
+
+    /// Review posture changed — flip the membrane and re-apply the posture.
+    ///
+    /// Threaded ONE-WAY from EditorSurface.updateNSView (tripwires 2 & 6). When
+    /// review turns ON: typing/paste/delete are rejected (via `EditorEditPolicy`
+    /// in `shouldChangeTextIn`), focus-dim and typewriter centering are
+    /// suppressed, and the selection toolbar becomes eligible to show. When it
+    /// turns OFF the prior focus/typewriter behavior is restored. Idempotent and
+    /// guarded against no-op churn (updateNSView calls every layout pass).
+    func setReviewMode(_ enabled: Bool) {
+        guard isReviewMode != enabled else { return }
+        isReviewMode = enabled
+        guard let textView else { return }
+        // Re-style from scratch so any focus-dim attributes from the prior
+        // posture are cleared, then re-apply focus-dim only when not in review.
+        retokenizeAndStyle()
+        applyFocusDim(in: textView)
+        refreshTypewriterInset(in: textView)
+        if !enabled {
+            // Leaving review: keep the caret on screen with the restored inset.
+            textView.scrollRangeToVisible(textView.selectedRange())
+        }
+        // Hide the toolbar when leaving review; show-on-selection resumes via
+        // textViewDidChangeSelection while review is on.
+        updateSelectionToolbar(in: textView)
     }
 
     /// Focus mode settings changed — update and re-dim immediately.
@@ -656,15 +682,17 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     func textView(_ textView: NSTextView,
                   shouldChangeTextIn affectedCharRange: NSRange,
                   replacementString: String?) -> Bool {
-        // SPIKE (collab review): annotate-only read-only guard. When set, the
-        // manuscript text cannot be mutated through the editor. This is the
-        // single choke point for every text mutation (typing, paste, delete,
-        // drag-drop, smart-typography re-insert) because AppKit funnels them
-        // all through shouldChangeTextIn. Selection / scroll / copy do NOT pass
-        // through here, so they keep working. Returning false here also stops
-        // the smart-typography path below from running its insertText, so no
-        // mutation leaks. Placed at the very top, before the existing guard.
-        if isAnnotateOnly { return false }
+        // Review posture (WF1): annotate-only read-only membrane. When review
+        // mode is on, the manuscript text cannot be mutated through the editor.
+        // This is the single choke point for every text mutation (typing, paste,
+        // delete, drag-drop, smart-typography re-insert) because AppKit funnels
+        // them all through shouldChangeTextIn. Selection / scroll / copy do NOT
+        // pass through here, so they keep working. Returning false here also
+        // stops the smart-typography path below from running its insertText, so
+        // no mutation leaks. Placed at the very top, before the existing guard.
+        guard EditorEditPolicy.allowsTextMutation(isReviewMode: isReviewMode) else {
+            return false
+        }
         guard let replacementString,
               !isApplyingExternalUpdate else { return true }
 
@@ -791,16 +819,16 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                 lastCycleTargetLineRange = nil
             }
         }
-        if typewriterScroll {
+        if typewriterScroll && !isReviewMode {
             scrollSelectionToVerticalCenter(in: textView)
         }
         // Cursor-only selection changes (arrow keys, click) don't go through
-        // retokenizeAndStyle. Re-dim here.
+        // retokenizeAndStyle. Re-dim here (no-op in review posture).
         applyFocusDim(in: textView)
         onCursorChanged?(textView.selectedRange().location)
         onElementChanged?(currentElementAbbreviation(in: textView))
-        // SPIKE (collab review): one-way drive of the floating selection
-        // toolbar. No write-back into SwiftUI state.
+        // One-way drive of the floating selection toolbar (review posture only).
+        // No write-back into SwiftUI state.
         updateSelectionToolbar(in: textView)
     }
 
@@ -1044,14 +1072,17 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             height: containerRect.size.height)
     }
 
-    /// SPIKE (collab review): drive the floating selection toolbar one-way from
-    /// the AppKit selection callback. Show + position above the selection when
-    /// non-empty; hide otherwise. No SwiftUI state round-trip (tripwire 5): the
-    /// toolbar is a plain NSView the coordinator owns by weak reference.
+    /// Drive the floating selection toolbar one-way from the AppKit selection
+    /// callback. Show + position above a non-empty selection while review
+    /// posture is on; hide otherwise. No SwiftUI state round-trip (tripwire 2):
+    /// the toolbar is a plain NSView the coordinator owns by weak reference.
     private func updateSelectionToolbar(in textView: NSTextView) {
         guard let toolbar = selectionToolbar,
               let parent = toolbar.superview else { return }
-        guard let rectInTextView = selectionViewRect(in: textView) else {
+        // Only surface the toolbar in review posture; in normal authoring the
+        // editor stays clean.
+        guard isReviewMode, let rectInTextView = selectionViewRect(in: textView)
+        else {
             toolbar.isHidden = true
             return
         }
@@ -1114,6 +1145,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
 
     private func applyFocusDim(in textView: NSTextView) {
         guard let storage = textView.textStorage else { return }
+        // Review posture turns focus-dim off — the reviewer reads the whole
+        // crafted draft, not a dimmed sentence/paragraph window.
+        guard !isReviewMode else { return }
         let useSentence = sentenceFocus
         let useParagraph = paragraphFocus && !sentenceFocus
         guard useSentence || useParagraph else { return }

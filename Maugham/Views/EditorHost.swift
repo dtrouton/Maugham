@@ -30,6 +30,12 @@ struct EditorHost: View {
     var onElementChanged: (String?) -> Void = { _ in }
     var wikiLinkResolver: ((String) -> Bool)? = nil
     var wikiLinkClickResolver: ((String) -> String?)? = nil
+    /// Review posture (WF1): annotate-only manuscript + focus/typewriter off.
+    /// A plain `let` threaded ONE-WAY from ProjectWindow down into EditorSurface
+    /// → coordinator. Deliberately NOT @State/observed on EditorHost (tripwire 6:
+    /// no parallel observable state on the editor host) — it lives on
+    /// ProjectWindow and nothing here reads it back into a binding.
+    var isReviewMode: Bool = false
     @Environment(UserPreferences.self) private var userPreferences
 
     /// The currently-bound Document. Owns the editor's text state and the
@@ -83,6 +89,7 @@ struct EditorHost: View {
                     typewriterScroll: userPreferences.typewriterScroll,
                     sentenceFocus: userPreferences.sentenceFocus,
                     paragraphFocus: userPreferences.paragraphFocus,
+                    isReviewMode: isReviewMode,
                     initialCursorLocation: doc.cursorLocation,
                     onCursorChanged: { offset in
                         doc.cursorLocation = offset

@@ -3,7 +3,7 @@ import Foundation
 /// Per-project UI state persisted to `.maugham/ui-state.json`.
 /// Schema-versioned for forward compatibility.
 public struct UIState: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 2
+    public static let currentSchemaVersion = 3
 
     public var schemaVersion: Int
     public var selectedItemId: String?
@@ -12,6 +12,10 @@ public struct UIState: Codable, Equatable, Sendable {
     public var researchPreviewVisible: Bool
     public var detailSegment: DetailSegment
     public var outlineLayout: OutlineLayout
+    /// Review posture (WF1): annotate-only manuscript with focus/typewriter off.
+    /// Per-window, persisted so the posture survives reopen. Additive in
+    /// schema v3; old files default to false.
+    public var isReviewModeOn: Bool
 
     public init(
         schemaVersion: Int = UIState.currentSchemaVersion,
@@ -20,7 +24,8 @@ public struct UIState: Codable, Equatable, Sendable {
         binderSegment: BinderSegment = .manuscript,
         researchPreviewVisible: Bool = false,
         detailSegment: DetailSegment = .inspector,
-        outlineLayout: OutlineLayout = .table
+        outlineLayout: OutlineLayout = .table,
+        isReviewModeOn: Bool = false
     ) {
         self.schemaVersion = schemaVersion
         self.selectedItemId = selectedItemId
@@ -29,13 +34,14 @@ public struct UIState: Codable, Equatable, Sendable {
         self.researchPreviewVisible = researchPreviewVisible
         self.detailSegment = detailSegment
         self.outlineLayout = outlineLayout
+        self.isReviewModeOn = isReviewModeOn
     }
 
     public static let empty = UIState()
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, selectedItemId, isNoChromeOn, binderSegment,
-             researchPreviewVisible, detailSegment, outlineLayout
+             researchPreviewVisible, detailSegment, outlineLayout, isReviewModeOn
     }
 
     public init(from decoder: Decoder) throws {
@@ -43,6 +49,7 @@ public struct UIState: Codable, Equatable, Sendable {
         self.schemaVersion = try c.decode(Int.self, forKey: .schemaVersion)
         self.selectedItemId = try c.decodeIfPresent(String.self, forKey: .selectedItemId)
         self.isNoChromeOn = (try? c.decode(Bool.self, forKey: .isNoChromeOn)) ?? false
+        self.isReviewModeOn = (try? c.decode(Bool.self, forKey: .isReviewModeOn)) ?? false
         self.binderSegment = (try? c.decode(BinderSegment.self, forKey: .binderSegment)) ?? .manuscript
         self.researchPreviewVisible = (try? c.decode(Bool.self, forKey: .researchPreviewVisible)) ?? false
         self.detailSegment = (try? c.decode(DetailSegment.self, forKey: .detailSegment)) ?? .inspector
