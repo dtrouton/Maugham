@@ -229,12 +229,14 @@ final class ReviewMarginRailView: NSView {
     /// gutter, leader lines) pass through to the text view so selection still
     /// works. The actions row is a real subview, so it hit-tests itself.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        // Let the actions-row buttons (a subview) claim their own hits first.
-        if let actions = actionsRow, !actions.isHidden {
-            let inActions = convert(point, to: actions)
-            if let hit = actions.hitTest(inActions) { return hit }
-        }
+        // `point` arrives in our SUPERVIEW's coordinates; convert to our own once.
         let local = convert(point, from: superview)
+        // Let the actions-row buttons (a subview) claim their own hits first.
+        // NSView.hitTest takes a point in the receiver's SUPERVIEW (= self) coords,
+        // so `local` is exactly right here.
+        if let actions = actionsRow, !actions.isHidden {
+            if let hit = actions.hitTest(local) { return hit }
+        }
         if cardRects.contains(where: { $0.rect.contains(local) }) { return self }
         return nil
     }
