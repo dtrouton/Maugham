@@ -579,13 +579,16 @@ struct ProjectWindow: View {
         editorPane(store: store, documentStore: documentStore)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .topTrailing) {
-                if PublishStarter.isInitialized(in: store.url) {
-                    PublishStatusPill(
-                        projectID: ProjectIdentifier.id(for: store.url),
-                        projectURL: store.url)
-                        .padding(.top, 8)
-                        .padding(.trailing, 12)
+                VStack(alignment: .trailing, spacing: 6) {
+                    if PublishStarter.isInitialized(in: store.url) {
+                        PublishStatusPill(
+                            projectID: ProjectIdentifier.id(for: store.url),
+                            projectURL: store.url)
+                    }
+                    SharingStatusPill(projectURL: store.url)
                 }
+                .padding(.top, 8)
+                .padding(.trailing, 12)
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if shouldShowStatusFooter {
