@@ -413,7 +413,8 @@ struct RewindWindow: View {
         case .checkpoint, .checkpointRestore:
             return Color(red: 0.42, green: 0.88, blue: 0.66)
         case .claudeComment, .claudeQuery, .claudeCraftNote,
-             .claudeSuggestion, .claudeAccept, .claudeReject, .claudeArchive:
+             .claudeSuggestion, .claudeAccept, .claudeReject, .claudeArchive,
+             .annotationEdit, .annotationWithdraw:
             return Color(red: 1.0, green: 0.66, blue: 0.25)
         case .taskCreate, .taskStatusChange, .taskPriorityChange,
              .taskParentChange, .taskBodyEdit, .taskArchive:

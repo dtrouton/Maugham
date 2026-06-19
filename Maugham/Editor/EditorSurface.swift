@@ -12,6 +12,11 @@ struct EditorSurface: NSViewRepresentable {
     let typewriterScroll: Bool
     let sentenceFocus: Bool
     let paragraphFocus: Bool
+    /// Review posture (WF1): when true the manuscript is annotate-only
+    /// (read-only text) and focus-dim + typewriter are suppressed. Threaded
+    /// ONE-WAY from ProjectWindow → EditorHost; pushed onto the coordinator in
+    /// updateNSView. Nothing reads it back into a binding (tripwires 2 & 6).
+    var isReviewMode: Bool = false
     /// Cursor location to restore on first attach (nil = leave at 0).
     var initialCursorLocation: Int? = nil
     /// Fired on every selection change with the new caret location.
@@ -57,6 +62,39 @@ struct EditorSurface: NSViewRepresentable {
     /// dispatching by `MaughamCheckboxKind` to `MarkdownCheckboxScanner.flipBracket`
     /// or `FountainBoneyardScanner.flipTodoDone`.
     var checkboxToggleHandler: ((String, Int, MaughamCheckboxKind) -> Void)? = nil
+    /// Maps a doc-wide UTF-16 location to the containing paragraph's id + range.
+    /// Wired to `Document.paragraphRange(at:)`. Used by the review toolbar to
+    /// capture a paragraph-relative span anchor for the selection.
+    var paragraphRangeAtLocation: ((Int) -> (id: String, range: NSRange)?)? = nil
+    /// Invoked when the reviewer commits a Comment/Query/Suggest annotation from
+    /// the selection toolbar. The trailing `String?` is the replacement text
+    /// (Suggest only; nil for Comment/Query). Wired to
+    /// `Document.addReviewerAnnotation(...)`.
+    var createAnnotationHandler: ((AnnotationKind, String, SpanAnchor, String, String?) async -> Void)? = nil
+    /// Open annotations to render in review mode (Component F). Threaded ONE-WAY;
+    /// pushed onto the coordinator in updateNSView. Sourced from the host's
+    /// `Document` and recomputed whenever `annotationsVersion` changes (which
+    /// re-runs SwiftUI's body and lands here).
+    var reviewAnnotations: [Annotation] = []
+    /// Resolves a paragraphId → its display text (for grapheme→UTF-16 of spans).
+    var reviewParagraphTextProvider: ((String) -> String?)? = nil
+    /// Resolves a paragraphId → its UTF-16 NSRange in the full display string.
+    var reviewParagraphRangeProvider: ((String) -> NSRange?)? = nil
+    /// Pulls the CURRENT open-annotation set on demand — used by the coordinator
+    /// to resolve marks synchronously on review entry (first-toggle marks fix).
+    var reviewAnnotationsProvider: (() -> [Annotation])? = nil
+    /// The local reviewer's display name — gates Edit/Delete on the interactive
+    /// margin card (`AnnotationOwnership.isOwn`). Pulled on demand.
+    var reviewLocalAuthorName: (() -> String)? = nil
+    /// Interactive margin-card action handlers (Part 1). Each maps an annotation
+    /// id (+ payload for reply/edit) to the matching `Document` mutation. Threaded
+    /// ONE-WAY; wired in make/update like `createAnnotationHandler`.
+    var reviewAcceptHandler: ((String) async -> Void)? = nil
+    var reviewRejectHandler: ((String) async -> Void)? = nil
+    var reviewArchiveHandler: ((String) async -> Void)? = nil
+    var reviewReplyHandler: ((String, String) async -> Void)? = nil
+    var reviewEditHandler: ((String, String, String?) async -> Void)? = nil
+    var reviewWithdrawHandler: ((String) async -> Void)? = nil
 
     func makeCoordinator() -> EditorCoordinator {
         let coordinator = EditorCoordinator(
@@ -76,7 +114,25 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.paragraphRangeProvider = paragraphRangeProvider
         coordinator.paragraphLocator = paragraphLocator
         coordinator.checkboxToggleHandler = checkboxToggleHandler
+        coordinator.paragraphRangeAtLocation = paragraphRangeAtLocation
+        coordinator.createAnnotationHandler = createAnnotationHandler
+        coordinator.reviewParagraphTextProvider = reviewParagraphTextProvider
+        coordinator.reviewParagraphRangeProvider = reviewParagraphRangeProvider
+        coordinator.reviewAnnotationsProvider = reviewAnnotationsProvider
+        assignReviewCardHandlers(to: coordinator)
         return coordinator
+    }
+
+    /// Thread the interactive-card handlers + local-author provider onto the
+    /// coordinator. Shared by make/update so the wiring can't drift between them.
+    private func assignReviewCardHandlers(to coordinator: EditorCoordinator) {
+        coordinator.reviewLocalAuthorName = reviewLocalAuthorName
+        coordinator.reviewAcceptHandler = reviewAcceptHandler
+        coordinator.reviewRejectHandler = reviewRejectHandler
+        coordinator.reviewArchiveHandler = reviewArchiveHandler
+        coordinator.reviewReplyHandler = reviewReplyHandler
+        coordinator.reviewEditHandler = reviewEditHandler
+        coordinator.reviewWithdrawHandler = reviewWithdrawHandler
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -126,11 +182,53 @@ struct EditorSurface: NSViewRepresentable {
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = false
 
+        // Install the floating selection toolbar. It is added directly to the
+        // NSScrollView (NOT to documentView and NOT to contentView), so it
+        // floats above the scrolled text and is NOT clipped by the content clip
+        // view — the standard place for a scroll-view accessory overlay. The
+        // coordinator positions it in this parent's coordinate space via
+        // `textView.convert(_:to:)` and only un-hides it while review posture is
+        // on (see EditorCoordinator.updateSelectionToolbar).
+        //
+        // This MUST be assigned BEFORE `attach(to:)`, which wires
+        // `selectionToolbar?.onAction`. If the toolbar is nil at attach time the
+        // optional-chain no-ops and the entire Comment/Query/Suggest authoring
+        // flow goes dead (clicking a toolbar button hits nothing). The toolbar
+        // depends only on the already-created scrollView, not on anything attach
+        // sets up, so this ordering is safe.
+        let toolbar = SelectionToolbarView(frame: .zero)
+        toolbar.isHidden = true
+        toolbar.translatesAutoresizingMaskIntoConstraints = true
+        scrollView.addSubview(toolbar)
+        context.coordinator.selectionToolbar = toolbar
+
         context.coordinator.attach(to: textView)
         textView.coordinator = context.coordinator
         if mode is ScreenplayMode && showElementGutter {
             textView.installGutter(coordinator: context.coordinator)
         }
+
+        // Guard the wiring above: `attach` sets `selectionToolbar?.onAction`,
+        // so the toolbar MUST already be assigned (it is, four lines up). If
+        // this ever regresses to a nil toolbar at attach time the whole
+        // Comment/Query/Suggest authoring flow goes dead. This path can't be
+        // driven from a unit test (NSViewRepresentable.Context is unsynthesizable);
+        // the coordinator-side contract is covered by a test, this is the
+        // production-path backstop. (Smoke-only otherwise.)
+        #if DEBUG
+        assert(context.coordinator.selectionToolbar?.onAction != nil,
+               "selection toolbar onAction must be wired after makeNSView")
+        #endif
+
+        // Seed the open annotation set BEFORE flipping review posture so a
+        // fresh-launch-straight-into-review shows existing marks + rail on the
+        // first frame (Bug A) — setReviewMode recomputes marks on entry, and it
+        // needs the annotations already present. updateNSView re-pushes both and
+        // is no-op-guarded, so this seeding is not duplicate steady-state work.
+        context.coordinator.setReviewAnnotations(reviewAnnotations)
+        // Push the initial review posture before the surface goes live.
+        context.coordinator.setReviewMode(isReviewMode)
+
         return scrollView
     }
 
@@ -179,6 +277,25 @@ struct EditorSurface: NSViewRepresentable {
         context.coordinator.paragraphRangeProvider = paragraphRangeProvider
         context.coordinator.paragraphLocator = paragraphLocator
         context.coordinator.checkboxToggleHandler = checkboxToggleHandler
+        context.coordinator.paragraphRangeAtLocation = paragraphRangeAtLocation
+        context.coordinator.createAnnotationHandler = createAnnotationHandler
+        // Crafted-render providers BEFORE the annotation set (recompute reads
+        // them) and BEFORE setReviewMode (which installs/refreshes overlays).
+        context.coordinator.reviewParagraphTextProvider = reviewParagraphTextProvider
+        context.coordinator.reviewParagraphRangeProvider = reviewParagraphRangeProvider
+        // Pull-on-entry provider must be set BEFORE setReviewMode so the
+        // synchronous membrane toggle can resolve the real annotation set.
+        context.coordinator.reviewAnnotationsProvider = reviewAnnotationsProvider
+        // Interactive-card handlers + local-author provider must be set BEFORE
+        // the recompute path (setReviewMode/setReviewAnnotations) reads ownership.
+        assignReviewCardHandlers(to: context.coordinator)
+        // Review posture is threaded ONE-WAY: push it onto the coordinator
+        // (setReviewMode is guarded against no-op churn). Nothing reads it back.
+        context.coordinator.setReviewMode(isReviewMode)
+        // Push the open annotation set (guarded against no-op churn). A change to
+        // the Document's annotationsVersion re-runs SwiftUI's body, re-deriving
+        // this array, which lands here and recomputes the resolved marks.
+        context.coordinator.setReviewAnnotations(reviewAnnotations)
     }
 }
 
@@ -320,6 +437,11 @@ private final class MaughamTextView: NSTextView {
         // viewport height changes on resize, so recompute here. The method is
         // guarded against no-op churn, so this won't loop with setFrameSize.
         coordinator?.refreshTypewriterInset(in: self)
+
+        // Re-frame the crafted-render overlays (mark layer covers the view; rail
+        // sits in the right inset) on every resize, like the gutter above.
+        coordinator?.layoutReviewOverlays(in: self)
+        coordinator?.refreshReviewOverlays()
     }
 
     func installGutter(coordinator: EditorCoordinator) {

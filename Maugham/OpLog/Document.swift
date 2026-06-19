@@ -296,6 +296,36 @@ public final class Document {
         return sequence.last
     }
 
+    /// Returns the paragraph id at `location` (a UTF-16 offset into
+    /// `displayText`) AND that paragraph's UTF-16 range within `displayText`,
+    /// or nil if no paragraph can be determined. Used by the review toolbar to
+    /// translate an absolute selection into a paragraph-relative span anchor.
+    ///
+    /// Same walk + same stripped/UTF-16 length discipline as `paragraphId(at:)`
+    /// (anchors are invisible in `displayText`, so measure the stripped form in
+    /// UTF-16 code units).
+    public func paragraphRange(at location: Int) -> (id: String, range: NSRange)? {
+        let displayLength = (displayText as NSString).length
+        let clamped = max(0, min(location, displayLength))
+        var offset = 0
+        var lastId: String?
+        var lastRange = NSRange(location: 0, length: 0)
+        for id in sequence {
+            guard let text = paragraphs[id] else { continue }
+            let stripped = RenderFilter.stripTaskAnchorsInline(text)
+            let length = (stripped as NSString).length
+            if clamped <= offset + length {
+                return (id, NSRange(location: offset, length: length))
+            }
+            lastId = id
+            lastRange = NSRange(location: offset, length: length)
+            offset += length + 2  // +2 for "\n\n" separator
+        }
+        // Cursor past all paragraphs — return the last paragraph if any.
+        if let lastId { return (lastId, lastRange) }
+        return nil
+    }
+
     /// Returns the NSRange within `displayText` covering the paragraph with
     /// the given id, or nil if the id isn't in `sequence`. Used by editor
     /// navigation (e.g., clicking an annotation row jumps the textView to

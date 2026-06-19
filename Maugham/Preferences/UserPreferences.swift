@@ -18,6 +18,7 @@ public final class UserPreferences {
     private static let mcpEnabledKey = "maugham.mcpEnabled"
     private static let hasCompletedWelcomeKey = "maugham.hasCompletedWelcome"
     private static let backupDestinationsKey = "maugham.backupDestinations"
+    private static let collaboratorDisplayNameKey = "maugham.collaboratorDisplayName"
 
     private let defaults: UserDefaults
 
@@ -67,6 +68,23 @@ public final class UserPreferences {
         }
     }
 
+    /// The local reviewer's name, attributed on human-authored annotations
+    /// created from the editor review toolbar. Defaults to the macOS full
+    /// user name (falling back to "Me" when that is empty).
+    public var collaboratorDisplayName: String {
+        didSet {
+            defaults.set(collaboratorDisplayName,
+                         forKey: Self.collaboratorDisplayNameKey)
+        }
+    }
+
+    /// The default reviewer name when none has been stored: the macOS full
+    /// user name, or "Me" if that is empty.
+    public static var defaultCollaboratorDisplayName: String {
+        let full = NSFullUserName()
+        return full.isEmpty ? "Me" : full
+    }
+
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
 
@@ -104,6 +122,13 @@ public final class UserPreferences {
             self.backupDestinations = decoded
         } else {
             self.backupDestinations = []
+        }
+
+        if let stored = defaults.string(forKey: Self.collaboratorDisplayNameKey),
+           !stored.isEmpty {
+            self.collaboratorDisplayName = stored
+        } else {
+            self.collaboratorDisplayName = Self.defaultCollaboratorDisplayName
         }
     }
 }

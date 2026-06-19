@@ -25,6 +25,10 @@ struct ProjectWindow: View {
     @State private var documentStore: DocumentStore?
     @State private var loadError: String?
     @State private var isNoChromeOn: Bool = false
+    /// Review posture (WF1): per-window annotate-only manuscript with focus +
+    /// typewriter off. Owned here (tripwire 6: not on EditorHost) and threaded
+    /// ONE-WAY down through EditorHost → EditorSurface → coordinator.
+    @State private var isReviewModeOn: Bool = false
     @State private var window: NSWindow?
     @State private var metrics: EditorMetrics =
         EditorMetrics(wordCount: 0, characterCount: 0, readingMinutes: 0)
@@ -161,10 +165,6 @@ struct ProjectWindow: View {
             mcpRegistry.unregister(url: url)
             Task { await documentStore?.close() }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .maughamToggleNoChrome)) { _ in
-            isNoChromeOn.toggle()
-            applyNoChrome()
-        }
         .onReceive(NotificationCenter.default.publisher(for: .maughamToggleFullScreen)) { _ in
             toggleFullScreen()
         }
@@ -200,10 +200,6 @@ struct ProjectWindow: View {
             if let script = note.object as? FountainScript {
                 self.lastParsedScript = script
             }
-        }
-        .onChange(of: isNoChromeOn) { _, newValue in
-            applyNoChrome()
-            documentStore?.updateUIState { $0.isNoChromeOn = newValue }
         }
         .onChange(of: selectedItemId) { _, newValue in
             documentStore?.updateUIState { $0.selectedItemId = newValue }
@@ -245,6 +241,12 @@ struct ProjectWindow: View {
             showingCheckpointLabelSheet: $showingCheckpointLabelSheet,
             onSaveFlash: { showSaveFlash() }))
         .modifier(ParagraphNavModifier(window: window, binderSegment: $binderSegment))
+        .modifier(FocusPostureModifier(
+            window: window,
+            documentStore: documentStore,
+            isNoChromeOn: $isNoChromeOn,
+            isReviewModeOn: $isReviewModeOn,
+            applyNoChrome: { applyNoChrome() }))
         .sheet(isPresented: $showingSyntaxHelp) {
             SyntaxHelpSheet(mode: currentSyntaxHelpMode)
         }
@@ -598,6 +600,12 @@ struct ProjectWindow: View {
             .safeAreaInset(edge: .top) {
                 conflictBanner(documentStore: documentStore)
             }
+            .safeAreaInset(edge: .top) {
+                if isReviewModeOn {
+                    ReviewModeIndicator(
+                        collaboratorName: userPreferences.collaboratorDisplayName)
+                }
+            }
             .navigationSplitViewColumnWidth(min: 480, ideal: 720)
     }
 
@@ -682,7 +690,8 @@ struct ProjectWindow: View {
                 },
                 wikiLinkClickResolver: { title in
                     store.resolveDocumentId(forTitle: title)
-                }
+                },
+                isReviewMode: isReviewModeOn
             )
         case .research:
             if let id = selectedResearchId,
@@ -965,6 +974,7 @@ struct ProjectWindow: View {
                 self.selectedItemId = first.id
             }
             self.isNoChromeOn = ds.uiState.isNoChromeOn
+            self.isReviewModeOn = ds.uiState.isReviewModeOn
             self.researchPreviewVisible = ds.uiState.researchPreviewVisible
             self.detailSegment = ds.uiState.detailSegment
             self.outlineLayout = ds.uiState.outlineLayout
@@ -1141,6 +1151,40 @@ private struct RewindModifier: ViewModifier {
 
 /// Handles .maughamNavigateToParagraph in its own modifier to stay within
 /// Swift's type-checker expression limit in SessionAndNavigationModifier.
+/// Focus-posture wiring (distraction-free chrome + WF1 review posture), pulled
+/// off `ProjectWindow.body` to keep the inline modifier chain under SwiftUI's
+/// body type-check ceiling (the extracted-ViewModifier pattern; see
+/// `Maugham/Views/AREA.md`). Handles ⌘\ no-chrome and ⌘⌥R review (key-window
+/// only) and persists both flags to UIState.
+private struct FocusPostureModifier: ViewModifier {
+    let window: NSWindow?
+    let documentStore: DocumentStore?
+    @Binding var isNoChromeOn: Bool
+    @Binding var isReviewModeOn: Bool
+    let applyNoChrome: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(
+                for: .maughamToggleNoChrome)) { _ in
+                isNoChromeOn.toggle()
+                applyNoChrome()
+            }
+            .onReceive(NotificationCenter.default.publisher(
+                for: .maughamToggleReviewMode)) { _ in
+                guard window?.isKeyWindow == true else { return }
+                isReviewModeOn.toggle()
+            }
+            .onChange(of: isNoChromeOn) { _, newValue in
+                applyNoChrome()
+                documentStore?.updateUIState { $0.isNoChromeOn = newValue }
+            }
+            .onChange(of: isReviewModeOn) { _, newValue in
+                documentStore?.updateUIState { $0.isReviewModeOn = newValue }
+            }
+    }
+}
+
 private struct ParagraphNavModifier: ViewModifier {
     /// The owning project window. `.maughamNavigateToParagraph` is posted with
     /// `object: nil`, so every open window receives it; we act only when key.

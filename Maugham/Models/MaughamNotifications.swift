@@ -4,6 +4,7 @@ extension Notification.Name {
     public static let maughamNewProject = Notification.Name("maugham.newProject")
     public static let maughamOpenProject = Notification.Name("maugham.openProject")
     public static let maughamToggleNoChrome = Notification.Name("maugham.toggleNoChrome")
+    public static let maughamToggleReviewMode = Notification.Name("maugham.toggleReviewMode")
     public static let maughamToggleFullScreen = Notification.Name("maugham.toggleFullScreen")
     public static let maughamDummySave = Notification.Name("maugham.dummySave")
     public static let maughamShowProjectSettings = Notification.Name("maugham.showProjectSettings")
@@ -51,4 +52,23 @@ extension Notification.Name {
     /// userInfo["paragraph_id"] contains the paragraph id string.
     public static let maughamNavigateToParagraph = Notification.Name(
         "maughamNavigateToParagraph")
+    /// Posted when the review annotation set is mutated from the AnnotationsPane
+    /// (an author edits or withdraws their own annotation). The key-window
+    /// EditorCoordinator observes this to re-pull + recompute its crafted review
+    /// marks so an edited/withdrawn annotation's inline mark + rail card update
+    /// immediately, without toggling review off/on. Same class of fix as the
+    /// create-case provider re-pull. `object` is nil (broadcast); the observer
+    /// guards on `textView?.window?.isKeyWindow`.
+    public static let maughamReviewAnnotationsChanged = Notification.Name(
+        "maughamReviewAnnotationsChanged")
+    /// Posted when an annotation should be selected with span precision — the
+    /// editor selects the exact resolved span (not just the paragraph) and
+    /// scrolls it into view. Carries `userInfo["annotation_id"]` (String) and,
+    /// for the paragraph-only fallback, `userInfo["paragraph_id"]` (String?).
+    /// The key-window `EditorCoordinator` looks the id up in its
+    /// `resolvedReviewMarks`: an `absoluteRange` selects the span; otherwise it
+    /// falls back to scrolling to the paragraph (the legacy behaviour). Posted
+    /// by `AnnotationsPane.jump(_:)` and by clicking an interactive margin card.
+    public static let maughamNavigateToAnnotation = Notification.Name(
+        "maughamNavigateToAnnotation")
 }

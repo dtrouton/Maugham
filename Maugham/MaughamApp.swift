@@ -170,6 +170,11 @@ struct MaughamApp: App {
                         name: .maughamToggleNoChrome, object: nil)
                 }
                 .keyboardShortcut("\\", modifiers: .command)
+                Button("Toggle Review Mode") {
+                    NotificationCenter.default.post(
+                        name: .maughamToggleReviewMode, object: nil)
+                }
+                .keyboardShortcut("r", modifiers: [.command, .option])
                 Button("Toggle Full-Screen Focus") {
                     NotificationCenter.default.post(
                         name: .maughamToggleFullScreen, object: nil)

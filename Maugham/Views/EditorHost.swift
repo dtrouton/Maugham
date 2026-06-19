@@ -30,6 +30,12 @@ struct EditorHost: View {
     var onElementChanged: (String?) -> Void = { _ in }
     var wikiLinkResolver: ((String) -> Bool)? = nil
     var wikiLinkClickResolver: ((String) -> String?)? = nil
+    /// Review posture (WF1): annotate-only manuscript + focus/typewriter off.
+    /// A plain `let` threaded ONE-WAY from ProjectWindow down into EditorSurface
+    /// → coordinator. Deliberately NOT @State/observed on EditorHost (tripwire 6:
+    /// no parallel observable state on the editor host) — it lives on
+    /// ProjectWindow and nothing here reads it back into a binding.
+    var isReviewMode: Bool = false
     @Environment(UserPreferences.self) private var userPreferences
 
     /// The currently-bound Document. Owns the editor's text state and the
@@ -83,6 +89,7 @@ struct EditorHost: View {
                     typewriterScroll: userPreferences.typewriterScroll,
                     sentenceFocus: userPreferences.sentenceFocus,
                     paragraphFocus: userPreferences.paragraphFocus,
+                    isReviewMode: isReviewMode,
                     initialCursorLocation: doc.cursorLocation,
                     onCursorChanged: { offset in
                         doc.cursorLocation = offset
@@ -123,6 +130,93 @@ struct EditorHost: View {
                         }
                         guard flipped != para else { return }
                         doc.setParagraph(id: paragraphId, text: flipped)
+                    },
+                    paragraphRangeAtLocation: { location in
+                        doc.paragraphRange(at: location)
+                    },
+                    createAnnotationHandler: { kind, paragraphId, span, body, suggestedText in
+                        // Annotation creation is an op-log append, not a text
+                        // mutation — it doesn't write the editor binding, so the
+                        // applyExternalText tripwires (6/7) don't apply. The
+                        // AnnotationsPane re-renders automatically off the
+                        // Document's `annotationsVersion` bump (invalidated
+                        // inside addAnnotation). The handler is async so the
+                        // coordinator can await this append, then re-pull the
+                        // annotation set and refresh the crafted marks — so a
+                        // just-created annotation renders immediately in review
+                        // mode without a toggle.
+                        try? await doc.addReviewerAnnotation(
+                            kind: kind,
+                            paragraphId: paragraphId,
+                            span: span,
+                            body: body,
+                            suggestedText: suggestedText,
+                            authorName: userPreferences.collaboratorDisplayName)
+                    },
+                    // Crafted review render (Component F). Reading
+                    // `doc.annotationsVersion` here makes SwiftUI re-evaluate the
+                    // body — and thus re-derive `reviewAnnotations` and re-push it
+                    // through updateNSView — whenever the annotation set changes.
+                    // This is safe (unlike reading `displayText`): it never feeds
+                    // the text binding, so the cursor-race triad (tripwires 6/7)
+                    // stays closed. Only computed in review mode to avoid deriving
+                    // annotations during normal authoring.
+                    reviewAnnotations: isReviewMode
+                        ? { _ = doc.annotationsVersion
+                            return doc.annotations(
+                                filter: AnnotationFilter(statuses: [.open])) }()
+                        : [],
+                    reviewParagraphTextProvider: { pid in
+                        doc.paragraph(id: pid).map {
+                            RenderFilter.stripTaskAnchorsInline($0)
+                        }
+                    },
+                    reviewParagraphRangeProvider: { pid in
+                        doc.displayRange(forParagraphId: pid)
+                    },
+                    // Pull-on-entry: the coordinator invokes this ONLY when
+                    // entering review (membrane toggle OR fresh launch), so it
+                    // derives the current open annotations on demand without the
+                    // lagged `reviewAnnotations` push. NOT gated on isReviewMode —
+                    // gating would defeat the purpose (the first toggle's entry
+                    // happens while isReviewMode is still flipping). It's never
+                    // called during authoring, so no per-keystroke derivation.
+                    reviewAnnotationsProvider: {
+                        doc.annotations(
+                            filter: AnnotationFilter(statuses: [.open]))
+                    },
+                    // Local reviewer name — gates Edit/Delete on margin cards.
+                    reviewLocalAuthorName: { userPreferences.collaboratorDisplayName },
+                    // Interactive margin-card actions (Part 1). Each is an op-log
+                    // append routed through Document — NOT a text-binding write, so
+                    // the applyExternalText tripwires (6/7) don't apply. The
+                    // coordinator refreshes its marks from the provider after each.
+                    reviewAcceptHandler: { id in
+                        try? await doc.acceptAnnotation(id: id)
+                    },
+                    reviewRejectHandler: { id in
+                        // The card has no reasoning field; the reason-capture sheet
+                        // stays in the AnnotationsPane. A card-reject records no
+                        // reason (a follow-up could surface the sheet from here).
+                        try? await doc.rejectAnnotation(id: id)
+                    },
+                    reviewArchiveHandler: { id in
+                        try? await doc.archiveAnnotation(id: id)
+                    },
+                    reviewReplyHandler: { id, reply in
+                        try? await doc.acceptAnnotation(id: id, userResponse: reply)
+                    },
+                    reviewEditHandler: { id, newBody, newSuggested in
+                        try? await doc.editReviewerAnnotation(
+                            id: id,
+                            newBody: newBody,
+                            newSuggestedText: newSuggested,
+                            authorName: userPreferences.collaboratorDisplayName)
+                    },
+                    reviewWithdrawHandler: { id in
+                        try? await doc.withdrawReviewerAnnotation(
+                            id: id,
+                            authorName: userPreferences.collaboratorDisplayName)
                     }
                 )
                 .id(path)

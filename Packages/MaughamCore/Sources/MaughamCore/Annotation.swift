@@ -27,13 +27,18 @@ public struct Annotation: Equatable, Sendable, Identifiable {
     public let userResponse: String?
     public let resolvedAt: Date?
     public let isStale: Bool
+    public let author: AnnotationAuthor?         // who created it (provenance)
+    public let span: SpanAnchor?                 // sub-paragraph anchor, if any
+    public let resolvedSpanRange: Range<Int>?    // re-resolved against live text
 
     public init(
         id: String, kind: AnnotationKind, paragraphId: String?,
         body: String, suggestedText: String?, priorText: String?,
         createdAt: Date, createdBySession: String?,
         status: AnnotationStatus, userResponse: String?,
-        resolvedAt: Date?, isStale: Bool
+        resolvedAt: Date?, isStale: Bool,
+        author: AnnotationAuthor? = nil, span: SpanAnchor? = nil,
+        resolvedSpanRange: Range<Int>? = nil
     ) {
         self.id = id; self.kind = kind; self.paragraphId = paragraphId
         self.body = body; self.suggestedText = suggestedText
@@ -41,6 +46,8 @@ public struct Annotation: Equatable, Sendable, Identifiable {
         self.createdBySession = createdBySession
         self.status = status; self.userResponse = userResponse
         self.resolvedAt = resolvedAt; self.isStale = isStale
+        self.author = author; self.span = span
+        self.resolvedSpanRange = resolvedSpanRange
     }
 }
 

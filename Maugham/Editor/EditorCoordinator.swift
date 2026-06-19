@@ -19,6 +19,23 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     private var isApplyingExternalUpdate = false
     weak var textView: NSTextView?
 
+    /// Review posture (WF1): when true the manuscript text is read-only —
+    /// `textView(_:shouldChangeTextIn:)` rejects every mutation (typing, paste,
+    /// delete) via `EditorEditPolicy`, and focus-dim + typewriter centering are
+    /// suppressed. Selection, scrolling, and copy are unaffected (they don't go
+    /// through shouldChangeTextIn). Plain stored property, no observers, so it
+    /// can't drive a SwiftUI↔AppKit loop (tripwire 2). Threaded ONE-WAY down
+    /// from ProjectWindow → EditorHost → EditorSurface; nothing reads it back.
+    /// Use `setReviewMode(_:)` to flip it so the posture re-applies immediately.
+    private(set) var isReviewMode = false
+
+    /// Weak handle to the floating selection toolbar overlay so the
+    /// selection-change callback can position/show/hide it. Lives in the scroll
+    /// view's superview (see EditorSurface), NOT a subview of the clipped
+    /// content view, so it can float above the text near the selection. Only
+    /// shown while `isReviewMode` is on.
+    weak var selectionToolbar: SelectionToolbarView?
+
     /// Cursor location to restore after the next attach. Set by EditorSurface
     /// when the user revisits a previously-open document.
     var initialCursorLocation: Int?
@@ -126,6 +143,30 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// to when the user clicks an annotation row.
     private var paragraphNavigateObserver: NSObjectProtocol?
 
+    /// Observer token for `maughamNavigateToAnnotation` — span-precise jump.
+    /// Looks the annotation id up in `resolvedReviewMarks`: an `absoluteRange`
+    /// selects the exact span; otherwise it falls back to the paragraph (the
+    /// legacy scroll-to-paragraph behaviour).
+    private var annotationNavigateObserver: NSObjectProtocol?
+
+    /// Observer token for `maughamToggleReviewMode` (⌘⌥R). Flips the membrane
+    /// SYNCHRONOUSLY in the key window's coordinator so `isReviewMode` is correct
+    /// before the next key event — closing the race where a fast Enter pressed
+    /// right after ⌘⌥R slipped a newline through `shouldChangeTextIn` before the
+    /// SwiftUI render round-trip pushed the new posture (Bug B). `ProjectWindow`
+    /// still toggles `isReviewModeOn` on the SAME notification (source of truth
+    /// for the indicator + annotation derive + persistence); `updateNSView`'s
+    /// `setReviewMode(isReviewModeOn)` is the no-op-guarded reconciler the two
+    /// paths converge through. Both toggle the same boolean from the same value,
+    /// so they can't diverge; the reconciler re-converges if state ever drifts.
+    private var reviewToggleObserver: NSObjectProtocol?
+
+    /// Observer token for `maughamReviewAnnotationsChanged`. When the
+    /// AnnotationsPane edits or withdraws an annotation, the key-window editor
+    /// re-pulls the open set and recomputes its crafted marks so the inline
+    /// mark + rail card update immediately (no review toggle needed).
+    private var reviewAnnotationsChangedObserver: NSObjectProtocol?
+
     /// Closure that maps a paragraph_id to its NSRange in textView.string.
     /// Set by EditorSurface.updateNSView so the coordinator can resolve
     /// ranges against the live Document's `displayRange(forParagraphId:)`.
@@ -148,6 +189,96 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// path and out of the cloud-conflict-only `applyExternalText` channel
     /// (see tripwire #7 / area #2).
     var checkboxToggleHandler: ((String, Int, MaughamCheckboxKind) -> Void)?
+
+    /// Maps a doc-wide UTF-16 location into the containing paragraph's id and
+    /// its UTF-16 NSRange in `displayText`. Wired by EditorHost from
+    /// `Document.paragraphRange(at:)`. Used by the review toolbar to translate
+    /// an absolute selection into a paragraph-relative span anchor.
+    var paragraphRangeAtLocation: ((Int) -> (id: String, range: NSRange)?)?
+
+    /// Invoked when the reviewer completes a Comment/Query/Suggest annotation
+    /// from the selection toolbar's inline composer. Delivers the annotation
+    /// kind, the anchored paragraph id, the sub-paragraph span, the typed body,
+    /// and (Suggest only) the replacement text. EditorHost wires this to
+    /// `Document.addReviewerAnnotation(...)`. Routing is one-way (no write-back
+    /// into a binding) — annotation creation is an op-log append, not a text
+    /// mutation, so tripwires 6/7 don't apply.
+    /// Async so the commit flow can AWAIT the op-log append before re-pulling the
+    /// annotation set — that's what makes a just-created annotation's mark + rail
+    /// card appear immediately, without the reviewer toggling review off/on. The
+    /// lagged `setReviewAnnotations` push (off `annotationsVersion`) remains the
+    /// reconciler for annotations created elsewhere; the await + provider-pull is
+    /// the deterministic path for the LOCAL create.
+    var createAnnotationHandler: ((AnnotationKind, String, SpanAnchor, String, String?) async -> Void)?
+
+    /// The inline composer (a small NSTextField) shown when the reviewer clicks
+    /// Comment/Query. Minimal by design — Task 5 restyles it into a margin slip.
+    private weak var annotationComposer: ReviewAnnotationComposerView?
+
+    // MARK: - Crafted review render (Task 5 / Component F)
+
+    /// Open annotations to render in review mode. Pushed ONE-WAY from
+    /// EditorSurface.updateNSView (sourced from the host's `Document`), versioned
+    /// so the recompute only fires when the set actually changes. Nothing reads
+    /// this back into a binding (tripwires 2 & 6).
+    private var reviewAnnotations: [Annotation] = []
+    /// Resolves a paragraphId to its DISPLAY text — used to convert an
+    /// annotation's grapheme-offset `resolvedSpanRange` to UTF-16 within the
+    /// paragraph. Wired by EditorHost from `Document.paragraph(id:)` stripped.
+    var reviewParagraphTextProvider: ((String) -> String?)?
+    /// Resolves a paragraphId to its UTF-16 NSRange in the full display string.
+    /// Wired by EditorHost from `Document.displayRange(forParagraphId:)`.
+    var reviewParagraphRangeProvider: ((String) -> NSRange?)?
+    /// Pulls the CURRENT open-annotation set on demand. Wired by EditorHost from
+    /// `Document.annotations(filter: .open)` — NOT gated on isReviewMode (it's
+    /// only CALLED on review entry, so it never re-derives during authoring).
+    /// Used by `setReviewMode(_:)` so entering review resolves marks
+    /// synchronously from the real set instead of waiting for the lagged
+    /// `setReviewAnnotations` push (which, on the first toggle after launch,
+    /// arrives only on the next SwiftUI render). One-way; nothing reads it back
+    /// (no tripwire-2 loop).
+    var reviewAnnotationsProvider: (() -> [Annotation])?
+    /// The local reviewer's display name (`UserPreferences.collaboratorDisplayName`),
+    /// pulled on demand so ownership (`AnnotationOwnership.isOwn`) can gate the
+    /// Edit / Delete affordances on the interactive margin card. Wired by
+    /// EditorHost; one-way (read-only).
+    var reviewLocalAuthorName: (() -> String)?
+    /// Cached, resolved-to-absolute marks. Recomputed when the annotation set or
+    /// the text changes — never per draw (tripwire 4). The overlay views read
+    /// this directly.
+    private(set) var resolvedReviewMarks: [ResolvedReviewMark] = []
+    private let reviewPalette = ReviewPalette()
+
+    /// Inline-mark overlay + right-margin rail, installed lazily on the text
+    /// view (like the gutter) and shown only in review mode.
+    private weak var markRenderer: AnnotationMarkRenderer?
+    private weak var marginRail: ReviewMarginRailView?
+
+    /// The annotation id whose margin card is currently selected (click-to-reveal
+    /// actions). nil = nothing selected. Read by `ReviewMarginRailView` to
+    /// emphasise the selected card; drives the inline actions row. Lives here (not
+    /// on the rail) so a redraw / recompute can reconcile it.
+    private(set) var selectedReviewCardId: String?
+
+    /// The annotation id of a just-rejected suggested change whose margin card is
+    /// holding the brief "stet" acknowledgement before it resolves out of the open
+    /// set. While set, `ReviewMarginRailView.drawCard` paints the STET treatment on
+    /// that card and the mark is deliberately NOT refreshed away. Mirrors the
+    /// AnnotationsPane `stetIds` dwell so the gesture reads in both surfaces.
+    private(set) var stetReviewCardId: String?
+
+    /// Handlers for the interactive margin-card actions, threaded ONE-WAY from
+    /// EditorHost (like `createAnnotationHandler`). Each is async so the card can
+    /// await the op-log append before refreshing marks. `reply` carries the reply
+    /// text; `edit` carries the new body + (suggestion-only) replacement. All
+    /// stamp the local author name on the host side where needed. Nothing reads a
+    /// binding back (tripwires 6/7) — these are op-log appends, not text writes.
+    var reviewAcceptHandler: ((String) async -> Void)?
+    var reviewRejectHandler: ((String) async -> Void)?
+    var reviewArchiveHandler: ((String) async -> Void)?
+    var reviewReplyHandler: ((String, String) async -> Void)?
+    var reviewEditHandler: ((String, String, String?) async -> Void)?
+    var reviewWithdrawHandler: ((String) async -> Void)?
 
     /// Number of times applyExternalText has been called. Internal so
     /// @testable importers (EditorIntegrationHarness) can assert invariants
@@ -251,6 +382,49 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                 textView.window?.makeFirstResponder(textView)
             }
         }
+        annotationNavigateObserver = NotificationCenter.default.addObserver(
+            forName: .maughamNavigateToAnnotation,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            MainActor.assumeIsolated {
+                guard let self,
+                      let annId = note.userInfo?["annotation_id"] as? String,
+                      let textView = self.textView else { return }
+                guard textView.window?.isKeyWindow == true else { return }
+                let pid = note.userInfo?["paragraph_id"] as? String
+                self.navigateToAnnotation(id: annId, fallbackParagraphId: pid, in: textView)
+            }
+        }
+        reviewToggleObserver = NotificationCenter.default.addObserver(
+            forName: .maughamToggleReviewMode,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                // Mirror FocusPostureModifier's key-window guard: the toggle is
+                // posted to every open window, but only the key window's editor
+                // (and ProjectWindow) acts. Flip the membrane synchronously to
+                // the toggled value so the very next keystroke sees it.
+                guard self.textView?.window?.isKeyWindow == true else { return }
+                self.setReviewMode(!self.isReviewMode)
+            }
+        }
+        reviewAnnotationsChangedObserver = NotificationCenter.default.addObserver(
+            forName: .maughamReviewAnnotationsChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                // Only the key window's editor re-pulls (mirrors the review
+                // toggle's key-window guard). `refreshReviewMarksFromProvider`
+                // is itself a no-op when not in review mode.
+                guard self.textView?.window?.isKeyWindow == true else { return }
+                self.refreshReviewMarksFromProvider()
+            }
+        }
     }
 
     deinit {
@@ -268,11 +442,25 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         if let token = paragraphNavigateObserver {
             NotificationCenter.default.removeObserver(token)
         }
+        if let token = annotationNavigateObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+        if let token = reviewToggleObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+        if let token = reviewAnnotationsChangedObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
     }
 
     /// Set the text view from outside (called by EditorSurface.makeNSView).
     func attach(to textView: NSTextView) {
         self.textView = textView
+        // Wire the review selection toolbar's button actions to the annotation
+        // flow (Suggest is Task 4; for now it falls through to nothing).
+        selectionToolbar?.onAction = { [weak self] kind in
+            self?.handleToolbarAction(kind)
+        }
         // Drop any debounced script post still pending from a prior text so a
         // stale script can't land on the freshly-attached doc's navigator.
         scriptUpdateNotifyTask?.cancel()
@@ -334,7 +522,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         self.typewriterScroll = enabled
         guard let textView else { return }
         refreshTypewriterInset(in: textView)
-        if enabled {
+        if enabled && !isReviewMode {
             scrollSelectionToVerticalCenter(in: textView)
         } else {
             // Inset shrank back to default; keep the caret on screen.
@@ -354,12 +542,414 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     func refreshTypewriterInset(in textView: NSTextView) {
         let clipHeight = textView.enclosingScrollView?
             .contentView.bounds.height ?? 0
-        let target = (typewriterScroll && clipHeight > 0)
+        // Review posture suppresses typewriter centering — restore the default
+        // inset so the active line isn't pinned to the viewport center.
+        let target = (typewriterScroll && !isReviewMode && clipHeight > 0)
             ? max(Self.defaultVerticalInset, clipHeight / 2)
             : Self.defaultVerticalInset
         guard abs(textView.textContainerInset.height - target) > 0.5 else { return }
         textView.textContainerInset = NSSize(
             width: textView.textContainerInset.width, height: target)
+    }
+
+    /// Review posture changed — flip the membrane and re-apply the posture.
+    ///
+    /// Threaded ONE-WAY from EditorSurface.updateNSView (tripwires 2 & 6). When
+    /// review turns ON: typing/paste/delete are rejected (via `EditorEditPolicy`
+    /// in `shouldChangeTextIn`), focus-dim and typewriter centering are
+    /// suppressed, and the selection toolbar becomes eligible to show. When it
+    /// turns OFF the prior focus/typewriter behavior is restored. Idempotent and
+    /// guarded against no-op churn (updateNSView calls every layout pass).
+    func setReviewMode(_ enabled: Bool) {
+        guard isReviewMode != enabled else { return }
+        isReviewMode = enabled
+        guard let textView else { return }
+        // Re-style from scratch so any focus-dim attributes from the prior
+        // posture are cleared, then re-apply focus-dim only when not in review.
+        retokenizeAndStyle()
+        applyFocusDim(in: textView)
+        refreshTypewriterInset(in: textView)
+        if !enabled {
+            // Leaving review: keep the caret on screen with the restored inset.
+            textView.scrollRangeToVisible(textView.selectedRange())
+        }
+        // Hide the toolbar when leaving review; show-on-selection resumes via
+        // textViewDidChangeSelection while review is on.
+        updateSelectionToolbar(in: textView)
+        // Entering review must show existing open annotations' marks + rail
+        // PROMPTLY, not only after some later unrelated update (Bug A). PULL the
+        // current set directly from the provider so this never depends on the
+        // lagged `setReviewAnnotations` push: on the first toggle after launch
+        // the coordinator's stored `reviewAnnotations` is still empty (review was
+        // off, so EditorHost gated its derivation to []) and the real set only
+        // arrives on the NEXT SwiftUI render — pulling here resolves marks from
+        // the real set immediately. The assignment mirrors `setReviewAnnotations`'
+        // no-op guard, so a subsequent push with the same set no-ops and there's
+        // no double recompute. (The provider is only invoked here, on entry, so
+        // it never re-derives annotations during authoring.)
+        if enabled {
+            if let provider = reviewAnnotationsProvider {
+                let pulled = provider()
+                if pulled != reviewAnnotations {
+                    reviewAnnotations = pulled
+                }
+            }
+            recomputeReviewMarks()
+        }
+        // Crafted-render overlays follow the review posture.
+        syncReviewOverlays()
+    }
+
+    // MARK: - Crafted review render wiring (Task 5)
+
+    /// Push the open-annotation set for the crafted review render. Called
+    /// ONE-WAY from EditorSurface.updateNSView. Recomputes resolved marks (and
+    /// redraws the overlays) only when the set actually changed — updateNSView
+    /// runs every layout pass, so this is guarded against no-op churn the same
+    /// way `setReviewMode` is.
+    func setReviewAnnotations(_ annotations: [Annotation]) {
+        guard annotations != reviewAnnotations else { return }
+        // A reject's annotationsVersion bump can drive this push DURING the stet
+        // dwell. Defer it so the held STET card isn't recomputed away early; the
+        // dwell completion (`rejectReviewCardWithStet`) re-pulls the fresh set.
+        if stetReviewCardId != nil { return }
+        reviewAnnotations = annotations
+        recomputeReviewMarks()
+        refreshReviewOverlays()
+    }
+
+    /// Re-pull the current open-annotation set from `reviewAnnotationsProvider`
+    /// and recompute marks. Reuses the same pull path as `setReviewMode`'s
+    /// entry case so a just-created annotation renders IMMEDIATELY without the
+    /// reviewer toggling review off/on (the SwiftUI observation→push chain off
+    /// `annotationsVersion` is unreliable for the local-create case). Invoked
+    /// from `commitAnnotation` AFTER the create's op-log append has been awaited.
+    /// Only acts in review mode with a provider wired, and is no-op-guarded the
+    /// same way as the push, so a subsequent `setReviewAnnotations` with the same
+    /// set won't double-recompute. The provider is called on entry + after an
+    /// explicit create only — never per keystroke.
+    func refreshReviewMarksFromProvider() {
+        guard isReviewMode, let provider = reviewAnnotationsProvider else { return }
+        let pulled = provider()
+        guard pulled != reviewAnnotations else { return }
+        reviewAnnotations = pulled
+        recomputeReviewMarks()
+        refreshReviewOverlays()
+    }
+
+    /// Resolve every review annotation to absolute UTF-16 coordinates against the
+    /// current display string. Span-anchored marks get an `absoluteRange`;
+    /// paragraph-level / stale-span ones are rail-only (`absoluteRange == nil`)
+    /// but still anchored at the paragraph start. Cached in `resolvedReviewMarks`;
+    /// the overlay draws read the cache, never recompute (tripwire 4).
+    private func recomputeReviewMarks() {
+        let localName = reviewLocalAuthorName?() ?? ""
+        var marks: [ResolvedReviewMark] = []
+        for ann in reviewAnnotations {
+            let color = reviewPalette.color(for: ann.author)
+            let authorName = ann.author?.displayName.isEmpty == false
+                ? ann.author!.displayName
+                : (ann.author?.sourceKind == .claude ? "Claude" : "Reviewer")
+
+            var absolute: NSRange?
+            var railAnchor = 0
+
+            if let pid = ann.paragraphId,
+               let paraRange = reviewParagraphRangeProvider?(pid) {
+                railAnchor = paraRange.location
+                if let grapheme = ann.resolvedSpanRange,
+                   let paraText = reviewParagraphTextProvider?(pid),
+                   let utf16 = ReviewSpanCapture.graphemeRangeToUTF16(grapheme, in: paraText),
+                   utf16.length > 0 {
+                    let abs = NSRange(
+                        location: paraRange.location + utf16.location,
+                        length: utf16.length)
+                    absolute = abs
+                    railAnchor = abs.location
+                }
+            }
+
+            marks.append(ResolvedReviewMark(
+                id: ann.id,
+                kind: ann.kind,
+                color: color,
+                absoluteRange: absolute,
+                railAnchorLocation: railAnchor,
+                authorName: authorName,
+                body: ann.body,
+                suggestedText: ann.suggestedText,
+                isOwn: AnnotationOwnership.isOwn(ann, localName: localName)))
+        }
+        resolvedReviewMarks = marks
+        // A recompute can drop the currently-selected card (e.g. it was
+        // withdrawn / accepted out of the open set). Clear the selection so the
+        // actions row doesn't dangle over nothing.
+        if let selected = selectedReviewCardId,
+           !marks.contains(where: { $0.id == selected }) {
+            clearReviewCardSelection()
+        }
+    }
+
+    /// Install the overlays if missing and reconcile their visibility with the
+    /// review posture. Idempotent.
+    private func syncReviewOverlays() {
+        guard let textView else { return }
+        if isReviewMode {
+            installReviewOverlaysIfNeeded(in: textView)
+        }
+        markRenderer?.isHidden = !isReviewMode
+        marginRail?.isHidden = !isReviewMode
+        layoutReviewOverlays(in: textView)
+        refreshReviewOverlays()
+    }
+
+    private func installReviewOverlaysIfNeeded(in textView: NSTextView) {
+        if markRenderer == nil {
+            let r = AnnotationMarkRenderer(frame: textView.bounds)
+            r.coordinator = self
+            r.associatedTextView = textView
+            r.autoresizingMask = [.width, .height]
+            textView.addSubview(r)
+            markRenderer = r
+        }
+        if marginRail == nil {
+            let rail = ReviewMarginRailView(frame: .zero)
+            rail.coordinator = self
+            rail.associatedTextView = textView
+            rail.autoresizingMask = [.height]
+            textView.addSubview(rail)
+            marginRail = rail
+        }
+    }
+
+    /// Frame the overlays: the mark renderer covers the whole text view (it draws
+    /// over glyphs); the rail occupies the right inset gutter.
+    func layoutReviewOverlays(in textView: NSTextView) {
+        markRenderer?.frame = textView.bounds
+        if let rail = marginRail {
+            let inset = textView.textContainerInset.width
+            // Right gutter spans from the column's right edge to the view edge.
+            let railWidth = max(0, inset)
+            rail.frame = NSRect(
+                x: textView.bounds.width - railWidth,
+                y: 0,
+                width: railWidth,
+                height: max(textView.bounds.height, textView.frame.height))
+        }
+    }
+
+    /// Mark both overlays dirty (cheap — they bound their own work to the visible
+    /// range). Called on annotation-change, text-change, scroll, and resize.
+    func refreshReviewOverlays() {
+        markRenderer?.needsDisplay = true
+        marginRail?.needsDisplay = true
+    }
+
+    // MARK: - Span-precise navigation (Part 2)
+
+    /// Select an annotation's exact span (and scroll it into view). Looks the id
+    /// up in `resolvedReviewMarks`: a resolved `absoluteRange` is selected
+    /// directly; a paragraph-level / stale-span annotation (or one not in the
+    /// resolved set — e.g. review is off) falls back to scrolling to the
+    /// paragraph (the legacy behaviour). Selecting a range in review mode is
+    /// fine: the read-only membrane blocks EDITS, not selection.
+    func navigateToAnnotation(
+        id: String, fallbackParagraphId: String?, in textView: NSTextView
+    ) {
+        let length = (textView.string as NSString).length
+        if let mark = resolvedReviewMarks.first(where: { $0.id == id }),
+           let range = mark.absoluteRange,
+           range.location >= 0, range.location + range.length <= length {
+            textView.setSelectedRange(range)
+            textView.scrollRangeToVisible(range)
+            textView.window?.makeFirstResponder(textView)
+            return
+        }
+        // Fallback: paragraph start (length-0 cursor), mirroring the legacy
+        // `.maughamNavigateToParagraph` handler.
+        guard let pid = fallbackParagraphId,
+              let provider = paragraphRangeProvider,
+              let range = provider(pid),
+              range.location >= 0, range.location + range.length <= length
+        else { return }
+        textView.setSelectedRange(NSRange(location: range.location, length: 0))
+        textView.scrollRangeToVisible(range)
+        textView.window?.makeFirstResponder(textView)
+    }
+
+    // MARK: - Interactive margin cards (Part 1)
+
+    /// Toggle / set the selected margin card. Selecting also navigates to the
+    /// annotation's span (span-precise) and shows the inline actions row;
+    /// re-clicking the same card (or `nil`) clears the selection.
+    func selectReviewCard(id: String?) {
+        if selectedReviewCardId == id {
+            clearReviewCardSelection()
+            return
+        }
+        selectedReviewCardId = id
+        if let id, let textView {
+            // Span-precise select on card click (same path as the pane).
+            let pid = resolvedReviewMarks.first(where: { $0.id == id })
+                .flatMap { _ in reviewAnnotationParagraphId(id) }
+            navigateToAnnotation(id: id, fallbackParagraphId: pid, in: textView)
+        }
+        marginRail?.reloadCardSelection()
+        refreshReviewOverlays()
+    }
+
+    func clearReviewCardSelection() {
+        guard selectedReviewCardId != nil else { return }
+        selectedReviewCardId = nil
+        marginRail?.reloadCardSelection()
+        refreshReviewOverlays()
+    }
+
+    /// The paragraph id for a resolved mark, used as the navigation fallback when
+    /// a card is clicked. Pulled from the live annotation set (the resolved mark
+    /// doesn't carry the pid). Best-effort; nil is a harmless no-fallback.
+    private func reviewAnnotationParagraphId(_ id: String) -> String? {
+        reviewAnnotations.first(where: { $0.id == id })?.paragraphId
+    }
+
+    /// Perform a margin-card action against the annotation. Dispatches to the
+    /// host-threaded handler; Edit / Reply open the inline composer; Delete
+    /// confirms via NSAlert first. After a disposition / edit lands, the marks
+    /// are refreshed from the provider (same path as the pane's notification),
+    /// so the card list updates without a review toggle.
+    func performReviewCardAction(_ action: ReviewCardAction, annotationId id: String) {
+        guard let mark = resolvedReviewMarks.first(where: { $0.id == id }) else { return }
+        switch action {
+        case .accept:
+            runReviewAction { [weak self] in await self?.reviewAcceptHandler?(id) }
+        case .reject:
+            rejectReviewCardWithStet(id: id)
+        case .archive:
+            runReviewAction { [weak self] in await self?.reviewArchiveHandler?(id) }
+        case .reply:
+            beginCardComposer(
+                placeholder: "Reply\u{2026}", initialText: "", for: id
+            ) { [weak self] value in
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return }
+                self?.runReviewAction {
+                    await self?.reviewReplyHandler?(id, trimmed)
+                }
+            }
+        case .edit:
+            let isSuggest = (mark.kind == .suggestedChange)
+            let initial = isSuggest ? (mark.suggestedText ?? "") : mark.body
+            beginCardComposer(
+                placeholder: isSuggest ? "Replacement\u{2026}" : "Edit\u{2026}",
+                initialText: initial, for: id
+            ) { [weak self] value in
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return }
+                // For a suggestion the field edits the replacement, keeping the
+                // existing body; for others it edits the body, no replacement.
+                if isSuggest {
+                    self?.runReviewAction {
+                        await self?.reviewEditHandler?(id, mark.body, trimmed)
+                    }
+                } else {
+                    self?.runReviewAction {
+                        await self?.reviewEditHandler?(id, trimmed, nil)
+                    }
+                }
+            }
+        case .delete:
+            confirmDeleteCard(id: id, authorName: mark.authorName)
+        }
+    }
+
+    /// Reject from the margin card with the proofreader's "stet" acknowledgement.
+    /// Records the reject immediately (never blocked), dismisses the actions row,
+    /// then holds the card on-screen with a STET treatment for ~2s before
+    /// refreshing the marks (which drops the now-rejected annotation out of the
+    /// open set). Mirrors the AnnotationsPane dwell so the gesture reads here too.
+    private func rejectReviewCardWithStet(id: String) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.reviewRejectHandler?(id)
+            // Keep the card present (don't refresh it away yet) and paint STET.
+            self.stetReviewCardId = id
+            self.clearReviewCardSelection()  // hides the actions row + redraws; card stays
+            self.refreshReviewOverlays()     // repaint rail (STET) + inline (strike off)
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            self.stetReviewCardId = nil
+            self.refreshReviewMarksFromProvider()
+        }
+    }
+
+    /// Run a disposition handler, then refresh marks from the provider so the
+    /// card list reconciles (the resolved annotation drops out of the open set).
+    private func runReviewAction(_ work: @escaping () async -> Void) {
+        Task { @MainActor [weak self] in
+            await work()
+            self?.clearReviewCardSelection()
+            self?.refreshReviewMarksFromProvider()
+        }
+    }
+
+    /// Show the inline `ReviewAnnotationComposerView` near the selected card for
+    /// Edit / Reply (re-uses the authoring composer — plain NSView, no popover).
+    /// Positioned at the rail's selected-card rect in the scroll-view overlay
+    /// parent, mirroring `beginAuthoringAnnotation`.
+    private func beginCardComposer(
+        placeholder: String, initialText: String, for id: String,
+        onCommit: @escaping (String) -> Void
+    ) {
+        guard let parent = selectionToolbar?.superview else { return }
+        annotationComposer?.dismiss()
+        let composer = ReviewAnnotationComposerView(
+            placeholder: placeholder,
+            initialText: initialText,
+            onCommit: { [weak self] value in
+                self?.annotationComposer?.dismiss()
+                self?.annotationComposer = nil
+                onCommit(value)
+            },
+            onCancel: { [weak self] in
+                self?.annotationComposer?.dismiss()
+                self?.annotationComposer = nil
+            })
+        parent.addSubview(composer)
+        annotationComposer = composer
+        // Position next to the selected card. The rail reports the card's rect in
+        // its own coords; convert to the overlay parent.
+        if let rail = marginRail,
+           let cardRect = rail.cardRect(forAnnotationId: id) {
+            let inParent = rail.convert(cardRect, to: parent)
+            composer.setFrameOrigin(NSPoint(
+                x: inParent.minX,
+                y: inParent.minY - composer.frame.height - 4))
+        } else if let toolbar = selectionToolbar {
+            composer.setFrameOrigin(toolbar.frame.origin)
+        }
+        composer.focus()
+    }
+
+    /// Confirm-then-withdraw for the reviewer's own annotation. NSAlert is fine
+    /// here — the rail is an AppKit NSView in a real window; the alert sheets off
+    /// it. (Reported in the task as a possible friction point; in practice the
+    /// alert presents cleanly from the text view's window.)
+    private func confirmDeleteCard(id: String, authorName: String) {
+        guard let window = textView?.window else {
+            // No window (test / detached) — withdraw without a prompt.
+            runReviewAction { [weak self] in await self?.reviewWithdrawHandler?(id) }
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Delete your annotation"
+        alert.informativeText =
+            "This removes your annotation. The history is preserved, but the annotation will no longer appear here or in the editor."
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+        alert.alertStyle = .warning
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.runReviewAction { await self?.reviewWithdrawHandler?(id) }
+        }
     }
 
     /// Focus mode settings changed — update and re-dim immediately.
@@ -637,6 +1227,17 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     func textView(_ textView: NSTextView,
                   shouldChangeTextIn affectedCharRange: NSRange,
                   replacementString: String?) -> Bool {
+        // Review posture (WF1): annotate-only read-only membrane. When review
+        // mode is on, the manuscript text cannot be mutated through the editor.
+        // This is the single choke point for every text mutation (typing, paste,
+        // delete, drag-drop, smart-typography re-insert) because AppKit funnels
+        // them all through shouldChangeTextIn. Selection / scroll / copy do NOT
+        // pass through here, so they keep working. Returning false here also
+        // stops the smart-typography path below from running its insertText, so
+        // no mutation leaks. Placed at the very top, before the existing guard.
+        guard EditorEditPolicy.allowsTextMutation(isReviewMode: isReviewMode) else {
+            return false
+        }
         guard let replacementString,
               !isApplyingExternalUpdate else { return true }
 
@@ -750,6 +1351,13 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             scrollView.contentView.scroll(to: origin)
             scrollView.reflectScrolledClipView(scrollView.contentView)
         }
+        // Text edits shift every absolute mark position; recompute + redraw the
+        // crafted-render overlays. (In review posture text is read-only, so this
+        // is a no-op there; it keeps the cache honest on the rare edit path.)
+        if isReviewMode {
+            recomputeReviewMarks()
+            refreshReviewOverlays()
+        }
     }
 
     func textViewDidChangeSelection(_ notification: Notification) {
@@ -763,14 +1371,17 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                 lastCycleTargetLineRange = nil
             }
         }
-        if typewriterScroll {
+        if typewriterScroll && !isReviewMode {
             scrollSelectionToVerticalCenter(in: textView)
         }
         // Cursor-only selection changes (arrow keys, click) don't go through
-        // retokenizeAndStyle. Re-dim here.
+        // retokenizeAndStyle. Re-dim here (no-op in review posture).
         applyFocusDim(in: textView)
         onCursorChanged?(textView.selectedRange().location)
         onElementChanged?(currentElementAbbreviation(in: textView))
+        // One-way drive of the floating selection toolbar (review posture only).
+        // No write-back into SwiftUI state.
+        updateSelectionToolbar(in: textView)
     }
 
     // MARK: - Tab/Shift+Tab cycle
@@ -985,6 +1596,227 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         textView.window?.makeFirstResponder(textView)
     }
 
+    /// SPIKE (collab review): the selection's bounding rect in TEXT-VIEW
+    /// coordinates (the same space as `textView.frame` / a subview's frame),
+    /// or nil when the selection is empty.
+    ///
+    /// `boundingRect(forGlyphRange:in:)` returns container-space coordinates.
+    /// The text view offsets its container by `textContainerInset` (the column
+    /// is centered horizontally via `.width`, and `.height` is the top inset —
+    /// 24pt normally, ~half a viewport under typewriter scroll). Adding the
+    /// inset to the rect's origin lands it in view space. This mirrors
+    /// `scrollSelectionToVerticalCenter`'s `lineRect.midY + inset.height`
+    /// correction and `ElementGutterView`'s `lineRect.origin.y + yOffset`.
+    func selectionViewRect(in textView: NSTextView) -> NSRect? {
+        let selection = textView.selectedRange()
+        guard selection.length > 0,
+              let layoutManager = textView.layoutManager,
+              let container = textView.textContainer else { return nil }
+        let glyphRange = layoutManager.glyphRange(
+            forCharacterRange: selection, actualCharacterRange: nil)
+        let containerRect = layoutManager.boundingRect(
+            forGlyphRange: glyphRange, in: container)
+        let inset = textView.textContainerInset
+        return NSRect(
+            x: containerRect.origin.x + inset.width,
+            y: containerRect.origin.y + inset.height,
+            width: containerRect.size.width,
+            height: containerRect.size.height)
+    }
+
+    /// Drive the floating selection toolbar one-way from the AppKit selection
+    /// callback. Show + position above a non-empty selection while review
+    /// posture is on; hide otherwise. No SwiftUI state round-trip (tripwire 2):
+    /// the toolbar is a plain NSView the coordinator owns by weak reference.
+    private func updateSelectionToolbar(in textView: NSTextView) {
+        guard let toolbar = selectionToolbar,
+              let parent = toolbar.superview else { return }
+        // Only surface the toolbar in review posture; in normal authoring the
+        // editor stays clean.
+        guard isReviewMode, let rectInTextView = selectionViewRect(in: textView)
+        else {
+            toolbar.isHidden = true
+            return
+        }
+        // Convert the selection rect from text-view coords into the overlay
+        // parent's coords. `convert(_:to:)` walks the view tree and accounts
+        // for the scroll view's clip/scroll offset automatically, so as the
+        // document scrolls the toolbar tracks the on-screen selection.
+        let rectInParent = textView.convert(rectInTextView, to: parent)
+        // The toolbar is pure-frame (no Auto Layout): it sized itself to its
+        // content at construction, so read its actual frame size rather than
+        // `fittingSize` (which is .zero for an unconstrained NSView).
+        let size = toolbar.frame.size
+        let gap: CGFloat = 6
+        // Position just ABOVE the selection. AppKit's default coordinate system
+        // is y-up (flipped == false for the scroll view's superview), so
+        // "above" means a HIGHER maxY. Place the toolbar's bottom edge `gap`
+        // above the selection's top edge (rectInParent.maxY).
+        var originX = rectInParent.midX - size.width / 2
+        var originY = rectInParent.maxY + gap
+        // Clamp within the parent's bounds so it never clips off-edge.
+        originX = max(parent.bounds.minX,
+                      min(originX, parent.bounds.maxX - size.width))
+        originY = max(parent.bounds.minY,
+                      min(originY, parent.bounds.maxY - size.height))
+        toolbar.setFrameOrigin(NSPoint(x: originX, y: originY))
+        toolbar.isHidden = false
+    }
+
+    // MARK: - Review annotation authoring (Task 3)
+
+    /// Map a `SelectionToolbarView.Kind` to the annotation flow. All three open
+    /// the inline composer; Suggest pre-fills it with the selected text so the
+    /// reviewer edits it into the replacement.
+    private func handleToolbarAction(_ kind: SelectionToolbarView.Kind) {
+        switch kind {
+        case .comment: beginAuthoringAnnotation(kind: .comment)
+        case .query:   beginAuthoringAnnotation(kind: .query)
+        case .suggest: beginAuthoringAnnotation(kind: .suggestedChange)
+        }
+    }
+
+    /// Capture the paragraph id + sub-paragraph span for the current selection,
+    /// then present a minimal inline composer. Comment/Query collect a body and
+    /// start empty; Suggest pre-fills with the selected text and the reviewer
+    /// edits it into the replacement (→ a `.suggestedChange` annotation with
+    /// `original` = selected text, `suggestedText` = replacement). No-op if the
+    /// selection can't be mapped to a paragraph-relative span.
+    private func beginAuthoringAnnotation(kind: AnnotationKind) {
+        guard let textView,
+              let parent = selectionToolbar?.superview,
+              let captured = capturedSpanForSelection(in: textView)
+        else { return }
+
+        // Tear down any prior composer before showing a new one.
+        annotationComposer?.dismiss()
+
+        let isSuggest = (kind == .suggestedChange)
+        let placeholder: String
+        switch kind {
+        case .comment:         placeholder = "Comment…"
+        case .query:           placeholder = "Query…"
+        case .suggestedChange: placeholder = "Replacement…"
+        default:               placeholder = "Note…"
+        }
+
+        let composer = ReviewAnnotationComposerView(
+            placeholder: placeholder,
+            initialText: isSuggest ? captured.selectedText : "",
+            onCommit: { [weak self] value in
+                self?.commitAnnotation(
+                    kind: kind,
+                    paragraphId: captured.paragraphId,
+                    span: captured.span,
+                    originalText: captured.selectedText,
+                    composerValue: value)
+            },
+            onCancel: { [weak self] in
+                self?.annotationComposer?.dismiss()
+                self?.annotationComposer = nil
+            })
+        parent.addSubview(composer)
+        annotationComposer = composer
+
+        // Position the composer where the toolbar is (just above the selection),
+        // then hide the toolbar so they don't overlap.
+        if let toolbar = selectionToolbar {
+            composer.setFrameOrigin(toolbar.frame.origin)
+            toolbar.isHidden = true
+        }
+        composer.focus()
+    }
+
+    /// Compute (paragraphId, SpanAnchor, selectedText) for the current non-empty
+    /// selection, clamped to the paragraph at the selection's start. Returns nil
+    /// if the selection is empty, can't be located, or yields no usable span.
+    /// `selectedText` is the clamped (within-paragraph) display text — the same
+    /// substring the span anchors — used to pre-fill Suggest and as the diff's
+    /// original.
+    private func capturedSpanForSelection(
+        in textView: NSTextView
+    ) -> (paragraphId: String, span: SpanAnchor, selectedText: String)? {
+        let sel = textView.selectedRange()
+        guard sel.length > 0,
+              let provider = paragraphRangeAtLocation,
+              let located = provider(sel.location) else { return nil }
+        let paraStart = located.range.location
+        let paraEnd = located.range.location + located.range.length
+        guard let relative = ReviewSpanCapture.paragraphRelativeRange(
+                absolute: sel.location..<(sel.location + sel.length),
+                paragraph: paraStart..<paraEnd) else { return nil }
+        // Slice the paragraph's display text out of the textView (the stripped
+        // display form — the same form `paragraphRange(at:)` measured).
+        let ns = textView.string as NSString
+        guard located.range.location >= 0,
+              located.range.location + located.range.length <= ns.length
+        else { return nil }
+        let paragraphText = ns.substring(with: located.range)
+        guard let span = ReviewSpanCapture.captureSpan(
+                in: paragraphText, relativeUTF16: relative) else { return nil }
+        // The selected text is the clamped relative range against the paragraph
+        // display text (UTF-16, the same unit `relative` is in).
+        let paraNS = paragraphText as NSString
+        let selectedText = paraNS.substring(
+            with: NSRange(location: relative.lowerBound,
+                          length: relative.upperBound - relative.lowerBound))
+        return (located.id, span, selectedText)
+    }
+
+    /// Commit a composed annotation. Comment/Query use `composerValue` as the
+    /// body (empty → cancel). Suggest diffs the composer value against the
+    /// original selected text via `SuggestedEditDiff`; an unchanged/empty edit
+    /// creates nothing (just dismisses).
+    private func commitAnnotation(
+        kind: AnnotationKind, paragraphId: String,
+        span: SpanAnchor, originalText: String, composerValue: String
+    ) {
+        annotationComposer?.dismiss()
+        annotationComposer = nil
+
+        let body: String
+        let suggestedText: String?
+        if kind == .suggestedChange {
+            guard let diff = SuggestedEditDiff.make(
+                    original: originalText, edited: composerValue) else {
+                // Unchanged / empty → nothing to suggest.
+                restoreToolbarAfterDismiss()
+                return
+            }
+            body = diff.body
+            suggestedText = diff.suggestedText
+        } else {
+            let trimmed = composerValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {  // empty body → cancel
+                restoreToolbarAfterDismiss()
+                return
+            }
+            body = trimmed
+            suggestedText = nil
+        }
+
+        // Await the op-log append, THEN re-pull the annotation set so the new
+        // annotation's inline mark + rail card render immediately (no review
+        // toggle). The lagged SwiftUI push off `annotationsVersion` stays the
+        // reconciler for annotations created elsewhere; this is the deterministic
+        // local-create path. The toolbar dismiss is synchronous (UI), independent
+        // of the persist.
+        if let handler = createAnnotationHandler {
+            Task { @MainActor [weak self] in
+                await handler(kind, paragraphId, span, body, suggestedText)
+                self?.refreshReviewMarksFromProvider()
+            }
+        }
+        restoreToolbarAfterDismiss()
+    }
+
+    /// Collapse the selection so the toolbar hides on the next selection pass.
+    private func restoreToolbarAfterDismiss() {
+        textView?.setSelectedRange(
+            NSRange(location: textView?.selectedRange().location ?? 0, length: 0))
+        if let textView { updateSelectionToolbar(in: textView) }
+    }
+
     private func scrollSelectionToVerticalCenter(in textView: NSTextView) {
         guard let layoutManager = textView.layoutManager,
               let textContainer = textView.textContainer else { return }
@@ -1022,6 +1854,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
 
     private func applyFocusDim(in textView: NSTextView) {
         guard let storage = textView.textStorage else { return }
+        // Review posture turns focus-dim off — the reviewer reads the whole
+        // crafted draft, not a dimmed sentence/paragraph window.
+        guard !isReviewMode else { return }
         let useSentence = sentenceFocus
         let useParagraph = paragraphFocus && !sentenceFocus
         guard useSentence || useParagraph else { return }
