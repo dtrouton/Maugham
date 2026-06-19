@@ -21,7 +21,8 @@ enum ReviewCardAction: Equatable {
     /// Delete (withdraw) your OWN annotation (own-only; confirmed first).
     case delete
 
-    /// Short button title for the margin card. Kept terse — the card is narrow.
+    /// Short label — used as the icon button's tooltip (the narrow card uses
+    /// icon-only buttons, so this no longer renders as a title and can't truncate).
     func label(for kind: AnnotationKind) -> String {
         switch self {
         case .accept:  return kind == .comment ? "Got it" : "Accept"
@@ -30,6 +31,19 @@ enum ReviewCardAction: Equatable {
         case .reply:   return "Reply"
         case .edit:    return "Edit"
         case .delete:  return "Delete"
+        }
+    }
+
+    /// SF Symbol for the margin card's icon-only button (avoids truncation in the
+    /// narrow card; the `label` becomes the tooltip).
+    var systemImageName: String {
+        switch self {
+        case .accept:  return "checkmark"
+        case .reject:  return "xmark"
+        case .archive: return "archivebox"
+        case .reply:   return "arrowshape.turn.up.left"
+        case .edit:    return "pencil"
+        case .delete:  return "trash"
         }
     }
 }

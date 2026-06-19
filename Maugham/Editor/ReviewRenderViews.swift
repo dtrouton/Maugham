@@ -576,14 +576,18 @@ final class ReviewMarginRailView: NSView {
         stack.alignment = .centerY
         stack.detachesHiddenViews = true
         for action in actions {
+            let label = action.label(for: mark.kind)
             let button = NSButton(
-                title: action.label(for: mark.kind),
-                target: self, action: #selector(actionButtonTapped(_:)))
+                title: "", target: self, action: #selector(actionButtonTapped(_:)))
+            // Icon-only so nothing truncates in the narrow (180pt) card; the
+            // label becomes the hover tooltip.
+            button.image = NSImage(
+                systemSymbolName: action.systemImageName, accessibilityDescription: label)
+            button.imagePosition = .imageOnly
             button.bezelStyle = .rounded
-            button.controlSize = .mini
-            button.font = NSFont.systemFont(ofSize: 10)
-            // Destructive tint for Delete; prominent-ish for the primary
-            // disposition on the kind (accept/reply).
+            button.controlSize = .small
+            button.toolTip = label
+            // Destructive tint for Delete.
             if action == .delete {
                 button.contentTintColor = .systemRed
             }
