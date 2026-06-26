@@ -129,6 +129,36 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// doc callers (attach, applyExternalText, theme) deliver immediately.
     private var metricsNotifyTask: Task<Void, Never>?
 
+    /// Trailing-edge debounce for the VISUAL syntax repaint on the typing fast
+    /// path (the "settle" behaviour). While typing, the compute stays live
+    /// (tokenize, metrics, element, cursor, scroll) but the actual
+    /// `applyTypography` paint + focus-dim are deferred to the trailing edge of
+    /// the typing burst. This stops transient invalid syntax states (e.g.
+    /// editing at the end of an emphasis run momentarily makes `*italic *`,
+    /// which is not valid CommonMark) from flipping the styling on every
+    /// keystroke — the styling re-renders once, at rest, when typing pauses.
+    /// Whole-doc callers (`attach`, `applyExternalText`, theme/typography/focus
+    /// changes) paint synchronously and are unaffected. Cancelled in `deinit`,
+    /// `attach`, and `applyExternalText` so a stale paint never lands on a torn-
+    /// down or replaced document.
+    private var deferredRestyleTask: Task<Void, Never>?
+
+    /// Settle delay (ms) for `deferredRestyleTask`. ~300ms matches the existing
+    /// script/metrics debounce and reads as "styling is secondary to the text".
+    /// Overridable so tests can shorten it.
+    var restyleSettleDelayMs: Int = 300
+
+    /// The document text from BEFORE the current typing burst began. Captured on
+    /// the first edit of a burst (when no settle is pending) and character-diffed
+    /// against the post-burst text at settle time so the settle paint restyles
+    /// ONLY the paragraph(s) the burst changed — never the whole document. A
+    /// whole-doc `setAttributes` invalidates all layout and snaps the scroll
+    /// origin toward the top, and the capture/restore that papers over that
+    /// mis-lands on the last line; windowing the settle avoids the relayout
+    /// entirely. A character diff (not a token diff) is used so it works for
+    /// plain prose, which produces no syntax tokens to diff. nil between bursts.
+    private var burstBaselineText: String?
+
     /// Observer token for `maughamNavigateToScene` notifications.
     private var navigateObserver: NSObjectProtocol?
 
@@ -430,6 +460,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     deinit {
         scriptUpdateNotifyTask?.cancel()
         metricsNotifyTask?.cancel()
+        deferredRestyleTask?.cancel()
         if let token = navigateObserver {
             NotificationCenter.default.removeObserver(token)
         }
@@ -470,6 +501,11 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // land after it.
         metricsNotifyTask?.cancel()
         metricsNotifyTask = nil
+        // Drop any pending settle paint from a prior text — `retokenizeAndStyle`
+        // below paints the freshly-attached doc synchronously.
+        deferredRestyleTask?.cancel()
+        deferredRestyleTask = nil
+        burstBaselineText = nil
         applyAppearance(theme: theme, typography: typography)
         retokenizeAndStyle()
         if let location = initialCursorLocation {
@@ -498,6 +534,12 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         scriptUpdateNotifyTask = nil
         metricsNotifyTask?.cancel()
         metricsNotifyTask = nil
+        // A cloud-conflict replace repaints the whole buffer synchronously via
+        // retokenizeAndStyle below; cancel any pending typing settle paint so it
+        // can't land afterwards on the replaced text.
+        deferredRestyleTask?.cancel()
+        deferredRestyleTask = nil
+        burstBaselineText = nil
         guard let textView, textView.string != text else { return }
         isApplyingExternalUpdate = true
         defer { isApplyingExternalUpdate = false }
@@ -1053,9 +1095,6 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             text = textView.string
             text.makeContiguousUTF8()
         }
-        // Capture the pre-restyle tokens BEFORE we overwrite `lastTokens`, so
-        // the window diff compares old→new. nil when not windowing.
-        let priorTokens = lastTokens
         // P1-editor: parse the Fountain script EXACTLY ONCE per keystroke and
         // thread it through token derivation + styling + the scene-navigator
         // notification, instead of parsing the whole document three times
@@ -1089,58 +1128,153 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // word count is one whitespace split of the already-nativized `text`.
         // This supersedes EditorHost's `metricsMirrorTask`. See spec §7.
         deliverMetrics(text: text, debounced: windowedTyping)
-        // On the typing fast path, restrict structural attribute application to
-        // the classification-changed window (diffed old→new tokens). Any
-        // structural inconsistency falls back to whole-doc (window == nil).
-        // NSTextStorage shifts attributes with the text automatically, so the
-        // unchanged head/tail of the document keeps its (already correct)
-        // attributes and only the window is re-applied. See TokenRestyleWindow.
-        var restyleWindow: NSRange? = nil
+        // Sync typing attributes so the caret on empty lines matches the
+        // body font/paragraph style instead of the system default. Cheap and
+        // non-visual-churn, so it stays live on both paths.
+        textView.typingAttributes = mode.bodyTypingAttributes(
+            theme: theme, typography: typography)
+        // The actual visual repaint (applyTypography + focus-dim). On the typing
+        // fast path this is DEFERRED to the trailing edge of the burst so the
+        // styling doesn't re-render on every keystroke — that's what stops the
+        // transient-invalid-state flicker (e.g. `*italic *` while editing the
+        // end of an emphasis run). All other callers paint synchronously.
         if windowedTyping {
-            switch TokenRestyleWindow.decide(
-                oldTokens: priorTokens,
-                newTokens: tokens,
-                storageLength: storage.length) {
-            case .noChange:
-                // Identical (kind,length) stream: attributes already correct.
-                // Apply an empty window so the modes do no structural writes.
-                restyleWindow = NSRange(location: 0, length: 0)
-            case .window(let range):
-                restyleWindow = range
-            case .fullDocument:
-                restyleWindow = nil
-            }
+            // The burst baseline text was captured in shouldChangeTextIn on the
+            // first edit; the settle paint windows the restyle to the changed
+            // paragraphs.
+            scheduleDeferredRestyle()
+        } else {
+            // Whole-doc paint: every non-typing caller (attach, applyExternalText,
+            // theme/typography/focus changes) repaints the entire document.
+            burstBaselineText = nil
+            applyModeTypography(in: storage, tokens: tokens, restyleWindow: nil)
+            applyFocusDim(in: textView)
         }
-        // ProseMode supports an optional wiki-link resolver for `[[Title]]`
-        // styling. Other modes use the protocol's resolver-less call.
+        // Fire element callback: text edits can reclassify the line under the
+        // cursor without moving the selection, so we must fire here too (not
+        // only from textViewDidChangeSelection). Compute stays live on both
+        // paths, so the status footer / gutter element stay responsive.
+        onElementChanged?(currentElementAbbreviation(in: textView))
+    }
+
+    /// Applies the mode's structural typography to `storage`. ProseMode supports
+    /// an optional wiki-link resolver for `[[Title]]` styling; other modes use
+    /// the protocol's resolver-less call. `restyleWindow == nil` is whole-doc.
+    /// Shared by the synchronous restyle path and the deferred settle paint.
+    private func applyModeTypography(
+        in storage: NSTextStorage,
+        tokens: [Token],
+        restyleWindow: NSRange?
+    ) {
         if let prose = mode as? ProseMode {
             prose.applyTypography(
-                in: storage,
-                theme: theme,
-                typography: typography,
-                tokens: tokens,
-                wikiLinkResolver: wikiLinkResolver,
+                in: storage, theme: theme, typography: typography,
+                tokens: tokens, wikiLinkResolver: wikiLinkResolver,
                 restyleWindow: restyleWindow)
         } else {
             mode.applyTypography(
-                in: storage,
-                theme: theme,
-                typography: typography,
-                tokens: tokens,
-                parsedScript: lastParsedScript,
+                in: storage, theme: theme, typography: typography,
+                tokens: tokens, parsedScript: lastParsedScript,
                 restyleWindow: restyleWindow)
         }
-        // Sync typing attributes so the caret on empty lines matches the
-        // body font/paragraph style instead of the system default.
-        textView.typingAttributes = mode.bodyTypingAttributes(
-            theme: theme, typography: typography)
-        // Text changes require re-dim. The textDidChange path delegates here;
-        // no separate dim call needed.
-        applyFocusDim(in: textView)
-        // Fire element callback: text edits can reclassify the line under the
-        // cursor without moving the selection, so we must fire here too (not
-        // only from textViewDidChangeSelection).
+    }
+
+    /// Schedule the deferred (settle) repaint for the typing fast path. Cancel-
+    /// and-reschedule on every keystroke so it fires once, ~`restyleSettleDelayMs`
+    /// after the last key. The paint is whole-document (the burst's window-diff
+    /// baseline is stale by settle time) and preserves the caret + scroll
+    /// position itself, since a whole-doc `setAttributes` invalidates layout and
+    /// would otherwise snap a long scrolled document toward the top (Editor AREA
+    /// tripwire 9). During the burst no paint happens, so the existing emphasis
+    /// attributes simply shift with the text (NSTextStorage) and nothing flips.
+    private func scheduleDeferredRestyle() {
+        deferredRestyleTask?.cancel()
+        let delay = restyleSettleDelayMs
+        deferredRestyleTask = Task { @MainActor [weak self] in
+            if delay > 0 {
+                try? await Task.sleep(for: .milliseconds(delay))
+            }
+            guard !Task.isCancelled, let self else { return }
+            self.deferredRestyleTask = nil
+            self.performDeferredRestyle()
+        }
+    }
+
+    /// The settle paint: restyle from the latest live tokens, scoped to the
+    /// paragraph window the burst changed (character-diffed against
+    /// `burstBaselineText`). A windowed `setAttributes` leaves the rest of the
+    /// document's layout — and the scroll position AppKit settled on while
+    /// following the caret — untouched, so no scroll handling is needed. Only
+    /// the rare no-baseline fallback paints whole-doc, and only it captures /
+    /// restores the scroll origin (the snap-to-top guard, Editor AREA tripwire 9).
+    private func performDeferredRestyle() {
+        guard let textView, let storage = textView.textStorage else { return }
+        let baseline = burstBaselineText
+        burstBaselineText = nil
+        let selection = textView.selectedRange()
+
+        if let baseline {
+            guard let window = changedParagraphWindow(
+                old: baseline as NSString, new: storage.string as NSString) else {
+                // No textual change (e.g. a transform that produced identical
+                // text) — just refresh the dim; scroll/attrs already correct.
+                applyFocusDim(in: textView)
+                onElementChanged?(currentElementAbbreviation(in: textView))
+                return
+            }
+            applyModeTypography(in: storage, tokens: lastTokens, restyleWindow: window)
+            applyFocusDim(in: textView)
+            if textView.selectedRange() != selection {
+                textView.setSelectedRange(selection)
+            }
+            if typewriterScroll {
+                scrollSelectionToVerticalCenter(in: textView)
+            }
+            // Typewriter off: a local restyle doesn't move scroll — leave it.
+        } else {
+            // No baseline (defensive: shouldn't happen on the typing path).
+            // Whole-doc relayout snaps the origin toward the top; capture before
+            // and restore after (or re-center when typewriter is on).
+            let scrollOrigin = textView.enclosingScrollView?.contentView.bounds.origin
+            applyModeTypography(in: storage, tokens: lastTokens, restyleWindow: nil)
+            applyFocusDim(in: textView)
+            if textView.selectedRange() != selection {
+                textView.setSelectedRange(selection)
+            }
+            if typewriterScroll {
+                scrollSelectionToVerticalCenter(in: textView)
+            } else if let origin = scrollOrigin,
+                      let scrollView = textView.enclosingScrollView,
+                      scrollView.contentView.bounds.origin != origin {
+                scrollView.contentView.scroll(to: origin)
+                scrollView.reflectScrolledClipView(scrollView.contentView)
+            }
+        }
         onElementChanged?(currentElementAbbreviation(in: textView))
+    }
+
+    /// Smallest paragraph-aligned character range (in NEW-text coordinates)
+    /// covering everything that changed between `old` and `new`, via a common-
+    /// prefix / common-suffix scan (the divergence is localized near the edit,
+    /// so this is cheap even on a long document). Expanded to whole paragraphs so
+    /// paragraph-level attributes re-apply cleanly. Returns nil when identical or
+    /// the new text is empty. Token-free, so it works for plain prose.
+    private func changedParagraphWindow(old: NSString, new: NSString) -> NSRange? {
+        let oldLen = old.length, newLen = new.length
+        if newLen == 0 { return nil }
+        var prefix = 0
+        let maxPrefix = min(oldLen, newLen)
+        while prefix < maxPrefix,
+              old.character(at: prefix) == new.character(at: prefix) { prefix += 1 }
+        if prefix == oldLen, prefix == newLen { return nil }  // identical
+        var suffix = 0
+        let maxSuffix = min(oldLen, newLen) - prefix
+        while suffix < maxSuffix,
+              old.character(at: oldLen - 1 - suffix)
+                == new.character(at: newLen - 1 - suffix) { suffix += 1 }
+        let loc = min(prefix, newLen - 1)
+        let len = max(0, min(newLen - prefix - suffix, newLen - loc))
+        return new.paragraphRange(for: NSRange(location: loc, length: len))
     }
 
     /// Posts `.maughamScriptDidUpdate` carrying `script`. When `debounced`,
@@ -1241,6 +1375,15 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         guard let replacementString,
               !isApplyingExternalUpdate else { return true }
 
+        // Remember the pre-burst text on the first edit of a new typing burst
+        // (no settle pending) so `performDeferredRestyle` can character-diff it
+        // against the post-burst text and window the restyle to just the changed
+        // paragraph(s). Captured here — before the edit lands — because this is
+        // the one choke point that still sees the pre-edit string.
+        if deferredRestyleTask == nil, burstBaselineText == nil {
+            burstBaselineText = textView.string
+        }
+
         // Smart typography handling.
         // `transform` returns the substitute glyph AND the full replacement range
         // (including any preceding ASCII run to consume). The coordinator uses
@@ -1293,19 +1436,17 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // cycle() will reset it before the async block fires.
         let skipCursorRestore = isApplyingTabCycle
         let postEditSelection = textView.selectedRange()
-        // Capture the scroll origin BEFORE retokenizeAndStyle. NSTextView has
-        // already scrolled to keep the just-typed caret visible by the time
-        // textDidChange fires, so this origin is the correct, caret-visible
-        // position. retokenizeAndStyle's full-range setAttributes invalidates
-        // the entire layout, and on a long scrolled document AppKit snaps the
-        // origin toward the top during the relayout (visible as a jump-to-top-
-        // then-back, most often on space/delete since those change the wrapped
-        // line count). When typewriterScroll is on, scrollSelectionToVerticalCenter
-        // re-asserts a sane origin below and masks this; when it's off, we
-        // restore the captured origin ourselves. Symmetric with the caret
-        // capture-and-restore just above.
-        let preRestyleScrollOrigin = textView.enclosingScrollView?
-            .contentView.bounds.origin
+        // NOTE: the typing fast path no longer paints on the keystroke (the
+        // structural restyle is deferred to the burst-settle — see
+        // `scheduleDeferredRestyle`). With no per-keystroke whole-range
+        // setAttributes there is no layout invalidation to snap the scroll
+        // origin toward the top, so the old capture-and-restore-the-origin
+        // workaround (Editor AREA tripwire 9) is gone from here — it was
+        // actively fighting AppKit's own caret-following autoscroll (the
+        // "recoil on the last line" + "caret runs off the bottom" bugs). The
+        // origin is now preserved by `performDeferredRestyle` around the settle
+        // paint instead, which is the only place a whole-doc relayout happens
+        // on the typing path.
         // Notify the host of the post-edit caret position so Document's
         // V2 task-anchor alignment can read it inside the immediately-
         // following setFullText call. Must fire BEFORE binding-set so the
@@ -1344,13 +1485,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         }
         if typewriterScroll {
             scrollSelectionToVerticalCenter(in: textView)
-        } else if let origin = preRestyleScrollOrigin,
-                  let scrollView = textView.enclosingScrollView,
-                  scrollView.contentView.bounds.origin != origin {
-            // The full-range restyle perturbed the scroll origin; put it back.
-            scrollView.contentView.scroll(to: origin)
-            scrollView.reflectScrolledClipView(scrollView.contentView)
         }
+        // Typewriter off: rely on AppKit's native caret-following autoscroll.
+        // The deferred settle paint preserves the scroll origin itself.
         // Text edits shift every absolute mark position; recompute + redraw the
         // crafted-render overlays. (In review posture text is read-only, so this
         // is a no-op there; it keeps the cache honest on the rare edit path.)

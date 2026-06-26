@@ -139,6 +139,17 @@ struct EditorSurface: NSViewRepresentable {
         let columnWidth = mode.textColumnWidth(typography: typography)
 
         let textView = MaughamTextView()
+        // Pin the editor to TextKit 1. On recent macOS a fresh NSTextView is
+        // TextKit 2, whose caret is a private `NSTextInsertionIndicator` we can't
+        // resize — so the empty-line caret renders at the full line-fragment
+        // height (glyph + the ~12pt line spacing) and "shrinks" when you type.
+        // Touching `layoutManager` permanently downgrades the view to TextKit 1,
+        // where `MaughamTextView.drawInsertionPoint` can clamp the caret. This
+        // also makes prose consistent with screenplay/review/typewriter, which
+        // already run TK1 (the gutter/overlays touch `layoutManager`) — and the
+        // typing-perf work was tuned against that TK1 screenplay path. Do NOT
+        // remove this line: it reads as unused but it is what selects the engine.
+        _ = textView.layoutManager
         textView.columnWidth = columnWidth
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
@@ -304,7 +315,7 @@ struct EditorSurface: NSViewRepresentable {
 /// at `columnWidth`; the inset on each side absorbs the gutters and updates
 /// whenever the text view resizes (which happens automatically when the
 /// scroll view's clip view changes size due to `autoresizingMask = [.width]`).
-private final class MaughamTextView: NSTextView {
+final class MaughamTextView: NSTextView {
     var columnWidth: CGFloat = 0 {
         didSet { updateColumnInset() }
     }
@@ -316,6 +327,39 @@ private final class MaughamTextView: NSTextView {
     override var acceptsFirstResponder: Bool { true }
     override func becomeFirstResponder() -> Bool {
         super.becomeFirstResponder()
+    }
+
+    // MARK: - Insertion point height
+
+    /// The natural glyph line height for `font` — the height AppKit uses for the
+    /// caret on a line that contains text. Empty lines instead get the full
+    /// line-fragment height, which includes the body paragraph style's inter-line
+    /// `lineSpacing` (≈12pt at the default 1.7 line-height), so the empty-line
+    /// caret stands taller than the text and visibly "shrinks" the moment you
+    /// type. `clampedCaretRect` brings the empty-line caret back to this height.
+    static func caretLineHeight(for font: NSFont) -> CGFloat {
+        ceil(font.ascender + abs(font.descender) + font.leading)
+    }
+
+    /// Clamp a caret rect's height to `lineHeight` (top-aligned) when it exceeds
+    /// it. Shrinks only — never grows — so AppKit's invalidation of the original
+    /// (taller) rect always covers what we draw and the blink leaves no artifact.
+    static func clampedCaretRect(_ rect: NSRect, toLineHeight lineHeight: CGFloat) -> NSRect {
+        guard rect.height > lineHeight + 0.5 else { return rect }
+        var r = rect
+        r.size.height = lineHeight
+        return r
+    }
+
+    override func drawInsertionPoint(
+        in rect: NSRect, color: NSColor, turnedOn flag: Bool
+    ) {
+        let font = (typingAttributes[.font] as? NSFont)
+            ?? self.font
+            ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        super.drawInsertionPoint(
+            in: Self.clampedCaretRect(rect, toLineHeight: Self.caretLineHeight(for: font)),
+            color: color, turnedOn: flag)
     }
 
     override func mouseDown(with event: NSEvent) {
