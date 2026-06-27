@@ -75,9 +75,30 @@ public protocol WritingMode: Sendable {
 
     /// Body text column width in points, given the configured page width.
     func textColumnWidth(typography: TypographySettings) -> CGFloat
+
+    /// Whether the per-keystroke structural restyle is DEFERRED to the trailing
+    /// edge of the typing burst (`true`) or painted LIVE & windowed on every
+    /// keystroke (`false`).
+    ///
+    /// Prose defers (the 2026-06-26 flicker fix): editing the end of an inline
+    /// emphasis run produces a transient invalid CommonMark state (`*italic *`
+    /// un-italicizes, markers un-fade) that would flash on each keystroke; the
+    /// deferral means that state never gets painted. Screenplay paints live:
+    /// nearly every line is a *different element* (slug / character / dialogue /
+    /// action / transition), so a ~300ms classification lag reads as pervasive
+    /// sluggishness, and its inline emphasis is comparatively rare. See the
+    /// Editor AREA guide (tripwire 9). Defaults to `true` (defer) — the safe,
+    /// flicker-free posture for any new prose-like mode.
+    var defersRestyleWhileTyping: Bool { get }
 }
 
 public extension WritingMode {
+    /// Default: defer the restyle to the typing-burst settle (flicker-free).
+    /// Modes whose styling is element-classification heavy (screenplay)
+    /// override this to `false` so the restyle stays live. See the protocol
+    /// requirement's doc comment and the Editor AREA guide (tripwire 9).
+    var defersRestyleWhileTyping: Bool { true }
+
     /// Word count alone, WITHOUT the full `metrics(_:)` computation. Both
     /// modes' `metrics` derive `wordCount` from this exact trimmed
     /// whitespace-split — but `ScreenplayMode.metrics` ADDITIONALLY runs a

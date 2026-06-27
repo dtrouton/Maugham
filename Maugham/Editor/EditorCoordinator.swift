@@ -169,6 +169,18 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// plain prose, which produces no syntax tokens to diff. nil between bursts.
     private var burstBaselineText: String?
 
+    /// The document text as of the LAST restyle paint, on the live (non-deferred)
+    /// typing path used by element-classification-heavy modes (screenplay, where
+    /// `mode.defersRestyleWhileTyping == false`). Each live keystroke character-
+    /// diffs the new text against this to window the restyle to just the changed
+    /// paragraph(s) — exactly like the deferred settle paint, but applied
+    /// synchronously per keystroke instead of once at burst end. Refreshed on
+    /// every whole-doc paint (attach / applyExternalText / theme) so the next
+    /// live keystroke diffs against the correct baseline. nil until the first
+    /// whole-doc paint of a freshly-attached document. Unused on the deferred
+    /// (prose) path. See `paintLiveWindowed` and Editor AREA tripwire 9.
+    private var liveRestyleBaseline: String?
+
     /// Observer token for `maughamNavigateToScene` notifications.
     private var navigateObserver: NSObjectProtocol?
 
@@ -206,6 +218,14 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// re-pulls the open set and recomputes its crafted marks so the inline
     /// mark + rail card update immediately (no review toggle needed).
     private var reviewAnnotationsChangedObserver: NSObjectProtocol?
+
+    /// Observer token for `maughamReviewPostureResolved`. The key ProjectWindow
+    /// posts this when its resolved review posture changes (chiefly the async
+    /// iCloud role resolve landing); the key-window editor applies the absolute
+    /// `isReviewMode`/`lockEditing` directly, because the `updateNSView` push
+    /// doesn't reliably fire on that deep-NSViewRepresentable @State change. See
+    /// `maughamReviewPostureResolved` and `applyResolvedPosture`.
+    private var reviewPostureObserver: NSObjectProtocol?
 
     /// Closure that maps a paragraph_id to its NSRange in textView.string.
     /// Set by EditorSurface.updateNSView so the coordinator can resolve
@@ -465,6 +485,35 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                 self.refreshReviewMarksFromProvider()
             }
         }
+        reviewPostureObserver = NotificationCenter.default.addObserver(
+            forName: .maughamReviewPostureResolved,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                // Only the key window's editor applies (mirrors the review
+                // toggle's key-window guard); the poster also guards on key, so
+                // a background window's posture can't land here.
+                guard self.textView?.window?.isKeyWindow == true,
+                      let isReviewMode = note.userInfo?["isReviewMode"] as? Bool,
+                      let lockEditing = note.userInfo?["lockEditing"] as? Bool
+                else { return }
+                self.applyResolvedPosture(
+                    isReviewMode: isReviewMode, lockEditing: lockEditing)
+            }
+        }
+    }
+
+    /// Apply an absolute resolved review posture to the membrane. The hard role
+    /// lock is set FIRST (so the membrane is never observed render-on-but-
+    /// unlocked for a reviewer), then the render flag — same order as
+    /// `EditorSurface.updateNSView`. Both setters are no-op-guarded, so a posture
+    /// that matches the current state does nothing. Driven by the
+    /// `maughamReviewPostureResolved` push and unit-testable without a key window.
+    func applyResolvedPosture(isReviewMode: Bool, lockEditing: Bool) {
+        setLockEditing(lockEditing)
+        setReviewMode(isReviewMode)
     }
 
     deinit {
@@ -490,6 +539,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = reviewAnnotationsChangedObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+        if let token = reviewPostureObserver {
             NotificationCenter.default.removeObserver(token)
         }
     }
@@ -1159,16 +1211,28 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // transient-invalid-state flicker (e.g. `*italic *` while editing the
         // end of an emphasis run). All other callers paint synchronously.
         if windowedTyping {
-            // The burst baseline text was captured in shouldChangeTextIn on the
-            // first edit; the settle paint windows the restyle to the changed
-            // paragraphs.
-            scheduleDeferredRestyle()
+            if mode.defersRestyleWhileTyping {
+                // Prose: the burst baseline text was captured in shouldChangeTextIn
+                // on the first edit; the settle paint windows the restyle to the
+                // changed paragraphs at the trailing edge of the burst (no paint
+                // on the keystroke, so a transient invalid emphasis state can't
+                // flicker).
+                scheduleDeferredRestyle()
+            } else {
+                // Screenplay: paint live (windowed) on the keystroke — its
+                // element-classification styling would lag visibly behind a
+                // settle delay. Windowed, so no whole-doc relayout / scroll snap.
+                paintLiveWindowed(text: text, in: storage, tokens: tokens)
+            }
         } else {
             // Whole-doc paint: every non-typing caller (attach, applyExternalText,
             // theme/typography/focus changes) repaints the entire document.
             burstBaselineText = nil
             applyModeTypography(in: storage, tokens: tokens, restyleWindow: nil)
             applyFocusDim(in: textView)
+            // Re-baseline the live (screenplay) windowed path against the freshly
+            // repainted whole-doc text so its next keystroke diffs correctly.
+            liveRestyleBaseline = text
         }
         // Fire element callback: text edits can reclassify the line under the
         // cursor without moving the selection, so we must fire here too (not
@@ -1197,6 +1261,36 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                 tokens: tokens, parsedScript: lastParsedScript,
                 restyleWindow: restyleWindow)
         }
+    }
+
+    /// Live (non-deferred) restyle for element-heavy modes (screenplay). Paints
+    /// on every keystroke — but WINDOWED to the changed paragraph(s), diffed
+    /// against `liveRestyleBaseline` (the text as of the last paint) — so a
+    /// local `setAttributes` never invalidates whole-doc layout or snaps the
+    /// scroll origin (Editor AREA tripwire 9). The first paint after attach has
+    /// no baseline and paints whole-doc. Cursor restore is handled by the caller
+    /// (`textDidChange`) after `retokenizeAndStyle` returns, so none is needed
+    /// here. `liveRestyleBaseline` is advanced to the new text on the way out.
+    private func paintLiveWindowed(
+        text: String, in storage: NSTextStorage, tokens: [Token]
+    ) {
+        guard let textView else { return }
+        defer { liveRestyleBaseline = text }
+        let window: NSRange?
+        if let baseline = liveRestyleBaseline {
+            guard let changed = changedParagraphWindow(
+                old: baseline as NSString, new: text as NSString) else {
+                // Text unchanged (e.g. a no-op smart-typography transform) —
+                // nothing structural to repaint; just refresh the focus dim.
+                applyFocusDim(in: textView)
+                return
+            }
+            window = changed
+        } else {
+            window = nil   // first paint since attach: whole-doc
+        }
+        applyModeTypography(in: storage, tokens: tokens, restyleWindow: window)
+        applyFocusDim(in: textView)
     }
 
     /// Schedule the deferred (settle) repaint for the typing fast path. Cancel-
