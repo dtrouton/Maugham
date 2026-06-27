@@ -327,7 +327,10 @@ struct AnnotationDetailView: View {
             // empty accept (which would mark it accepted while materializing
             // nothing — silent data loss). Surface it as an alert.
             do {
-                try await writer.accept(current)
+                // Pass the live paragraph so a span suggestion splices into the
+                // current text (shared SuggestionSplice; matches the Mac).
+                let currentParagraph = current.paragraphId.flatMap { paragraphs[$0] }
+                try await writer.accept(current, currentParagraph: currentParagraph)
             } catch AnnotationWriter.WriteError.malformedSuggestion {
                 errorMessage = "This suggestion is malformed and can’t be applied."
                 throw CancelledWrite()

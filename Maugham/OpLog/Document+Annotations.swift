@@ -100,12 +100,13 @@ extension Document {
                 return []
             case .suggestedChange:
                 guard let pid = paragraphId else { return [] }
-                let prior = paragraphs[pid]
+                // Store the BARE suggested text (so the review UI shows just the
+                // replacement, not the whole resulting paragraph). The splice
+                // into the span happens at ACCEPT (`acceptAnnotation`), via the
+                // shared `SuggestionSplice`. The span is carried on provenance.
                 return [.init(paragraphId: pid,
-                              prior: prior,
-                              next: Self.suggestionNext(
-                                  prior: prior, span: span,
-                                  suggestedText: suggestedText ?? ""))]
+                              prior: paragraphs[pid],
+                              next: suggestedText ?? "")]
             case .comment, .query:
                 guard let pid = paragraphId else { return [] }
                 let prior = paragraphs[pid]
@@ -163,39 +164,6 @@ extension Document {
                 collaboratorId: authorId))
     }
 
-    /// Build the `next` paragraph text for a suggested-change op. A SPAN-anchored
-    /// (sub-paragraph) suggestion SPLICES: only the anchored span is replaced by
-    /// `suggestedText`, leaving the rest of the paragraph intact. A paragraph-
-    /// level suggestion (no span / empty quote / span no longer resolvable —
-    /// e.g. the Claude/MCP `add_suggested_change` contract) replaces the WHOLE
-    /// paragraph. Accept applies `next` as the full paragraph
-    /// (`paragraphs[pid] = next`), so `next` must already be the complete
-    /// intended paragraph — hence the splice happens here, at authoring time.
-    static func suggestionNext(
-        prior: String?, span: SpanAnchor?, suggestedText: String
-    ) -> String {
-        guard let prior, let span,
-              let range = SpanAnchorResolver.resolve(anchor: span, in: prior)
-        else { return suggestedText }
-        let chars = Array(prior)
-        return String(chars[..<range.lowerBound])
-            + suggestedText
-            + String(chars[range.upperBound...])
-    }
-
-    /// Reconstruct the sub-paragraph `SpanAnchor` an annotation op was created
-    /// with, from its persisted provenance. Returns nil for a paragraph-level
-    /// annotation (no span quote).
-    static func spanAnchor(from provenance: Op.Provenance?) -> SpanAnchor? {
-        guard let provenance,
-              let quote = provenance.spanQuote, !quote.isEmpty else { return nil }
-        return SpanAnchor(
-            quote: quote,
-            prefix: provenance.spanPrefix ?? "",
-            suffix: provenance.spanSuffix ?? "",
-            posHint: provenance.spanPosHint ?? 0)
-    }
-
     /// Author self-service: edit YOUR OWN annotation's body (and, for a
     /// suggested change, the replacement text). Appends an `annotationEdit` op
     /// referencing the creation op via `sourceAnnotationId`; the creation op is
@@ -214,22 +182,17 @@ extension Document {
         authorId: String? = nil
     ) async throws {
         // Carry the new suggested replacement through the same channel the
-        // original suggestion uses: ParagraphChange.next. Only attach it when
-        // the caller supplied one (editing a suggestion). A nil leaves the
-        // original suggestion intact in the deriver. The span is reconstructed
-        // from the creation op's provenance so an edited SPAN suggestion still
-        // splices (replaces only the span) rather than the whole paragraph.
+        // original suggestion uses: ParagraphChange.next holds the BARE text.
+        // Only attach it when the caller supplied one (editing a suggestion);
+        // a nil leaves the original suggestion intact in the deriver. The splice
+        // into the span happens at accept (`SuggestionSplice`), not here.
         let changes: [Op.ParagraphChange] = {
             guard let suggested = newSuggestedText,
                   let creation = _opLogMirror.first(where: { $0.opId == id }),
                   let pid = creation.changes.first?.paragraphId else { return [] }
-            let prior = creation.changes.first?.prior
             return [.init(paragraphId: pid,
-                          prior: prior,
-                          next: Self.suggestionNext(
-                              prior: prior,
-                              span: Self.spanAnchor(from: creation.provenance),
-                              suggestedText: suggested))]
+                          prior: creation.changes.first?.prior,
+                          next: suggested)]
         }()
         let op = Op(
             opId: ULID.generate(),
@@ -287,11 +250,24 @@ extension Document {
         }
 
         // Determine the changes payload. Only suggestedChange mutates the
-        // manuscript on accept.
+        // manuscript on accept. The creation op stores the BARE suggested text;
+        // the full paragraph is produced HERE by splicing the bare text into the
+        // span (re-resolved against the CURRENT paragraph) so a one-word
+        // suggestion replaces one word, not the whole paragraph. A paragraph-
+        // level suggestion (no span) replaces the whole paragraph. The accept
+        // op carries the resulting full paragraph as `next`, so replay
+        // (`Materializer`) applies it unchanged. See `SuggestionSplice`.
         let changes: [Op.ParagraphChange] = {
             switch kind {
             case .suggestedChange:
-                return creation.changes   // re-applies prior/next on replay
+                guard let orig = creation.changes.first else { return [] }
+                let pid = orig.paragraphId
+                let current = paragraphs[pid] ?? orig.prior ?? ""
+                let next = SuggestionSplice.apply(
+                    suggestion: orig.next ?? "",
+                    span: SuggestionSplice.spanAnchor(from: creation.provenance),
+                    to: current)
+                return [.init(paragraphId: pid, prior: current, next: next)]
             case .comment, .query, .craftNote:
                 return []
             }

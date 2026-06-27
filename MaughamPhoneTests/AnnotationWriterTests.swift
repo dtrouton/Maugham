@@ -140,6 +140,42 @@ final class AnnotationWriterTests: XCTestCase {
         XCTAssertEqual(resolved.status, .accepted)
     }
 
+    /// Span-anchored (sub-paragraph) suggestion: the phone accept must SPLICE the
+    /// bare replacement into the current paragraph (shared `SuggestionSplice`),
+    /// not replace the whole paragraph with the bare word. Mirrors the Mac.
+    func test_makeAccept_spanSuggestion_splicesOnlyTheSpan() throws {
+        let para = "She was very angry."
+        // Span over "very angry" (grapheme offsets 8..<18).
+        let span = SpanAnchorResolver.capture(in: para, range: 8..<18)
+        let creation = Op(
+            opId: "01SPANSUGGESTION", docId: docId,
+            at: Date(timeIntervalSince1970: 1_699_000_000),
+            device: "mac", session: "s", kind: .claudeSuggestion,
+            // The op stores the BARE suggested text.
+            changes: [Op.ParagraphChange(
+                paragraphId: "k7m3", prior: para, next: "furious")],
+            provenance: Op.Provenance(
+                sessionId: "s", annotationBody: "tighten",
+                spanQuote: span.quote, spanPrefix: span.prefix,
+                spanSuffix: span.suffix, spanPosHint: span.posHint))
+
+        let ann = AnnotationDeriver.derive(
+            ops: [creation], paragraphs: ["k7m3": para]).first!
+        XCTAssertEqual(ann.suggestedText, "furious",
+            "bare suggestion is stored for display")
+
+        let writer = makeWriter()
+        let accept = try writer.makeAccept(for: ann, currentParagraph: para)
+
+        XCTAssertEqual(accept.changes.first?.next, "She was furious.",
+            "phone accept must splice the span into the current paragraph")
+
+        // Round-trip: replay materializes the spliced paragraph.
+        XCTAssertEqual(
+            Deriver.derive(ops: [creation, accept]).paragraphs["k7m3"],
+            "She was furious.")
+    }
+
     // MARK: - 3. Accept of a non-suggestion is empty-changes
 
     func test_makeAccept_comment_producesEmptyChanges() throws {

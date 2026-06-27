@@ -148,6 +148,12 @@ final class AnnotationFlowTests: XCTestCase {
             kind: .suggestedChange, paragraphId: pid, span: span,
             body: "tighten", suggestedText: "furious", authorName: "R")
 
+        // The DISPLAYED suggestion stays the bare replacement (so the review card
+        // shows `→ furious`, not the whole resulting paragraph — the splice is
+        // deferred to accept).
+        XCTAssertEqual(h.doc.annotations().first?.suggestedText, "furious",
+            "the op stores the bare suggested text for display; the splice is at accept")
+
         try await h.doc.acceptAnnotation(id: annId)
 
         XCTAssertEqual(h.doc.displayText, "She was furious.",
