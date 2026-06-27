@@ -227,6 +227,11 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// `maughamReviewPostureResolved` and `applyResolvedPosture`.
     private var reviewPostureObserver: NSObjectProtocol?
 
+    /// The control-plane model (ADR 0017). Set once at `attach` via
+    /// `observeControl`; the coordinator READS it (never writes). nil until
+    /// `observeControl` runs.
+    private var control: EditorControl?
+
     /// Closure that maps a paragraph_id to its NSRange in textView.string.
     /// Set by EditorSurface.updateNSView so the coordinator can resolve
     /// ranges against the live Document's `displayRange(forParagraphId:)`.
@@ -712,6 +717,49 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         }
         // Crafted-render overlays follow the review posture.
         syncReviewOverlays()
+    }
+
+    /// Begin observing the control-plane model. Runs an initial apply, then
+    /// re-arms on every change via Observation. Pure AppKit-side — independent
+    /// of SwiftUI's layout cadence, which is the whole point (ADR 0017): a
+    /// control change that doesn't trigger a layout pass (e.g. the async iCloud
+    /// role resolve) still reaches the membrane here.
+    func observeControl(_ control: EditorControl) {
+        self.control = control
+        armControlObservation()
+    }
+
+    private func armControlObservation() {
+        guard let control else { return }
+        withObservationTracking {
+            applyControl(control)            // reads every tracked property
+        } onChange: { [weak self] in
+            // onChange fires once (pre-change). Re-arm on the next main-actor
+            // turn — after the mutation commits — so the re-applied values are
+            // current. Re-entering withObservationTracking synchronously inside
+            // onChange is unsafe, hence the hop.
+            Task { @MainActor [weak self] in self?.armControlObservation() }
+        }
+    }
+
+    /// Apply the full control model through the existing setters. INVARIANT D2:
+    /// every sub-area is no-op-guarded, so a single property change re-applies
+    /// only the area that changed (the setters that aren't self-guarding —
+    /// appearance/typewriter/focus — are guarded here at the call site, exactly
+    /// as `updateNSView` did).
+    func applyControl(_ c: EditorControl) {
+        setLockEditing(c.lockEditing)        // self-guarded
+        setReviewMode(c.isReviewMode)        // self-guarded
+        if theme != c.theme || typography != c.typography {
+            applyAppearance(theme: c.theme, typography: c.typography)
+        }
+        if typewriterScroll != c.typewriterScroll {
+            applyTypewriterScroll(c.typewriterScroll)
+        }
+        if sentenceFocus != c.sentenceFocus || paragraphFocus != c.paragraphFocus {
+            applyFocusPrefs(sentence: c.sentenceFocus, paragraph: c.paragraphFocus)
+        }
+        setReviewAnnotations(c.reviewAnnotations)   // self-guarded
     }
 
     // MARK: - Crafted review render wiring (Task 5)
