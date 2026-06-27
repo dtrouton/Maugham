@@ -154,7 +154,11 @@ struct AnnotationDetailView: View {
     private var contextSection: some View {
         if current.kind == .suggestedChange {
             VStack(alignment: .leading, spacing: 12) {
-                if let prior = current.priorText, !prior.isEmpty {
+                // "Current" matches the suggestion's grain — the SPAN's original
+                // text for a sub-paragraph suggestion, else the whole paragraph —
+                // so a one-word change reads `very angry → furious`, not
+                // `<whole paragraph> → furious` (SuggestionDisplay, shared w/ Mac).
+                if let prior = SuggestionDisplay.before(for: current), !prior.isEmpty {
                     labeledBlock("Current", text: Self.displayText(prior), tint: .secondary)
                 }
                 if let next = current.suggestedText {

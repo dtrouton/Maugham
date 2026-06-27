@@ -404,7 +404,11 @@ struct AnnotationRow: View {
             stetCard
         } else {
             VStack(alignment: .leading, spacing: 1) {
-                if let prior = annotation.priorText {
+                // "Before" matches the suggestion's grain: the SPAN's original
+                // text for a sub-paragraph suggestion, else the whole paragraph —
+                // so a one-word suggestion reads `very angry → furious`, not
+                // `<whole paragraph> → furious` (SuggestionDisplay, shared w/ phone).
+                if let prior = SuggestionDisplay.before(for: annotation) {
                     Text("\u{2212} \(AnnotationRow.displayText(prior))")
                         .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(.red)
@@ -445,7 +449,7 @@ struct AnnotationRow: View {
                     .font(.caption2.italic())
                     .foregroundStyle(stetAccent)
             }
-            if let prior = annotation.priorText {
+            if let prior = SuggestionDisplay.before(for: annotation) {
                 Text(AnnotationRow.displayText(prior))
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.primary)
