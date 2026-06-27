@@ -30,19 +30,6 @@ struct EditorHost: View {
     var onElementChanged: (String?) -> Void = { _ in }
     var wikiLinkResolver: ((String) -> Bool)? = nil
     var wikiLinkClickResolver: ((String) -> String?)? = nil
-    /// Review posture (WF1): annotate-only manuscript + focus/typewriter off.
-    /// A plain `let` threaded ONE-WAY from ProjectWindow down into EditorSurface
-    /// → coordinator. Deliberately NOT @State/observed on EditorHost (tripwire 6:
-    /// no parallel observable state on the editor host) — it lives on
-    /// ProjectWindow and nothing here reads it back into a binding.
-    var isReviewMode: Bool = false
-    /// Hard editing lock (WF1 iCloud role): true when the resolved collaboration
-    /// role makes the manuscript read-only (an iCloud reviewer, or the still-
-    /// resolving `.unknown` role). Threaded ONE-WAY from ProjectWindow alongside
-    /// `isReviewMode` (same tripwire-6 discipline — a plain `let`, not observed
-    /// here). The membrane ANDs it in so a reviewer's ⌘⌥R can flip the render but
-    /// never unlock text mutation.
-    var lockEditing: Bool = false
     /// Control-plane model owned by ProjectWindow, threaded ONE-WAY to the
     /// EditorSurface/coordinator (ADR 0017).
     var control: EditorControl
@@ -99,8 +86,6 @@ struct EditorHost: View {
                     typewriterScroll: userPreferences.typewriterScroll,
                     sentenceFocus: userPreferences.sentenceFocus,
                     paragraphFocus: userPreferences.paragraphFocus,
-                    isReviewMode: isReviewMode,
-                    lockEditing: lockEditing,
                     control: control,
                     initialCursorLocation: doc.cursorLocation,
                     onCursorChanged: { offset in
@@ -173,7 +158,7 @@ struct EditorHost: View {
                     // the text binding, so the cursor-race triad (tripwires 6/7)
                     // stays closed. Only computed in review mode to avoid deriving
                     // annotations during normal authoring.
-                    reviewAnnotations: isReviewMode
+                    reviewAnnotations: control.isReviewMode
                         ? { _ = doc.annotationsVersion
                             return doc.annotations(
                                 filter: AnnotationFilter(statuses: [.open])) }()

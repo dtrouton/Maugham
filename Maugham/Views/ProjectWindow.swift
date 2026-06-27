@@ -285,24 +285,6 @@ struct ProjectWindow: View {
             for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await resolveCollaborator() }
         }
-        // When the resolved posture changes (chiefly the async role resolve
-        // landing and flipping `.unknown` → `.author`), push it straight to the
-        // key window's editor membrane. The editor is a deep NSViewRepresentable
-        // in a NavigationSplitView content column, where this `collaborator`
-        // @State change does NOT reliably trigger `EditorSurface.updateNSView`
-        // (it only re-pushed on a piece switch that rebuilt the surface — the
-        // "can't edit my own doc until I flip pieces" bug). Only the key window
-        // posts (guard below) so a background window's posture can't land on the
-        // focused editor; the coordinator observer also re-checks key-window.
-        .onChange(of: effectivePosture) { _, posture in
-            guard window?.isKeyWindow == true else { return }
-            NotificationCenter.default.post(
-                name: .maughamReviewPostureResolved, object: nil,
-                userInfo: [
-                    "isReviewMode": posture.isReviewMode,
-                    "lockEditing": posture.lockEditing,
-                ])
-        }
         // Mirror posture + appearance into the EditorControl model (ADR 0017).
         // Extracted into a ViewModifier to stay under ProjectWindow.body's
         // SwiftUI type-checker ceiling (the extracted-ViewModifier pattern).
@@ -807,12 +789,10 @@ struct ProjectWindow: View {
                 wikiLinkClickResolver: { title in
                     store.resolveDocumentId(forTitle: title)
                 },
-                // Role-driven posture: an author's manual ⌘⌥R drives the render;
-                // a reviewer/unknown is FORCED into review render AND hard-locked
-                // (lockEditing) so the membrane keeps the text read-only no matter
-                // what the manual toggle says.
-                isReviewMode: effectivePosture.isReviewMode,
-                lockEditing: effectivePosture.lockEditing,
+                // Role-driven posture flows entirely through the EditorControl
+                // model (ADR 0017): an author's manual ⌘⌥R drives the render; a
+                // reviewer/unknown is FORCED into review render AND hard-locked
+                // (lockEditing) via `effectivePosture` mirrored into the control.
                 control: editorControl
             )
         case .research:

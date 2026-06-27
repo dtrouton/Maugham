@@ -12,18 +12,6 @@ struct EditorSurface: NSViewRepresentable {
     let typewriterScroll: Bool
     let sentenceFocus: Bool
     let paragraphFocus: Bool
-    /// Review posture (WF1): when true the manuscript is annotate-only
-    /// (read-only text) and focus-dim + typewriter are suppressed. Threaded
-    /// ONE-WAY from ProjectWindow → EditorHost; pushed onto the coordinator in
-    /// updateNSView. Nothing reads it back into a binding (tripwires 2 & 6).
-    var isReviewMode: Bool = false
-    /// Hard editing lock (WF1 iCloud role): when true the manuscript text is
-    /// read-only because the current user is NOT an author (an iCloud reviewer,
-    /// or the still-resolving `.unknown` role). The membrane ANDs this with
-    /// `isReviewMode`, so a reviewer's ⌘⌥R can flip the render but never unlock
-    /// text. Threaded ONE-WAY from ProjectWindow → EditorHost; pushed onto the
-    /// coordinator in updateNSView. Nothing reads it back (tripwires 2 & 6).
-    var lockEditing: Bool = false
     /// Control-plane model (ADR 0017). The coordinator observes this directly;
     /// it is the channel for posture/appearance/annotation changes, replacing
     /// the per-prop pushes in updateNSView. Threaded ONE-WAY from the owning
@@ -255,11 +243,6 @@ struct EditorSurface: NSViewRepresentable {
         // needs the annotations already present. updateNSView re-pushes both and
         // is no-op-guarded, so this seeding is not duplicate steady-state work.
         context.coordinator.setReviewAnnotations(reviewAnnotations)
-        // Push the initial review posture before the surface goes live. The hard
-        // role lock goes first so the membrane is correct even on the very first
-        // frame of a reviewer's project.
-        context.coordinator.setLockEditing(lockEditing)
-        context.coordinator.setReviewMode(isReviewMode)
 
         return scrollView
     }
@@ -321,12 +304,6 @@ struct EditorSurface: NSViewRepresentable {
         // Interactive-card handlers + local-author provider must be set BEFORE
         // the recompute path (setReviewMode/setReviewAnnotations) reads ownership.
         assignReviewCardHandlers(to: context.coordinator)
-        // Review posture is threaded ONE-WAY: push it onto the coordinator
-        // (setReviewMode/setLockEditing are guarded against no-op churn). Nothing
-        // reads it back. The hard role lock is pushed FIRST so the membrane never
-        // observes a transient render-on-but-unlocked state for a reviewer.
-        context.coordinator.setLockEditing(lockEditing)
-        context.coordinator.setReviewMode(isReviewMode)
         // Push the open annotation set (guarded against no-op churn). A change to
         // the Document's annotationsVersion re-runs SwiftUI's body, re-deriving
         // this array, which lands here and recomputes the resolved marks.
