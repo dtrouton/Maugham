@@ -6,8 +6,62 @@ import MaughamCore
 
 final class ReviewModeMembraneTests: XCTestCase {
     func test_reviewMode_disallowsTextMutation() {
-        XCTAssertFalse(EditorEditPolicy.allowsTextMutation(isReviewMode: true))
-        XCTAssertTrue(EditorEditPolicy.allowsTextMutation(isReviewMode: false))
+        XCTAssertFalse(EditorEditPolicy.allowsTextMutation(
+            isReviewMode: true, lockEditing: false))
+        XCTAssertTrue(EditorEditPolicy.allowsTextMutation(
+            isReviewMode: false, lockEditing: false))
+    }
+
+    /// Role lock is the hard floor: a reviewer/unknown is `lockEditing == true`,
+    /// so even with the manual review render toggled OFF (`isReviewMode == false`)
+    /// the membrane must still block. The manual toggle can never win over the
+    /// role lock — this is what stops a reviewer's ⌘⌥R from unlocking the text.
+    func test_lockEditing_blocksEvenWhenReviewRenderOff() {
+        XCTAssertFalse(EditorEditPolicy.allowsTextMutation(
+            isReviewMode: false, lockEditing: true),
+            "a locked (non-author) user must be blocked even with the review render off")
+        XCTAssertFalse(EditorEditPolicy.allowsTextMutation(
+            isReviewMode: true, lockEditing: true))
+    }
+
+    /// The coordinator's `setLockEditing` flips the hard lock independently of the
+    /// review render. With the lock on and review render OFF, the membrane must
+    /// still reject mutation — a reviewer toggling ⌘⌥R off cannot type.
+    @MainActor
+    func test_setLockEditing_blocksMutationWithReviewRenderOff() {
+        final class TextBox { var value = "Hello world" }
+        let box = TextBox()
+        let coordinator = EditorCoordinator(
+            text: Binding(get: { box.value }, set: { box.value = $0 }),
+            mode: ProseMode(),
+            theme: .light, typography: .defaults,
+            typewriterScroll: false,
+            sentenceFocus: false, paragraphFocus: false)
+
+        let tv = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+        tv.string = box.value
+        tv.delegate = coordinator
+        coordinator.attach(to: tv)
+
+        // Hard lock on, but review RENDER off (the reviewer-toggled-⌘⌥R-off case).
+        coordinator.setLockEditing(true)
+        coordinator.setReviewMode(false)
+
+        XCTAssertFalse(
+            coordinator.textView(
+                tv,
+                shouldChangeTextIn: NSRange(location: 5, length: 0),
+                replacementString: "\n"),
+            "a locked reviewer must not be able to mutate text even with the review render off")
+
+        // Clearing the lock (e.g. role re-resolved to author) re-opens the membrane.
+        coordinator.setLockEditing(false)
+        XCTAssertTrue(
+            coordinator.textView(
+                tv,
+                shouldChangeTextIn: NSRange(location: 5, length: 0),
+                replacementString: "\n"),
+            "clearing the role lock must restore normal editing")
     }
 
     /// Bug B regression: the synchronous membrane flip must take effect BEFORE

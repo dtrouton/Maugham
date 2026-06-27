@@ -10,7 +10,16 @@ import Foundation
 enum EditorEditPolicy {
     /// True when manuscript text may be mutated through the editor; false in
     /// review posture (annotate-only).
-    static func allowsTextMutation(isReviewMode: Bool) -> Bool {
-        !isReviewMode
+    ///
+    /// Two independent reasons block mutation:
+    ///   - `isReviewMode`: the user is manually reviewing (⌘⌥R) — a soft,
+    ///     toggleable posture an author opts into.
+    ///   - `lockEditing`: the user is NOT an author of this manuscript (an
+    ///     iCloud reviewer, or the still-resolving `.unknown` role). This is the
+    ///     hard floor: it cannot be toggled off, so a reviewer's ⌘⌥R can flip the
+    ///     review RENDER but never unlock the text. The membrane is the authority
+    ///     here — the manual toggle never wins over the role lock.
+    static func allowsTextMutation(isReviewMode: Bool, lockEditing: Bool) -> Bool {
+        !isReviewMode && !lockEditing
     }
 }

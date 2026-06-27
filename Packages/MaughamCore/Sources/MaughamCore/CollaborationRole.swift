@@ -34,18 +34,35 @@ public struct Collaborator: Equatable, Sendable {
     public let ownerName: String?
     /// iCloud read-write (`true`) vs read-only (`false`) grant.
     public let canWrite: Bool
+    /// `true` when this project is an iCloud Collaborate share (owned or
+    /// participated-in). `false` for the writer's own unshared copy and for the
+    /// still-resolving `.unknown` case. Lets consumers distinguish "owns a
+    /// share" from "own unshared copy" without reaching for the raw
+    /// `ShareMetadata`.
+    public let isShared: Bool
+    /// `true` only when this is a share the current user OWNS. Implies
+    /// `isShared`. `false` for a participant, an unshared copy, or unknown.
+    public let isOwner: Bool
 
     public init(
         role: CollaborationRole,
         currentUserName: String?,
         ownerName: String?,
-        canWrite: Bool
+        canWrite: Bool,
+        isShared: Bool,
+        isOwner: Bool
     ) {
         self.role = role
         self.currentUserName = currentUserName
         self.ownerName = ownerName
         self.canWrite = canWrite
+        self.isShared = isShared
+        self.isOwner = isOwner
     }
+
+    /// The author predicate: only an `.author` may mutate the manuscript text.
+    /// Reviewers (and the still-resolving `.unknown` posture) cannot.
+    public var canEditManuscript: Bool { role == .author }
 }
 
 /// Platform-agnostic snapshot of the OS share metadata. The Mac
@@ -98,14 +115,15 @@ public enum ShareIdentityMapper {
         guard let meta else {
             return Collaborator(
                 role: .unknown, currentUserName: nil, ownerName: nil,
-                canWrite: false)
+                canWrite: false, isShared: false, isOwner: false)
         }
 
         // Not shared → the writer's own copy. Author, fully writable.
         if !meta.isShared {
             return Collaborator(
                 role: .author, currentUserName: meta.currentUserName,
-                ownerName: nil, canWrite: true)
+                ownerName: nil, canWrite: true,
+                isShared: false, isOwner: false)
         }
 
         // Shared. Owner → author; participant (or role-not-yet-known) → reviewer.
@@ -116,6 +134,59 @@ public enum ShareIdentityMapper {
             ownerName: meta.ownerName,
             // iCloud's default grant on a Collaborate share is read-write;
             // absent an explicit read-only signal we don't lock the user out.
-            canWrite: meta.canWrite ?? true)
+            canWrite: meta.canWrite ?? true,
+            isShared: true,
+            isOwner: isOwner)
+    }
+}
+
+/// Pure decision: given the resolved collaboration `role` and whether the user
+/// has manually entered review (⌘⌥R), what is the effective review posture?
+///
+/// This sits ABOVE the low-level `EditorEditPolicy` membrane (Mac-side). It
+/// answers two questions:
+///   - `isReviewMode`: should the review RENDER be shown (marks + rail +
+///     focus/typewriter suppressed)?
+///   - `lockEditing`: must manuscript text mutation be HARD-blocked regardless
+///     of the manual toggle — i.e. the user is not an author?
+///
+/// `lockEditing` is the safety floor: for a `.reviewer` or the still-resolving
+/// `.unknown` posture it is always `true`, so even if the manual review render
+/// is toggled off, the membrane keeps the manuscript read-only. Only an
+/// `.author` can ever have `lockEditing == false`.
+public enum ReviewPosturePolicy {
+
+    public struct Effective: Equatable, Sendable {
+        /// Whether the crafted review render is shown.
+        public let isReviewMode: Bool
+        /// Whether manuscript text mutation is hard-blocked (non-author).
+        public let lockEditing: Bool
+
+        public init(isReviewMode: Bool, lockEditing: Bool) {
+            self.isReviewMode = isReviewMode
+            self.lockEditing = lockEditing
+        }
+    }
+
+    /// - `.author`   + not-manual → editable (no review render, no lock).
+    /// - `.author`   + manual     → review render on; still no lock (they may
+    ///                              leave review and edit).
+    /// - `.reviewer`              → review render FORCED on, editing LOCKED,
+    ///                              regardless of the manual toggle.
+    /// - `.unknown`               → cautious: review render on + LOCKED until the
+    ///                              real role resolves (don't flash author
+    ///                              affordances, then yank them).
+    public static func effective(
+        role: CollaborationRole,
+        manualReview: Bool
+    ) -> Effective {
+        switch role {
+        case .author:
+            return Effective(isReviewMode: manualReview, lockEditing: false)
+        case .reviewer:
+            return Effective(isReviewMode: true, lockEditing: true)
+        case .unknown:
+            return Effective(isReviewMode: true, lockEditing: true)
+        }
     }
 }

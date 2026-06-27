@@ -29,6 +29,16 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// Use `setReviewMode(_:)` to flip it so the posture re-applies immediately.
     private(set) var isReviewMode = false
 
+    /// Hard editing lock (WF1 iCloud role): when true the manuscript text is
+    /// read-only because the current user is NOT an author of it (an iCloud
+    /// reviewer, or the still-resolving `.unknown` role). Distinct from
+    /// `isReviewMode`: that is a soft, toggleable render posture an author opts
+    /// into; this is the floor that the membrane ANDs in so a reviewer's ⌘⌥R can
+    /// flip the review render but can NEVER unlock text mutation. Threaded
+    /// ONE-WAY from ProjectWindow → EditorHost → EditorSurface (tripwires 2 & 6);
+    /// nothing reads it back. Use `setLockEditing(_:)` to flip it.
+    private(set) var lockEditing = false
+
     /// Weak handle to the floating selection toolbar overlay so the
     /// selection-change callback can position/show/hide it. Lives in the scroll
     /// view's superview (see EditorSurface), NOT a subview of the clipped
@@ -560,6 +570,16 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// suppressed, and the selection toolbar becomes eligible to show. When it
     /// turns OFF the prior focus/typewriter behavior is restored. Idempotent and
     /// guarded against no-op churn (updateNSView calls every layout pass).
+    /// Hard editing lock changed (WF1 iCloud role). Plain stored-property flip
+    /// threaded ONE-WAY from EditorSurface.updateNSView (tripwires 2 & 6). The
+    /// membrane reads `lockEditing` live in `shouldChangeTextIn`, so no restyle
+    /// is needed — the next keystroke sees the new value. Idempotent / no-op
+    /// guarded (updateNSView runs every layout pass).
+    func setLockEditing(_ locked: Bool) {
+        guard lockEditing != locked else { return }
+        lockEditing = locked
+    }
+
     func setReviewMode(_ enabled: Bool) {
         guard isReviewMode != enabled else { return }
         isReviewMode = enabled
@@ -1235,7 +1255,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // pass through here, so they keep working. Returning false here also
         // stops the smart-typography path below from running its insertText, so
         // no mutation leaks. Placed at the very top, before the existing guard.
-        guard EditorEditPolicy.allowsTextMutation(isReviewMode: isReviewMode) else {
+        guard EditorEditPolicy.allowsTextMutation(
+            isReviewMode: isReviewMode, lockEditing: lockEditing) else {
             return false
         }
         guard let replacementString,

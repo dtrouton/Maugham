@@ -36,6 +36,13 @@ struct EditorHost: View {
     /// no parallel observable state on the editor host) — it lives on
     /// ProjectWindow and nothing here reads it back into a binding.
     var isReviewMode: Bool = false
+    /// Hard editing lock (WF1 iCloud role): true when the resolved collaboration
+    /// role makes the manuscript read-only (an iCloud reviewer, or the still-
+    /// resolving `.unknown` role). Threaded ONE-WAY from ProjectWindow alongside
+    /// `isReviewMode` (same tripwire-6 discipline — a plain `let`, not observed
+    /// here). The membrane ANDs it in so a reviewer's ⌘⌥R can flip the render but
+    /// never unlock text mutation.
+    var lockEditing: Bool = false
     @Environment(UserPreferences.self) private var userPreferences
 
     /// The currently-bound Document. Owns the editor's text state and the
@@ -90,6 +97,7 @@ struct EditorHost: View {
                     sentenceFocus: userPreferences.sentenceFocus,
                     paragraphFocus: userPreferences.paragraphFocus,
                     isReviewMode: isReviewMode,
+                    lockEditing: lockEditing,
                     initialCursorLocation: doc.cursorLocation,
                     onCursorChanged: { offset in
                         doc.cursorLocation = offset

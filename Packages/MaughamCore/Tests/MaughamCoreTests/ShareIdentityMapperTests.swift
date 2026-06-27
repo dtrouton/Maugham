@@ -10,6 +10,9 @@ final class ShareIdentityMapperTests: XCTestCase {
         XCTAssertNil(c.currentUserName)
         XCTAssertNil(c.ownerName)
         XCTAssertFalse(c.canWrite)
+        XCTAssertFalse(c.isShared)
+        XCTAssertFalse(c.isOwner)
+        XCTAssertFalse(c.canEditManuscript)
     }
 
     // Not shared = the writer's own copy → author, writable.
@@ -22,6 +25,9 @@ final class ShareIdentityMapperTests: XCTestCase {
         XCTAssertEqual(c.currentUserName, "Ada Lovelace")
         XCTAssertNil(c.ownerName)
         XCTAssertTrue(c.canWrite)
+        XCTAssertFalse(c.isShared)
+        XCTAssertFalse(c.isOwner)
+        XCTAssertTrue(c.canEditManuscript)
     }
 
     // Shared + I am the owner → author.
@@ -33,6 +39,9 @@ final class ShareIdentityMapperTests: XCTestCase {
         XCTAssertEqual(c.role, .author)
         XCTAssertEqual(c.ownerName, "Ada Lovelace")
         XCTAssertTrue(c.canWrite)
+        XCTAssertTrue(c.isShared)
+        XCTAssertTrue(c.isOwner)
+        XCTAssertTrue(c.canEditManuscript)
     }
 
     // Shared + I am a participant → reviewer; names + canWrite carried.
@@ -45,6 +54,9 @@ final class ShareIdentityMapperTests: XCTestCase {
         XCTAssertEqual(c.ownerName, "Ada Lovelace")
         XCTAssertEqual(c.currentUserName, "Charles Babbage")
         XCTAssertFalse(c.canWrite)
+        XCTAssertTrue(c.isShared)
+        XCTAssertFalse(c.isOwner)
+        XCTAssertFalse(c.canEditManuscript)
     }
 
     // Participant with read-write permission still resolves reviewer, canWrite true.
