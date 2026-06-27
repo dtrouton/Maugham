@@ -59,6 +59,10 @@ struct ProjectWindow: View {
     /// Single resolve, threaded down; the pill no longer reads on its own
     /// (consolidation, per the WF1 task).
     @State private var collaborator: Collaborator?
+    /// Control-plane model for the editor (ADR 0017). ProjectWindow is its sole
+    /// posture/appearance writer; EditorHost writes the annotation set (Task 5).
+    /// Threaded down to the coordinator, which observes it.
+    @State private var editorControl = EditorControl()
     /// Raw share snapshot kept alongside `collaborator` for the pill's hover
     /// diagnostics (the `.help()` tooltip), so the resolver stays the single
     /// read path.
@@ -299,6 +303,13 @@ struct ProjectWindow: View {
                     "lockEditing": posture.lockEditing,
                 ])
         }
+        // Mirror posture + appearance into the EditorControl model (ADR 0017).
+        // Extracted into a ViewModifier to stay under ProjectWindow.body's
+        // SwiftUI type-checker ceiling (the extracted-ViewModifier pattern).
+        .modifier(EditorControlMirrorModifier(
+            effectivePosture: effectivePosture,
+            effectiveTypography: effectiveTypography,
+            editorControl: $editorControl))
         .preferredColorScheme(preferredColorScheme)
     }
 
@@ -323,6 +334,16 @@ struct ProjectWindow: View {
     private var effectivePosture: ReviewPosturePolicy.Effective {
         ReviewPosturePolicy.effective(
             role: resolvedRole, manualReview: isReviewModeOn)
+    }
+
+    /// The typography the editor actually uses — manifest override else user
+    /// default. Mirrors the value EditorHost passes to EditorSurface, so the
+    /// control model and the (still-active) prop path agree during migration.
+    private var effectiveTypography: TypographySettings {
+        guard let store else { return userPreferences.typography }
+        return ProjectStore.effectiveTypography(
+            override: store.manifest.typography,
+            userDefault: userPreferences.typography)
     }
 
     /// True when the resolved identity is a reviewer on a READ-ONLY iCloud
@@ -791,7 +812,8 @@ struct ProjectWindow: View {
                 // (lockEditing) so the membrane keeps the text read-only no matter
                 // what the manual toggle says.
                 isReviewMode: effectivePosture.isReviewMode,
-                lockEditing: effectivePosture.lockEditing
+                lockEditing: effectivePosture.lockEditing,
+                control: editorControl
             )
         case .research:
             if let id = selectedResearchId,
@@ -1307,6 +1329,46 @@ private struct ParagraphNavModifier: ViewModifier {
             // (it brings the one Help window forward), so no key-window guard.
             .onReceive(NotificationCenter.default.publisher(for: .maughamShowHelp)) { _ in
                 openWindow(id: "help")
+            }
+    }
+}
+
+/// Mirrors posture + appearance changes from ProjectWindow-owned sources into
+/// the `EditorControl` model (ADR 0017). Extracted into a ViewModifier to stay
+/// under ProjectWindow.body's SwiftUI type-checker ceiling.
+private struct EditorControlMirrorModifier: ViewModifier {
+    let effectivePosture: ReviewPosturePolicy.Effective
+    let effectiveTypography: TypographySettings
+    @Binding var editorControl: EditorControl
+    @Environment(UserPreferences.self) private var userPreferences
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: effectivePosture) { _, posture in
+                editorControl.isReviewMode = posture.isReviewMode
+                editorControl.lockEditing = posture.lockEditing
+            }
+            .onChange(of: userPreferences.theme) { _, t in editorControl.theme = t }
+            .onChange(of: effectiveTypography) { _, t in editorControl.typography = t }
+            .onChange(of: userPreferences.typewriterScroll) { _, v in
+                editorControl.typewriterScroll = v
+            }
+            .onChange(of: userPreferences.sentenceFocus) { _, v in
+                editorControl.sentenceFocus = v
+            }
+            .onChange(of: userPreferences.paragraphFocus) { _, v in
+                editorControl.paragraphFocus = v
+            }
+            .onAppear {
+                // Seed the model from current sources (onChange only fires on
+                // transitions, not on first render).
+                editorControl.isReviewMode = effectivePosture.isReviewMode
+                editorControl.lockEditing = effectivePosture.lockEditing
+                editorControl.theme = userPreferences.theme
+                editorControl.typography = effectiveTypography
+                editorControl.typewriterScroll = userPreferences.typewriterScroll
+                editorControl.sentenceFocus = userPreferences.sentenceFocus
+                editorControl.paragraphFocus = userPreferences.paragraphFocus
             }
     }
 }

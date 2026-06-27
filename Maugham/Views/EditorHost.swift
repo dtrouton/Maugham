@@ -43,6 +43,9 @@ struct EditorHost: View {
     /// here). The membrane ANDs it in so a reviewer's ⌘⌥R can flip the render but
     /// never unlock text mutation.
     var lockEditing: Bool = false
+    /// Control-plane model owned by ProjectWindow, threaded ONE-WAY to the
+    /// EditorSurface/coordinator (ADR 0017).
+    var control: EditorControl
     @Environment(UserPreferences.self) private var userPreferences
 
     /// The currently-bound Document. Owns the editor's text state and the
@@ -98,6 +101,7 @@ struct EditorHost: View {
                     paragraphFocus: userPreferences.paragraphFocus,
                     isReviewMode: isReviewMode,
                     lockEditing: lockEditing,
+                    control: control,
                     initialCursorLocation: doc.cursorLocation,
                     onCursorChanged: { offset in
                         doc.cursorLocation = offset

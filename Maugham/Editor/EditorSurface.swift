@@ -24,6 +24,12 @@ struct EditorSurface: NSViewRepresentable {
     /// text. Threaded ONE-WAY from ProjectWindow → EditorHost; pushed onto the
     /// coordinator in updateNSView. Nothing reads it back (tripwires 2 & 6).
     var lockEditing: Bool = false
+    /// Control-plane model (ADR 0017). The coordinator observes this directly;
+    /// it is the channel for posture/appearance/annotation changes, replacing
+    /// the per-prop pushes in updateNSView. Threaded ONE-WAY from ProjectWindow.
+    /// Default is a no-op instance (for call sites outside the manuscript editor,
+    /// e.g. ResearchNoteEditor) — production path always passes the real model.
+    var control: EditorControl = EditorControl()
     /// Cursor location to restore on first attach (nil = leave at 0).
     var initialCursorLocation: Int? = nil
     /// Fired on every selection change with the new caret location.
@@ -221,6 +227,10 @@ struct EditorSurface: NSViewRepresentable {
         context.coordinator.selectionToolbar = toolbar
 
         context.coordinator.attach(to: textView)
+        // Hand the control-plane model to the coordinator. It observes the model
+        // from here on; the per-prop pushes below remain during the parallel
+        // migration (ADR 0017) and are removed in later tasks.
+        context.coordinator.observeControl(control)
         textView.coordinator = context.coordinator
         if mode is ScreenplayMode && showElementGutter {
             textView.installGutter(coordinator: context.coordinator)
