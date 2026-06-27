@@ -26,10 +26,11 @@ struct EditorSurface: NSViewRepresentable {
     var lockEditing: Bool = false
     /// Control-plane model (ADR 0017). The coordinator observes this directly;
     /// it is the channel for posture/appearance/annotation changes, replacing
-    /// the per-prop pushes in updateNSView. Threaded ONE-WAY from ProjectWindow.
-    /// Default is a no-op instance (for call sites outside the manuscript editor,
-    /// e.g. ResearchNoteEditor) — production path always passes the real model.
-    var control: EditorControl = EditorControl()
+    /// the per-prop pushes in updateNSView. Threaded ONE-WAY from the owning
+    /// view (ProjectWindow via EditorHost for manuscripts; ResearchNoteEditor
+    /// for research notes). Required — all production call sites must pass a
+    /// real, populated model; the compiler enforces this (no default).
+    var control: EditorControl
     /// Cursor location to restore on first attach (nil = leave at 0).
     var initialCursorLocation: Int? = nil
     /// Fired on every selection change with the new caret location.
