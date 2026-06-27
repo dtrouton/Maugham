@@ -78,28 +78,42 @@ struct AnnotationWriter {
 
     /// Build a `claudeAccept` op for `annotation`.
     ///
-    /// For a `.suggestedChange`, `changes` is the creation op's `ParagraphChange`
-    /// rebuilt verbatim — `(paragraphId, prior, next)` = `(annotation.paragraphId,
-    /// annotation.priorText, annotation.suggestedText)` — so the Mac re-applies the
-    /// edit on replay (the load-bearing rule above). For every other kind there is
-    /// nothing to materialize, so `changes` is empty: a comment/query/craftNote
-    /// accept must NOT fabricate a manuscript change.
+    /// For a `.suggestedChange`, `changes` carries the FULL resulting paragraph
+    /// as `next` so the Mac re-applies it on replay (the load-bearing rule above).
+    /// The annotation stores the BARE suggested text; the full paragraph is
+    /// produced here by `SuggestionSplice.apply`, which splices the bare text into
+    /// the span (`annotation.span`, re-resolved against `currentParagraph`) so a
+    /// one-word suggestion replaces one word, not the whole paragraph. A
+    /// paragraph-level suggestion (no span) replaces the whole paragraph — the
+    /// bare text already is that paragraph. Identical to the Mac's
+    /// `Document.acceptAnnotation` (shared `SuggestionSplice`, cross-surface
+    /// contract). `currentParagraph` is the live paragraph text from the caller's
+    /// materialised map; nil falls back to `annotation.priorText`.
+    ///
+    /// For every other kind there is nothing to materialize, so `changes` is
+    /// empty: a comment/query/craftNote accept must NOT fabricate a manuscript
+    /// change.
     ///
     /// Fail loud: a `.suggestedChange` missing `paragraphId` or `suggestedText` is
     /// upstream corruption — emitting an empty-changes accept would mark the
     /// annotation accepted while materializing nothing (silent manuscript data
     /// loss), so we `assertionFailure` (Debug) then `throw .malformedSuggestion`
     /// rather than fabricate or drop the change.
-    func makeAccept(for annotation: Annotation) throws -> Op {
+    func makeAccept(
+        for annotation: Annotation, currentParagraph: String? = nil
+    ) throws -> Op {
         let changes: [Op.ParagraphChange]
         if annotation.kind == .suggestedChange {
-            guard let pid = annotation.paragraphId, let next = annotation.suggestedText else {
+            guard let pid = annotation.paragraphId, let bare = annotation.suggestedText else {
                 if assertOnMalformed {
                     assertionFailure("malformed .suggestedChange reached makeAccept: \(annotation.id)")
                 }
                 throw WriteError.malformedSuggestion(annotationId: annotation.id)
             }
-            changes = [Op.ParagraphChange(paragraphId: pid, prior: annotation.priorText, next: next)]
+            let current = currentParagraph ?? annotation.priorText ?? ""
+            let next = SuggestionSplice.apply(
+                suggestion: bare, span: annotation.span, to: current)
+            changes = [Op.ParagraphChange(paragraphId: pid, prior: current, next: next)]
         } else {
             // comment/query/craftNote: nothing to materialize.
             changes = []
@@ -151,8 +165,8 @@ struct AnnotationWriter {
     // MARK: - Build + coordinated append
 
     @discardableResult
-    func accept(_ annotation: Annotation) async throws -> Op {
-        try await append(makeAccept(for: annotation))
+    func accept(_ annotation: Annotation, currentParagraph: String? = nil) async throws -> Op {
+        try await append(makeAccept(for: annotation, currentParagraph: currentParagraph))
     }
 
     @discardableResult

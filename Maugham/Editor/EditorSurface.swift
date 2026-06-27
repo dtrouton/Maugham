@@ -6,24 +6,22 @@ import AppKit
 /// WritingMode (ProseMode in 1b).
 struct EditorSurface: NSViewRepresentable {
     @Binding var text: String
+    /// Retained to seed `makeCoordinator`'s initial state only (the model can't
+    /// seed the coordinator before it exists); runtime appearance changes flow
+    /// via `control` (ADR 0017).
     let theme: Theme
     let typography: TypographySettings
     let mode: any WritingMode
     let typewriterScroll: Bool
     let sentenceFocus: Bool
     let paragraphFocus: Bool
-    /// Review posture (WF1): when true the manuscript is annotate-only
-    /// (read-only text) and focus-dim + typewriter are suppressed. Threaded
-    /// ONE-WAY from ProjectWindow → EditorHost; pushed onto the coordinator in
-    /// updateNSView. Nothing reads it back into a binding (tripwires 2 & 6).
-    var isReviewMode: Bool = false
-    /// Hard editing lock (WF1 iCloud role): when true the manuscript text is
-    /// read-only because the current user is NOT an author (an iCloud reviewer,
-    /// or the still-resolving `.unknown` role). The membrane ANDs this with
-    /// `isReviewMode`, so a reviewer's ⌘⌥R can flip the render but never unlock
-    /// text. Threaded ONE-WAY from ProjectWindow → EditorHost; pushed onto the
-    /// coordinator in updateNSView. Nothing reads it back (tripwires 2 & 6).
-    var lockEditing: Bool = false
+    /// Control-plane model (ADR 0017). The coordinator observes this directly;
+    /// it is the channel for posture/appearance/annotation changes, replacing
+    /// the per-prop pushes in updateNSView. Threaded ONE-WAY from the owning
+    /// view (ProjectWindow via EditorHost for manuscripts; ResearchNoteEditor
+    /// for research notes). Required — all production call sites must pass a
+    /// real, populated model; the compiler enforces this (no default).
+    var control: EditorControl
     /// Cursor location to restore on first attach (nil = leave at 0).
     var initialCursorLocation: Int? = nil
     /// Fired on every selection change with the new caret location.
@@ -78,11 +76,6 @@ struct EditorSurface: NSViewRepresentable {
     /// (Suggest only; nil for Comment/Query). Wired to
     /// `Document.addReviewerAnnotation(...)`.
     var createAnnotationHandler: ((AnnotationKind, String, SpanAnchor, String, String?) async -> Void)? = nil
-    /// Open annotations to render in review mode (Component F). Threaded ONE-WAY;
-    /// pushed onto the coordinator in updateNSView. Sourced from the host's
-    /// `Document` and recomputed whenever `annotationsVersion` changes (which
-    /// re-runs SwiftUI's body and lands here).
-    var reviewAnnotations: [Annotation] = []
     /// Resolves a paragraphId → its display text (for grapheme→UTF-16 of spans).
     var reviewParagraphTextProvider: ((String) -> String?)? = nil
     /// Resolves a paragraphId → its UTF-16 NSRange in the full display string.
@@ -221,6 +214,10 @@ struct EditorSurface: NSViewRepresentable {
         context.coordinator.selectionToolbar = toolbar
 
         context.coordinator.attach(to: textView)
+        // Hand the control-plane model to the coordinator. It observes the model
+        // from here on; the per-prop pushes below remain during the parallel
+        // migration (ADR 0017) and are removed in later tasks.
+        context.coordinator.observeControl(control)
         textView.coordinator = context.coordinator
         if mode is ScreenplayMode && showElementGutter {
             textView.installGutter(coordinator: context.coordinator)
@@ -238,17 +235,11 @@ struct EditorSurface: NSViewRepresentable {
                "selection toolbar onAction must be wired after makeNSView")
         #endif
 
-        // Seed the open annotation set BEFORE flipping review posture so a
-        // fresh-launch-straight-into-review shows existing marks + rail on the
-        // first frame (Bug A) — setReviewMode recomputes marks on entry, and it
-        // needs the annotations already present. updateNSView re-pushes both and
-        // is no-op-guarded, so this seeding is not duplicate steady-state work.
-        context.coordinator.setReviewAnnotations(reviewAnnotations)
-        // Push the initial review posture before the surface goes live. The hard
-        // role lock goes first so the membrane is correct even on the very first
-        // frame of a reviewer's project.
-        context.coordinator.setLockEditing(lockEditing)
-        context.coordinator.setReviewMode(isReviewMode)
+        // The open annotation set is no longer seeded here: it flows through the
+        // control model (ADR 0017), applied by `observeControl`/`applyControl`
+        // above. A fresh-launch-straight-into-review still shows existing marks
+        // because `setReviewMode`'s on-entry `reviewAnnotationsProvider` pull
+        // resolves the real set synchronously (Bug A), independent of the model.
 
         return scrollView
     }
@@ -267,25 +258,13 @@ struct EditorSurface: NSViewRepresentable {
         if textView.string != text {
             context.coordinator.applyExternalText(text)
         }
-        if context.coordinator.theme != theme
-            || context.coordinator.typography != typography {
-            context.coordinator.applyAppearance(
-                theme: theme, typography: typography)
-
-            let columnWidth = mode.textColumnWidth(typography: typography)
+        // Appearance itself flows via EditorControl (ADR 0017); only the
+        // text-container width remains a layout concern handled here.
+        let columnWidth = mode.textColumnWidth(typography: typography)
+        if abs(textView.columnWidth - columnWidth) > 0.5 {
             textView.columnWidth = columnWidth
-            if let container = textView.textContainer {
-                container.size = NSSize(width: columnWidth,
-                                        height: .greatestFiniteMagnitude)
-            }
-        }
-        if context.coordinator.typewriterScroll != typewriterScroll {
-            context.coordinator.applyTypewriterScroll(typewriterScroll)
-        }
-        if context.coordinator.sentenceFocus != sentenceFocus
-            || context.coordinator.paragraphFocus != paragraphFocus {
-            context.coordinator.applyFocusPrefs(
-                sentence: sentenceFocus, paragraph: paragraphFocus)
+            textView.textContainer?.size = NSSize(
+                width: columnWidth, height: .greatestFiniteMagnitude)
         }
         // Mode-change reconciliation for gutter.
         let needsGutter = (mode is ScreenplayMode) && showElementGutter
@@ -300,26 +279,18 @@ struct EditorSurface: NSViewRepresentable {
         context.coordinator.checkboxToggleHandler = checkboxToggleHandler
         context.coordinator.paragraphRangeAtLocation = paragraphRangeAtLocation
         context.coordinator.createAnnotationHandler = createAnnotationHandler
-        // Crafted-render providers BEFORE the annotation set (recompute reads
-        // them) and BEFORE setReviewMode (which installs/refreshes overlays).
+        // Crafted-render providers — kept current so the model-driven recompute
+        // (via `applyControl` → `setReviewAnnotations`) and the on-entry provider
+        // pull both read fresh resolvers. The open annotation set itself no longer
+        // pushes from here; it flows through the control model (ADR 0017).
         context.coordinator.reviewParagraphTextProvider = reviewParagraphTextProvider
         context.coordinator.reviewParagraphRangeProvider = reviewParagraphRangeProvider
-        // Pull-on-entry provider must be set BEFORE setReviewMode so the
-        // synchronous membrane toggle can resolve the real annotation set.
+        // Pull-on-entry provider: the coordinator invokes it on review entry to
+        // resolve the real annotation set synchronously (first-toggle marks fix).
         context.coordinator.reviewAnnotationsProvider = reviewAnnotationsProvider
-        // Interactive-card handlers + local-author provider must be set BEFORE
-        // the recompute path (setReviewMode/setReviewAnnotations) reads ownership.
+        // Interactive-card handlers + local-author provider must be current before
+        // the recompute path reads ownership.
         assignReviewCardHandlers(to: context.coordinator)
-        // Review posture is threaded ONE-WAY: push it onto the coordinator
-        // (setReviewMode/setLockEditing are guarded against no-op churn). Nothing
-        // reads it back. The hard role lock is pushed FIRST so the membrane never
-        // observes a transient render-on-but-unlocked state for a reviewer.
-        context.coordinator.setLockEditing(lockEditing)
-        context.coordinator.setReviewMode(isReviewMode)
-        // Push the open annotation set (guarded against no-op churn). A change to
-        // the Document's annotationsVersion re-runs SwiftUI's body, re-deriving
-        // this array, which lands here and recomputes the resolved marks.
-        context.coordinator.setReviewAnnotations(reviewAnnotations)
     }
 }
 

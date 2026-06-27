@@ -30,19 +30,9 @@ struct EditorHost: View {
     var onElementChanged: (String?) -> Void = { _ in }
     var wikiLinkResolver: ((String) -> Bool)? = nil
     var wikiLinkClickResolver: ((String) -> String?)? = nil
-    /// Review posture (WF1): annotate-only manuscript + focus/typewriter off.
-    /// A plain `let` threaded ONE-WAY from ProjectWindow down into EditorSurface
-    /// → coordinator. Deliberately NOT @State/observed on EditorHost (tripwire 6:
-    /// no parallel observable state on the editor host) — it lives on
-    /// ProjectWindow and nothing here reads it back into a binding.
-    var isReviewMode: Bool = false
-    /// Hard editing lock (WF1 iCloud role): true when the resolved collaboration
-    /// role makes the manuscript read-only (an iCloud reviewer, or the still-
-    /// resolving `.unknown` role). Threaded ONE-WAY from ProjectWindow alongside
-    /// `isReviewMode` (same tripwire-6 discipline — a plain `let`, not observed
-    /// here). The membrane ANDs it in so a reviewer's ⌘⌥R can flip the render but
-    /// never unlock text mutation.
-    var lockEditing: Bool = false
+    /// Control-plane model owned by ProjectWindow, threaded ONE-WAY to the
+    /// EditorSurface/coordinator (ADR 0017).
+    var control: EditorControl
     @Environment(UserPreferences.self) private var userPreferences
 
     /// The currently-bound Document. Owns the editor's text state and the
@@ -96,8 +86,7 @@ struct EditorHost: View {
                     typewriterScroll: userPreferences.typewriterScroll,
                     sentenceFocus: userPreferences.sentenceFocus,
                     paragraphFocus: userPreferences.paragraphFocus,
-                    isReviewMode: isReviewMode,
-                    lockEditing: lockEditing,
+                    control: control,
                     initialCursorLocation: doc.cursorLocation,
                     onCursorChanged: { offset in
                         doc.cursorLocation = offset
@@ -161,19 +150,6 @@ struct EditorHost: View {
                             suggestedText: suggestedText,
                             authorName: userPreferences.collaboratorDisplayName)
                     },
-                    // Crafted review render (Component F). Reading
-                    // `doc.annotationsVersion` here makes SwiftUI re-evaluate the
-                    // body — and thus re-derive `reviewAnnotations` and re-push it
-                    // through updateNSView — whenever the annotation set changes.
-                    // This is safe (unlike reading `displayText`): it never feeds
-                    // the text binding, so the cursor-race triad (tripwires 6/7)
-                    // stays closed. Only computed in review mode to avoid deriving
-                    // annotations during normal authoring.
-                    reviewAnnotations: isReviewMode
-                        ? { _ = doc.annotationsVersion
-                            return doc.annotations(
-                                filter: AnnotationFilter(statuses: [.open])) }()
-                        : [],
                     reviewParagraphTextProvider: { pid in
                         doc.paragraph(id: pid).map {
                             RenderFilter.stripTaskAnchorsInline($0)
@@ -228,6 +204,32 @@ struct EditorHost: View {
                     }
                 )
                 .id(path)
+                // Crafted review render (Component F): the open-annotation set now
+                // flows through the control model (ADR 0017), not a per-prop push.
+                // EditorHost mirrors the Document's open set into
+                // `control.reviewAnnotations` whenever it changes; the coordinator
+                // observes the model and reconciles via `applyControl` →
+                // `setReviewAnnotations`. Reading `doc.annotationsVersion` /
+                // `control.isReviewMode` in these closures is safe (unlike reading
+                // `displayText`): it never feeds the text binding, so the
+                // cursor-race triad (tripwires 6/7) stays closed. An AnnotationsPane
+                // edit bumps `annotationsVersion` on the SAME registered Document
+                // instance, so the first `.onChange` carries it through.
+                .onChange(of: doc.annotationsVersion) { _, _ in
+                    control.reviewAnnotations = control.isReviewMode
+                        ? doc.annotations(filter: AnnotationFilter(statuses: [.open]))
+                        : []
+                }
+                .onChange(of: control.isReviewMode) { _, nowReview in
+                    control.reviewAnnotations = nowReview
+                        ? doc.annotations(filter: AnnotationFilter(statuses: [.open]))
+                        : []
+                }
+                .onAppear {
+                    control.reviewAnnotations = control.isReviewMode
+                        ? doc.annotations(filter: AnnotationFilter(statuses: [.open]))
+                        : []
+                }
             } else if currentItem?.type == .group {
                 placeholder("Select a document inside this group to edit.")
             } else if currentItem?.type == .document {

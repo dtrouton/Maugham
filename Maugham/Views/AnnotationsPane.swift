@@ -281,7 +281,10 @@ struct AnnotationsPane: View {
                 newBody: newBody,
                 newSuggestedText: newSuggested,
                 authorName: userPreferences.collaboratorDisplayName)
-            notifyEditorReviewMarksChanged()
+            // No explicit editor notify: the edit bumps `annotationsVersion` on
+            // the shared Document, which EditorHost mirrors into the control model
+            // → `applyControl` → `setReviewAnnotations`, recomputing crafted marks
+            // automatically (ADR 0017).
         }
     }
 
@@ -291,16 +294,7 @@ struct AnnotationsPane: View {
             try? await document.withdrawReviewerAnnotation(
                 id: ann.id,
                 authorName: userPreferences.collaboratorDisplayName)
-            notifyEditorReviewMarksChanged()
         }
-    }
-
-    /// Tell the key-window editor coordinator to re-pull + recompute its
-    /// crafted review marks so an edited/withdrawn annotation's inline mark +
-    /// rail card update without a review toggle.
-    private func notifyEditorReviewMarksChanged() {
-        NotificationCenter.default.post(
-            name: .maughamReviewAnnotationsChanged, object: nil)
     }
 
     private func jump(_ ann: Annotation) {
@@ -410,7 +404,11 @@ struct AnnotationRow: View {
             stetCard
         } else {
             VStack(alignment: .leading, spacing: 1) {
-                if let prior = annotation.priorText {
+                // "Before" matches the suggestion's grain: the SPAN's original
+                // text for a sub-paragraph suggestion, else the whole paragraph —
+                // so a one-word suggestion reads `very angry → furious`, not
+                // `<whole paragraph> → furious` (SuggestionDisplay, shared w/ phone).
+                if let prior = SuggestionDisplay.before(for: annotation) {
                     Text("\u{2212} \(AnnotationRow.displayText(prior))")
                         .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(.red)
@@ -451,7 +449,7 @@ struct AnnotationRow: View {
                     .font(.caption2.italic())
                     .foregroundStyle(stetAccent)
             }
-            if let prior = annotation.priorText {
+            if let prior = SuggestionDisplay.before(for: annotation) {
                 Text(AnnotationRow.displayText(prior))
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.primary)

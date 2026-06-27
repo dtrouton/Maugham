@@ -84,10 +84,17 @@ seams and the views are build-verified:
    predicate** (e.g. `hasPrefix("d_")` or a 26-char-ULID check): it matches zero
    real files and silently shows "No open annotations" / prefetches nothing. This
    bit both `AnnotationLoading.isDocId` and `ColdLaunchDownloader.liveEnumerateOpLogs`.
-4. **`claudeAccept` on a `suggestedChange` must copy the creation op's `changes`
-   array verbatim** (`AnnotationWriter.makeAccept`), or the Mac's `Deriver` replay
-   materializes nothing on next load. Other kinds carry empty `changes`. A malformed
-   suggestedChange **throws** (fail-loud) rather than emitting a no-op accept.
+4. **`claudeAccept` on a `suggestedChange` must carry the FULL resulting paragraph
+   as `next`** (`AnnotationWriter.makeAccept`), or the Mac's `Deriver` replay
+   materializes nothing on next load. The op stores the BARE suggested text (so the
+   review UI shows just the replacement); `makeAccept` produces the full paragraph
+   via the shared `SuggestionSplice.apply` — splicing the bare text into
+   `annotation.span` against the live `currentParagraph` (passed by the detail view)
+   so a one-word span suggestion replaces one word, not the paragraph. A
+   paragraph-level suggestion (no span) replaces the whole paragraph. SAME
+   `SuggestionSplice` the Mac's `Document.acceptAnnotation` uses (cross-surface
+   contract). Other kinds carry empty `changes`. A malformed suggestedChange
+   **throws** (fail-loud) rather than emitting a no-op accept.
 5. **No live cross-device updates in v1 (no `NSFilePresenter`).** Lists reflect
    remote (Mac) changes only on appear / pull-to-refresh / after a phone-side resolve
    / when a detail's re-derive discovers a remote resolution. Don't assume a list

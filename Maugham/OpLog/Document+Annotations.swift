@@ -100,9 +100,12 @@ extension Document {
                 return []
             case .suggestedChange:
                 guard let pid = paragraphId else { return [] }
-                let prior = paragraphs[pid]
+                // Store the BARE suggested text (so the review UI shows just the
+                // replacement, not the whole resulting paragraph). The splice
+                // into the span happens at ACCEPT (`acceptAnnotation`), via the
+                // shared `SuggestionSplice`. The span is carried on provenance.
                 return [.init(paragraphId: pid,
-                              prior: prior,
+                              prior: paragraphs[pid],
                               next: suggestedText ?? "")]
             case .comment, .query:
                 guard let pid = paragraphId else { return [] }
@@ -179,9 +182,10 @@ extension Document {
         authorId: String? = nil
     ) async throws {
         // Carry the new suggested replacement through the same channel the
-        // original suggestion uses: ParagraphChange.next. Only attach it when
-        // the caller supplied one (editing a suggestion). A nil leaves the
-        // original suggestion intact in the deriver.
+        // original suggestion uses: ParagraphChange.next holds the BARE text.
+        // Only attach it when the caller supplied one (editing a suggestion);
+        // a nil leaves the original suggestion intact in the deriver. The splice
+        // into the span happens at accept (`SuggestionSplice`), not here.
         let changes: [Op.ParagraphChange] = {
             guard let suggested = newSuggestedText,
                   let creation = _opLogMirror.first(where: { $0.opId == id }),
@@ -246,11 +250,24 @@ extension Document {
         }
 
         // Determine the changes payload. Only suggestedChange mutates the
-        // manuscript on accept.
+        // manuscript on accept. The creation op stores the BARE suggested text;
+        // the full paragraph is produced HERE by splicing the bare text into the
+        // span (re-resolved against the CURRENT paragraph) so a one-word
+        // suggestion replaces one word, not the whole paragraph. A paragraph-
+        // level suggestion (no span) replaces the whole paragraph. The accept
+        // op carries the resulting full paragraph as `next`, so replay
+        // (`Materializer`) applies it unchanged. See `SuggestionSplice`.
         let changes: [Op.ParagraphChange] = {
             switch kind {
             case .suggestedChange:
-                return creation.changes   // re-applies prior/next on replay
+                guard let orig = creation.changes.first else { return [] }
+                let pid = orig.paragraphId
+                let current = paragraphs[pid] ?? orig.prior ?? ""
+                let next = SuggestionSplice.apply(
+                    suggestion: orig.next ?? "",
+                    span: SuggestionSplice.spanAnchor(from: creation.provenance),
+                    to: current)
+                return [.init(paragraphId: pid, prior: current, next: next)]
             case .comment, .query, .craftNote:
                 return []
             }

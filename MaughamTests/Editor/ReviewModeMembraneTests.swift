@@ -117,14 +117,10 @@ final class ReviewModeMembraneTests: XCTestCase {
     }
 
     /// Resolved-posture push regression (the "can't edit my own doc until I flip
-    /// pieces" bug): on open a project sits at `.unknown` → membrane LOCKED. When
-    /// the async iCloud role resolve lands as `.author`, the editor (deep in a
-    /// NavigationSplitView content column) didn't reliably get `updateNSView`, so
-    /// the lock stuck until a piece switch rebuilt the surface. The
-    /// `maughamReviewPostureResolved` push drives `applyResolvedPosture` directly;
-    /// this asserts that path re-opens the membrane WITHOUT any view rebuild.
+    /// pieces" bug), now via the control plane (ADR 0017): mutating the observed
+    /// EditorControl unlocks the membrane in place — no key window, no notification.
     @MainActor
-    func test_applyResolvedPosture_unlocksMembraneOnRoleResolve() {
+    func test_controlModelResolve_unlocksMembrane() async {
         final class TextBox { var value = "Hello world" }
         let box = TextBox()
         let coordinator = EditorCoordinator(
@@ -133,33 +129,29 @@ final class ReviewModeMembraneTests: XCTestCase {
             theme: .light, typography: .defaults,
             typewriterScroll: false,
             sentenceFocus: false, paragraphFocus: false)
-
         let tv = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
         tv.string = box.value
         tv.delegate = coordinator
         coordinator.attach(to: tv)
 
-        // Open posture: still-resolving `.unknown` → review render on + locked.
-        coordinator.applyResolvedPosture(isReviewMode: true, lockEditing: true)
-        XCTAssertTrue(coordinator.lockEditing)
-        XCTAssertFalse(
-            coordinator.textView(
-                tv,
-                shouldChangeTextIn: NSRange(location: 5, length: 0),
-                replacementString: "x"),
-            "the writer's own doc opens locked while the role is unresolved")
+        let control = EditorControl()
+        control.isReviewMode = true
+        control.lockEditing = true
+        coordinator.observeControl(control)   // open posture: locked
 
-        // The async resolve lands as `.author` (editable). The push must re-open
-        // the membrane immediately, with no piece switch / surface rebuild.
-        coordinator.applyResolvedPosture(isReviewMode: false, lockEditing: false)
-        XCTAssertFalse(coordinator.lockEditing)
-        XCTAssertFalse(coordinator.isReviewMode)
+        XCTAssertFalse(
+            coordinator.textView(tv, shouldChangeTextIn: NSRange(location: 5, length: 0),
+                                 replacementString: "x"),
+            "own doc opens locked while role unresolved")
+
+        control.isReviewMode = false
+        control.lockEditing = false
+        try? await Task.sleep(for: .milliseconds(50))
+
         XCTAssertTrue(
-            coordinator.textView(
-                tv,
-                shouldChangeTextIn: NSRange(location: 5, length: 0),
-                replacementString: "x"),
-            "once the role resolves to author the membrane must re-open in place")
+            coordinator.textView(tv, shouldChangeTextIn: NSRange(location: 5, length: 0),
+                                 replacementString: "x"),
+            "role resolving to author must re-open the membrane in place")
     }
 
     /// First-toggle marks regression: when the ⌘⌥R observer flips review ON

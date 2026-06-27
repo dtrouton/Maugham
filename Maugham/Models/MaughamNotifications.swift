@@ -56,30 +56,6 @@ extension Notification.Name {
     /// userInfo["paragraph_id"] contains the paragraph id string.
     public static let maughamNavigateToParagraph = Notification.Name(
         "maughamNavigateToParagraph")
-    /// Posted when the review annotation set is mutated from the AnnotationsPane
-    /// (an author edits or withdraws their own annotation). The key-window
-    /// EditorCoordinator observes this to re-pull + recompute its crafted review
-    /// marks so an edited/withdrawn annotation's inline mark + rail card update
-    /// immediately, without toggling review off/on. Same class of fix as the
-    /// create-case provider re-pull. `object` is nil (broadcast); the observer
-    /// guards on `textView?.window?.isKeyWindow`.
-    public static let maughamReviewAnnotationsChanged = Notification.Name(
-        "maughamReviewAnnotationsChanged")
-    /// Posted by the KEY ProjectWindow when its resolved review posture
-    /// (`ReviewPosturePolicy.Effective`) changes — chiefly when the async iCloud
-    /// role resolve lands and flips `.unknown` → `.author`/`.reviewer`. The
-    /// editor lives in a `NavigationSplitView` content column, where a change to
-    /// the root `collaborator` @State does NOT reliably re-push the deep
-    /// `EditorSurface` NSViewRepresentable (it only "picked up" on a piece switch
-    /// that rebuilt the surface). This one-way push drives the membrane directly,
-    /// mirroring `maughamToggleReviewMode`. Only the key window posts (so a
-    /// background window's posture can't land on the focused editor) and the
-    /// observer also guards on `textView?.window?.isKeyWindow`. Carries
-    /// `userInfo["isReviewMode"]` (Bool) and `userInfo["lockEditing"]` (Bool) as
-    /// absolute values (a SET, not a toggle). The steady-state
-    /// `updateNSView` push remains the backstop on any later layout pass.
-    public static let maughamReviewPostureResolved = Notification.Name(
-        "maughamReviewPostureResolved")
     /// Posted when an annotation should be selected with span precision — the
     /// editor selects the exact resolved span (not just the paragraph) and
     /// scrolls it into view. Carries `userInfo["annotation_id"]` (String) and,

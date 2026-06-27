@@ -154,7 +154,11 @@ struct AnnotationDetailView: View {
     private var contextSection: some View {
         if current.kind == .suggestedChange {
             VStack(alignment: .leading, spacing: 12) {
-                if let prior = current.priorText, !prior.isEmpty {
+                // "Current" matches the suggestion's grain — the SPAN's original
+                // text for a sub-paragraph suggestion, else the whole paragraph —
+                // so a one-word change reads `very angry → furious`, not
+                // `<whole paragraph> → furious` (SuggestionDisplay, shared w/ Mac).
+                if let prior = SuggestionDisplay.before(for: current), !prior.isEmpty {
                     labeledBlock("Current", text: Self.displayText(prior), tint: .secondary)
                 }
                 if let next = current.suggestedText {
@@ -327,7 +331,10 @@ struct AnnotationDetailView: View {
             // empty accept (which would mark it accepted while materializing
             // nothing — silent data loss). Surface it as an alert.
             do {
-                try await writer.accept(current)
+                // Pass the live paragraph so a span suggestion splices into the
+                // current text (shared SuggestionSplice; matches the Mac).
+                let currentParagraph = current.paragraphId.flatMap { paragraphs[$0] }
+                try await writer.accept(current, currentParagraph: currentParagraph)
             } catch AnnotationWriter.WriteError.malformedSuggestion {
                 errorMessage = "This suggestion is malformed and can’t be applied."
                 throw CancelledWrite()
