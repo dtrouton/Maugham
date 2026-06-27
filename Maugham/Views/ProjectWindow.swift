@@ -52,6 +52,20 @@ struct ProjectWindow: View {
     @State private var showingCheckpointLabelSheet: Bool = false
     @State private var showingBootstrapNotice: Bool = false
     @State private var currentElement: String? = nil
+    /// Resolved iCloud collaboration identity for THIS project, resolved once on
+    /// open and again on a share-change (app re-activation), then cached. Drives
+    /// both the sharing pill and — via `ReviewPosturePolicy` — the editor review
+    /// posture. `nil` until the first resolve completes (treated as `.unknown`).
+    /// Single resolve, threaded down; the pill no longer reads on its own
+    /// (consolidation, per the WF1 task).
+    @State private var collaborator: Collaborator?
+    /// Raw share snapshot kept alongside `collaborator` for the pill's hover
+    /// diagnostics (the `.help()` tooltip), so the resolver stays the single
+    /// read path.
+    @State private var shareSnapshot: ShareMetadata?
+    /// Injected reader for the share metadata (real OS-backed Mac reader in
+    /// production; substitutable in tests/previews).
+    private let shareReader: ShareMetadataReading = ICloudShareMetadataReader()
     @Environment(UserPreferences.self) private var userPreferences
     @Environment(ProjectRegistry.self) private var mcpRegistry
     @Environment(\.openWindow) private var openWindow
@@ -180,6 +194,13 @@ struct ProjectWindow: View {
         .onReceive(NotificationCenter.default.publisher(for: .maughamShowClaudeDesktopHelp)) { _ in
             activeSheet = .claudeDesktop
         }
+        .onReceive(NotificationCenter.default.publisher(for: .maughamShareForReview)) { _ in
+            // Broadcast command — only the focused project window acts, anchoring
+            // the share sheet to its own NSWindow and reusing its resolved snapshot.
+            guard window?.isKeyWindow == true, let store else { return }
+            ProjectShareSheetPresenter.present(
+                projectURL: store.url, snapshot: shareSnapshot, in: window)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .maughamToggleInspector)) { _ in
             showInspector.toggle()
         }
@@ -250,7 +271,48 @@ struct ProjectWindow: View {
         .sheet(isPresented: $showingSyntaxHelp) {
             SyntaxHelpSheet(mode: currentSyntaxHelpMode)
         }
+        // Resolve the iCloud collaboration role ONCE per project URL (and again
+        // on app re-activation — a pragmatic "the user may have just accepted a
+        // share in Finder" trigger). Reads off the main actor's critical path;
+        // the result is cached in @State and threaded one-way to the editor and
+        // the pill. Never polled / per-render.
+        .task(id: url) { await resolveCollaborator() }
+        .onReceive(NotificationCenter.default.publisher(
+            for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await resolveCollaborator() }
+        }
         .preferredColorScheme(preferredColorScheme)
+    }
+
+    /// Reads the share metadata for this project off the main actor and folds it
+    /// into a cached `Collaborator`. Idempotent; safe to call repeatedly.
+    private func resolveCollaborator() async {
+        let target = url
+        let reader = shareReader
+        let meta = await Task.detached(priority: .utility) {
+            reader.read(for: target)
+        }.value
+        shareSnapshot = meta
+        collaborator = ShareIdentityMapper.resolve(meta)
+    }
+
+    /// The resolved role, defaulting to `.unknown` until the first resolve lands.
+    private var resolvedRole: CollaborationRole { collaborator?.role ?? .unknown }
+
+    /// Effective review posture: combines the resolved role with the manual
+    /// ⌘⌥R toggle. `lockEditing` is the hard floor — a reviewer/unknown is locked
+    /// regardless of the toggle, so the manual flag can never unlock the text.
+    private var effectivePosture: ReviewPosturePolicy.Effective {
+        ReviewPosturePolicy.effective(
+            role: resolvedRole, manualReview: isReviewModeOn)
+    }
+
+    /// True when the resolved identity is a reviewer on a READ-ONLY iCloud
+    /// share: they cannot append annotation ops, so the editor surfaces a clear
+    /// "ask the owner for edit access" notice rather than failing silently.
+    private var isViewOnlyReviewer: Bool {
+        guard let c = collaborator else { return false }
+        return c.role == .reviewer && c.canWrite == false
     }
 
     private var preferredColorScheme: ColorScheme? {
@@ -579,13 +641,17 @@ struct ProjectWindow: View {
         editorPane(store: store, documentStore: documentStore)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .topTrailing) {
-                if PublishStarter.isInitialized(in: store.url) {
-                    PublishStatusPill(
-                        projectID: ProjectIdentifier.id(for: store.url),
-                        projectURL: store.url)
-                        .padding(.top, 8)
-                        .padding(.trailing, 12)
+                VStack(alignment: .trailing, spacing: 6) {
+                    if PublishStarter.isInitialized(in: store.url) {
+                        PublishStatusPill(
+                            projectID: ProjectIdentifier.id(for: store.url),
+                            projectURL: store.url)
+                    }
+                    SharingStatusPill(
+                        collaborator: collaborator, snapshot: shareSnapshot)
                 }
+                .padding(.top, 8)
+                .padding(.trailing, 12)
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if shouldShowStatusFooter {
@@ -601,9 +667,20 @@ struct ProjectWindow: View {
                 conflictBanner(documentStore: documentStore)
             }
             .safeAreaInset(edge: .top) {
-                if isReviewModeOn {
+                // Reflect the EFFECTIVE posture, not just the manual toggle: a
+                // reviewer (or still-resolving unknown) always shows REVIEWING;
+                // an author shows it only when they manually entered review.
+                if effectivePosture.isReviewMode {
                     ReviewModeIndicator(
                         collaboratorName: userPreferences.collaboratorDisplayName)
+                }
+            }
+            .safeAreaInset(edge: .top) {
+                // Read-only trap: an iCloud reviewer on a VIEW-ONLY share cannot
+                // append annotation ops at all. Surface that loudly rather than
+                // letting a comment attempt fail silently.
+                if isViewOnlyReviewer {
+                    ViewOnlyShareNotice()
                 }
             }
             .navigationSplitViewColumnWidth(min: 480, ideal: 720)
@@ -691,7 +768,12 @@ struct ProjectWindow: View {
                 wikiLinkClickResolver: { title in
                     store.resolveDocumentId(forTitle: title)
                 },
-                isReviewMode: isReviewModeOn
+                // Role-driven posture: an author's manual ⌘⌥R drives the render;
+                // a reviewer/unknown is FORCED into review render AND hard-locked
+                // (lockEditing) so the membrane keeps the text read-only no matter
+                // what the manual toggle says.
+                isReviewMode: effectivePosture.isReviewMode,
+                lockEditing: effectivePosture.lockEditing
             )
         case .research:
             if let id = selectedResearchId,

@@ -154,6 +154,7 @@ struct MaughamApp: App {
                         name: .maughamLinkProject, object: nil)
                 }
                 Divider()
+                FocusedShareForReviewButton()
                 Button("Project Settings…") {
                     NotificationCenter.default.post(
                         name: .maughamShowProjectSettings, object: nil)
@@ -351,6 +352,20 @@ private struct FocusedRestoreButton: View {
     var body: some View {
         Button("Restore from Backup…") {
             if let projectURL { openWindow(id: "backup-restore", value: projectURL) }
+        }
+        .disabled(projectURL == nil)
+    }
+}
+
+/// File → "Share for Review…". Disabled when no project window is focused.
+/// The focused `ProjectWindow` handles the actual presentation (iCloud
+/// Collaborate share sheet, or the move-to-iCloud explanation) so it can anchor
+/// the sheet to its own window and reuse its already-resolved share snapshot.
+private struct FocusedShareForReviewButton: View {
+    @FocusedValue(\.projectURL) private var projectURL
+    var body: some View {
+        Button("Share for Review…") {
+            NotificationCenter.default.post(name: .maughamShareForReview, object: nil)
         }
         .disabled(projectURL == nil)
     }

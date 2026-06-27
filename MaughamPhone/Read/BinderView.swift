@@ -37,6 +37,11 @@ struct BinderView: View {
 
     private var binderList: some View {
         List {
+            Section {
+                SharingRoleBanner(projectURL: project.url)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+            }
             if !project.manifest.structure.isEmpty {
                 Section("Manuscript") {
                     ForEach(project.manifest.structure) { item in
