@@ -207,10 +207,11 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// right after ⌘⌥R slipped a newline through `shouldChangeTextIn` before the
     /// SwiftUI render round-trip pushed the new posture (Bug B). `ProjectWindow`
     /// still toggles `isReviewModeOn` on the SAME notification (source of truth
-    /// for the indicator + annotation derive + persistence); `updateNSView`'s
-    /// `setReviewMode(isReviewModeOn)` is the no-op-guarded reconciler the two
-    /// paths converge through. Both toggle the same boolean from the same value,
-    /// so they can't diverge; the reconciler re-converges if state ever drifts.
+    /// for the indicator + annotation derive + persistence); the model-driven
+    /// `applyControl → setReviewMode` (observed via `withObservationTracking`) is
+    /// the no-op-guarded reconciler the two paths converge through (ADR 0017).
+    /// Both toggle the same boolean from the same value, so they can't diverge;
+    /// the reconciler re-converges if state ever drifts.
     private var reviewToggleObserver: NSObjectProtocol?
 
     /// The control-plane model (ADR 0017). Set once at `attach` via
@@ -692,6 +693,13 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// only the area that changed (the setters that aren't self-guarding —
     /// appearance/typewriter/focus — are guarded here at the call site, exactly
     /// as `updateNSView` did).
+    ///
+    /// D1 safety: `setReviewAnnotations` early-returns on its `annotations ==
+    /// reviewAnnotations` guard when `reviewAnnotations` is empty (normal
+    /// authoring), so `recomputeReviewMarks()` and its `doc`-reading provider
+    /// closures never run inside `withObservationTracking`'s tracking closure —
+    /// `Document`'s observable state stays untracked. A future unconditional
+    /// `Document` read in this path would cause observation to fire every keystroke.
     func applyControl(_ c: EditorControl) {
         setLockEditing(c.lockEditing)        // self-guarded
         setReviewMode(c.isReviewMode)        // self-guarded

@@ -36,10 +36,12 @@ a layout pass."
 ## Decision
 
 Give the control plane a first-class owned model — an `@Observable
-EditorControl` (posture + appearance + review annotation set) — that
-`ProjectWindow` owns and is the sole writer of, and that the `EditorCoordinator`
-**observes directly** via Observation's re-arming `withObservationTracking`
-(pure AppKit-side; no view layer; not layout-gated).
+EditorControl` (posture + appearance + review annotation set) — with
+SwiftUI-side downhill writers on disjoint property sets (`ProjectWindow` writes
+posture + appearance; `EditorHost` writes the review annotation set), observed
+directly by `EditorCoordinator` via Observation's re-arming
+`withObservationTracking` (pure AppKit-side; no view layer; not layout-gated).
+The coordinator only reads — one-way is preserved.
 
 The standing rule for this seam:
 

@@ -6,6 +6,9 @@ import AppKit
 /// WritingMode (ProseMode in 1b).
 struct EditorSurface: NSViewRepresentable {
     @Binding var text: String
+    /// Retained to seed `makeCoordinator`'s initial state only (the model can't
+    /// seed the coordinator before it exists); runtime appearance changes flow
+    /// via `control` (ADR 0017).
     let theme: Theme
     let typography: TypographySettings
     let mode: any WritingMode
