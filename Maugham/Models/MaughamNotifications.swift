@@ -9,6 +9,10 @@ extension Notification.Name {
     public static let maughamDummySave = Notification.Name("maugham.dummySave")
     public static let maughamShowProjectSettings = Notification.Name("maugham.showProjectSettings")
     public static let maughamShowClaudeDesktopHelp = Notification.Name("maugham.showClaudeDesktopHelp")
+    /// Posted when the owner picks "Share for Review…" — the key ProjectWindow
+    /// presents the iCloud Collaborate share sheet for its folder URL, or the
+    /// move-to-iCloud explanation when the folder isn't in iCloud Drive.
+    public static let maughamShareForReview = Notification.Name("maugham.shareForReview")
     public static let maughamToggleInspector = Notification.Name("maugham.toggleInspector")
     public static let maughamTidyAllFilenames = Notification.Name("maugham.tidyAllFilenames")
     public static let maughamAppWillTerminate = Notification.Name("maugham.appWillTerminate")
