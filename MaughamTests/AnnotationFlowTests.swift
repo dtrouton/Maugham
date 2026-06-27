@@ -128,4 +128,32 @@ final class AnnotationFlowTests: XCTestCase {
 
         await h.documentStore.close()
     }
+
+    /// Span-anchored (sub-paragraph) suggestion: accepting must replace ONLY the
+    /// anchored span, not the whole paragraph. Regression for the bug where the
+    /// suggested-change op's `next` was the bare suggested text, so accept set the
+    /// entire paragraph to the one suggested word. (Paragraph-level suggestions —
+    /// no span, MCP/Claude — still replace the whole paragraph; see the
+    /// end-to-end test above.)
+    func test_spanSuggestion_acceptReplacesOnlyTheSpan() async throws {
+        let h = try await makeHarness(initialMd: "She was very angry.")
+        let pid = try await h.doc.opLog()
+            .first(where: { $0.kind == .bootstrap })!
+            .changes.first!.paragraphId
+
+        // Author a human span suggestion over "very angry" (chars 8..<18) → "furious".
+        let span = SpanAnchorResolver.capture(
+            in: "She was very angry.", range: 8..<18)
+        let annId = try await h.doc.addReviewerAnnotation(
+            kind: .suggestedChange, paragraphId: pid, span: span,
+            body: "tighten", suggestedText: "furious", authorName: "R")
+
+        try await h.doc.acceptAnnotation(id: annId)
+
+        XCTAssertEqual(h.doc.displayText, "She was furious.",
+            "accepting a span suggestion must splice ONLY the span, not replace "
+            + "the whole paragraph with the bare suggested text")
+
+        await h.documentStore.close()
+    }
 }
