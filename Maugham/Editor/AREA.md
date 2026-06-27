@@ -23,6 +23,7 @@ The editor is **pinned to TextKit 1**. A fresh `NSTextView` on recent macOS is T
 - `Fountain/` — screenplay parser primitives: `FountainTokenizer.swift` (the parser; despite the name it does parsing not just tokenizing), `FountainScript.swift`, `FountainLine.swift`.
 - `Tokenizer/` — prose-side tokenizer + style application.
 - **Character autocomplete is intentionally absent.** The NSPopover-based `CharacterAutocompleter` was deleted (2026-06-06) after being dead since 3b ("too brittle, blocks input"). Don't reintroduce a popover-based autocomplete; if character autocomplete returns, redesign the UX first (inline ghost-text or sheet).
+- **Control plane (ADR 0017):** Control state (posture/appearance/review annotation set) flows through `EditorControl`, observed by the coordinator via `withObservationTracking` — it does NOT ride `updateNSView` and does NOT get a new notification. `updateNSView` is text + frame + gutter + provider-wiring only; the text binding/data plane is unchanged. D1 — `EditorControl` holds only control state, never text-/cursor-derived values (else observation fires on the typing hot path). D2 — `applyControl` stays per-sub-area no-op-guarded; callers add no-op guards to avoid redundant AppKit calls. The ⌘⌥R `maughamToggleReviewMode` observer is kept deliberately for a synchronous membrane flip (Bug B).
 
 ## Task anchor styling
 
