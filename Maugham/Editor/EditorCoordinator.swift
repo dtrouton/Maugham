@@ -213,12 +213,6 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// so they can't diverge; the reconciler re-converges if state ever drifts.
     private var reviewToggleObserver: NSObjectProtocol?
 
-    /// Observer token for `maughamReviewAnnotationsChanged`. When the
-    /// AnnotationsPane edits or withdraws an annotation, the key-window editor
-    /// re-pulls the open set and recomputes its crafted marks so the inline
-    /// mark + rail card update immediately (no review toggle needed).
-    private var reviewAnnotationsChangedObserver: NSObjectProtocol?
-
     /// The control-plane model (ADR 0017). Set once at `attach` via
     /// `observeControl`; the coordinator READS it (never writes). nil until
     /// `observeControl` runs.
@@ -263,9 +257,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// Async so the commit flow can AWAIT the op-log append before re-pulling the
     /// annotation set — that's what makes a just-created annotation's mark + rail
     /// card appear immediately, without the reviewer toggling review off/on. The
-    /// lagged `setReviewAnnotations` push (off `annotationsVersion`) remains the
-    /// reconciler for annotations created elsewhere; the await + provider-pull is
-    /// the deterministic path for the LOCAL create.
+    /// model-driven `setReviewAnnotations` apply (EditorHost mirrors the Document's
+    /// open set into `control.reviewAnnotations` off `annotationsVersion`) remains
+    /// the reconciler for annotations changed elsewhere; the await + provider-pull
+    /// is the deterministic path for the LOCAL create.
     var createAnnotationHandler: ((AnnotationKind, String, SpanAnchor, String, String?) async -> Void)?
 
     /// The inline composer (a small NSTextField) shown when the reviewer clicks
@@ -274,10 +269,11 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
 
     // MARK: - Crafted review render (Task 5 / Component F)
 
-    /// Open annotations to render in review mode. Pushed ONE-WAY from
-    /// EditorSurface.updateNSView (sourced from the host's `Document`), versioned
-    /// so the recompute only fires when the set actually changes. Nothing reads
-    /// this back into a binding (tripwires 2 & 6).
+    /// Open annotations to render in review mode. Applied ONE-WAY via the control
+    /// model (ADR 0017): EditorHost mirrors the host `Document`'s open set into
+    /// `control.reviewAnnotations`, which `applyControl` → `setReviewAnnotations`
+    /// reconciles here. Versioned so the recompute only fires when the set actually
+    /// changes. Nothing reads this back into a binding (tripwires 2 & 6).
     private var reviewAnnotations: [Annotation] = []
     /// Resolves a paragraphId to its DISPLAY text — used to convert an
     /// annotation's grapheme-offset `resolvedSpanRange` to UTF-16 within the
@@ -468,20 +464,12 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                 self.setReviewMode(!self.isReviewMode)
             }
         }
-        reviewAnnotationsChangedObserver = NotificationCenter.default.addObserver(
-            forName: .maughamReviewAnnotationsChanged,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                // Only the key window's editor re-pulls (mirrors the review
-                // toggle's key-window guard). `refreshReviewMarksFromProvider`
-                // is itself a no-op when not in review mode.
-                guard self.textView?.window?.isKeyWindow == true else { return }
-                self.refreshReviewMarksFromProvider()
-            }
-        }
+        // The former annotation-set-changed notification observer is gone (ADR
+        // 0017): an AnnotationsPane edit/withdraw bumps `annotationsVersion` on the shared
+        // Document, which EditorHost mirrors into `control.reviewAnnotations` →
+        // `applyControl` → `setReviewAnnotations`, recomputing the crafted marks
+        // without a notification. The local in-editor create flow still uses
+        // `refreshReviewMarksFromProvider` (awaited, deterministic).
     }
 
     deinit {
@@ -504,9 +492,6 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = reviewToggleObserver {
-            NotificationCenter.default.removeObserver(token)
-        }
-        if let token = reviewAnnotationsChangedObserver {
             NotificationCenter.default.removeObserver(token)
         }
     }
@@ -724,11 +709,11 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
 
     // MARK: - Crafted review render wiring (Task 5)
 
-    /// Push the open-annotation set for the crafted review render. Called
-    /// ONE-WAY from EditorSurface.updateNSView. Recomputes resolved marks (and
-    /// redraws the overlays) only when the set actually changed — updateNSView
-    /// runs every layout pass, so this is guarded against no-op churn the same
-    /// way `setReviewMode` is.
+    /// Apply the open-annotation set for the crafted review render. Called
+    /// ONE-WAY from `applyControl` (ADR 0017) when `control.reviewAnnotations`
+    /// changes. Recomputes resolved marks (and redraws the overlays) only when the
+    /// set actually changed — `applyControl` runs on every model observation, so
+    /// this is guarded against no-op churn the same way `setReviewMode` is.
     func setReviewAnnotations(_ annotations: [Annotation]) {
         guard annotations != reviewAnnotations else { return }
         // A reject's annotationsVersion bump can drive this push DURING the stet

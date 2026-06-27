@@ -150,19 +150,6 @@ struct EditorHost: View {
                             suggestedText: suggestedText,
                             authorName: userPreferences.collaboratorDisplayName)
                     },
-                    // Crafted review render (Component F). Reading
-                    // `doc.annotationsVersion` here makes SwiftUI re-evaluate the
-                    // body — and thus re-derive `reviewAnnotations` and re-push it
-                    // through updateNSView — whenever the annotation set changes.
-                    // This is safe (unlike reading `displayText`): it never feeds
-                    // the text binding, so the cursor-race triad (tripwires 6/7)
-                    // stays closed. Only computed in review mode to avoid deriving
-                    // annotations during normal authoring.
-                    reviewAnnotations: control.isReviewMode
-                        ? { _ = doc.annotationsVersion
-                            return doc.annotations(
-                                filter: AnnotationFilter(statuses: [.open])) }()
-                        : [],
                     reviewParagraphTextProvider: { pid in
                         doc.paragraph(id: pid).map {
                             RenderFilter.stripTaskAnchorsInline($0)
@@ -217,6 +204,32 @@ struct EditorHost: View {
                     }
                 )
                 .id(path)
+                // Crafted review render (Component F): the open-annotation set now
+                // flows through the control model (ADR 0017), not a per-prop push.
+                // EditorHost mirrors the Document's open set into
+                // `control.reviewAnnotations` whenever it changes; the coordinator
+                // observes the model and reconciles via `applyControl` →
+                // `setReviewAnnotations`. Reading `doc.annotationsVersion` /
+                // `control.isReviewMode` in these closures is safe (unlike reading
+                // `displayText`): it never feeds the text binding, so the
+                // cursor-race triad (tripwires 6/7) stays closed. An AnnotationsPane
+                // edit bumps `annotationsVersion` on the SAME registered Document
+                // instance, so the first `.onChange` carries it through.
+                .onChange(of: doc.annotationsVersion) { _, _ in
+                    control.reviewAnnotations = control.isReviewMode
+                        ? doc.annotations(filter: AnnotationFilter(statuses: [.open]))
+                        : []
+                }
+                .onChange(of: control.isReviewMode) { _, nowReview in
+                    control.reviewAnnotations = nowReview
+                        ? doc.annotations(filter: AnnotationFilter(statuses: [.open]))
+                        : []
+                }
+                .onAppear {
+                    control.reviewAnnotations = control.isReviewMode
+                        ? doc.annotations(filter: AnnotationFilter(statuses: [.open]))
+                        : []
+                }
             } else if currentItem?.type == .group {
                 placeholder("Select a document inside this group to edit.")
             } else if currentItem?.type == .document {

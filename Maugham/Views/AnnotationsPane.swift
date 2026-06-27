@@ -281,7 +281,10 @@ struct AnnotationsPane: View {
                 newBody: newBody,
                 newSuggestedText: newSuggested,
                 authorName: userPreferences.collaboratorDisplayName)
-            notifyEditorReviewMarksChanged()
+            // No explicit editor notify: the edit bumps `annotationsVersion` on
+            // the shared Document, which EditorHost mirrors into the control model
+            // → `applyControl` → `setReviewAnnotations`, recomputing crafted marks
+            // automatically (ADR 0017).
         }
     }
 
@@ -291,16 +294,7 @@ struct AnnotationsPane: View {
             try? await document.withdrawReviewerAnnotation(
                 id: ann.id,
                 authorName: userPreferences.collaboratorDisplayName)
-            notifyEditorReviewMarksChanged()
         }
-    }
-
-    /// Tell the key-window editor coordinator to re-pull + recompute its
-    /// crafted review marks so an edited/withdrawn annotation's inline mark +
-    /// rail card update without a review toggle.
-    private func notifyEditorReviewMarksChanged() {
-        NotificationCenter.default.post(
-            name: .maughamReviewAnnotationsChanged, object: nil)
     }
 
     private func jump(_ ann: Annotation) {
