@@ -65,11 +65,14 @@ Two invariants keep it fast and safe:
   the status quo; it does not add to it. The existing cursor/binding invariants
   (single writer; `applyExternalText` cloud-conflict-only — tripwire 7; one-way
   only — tripwires 2/6) are preserved, and the harness suite remains the net.
-- **Three review notifications collapse into one observed model.**
-  `maughamReviewPostureResolved` is deleted; the ⌘⌥R menu command
-  (`maughamToggleReviewMode`) now only flips a model property and the coordinator
-  stops observing it directly (removing the documented dual-source-of-truth);
-  `maughamReviewAnnotationsChanged` collapses into the model's annotation set.
+- **The two state-propagation notifications collapse into the observed model.**
+  `maughamReviewPostureResolved` is deleted; `maughamReviewAnnotationsChanged`
+  collapses into the model's annotation set. The third — `maughamToggleReviewMode`
+  (⌘⌥R) — is a genuine *menu command*, not a propagation bypass, and the
+  coordinator KEEPS observing it for a **synchronous** membrane flip (the Bug B
+  fix: a fast Enter right after toggling review ON must not slip through, so it
+  cannot wait for the model's async observation hop). It converges with the model
+  via `setReviewMode`'s no-op guard, so there is no dual-source divergence.
 - **Posture/appearance propagation becomes unit-testable** without a key window
   or a posted notification (the prior notification path was smoke-only because of
   its key-window guard).

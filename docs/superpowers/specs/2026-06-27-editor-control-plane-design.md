@@ -190,19 +190,28 @@ Preserved (existing, must not regress):
 
 ## Notification collapse
 
-- `maughamReviewPostureResolved` — **deleted.** Posture flows via the model.
-- `maughamToggleReviewMode` (⌘⌥R menu command) — **stays** as a menu→window
-  command, but its only job becomes flipping `ProjectWindow.isReviewModeOn` →
-  `EditorControl.isReviewMode`. The coordinator **stops observing it directly**,
-  removing the documented dual-source-of-truth between the notification path and
-  `updateNSView`'s reconciler.
-- `maughamReviewAnnotationsChanged` — **collapses**: an AnnotationsPane edit
-  updates the source set → `EditorControl.reviewAnnotations` → coordinator. (The
-  on-entry provider *pull* in `setReviewMode` stays; it solves a different
-  first-toggle-timing problem and does not depend on the layout cadence.)
+Two of the three review notifications are *state-propagation bypasses* that
+existed only because `updateNSView` was unreliable; they collapse:
 
-Net: three notifications + several `updateNSView` control pushes → **one observed
-model**.
+- `maughamReviewPostureResolved` — **deleted.** Posture flows via the model.
+- `maughamReviewAnnotationsChanged` — **collapses**: an AnnotationsPane edit
+  bumps `doc.annotationsVersion` → `EditorControl.reviewAnnotations` →
+  coordinator. (The on-entry provider *pull* in `setReviewMode` stays; it solves
+  a different first-toggle-timing problem and does not depend on layout cadence.)
+
+The third is **not** a propagation bypass and **stays**:
+
+- `maughamToggleReviewMode` (⌘⌥R) — a genuine *menu command* the coordinator
+  keeps observing for a **synchronous** membrane flip. This is the documented
+  **Bug B** fix: a fast Enter immediately after toggling review ON must not slip
+  an edit through, so the flip cannot wait for the model's async observation
+  hop. The command observer and the model both derive from the same
+  `isReviewModeOn` and converge via `setReviewMode`'s no-op guard, so there is no
+  divergence — the same convergence the AREA already documents for the toggle +
+  `updateNSView` reconciler pair.
+
+Net: the two propagation bypasses + several `updateNSView` control pushes → **one
+observed model**; the ⌘⌥R *command* observer remains by design.
 
 ## Performance
 
