@@ -261,25 +261,13 @@ struct EditorSurface: NSViewRepresentable {
         if textView.string != text {
             context.coordinator.applyExternalText(text)
         }
-        if context.coordinator.theme != theme
-            || context.coordinator.typography != typography {
-            context.coordinator.applyAppearance(
-                theme: theme, typography: typography)
-
-            let columnWidth = mode.textColumnWidth(typography: typography)
+        // Appearance itself flows via EditorControl (ADR 0017); only the
+        // text-container width remains a layout concern handled here.
+        let columnWidth = mode.textColumnWidth(typography: typography)
+        if abs(textView.columnWidth - columnWidth) > 0.5 {
             textView.columnWidth = columnWidth
-            if let container = textView.textContainer {
-                container.size = NSSize(width: columnWidth,
-                                        height: .greatestFiniteMagnitude)
-            }
-        }
-        if context.coordinator.typewriterScroll != typewriterScroll {
-            context.coordinator.applyTypewriterScroll(typewriterScroll)
-        }
-        if context.coordinator.sentenceFocus != sentenceFocus
-            || context.coordinator.paragraphFocus != paragraphFocus {
-            context.coordinator.applyFocusPrefs(
-                sentence: sentenceFocus, paragraph: paragraphFocus)
+            textView.textContainer?.size = NSSize(
+                width: columnWidth, height: .greatestFiniteMagnitude)
         }
         // Mode-change reconciliation for gutter.
         let needsGutter = (mode is ScreenplayMode) && showElementGutter
