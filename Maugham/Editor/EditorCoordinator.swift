@@ -219,6 +219,14 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// mark + rail card update immediately (no review toggle needed).
     private var reviewAnnotationsChangedObserver: NSObjectProtocol?
 
+    /// Observer token for `maughamReviewPostureResolved`. The key ProjectWindow
+    /// posts this when its resolved review posture changes (chiefly the async
+    /// iCloud role resolve landing); the key-window editor applies the absolute
+    /// `isReviewMode`/`lockEditing` directly, because the `updateNSView` push
+    /// doesn't reliably fire on that deep-NSViewRepresentable @State change. See
+    /// `maughamReviewPostureResolved` and `applyResolvedPosture`.
+    private var reviewPostureObserver: NSObjectProtocol?
+
     /// Closure that maps a paragraph_id to its NSRange in textView.string.
     /// Set by EditorSurface.updateNSView so the coordinator can resolve
     /// ranges against the live Document's `displayRange(forParagraphId:)`.
@@ -477,6 +485,35 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                 self.refreshReviewMarksFromProvider()
             }
         }
+        reviewPostureObserver = NotificationCenter.default.addObserver(
+            forName: .maughamReviewPostureResolved,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                // Only the key window's editor applies (mirrors the review
+                // toggle's key-window guard); the poster also guards on key, so
+                // a background window's posture can't land here.
+                guard self.textView?.window?.isKeyWindow == true,
+                      let isReviewMode = note.userInfo?["isReviewMode"] as? Bool,
+                      let lockEditing = note.userInfo?["lockEditing"] as? Bool
+                else { return }
+                self.applyResolvedPosture(
+                    isReviewMode: isReviewMode, lockEditing: lockEditing)
+            }
+        }
+    }
+
+    /// Apply an absolute resolved review posture to the membrane. The hard role
+    /// lock is set FIRST (so the membrane is never observed render-on-but-
+    /// unlocked for a reviewer), then the render flag — same order as
+    /// `EditorSurface.updateNSView`. Both setters are no-op-guarded, so a posture
+    /// that matches the current state does nothing. Driven by the
+    /// `maughamReviewPostureResolved` push and unit-testable without a key window.
+    func applyResolvedPosture(isReviewMode: Bool, lockEditing: Bool) {
+        setLockEditing(lockEditing)
+        setReviewMode(isReviewMode)
     }
 
     deinit {
@@ -502,6 +539,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = reviewAnnotationsChangedObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+        if let token = reviewPostureObserver {
             NotificationCenter.default.removeObserver(token)
         }
     }
