@@ -18,6 +18,12 @@ public struct ScreenplayMode: WritingMode {
         self.parser = parser
     }
 
+    /// Screenplay paints the restyle LIVE (windowed) on each keystroke rather
+    /// than deferring it: almost every line is a different element, so the
+    /// burst-settle delay used for prose reads as constant classification lag
+    /// here. See `WritingMode.defersRestyleWhileTyping` and Editor AREA tripwire 9.
+    public var defersRestyleWhileTyping: Bool { false }
+
     public func tokenize(_ text: String) -> [Token] {
         guard !text.isEmpty else { return [] }
         let script = parser.parse(text)

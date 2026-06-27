@@ -19,6 +19,60 @@ final class DeferredRestyleTests: XCTestCase {
         return font.fontDescriptor.symbolicTraits.contains(.italic)
     }
 
+    private func isBold(_ tv: NSTextView, at index: Int) -> Bool {
+        guard let storage = tv.textStorage, index < storage.length else { return false }
+        let attrs = storage.attributes(at: index, effectiveRange: nil)
+        guard let font = attrs[.font] as? NSFont else { return false }
+        return font.fontDescriptor.symbolicTraits.contains(.bold)
+    }
+
+    /// Policy: prose defers the restyle to the burst settle; screenplay paints
+    /// it live (its styling is element-classification heavy, so the settle delay
+    /// reads as pervasive lag). The coordinator branches on this flag.
+    func test_restyleDeferralPolicyPerMode() {
+        XCTAssertTrue(ProseMode().defersRestyleWhileTyping,
+            "prose defers the restyle to settle (flicker-free emphasis)")
+        XCTAssertFalse(ScreenplayMode().defersRestyleWhileTyping,
+            "screenplay paints the restyle live on each keystroke")
+    }
+
+    /// Screenplay must NOT defer: a scene heading typed on a fresh line is
+    /// styled (bold) immediately, with no settle wait. The settle delay is set
+    /// absurdly high so that, if the code deferred, the assertion would fail.
+    func test_screenplayRestylesLiveWhileTyping() async {
+        let h = EditorIntegrationHarness(mode: ScreenplayMode(), initialText: "")
+        h.coordinator.restyleSettleDelayMs = 5000   // prove we do NOT wait for it
+        await h.typeString("INT. HOUSE - DAY")
+
+        // No settle sleep: the live path must already have painted the scene
+        // heading bold. (A deferred path would still be unstyled here.)
+        XCTAssertTrue(isBold(h.textView, at: 0),
+            "screenplay scene heading must be styled live on the keystroke, not deferred")
+    }
+
+    /// The live screenplay path windows the restyle to the changed paragraph,
+    /// not the whole document — same sentinel proof as the prose settle test.
+    func test_screenplayLiveRestyleIsWindowedNotWholeDocument() async {
+        let body = "INT. HOUSE - DAY\n\nAction line here.\n\n"
+            + "EXT. STREET - NIGHT\n\nMore action at the very end of the document."
+        let h = EditorIntegrationHarness(mode: ScreenplayMode(), initialText: body)
+
+        // After init the synchronous whole-doc styling has applied. Plant a
+        // sentinel attribute in the FIRST line, far from where we'll edit.
+        let sentinel = NSAttributedString.Key("maugham.test.sentinel")
+        h.textView.textStorage?.addAttribute(
+            sentinel, value: true, range: NSRange(location: 0, length: 1))
+
+        // Edit at the very end of the document.
+        h.setCursor(to: (body as NSString).length)
+        h.typeCharacter("!")
+
+        let attrs = h.textView.textStorage?.attributes(at: 0, effectiveRange: nil)
+        XCTAssertNotNil(attrs?[sentinel],
+            "live screenplay restyle must be windowed to the edit, not a "
+            + "whole-document setAttributes (which wipes far attributes + snaps scroll)")
+    }
+
     /// Typing a fresh `*word*` does not paint the emphasis on the final
     /// keystroke — it waits for the burst to settle, then applies it.
     func test_emphasisRepaintIsDeferredUntilTypingSettles() async {
