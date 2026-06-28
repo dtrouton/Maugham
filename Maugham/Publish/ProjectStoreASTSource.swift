@@ -31,18 +31,13 @@ public struct ProjectStoreASTSource: ProjectASTBuilder.Source {
     private func pieceRef(for item: StructureItem) -> ProjectASTBuilder.PieceRef? {
         if item.pieceKind == .reference { return nil }
         guard let path = item.path else { return nil }
-        let fileURL = projectStore.url.appendingPathComponent(path)
         let mode: ProjectAST.Mode = path.lowercased().hasSuffix(".fountain")
             ? .fountain
             : .prose
-        // ADR 0018: derive from the op log (the source of truth), not the .md.
-        // Fall back to the .md only for docs with no op log (e.g., a project
-        // that has never been opened in Maugham — unusual but defensible).
-        let opLogText = DerivedManuscript.materialize(
-            forDocId: item.id, in: projectStore.url)
-        let text = opLogText.isEmpty
-            ? (try? String(contentsOf: fileURL, encoding: .utf8)) ?? ""
-            : opLogText
+        // ADR 0018: op log is the sole source of truth. Reading the .md as a
+        // fallback is forbidden — it would silently surface stale file content
+        // instead of the canonical op-log state.
+        let text = DerivedManuscript.materialize(forDocId: item.id, in: projectStore.url)
         return ProjectASTBuilder.PieceRef(
             pieceID: item.id,
             title: item.title,

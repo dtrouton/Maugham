@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 @MainActor
@@ -19,20 +20,24 @@ final class ProjectStoreASTSourceTests: XCTestCase {
     func testShortStory_yieldsOnePieceWithFileContent() async throws {
         let url = try await ProjectFactory.createShortStoryProject(
             named: "Tale", in: tmp)
-        // Seed by loading the store and writing through the manifested path.
+        // Seed by loading the store and bootstrapping the op log through Document.load.
         let store = try await ProjectStore.load(from: url)
         let path = store.manifest.structure.first?.path ?? ""
         XCTAssertFalse(path.isEmpty, "short story should have a path")
-        try "Once upon a time.".write(
-            to: url.appendingPathComponent(path),
-            atomically: true, encoding: .utf8)
+        let docURL = url.appendingPathComponent(path)
+        try "Once upon a time.".write(to: docURL, atomically: true, encoding: .utf8)
+        _ = try await Document.load(
+            url: docURL, device: "test", session: "test", presenter: nil)
 
         let src = ProjectStoreASTSource(projectStore: store)
         let pieces = src.orderedPieces()
 
         XCTAssertEqual(pieces.count, 1)
         XCTAssertEqual(pieces.first?.mode, .prose)
-        XCTAssertEqual(pieces.first?.displayText, "Once upon a time.")
+        // After Bootstrap the op-log render includes ¶id anchors; use contains.
+        XCTAssertTrue(
+            pieces.first?.displayText.contains("Once upon a time.") ?? false,
+            "displayText should contain the seeded prose")
     }
 
     func testScreenplay_picksFountainMode() async throws {
@@ -41,9 +46,11 @@ final class ProjectStoreASTSourceTests: XCTestCase {
         let store = try await ProjectStore.load(from: url)
         let path = store.manifest.structure.first?.path ?? ""
         XCTAssertTrue(path.hasSuffix(".fountain"), "expected .fountain path, got \(path)")
+        let docURL = url.appendingPathComponent(path)
         try "INT. ROOM - DAY\n\nA character.".write(
-            to: url.appendingPathComponent(path),
-            atomically: true, encoding: .utf8)
+            to: docURL, atomically: true, encoding: .utf8)
+        _ = try await Document.load(
+            url: docURL, device: "test", session: "test", presenter: nil)
 
         let src = ProjectStoreASTSource(projectStore: store)
         let pieces = src.orderedPieces()
