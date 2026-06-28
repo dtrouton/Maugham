@@ -35,7 +35,14 @@ public struct ProjectStoreASTSource: ProjectASTBuilder.Source {
         let mode: ProjectAST.Mode = path.lowercased().hasSuffix(".fountain")
             ? .fountain
             : .prose
-        let text = (try? String(contentsOf: fileURL, encoding: .utf8)) ?? ""
+        // ADR 0018: derive from the op log (the source of truth), not the .md.
+        // Fall back to the .md only for docs with no op log (e.g., a project
+        // that has never been opened in Maugham — unusual but defensible).
+        let opLogText = DerivedManuscript.materialize(
+            forDocId: item.id, in: projectStore.url)
+        let text = opLogText.isEmpty
+            ? (try? String(contentsOf: fileURL, encoding: .utf8)) ?? ""
+            : opLogText
         return ProjectASTBuilder.PieceRef(
             pieceID: item.id,
             title: item.title,
