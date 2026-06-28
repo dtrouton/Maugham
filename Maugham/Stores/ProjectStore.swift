@@ -225,11 +225,11 @@ public final class ProjectStore {
     ) {
         for item in collectDocuments(in: manifest.structure) {
             guard let path = item.path else { continue }
-            let fileURL = projectURL.appendingPathComponent(path)
-            guard let text = try? String(contentsOf: fileURL,
-                                         encoding: .utf8) else { continue }
-            let count = WritingModeFactory.mode(for: path)
-                .wordCount(text)
+            // ADR 0018: derive content from the op log, never the .md file.
+            let state = DerivedManuscript.derivedState(
+                forDocId: item.id, in: projectURL)
+            let text = state.paragraphs.values.joined(separator: " ")
+            let count = WritingModeFactory.mode(for: path).wordCount(text)
             store.recordWordCount(forDocumentId: item.id, wordCount: count)
         }
     }
