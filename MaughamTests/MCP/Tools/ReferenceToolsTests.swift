@@ -185,6 +185,16 @@ extension ReferenceToolsTests {
         encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(manifest).write(
             to: tmp.appendingPathComponent("project.maugham.json"))
+        // ADR 0018: seed the op log for each doc before any MCP call.
+        _ = try await Document.load(
+            url: tmp.appendingPathComponent("manuscript/s1.fountain"),
+            device: "test", session: "s", presenter: nil)
+        _ = try await Document.load(
+            url: tmp.appendingPathComponent("manuscript/s2.fountain"),
+            device: "test", session: "s", presenter: nil)
+        _ = try await Document.load(
+            url: tmp.appendingPathComponent("manuscript/s3.fountain"),
+            device: "test", session: "s", presenter: nil)
         let store = try await ProjectStore.load(from: tmp)
         let reg = ProjectRegistry()
         reg.register(url: tmp, store: store)
@@ -229,6 +239,10 @@ extension ReferenceToolsTests {
         encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(manifest).write(
             to: tmp.appendingPathComponent("project.maugham.json"))
+        // ADR 0018: seed the op log before any MCP call.
+        _ = try await Document.load(
+            url: tmp.appendingPathComponent("manuscript/s1.fountain"),
+            device: "test", session: "s", presenter: nil)
         let store = try await ProjectStore.load(from: tmp)
         let reg = ProjectRegistry()
         reg.register(url: tmp, store: store)
@@ -331,6 +345,16 @@ extension ReferenceToolsTests {
         encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(manifest).write(
             to: tmp.appendingPathComponent("project.maugham.json"))
+        // ADR 0018: seed the op log for each doc before any MCP call.
+        _ = try await Document.load(
+            url: tmp.appendingPathComponent("manuscript/s1.fountain"),
+            device: "test", session: "s", presenter: nil)
+        _ = try await Document.load(
+            url: tmp.appendingPathComponent("manuscript/s2.fountain"),
+            device: "test", session: "s", presenter: nil)
+        _ = try await Document.load(
+            url: tmp.appendingPathComponent("manuscript/s3.fountain"),
+            device: "test", session: "s", presenter: nil)
         let store = try await ProjectStore.load(from: tmp)
         let reg = ProjectRegistry()
         reg.register(url: tmp, store: store)
@@ -387,6 +411,13 @@ extension ReferenceToolsTests {
         encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(manifest).write(
             to: tmp.appendingPathComponent("project.maugham.json"))
+        // ADR 0018: seed the op log for each doc before any MCP call.
+        _ = try await Document.load(
+            url: tmp.appendingPathComponent("manuscript/s1.fountain"),
+            device: "test", session: "s", presenter: nil)
+        _ = try await Document.load(
+            url: tmp.appendingPathComponent("manuscript/s2.fountain"),
+            device: "test", session: "s", presenter: nil)
         let store = try await ProjectStore.load(from: tmp)
         let reg = ProjectRegistry()
         reg.register(url: tmp, store: store)
@@ -426,6 +457,10 @@ extension ReferenceToolsTests {
         encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(manifest).write(
             to: tmp.appendingPathComponent("project.maugham.json"))
+        // ADR 0018: seed the op log before any MCP call.
+        _ = try await Document.load(
+            url: tmp.appendingPathComponent("manuscript/s1.fountain"),
+            device: "test", session: "s", presenter: nil)
         let store = try await ProjectStore.load(from: tmp)
         let reg = ProjectRegistry()
         reg.register(url: tmp, store: store)
