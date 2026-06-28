@@ -11,13 +11,18 @@ final class CollectionSearchTests: XCTestCase {
             named: "T", in: tmp)
         let store = try await ProjectStore.load(from: url)
         let p1 = try await store.addLoosePiece(title: "Lighthouse", mode: .prose)
+        let p1URL = url.appendingPathComponent(p1.path!)
         try "The lighthouse keeper watched the storm.\n".write(
-            to: url.appendingPathComponent(p1.path!),
-            atomically: true, encoding: .utf8)
+            to: p1URL, atomically: true, encoding: .utf8)
+        // ADR 0018: bootstrap so the op log is seeded before search runs.
+        _ = try await Document.load(url: p1URL, device: "test", session: "s", presenter: nil)
+
         let p2 = try await store.addLoosePiece(title: "Storm", mode: .prose)
+        let p2URL = url.appendingPathComponent(p2.path!)
         try "Another storm story altogether.\n".write(
-            to: url.appendingPathComponent(p2.path!),
-            atomically: true, encoding: .utf8)
+            to: p2URL, atomically: true, encoding: .utf8)
+        _ = try await Document.load(url: p2URL, device: "test", session: "s", presenter: nil)
+
         // Flush any pending writes before search reads from disk
         try await store.documentStore?.flushPendingSave()
 

@@ -104,6 +104,15 @@ final class FindReplaceOpLogTests: XCTestCase {
     func test_replaceAll_closedDoc_goesThroughOpLog_and_survivesReload() async throws {
         let (project, docPath) = try makeProject(
             body: "The cat sat.\n\nThe cat ran.\n")
+
+        // ADR 0018: seed the op log before search — the engine reads from the
+        // op log, not the .md. Without this, performSearch finds 0 matches.
+        // The doc remains "closed" (not registered with DocumentStore), so the
+        // closed-doc branch of replaceAll is still exercised.
+        _ = try await Document.load(
+            url: project.appendingPathComponent(docPath),
+            device: "test", session: "bootstrap", presenter: nil)
+
         let store = try await ProjectStore.load(from: project)
         XCTAssertNil(store.documentStore,
             "Precondition: doc is closed (no DocumentStore registry).")

@@ -48,7 +48,9 @@ final class SearchTypesTests: XCTestCase {
 @MainActor
 final class ProjectSearchEngineTests: XCTestCase {
     /// Build a project on disk with manuscript items, return its URL.
-    private func makeProject(manuscript: [(slug: String, content: String)]) throws -> URL {
+    /// ADR 0018: each doc is bootstrapped via Document.load so the op log is
+    /// seeded — the search engine reads from the op log, not the .md file.
+    private func makeProject(manuscript: [(slug: String, content: String)]) async throws -> URL {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("SearchEngine-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -57,9 +59,8 @@ final class ProjectSearchEngineTests: XCTestCase {
             withIntermediateDirectories: true)
         var structure: [StructureItem] = []
         for (slug, content) in manuscript {
-            try content.write(
-                to: tmp.appendingPathComponent("manuscript/\(slug).md"),
-                atomically: true, encoding: .utf8)
+            let docURL = tmp.appendingPathComponent("manuscript/\(slug).md")
+            try content.write(to: docURL, atomically: true, encoding: .utf8)
             structure.append(StructureItem(
                 id: "ms-\(slug)", title: slug, type: .document,
                 path: "manuscript/\(slug).md"))
@@ -72,13 +73,19 @@ final class ProjectSearchEngineTests: XCTestCase {
         encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(manifest).write(
             to: tmp.appendingPathComponent("project.maugham.json"))
+        // Bootstrap each doc so the op log is populated before search runs.
+        for (slug, _) in manuscript {
+            let docURL = tmp.appendingPathComponent("manuscript/\(slug).md")
+            _ = try await Document.load(
+                url: docURL, device: "test", session: "s", presenter: nil)
+        }
         return tmp
     }
 
     private func makeProjectWithResearch(
         manuscript: [(String, String)],
         research: [(String, String)]
-    ) throws -> URL {
+    ) async throws -> URL {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("SearchEngineFull-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -89,9 +96,8 @@ final class ProjectSearchEngineTests: XCTestCase {
 
         var structure: [StructureItem] = []
         for (slug, content) in manuscript {
-            try content.write(
-                to: tmp.appendingPathComponent("manuscript/\(slug).md"),
-                atomically: true, encoding: .utf8)
+            let docURL = tmp.appendingPathComponent("manuscript/\(slug).md")
+            try content.write(to: docURL, atomically: true, encoding: .utf8)
             structure.append(StructureItem(
                 id: "ms-\(slug)", title: slug, type: .document,
                 path: "manuscript/\(slug).md"))
@@ -115,11 +121,17 @@ final class ProjectSearchEngineTests: XCTestCase {
         encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(manifest).write(
             to: tmp.appendingPathComponent("project.maugham.json"))
+        // Bootstrap each manuscript doc so the op log is populated before search runs.
+        for (slug, _) in manuscript {
+            let docURL = tmp.appendingPathComponent("manuscript/\(slug).md")
+            _ = try await Document.load(
+                url: docURL, device: "test", session: "s", presenter: nil)
+        }
         return tmp
     }
 
     func test_search_findsMatchInOneDocument() async throws {
-        let project = try makeProject(manuscript: [
+        let project = try await makeProject(manuscript: [
             ("chapter-1", "She walked to the kitchen.\nIt was empty.\n")
         ])
         let store = try await ProjectStore.load(from: project)
@@ -137,7 +149,7 @@ final class ProjectSearchEngineTests: XCTestCase {
     }
 
     func test_search_findsMultipleMatchesAcrossDocuments() async throws {
-        let project = try makeProject(manuscript: [
+        let project = try await makeProject(manuscript: [
             ("chapter-1", "kitchen scene one.\nkitchen scene two.\n"),
             ("chapter-2", "another kitchen.\nno match here.\n")
         ])
@@ -157,7 +169,7 @@ final class ProjectSearchEngineTests: XCTestCase {
     }
 
     func test_search_emptyQuery_returnsEmptyResults() async throws {
-        let project = try makeProject(manuscript: [
+        let project = try await makeProject(manuscript: [
             ("chapter-1", "some content\n")
         ])
         let store = try await ProjectStore.load(from: project)
@@ -170,7 +182,7 @@ final class ProjectSearchEngineTests: XCTestCase {
     }
 
     func test_search_caseInsensitiveByDefault() async throws {
-        let project = try makeProject(manuscript: [
+        let project = try await makeProject(manuscript: [
             ("c", "Kitchen\nKITCHEN\nkitchen\n")
         ])
         let store = try await ProjectStore.load(from: project)
@@ -182,7 +194,7 @@ final class ProjectSearchEngineTests: XCTestCase {
     }
 
     func test_search_findsInResearchNotes() async throws {
-        let project = try makeProjectWithResearch(
+        let project = try await makeProjectWithResearch(
             manuscript: [("c1", "kitchen\n")],
             research: [("sarah", "Sarah hates the kitchen.\n")])
         let store = try await ProjectStore.load(from: project)
@@ -199,7 +211,7 @@ final class ProjectSearchEngineTests: XCTestCase {
     }
 
     func test_search_caseSensitive_excludesMismatchedCase() async throws {
-        let project = try makeProject(manuscript: [
+        let project = try await makeProject(manuscript: [
             ("c", "Kitchen\nKITCHEN\nkitchen\n")
         ])
         let store = try await ProjectStore.load(from: project)
@@ -212,7 +224,7 @@ final class ProjectSearchEngineTests: XCTestCase {
     }
 
     func test_search_wholeWord_excludesSubstringMatches() async throws {
-        let project = try makeProject(manuscript: [
+        let project = try await makeProject(manuscript: [
             ("c", "kitchenette is not it\nkitchen is\nfit kitchen there\n")
         ])
         let store = try await ProjectStore.load(from: project)
@@ -227,7 +239,7 @@ final class ProjectSearchEngineTests: XCTestCase {
     }
 
     func test_search_regexSpecialCharsInQuery_treatedLiterally() async throws {
-        let project = try makeProject(manuscript: [
+        let project = try await makeProject(manuscript: [
             ("c", "a.b matches dot literal\nacb does not\n")
         ])
         let store = try await ProjectStore.load(from: project)
@@ -239,7 +251,7 @@ final class ProjectSearchEngineTests: XCTestCase {
     }
 
     func test_store_performSearch_populatesCurrentSearch() async throws {
-        let project = try makeProject(manuscript: [
+        let project = try await makeProject(manuscript: [
             ("chapter-1", "the kitchen is empty\n")
         ])
         let store = try await ProjectStore.load(from: project)
@@ -253,7 +265,7 @@ final class ProjectSearchEngineTests: XCTestCase {
     }
 
     func test_store_clearSearch_resetsCurrentSearch() async throws {
-        let project = try makeProject(manuscript: [
+        let project = try await makeProject(manuscript: [
             ("chapter-1", "the kitchen is empty\n")
         ])
         let store = try await ProjectStore.load(from: project)

@@ -158,6 +158,11 @@ extension DocumentToolsTests {
         encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(manifest).write(
             to: tmp.appendingPathComponent("project.maugham.json"))
+        // ADR 0018: seed the op log before search_text — the engine reads from
+        // the op log, not the .md.
+        _ = try await Document.load(
+            url: tmp.appendingPathComponent("manuscript/c1.md"),
+            device: "test", session: "s", presenter: nil)
         let store = try await ProjectStore.load(from: tmp)
         let reg = ProjectRegistry()
         reg.register(url: tmp, store: store)
