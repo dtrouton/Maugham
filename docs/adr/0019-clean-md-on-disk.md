@@ -65,3 +65,30 @@ files keep their anchors harmlessly (load reads the op log either way).
   rewrite.
 - **No manuscript data changes** — content is identical; only internal markers
   leave the file.
+
+## Addendum (2026-06-29) — external `.md` edits are silently discarded; the conflict-sheet machinery is removed
+
+Implementing clean files made the old `.md` conflict sheet both wrong and
+universal: with no anchors on disk, `Reconciler.classify` returned `.needsSheet`
+for *every* external edit, popping a cross-device conflict sheet that — per the
+hard invariant — should never honor an external `.md` edit anyway.
+
+Root-causing this confirmed the sheet was **vestigial**: cross-device conflict
+resolution flows entirely through the op-log merge (`handleExternalLogChange`,
+which explicitly shows no UI), not through the `.md`. A change to the manuscript
+file is only ever a writer editing it in another app (or iCloud delivering
+another device's stale derived render) — which the invariant discards.
+
+So `handleExternalDiskChange` now: echo-guards, no-ops if the disk already
+matches our clean render, else **snapshots the external bytes forensically under
+`.maugham/conflicts/` and re-materializes the op-log truth over them** — the edit
+is discarded, the op log is untouched, no UI appears. The now-dead machinery was
+removed: `Document.pendingConflict`, `ConflictState`, `ConflictBanner`,
+`ConflictDiffSheet`, `LineDiff`, and `resolveConflictKeepMine` /
+`resolveConflictUseExternal` / `handleExternalDiskChangeForceIngest`. The
+backup-on-discard is retained as a safety net so an *accidental* external edit is
+recoverable. `Reconciler.classify` is left in place but uncalled (future
+dead-code sweep). The `.silentIngest` path (which had *honored* anchor-intact
+external edits — itself a latent contradiction of "external edits not honored")
+is gone; all external `.md` edits are now uniformly discarded regardless of
+migration state.
