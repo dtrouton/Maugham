@@ -213,11 +213,12 @@ public final class ProjectStore {
         return store
     }
 
-    /// Walk every document in `manifest.structure`, read its file, and
-    /// record the word count via the WritingMode for that file's extension.
-    /// Called during `load(from:)` so consumers (goal indicator, Statistics
-    /// window, etc.) see correct totals from the start instead of zeros
-    /// until the user types into each document.
+    /// Walk every document in `manifest.structure`, derive its word count
+    /// from the op-log-materialised text (ADR 0018), and record it via
+    /// the WritingMode for that file's extension. Called during `load(from:)`
+    /// so consumers (goal indicator, Statistics window, etc.) see correct
+    /// totals from the start instead of zeros until the user types into
+    /// each document.
     private static func populateWordCountCache(
         in store: ProjectStore,
         from manifest: ProjectManifest,

@@ -178,10 +178,11 @@ extension ProjectStore {
         }
 
         // 1b. Closed-doc tasks. Walk every document in the manifest that
-        //     isn't currently open; read its op log + .md directly without
-        //     instantiating a full `Document` actor. This keeps the Tasks
-        //     pane's Project scope honest — every chapter contributes,
-        //     not just whatever's loaded in the editor right now.
+        //     isn't currently open; derive its paragraphs from the op log
+        //     (ADR 0018) without instantiating a full `Document` actor.
+        //     This keeps the Tasks pane's Project scope honest — every
+        //     chapter contributes, not just whatever's loaded in the
+        //     editor right now.
         //
         //     Sync disk reads here are deliberate: the project-pane
         //     refresh shouldn't block on async actor initialization for

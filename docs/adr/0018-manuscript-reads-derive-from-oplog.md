@@ -46,10 +46,12 @@ synthesises order from the ops' insertion order — **op-log-only, never the
 `.md`**; ancient post-burst reorderings are approximate, accepted (the same
 limitation History Rewind documents).
 
-The only sanctioned `.md` reads that remain are in `Document+Load.swift`'s
-reconciler / echo-guard, which read the file as a **comparison reference** while
-the op log stays authoritative (crash recovery, orphan repair, suppressing our
-own write callback).
+The only sanctioned manuscript `.md` reads that remain are (1) the reconciler /
+echo-guard in `Document+Load.swift` and (2) the external-change detector in
+`DocumentStore.swift` (~line 750), which reads the file via `Data(contentsOf:)`
+only to feed `doc.handleExternalDiskChange(diskMd:)`. Both keep the op log
+authoritative — they are comparison references, not content sources; external
+edits are discarded on re-materialize.
 
 ## Consequences
 
