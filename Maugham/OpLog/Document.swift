@@ -756,6 +756,10 @@ public final class Document {
         do {
             try await flushBurstNow()
         } catch {
+            // Carry the live paragraph order onto the re-persisted pending buffer
+            // (mirrors performAutosave) so crash recovery is op-log-domain — the
+            // recovered burst restores ordering without the .md (ADR 0019).
+            pending.setSequence(self.sequence)
             try? await pending.flushToDisk()
             closeBurstFlushFailures += 1
             documentLog.error(
