@@ -109,7 +109,7 @@ public enum ReadDocumentTool: MCPTool {
                     "Research item '\(item.title)' has no on-disk path")
             }
             let abs = projectURL.appendingPathComponent(path)
-            let text = (try? String(contentsOf: abs, encoding: .utf8)) ?? ""
+            let text = (try? String(contentsOf: abs, encoding: .utf8)) ?? "" // adr-0018-ok: research-item document read, not manuscript
             let words = text.split { $0.isWhitespace || $0.isNewline }.count
             let chars = text.count
             let content = DocumentContent(

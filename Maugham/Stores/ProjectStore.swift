@@ -158,7 +158,7 @@ public final class ProjectStore {
 
         var manifest: ProjectManifest
         do {
-            let data = try Data(contentsOf: manifestURL)
+            let data = try Data(contentsOf: manifestURL) // adr-0018-ok: project manifest JSON read, not manuscript
             // Schema-version gate (ADR 0015): refuse a project written by a
             // NEWER Maugham rather than degrade-and-resave it (which would
             // overwrite values this build can't represent). The per-enum
