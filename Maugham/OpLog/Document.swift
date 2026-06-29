@@ -26,7 +26,6 @@ public final class Document {
     // === Public observed state ===
     public private(set) var displayText: String = ""
     public var cursorLocation: Int = 0
-    public internal(set) var pendingConflict: ConflictState?
 
     // === Internal state ===
     // Several of these are `internal` rather than `private` because the
@@ -50,11 +49,10 @@ public final class Document {
     /// presenter fires after our own autosave or our own ingest, `diskMd`
     /// will equal `lastDiskEcho.bytes` and the change is a no-op.
     ///
-    /// Mutation is restricted to the autosave path, the silent-ingest branch
-    /// of `handleExternalDiskChange`, and `handleExternalDiskChangeForceIngest`
-    /// — see `EchoState.afterWrite(bytes:)`. Anything else trying to assign
-    /// here is a contract violation; the typed wrapper exists specifically
-    /// to keep that surface small.
+    /// Mutation is restricted to the autosave path — see
+    /// `EchoState.afterWrite(bytes:)`. Anything else trying to assign here is a
+    /// contract violation; the typed wrapper exists specifically to keep that
+    /// surface small.
     internal var lastDiskEcho: EchoState
 
     internal var _annotationsCache: [Annotation] = []

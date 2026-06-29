@@ -40,11 +40,13 @@ internal struct EchoState: Equatable {
         EchoState(bytes: bytes, writtenAt: Date())
     }
 
-    /// Recorded after a successful external-ingest (silent-ingest branch
-    /// of handleExternalDiskChange, or `handleExternalDiskChangeForceIngest`
-    /// for `Use cloud` conflict resolution). The bytes we record are the
-    /// disk bytes — the next presenter callback for the same bytes is an
+    /// Recorded after a successful external-ingest. The bytes we record are
+    /// the disk bytes — the next presenter callback for the same bytes is an
     /// echo of our own ingest, not a re-external-edit.
+    ///
+    /// Currently unused: external `.md` edits are discarded (ADR 0019), so no
+    /// ingest path remains. Retained as part of the named-factory contract;
+    /// candidate for a future dead-code sweep.
     static func afterIngest(bytes: String) -> EchoState {
         EchoState(bytes: bytes, writtenAt: Date())
     }

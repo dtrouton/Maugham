@@ -153,8 +153,10 @@ final class CleanMdWriteTests: XCTestCase {
     // MARK: - Test 3 — an external clean edit is discarded (invariant A)
 
     /// Overwriting the clean `.md` externally with different content does NOT
-    /// mutate the op log; the next autosave re-writes the op-log truth, so the
-    /// external edit is discarded. Proves invariant A holds with clean bytes.
+    /// mutate the op log; the external-change handler re-materializes the op-log
+    /// truth over the external bytes immediately (no separate autosave), and a
+    /// forensic copy of the discarded bytes lands under `.maugham/conflicts/`.
+    /// Proves invariant A holds with clean bytes (ADR 0019).
     func test_externalCleanEdit_isDiscarded_opLogUnchanged() async throws {
         let (project, path) = try makeProject(initialMd: "Canonical sentence.\n")
         let doc = try await Document.load(
@@ -171,7 +173,9 @@ final class CleanMdWriteTests: XCTestCase {
         try external.data(using: .utf8)!.write(
             to: project.appendingPathComponent(path))
 
-        // Drive the external-change path with the off-disk bytes.
+        // A single external-change call discards the edit: backs up the bytes,
+        // then re-materializes the op-log truth over them (its own autosave
+        // flush) — no separate performAutosave needed.
         try await doc.handleExternalDiskChange(diskMd: external)
 
         // The op log is the source of truth: it is UNCHANGED, and the in-memory
@@ -183,14 +187,27 @@ final class CleanMdWriteTests: XCTestCase {
         XCTAssertFalse(doc.displayText.contains("Completely different external text"),
             "external bytes must never become the in-memory truth")
 
-        // The next autosave re-writes the op-log truth (external edit discarded).
-        try await doc.performAutosave()
+        // The on-disk file is ALREADY re-materialized to the op-log truth — the
+        // discard handler wrote it, no extra autosave required.
         let disk = try diskBytes(project, path)
         XCTAssertTrue(disk.contains("Canonical sentence."),
-            "autosave must re-materialize the op-log truth back over the external edit")
+            "the discard handler must re-materialize the op-log truth back over the external edit")
         XCTAssertFalse(disk.contains("Completely different external text"),
             "the external edit must be blown away by the op-log re-materialize")
         XCTAssertFalse(disk.contains("<!-- ¶"),
             "the re-written file stays clean (no paragraph anchors)")
+
+        // A forensic backup of the discarded external bytes lands under
+        // .maugham/conflicts/ so nothing the writer typed is silently lost.
+        let conflictsDir = project.appendingPathComponent(".maugham/conflicts")
+        let backups = try FileManager.default.contentsOfDirectory(
+            at: conflictsDir, includingPropertiesForKeys: nil)
+        XCTAssertFalse(backups.isEmpty,
+            "a forensic backup of the discarded external bytes must be written")
+        let backupContents = try backups.map {
+            try String(contentsOf: $0, encoding: .utf8)
+        }
+        XCTAssertTrue(backupContents.contains(external),
+            "the backup must contain the exact discarded external bytes")
     }
 }

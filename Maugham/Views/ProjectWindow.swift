@@ -39,7 +39,6 @@ struct ProjectWindow: View {
     @State private var activeSheet: ProjectActiveSheet?
     @State private var showInspector: Bool = true
     @State private var showingTidyAllConfirmation: Bool = false
-    @State private var showingDiffSheet: Bool = false
     @State private var sessionLog: SessionLog = .empty
     @State private var lastParsedScript: FountainScript? = nil
     @State private var showingSyntaxHelp: Bool = false
@@ -111,28 +110,6 @@ struct ProjectWindow: View {
                         HelpClaudeDesktopSheet(
                             projectURL: store.url,
                             projectTitle: store.manifest.title)
-                    }
-                }
-                .sheet(isPresented: $showingDiffSheet) {
-                    if let conflict = activeDocument(in: store, documentStore: documentStore)?.pendingConflict {
-                        ConflictDiffSheet(
-                            conflict: conflict,
-                            onKeepMine: {
-                                Task {
-                                    try? await activeDocument(in: store, documentStore: documentStore)?
-                                        .resolveConflictKeepMine()
-                                    showingDiffSheet = false
-                                }
-                            },
-                            onUseCloud: {
-                                Task {
-                                    try? await activeDocument(in: store, documentStore: documentStore)?
-                                        .resolveConflictUseExternal()
-                                    showingDiffSheet = false
-                                }
-                            },
-                            onClose: { showingDiffSheet = false }
-                        )
                     }
                 }
                 .sheet(isPresented: $showingCheckpointLabelSheet) {
@@ -685,9 +662,6 @@ struct ProjectWindow: View {
                 }
             }
             .safeAreaInset(edge: .top) {
-                conflictBanner(documentStore: documentStore)
-            }
-            .safeAreaInset(edge: .top) {
                 // Reflect the EFFECTIVE posture, not just the manual toggle: a
                 // reviewer (or still-resolving unknown) always shows REVIEWING;
                 // an author shows it only when they manually entered review.
@@ -823,33 +797,8 @@ struct ProjectWindow: View {
         }
     }
 
-    @ViewBuilder
-    private func conflictBanner(documentStore: DocumentStore) -> some View {
-        if let store, let conflict = activeDocument(in: store, documentStore: documentStore)?.pendingConflict {
-            ConflictBanner(
-                conflict: conflict,
-                onKeepMine: {
-                    Task {
-                        try? await activeDocument(in: store, documentStore: documentStore)?
-                            .resolveConflictKeepMine()
-                    }
-                },
-                onUseCloud: {
-                    Task {
-                        try? await activeDocument(in: store, documentStore: documentStore)?
-                            .resolveConflictUseExternal()
-                    }
-                },
-                onShowDiff: isDocumentConflict(conflict) ? {
-                    showingDiffSheet = true
-                } : nil
-            )
-        }
-    }
-
     /// Helper: the currently-selected manuscript Document, if one is open
-    /// in the editor registry. Used by conflict banner + diff sheet binding
-    /// post the document-first-class refactor (T11).
+    /// in the editor registry.
     private func activeDocument(in store: ProjectStore, documentStore: DocumentStore) -> Document? {
         guard let id = selectedItemId,
               let item = TreeWalk.find(id: id, in: store.manifest.structure),
@@ -1009,12 +958,6 @@ struct ProjectWindow: View {
                 ? docPageTarget
                 : store.manifest.targets?.pageTarget,
             isScreenplay: isScreenplay)
-    }
-
-    private func isDocumentConflict(_ conflict: ConflictState) -> Bool {
-        // Manifest conflict path is ProjectManifest.fileName; everything else
-        // is a document.
-        !conflict.path.hasSuffix(ProjectManifest.fileName)
     }
 
     private func applyNoChrome() {
