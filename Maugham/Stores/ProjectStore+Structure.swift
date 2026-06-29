@@ -412,11 +412,17 @@ extension ProjectStore {
             if let openDoc {
                 resolved = openDoc
             } else {
-                // Cheap pre-check on the raw file: skip loading a doc that has
-                // no occurrence at all (the common case across a large binder).
-                if let body = try? String(contentsOf: docURL, encoding: .utf8),
+                // Cheap pre-check from the op log (ADR 0018 — op log is source
+                // of truth for manuscript content): skip loading a doc whose
+                // derived content has no occurrence of oldTitle at all.
+                // Guard on !isEmpty: an unbootstrapped doc has no op log yet
+                // and materialises to ""; skipping it would silently miss the
+                // rename, so we fall through to Document.load which bootstraps.
+                let preCheckBody = DerivedManuscript.materialize(
+                    forDocId: doc.id, in: url)
+                if !preCheckBody.isEmpty,
                    WikiLinkRewriter.rewrite(
-                       body: body, oldTitle: oldTitle, newTitle: newTitle) == nil {
+                       body: preCheckBody, oldTitle: oldTitle, newTitle: newTitle) == nil {
                     continue
                 }
                 do {
