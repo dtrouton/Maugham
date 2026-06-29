@@ -98,22 +98,29 @@ final class EditorIntegrationHarnessTests: XCTestCase {
         try await rig.writeExternalMdContent("Hello, edited (no IDs).\n")
         docStore.presenterDidChangeSubitem(
             at: rig.projectURL.appendingPathComponent(rig.docPath))
-        // The discard handler backs up the external bytes; wait for that.
-        let conflictsDir = rig.projectURL.appendingPathComponent(".maugham/conflicts")
+        // The discard handler re-materializes the op-log truth over the external
+        // bytes (after backing them up). Poll on the actual asserted condition —
+        // the re-materialize having landed on disk — not on the backup dir, which
+        // is written BEFORE the flush and would race the disk assertion below.
+        let docOnDisk = rig.projectURL.appendingPathComponent(rig.docPath)
         try await waitFor(timeout: .seconds(2)) {
-            (try? FileManager.default.contentsOfDirectory(
-                at: conflictsDir, includingPropertiesForKeys: nil))?.isEmpty == false
+            let disk = try? String(contentsOf: docOnDisk, encoding: .utf8)
+            return disk != nil && !disk!.contains("Hello, edited (no IDs)")
         }
 
         // Stripped ¶ids change nothing: external .md edits are discarded, and
         // the op-log truth is re-materialized over them.
         XCTAssertFalse(doc.displayText.contains("edited"),
             "stripped-id external edits are still discarded — no conflict, op-log truth wins")
-        let disk = try String(
-            contentsOf: rig.projectURL.appendingPathComponent(rig.docPath),
-            encoding: .utf8)
+        let disk = try String(contentsOf: docOnDisk, encoding: .utf8)
         XCTAssertFalse(disk.contains("Hello, edited (no IDs)"),
             "the external edit must be blown away by the op-log re-materialize")
+        // The backup is written before the re-materialize, so by now it exists.
+        let conflictsDir = rig.projectURL.appendingPathComponent(".maugham/conflicts")
+        XCTAssertEqual(
+            (try? FileManager.default.contentsOfDirectory(
+                at: conflictsDir, includingPropertiesForKeys: nil))?.isEmpty, false,
+            "the discarded external bytes must be snapshotted under .maugham/conflicts/")
     }
 
     /// Polls predicate every 50ms up to `timeout`. Returns when true; no

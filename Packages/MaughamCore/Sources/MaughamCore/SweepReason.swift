@@ -55,9 +55,9 @@ public struct SweepReason: Equatable, Sendable {
 
     /// Construct a sweep reason only if `removed` is non-empty. The
     /// callers in `Document` (`setFullText`, `deleteParagraph`,
-    /// `handleExternalLogChange`, `handleExternalDiskChangeForceIngest`,
-    /// `restoreToOp`) all funnel through these so the "empty set means
-    /// no sweep needed" invariant is structural rather than convention.
+    /// `handleExternalLogChange`, `restoreToOp`) all funnel through these
+    /// so the "empty set means no sweep needed" invariant is structural
+    /// rather than convention.
     public static func userTyped(removed: Set<String>) -> SweepReason? {
         removed.isEmpty
             ? nil
