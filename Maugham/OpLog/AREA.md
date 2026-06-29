@@ -131,6 +131,8 @@ Failure modes:
 
 ## Tripwires
 
+0. **Manuscript content/sequence/anchors derive ONLY from the op log — never read the `.md`/`.fountain` as truth.** Open doc → use the live `Document`; closed doc → use `DerivedManuscript`. The only sanctioned raw `.md` reads in this area are the reconciler/echo-guard in `Document+Load.swift` (comparison reference; op log is authoritative). All other manuscript-read sites are guarded by `TripwireGrepTests.test_noManuscriptFileReadsOutsideReconciler` (ADR 0018).
+
 1. **Don't collapse the OpLogStore / CheckpointStore wrappers into bare `JSONLAppendStore<T>` calls at every callsite.** The two thin wrappers exist precisely to keep the hot-path (op log: every typing burst) vs cold-path (checkpoint: ⌘S / project-close) concurrency profiles explicit at the type level. If you need new shared persistence semantics, extend `JSONLAppendStore<T>` and let both wrappers benefit; don't push the difference into call sites.
 
 2. **Use 4-char alphabet-restricted paragraph IDs in any test that crosses the .md boundary.** In-memory tests of `PendingBuffer`, `Deriver`, `Op` serialization, `CrossMacMerge` etc. don't cross the boundary and short IDs (`"a"`) are fine. Tests exercising Bootstrap, Reconciler ingest, or RenderFilter-against-parsed-anchors need 4-char IDs from the alphabet, otherwise `parseComment` won't recognize them and the test will silently exercise only half the round-trip.

@@ -178,10 +178,11 @@ extension ProjectStore {
         }
 
         // 1b. Closed-doc tasks. Walk every document in the manifest that
-        //     isn't currently open; read its op log + .md directly without
-        //     instantiating a full `Document` actor. This keeps the Tasks
-        //     pane's Project scope honest — every chapter contributes,
-        //     not just whatever's loaded in the editor right now.
+        //     isn't currently open; derive its paragraphs from the op log
+        //     (ADR 0018) without instantiating a full `Document` actor.
+        //     This keeps the Tasks pane's Project scope honest — every
+        //     chapter contributes, not just whatever's loaded in the
+        //     editor right now.
         //
         //     Sync disk reads here are deliberate: the project-pane
         //     refresh shouldn't block on async actor initialization for
@@ -190,21 +191,12 @@ extension ProjectStore {
         //     re-derive only when something on disk changes.
         for item in Self.collectDocuments(in: manifest.structure) {
             if openDocIds.contains(item.id) { continue }
-            guard let path = item.path else { continue }
-            let fileURL = url.appendingPathComponent(path)
-            // Read paragraphs from the .md (the autosave-canonical source
-            // for ordering and live paragraph text).
-            let mdText = (try? String(contentsOf: fileURL, encoding: .utf8)) ?? ""
-            let parsed = ParagraphParser.parse(mdText)
-            var paragraphs: [String: String] = [:]
-            for p in parsed {
-                guard let pid = p.id else { continue }
-                paragraphs[pid] = p.text
-            }
-            // Read ops via the partition-aware synchronous merge (legacy +
-            // per-device files; ADR 0012). Sync read is deliberate here — see
-            // the function header note on avoiding async actor init per doc.
+            guard item.path != nil else { continue }
+            // Derive paragraphs from the op log (ADR 0018: the .md is derived,
+            // never authoritative). Sync read is deliberate — see the function
+            // header note on avoiding async actor init per doc.
             let ops = OpLogStore.loadSyncMerged(forDocId: item.id, in: url)
+            let paragraphs = Deriver.deriveWithSequenceFallback(ops: ops).paragraphs
             let (closedTasks, _, _) = TaskDeriver.derive(
                 ops: ops, paragraphs: paragraphs, docId: item.id)
             all.append(contentsOf: closedTasks)

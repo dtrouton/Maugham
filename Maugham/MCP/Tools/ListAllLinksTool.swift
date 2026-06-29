@@ -64,11 +64,10 @@ public enum ListAllLinksTool: MCPTool {
             }
         }
 
-        // Wiki edges
+        // Wiki edges — derive text from op log (ADR 0018); never read the .md directly.
         for doc in docs {
-            guard let path = doc.path else { continue }
-            let abs = entry.url.appendingPathComponent(path)
-            guard let text = try? String(contentsOf: abs, encoding: .utf8) else { continue }
+            let text = DerivedManuscript.materialize(forDocId: doc.id, in: entry.url)
+            guard !text.isEmpty else { continue }
             for token in Self.wikiTokens(in: text) {
                 if let hit = titleIndex[token.lowercased()] {
                     edges.append(Edge(

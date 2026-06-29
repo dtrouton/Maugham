@@ -31,11 +31,13 @@ public struct ProjectStoreASTSource: ProjectASTBuilder.Source {
     private func pieceRef(for item: StructureItem) -> ProjectASTBuilder.PieceRef? {
         if item.pieceKind == .reference { return nil }
         guard let path = item.path else { return nil }
-        let fileURL = projectStore.url.appendingPathComponent(path)
         let mode: ProjectAST.Mode = path.lowercased().hasSuffix(".fountain")
             ? .fountain
             : .prose
-        let text = (try? String(contentsOf: fileURL, encoding: .utf8)) ?? ""
+        // ADR 0018: op log is the sole source of truth. Reading the .md as a
+        // fallback is forbidden — it would silently surface stale file content
+        // instead of the canonical op-log state.
+        let text = DerivedManuscript.materialize(forDocId: item.id, in: projectStore.url)
         return ProjectASTBuilder.PieceRef(
             pieceID: item.id,
             title: item.title,

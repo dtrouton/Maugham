@@ -26,6 +26,11 @@ final class SearchInEditorJumpTests: XCTestCase {
         try encoder.encode(manifest).write(
             to: tmp.appendingPathComponent("project.maugham.json"))
 
+        // ADR 0018: bootstrap the doc so the op log is seeded before search.
+        _ = try await Document.load(
+            url: tmp.appendingPathComponent("manuscript/c1.md"),
+            device: "test", session: "s", presenter: nil)
+
         let store = try await ProjectStore.load(from: tmp)
         let matches = await ProjectSearchEngine().search(
             query: "kitchen", options: SearchOptions(), in: store).matches

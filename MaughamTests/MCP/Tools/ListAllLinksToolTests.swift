@@ -37,6 +37,13 @@ final class ListAllLinksToolTests: XCTestCase {
         encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(manifest).write(
             to: tmp.appendingPathComponent("project.maugham.json"))
+        // ADR 0018: seed the op log before any wiki-scan MCP call.
+        _ = try await Document.load(
+            url: tmp.appendingPathComponent("manuscript/c1.md"),
+            device: "test", session: "s", presenter: nil)
+        _ = try await Document.load(
+            url: tmp.appendingPathComponent("manuscript/c2.md"),
+            device: "test", session: "s", presenter: nil)
         let store = try await ProjectStore.load(from: tmp)
         let reg = ProjectRegistry()
         reg.register(url: tmp, store: store)
@@ -93,6 +100,10 @@ final class ListAllLinksToolTests: XCTestCase {
         encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(manifest).write(
             to: tmp.appendingPathComponent("project.maugham.json"))
+        // ADR 0018: seed the op log before any wiki-scan MCP call.
+        _ = try await Document.load(
+            url: tmp.appendingPathComponent("manuscript/c1.md"),
+            device: "test", session: "s", presenter: nil)
         let store = try await ProjectStore.load(from: tmp)
         let reg = ProjectRegistry()
         reg.register(url: tmp, store: store)

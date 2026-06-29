@@ -26,21 +26,27 @@ public struct ProjectSearchEngine {
         for (item, fullPath) in manuscriptDocs {
             await Task.yield()
             if Task.isCancelled { break }
-            let url = store.url.appendingPathComponent(fullPath)
-            guard let stored = try? String(contentsOf: url, encoding: .utf8) else { continue }
-            // Search the DISPLAY form, not the raw stored bytes. The stored
-            // `.md` carries op-log join anchors (`<!-- ¶id -->` lines + inline
-            // `<!--t-XXXXXX-->` task anchors) whose 4/6-char ids overlap the
-            // ordinary-text alphabet — so searching raw bytes can surface
-            // matches *inside* an invisible anchor (e.g. "ab" inside
-            // `<!-- ¶ab12 -->`). That match has no display-form counterpart,
-            // which (a) shows the user a hit they can't see and (b) makes
-            // click-to-jump + Find-Replace ordinals wrong against the editor
-            // (which is display form). Strip via the shared MarkdownDisplayFilter
-            // — the single source of truth the editor's RenderFilter.stripComments
-            // and the iOS reader both use — so every coordinate this engine
-            // emits (charRangeInDocument / lineNumber / matchRangeInLine) is in
-            // display form.
+            // ADR 0018: manuscript content is derived from the op log, never
+            // read from the `.md` on disk (which is a derived, potentially
+            // stale artifact). DerivedManuscript.materialize returns the
+            // anchored form (<!-- ¶id --> lines) — identical to what autosave
+            // writes — so the strip below produces the same display form the
+            // editor and iOS reader see. Returns "" when the doc has no ops
+            // (new doc before first keystroke); matchesIn on "" yields nothing.
+            let stored = DerivedManuscript.materialize(forDocId: item.id, in: store.url)
+            // Search the DISPLAY form, not the raw anchored bytes. The
+            // materialised `.md` carries op-log join anchors (`<!-- ¶id -->`
+            // lines + inline `<!--t-XXXXXX-->` task anchors) whose 4/6-char
+            // ids overlap the ordinary-text alphabet — so searching raw bytes
+            // can surface matches *inside* an invisible anchor (e.g. "ab"
+            // inside `<!-- ¶ab12 -->`). That match has no display-form
+            // counterpart, which (a) shows the user a hit they can't see and
+            // (b) makes click-to-jump + Find-Replace ordinals wrong against
+            // the editor (which is display form). Strip via the shared
+            // MarkdownDisplayFilter — the single source of truth the editor's
+            // RenderFilter.stripComments and the iOS reader both use — so
+            // every coordinate this engine emits (charRangeInDocument /
+            // lineNumber / matchRangeInLine) is in display form.
             let content = MarkdownDisplayFilter.stripAnchors(stored)
             let matches = Self.matchesIn(
                 content: content,
@@ -58,7 +64,7 @@ public struct ProjectSearchEngine {
             await Task.yield()
             if Task.isCancelled { break }
             let url = store.url.appendingPathComponent(fullPath)
-            guard let stored = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            guard let stored = try? String(contentsOf: url, encoding: .utf8) else { continue } // adr-0018-ok: research-note read, not manuscript
             // Research notes carry no ¶ anchors, so stripAnchors is a no-op on
             // their content (it only removes own-line `<!-- ¶id -->` and inline
             // task anchors). Route through it anyway for uniformity, so both

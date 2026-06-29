@@ -391,4 +391,103 @@ final class TripwireGrepTests: XCTestCase {
         let offenders = try grepSwift(in: tmp, patterns: [".mzseg"])
         XCTAssertEqual(offenders.count, 1)
     }
+
+    // MARK: - Manuscript-body read tripwire (ADR 0018)
+
+    /// ADR 0018: manuscript content/sequence/anchors are read ONLY from the op
+    /// log (DerivedManuscript / the live Document) — never the .md/.fountain
+    /// file. Fail if a known manuscript-read site reads a doc body off disk.
+    /// The ONLY sanctioned manuscript .md reads are the reconciler/echo-guard
+    /// in Document+Load.swift (comparison reference; op log is authoritative).
+    ///
+    /// Legitimate non-manuscript reads (research notes, project manifest) in
+    /// the guarded files must carry an explicit `// adr-0018-ok: <reason>`
+    /// annotation on the same line. The tripwire skips annotated lines.
+    func test_noManuscriptFileReadsOutsideReconciler() throws {
+        // Files that route manuscript content and MUST NOT String/Data(contentsOf:)
+        // a manuscript doc body.  Research-file reads and manifest reads in these
+        // files carry an `// adr-0018-ok:` annotation so the grep skips them.
+        let guardedFiles: Set<String> = [
+            "DocumentTools.swift",
+            "ListAllLinksTool.swift",
+            "ReferenceTools.swift",
+            "ProjectSearchEngine.swift",
+            "ProjectStore+Tasks.swift",
+            "ProjectStore.swift",
+            "ProjectStore+Structure.swift",
+            "ProjectStoreASTSource.swift",
+        ]
+        let patterns = [
+            "String(contentsOf:",
+            "Data(contentsOf:",
+            "String(contentsOfFile:",
+        ]
+        let offenders = try grepSwift(
+            in: sourceDir,
+            files: guardedFiles,
+            patterns: patterns,
+            excludeLine: { line in
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                // Allow: explicitly annotated non-manuscript reads.
+                if trimmed.contains("// adr-0018-ok:") { return true }
+                // Allow: pure comment lines (explanatory prose, no executable read).
+                if trimmed.hasPrefix("//") || trimmed.hasPrefix("///") { return true }
+                return false
+            }
+        )
+        XCTAssertTrue(offenders.isEmpty,
+            "Guarded file reads manuscript body off disk. "
+            + "Route through DerivedManuscript (closed doc) or live Document (open doc). "
+            + "If the read is genuinely not a manuscript (research note, manifest, config), "
+            + "annotate the line with `// adr-0018-ok: <reason>`. "
+            + "See docs/adr/0018-manuscript-reads-derive-from-oplog.md. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// Self-check: prove the ADR 0018 tripwire FIRES on a planted offender.
+    /// Writes a synthetic guarded file with an unannotated `String(contentsOf:`
+    /// and confirms the grep catches it; also confirms an annotated sibling
+    /// line passes through (exclusion logic is sound).
+    func test_manuscriptReadTripwireFiresOnPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-adr0018-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        let planted = tmp.appendingPathComponent("DocumentTools.swift")
+        try """
+        func readManuscript(at url: URL) throws -> String {
+            // Forbidden — manuscript body bypasses the op log:
+            return try String(contentsOf: url, encoding: .utf8)
+        }
+        func readResearch(at url: URL) throws -> String {
+            return try String(contentsOf: url, encoding: .utf8) // adr-0018-ok: research-note read
+        }
+        """.write(to: planted, atomically: true, encoding: .utf8)
+
+        let guardedFiles: Set<String> = ["DocumentTools.swift"]
+        let patterns = [
+            "String(contentsOf:",
+            "Data(contentsOf:",
+            "String(contentsOfFile:",
+        ]
+        let offenders = try grepSwift(
+            in: tmp,
+            files: guardedFiles,
+            patterns: patterns,
+            excludeLine: { line in
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.contains("// adr-0018-ok:") { return true }
+                if trimmed.hasPrefix("//") || trimmed.hasPrefix("///") { return true }
+                return false
+            }
+        )
+        // Only the unannotated read fires; the annotated line is excluded.
+        XCTAssertEqual(offenders.count, 1,
+            "Self-check expected exactly the unannotated contentsOf: call to fire. Got:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.first?.contains("String(contentsOf: url") == true,
+            "Self-check: the planted unannotated String(contentsOf:) should be the one caught.")
+    }
 }

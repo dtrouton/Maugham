@@ -4,7 +4,9 @@ import MaughamCore
 
 @MainActor
 final class ProjectSearchReplaceTests: XCTestCase {
-    private func makeProject(manuscript: [(String, String)]) throws -> URL {
+    /// ADR 0018: each doc is bootstrapped via Document.load so the op log is
+    /// seeded before search runs — search reads from the op log, not the .md.
+    private func makeProject(manuscript: [(String, String)]) async throws -> URL {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("SearchReplace-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -13,9 +15,8 @@ final class ProjectSearchReplaceTests: XCTestCase {
             withIntermediateDirectories: true)
         var structure: [StructureItem] = []
         for (slug, content) in manuscript {
-            try content.write(
-                to: tmp.appendingPathComponent("manuscript/\(slug).md"),
-                atomically: true, encoding: .utf8)
+            let docURL = tmp.appendingPathComponent("manuscript/\(slug).md")
+            try content.write(to: docURL, atomically: true, encoding: .utf8)
             structure.append(StructureItem(
                 id: "ms-\(slug)", title: slug, type: .document,
                 path: "manuscript/\(slug).md"))
@@ -28,6 +29,12 @@ final class ProjectSearchReplaceTests: XCTestCase {
         encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(manifest).write(
             to: tmp.appendingPathComponent("project.maugham.json"))
+        // Bootstrap each doc so the op log is populated before search runs.
+        for (slug, _) in manuscript {
+            let docURL = tmp.appendingPathComponent("manuscript/\(slug).md")
+            _ = try await Document.load(
+                url: docURL, device: "test", session: "s", presenter: nil)
+        }
         return tmp
     }
 
@@ -56,7 +63,7 @@ final class ProjectSearchReplaceTests: XCTestCase {
     }
 
     func test_replaceMatch_writesNewContentToDisk() async throws {
-        let project = try makeProject(manuscript: [
+        let project = try await makeProject(manuscript: [
             ("c1", "the kitchen is empty\n")
         ])
         let store = try await ProjectStore.load(from: project)
@@ -70,7 +77,7 @@ final class ProjectSearchReplaceTests: XCTestCase {
     }
 
     func test_replaceMatch_withEmptyString_deletesMatch() async throws {
-        let project = try makeProject(manuscript: [
+        let project = try await makeProject(manuscript: [
             ("c1", "the kitchen is empty\n")
         ])
         let store = try await ProjectStore.load(from: project)
@@ -84,7 +91,7 @@ final class ProjectSearchReplaceTests: XCTestCase {
     }
 
     func test_replaceAll_replacesAllMatchesPerDoc() async throws {
-        let project = try makeProject(manuscript: [
+        let project = try await makeProject(manuscript: [
             ("c1", "kitchen here\nand kitchen there\n"),
             ("c2", "no kitchen anywhere\n")
         ])
@@ -104,7 +111,7 @@ final class ProjectSearchReplaceTests: XCTestCase {
         // Multiple matches on the same line; the op-log path re-finds and
         // replaces all occurrences (right-to-left internally) so longer
         // replacements don't corrupt later matches.
-        let project = try makeProject(manuscript: [
+        let project = try await makeProject(manuscript: [
             ("c1", "ab ab ab\n")  // 3 matches of "ab"
         ])
         let store = try await ProjectStore.load(from: project)

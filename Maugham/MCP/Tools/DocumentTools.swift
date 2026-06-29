@@ -70,14 +70,14 @@ public enum ReadDocumentTool: MCPTool {
         // Return the anchored (materialized) form so Claude can target
         // paragraphs by `<!-- ¶id -->` markers. If the doc is open in the
         // editor, materialize from its in-memory state — that's fresher than
-        // disk (autosave is debounced at 750ms). Otherwise read the .md
-        // verbatim, which already contains the anchors from Bootstrap.
+        // disk (autosave is debounced at 750ms). Otherwise derive from the
+        // op log (ADR 0018): the .md can lag the op log, causing
+        // read_document and add_comment to disagree on paragraph ids.
         let text: String
         if let ds = store.documentStore, let doc = ds.document(for: path) {
             text = doc.materialize()
         } else {
-            let abs = projectURL.appendingPathComponent(path)
-            text = (try? String(contentsOf: abs, encoding: .utf8)) ?? ""
+            text = DerivedManuscript.materialize(forDocId: item.id, in: projectURL)
         }
         let mode = Self.modeFor(path: path, projectType: store.manifest.type)
         let words = text.split { $0.isWhitespace || $0.isNewline }.count
@@ -109,7 +109,7 @@ public enum ReadDocumentTool: MCPTool {
                     "Research item '\(item.title)' has no on-disk path")
             }
             let abs = projectURL.appendingPathComponent(path)
-            let text = (try? String(contentsOf: abs, encoding: .utf8)) ?? ""
+            let text = (try? String(contentsOf: abs, encoding: .utf8)) ?? "" // adr-0018-ok: research-item document read, not manuscript
             let words = text.split { $0.isWhitespace || $0.isNewline }.count
             let chars = text.count
             let content = DocumentContent(

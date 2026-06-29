@@ -158,7 +158,7 @@ public final class ProjectStore {
 
         var manifest: ProjectManifest
         do {
-            let data = try Data(contentsOf: manifestURL)
+            let data = try Data(contentsOf: manifestURL) // adr-0018-ok: project manifest JSON read, not manuscript
             // Schema-version gate (ADR 0015): refuse a project written by a
             // NEWER Maugham rather than degrade-and-resave it (which would
             // overwrite values this build can't represent). The per-enum
@@ -213,11 +213,12 @@ public final class ProjectStore {
         return store
     }
 
-    /// Walk every document in `manifest.structure`, read its file, and
-    /// record the word count via the WritingMode for that file's extension.
-    /// Called during `load(from:)` so consumers (goal indicator, Statistics
-    /// window, etc.) see correct totals from the start instead of zeros
-    /// until the user types into each document.
+    /// Walk every document in `manifest.structure`, derive its word count
+    /// from the op-log-materialised text (ADR 0018), and record it via
+    /// the WritingMode for that file's extension. Called during `load(from:)`
+    /// so consumers (goal indicator, Statistics window, etc.) see correct
+    /// totals from the start instead of zeros until the user types into
+    /// each document.
     private static func populateWordCountCache(
         in store: ProjectStore,
         from manifest: ProjectManifest,
@@ -225,11 +226,11 @@ public final class ProjectStore {
     ) {
         for item in collectDocuments(in: manifest.structure) {
             guard let path = item.path else { continue }
-            let fileURL = projectURL.appendingPathComponent(path)
-            guard let text = try? String(contentsOf: fileURL,
-                                         encoding: .utf8) else { continue }
-            let count = WritingModeFactory.mode(for: path)
-                .wordCount(text)
+            // ADR 0018: derive content from the op log, never the .md file.
+            let state = DerivedManuscript.derivedState(
+                forDocId: item.id, in: projectURL)
+            let text = state.paragraphs.values.joined(separator: " ")
+            let count = WritingModeFactory.mode(for: path).wordCount(text)
             store.recordWordCount(forDocumentId: item.id, wordCount: count)
         }
     }

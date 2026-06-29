@@ -49,6 +49,11 @@ final class DocumentToolsTests: XCTestCase {
 
     func test_readDocument_returnsContent() async throws {
         let (url, _, reg) = try await makeProject()
+        // Bootstrap the document so the op log exists: ADR 0018 routes the
+        // closed-doc branch through DerivedManuscript, which reads the op log.
+        _ = try await Document.load(
+            url: url.appendingPathComponent("manuscript/c1.md"),
+            device: "test", session: "s", presenter: nil)
         let id = ProjectIdentifier.id(for: url)
         let req = "{\"project_id\":\"\(id)\",\"document_id\":\"ch-1\"}"
         let json = try await ReadDocumentTool.handle(
@@ -153,6 +158,11 @@ extension DocumentToolsTests {
         encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(manifest).write(
             to: tmp.appendingPathComponent("project.maugham.json"))
+        // ADR 0018: seed the op log before search_text — the engine reads from
+        // the op log, not the .md.
+        _ = try await Document.load(
+            url: tmp.appendingPathComponent("manuscript/c1.md"),
+            device: "test", session: "s", presenter: nil)
         let store = try await ProjectStore.load(from: tmp)
         let reg = ProjectRegistry()
         reg.register(url: tmp, store: store)
