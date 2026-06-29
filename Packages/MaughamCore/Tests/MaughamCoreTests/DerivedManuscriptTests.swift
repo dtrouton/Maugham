@@ -55,6 +55,39 @@ final class DerivedManuscriptTests: XCTestCase {
         XCTAssertEqual(s.sequence, ["n5sg"])
     }
 
+    /// A junk empty-sequence bootstrap op must NOT clobber the first-appearance
+    /// synthesis fallback in `deriveWithSequenceFallback`. Before the guard was
+    /// added, the bootstrap set `sequence = []` AND `sequenceWasExplicit = true`,
+    /// so the synthesis branch never fired and the result was `[]` instead of the
+    /// correct first-appearance order.
+    func test_deriveWithSequenceFallback_junkEmptyBootstrap_survivesIntoSynthesis() {
+        // Junk bootstrap with sequence: [] — exists in the wild per derive's comment.
+        let junkBootstrap = Op(opId: "0001", docId: "doc-1",
+                               at: Date(timeIntervalSince1970: 0),
+                               device: "d", session: "s", kind: .bootstrap,
+                               changes: [], sequence: [], provenance: nil)
+        // Sequence-less typing-burst ops; opIds sort after the bootstrap so
+        // first-appearance order is deterministically aaaa → bbbb → cccc.
+        let burst1 = Op(opId: "0002", docId: "doc-1",
+                        at: Date(timeIntervalSince1970: 1),
+                        device: "d", session: "s", kind: .typingBurst,
+                        changes: [Op.ParagraphChange(paragraphId: "aaaa", prior: nil, next: "Alpha.")],
+                        sequence: nil, provenance: nil)
+        let burst2 = Op(opId: "0003", docId: "doc-1",
+                        at: Date(timeIntervalSince1970: 2),
+                        device: "d", session: "s", kind: .typingBurst,
+                        changes: [Op.ParagraphChange(paragraphId: "bbbb", prior: nil, next: "Beta.")],
+                        sequence: nil, provenance: nil)
+        let burst3 = Op(opId: "0004", docId: "doc-1",
+                        at: Date(timeIntervalSince1970: 3),
+                        device: "d", session: "s", kind: .typingBurst,
+                        changes: [Op.ParagraphChange(paragraphId: "cccc", prior: nil, next: "Gamma.")],
+                        sequence: nil, provenance: nil)
+        let state = Deriver.deriveWithSequenceFallback(ops: [junkBootstrap, burst1, burst2, burst3])
+        XCTAssertEqual(state.sequence, ["aaaa", "bbbb", "cccc"],
+            "junk empty-sequence bootstrap must not clobber first-appearance synthesis")
+    }
+
     /// No ops → empty string (no crash, no .md read).
     func test_materialize_noOps_isEmpty() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("dm-empty-\(UUID())")
