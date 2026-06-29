@@ -40,6 +40,7 @@ Keep them short. One to two pages is the right scale. If an ADR keeps growing, i
 | [0016](0016-op-log-growth-without-compaction.md) | Op-log growth without compaction: keyframed sequence + sealed compressed segments + derive cache | Accepted | 2026-06-09 |
 | [0017](0017-editor-control-plane.md) | Editor control plane: an observed `EditorControl` model, not `updateNSView`/notifications | Accepted | 2026-06-27 |
 | [0018](0018-manuscript-reads-derive-from-oplog.md) | Manuscript reads always derive from the op log (never the `.md`); enforced by a tripwire | Accepted | 2026-06-28 |
+| [0019](0019-clean-md-on-disk.md) | Manuscript files on disk are clean Markdown/Fountain (anchors live only in the op log) | Accepted | 2026-06-29 |
 
 ## How to write a new ADR
 
