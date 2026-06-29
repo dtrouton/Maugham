@@ -220,7 +220,10 @@ public final class Document {
     }
 
     internal func performAutosave() async throws {
-        // Mirror pending buffer to disk for crash recovery.
+        // Mirror pending buffer to disk for crash recovery. Carry the live
+        // paragraph order so recovery is op-log-domain — not reconstructed from
+        // the .md (ADR 0019).
+        pending.setSequence(self.sequence)
         try? await pending.flushToDisk()
 
         let bytes = materialize()

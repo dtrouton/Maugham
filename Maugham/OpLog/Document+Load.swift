@@ -214,18 +214,17 @@ extension Document {
         }
 
         // Crash recovery: fold any pending changes into a real op.
-        // Capture sequence from the parsed .md — autosave wrote the .md
-        // after the last burst flushed, so its paragraph anchor ordering
-        // is more current than the op log's last-explicit sequence. Without
-        // this the recovered op leaves sequence at whatever the last
-        // bursted op said (often a stale shape from before the user split
-        // / inserted paragraphs), which strands new paragraph ids out of
-        // sequence and collapses displayText to the stale ordering.
-        // NOTE (growth spec §4.2): this recovery op keeps capturing `sequence`
-        // from the parsed .md UNCONDITIONALLY — it is a recovery op; correctness
-        // over bytes. Keyframing applies only to flushBurstNow.
+        // Order comes from the pending buffer (durable, op-log-domain) — NOT the
+        // .md (ADR 0019). Autosave stamps `pending.sequence` with the live order
+        // before each flush, so the un-bursted changes recover their paragraph
+        // ordering without consulting the .md's parsed anchors. A legacy pending
+        // file (pre-ADR-0019, no sequence) loads `sequence == []` → we fall back
+        // to `sequence: nil`, which the deriver reads as "ordering unchanged",
+        // carrying the op log's own last-explicit sequence forward.
+        // NOTE (growth spec §4.2): this is a recovery op — correctness over
+        // bytes. Keyframing applies only to flushBurstNow.
         if !pending.isEmpty() {
-            let recoveredSequence = parsed.compactMap(\.id)
+            let recoveredSequence = pending.sequence
             let recovered = Op(
                 opId: ULID.generate(), docId: docId, at: Date(),
                 device: device, session: session, kind: .typingBurst,
