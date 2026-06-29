@@ -6,7 +6,7 @@ This is the **cleanest** area in the codebase per the 2026-05-19 audit. Don't re
 
 The manuscript op log: append-only event stream of paragraph-level mutations, paragraph-keyed LWW conflict resolution, project-scope checkpoints with partial restore, cross-Mac log merge, and the inline `<!-- ¶id -->` HTML-comment anchors that join op records to rendered markdown.
 
-**This is the source of truth for manuscripts.** `.md` files on disk are derived from the op log + Bootstrap-minted anchors. The .md is what writers and Claude Desktop read; the op log is what survives merges and history.
+**This is the source of truth for manuscripts.** `.md` files on disk are the **clean** derived render — standard Markdown/Fountain with NO `¶id`/`t-` anchors (ADR 0019); the anchors live only in the op log + the in-memory representation. Writers read the clean file; Claude reads via MCP / the op log (ADR 0018), not by parsing the on-disk `.md`. The op log is what survives merges and history.
 
 ## Layout
 
@@ -20,7 +20,8 @@ The manuscript op log: append-only event stream of paragraph-level mutations, pa
 - `Reconciler.swift` — ingests external edits (writer edited the .md outside the app, or iCloud delivered a remote write) back into the op log.
 - `RenderFilter.swift` — derives the rendered .md from the op log. **Lives at `Maugham/Editor/RenderFilter.swift`** (it's consumed by the editor's display path; conceptually owned by this area). Three matching tiers for the "which historical paragraph does this orphan line belong to" question.
 - `ShingleMatcher.swift` — k-shingle Jaccard matcher used by RenderFilter and Reconciler.
-- `PendingBuffer.swift` — in-memory buffer between live typing and op-log appends (debounce window).
+- `PendingBuffer.swift` — in-memory buffer between live typing and op-log appends (debounce window). **ADR 0019:** the buffer carries the live `sequence` (durable on disk), so crash recovery is op-log-domain — the recovered burst restores its ordering without consulting the `.md`.
+- **Clean-`.md` load contract (ADR 0019).** Load + crash recovery are op-log-domain: the bootstrap signal is op-log-*emptiness* (`!logExists`), not the `.md`'s anchors; content + order come from `Deriver.deriveWithSequenceFallback` (first-appearance synthesis for legacy sequence-less logs). The ONLY `.md` reads left in `Document.load` are (1) the import-bootstrap read for a brand-new / imported plain file with an empty op log (the sanctioned mint read), and (2) the echo-guard comparison seed (`EchoState.initialLoad`). `reconcile` runs with `parsed: []` so its anchor-join branches are inert. See [ADR 0019](../../docs/adr/0019-clean-md-on-disk.md).
 - `OpKind.swift` — the closed set of operation types. Adding a new one touches every store and the renderer.
 - `RewindCursor.swift` — typed scrub state (`.now` vs `.atOp(opId, at)`) consumed by `Deriver.derive(ops:upTo:)` and `RewindWindow`.
 - `RewindRestoreResult.swift` — return value of `Document.restoreToOp`.

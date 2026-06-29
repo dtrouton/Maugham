@@ -142,4 +142,112 @@ final class LoadFromOpLogNotMdTests: XCTestCase {
         XCTAssertTrue(doc.displayText.contains("First paragraph."))
         XCTAssertTrue(doc.displayText.contains("Second paragraph."))
     }
+
+    // MARK: - Case 3: legacy log (no explicit sequence) loads ordered, .md-independent
+
+    /// Seed a legacy op log: typing-burst ops with non-empty `changes` but NO
+    /// explicit `sequence` field (the shape that predates the always-capture-
+    /// sequence fix). Append directly via `OpLogStore` — `seedOpLogBootstrap`
+    /// always stamps a sequence, which is exactly what we must NOT have here.
+    private func appendLegacyBurst(
+        projectURL: URL,
+        docId: String,
+        changes: [(id: String, text: String)]
+    ) async throws {
+        let op = Op(
+            opId: ULID.generate(),
+            docId: docId,
+            at: Date(),
+            device: "legacy",
+            session: "legacy",
+            kind: .typingBurst,
+            changes: changes.map {
+                Op.ParagraphChange(paragraphId: $0.id, prior: nil, next: $0.text)
+            },
+            sequence: nil)   // <- legacy: no captured order
+        try await OpLogStore(projectURL: projectURL).append(op)
+    }
+
+    /// A doc whose op log carries legacy ops (non-empty `changes`, `sequence:
+    /// nil`) must load with non-empty, correctly-ORDERED content synthesized by
+    /// `deriveWithSequenceFallback` from first-appearance order — and that load
+    /// must be INDEPENDENT of the `.md`. We prove the independence by clobbering
+    /// the `.md` with junk after seeding and asserting the reload still yields
+    /// the op-log truth, not the junk.
+    func test_legacyLog_noExplicitSequence_loadsOrdered_independentOfMd() async throws {
+        // 4-char alphabet-restricted ids (crosses the .md <-> op-log boundary).
+        let pA = ParagraphID.mint()
+        let pB = ParagraphID.mint()
+        let pC = ParagraphID.mint()
+
+        let fx = try makeProject(docId: "doc-legacy-seq")
+
+        // Seed the op log BEFORE any load so `logExists` is true and load never
+        // bootstraps. Two legacy bursts (each `sequence: nil`): the first
+        // introduces pA, pB; the second introduces pC and edits pA (last-write-
+        // wins). First-appearance order across the opId-sorted stream → [pA,pB,pC].
+        try await appendLegacyBurst(
+            projectURL: fx.projectURL, docId: fx.docId,
+            changes: [(pA, "Alpha original"), (pB, "Beta")])
+        try await appendLegacyBurst(
+            projectURL: fx.projectURL, docId: fx.docId,
+            changes: [(pC, "Gamma"), (pA, "Alpha edited")])
+
+        let opStore = OpLogStore(projectURL: fx.projectURL)
+        let seededOps = try await opStore.load(docId: fx.docId)
+        XCTAssertTrue(
+            seededOps.allSatisfy { $0.sequence == nil },
+            "precondition: every seeded op is legacy (no explicit sequence)")
+        XCTAssertEqual(
+            seededOps.filter { $0.kind == .bootstrap }.count, 0,
+            "precondition: a legacy log carries no bootstrap op")
+
+        // First load: a non-empty op log is authoritative — no bootstrap is
+        // emitted even though the .md is unanchored.
+        let first = try await Document.load(
+            url: fx.docURL, device: "test", session: "s", presenter: nil)
+        let opsAfterFirst = try await opStore.load(docId: fx.docId)
+        XCTAssertEqual(
+            opsAfterFirst.filter { $0.kind == .bootstrap }.count, 0,
+            "a legacy log must NOT bootstrap — op-log-emptiness is the signal")
+
+        // The fallback synthesizes order from first-appearance; content is
+        // non-empty and ordered Alpha (edited) → Beta → Gamma.
+        let derived = Deriver.deriveWithSequenceFallback(ops: opsAfterFirst)
+        let expected = Materializer.materialize(
+            paragraphs: derived.paragraphs, sequence: derived.sequence)
+        XCTAssertFalse(expected.isEmpty, "fallback must yield non-empty content")
+        XCTAssertEqual(
+            first.materialize(), expected,
+            "load must derive legacy content/order via the sequence fallback")
+        XCTAssertTrue(first.displayText.contains("Alpha edited"))
+        XCTAssertTrue(first.displayText.contains("Beta"))
+        XCTAssertTrue(first.displayText.contains("Gamma"))
+        XCTAssertFalse(
+            first.displayText.contains("Alpha original"),
+            "last-write-wins: the edited text replaces the original")
+        // Order is Alpha → Beta → Gamma (first-appearance synthesis).
+        let aIdx = try XCTUnwrap(first.displayText.range(of: "Alpha edited"))
+        let bIdx = try XCTUnwrap(first.displayText.range(of: "Beta"))
+        let cIdx = try XCTUnwrap(first.displayText.range(of: "Gamma"))
+        XCTAssertTrue(
+            aIdx.lowerBound < bIdx.lowerBound && bIdx.lowerBound < cIdx.lowerBound,
+            "first-appearance order must be Alpha → Beta → Gamma")
+
+        // .md-INDEPENDENCE: clobber the file with junk and reload. The loaded
+        // content must remain the op-log truth, not the junk.
+        try "GARBAGE\n\nUNRELATED\n".write(
+            to: fx.docURL, atomically: true, encoding: .utf8)
+        let second = try await Document.load(
+            url: fx.docURL, device: "test", session: "s", presenter: nil)
+        XCTAssertEqual(
+            second.materialize(), expected,
+            "reload over a junk .md must still derive the op-log truth")
+        XCTAssertFalse(
+            second.displayText.contains("GARBAGE"),
+            "the junk .md must not leak into the loaded content")
+        XCTAssertFalse(second.displayText.contains("UNRELATED"))
+        XCTAssertTrue(second.displayText.contains("Alpha edited"))
+        XCTAssertTrue(second.displayText.contains("Gamma"))
+    }
 }
