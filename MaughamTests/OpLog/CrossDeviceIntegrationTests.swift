@@ -180,6 +180,13 @@ final class CrossDeviceIntegrationTests: XCTestCase {
             sequence: [p1, p2, p3])
 
         let docURL = try makeManuscriptProject(initialMd: initialMd)
+        // ADR 0019: the op log is the source of truth — seed it so load derives
+        // the three paragraphs from the op log, not the `.md`'s anchors.
+        try await seedOpLogBootstrap(
+            projectURL: docURL.deletingLastPathComponent().deletingLastPathComponent(),
+            docId: "doc-test",
+            paragraphs: [p1: "Para one.", p2: "Para two.", p3: "Para three."],
+            sequence: [p1, p2, p3])
         let doc = try await Document.load(
             url: docURL, device: "mac-A", session: "s", presenter: nil)
 

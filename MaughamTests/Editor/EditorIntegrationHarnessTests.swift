@@ -51,6 +51,15 @@ final class EditorIntegrationHarnessTests: XCTestCase {
         let rig = EditorIntegrationHarness(
             initialText: "<!-- ¶a3f9 -->\n\nHello.\n")
         let docStore = try await rig.attachDocumentStore()
+        // ADR 0019: the op log is the source of truth — seed it (after
+        // attachDocumentStore writes the manifest) so the doc derives its
+        // paragraph from the op log; the intact-id external edit is then a
+        // clean in-place change of a3f9, ingested silently.
+        try await seedOpLogBootstrap(
+            projectURL: rig.projectURL,
+            docId: "doc-test",
+            paragraphs: ["a3f9": "Hello."],
+            sequence: ["a3f9"])
         let doc = try await Document.load(
             url: rig.projectURL.appendingPathComponent(rig.docPath),
             device: "m", session: "s", presenter: docStore.presenter)

@@ -171,14 +171,17 @@ extension Document {
         let logExists = !OpLogStore.opLogFileURLs(forDocId: docId, in: projectURL).isEmpty
         let storedBytes = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
         let parsed = ParagraphParser.parse(storedBytes)
-        // `parsed.isEmpty` (empty .md) used to satisfy `allSatisfy { id == nil }`
-        // vacuously, triggering bootstrap that emitted a junk op with empty
-        // changes + empty sequence. Filter empty .md out explicitly. The
-        // empty case happens transiently for newly-created docs before
-        // first autosave; there's nothing to bootstrap. Bootstrap.run also
-        // has its own empty-parsed guard, so this is belt-and-braces.
-        let needsBootstrap = (!logExists || parsed.allSatisfy { $0.id == nil })
-            && !parsed.isEmpty
+        // ADR 0019: the .md is clean (no anchors), so "the .md has no anchors"
+        // no longer signals "needs bootstrap" — that would re-bootstrap every
+        // clean file once Task 3 lands. An existing op log is authoritative;
+        // only a doc with NO op log (a brand-new or imported plain file)
+        // bootstraps from its .md. Reading the .md to MINT ids for that
+        // new/imported doc is the sanctioned import read — not reading it as
+        // truth for an existing doc. `!parsed.isEmpty` still filters out the
+        // transient empty-.md case for a newly-created doc before first
+        // autosave (there's nothing to bootstrap); Bootstrap.run also has its
+        // own empty-parsed guard, so this is belt-and-braces.
+        let needsBootstrap = !logExists && !parsed.isEmpty
 
         if needsBootstrap {
             _ = try await Bootstrap.run(
@@ -235,8 +238,19 @@ extension Document {
             ops.append(recovered)
         }
 
+        // ADR 0019: content + order come ONLY from the op log, never from the
+        // `.md`'s anchors. `deriveWithSequenceFallback` synthesises a sequence
+        // from first-appearance order for legacy logs whose typing bursts
+        // predate the always-capture-sequence fix (replacing the old on-disk
+        // `.md` recovery). We still route through `reconcile` — but with an
+        // empty `parsed` so its `.md`-anchor-join branches (1–3) are inert —
+        // to preserve its op-log-only branch 4: dropping orphan paragraphs
+        // (ids in the accumulator but not in `sequence`) so the inline-task
+        // deriver doesn't surface phantom rows. The `.md` is still ANCHORED on
+        // disk at this stage (Task 3 makes it clean); passing `parsed: []`
+        // ensures load ignores those anchors for content/order today.
         let initial = Document.reconcile(
-            derived: Deriver.derive(ops: ops), parsed: parsed)
+            derived: Deriver.deriveWithSequenceFallback(ops: ops), parsed: [])
         let lastWritten = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
         let initialEcho = EchoState.initialLoad(bytes: lastWritten)
 

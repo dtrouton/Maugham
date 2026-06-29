@@ -178,6 +178,14 @@ final class PresenterRoutingTests: XCTestCase {
     /// flag a sweep — the prior/next sequence diff is empty.
     func test_mcpAddAnnotationLive_doesNotTriggerOrphanArchive() async throws {
         let fx = try await makeProject()
+        // ADR 0019: the op log is the source of truth — seed it so the live doc
+        // derives its two paragraphs (a3f9/b21c) from the op log rather than the
+        // `.md`'s anchors, so the MCP annotation lands on a real paragraph.
+        try await seedOpLogBootstrap(
+            projectURL: fx.projectURL,
+            docId: fx.docId,
+            paragraphs: ["a3f9": "First.", "b21c": "Second."],
+            sequence: ["a3f9", "b21c"])
         let doc = try await Document.load(
             url: fx.projectURL.appendingPathComponent(fx.docPath),
             device: "test", session: "s", presenter: fx.documentStore.presenter)
