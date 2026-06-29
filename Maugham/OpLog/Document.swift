@@ -226,7 +226,9 @@ public final class Document {
         pending.setSequence(self.sequence)
         try? await pending.flushToDisk()
 
-        let bytes = materialize()
+        // ADR 0019: the on-disk file is the clean display form (no ¶id / t-
+        // anchors). The op log + in-memory NSTextStorage keep the anchors.
+        let bytes = MarkdownDisplayFilter.stripAnchors(materialize())
         let coord = NSFileCoordinator(filePresenter: presenter)
         var coordErr: NSError?
         var writeErr: Error?

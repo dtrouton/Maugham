@@ -93,7 +93,8 @@ final class CrashRecoveryUsesPendingSequenceTests: XCTestCase {
         let url = project.appendingPathComponent(path)
 
         // Session 1: open (mints anchors), establish a bursted op-log sequence,
-        // and close so the .md on disk carries anchors in forward order.
+        // and close. `mdOrder` is the in-memory op-log order (doc.sequence),
+        // not parsed from the .md.
         let docId: String
         let mdOrder: [String]
         do {
@@ -107,10 +108,13 @@ final class CrashRecoveryUsesPendingSequenceTests: XCTestCase {
             await doc.close()
         }
 
-        // The .md on disk now has anchors in forward (mdOrder) order.
+        // ADR 0019: the .md on disk is now CLEAN — it carries NO anchors at all,
+        // so recovery provably cannot consult a .md anchor order (there is none).
+        // The order under test comes from the pending buffer's sequence below.
         let onDisk = try String(contentsOf: url, encoding: .utf8)
         let parsedOrder = ParagraphParser.parse(onDisk).compactMap(\.id)
-        XCTAssertEqual(parsedOrder, mdOrder, "precondition: .md anchors are forward order")
+        XCTAssertTrue(parsedOrder.isEmpty, "precondition: the on-disk .md is clean (no anchors)")
+        XCTAssertFalse(onDisk.contains("<!-- ¶"), "precondition: the on-disk .md is clean (no anchors)")
 
         // Seed a crash: an un-flushed pending buffer whose sequence is the
         // REVERSE of the .md anchor order. Recovery must honor THIS order.
