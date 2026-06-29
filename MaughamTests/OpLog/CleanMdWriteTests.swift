@@ -101,8 +101,11 @@ final class CleanMdWriteTests: XCTestCase {
 
     // MARK: - Test 2 — an inline task derives again through the clean file
 
-    /// An inline checkbox task whose `t-` anchor is stripped from disk still
-    /// derives after a reload, because the op log keeps the anchor.
+    /// An inline checkbox task survives the clean-file round-trip: its `t-`
+    /// anchor is stripped from disk, yet the task still derives after a reload.
+    /// (This pins task *derivation* through the clean file; Test 1 is the one
+    /// that proves the op log specifically *persists* the anchor — here the
+    /// checkbox text alone could re-mint it, which is also a valid outcome.)
     func test_inlineTask_roundTrips_throughCleanFile() async throws {
         let (project, path) = try makeProject(initialMd: "Hello.")
         let doc = try await Document.load(
