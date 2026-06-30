@@ -148,7 +148,9 @@ final class DocumentTests: XCTestCase {
         let onDisk = try String(
             contentsOf: project.appendingPathComponent(path),
             encoding: .utf8)
+        let mirrorBefore = doc.opLogMirrorCount
         try await doc.handleExternalDiskChange(diskMd: onDisk)
-        XCTAssertNil(doc.pendingConflict)
+        XCTAssertEqual(doc.opLogMirrorCount, mirrorBefore,
+            "an echo (disk already matches our clean render) must be a no-op")
     }
 }

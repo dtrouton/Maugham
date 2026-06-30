@@ -47,10 +47,19 @@ final class EditorIntegrationHarnessTests: XCTestCase {
         XCTAssertEqual(rig.cursorLocation, 7)
     }
 
-    func test_externalEditWithIdsIntact_ingestsSilently() async throws {
+    func test_externalEditWithIdsIntact_isDiscarded() async throws {
         let rig = EditorIntegrationHarness(
             initialText: "<!-- ¶a3f9 -->\n\nHello.\n")
         let docStore = try await rig.attachDocumentStore()
+        // ADR 0019: the op log is the source of truth — seed it (after
+        // attachDocumentStore writes the manifest) so the doc derives its
+        // paragraph from the op log. Even an intact-id external edit is NOT
+        // honored: external .md edits are discarded (the op-log truth wins).
+        try await seedOpLogBootstrap(
+            projectURL: rig.projectURL,
+            docId: "doc-test",
+            paragraphs: ["a3f9": "Hello."],
+            sequence: ["a3f9"])
         let doc = try await Document.load(
             url: rig.projectURL.appendingPathComponent(rig.docPath),
             device: "m", session: "s", presenter: docStore.presenter)
@@ -64,16 +73,20 @@ final class EditorIntegrationHarnessTests: XCTestCase {
             "<!-- ¶a3f9 -->\n\nHello, edited.\n")
         docStore.presenterDidChangeSubitem(
             at: rig.projectURL.appendingPathComponent(rig.docPath))
+        // The discard handler backs up the external bytes; wait for that.
+        let conflictsDir = rig.projectURL.appendingPathComponent(".maugham/conflicts")
         try await waitFor(timeout: .seconds(2)) {
-            doc.displayText.contains("edited")
+            (try? FileManager.default.contentsOfDirectory(
+                at: conflictsDir, includingPropertiesForKeys: nil))?.isEmpty == false
         }
 
-        XCTAssertNil(doc.pendingConflict,
-            "intact ¶ids → silent ingest, no conflict sheet")
-        XCTAssertTrue(doc.displayText.contains("edited"))
+        // The op-log truth wins: the external edit never enters in-memory state.
+        XCTAssertFalse(doc.displayText.contains("edited"),
+            "external .md edits are discarded — the op-log truth wins, not the disk bytes")
+        XCTAssertTrue(doc.displayText.contains("Hello"))
     }
 
-    func test_externalEditWithIdsStripped_surfacesConflict() async throws {
+    func test_externalEditWithIdsStripped_isDiscarded() async throws {
         let rig = EditorIntegrationHarness(
             initialText: "<!-- ¶a3f9 -->\n\nHello.\n")
         let docStore = try await rig.attachDocumentStore()
@@ -85,12 +98,29 @@ final class EditorIntegrationHarnessTests: XCTestCase {
         try await rig.writeExternalMdContent("Hello, edited (no IDs).\n")
         docStore.presenterDidChangeSubitem(
             at: rig.projectURL.appendingPathComponent(rig.docPath))
+        // The discard handler re-materializes the op-log truth over the external
+        // bytes (after backing them up). Poll on the actual asserted condition —
+        // the re-materialize having landed on disk — not on the backup dir, which
+        // is written BEFORE the flush and would race the disk assertion below.
+        let docOnDisk = rig.projectURL.appendingPathComponent(rig.docPath)
         try await waitFor(timeout: .seconds(2)) {
-            doc.pendingConflict != nil
+            let disk = try? String(contentsOf: docOnDisk, encoding: .utf8)
+            return disk != nil && !disk!.contains("Hello, edited (no IDs)")
         }
 
-        XCTAssertNotNil(doc.pendingConflict,
-            "stripped ¶ids → conflict surfaces")
+        // Stripped ¶ids change nothing: external .md edits are discarded, and
+        // the op-log truth is re-materialized over them.
+        XCTAssertFalse(doc.displayText.contains("edited"),
+            "stripped-id external edits are still discarded — no conflict, op-log truth wins")
+        let disk = try String(contentsOf: docOnDisk, encoding: .utf8)
+        XCTAssertFalse(disk.contains("Hello, edited (no IDs)"),
+            "the external edit must be blown away by the op-log re-materialize")
+        // The backup is written before the re-materialize, so by now it exists.
+        let conflictsDir = rig.projectURL.appendingPathComponent(".maugham/conflicts")
+        XCTAssertEqual(
+            (try? FileManager.default.contentsOfDirectory(
+                at: conflictsDir, includingPropertiesForKeys: nil))?.isEmpty, false,
+            "the discarded external bytes must be snapshotted under .maugham/conflicts/")
     }
 
     /// Polls predicate every 50ms up to `timeout`. Returns when true; no

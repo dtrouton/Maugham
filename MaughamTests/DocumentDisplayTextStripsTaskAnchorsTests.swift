@@ -4,10 +4,14 @@ import XCTest
 /// Regression: when a paragraph carries inline task anchors
 /// `<!--t-XXXXXX-->` (which it does intentionally for V2 alignment
 /// round-trip), `Document.displayText` MUST strip them so the editor
-/// doesn't render anchor markup verbatim. The .md on disk and the
-/// in-memory `paragraphs[id]` keep anchors; only `displayText` is
-/// stripped. Mirrors how paragraph anchors live in the .md but never
-/// in displayText.
+/// doesn't render anchor markup verbatim. The op log keeps the anchors in
+/// `paragraphs[id]`; only `displayText` is stripped.
+///
+/// ADR 0019: the manuscript `.md` is the DERIVED form and content comes from
+/// the op log, never the `.md`'s anchors. So the fixture writes an UNANCHORED
+/// `.md` carrying the inline task anchors and lets `Document.load`/Bootstrap
+/// mint the paragraph id + record the (task-anchored) text into the op log.
+/// `displayText` then derives from the op log and must strip the task anchors.
 @MainActor
 final class DocumentDisplayTextStripsTaskAnchorsTests: XCTestCase {
 
@@ -25,8 +29,6 @@ final class DocumentDisplayTextStripsTaskAnchorsTests: XCTestCase {
 
     func test_displayText_stripsMarkdownLineTaskAnchors() async throws {
         let stored = """
-        <!-- ¶fwvn -->
-
         - [ ] foo <!--t-aaaaaa-->
         - [x] bar <!--t-bbbbbb-->
         """
@@ -40,11 +42,7 @@ final class DocumentDisplayTextStripsTaskAnchorsTests: XCTestCase {
     }
 
     func test_displayText_stripsFountainInlineTaskAnchors() async throws {
-        let stored = """
-        <!-- ¶fwvn -->
-
-        And so it goes [[todo: clean this up]]<!--t-vc14vc--> is what she said
-        """
+        let stored = "And so it goes [[todo: clean this up]]<!--t-vc14vc--> is what she said"
         let doc = try await makeDoc(text: stored)
         XCTAssertFalse(doc.displayText.contains("<!--t-"),
             "Fountain inline anchor must be stripped from displayText; got: \(doc.displayText)")
@@ -55,14 +53,12 @@ final class DocumentDisplayTextStripsTaskAnchorsTests: XCTestCase {
     func test_paragraphsMap_keepsAnchors() async throws {
         // Symmetric check: anchors must remain in `paragraphs[id]` even
         // though they're stripped from displayText. V2 alignment depends on
-        // them being there for the round-trip.
-        let stored = """
-        <!-- ¶fwvn -->
-
-        - [ ] foo <!--t-aaaaaa-->
-        """
+        // them being there for the round-trip. The paragraph id is minted by
+        // Bootstrap (op log is the source), so read it from the sequence.
+        let stored = "- [ ] foo <!--t-aaaaaa-->"
         let doc = try await makeDoc(text: stored)
-        let para = doc.paragraph(id: "fwvn")
+        let mintedId = try XCTUnwrap(doc.sequence.first)
+        let para = doc.paragraph(id: mintedId)
         XCTAssertNotNil(para)
         XCTAssertTrue(para!.contains("<!--t-aaaaaa-->"),
             "paragraphs[id] must keep the anchor for V2 round-trip; got: \(para!)")
@@ -70,8 +66,6 @@ final class DocumentDisplayTextStripsTaskAnchorsTests: XCTestCase {
 
     func test_displayText_stripsMixedMarkdownAndFountainAnchors() async throws {
         let stored = """
-        <!-- ¶fwvn -->
-
         - [x] Test of a test <!--t-a3gwy8-->
         And so it goes [[todo: clean this up]]<!--t-vc14vc--> is what she said
         - [ ] stop this <!--t-bda288-->

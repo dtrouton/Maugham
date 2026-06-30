@@ -91,10 +91,9 @@ public enum Deriver {
     /// Otherwise the deriver returns `sequence == []` and the materialized
     /// preview collapses to "" even though `paragraphs` is fully populated.
     ///
-    /// NOT used by `Document.load`: that path relies on the empty-sequence
-    /// signal to trigger its on-disk `.md` recovery, which is more
-    /// accurate than first-appearance synthesis when paragraphs have been
-    /// reordered or deleted post-burst.
+    /// Now the `Document.load` derivation path (ADR 0019) as well as
+    /// `RewindWindow`; for legacy sequence-less logs order is synthesized
+    /// from first-appearance — the `.md` is no longer consulted for order.
     public static func deriveWithSequenceFallback(ops: [Op]) -> DerivedState {
         var paragraphs: [String: String] = [:]
         var sequence: [String] = []
@@ -115,6 +114,10 @@ public enum Deriver {
                 }
             }
             if let s = op.sequence {
+                // Same junk-bootstrap guard as `derive(ops:)` — see that function's comment.
+                if op.kind == .bootstrap && s.isEmpty {
+                    continue
+                }
                 sequence = s
                 sequenceWasExplicit = true
             }

@@ -26,7 +26,6 @@ public final class Document {
     // === Public observed state ===
     public private(set) var displayText: String = ""
     public var cursorLocation: Int = 0
-    public internal(set) var pendingConflict: ConflictState?
 
     // === Internal state ===
     // Several of these are `internal` rather than `private` because the
@@ -50,11 +49,10 @@ public final class Document {
     /// presenter fires after our own autosave or our own ingest, `diskMd`
     /// will equal `lastDiskEcho.bytes` and the change is a no-op.
     ///
-    /// Mutation is restricted to the autosave path, the silent-ingest branch
-    /// of `handleExternalDiskChange`, and `handleExternalDiskChangeForceIngest`
-    /// — see `EchoState.afterWrite(bytes:)`. Anything else trying to assign
-    /// here is a contract violation; the typed wrapper exists specifically
-    /// to keep that surface small.
+    /// Mutation is restricted to the autosave path — see
+    /// `EchoState.afterWrite(bytes:)`. Anything else trying to assign here is a
+    /// contract violation; the typed wrapper exists specifically to keep that
+    /// surface small.
     internal var lastDiskEcho: EchoState
 
     internal var _annotationsCache: [Annotation] = []
@@ -220,10 +218,15 @@ public final class Document {
     }
 
     internal func performAutosave() async throws {
-        // Mirror pending buffer to disk for crash recovery.
+        // Mirror pending buffer to disk for crash recovery. Carry the live
+        // paragraph order so recovery is op-log-domain — not reconstructed from
+        // the .md (ADR 0019).
+        pending.setSequence(self.sequence)
         try? await pending.flushToDisk()
 
-        let bytes = materialize()
+        // ADR 0019: the on-disk file is the clean display form (no ¶id / t-
+        // anchors). The op log + in-memory NSTextStorage keep the anchors.
+        let bytes = MarkdownDisplayFilter.stripAnchors(materialize())
         let coord = NSFileCoordinator(filePresenter: presenter)
         var coordErr: NSError?
         var writeErr: Error?
@@ -751,6 +754,10 @@ public final class Document {
         do {
             try await flushBurstNow()
         } catch {
+            // Carry the live paragraph order onto the re-persisted pending buffer
+            // (mirrors performAutosave) so crash recovery is op-log-domain — the
+            // recovered burst restores ordering without the .md (ADR 0019).
+            pending.setSequence(self.sequence)
             try? await pending.flushToDisk()
             closeBurstFlushFailures += 1
             documentLog.error(

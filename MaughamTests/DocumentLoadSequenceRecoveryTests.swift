@@ -2,17 +2,19 @@ import XCTest
 import MaughamCore
 @testable import Maugham
 
-/// Regression tests for the load-time sequence/paragraph recovery paths
-/// that surfaced when the editor showed only the first line of a 5-line
-/// checklist whose paragraph had been split + reinserted across multiple
-/// typing bursts. The .md autosave kept up; the op log's last explicit
-/// sequence lagged behind. The fix:
+/// Load-time content + orphan-drop tests.
 ///
-/// 1. Crash-recovery synthesized op now captures a sequence from the
-///    parsed .md.
-/// 2. Load detects stale-sequence-vs-parsed (parsed has ids not in
-///    sequence, OR sequence has ids not in parsed) and prefers parsed's
-///    ordering, dropping orphan paragraphs from the in-memory map.
+/// ADR 0019: the manuscript `.md` is the DERIVED form; `Document.load` takes
+/// content + order ONLY from the op log, never from the `.md`'s anchors. The
+/// op log a real burst writes always carries its `sequence` (Task 1), so these
+/// fixtures give every burst its sequence and assert the op-log derivation —
+/// including the surviving op-log-only cleanup: orphan paragraphs (ids the
+/// deriver accumulated but the current `sequence` no longer references) are
+/// dropped so the inline-task deriver doesn't surface phantom rows.
+///
+/// (Before ADR 0019 these exercised a `.md`-anchor recovery path — load read
+/// the parsed `.md` to repair a stale/missing op-log sequence. That path is
+/// gone; the op log is authoritative.)
 @MainActor
 final class DocumentLoadSequenceRecoveryTests: XCTestCase {
 
@@ -52,28 +54,35 @@ final class DocumentLoadSequenceRecoveryTests: XCTestCase {
         """
         try mdContent.write(to: mdURL, atomically: true, encoding: .utf8)
 
-        // Op log: bootstrap op claimed paragraph `c1hx`. A later typing
-        // burst added `mnj6` but did NOT set `sequence` (the bug we're
-        // recovering from). So the deriver's sequence stays at ["c1hx"]
-        // and paragraph `mnj6` is in `paragraphs` but unreachable via
-        // displayText.
+        // Op log (the source of truth): bootstrap op claimed paragraph
+        // `c1hx`; a later typing_burst replaced it with the 5-line checklist
+        // paragraph `mnj6` AND captured the current `sequence` (["mnj6"]) —
+        // exactly what a real burst writes (Task 1). `c1hx` lingers in the
+        // deriver's `paragraphs` accumulator as an orphan (no longer in
+        // `sequence`); load's orphan-drop must remove it.
         let bootstrapOp = """
         {"op_id":"01OPBOOTSTRAP","doc_id":"doc-divergent-test","at":"2026-05-24T20:00:00.000Z","device":"d","session":"s","kind":"bootstrap","changes":[{"paragraph_id":"c1hx","prior":null,"next":"- [ ] Write the big opening"}],"sequence":["c1hx"]}
         """
-        let staleSeqBurst = """
-        {"op_id":"01OPSTALESEQ","doc_id":"doc-divergent-test","at":"2026-05-24T20:01:00.000Z","device":"d","session":"s","kind":"typing_burst","changes":[{"paragraph_id":"mnj6","prior":null,"next":"- [ ] Write the big opening\\n- [ ] npoooo\\n- [ ] Task\\n- [ ] Write the inciting incident\\n- [ ] hhhh"}]}
+        let burst = """
+        {"op_id":"01OPSTALESEQ","doc_id":"doc-divergent-test","at":"2026-05-24T20:01:00.000Z","device":"d","session":"s","kind":"typing_burst","changes":[{"paragraph_id":"mnj6","prior":null,"next":"- [ ] Write the big opening\\n- [ ] npoooo\\n- [ ] Task\\n- [ ] Write the inciting incident\\n- [ ] hhhh"}],"sequence":["mnj6"]}
         """
-        // Note: staleSeqBurst has no `sequence` field — that's the bug.
-        let logContent = bootstrapOp + "\n" + staleSeqBurst + "\n"
+        let logContent = bootstrapOp + "\n" + burst + "\n"
         try logContent.write(to: opLogURL, atomically: true, encoding: .utf8)
 
-        // The Document.load path expects a project.maugham.json existence
-        // check; supply a minimal one so `resolveProjectURL` finds it.
+        // A valid manifest so `resolveDocId`/`resolveProjectURL` resolve the
+        // op log (a manifest missing required title/author/schemaVersion would
+        // fail to decode → hash-fallback docId → op log not found).
         let manifestURL = tmp.appendingPathComponent("project.maugham.json")
-        let manifest = """
-        {"name":"DLSRT","type":"novel","created":"2026-05-24T20:00:00Z","modified":"2026-05-24T20:01:00Z","structure":[{"id":"\(docId)","title":"Chapter 1","type":"document","path":"manuscript/chapter-1.md"}]}
-        """
-        try manifest.write(to: manifestURL, atomically: true, encoding: .utf8)
+        let manifest = ProjectManifest(
+            type: .novel, title: "DLSRT", author: "A",
+            created: Date(), modified: Date(),
+            structure: [StructureItem(
+                id: docId, title: "Chapter 1", type: .document,
+                path: "manuscript/chapter-1.md")],
+            research: [])
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = .iso8601
+        try enc.encode(manifest).write(to: manifestURL)
 
         return Fixture(
             projectURL: projectURL, mdURL: mdURL,
@@ -84,9 +93,8 @@ final class DocumentLoadSequenceRecoveryTests: XCTestCase {
         let f = try makeDivergentFixture()
         let doc = try await Document.load(
             url: f.mdURL, device: "test", session: "s", presenter: nil)
-        // Before the recovery fix, displayText was "- [ ] Write the big
-        // opening" (the c1hx text only). The recovery should restore the
-        // .md-canonical state.
+        // The op log's current sequence (["mnj6"]) drives the display; the
+        // orphan `c1hx` paragraph is dropped. displayText is mnj6's 5 lines.
         let expected = """
         - [ ] Write the big opening
         - [ ] npoooo
@@ -167,10 +175,16 @@ final class DocumentLoadSequenceRecoveryTests: XCTestCase {
             atomically: true, encoding: .utf8)
 
         let manifestURL = tmp.appendingPathComponent("project.maugham.json")
-        let manifest = """
-        {"name":"DLSRT-orphan","type":"novel","created":"2026-05-25T08:00:00Z","modified":"2026-05-25T08:01:00Z","structure":[{"id":"\(docId)","title":"Chapter 1","type":"document","path":"manuscript/chapter-1.md"}]}
-        """
-        try manifest.write(to: manifestURL, atomically: true, encoding: .utf8)
+        let manifest = ProjectManifest(
+            type: .novel, title: "DLSRT-orphan", author: "A",
+            created: Date(), modified: Date(),
+            structure: [StructureItem(
+                id: docId, title: "Chapter 1", type: .document,
+                path: "manuscript/chapter-1.md")],
+            research: [])
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = .iso8601
+        try enc.encode(manifest).write(to: manifestURL)
 
         let doc = try await Document.load(
             url: mdURL, device: "test", session: "s", presenter: nil)

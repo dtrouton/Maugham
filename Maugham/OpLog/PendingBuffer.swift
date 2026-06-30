@@ -21,6 +21,13 @@ import MaughamCore
 /// Old `.maugham/ops/<docId>.pending.jsonl` files from before this relocation
 /// are abandoned by design — the buffer is ephemeral crash-recovery state (real
 /// edits already hit the op log at each burst boundary), so no migration.
+///
+/// The on-disk payload is a single JSON object `{ sequence, changes }` (ADR
+/// 0019): the durable paragraph order travels WITH the un-bursted changes, so a
+/// hard-crash mid-reorder recovers from the op-log domain alone — the `.md` is
+/// no longer needed to reconstruct ordering. Legacy line-delimited JSONL pending
+/// files (a bare `Op.ParagraphChange` per line) fail to decode as the wrapper
+/// object and are silently ignored = abandoned-by-design, per the contract above.
 @MainActor
 public final class PendingBuffer {
     public let projectURL: URL
@@ -29,6 +36,18 @@ public final class PendingBuffer {
     private let deviceSlug: String
 
     private var buffer: [String: Op.ParagraphChange] = [:]
+
+    /// The durable paragraph order as of the last autosave flush. Recovery
+    /// (`Document+Load`) folds the un-bursted changes into a real op carrying
+    /// THIS order — not the `.md`'s parsed anchor order (ADR 0019). Empty until
+    /// `setSequence` is called (legacy pending files also load empty).
+    private var seq: [String] = []
+
+    /// The current durable paragraph order (op-log-domain). See `seq`.
+    public var sequence: [String] { seq }
+
+    /// Record the live paragraph order so the next `flushToDisk` persists it.
+    public func setSequence(_ s: [String]) { seq = s }
 
     public init(projectURL: URL, docId: String, device: String) {
         self.projectURL = projectURL
@@ -48,6 +67,14 @@ public final class PendingBuffer {
 
     public func isEmpty() -> Bool { buffer.isEmpty }
 
+    /// The durable on-disk shape: a single JSON object pairing the paragraph
+    /// order with the un-bursted changes. Replaces the legacy line-delimited
+    /// JSONL so the order survives a crash without consulting the `.md`.
+    private struct DiskState: Codable {
+        let sequence: [String]
+        let changes: [Op.ParagraphChange]
+    }
+
     public func flushToDisk() async throws {
         let url = file()
         try FileManager.default.createDirectory(
@@ -55,28 +82,22 @@ public final class PendingBuffer {
             withIntermediateDirectories: true)
         let enc = JSONEncoder()
         enc.outputFormatting = [.sortedKeys]
-        let lines: [String] = try snapshot().map {
-            String(data: try enc.encode($0), encoding: .utf8) ?? ""
-        }
-        let payload = lines.joined(separator: "\n") + (lines.isEmpty ? "" : "\n")
-        try Data(payload.utf8).write(to: url, options: .atomic)
+        let state = DiskState(sequence: seq, changes: snapshot())
+        try enc.encode(state).write(to: url, options: .atomic)
     }
 
     public func loadFromDisk() async throws {
         let url = file()
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
-        let data = try Data(contentsOf: url)
-        guard let text = String(data: data, encoding: .utf8) else { return }
-        let dec = JSONDecoder()
-        for line in text.split(omittingEmptySubsequences: true, whereSeparator: \.isNewline) {
-            guard let d = String(line).data(using: .utf8),
-                  let change = try? dec.decode(Op.ParagraphChange.self, from: d) else { continue }
-            buffer[change.paragraphId] = change
-        }
+        guard FileManager.default.fileExists(atPath: url.path),
+              let data = try? Data(contentsOf: url),
+              let state = try? JSONDecoder().decode(DiskState.self, from: data) else { return }
+        seq = state.sequence
+        for change in state.changes { buffer[change.paragraphId] = change }
     }
 
     public func clear() async throws {
         buffer.removeAll()
+        seq = []
         let url = file()
         if FileManager.default.fileExists(atPath: url.path) {
             try FileManager.default.removeItem(at: url)

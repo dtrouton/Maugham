@@ -112,49 +112,86 @@ final class PresenterRoutingTests: XCTestCase {
             "for diskMd that equals the bytes we just wrote.")
     }
 
-    /// `resolveConflictKeepMine` schedules an autosave + flushes it. After
-    /// the flush completes, a presenter event for the same file MUST be an
-    /// echo. The contract is: `performAutosave` updates `lastDiskEcho`
-    /// synchronously inside its coordinated-write block, so by the time
-    /// `flush()` resolves the echo state already covers the new bytes.
-    func test_resolveKeepMine_doesNotReingestAsExternalEdit() async throws {
+    /// An external `.md` edit routed through the presenter is DISCARDED (ADR
+    /// 0019): the op log is the source of truth, so the discard handler backs
+    /// the external bytes up forensically and re-materializes the op-log truth
+    /// over them — never appending a content op, never surfacing a conflict.
+    /// A subsequent presenter callback delivering the re-materialized bytes is
+    /// an echo and must not re-ingest.
+    func test_externalEdit_isDiscarded_notReingested() async throws {
         let fx = try await makeProject()
+        let docURL = fx.projectURL.appendingPathComponent(fx.docPath)
         let doc = try await Document.load(
-            url: fx.projectURL.appendingPathComponent(fx.docPath),
+            url: docURL,
             device: "test", session: "s", presenter: fx.documentStore.presenter)
         fx.documentStore.register(document: doc, for: fx.docPath)
 
-        // Synthesize a conflict by writing different external bytes and
-        // routing it through the presenter. The conflict surfaces because
-        // the external bytes strip the ¶id anchors.
-        try "External edit with no anchors.\n".write(
-            to: fx.projectURL.appendingPathComponent(fx.docPath),
-            atomically: true, encoding: .utf8)
-        fx.documentStore.presenterDidChangeSubitem(
-            at: fx.projectURL.appendingPathComponent(fx.docPath))
-        try await Task.sleep(for: .milliseconds(200))
-        XCTAssertNotNil(doc.pendingConflict,
-            "preconditions: stripped-anchor external edit should surface a conflict")
+        // Establish real op-log truth (this fixture starts with an anchored .md
+        // but an empty op log, so paragraphs derive empty until we write). The
+        // close() flushes the burst to the op log + a clean .md to disk.
+        doc.setFullText("Canonical content.")
+        await doc.close()
 
-        // Keep mine: the doc's derived state wins. The autosave rewrites
-        // the .md with our anchored bytes; lastDiskEcho updates to match.
         let externalEditsBefore = (try await doc.opLog())
             .filter { $0.kind == .externalEdit }.count
-        try await doc.resolveConflictKeepMine()
 
-        // A presenter event from disk delivers our own just-written bytes.
-        fx.documentStore.presenterDidChangeSubitem(
-            at: fx.projectURL.appendingPathComponent(fx.docPath))
-        try await Task.sleep(for: .milliseconds(200))
+        // An outside editor overwrites the file with different content (and,
+        // as a real external edit always does, no ¶id anchors).
+        try "External edit with no anchors.\n".write(
+            to: docURL, atomically: true, encoding: .utf8)
+        fx.documentStore.presenterDidChangeSubitem(at: docURL)
 
+        // The presenter routing dispatches the discard onto a fire-and-forget
+        // Task; poll until the op-log truth has been re-materialized over the
+        // external bytes (the file is back to our content, external edit gone).
+        try await pollUntil(timeout: .seconds(2)) {
+            let disk = (try? String(contentsOf: docURL, encoding: .utf8)) ?? ""
+            return disk.contains("Canonical content.")
+                && !disk.contains("External edit with no anchors")
+        }
+        let disk = try String(contentsOf: docURL, encoding: .utf8)
+        XCTAssertTrue(disk.contains("Canonical content."),
+            "the discard handler must re-materialize the op-log truth over the external edit")
+        XCTAssertFalse(disk.contains("External edit with no anchors"),
+            "the external edit must be blown away by the op-log re-materialize")
+
+        // No content op appended: the op log is untouched by the external edit.
         let externalEditsAfter = (try await doc.opLog())
             .filter { $0.kind == .externalEdit }.count
         XCTAssertEqual(externalEditsAfter, externalEditsBefore,
-            "After resolveConflictKeepMine flushes its autosave, the matching " +
-            "presenter callback must be detected as an echo and not appended " +
-            "as a new externalEdit op.")
-        XCTAssertNil(doc.pendingConflict,
-            "resolveConflictKeepMine must clear pendingConflict")
+            "an external .md edit must be discarded, never appended as an externalEdit op")
+
+        // A forensic backup of the discarded bytes lands under .maugham/conflicts/.
+        let conflictsDir = fx.projectURL.appendingPathComponent(".maugham/conflicts")
+        let backups = try FileManager.default.contentsOfDirectory(
+            at: conflictsDir, includingPropertiesForKeys: nil)
+        let backupContents = try backups.map {
+            try String(contentsOf: $0, encoding: .utf8)
+        }
+        XCTAssertTrue(backupContents.contains("External edit with no anchors.\n"),
+            "the discarded external bytes must be preserved as a forensic backup")
+
+        // A presenter event delivering our own re-materialized bytes is an echo.
+        fx.documentStore.presenterDidChangeSubitem(at: docURL)
+        try await Task.sleep(for: .milliseconds(200))
+        let externalEditsFinal = (try await doc.opLog())
+            .filter { $0.kind == .externalEdit }.count
+        XCTAssertEqual(externalEditsFinal, externalEditsBefore,
+            "the re-materialize echo must not be re-ingested as an externalEdit op")
+    }
+
+    /// Polls `predicate` every 25ms up to `timeout`, returning early when it
+    /// becomes true (the caller asserts the real condition afterwards). Used to
+    /// await the fire-and-forget presenter dispatch without a brittle fixed sleep.
+    private func pollUntil(
+        timeout: Duration, _ predicate: @escaping () -> Bool
+    ) async throws {
+        let start = Date()
+        let maxSeconds = Double(timeout.components.seconds)
+        while !predicate() {
+            if Date().timeIntervalSince(start) > maxSeconds { return }
+            try await Task.sleep(for: .milliseconds(25))
+        }
     }
 
     // MARK: - SweepReason contract (annotation-vanish regression)
@@ -178,6 +215,14 @@ final class PresenterRoutingTests: XCTestCase {
     /// flag a sweep — the prior/next sequence diff is empty.
     func test_mcpAddAnnotationLive_doesNotTriggerOrphanArchive() async throws {
         let fx = try await makeProject()
+        // ADR 0019: the op log is the source of truth — seed it so the live doc
+        // derives its two paragraphs (a3f9/b21c) from the op log rather than the
+        // `.md`'s anchors, so the MCP annotation lands on a real paragraph.
+        try await seedOpLogBootstrap(
+            projectURL: fx.projectURL,
+            docId: fx.docId,
+            paragraphs: ["a3f9": "First.", "b21c": "Second."],
+            sequence: ["a3f9", "b21c"])
         let doc = try await Document.load(
             url: fx.projectURL.appendingPathComponent(fx.docPath),
             device: "test", session: "s", presenter: fx.documentStore.presenter)

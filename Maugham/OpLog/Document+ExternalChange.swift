@@ -4,50 +4,20 @@ import MaughamCore
 extension Document {
 
     public func handleExternalDiskChange(diskMd: String) async throws {
-        // Echo guard: this is the file change we ourselves just wrote.
-        // `lastDiskEcho` is updated atomically inside the autosave's
-        // coordinated-write block, so by the time the presenter callback
-        // hops back to the main actor the snapshot is already in place.
+        // Echo guard: the change we ourselves just wrote.
         guard diskMd != lastDiskEcho.bytes else { return }
-
-        let derivedMd = materialize()
-        let classification = Reconciler.classify(
-            diskMd: diskMd, derivedMd: derivedMd)
-
-        switch classification {
-        case .echo:
-            return
-
-        case .silentIngest(let changes):
-            // Construct an external_edit op carrying the changes.
-            let op = Op(
-                opId: ULID.generate(),
-                docId: docId, at: Date(),
-                device: device, session: session,
-                kind: .externalEdit,
-                changes: changes,
-                sequence: nil,
-                provenance: .init(synthesisSource: .diskAtIngest))
-            try await opStore.append(op)
-            _opLogMirror.append(op)
-            invalidateAnnotationsCache()
-            invalidateTasksCache()   // silent ingest changed paragraph text → re-derive inline tasks
-            // Update internal state.
-            for change in changes {
-                paragraphs[change.paragraphId] = change.next
-            }
-            lastDiskEcho = .afterIngest(bytes: diskMd)
-            recomputeDisplayText()
-
-        case .needsSheet(let orphanCount):
-            // Surface a pending conflict. UI reads document.pendingConflict.
-            pendingConflict = ConflictState(
-                path: url.path,
-                localText: derivedMd,
-                externalText: diskMd,
-                externalModifiedAt: Date())
-            _ = orphanCount  // (currently unused; could feed into the UI sheet)
-        }
+        // The on-disk file is the clean render (ADR 0019). If it already matches
+        // what we would write, there is nothing to discard.
+        let ourClean = MarkdownDisplayFilter.stripAnchors(materialize())
+        guard diskMd != ourClean else { return }
+        // External .md edits are never honored (hard invariant). Snapshot the
+        // external bytes forensically under .maugham/conflicts/, then re-materialize
+        // the op-log truth over them — the edit is discarded; the op log is
+        // untouched. Cross-device sync is unaffected (it flows through the op-log
+        // merge in handleExternalLogChange, not the .md).
+        try writeConflictBackup(text: diskMd, kind: "discarded")
+        autosaveScheduler.schedule(())
+        await autosaveScheduler.flush()
     }
 
     public func handleExternalLogChange() async throws {
@@ -113,82 +83,6 @@ extension Document {
         }
 
         // No conflict UI for log merge. Just publish the new state.
-        recomputeDisplayText()
-    }
-
-    public func resolveConflictKeepMine() async throws {
-        guard let conflict = pendingConflict else { return }
-
-        // Preserve the external version as a conflict backup before
-        // overwriting (matches DocumentStore's existing backup behaviour).
-        try writeConflictBackup(text: conflict.externalText, kind: "cloud")
-
-        // Schedule an autosave of our current derived state. The disk
-        // re-write happens via the autosave path.
-        autosaveScheduler.schedule(())
-        await autosaveScheduler.flush()
-        pendingConflict = nil
-    }
-
-    public func resolveConflictUseExternal() async throws {
-        guard let conflict = pendingConflict else { return }
-
-        // Preserve our local version as a backup before accepting external.
-        try writeConflictBackup(text: conflict.localText, kind: "local")
-
-        // Ingest the external bytes as a synthesized external_edit op,
-        // same as the silent-ingest path would have done if IDs had been
-        // intact.
-        try await handleExternalDiskChangeForceIngest(diskMd: conflict.externalText)
-        pendingConflict = nil
-    }
-
-    private func handleExternalDiskChangeForceIngest(diskMd: String) async throws {
-        // For "Use cloud" resolution: ignore the Reconciler classification
-        // and ingest the diskMd verbatim. The new paragraphs may get fresh
-        // IDs minted by restoreComments since the user-typed IDs are gone.
-        let priorStored = materialize()
-        let nextStored = RenderFilter.restoreComments(
-            stored: priorStored, displayEdited:
-                RenderFilter.stripComments(diskMd))
-        let parsed = ParagraphParser.parse(nextStored)
-
-        var newParagraphs: [String: String] = [:]
-        var newSequence: [String] = []
-        var changes: [Op.ParagraphChange] = []
-        for p in parsed {
-            guard let id = p.id else { continue }
-            let prior = paragraphs[id]
-            newParagraphs[id] = p.text
-            newSequence.append(id)
-            if prior != p.text {
-                changes.append(.init(paragraphId: id, prior: prior, next: p.text))
-            }
-        }
-
-        let op = Op(
-            opId: ULID.generate(),
-            docId: docId, at: Date(),
-            device: device, session: session,
-            kind: .externalEdit,
-            changes: changes,
-            sequence: newSequence,
-            provenance: .init(synthesisSource: .useCloudResolution))
-        try await opStore.append(op)
-        _opLogMirror.append(op)
-        invalidateAnnotationsCache()
-        invalidateTasksCache()   // use-cloud resolution rewrote paragraph text
-        let priorSequence = self.sequence
-        self.paragraphs = newParagraphs
-        self.sequence = newSequence
-        self.lastDiskEcho = .afterIngest(bytes: diskMd)
-        // Use-cloud conflict resolution can shrink sequence — flag a sweep
-        // for any annotations on paragraphs that disappeared. Run sweep
-        // directly here (it's already at an async boundary).
-        let removedInResolution = Set(priorSequence).subtracting(Set(newSequence))
-        if let reason = SweepReason.useCloud(removed: removedInResolution) {
-            await sweepOrphanedAnnotations(reason: reason)
-        }
         recomputeDisplayText()
     }
 
