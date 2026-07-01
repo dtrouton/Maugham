@@ -490,4 +490,51 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertTrue(offenders.first?.contains("String(contentsOf: url") == true,
             "Self-check: the planted unannotated String(contentsOf:) should be the one caught.")
     }
+
+    // MARK: - Dev-only TestMCPToolCatalog registration tripwire
+
+    /// Repo root, computed the same way `sourceDir` does (2x
+    /// `deletingLastPathComponent()` off this file's `#filePath`), but without
+    /// appending `Maugham/` — used to reach `Maugham/MaughamApp.swift` itself.
+    private var repoRoot: URL {
+        let here = URL(fileURLWithPath: #filePath)
+        return here.deletingLastPathComponent().deletingLastPathComponent()
+    }
+
+    /// Recurrence-tripper: `TestMCPToolCatalog` is a dev-only tool catalog for
+    /// Claude Code (test MCP) that must NEVER ship in the stable binary. Its
+    /// registration in `MaughamApp.swift` is wrapped in `#if MAUGHAM_DEV_BUILD`.
+    /// This guards against a future edit accidentally hoisting the call outside
+    /// that block (or deleting the block while leaving the call).
+    func test_testMCPCatalog_registeredOnlyUnderDevFlag() throws {
+        let appURL = repoRoot.appendingPathComponent("Maugham/MaughamApp.swift")
+        let app = try String(contentsOf: appURL, encoding: .utf8)
+
+        guard let range = app.range(of: "TestMCPToolCatalog.register") else {
+            XCTFail("TestMCPToolCatalog.register call not found in MaughamApp.swift — "
+                + "either it was renamed (update this tripwire) or the dev-only test "
+                + "MCP registration was removed entirely.")
+            return
+        }
+
+        let before = app[..<range.lowerBound]
+        let lastIf = before.range(of: "#if MAUGHAM_DEV_BUILD", options: .backwards)
+        let lastEndif = before.range(of: "#endif", options: .backwards)
+
+        XCTAssertNotNil(lastIf,
+            "TestMCPToolCatalog.register must be preceded by a #if MAUGHAM_DEV_BUILD "
+            + "guard, or the dev-only test MCP catalog could ship in the stable binary.")
+
+        if let lastIf {
+            // The nearest preceding #endif (if any) must close BEFORE the nearest
+            // preceding #if MAUGHAM_DEV_BUILD opens — i.e. the #if block containing
+            // the registration is still open at the call site.
+            if let lastEndif {
+                XCTAssertTrue(lastIf.lowerBound > lastEndif.lowerBound,
+                    "The nearest #if MAUGHAM_DEV_BUILD before TestMCPToolCatalog.register "
+                    + "is already closed by an earlier #endif — the registration call is "
+                    + "outside the dev-only gate.")
+            }
+        }
+    }
 }
