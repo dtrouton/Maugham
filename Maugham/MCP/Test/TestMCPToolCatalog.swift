@@ -11,7 +11,8 @@ public enum TestMCPToolCatalog {
         TestDumpDocumentTool.self,
         TestDumpOplogTool.self,
         TestCreateProjectTool.self,
-        TestOpenProjectTool.self
+        TestOpenProjectTool.self,
+        TestApplyEditTool.self
     ]
 
     @MainActor
