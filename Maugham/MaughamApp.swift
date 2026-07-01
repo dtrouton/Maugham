@@ -312,6 +312,11 @@ struct MaughamApp: App {
         // Adding a tool: implement MCPTool on it and add to MCPToolCatalog.all.
         MCPToolCatalog.register(router: router, registry: registry)
 
+        #if MAUGHAM_DEV_BUILD
+        // Dev-only privileged test tools for Claude Code (absent from stable).
+        TestMCPToolCatalog.register(router: router, registry: registry)
+        #endif
+
         // MCP protocol layer — Claude Desktop and other MCP clients require these.
         router.register(method: MCPInitializeHandler.method) { params in
             try await MCPInitializeHandler.handle(paramsJSON: params)
