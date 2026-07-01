@@ -82,9 +82,27 @@ private struct MockError: Error, LocalizedError {
 
 private func u(_ s: String) -> URL { URL(string: "file:///icloud/\(s)")! }
 
+// MARK: - Base
+
+/// Base for the DownloadCoordinator suites. These tests coordinate across Tasks
+/// and AsyncStreams via unbounded `await`s — a mock start signal
+/// (`awaitNextStart()`) or an `observe()` stream that finishes on a terminal
+/// state. Under some scheduling one of those can be missed and the `await`
+/// hangs forever, which (before CI's per-test timeout) stalls the whole run:
+/// DownloadCoordinatorBudgetTests hung a CI run for ~24 min on 2026-07-01.
+/// Bounding each test makes a hang fail fast and name itself instead of hanging.
+/// Only enforced when test timeouts are enabled (CI passes
+/// `-test-timeouts-enabled`); ignored otherwise, so local runs are unaffected.
+class DownloadCoordinatorTestCase: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        executionTimeAllowance = 30
+    }
+}
+
 // MARK: - Dedup
 
-final class DownloadCoordinatorDedupTests: XCTestCase {
+final class DownloadCoordinatorDedupTests: DownloadCoordinatorTestCase {
     func test_threeConcurrentCallers_shareOneDownload() async throws {
         let mock = MockUbiquitousDownloader()
         let coord = DownloadCoordinator(downloader: mock)
@@ -113,7 +131,7 @@ final class DownloadCoordinatorDedupTests: XCTestCase {
 
 // MARK: - Budget
 
-final class DownloadCoordinatorBudgetTests: XCTestCase {
+final class DownloadCoordinatorBudgetTests: DownloadCoordinatorTestCase {
     func test_budgetExhaustion_rejectsWithoutStarting() async throws {
         let mock = MockUbiquitousDownloader()
         let coord = DownloadCoordinator(downloader: mock)
@@ -196,7 +214,7 @@ final class DownloadCoordinatorBudgetTests: XCTestCase {
 
 // MARK: - Failure propagation
 
-final class DownloadCoordinatorFailurePropagationTests: XCTestCase {
+final class DownloadCoordinatorFailurePropagationTests: DownloadCoordinatorTestCase {
     func test_failure_setsStateRethrowsAndNotifiesObservers() async throws {
         let mock = MockUbiquitousDownloader()
         let coord = DownloadCoordinator(downloader: mock)
@@ -243,7 +261,7 @@ final class DownloadCoordinatorFailurePropagationTests: XCTestCase {
 
 // MARK: - Cancel
 
-final class DownloadCoordinatorCancelTests: XCTestCase {
+final class DownloadCoordinatorCancelTests: DownloadCoordinatorTestCase {
     func test_cancel_setsFailedNotifiesObserversAndIgnoresLateSuccess() async throws {
         let mock = MockUbiquitousDownloader()
         let coord = DownloadCoordinator(downloader: mock)
