@@ -96,6 +96,8 @@ jobs:
             -project Maugham.xcodeproj \
             -scheme Maugham \
             test \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 120 \
             CODE_SIGNING_ALLOWED=NO \
             -resultBundlePath TestResults-Mac.xcresult
 
@@ -159,6 +161,14 @@ jobs:
         #
         # Implementation: run the test command; if it fails, wait 30 s and try
         # once more. A second failure is a real failure and the step exits non-zero.
+        #
+        # -test-timeouts-enabled + -default-test-execution-time-allowance 120:
+        # a hung test (e.g. an unbounded await on a mock signal / AsyncStream that
+        # never fires — see the DownloadCoordinator suites) now FAILS at 120 s and
+        # names itself, instead of stalling the whole run until the 30-min job
+        # timeout. Crucially this converts a hang into a non-zero exit, so the
+        # retry above actually fires — the retry only ever caught *failures*, not
+        # hangs. (2026-07-01: DownloadCoordinatorBudgetTests hung a PR run 24 min.)
         run: |
           set +e
           xcodebuild \
@@ -166,6 +176,8 @@ jobs:
             -scheme MaughamPhone \
             -destination 'platform=iOS Simulator,name=iPhone 17' \
             test \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 120 \
             CODE_SIGNING_ALLOWED=NO \
             -resultBundlePath TestResults-Phone.xcresult
           EXIT_CODE=$?
@@ -178,6 +190,8 @@ jobs:
               -scheme MaughamPhone \
               -destination 'platform=iOS Simulator,name=iPhone 17' \
               test \
+              -test-timeouts-enabled YES \
+              -default-test-execution-time-allowance 120 \
               CODE_SIGNING_ALLOWED=NO \
               -resultBundlePath TestResults-Phone-retry.xcresult
           else
