@@ -7,10 +7,10 @@ import MaughamCore
 /// for an EXISTING doc — an existing op log is authoritative; only a doc with
 /// NO op log (a brand-new or imported plain file) bootstraps from its `.md`.
 ///
-/// The `.md` is still written ANCHORED at this stage (Task 3 makes it clean),
-/// so these tests SIMULATE a clean `.md` by overwriting the file with an
-/// anchor-stripped version after bootstrap. That proves load ignores the
-/// `.md`'s (missing) anchors and takes content + order from the op log.
+/// Clean-`.md` output has shipped (production writes anchor-free files), but
+/// these tests make the condition explicit: they overwrite the file with an
+/// anchor-stripped version after bootstrap, proving load ignores the `.md`'s
+/// (missing) anchors and takes content + order from the op log.
 @MainActor
 final class LoadFromOpLogNotMdTests: XCTestCase {
 
@@ -56,8 +56,8 @@ final class LoadFromOpLogNotMdTests: XCTestCase {
     // MARK: - Case 1: existing doc + clean .md does NOT re-bootstrap
 
     /// An existing doc whose `.md` has been stripped of its anchors (the clean
-    /// shape Task 3 ships) must NOT re-bootstrap on reload, and its content +
-    /// order must come from the op log — not the anchor-less `.md`.
+    /// shape production now writes) must NOT re-bootstrap on reload, and its
+    /// content + order must come from the op log — not the anchor-less `.md`.
     func test_existingDoc_cleanMd_doesNotReBootstrap_loadsFromOpLog() async throws {
         let fx = try makeProject()
 
@@ -72,7 +72,7 @@ final class LoadFromOpLogNotMdTests: XCTestCase {
             "first load must bootstrap exactly once")
         let opLogContentAfterFirst = first.materialize()
 
-        // Simulate Task 3's clean .md: overwrite the file with an
+        // Make the clean .md explicit: overwrite the file with an
         // anchor-stripped version. Now the on-disk .md has NO ¶id anchors.
         let stripped = MarkdownDisplayFilter.stripAnchors(opLogContentAfterFirst)
         let parsedClean = ParagraphParser.parse(stripped)

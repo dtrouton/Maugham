@@ -8,8 +8,8 @@ import Foundation
 ///
 /// - `bytes` is read by exactly one consumer: the echo guard in
 ///   `handleExternalDiskChange`.
-/// - Construction is restricted to three named call sites — `initialLoad`,
-///   `afterWrite`, `afterIngest`. Other code can't assign a fresh `EchoState`
+/// - Construction is restricted to two named call sites — `initialLoad` and
+///   `afterWrite`. Other code can't assign a fresh `EchoState`
 ///   into `Document.lastDiskEcho` without going through one of these,
 ///   which makes the writer surface auditable. A raw `String` field doesn't
 ///   give you that.
@@ -37,17 +37,6 @@ internal struct EchoState: Equatable {
     /// Recorded inside the autosave's coordinated write block (synchronous).
     /// Pairs with `Document.performAutosave`'s `coord.coordinate(writingItemAt:)`.
     static func afterWrite(bytes: String) -> EchoState {
-        EchoState(bytes: bytes, writtenAt: Date())
-    }
-
-    /// Recorded after a successful external-ingest. The bytes we record are
-    /// the disk bytes — the next presenter callback for the same bytes is an
-    /// echo of our own ingest, not a re-external-edit.
-    ///
-    /// Currently unused: external `.md` edits are discarded (ADR 0019), so no
-    /// ingest path remains. Retained as part of the named-factory contract;
-    /// candidate for a future dead-code sweep.
-    static func afterIngest(bytes: String) -> EchoState {
         EchoState(bytes: bytes, writtenAt: Date())
     }
 }

@@ -7,9 +7,10 @@ import XCTest
 ///
 /// These cases drive the **production** load / merge / derive / reconcile path —
 /// `OpLogStore.load` glob+merge, `Deriver.derive`, the live external-edit seam
-/// `Document.handleExternalDiskChange` (→ `Reconciler.classify`), and the
-/// save-time id-reattach seam `RenderFilter.restoreComments` — with the
-/// cross-device scenarios that have NO coverage today. They are NOT isolated
+/// `Document.handleExternalDiskChange` (discards the external bytes: snapshots
+/// them under `.maugham/conflicts/` and re-materializes the op-log truth, ADR
+/// 0019), and the save-time id-reattach seam `RenderFilter.restoreComments` —
+/// with the cross-device scenarios that have NO coverage today. They are NOT isolated
 /// unit helpers; each goes through the same entry points the Mac app uses.
 ///
 /// The active cases are EXPECTED TO FAIL against current code. That red is
@@ -17,7 +18,7 @@ import XCTest
 /// to make them pass here — this is a tests-only task.
 ///
 /// Tripwire 8: cases 2 and 3 cross the `.md` ↔ op-log boundary
-/// (Reconciler / RenderFilter), so every paragraph id uses the 4-char restricted
+/// (the external-edit seam / RenderFilter), so every paragraph id uses the 4-char restricted
 /// alphabet (regex `[0123456789abcdefghjkmnpqrstvwxyz]{4}`). Case 1 is pure
 /// store/deriver (permissive) but stays alphabet-clean for consistency.
 @MainActor
@@ -152,7 +153,8 @@ final class CrossDeviceIntegrationTests: XCTestCase {
     // MARK: - Case 2 — external `.md` deletion must NOT remove an op-log paragraph
 
     /// Drives: `Document.load` (production open) → `doc.handleExternalDiskChange`
-    /// (the live external-edit seam, which calls `Reconciler.classify`).
+    /// (the live external-edit seam, which discards the external bytes and
+    /// re-materializes the op-log truth, ADR 0019).
     ///
     /// Scenario: op log + `.md` agree on anchored paragraphs [p1, p2, p3]; an
     /// external editor (or a stale iCloud `.md`) deletes p2's text+anchor from the
@@ -201,7 +203,8 @@ final class CrossDeviceIntegrationTests: XCTestCase {
             sequence: [p1, p3])
 
         // Drive the production live-edit seam (the NSFilePresenter callback's
-        // body). This routes through Reconciler.classify.
+        // body). The external bytes are snapshotted and discarded; the op-log
+        // truth is re-materialized over them (ADR 0019).
         try await doc.handleExternalDiskChange(diskMd: editedMd)
 
         // The op log wins: p2 must SURVIVE the external deletion.

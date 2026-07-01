@@ -85,7 +85,8 @@ extension Document {
         let parsed = ParagraphParser.parse(storedBytes)
         // ADR 0019: the .md is clean (no anchors), so "the .md has no anchors"
         // no longer signals "needs bootstrap" — that would re-bootstrap every
-        // clean file once Task 3 lands. An existing op log is authoritative;
+        // clean file now that clean-`.md` output has shipped. An existing op log
+        // is authoritative;
         // only a doc with NO op log (a brand-new or imported plain file)
         // bootstraps from its .md. Reading the .md to MINT ids for that
         // new/imported doc is the sanctioned import read — not reading it as
