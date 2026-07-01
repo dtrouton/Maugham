@@ -8,10 +8,36 @@ to ask "is this change small or scary?", "what else might it break?", and "are w
 ourselves into a corner?" without opening a single file.
 
 Good news: this repo is already heavily annotated in prose (`CLAUDE.md`, 7 `AREA.md` files,
-15 ADRs). These maps just turn that prose into pictures, grounded in real numbers measured
-from the tree (657 Swift files, ~46k lines of app+core code, ~36k lines of tests, 1,927 tests).
+19 ADRs). These maps just turn that prose into pictures, grounded in real numbers measured
+from the tree (748 Swift files, ~51k lines of app+core code, ~45k lines of tests, ~2,200 tests).
 
 There are **four** maps worth holding. Each answers a different question.
+
+---
+
+## What moved since these maps were first drawn (2026-06-09 → 2026-07-01)
+
+Three weeks, three ADRs, and one of the four maps needed real surgery. The **shape** held; the
+**spine got sharper**. If you only read one delta, read this:
+
+- **ADR 0018 — reads now derive from the op log, never the `.md`.** An audit found *9 places* that
+  read a manuscript file off disk and trusted it (including `read_document`, search, the publish
+  pipeline). All rerouted through one new read primitive, `DerivedManuscript`. The `.md` is now
+  *never* read back as truth.
+- **ADR 0019 — the `.md` on disk is now clean.** The internal `¶id` / `t-` anchors that used to
+  live inline in your `chapter.md` are gone from the file — they live *only* in the op log and in
+  memory now. Your files are finally standard, `git diff`-clean Markdown/Fountain. (This **refines
+  a hard invariant**: "anchors are the join key" is still true, but *in the op log*, not on disk.)
+- **ADR 0019 also deleted the conflict sheet.** The old cross-device "conflict? pick a side" UI was
+  found vestigial and removed wholesale. An external `.md` edit is now **silently discarded** — the
+  bytes are snapshotted forensically under `.maugham/conflicts/` and the op-log truth is
+  re-materialised over them, no UI. This is why **Map 2 below changed the most**.
+- **ADR 0017 — an editor control plane** landed under the fragile Editor seam. Predictably, the
+  Editor was the *single most-churned zone* of the three weeks (`EditorCoordinator` alone: 26
+  commits). That's Map 4's "most important flinch" earning its label in real git history.
+
+Numbers drifted up across the board: **657→748** Swift files, **43→44** MCP tools, **15→19** ADRs,
+**~55→~93** OpLog+Core test files. The counts below reflect the 2026-07-01 tree.
 
 ---
 
@@ -23,19 +49,19 @@ This is the single most important map, and the cheapest to keep in your head. It
 ```mermaid
 flowchart TD
     subgraph TOP["UI / Surfaces — replaceable, leafy"]
-        MacUI["Mac app · Views<br/>ProjectWindow, panes, Editor UI<br/>~35k lines · imports AppKit (36 files)"]
-        PhoneUI["iPhone app · 4 tabs<br/>Capture / Read / Annotations / Settings<br/>~5k lines · ZERO AppKit"]
+        MacUI["Mac app · Views<br/>ProjectWindow, panes, Editor UI<br/>~38k lines · imports AppKit (40 files)"]
+        PhoneUI["iPhone app · 4 tabs<br/>Capture / Read / Annotations / Settings<br/>~6k lines · ZERO AppKit"]
     end
 
     subgraph MID["App logic — the moving parts"]
         Stores["Stores · DocumentStore / ProjectStore<br/>the librarian: where files live, moves, trash"]
         OpLog["OpLog · Document<br/>the ledger: every edit is an append"]
-        MCP["MCP · 43 tools<br/>Claude's hands (annotations + research only)"]
+        MCP["MCP · 44 tools<br/>Claude's hands (annotations + research only)"]
         Publish["Publish · PDF/EPUB via tectonic"]
     end
 
     subgraph CORE["MaughamCore — the physics (shared substrate)"]
-        Phys["Op · Materializer · Bootstrap · Reconciler<br/>ParagraphID · Fountain parser · BuildVariant<br/>55 files · imports ONLY Foundation"]
+        Phys["Op · Materializer · Bootstrap · Reconciler · DerivedManuscript<br/>ParagraphID · Fountain parser · BuildVariant<br/>67 files · imports ONLY Foundation"]
     end
 
     MacUI --> Stores & OpLog & MCP & Publish
@@ -56,10 +82,10 @@ Nothing in `MaughamCore` points back up — measured fact: the entire core impor
 
 **The rule this gives you:**
 - **Change at the top (Views, a pane, an MCP tool)** = blast radius is roughly *one screen* or
-  *one tool*. 113 Mac files and 23 phone files lean *on* the core, so a UI tweak rarely reaches them.
+  *one tool*. 126 Mac files and 24 phone files lean *on* the core, so a UI tweak rarely reaches them.
 - **Change at the bottom (`MaughamCore`)** = potentially *everything* shifts at once, on *both*
   the Mac and the iPhone. The core is shared by both apps, so a core change is a two-platform change.
-- The iPhone is a thin shell: ~5k lines, and it sits **directly** on the core with no AppKit at
+- The iPhone is a thin shell: ~6k lines, and it sits **directly** on the core with no AppKit at
   all (measured: zero AppKit imports). That's why the phone is cheap to extend but can only do
   what the core already exposes.
 
@@ -71,37 +97,56 @@ That alone predicts cost.
 ## Map 2 — The Spine · "How does my writing flow through the machine?"
 
 The one data path that matters. If you understand this, you understand why "the `.md` file is not
-the truth" and why editing-outside-Maugham gets discarded.
+the truth" and why editing-outside-Maugham gets discarded. **This is the map that changed most in
+the last three weeks** — ADR 0018 and 0019 made the op log even more exclusively the truth.
 
 ```mermaid
 flowchart LR
     K["⌨️ You type"] --> EC["EditorCoordinator<br/>(the nervous system)"]
     EC --> DOC["Document<br/>appends an Op"]
-    DOC --> JSONL[("op log<br/>.maugham/ops/*.jsonl<br/>THE SOURCE OF TRUTH")]
+    DOC --> JSONL[("op log<br/>.maugham/ops/*.jsonl<br/>THE SOURCE OF TRUTH<br/>+ the ¶id / t- anchors live HERE now")]
     JSONL --> MAT["Materializer<br/>re-renders"]
-    MAT --> MD[("your .md file<br/>on disk — DERIVED")]
+    MAT --> STRIP["stripAnchors<br/>(clean render)"]
+    STRIP --> MD[("your .md file<br/>on disk — DERIVED + CLEAN<br/>standard Markdown, no anchors")]
     MAT -. "displayed back" .-> EC
 
-    AS["applyExternalText<br/>(cloud-conflict ONLY · exactly 4 callers)"] -. "rare side door" .-> EC
+    JSONL --> DER["DerivedManuscript<br/>the ONLY sanctioned read of a closed doc"]
+    DER -. "read by" .-> RD["read_document · search · publish<br/>references · tasks · word counts"]
+
+    EXT["✏️ You edit the .md in another app"] --> BK[("forensic backup<br/>.maugham/conflicts/")]
+    BK -. "then discarded, silently" .-> MAT
 
     style JSONL fill:#1d3a5f,color:#fff
     style MD fill:#5a3d3d,color:#fff
-    style AS fill:#4a4a4a,color:#fff
+    style DER fill:#2d5a3d,color:#fff
+    style EXT fill:#4a4a4a,color:#fff
+    style BK fill:#4a4a4a,color:#fff
 ```
 
-**How to read it.** The blue box (op log) is the real document. The red box (`.md`) is a *printout*
-— Maugham regenerates it from the ledger. This is why a hard invariant says external `.md` edits
-are "blown away": the printout was never the truth.
+**How to read it.** The blue box (op log) is the real document — and as of ADR 0019 it's the *only*
+place the internal `¶id` / `t-` anchors live. The red box (`.md`) is now a **clean printout**:
+standard Markdown/Fountain with none of Maugham's join-keys in it, so it's finally readable in
+pandoc and clean in `git diff`. The green box (`DerivedManuscript`, ADR 0018) is the new front door
+for *reading* a closed document — everything that used to peek at the `.md` (search, publish,
+`read_document`, the reference graph) now derives from the ledger instead.
 
 **Why this map earns its keep:** almost every "weird data behaviour" question you'll ever have
-("why didn't my edit on the other device win?", "where did my checkpoint go?") is answered by
-*where on this spine the thing happened*. Sync, undo, time-travel, and conflict-resolution are all
-just different ways of replaying or merging this ledger.
+("why didn't my edit on the other device win?", "where did my checkpoint go?", "why did my
+outside-Maugham edit vanish?") is answered by *where on this spine the thing happened*. Sync, undo,
+time-travel, and conflict-resolution are all just different ways of replaying or merging this ledger.
 
-**The fragile detail to remember:** that grey side-door (`applyExternalText`) exists for *one*
-reason — cloud conflicts — and the code is wired so it has **exactly four callers** (verified). The
-moment someone adds a fifth, the cursor races. You don't need to know why; you just need to flinch
-if a change description ever sounds like "also feed text into the editor from somewhere new."
+**What changed about the "blown away" story:** it used to route through a cross-device **conflict
+sheet** (pick-a-side UI). ADR 0019 found that sheet vestigial and *deleted it*. Now an external
+`.md` edit is handled uniformly and **silently**: the bytes are snapshotted forensically under
+`.maugham/conflicts/` (so an accidental edit is recoverable) and the op-log truth is re-materialised
+straight over them — no dialog, no choice, no exceptions. Cross-device merging still happens, but
+entirely through the *op-log* merge, never the `.md`.
+
+**The fragile detail to remember:** the editor still has one narrow seam for pushing whole-document
+text in from outside normal typing (`applyExternalText`, used for cloud-conflict resolution). It's
+guarded by tripwires precisely because extra callers cause cursor races. You don't need the caller
+count — you just need to **flinch if a change description ever sounds like "also feed text into the
+editor from somewhere new."**
 
 ---
 
@@ -179,12 +224,12 @@ quadrantChart
 
 - **Bottom-right (EASY).** New panes, new MCP tools, new value types. The codebase has paved
   roads here: adding an MCP tool is "implement the protocol, add it to one catalog, done"
-  (that's why there are already 43). Cost is low and predictable. *When you have an idea, hope it
+  (that's why there are already 44). Cost is low and predictable. *When you have an idea, hope it
   lands here.*
 
 - **Top-left (HARD but FORTRESSED).** The op log and the core physics. These are load-bearing —
   touch them and a lot moves — **but** they're wrapped in the densest tests in the repo (the
-  `OpLog` and `Core` test folders hold ~55 of the ~190 test files). So changes are *expensive to
+  `OpLog` and `Core` test folders hold ~93 of the ~380 test files). So changes are *expensive to
   design* but *hard to get silently wrong*. The CLAUDE.md note "OpLog is the cleanest area — don't
   refactor structurally" is the human version of this: high value, leave the structure alone, extend
   at the edges.
@@ -199,12 +244,18 @@ quadrantChart
 - **Top-right (careful — Publish, parts of Stores).** Moderately load-bearing, decently tested.
   Normal caution.
 
-**The evolution tell:** where does change *actually* happen? Git history says the most-churned
-files are `ProjectWindow.swift`, the `Stores`, `Document.swift`, and `OpLogStore.swift`. That's
-healthy — evolution is concentrated in the mid-layer (logic + librarian) and the top (the main
-window), *not* in the core physics. When you see a proposed change that wants to heavily rewrite
-`MaughamCore`, that's against the grain of how this codebase has historically grown — worth a
-"are we sure?" before greenlighting.
+**The evolution tell:** where does change *actually* happen? Over the last three weeks the
+most-churned files were `EditorCoordinator.swift` (26 commits), `EditorSurface.swift`,
+`EditorHost.swift`, `ProjectWindow.swift`, and `Document.swift` — the Editor seam and the main
+window. That's two useful signals at once. **First**, git history put its heaviest traffic *right
+on Map 4's danger zone* (the Editor binding seam) — the ADR 0017 "editor control plane" work — which
+is exactly why "don't merge the Editor on tests-pass alone" stays the standing rule. **Second**, the
+op log/core *did* see a real burst of change (ADR 0018/0019), which looks against-the-grain until
+you notice its shape: it was a **test-first correctness campaign** (a new `DerivedManuscript`
+primitive, a tripwire test, ~40 new OpLog/Core test files), not a structural refactor. That's the
+*sanctioned* way to touch the top-left quadrant — extend behind dense tests, don't restructure. When
+you see a proposed core change that is a rewrite rather than a guarded extension, *that's* the
+against-the-grain move worth a "are we sure?" before greenlighting.
 
 ---
 
@@ -234,6 +285,9 @@ window), *not* in the core physics. When you see a proposed change that wants to
 - **Pin Map 4 to CI**: when test density around a hot file drops, that file slides toward the
   DANGER quadrant — that's a signal worth surfacing automatically.
 
-*These maps are descriptive, not generated — they reflect the tree as measured on 2026-06-09.
-The numbers will drift; the shape (one-way layering, a single op-log spine, a fragile editor seam,
-paved roads for tools and panes) is the stable part worth memorising.*
+*These maps are descriptive, not generated — they reflect the tree as measured on 2026-07-01
+(first drawn 2026-06-09; re-measured after ADRs 0017/0018/0019 merged). The numbers drift — they
+already have once. The **shape** (one-way layering, a single op-log spine that keeps getting
+*more* exclusive, a fragile editor seam, paved roads for tools and panes) is the stable part worth
+memorising. The one structural update this pass: the spine's `.md` end is now a genuinely clean,
+read-only printout — the truth has fully retreated into the op log.*
