@@ -2,6 +2,8 @@ import AppKit
 import Foundation
 import MaughamCore
 
+#if MAUGHAM_DEV_BUILD
+
 /// `test_flush_autosave` — dev-only lifecycle tool. Forces the live doc's
 /// pending burst (`flushBurstNow`) and then its debounced autosave
 /// (`performAutosave`, `internal` on `Document` and reachable directly from
@@ -107,3 +109,4 @@ public enum TestQuitTool: MCPTool {
         return try JSONEncoder().encode(Result(terminating: true))
     }
 }
+#endif

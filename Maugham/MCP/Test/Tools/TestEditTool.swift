@@ -1,6 +1,8 @@
 import Foundation
 import MaughamCore
 
+#if MAUGHAM_DEV_BUILD
+
 /// `test_apply_edit` — the "typing" surrogate. Sets the FULL display text via
 /// the exact path the editor binding uses (`Document.setFullText` then
 /// `DocumentStore.recordEditorTextWrite`), mirroring `EditorHost.swift`'s
@@ -46,3 +48,4 @@ public enum TestApplyEditTool: MCPTool {
         return try JSONEncoder().encode(Result(ok: true, display_text: doc.displayText))
     }
 }
+#endif

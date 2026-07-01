@@ -1,6 +1,8 @@
 import Foundation
 import MaughamCore
 
+#if MAUGHAM_DEV_BUILD
+
 /// Shared result for the two drive tools: the on-disk facts of a
 /// created/opened test project. `opened` reports whether a project window
 /// actually registered a store within the bounded, non-fatal poll — `false`
@@ -145,3 +147,4 @@ enum TestProjectTools {
         return false
     }
 }
+#endif

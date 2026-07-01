@@ -1,6 +1,8 @@
 import Foundation
 import MaughamCore
 
+#if MAUGHAM_DEV_BUILD
+
 private struct DocParams: Codable {
     let project_id: String
     let doc_id: String
@@ -155,3 +157,4 @@ public enum TestListCheckpointsTool: MCPTool {
         return try JSONEncoder().encode(Result(count: checkpoints.count, labels: checkpoints.map { $0.label }))
     }
 }
+#endif

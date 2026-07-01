@@ -1,5 +1,7 @@
 import Foundation
 
+#if MAUGHAM_DEV_BUILD
+
 /// Dev-only privileged MCP tools for Claude Code (NOT Claude Desktop). Kept
 /// separate from `MCPToolCatalog` so the production catalog, tools/list, and
 /// its consistency tests are untouched. Registered only under
@@ -31,3 +33,4 @@ public enum TestMCPToolCatalog {
         }
     }
 }
+#endif

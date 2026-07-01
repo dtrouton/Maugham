@@ -1,6 +1,8 @@
 import Foundation
 import MaughamCore
 
+#if MAUGHAM_DEV_BUILD
+
 /// `test_ping` — cheap readiness probe. Claude Code polls this after
 /// relaunching the app to absorb the cold-launch window before asserting.
 public enum TestPingTool: MCPTool {
@@ -26,3 +28,4 @@ public enum TestPingTool: MCPTool {
         return try JSONEncoder().encode(result)
     }
 }
+#endif

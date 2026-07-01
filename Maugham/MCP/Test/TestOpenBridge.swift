@@ -1,5 +1,7 @@
 import Foundation
 
+#if MAUGHAM_DEV_BUILD
+
 public extension Notification.Name {
     /// Dev-only: posted by `test_create_project` / `test_open_project`. The
     /// Welcome window (which holds `openWindow` in its environment) observes it
@@ -11,3 +13,4 @@ public extension Notification.Name {
     /// back to on-disk facts and never hang or hard-fail on a missing window.
     static let maughamTestOpenProject = Notification.Name("maughamTestOpenProject")
 }
+#endif
