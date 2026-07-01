@@ -211,7 +211,7 @@ jobs:
         # Last step on purpose: TestFlight is the artifact testers consume; the GH
         # release is documentation. A build live on TestFlight without a release page
         # is acceptable; a release page advertising a build that never uploaded is not.
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
         with:
           body_path: docs/release-notes/phone/v${{ steps.ver.outputs.version }}.md
           name: MaughamPhone ${{ steps.ver.outputs.version }}
