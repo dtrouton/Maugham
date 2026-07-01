@@ -5,7 +5,12 @@ import os
 /// re-mints). MaughamCore is otherwise wall-clock- and side-effect-free; a
 /// `Logger` line is the lightest surface that doesn't change `DerivedState`'s
 /// shape or every caller's signature.
-private let deriverLog = Logger(subsystem: "com.maugham.core", category: "Deriver")
+// Subsystem from the running bundle id so dev/stable logs separate without
+// hardcoding "com.maugham" (tripwire 13 spirit). Mirrors the Mac side's
+// `documentLog`; MaughamCore links into whichever variant's bundle is running.
+private let deriverLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.maugham.core",
+    category: "Deriver")
 
 /// Folds an op log into the current manuscript state (`paragraphs` + `sequence`)
 /// — the single shared op-replay. The Mac editor (`Document.load`) and the iOS
@@ -65,27 +70,33 @@ public enum Deriver {
             // F3 — first-bootstrap-wins. A doc bootstraps exactly once; any
             // LATER `.bootstrap` op is a partial-sync re-mint (iCloud delivered
             // the clean `.md` before `.maugham/ops/`, so device B re-minted every
-            // ¶id). Skip it entirely — changes AND sequence — so the re-mint is
-            // inert once the real log syncs in. Ordered by opId (ULID), so the
-            // FIRST bootstrap is the original; skipping the rest keeps the
-            // original ids authoritative. Residual risk: edits made on top of a
-            // re-mint before the merge reference re-minted ids and are
-            // orphan-dropped — rarer/smaller than the annotation mass-archive
-            // this prevents (ADR 0019 addendum).
+            // ¶id). Skip its SEQUENCE — the re-mint must not win ordering — but
+            // KEEP its changes (paragraph text), so a subsequent burst carrying an
+            // explicit sequence of the re-minted ids renders full content instead
+            // of a near-empty doc (Minor 4). Ordered by opId (ULID), so the FIRST
+            // bootstrap is the original; the original sequence therefore still
+            // orders the doc. Residual risk: with no post-re-mint edit the kept
+            // re-mint texts are orphan paragraphs (ids not in the surviving
+            // sequence) that `Document.reconcile` drops; WITH a post-re-mint edit
+            // the doc degrades to content-preserved-under-new-ids (an annotation
+            // archive) rather than the near-empty render the old drop-changes
+            // behavior produced (ADR 0019 addendum).
+            var skipSequence = false
             if op.kind == .bootstrap {
                 if sawBootstrap {
                     deriverLog.error(
-                        "ignoring re-mint bootstrap op \(op.opId, privacy: .public) for doc \(op.docId, privacy: .public) — first-bootstrap-wins")
-                    continue
+                        "ignoring re-mint bootstrap op \(op.opId, privacy: .public) for doc \(op.docId, privacy: .public) — first-bootstrap-wins (keeping its changes as orphan text, dropping its ordering)")
+                    skipSequence = true
+                } else {
+                    sawBootstrap = true
                 }
-                sawBootstrap = true
             }
             if Deriver.appliesToManuscript(op.kind) {
                 for change in op.changes {
                     paragraphs[change.paragraphId] = change.next
                 }
             }
-            if let s = op.sequence {
+            if let s = op.sequence, !skipSequence {
                 // Defensive: ignore empty-sequence bootstrap ops. Earlier
                 // builds emitted a junk bootstrap with `sequence: []` and
                 // `changes: []` when a doc was opened against a momentarily-
@@ -131,14 +142,17 @@ public enum Deriver {
         // The first-appearance sequence synthesis below then runs over the
         // canonical order, so the fallback sequence is also order-independent.
         for op in ops.sorted(by: opOrder) {
-            // F3 — first-bootstrap-wins (see `derive(ops:)` for the rationale).
+            // F3 — first-bootstrap-wins (see `derive(ops:)` for the rationale):
+            // skip a re-mint's SEQUENCE, keep its changes (Minor 4).
+            var skipSequence = false
             if op.kind == .bootstrap {
                 if sawBootstrap {
                     deriverLog.error(
-                        "ignoring re-mint bootstrap op \(op.opId, privacy: .public) for doc \(op.docId, privacy: .public) — first-bootstrap-wins")
-                    continue
+                        "ignoring re-mint bootstrap op \(op.opId, privacy: .public) for doc \(op.docId, privacy: .public) — first-bootstrap-wins (keeping its changes as orphan text, dropping its ordering)")
+                    skipSequence = true
+                } else {
+                    sawBootstrap = true
                 }
-                sawBootstrap = true
             }
             if Deriver.appliesToManuscript(op.kind) {
                 for change in op.changes {
@@ -149,7 +163,7 @@ public enum Deriver {
                     }
                 }
             }
-            if let s = op.sequence {
+            if let s = op.sequence, !skipSequence {
                 // Same junk-bootstrap guard as `derive(ops:)` — see that function's comment.
                 if op.kind == .bootstrap && s.isEmpty {
                     continue

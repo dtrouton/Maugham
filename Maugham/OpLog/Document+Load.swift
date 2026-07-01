@@ -139,15 +139,12 @@ extension Document {
         //      `setSequence` before the crash (F1). Without this the ordering
         //      change was silently dropped and the deleted paragraph resurrected.
         //
-        // The difference-check on trigger 2 is LOAD-BEARING: `performAutosave`
-        // stamps `pending.setSequence` on every 750ms flush and `close()`
-        // re-creates the pending file after the burst flush, so a
-        // `{sequence, changes: []}` pending file is the NORMAL post-quit state.
-        // Folding it unconditionally would append a junk op on every launch;
-        // folding ONLY when the sequences diverge appends exactly one recovery
-        // op for a genuinely-unbursted ordering change and nothing for a clean
-        // quit. A legacy pending file (pre-ADR-0019) loads `sequence == []` → the
-        // second trigger's non-empty guard never fires → behavior unchanged.
+        // Trigger 2 is additionally gated on the pending file's `basis` being
+        // CURRENT (Issue 2b — see below): a `{sequence, changes: []}` mirror
+        // whose basis no longer matches the log's newest opId is stale relative
+        // to ops it never saw, and folding it would reassert an order over a
+        // peer's while-closed delete. Clean quits leave no pending file at all
+        // now (Issue 2a), so trigger 2 fires only for a genuine crash-mid-reorder.
         //
         // Order comes from the pending buffer (durable, op-log-domain) — NOT the
         // .md (ADR 0019). A legacy pending file with un-bursted changes but no
@@ -158,16 +155,48 @@ extension Document {
         // bytes. Keyframing applies only to flushBurstNow.
         let derivedSequenceBeforeRecovery =
             Deriver.deriveWithSequenceFallback(ops: ops).sequence
-        let orderingOnlyDivergence = pending.isEmpty()
-            && !pending.sequence.isEmpty
-            && pending.sequence != derivedSequenceBeforeRecovery
-        if !pending.isEmpty() || orderingOnlyDivergence {
-            let recoveredSequence = pending.sequence
+
+        // Issue 2b — basis-aware staleness. The pending file's `sequence` was
+        // stamped against a known-newest op (`basis`). If ops it never saw have
+        // merged in since (basis != the log's current newest opId — e.g. a peer's
+        // while-closed delete synced in), the pending order is STALE: it must not
+        // reassert an ordering over ops it predates. A legacy pending file has no
+        // basis; for the empty-changes fold that's treated as stale (skip — the
+        // safer default, and legacy files predate the sequence field anyway),
+        // while non-empty changes keep today's text+sequence recovery.
+        let newestFoldedOpId = ops.map(\.opId).max()
+        let pendingBasis = pending.basis
+        let basisStale = pendingBasis != nil && pendingBasis != newestFoldedOpId
+        let basisCurrent = pendingBasis != nil && pendingBasis == newestFoldedOpId
+
+        if !pending.isEmpty() {
+            // Non-empty changes: ALWAYS recover the text. Attach the pending
+            // sequence unless the basis is stale — a stale basis recovers text
+            // with `sequence: nil` so the deriver carries the last explicit
+            // sequence forward instead of reasserting a superseded order.
+            let recoveredSequence = basisStale ? [] : pending.sequence
             let recovered = Op(
                 opId: ULID.generate(), docId: docId, at: Date(),
                 device: device, session: session, kind: .typingBurst,
                 changes: pending.snapshot(),
                 sequence: recoveredSequence.isEmpty ? nil : recoveredSequence)
+            try await opStore.append(recovered)
+            try await pending.clear()
+            ops.append(recovered)
+        } else if basisCurrent
+            && !pending.sequence.isEmpty
+            && pending.sequence != derivedSequenceBeforeRecovery {
+            // Empty-changes ordering-only fold: only when the basis is CURRENT
+            // (present AND == the newest opId) and the pending order genuinely
+            // diverges from the derived order. A stale or missing basis means the
+            // order predates ops it never saw — skip, so a clean-quit
+            // `{sequence, changes: []}` mirror (Issue 2a already deletes it) or a
+            // peer's while-closed delete never reasserts a superseded order.
+            let recovered = Op(
+                opId: ULID.generate(), docId: docId, at: Date(),
+                device: device, session: session, kind: .typingBurst,
+                changes: [],
+                sequence: pending.sequence)
             try await opStore.append(recovered)
             try await pending.clear()
             ops.append(recovered)

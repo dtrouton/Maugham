@@ -120,6 +120,38 @@ edges. Fixed:
   The Deriver's junk-skip stays `.bootstrap`-kind-only; an empty-changes
   `typing_burst` is honored for its sequence.
 
+- **The F1 gate is a since-load flag, not `_orderingDirty` (Issue 1, hardening).**
+  The first cut gated the sequence-only burst arm on `_orderingDirty`, which
+  **inits `true`** to anchor the first burst's keyframe — so an UNTOUCHED
+  open/close saw it set and appended a junk `{changes: [], sequence}` op on every
+  cycle. Because transient `Document` loads are everywhere (MCP `list_annotations`
+  / `get_annotation`, task reads, wiki-rename, search-replace, binder navigation),
+  this turned read-only paths into op-log writers, and that junk op's newest-ULID
+  explicit sequence could revert a peer device's not-yet-synced delete/reorder. The
+  arm is now gated on a separate `_orderingChangedSinceLoad` (inits `false`, set
+  only at the genuine delete/reorder/insert sites, cleared alongside
+  `_orderingDirty` after a successful sequence-bearing append); `_orderingDirty`'s
+  init-true keyframe semantics for the text-change arm are untouched.
+
+- **Clean close leaves no pending file; the recovery fold is basis-aware
+  (Issue 2, hardening).** A clean `close()` used to leave a `{sequence, changes: []}`
+  mirror on disk (the trailing autosave re-created it after the burst flush cleared
+  it). If a peer's ops (e.g. a delete) then synced in while the doc was closed, the
+  next load saw `derived(merged) != S_local` and the empty-changes fold appended a
+  newest-ULID op reasserting `S_local` — reverting the peer's deletion. Two-part
+  fix: **(a)** a successful `close()` clears the pending file once more, so a clean
+  quit leaves NO pending file (the `{seq, []}` mirror has zero recovery value once
+  the burst flushed); a FAILED burst flush keeps it (it is the recovery source).
+  **(b)** `PendingBuffer`'s on-disk state gains an optional `basis` — the opId of
+  the newest op the writer had folded when the sequence was stamped. At load, if
+  `basis` is present and no longer equals the merged log's newest opId, the pending
+  sequence is stale relative to ops it never saw: the empty-changes fold is
+  **skipped**, and a non-empty-changes recovery fold still recovers the text but
+  attaches `sequence: nil` (the deriver carries the last explicit sequence forward).
+  Legacy pending files (no `basis`) keep prior behavior for non-empty changes and
+  are treated as stale for empty changes (skip — the safer default; they predate
+  the sequence field anyway).
+
 - **Anchored file + empty op log no longer opens EMPTY (F2).** Lazy migration
   leaves anchored files around indefinitely; if the op log was then lost (crash
   between Bootstrap's `.md` write and its op append, a deleted `.maugham/`, a
@@ -165,12 +197,23 @@ edges. Fixed:
   files are clean, so "op log is empty" is the sole bootstrap signal; iCloud
   delivering the `.md` before `.maugham/ops/` made device B re-mint every `¶id`,
   and the real log merging in then read all original ids as removed and
-  mass-archived every paragraph-anchored annotation. The **Deriver now skips any
-  `.bootstrap` op after the first** (in both `derive` and
-  `deriveWithSequenceFallback`, logged), so a re-mint is inert once the real log
-  syncs in. **Residual risk (known limitation):** edits made on top of a re-mint
-  *before* the real log merges reference the re-minted ids and are orphan-dropped
-  — rarer and smaller than the annotation mass-archive it prevents. A true fix
+  mass-archived every paragraph-anchored annotation. The **Deriver now honors only
+  the first `.bootstrap` op** (ULID order); for any later one it **skips the
+  sequence** (it must not win ordering) but **keeps the changes** (Minor 4, in both
+  `derive` and `deriveWithSequenceFallback`, logged), so a re-mint is inert once
+  the real log syncs in. Keeping the text (rather than dropping it, as the first
+  cut did) matters for the worst case: a re-mint followed by an edit that carries
+  an explicit sequence of the re-minted ids would otherwise point the ordering at
+  ids with no text and render the doc near-empty; keeping the changes degrades that
+  to content-preserved-under-new-ids (an annotation archive) instead of data loss.
+  **Residual risk (known limitation):** with no post-re-mint edit the kept re-mint
+  texts are orphan paragraphs (ids not in the surviving sequence) that
+  `Document.reconcile` drops; with a post-re-mint edit annotations on the original
+  ids are orphaned — both rarer and smaller than the annotation mass-archive this
+  prevents. **Clock-skew winner inversion (accepted):** first-vs-later is by opId
+  (ULID), whose high bits are wall-clock, so a behind-clock device's re-mint can
+  sort BEFORE the original and win; single-editor by ethos makes concurrent
+  bootstraps near-zero-risk, so this is accepted rather than gated. A true fix
   needs a bootstrap tombstone that syncs ahead of `ops/`, and no such channel
   exists.
 

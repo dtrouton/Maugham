@@ -25,7 +25,7 @@ extension Document {
         // authoritative in memory and we keep snapshotting, but we no longer
         // bounce the `.md` back at a peer that keeps re-writing it. Log once.
         // A local edit clears the counter (`noteLocalEdit`), re-arming rewriting.
-        let isDistinct = _discardedByteSnapshots.insert(diskMd).inserted
+        let isDistinct = noteDiscardDistinct(diskMd)
         if isDistinct { _distinctDiscardCount += 1 }
         if _distinctDiscardCount >= Document.discardDampThreshold {
             if !_discardDampLogged {

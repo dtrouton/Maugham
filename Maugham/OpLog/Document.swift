@@ -165,6 +165,21 @@ public final class Document {
     /// lifecycle shape as `_pendingSweep`.
     internal var _orderingDirty: Bool = true
 
+    /// Whether a REAL ordering mutation happened since this Document was loaded.
+    /// Distinct from `_orderingDirty` (which inits TRUE to anchor the first
+    /// burst's keyframe): this inits FALSE and flips true only at the genuine
+    /// ordering-change sites (`setFullText`'s sequenceChanged branch, insert /
+    /// delete / reorder). It gates ONLY the ordering-only burst arm in
+    /// `flushBurstNow` — without it, an UNTOUCHED doc's `close()` would see
+    /// `_orderingDirty == true` (its init value) and append a junk
+    /// `{changes: [], sequence}` op on every open/close cycle, turning every
+    /// transient Document load (MCP annotation reads, task reads, wiki-rename,
+    /// search-replace, binder navigation) into an op-log writer and letting that
+    /// junk op's newest-ULID explicit sequence revert a peer device's not-yet-
+    /// synced delete / reorder. Cleared alongside `_orderingDirty` after a
+    /// successful sequence-bearing append. Per-instance, never persisted.
+    internal var _orderingChangedSinceLoad: Bool = false
+
     /// Consecutive bursts emitted without an explicit `sequence` (rule 2 counter).
     internal var _burstsSinceKeyframe: Int = 0
 
@@ -175,25 +190,49 @@ public final class Document {
     /// `discardDampThreshold` discards with DISTINCT bytes in a session we stop
     /// auto-rewriting (still snapshot, op log still authoritative in memory) and
     /// log ONCE. Any local edit re-arms rewriting (via `noteLocalEdit`).
-    /// `_discardedByteSnapshots` dedups byte-identical repeat deliveries so a
+    /// `_discardedByteHashes` dedups byte-identical repeat deliveries so a
     /// re-fired presenter callback for the same bytes doesn't advance the count.
-    /// Plain per-instance state (not observable) — same lifecycle as
-    /// `_orderingDirty`; reset on `noteLocalEdit`, never persisted.
+    /// It stores stable 64-bit hashes (`StableHash.fnv1a64Hex`, NOT the
+    /// process-seed-randomised `String.hashValue` — tripwire) rather than full
+    /// manuscript strings, and is capped at `discardSnapshotCap`, evicting oldest
+    /// — damping only needs distinctness, so a hash collision (merely
+    /// under-counts, safely) and a bounded window are both tolerable, and a
+    /// runaway ping-pong loop can't grow it unbounded (Minor 5). Plain
+    /// per-instance state (not observable) — same lifecycle as `_orderingDirty`;
+    /// reset on `noteLocalEdit`, never persisted.
     internal static let discardDampThreshold = 3
+    internal static let discardSnapshotCap = 8
     internal var _distinctDiscardCount = 0
-    internal var _discardedByteSnapshots: Set<String> = []
+    internal var _discardedByteHashes: [String] = []
     internal var _discardDampLogged = false
+
+    /// Records a discard's bytes by stable hash and reports whether they are
+    /// distinct from the recently-seen set (a byte-identical re-delivery returns
+    /// false and must not advance the damping count). Insertion-ordered + capped
+    /// at `discardSnapshotCap`, evicting oldest, so the window is bounded
+    /// (Minor 5). Uses `StableHash.fnv1a64Hex` for determinism; the hash is never
+    /// persisted, but the codebase forbids `String.hashValue` for id-shaped work.
+    func noteDiscardDistinct(_ bytes: String) -> Bool {
+        let h = StableHash.fnv1a64Hex(bytes)
+        if _discardedByteHashes.contains(h) { return false }
+        _discardedByteHashes.append(h)
+        if _discardedByteHashes.count > Self.discardSnapshotCap {
+            _discardedByteHashes.removeFirst(
+                _discardedByteHashes.count - Self.discardSnapshotCap)
+        }
+        return true
+    }
 
     /// Re-arm discard rewriting after a local edit — the writer is clearly the
     /// live source again, so a subsequent external divergence is a fresh event,
     /// not part of a bounce. Called from every local-edit path
     /// (`setFullText`/`setParagraph`) when a real change occurs. Cheap: an Int
-    /// reset plus (usually-empty) set clear on the typing hot path.
+    /// reset plus (usually-empty) array clear on the typing hot path.
     func noteLocalEdit() {
-        guard _distinctDiscardCount != 0 || !_discardedByteSnapshots.isEmpty
+        guard _distinctDiscardCount != 0 || !_discardedByteHashes.isEmpty
             || _discardDampLogged else { return }
         _distinctDiscardCount = 0
-        _discardedByteSnapshots.removeAll()
+        _discardedByteHashes.removeAll()
         _discardDampLogged = false
     }
 
@@ -246,11 +285,17 @@ public final class Document {
         displayText = rendered
     }
 
+    /// The opId of the newest op this Document has folded — the basis a stamped
+    /// pending sequence is measured against (Issue 2b). `_opLogMirror` is kept in
+    /// opId order by every append path, so its last element is the newest.
+    internal var currentFoldBasis: String? { _opLogMirror.last?.opId }
+
     internal func performAutosave() async throws {
         // Mirror pending buffer to disk for crash recovery. Carry the live
         // paragraph order so recovery is op-log-domain — not reconstructed from
-        // the .md (ADR 0019).
-        pending.setSequence(self.sequence)
+        // the .md (ADR 0019). Stamp the basis (newest folded opId) so load can
+        // tell a current pending order from one superseded by peer ops (Issue 2b).
+        pending.setSequence(self.sequence, basis: currentFoldBasis)
         // The pending file is now the ONLY crash-recovery source (ADR 0019 made
         // the .md a clean derived render, no longer a fallback). A swallowed
         // `try?` here would drop the recovery mirror silently; record the
@@ -518,7 +563,10 @@ public final class Document {
             newParagraphs[change.paragraphId] = change.next
         }
         let sequenceChanged = (newSequence != sequence)
-        if sequenceChanged { _orderingDirty = true }
+        if sequenceChanged {
+            _orderingDirty = true
+            _orderingChangedSinceLoad = true
+        }
         // Detect paragraph DELETIONS — any id in the prior sequence that's
         // missing from the next sequence. Flag a sweep so the next burst
         // flush archives annotations anchored to removed paragraphs.
@@ -662,6 +710,7 @@ public final class Document {
             sequence.append(newId)
         }
         _orderingDirty = true
+        _orderingChangedSinceLoad = true
         pending.recordChange(paragraphId: newId, prior: nil, next: text)
         burstScheduler.recordActivity()
         autosaveScheduler.schedule(())
@@ -678,6 +727,7 @@ public final class Document {
         paragraphs.removeValue(forKey: id)
         sequence.removeAll { $0 == id }
         _orderingDirty = true
+        _orderingChangedSinceLoad = true
         if let reason = SweepReason.userTyped(removed: [id]) {
             flagSweep(reason)
         }
@@ -696,6 +746,7 @@ public final class Document {
     public func reorder(sequence: [String]) {
         self.sequence = sequence
         _orderingDirty = true
+        _orderingChangedSinceLoad = true
         // No paragraph-change ops for pure reorder; the next typing_burst
         // emission will carry the new sequence as its `sequence` field.
         burstScheduler.recordActivity()
@@ -718,7 +769,14 @@ public final class Document {
         // resurrected (F1). The sequence-only burst (`changes: []`, explicit
         // `sequence`) is that change's durable record — for this session and
         // for cross-device sync.
-        let emitOrderingOnly = !hadPending && _orderingDirty
+        //
+        // Gated on `_orderingChangedSinceLoad` (NOT `_orderingDirty`): the
+        // latter inits TRUE to anchor the first burst's keyframe, so an
+        // untouched doc's close() would otherwise emit a junk sequence-only op
+        // every open/close cycle. `_orderingChangedSinceLoad` inits FALSE and
+        // flips true only on a genuine delete / reorder / insert, so this arm
+        // fires only when ordering actually changed with nothing in `pending`.
+        let emitOrderingOnly = !hadPending && _orderingChangedSinceLoad
         if hadPending || emitOrderingOnly {
             let changes = hadPending ? pending.snapshot() : []
             // Keyframed sequence emission (ADR 0016 / growth spec §4.1):
@@ -748,6 +806,7 @@ public final class Document {
             // durable re-flush still carries it (spec §4.2 / T7).
             if emitSequence {
                 _orderingDirty = false
+                _orderingChangedSinceLoad = false
                 _burstsSinceKeyframe = 0
             } else {
                 _burstsSinceKeyframe += 1
@@ -811,13 +870,17 @@ public final class Document {
         // `close()` rather than leaning on `performAutosave`'s incidental
         // `flushToDisk`. We also record the failure non-silently (os.Logger +
         // a test-observable counter) so the drop leaves a forensic trace.
+        var burstFlushSucceeded = true
         do {
             try await flushBurstNow()
         } catch {
+            burstFlushSucceeded = false
             // Carry the live paragraph order onto the re-persisted pending buffer
             // (mirrors performAutosave) so crash recovery is op-log-domain — the
-            // recovered burst restores ordering without the .md (ADR 0019).
-            pending.setSequence(self.sequence)
+            // recovered burst restores ordering without the .md (ADR 0019). Stamp
+            // the basis so load can distinguish this recovery order from one
+            // superseded by peer ops (Issue 2b).
+            pending.setSequence(self.sequence, basis: currentFoldBasis)
             try? await pending.flushToDisk()
             closeBurstFlushFailures += 1
             documentLog.error(
@@ -825,6 +888,18 @@ public final class Document {
         }
         // Flush any pending autosave so the .md reflects the final state.
         await autosaveScheduler.flush()
+
+        // Issue 2a: a CLEAN close leaves NO pending file. The burst flush above
+        // already persisted every un-bursted change as real ops and cleared the
+        // pending buffer; the trailing autosave then re-created a
+        // `{sequence, changes: []}` mirror that has ZERO recovery value now — but
+        // if left on disk it is a stale ordering assertion that a peer's
+        // while-closed delete/reorder (syncing in before the next open) could
+        // reawaken. Remove it. On a FAILED burst flush the pending file is the
+        // sole recovery source (re-persisted in the catch above) — keep it.
+        if burstFlushSucceeded {
+            try? await pending.clear()
+        }
 
         // Seal-on-close (ADR 0016 / growth spec §5.2): rotate this device's
         // own oversized tail into an immutable compressed segment. Threshold-

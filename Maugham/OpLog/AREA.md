@@ -20,7 +20,7 @@ The manuscript op log: append-only event stream of paragraph-level mutations, pa
 - `RenderFilter.swift` — derives the rendered .md from the op log. **Lives at `Maugham/Editor/RenderFilter.swift`** (it's consumed by the editor's display path; conceptually owned by this area). Three matching tiers for the "which historical paragraph does this orphan line belong to" question.
 - `ShingleMatcher.swift` — k-shingle Jaccard matcher used by RenderFilter.
 - **External `.md` edits are discarded, not ingested.** There is no reconciler that maps external `.md` edits back into the op log — the hard invariant is that Maugham is the only editing surface. `Document.handleExternalDiskChange` (live edits) and the `Document.load` divergence check (while-closed edits) both **snapshot the external bytes forensically under `.maugham/conflicts/` and re-materialize the op-log truth over them** (ADR 0019). The old `Reconciler.classify` (MaughamCore) was the last vestige of the ingest design; it went unused after ADR 0019's addendum #1 and was deleted in the 2026-07-01 op-log-spine-hardening branch.
-- `PendingBuffer.swift` — in-memory buffer between live typing and op-log appends (debounce window). **ADR 0019:** the buffer carries the live `sequence` (durable on disk), so crash recovery is op-log-domain — the recovered burst restores its ordering without consulting the `.md`. **Ordering-only edits (F1, 2026-07-01):** a pure delete/reorder records no `changes`, so `flushBurstNow` emits a **sequence-only `typing_burst`** (empty `changes`, explicit `sequence`) when the buffer is empty but ordering changed. On load, `Document.load`'s recovery fold *also* fires when the pending file has no changes but a `sequence` that **differs** from the op-log-derived sequence — the difference check is load-bearing: `performAutosave` stamps the sequence on every 750ms flush and `close()` re-creates the pending file after the burst flush, so a `{sequence, changes: []}` pending file is the NORMAL post-quit state and folding unconditionally would append a junk op each launch. The Deriver honors an empty-changes `typing_burst`'s sequence; its junk-skip stays `.bootstrap`-kind-only.
+- `PendingBuffer.swift` — in-memory buffer between live typing and op-log appends (debounce window). **ADR 0019:** the buffer carries the live `sequence` (durable on disk), so crash recovery is op-log-domain — the recovered burst restores its ordering without consulting the `.md`. On-disk shape is `{ basis?, changes, sequence }`. **Ordering-only edits (F1, 2026-07-01):** a pure delete/reorder records no `changes`, so `flushBurstNow` emits a **sequence-only `typing_burst`** (empty `changes`, explicit `sequence`) when the buffer is empty but ordering **changed since load** — gated on `_orderingChangedSinceLoad` (inits FALSE, flips true only at genuine delete/reorder/insert sites), NOT on `_orderingDirty` (which inits TRUE to anchor the first keyframe). Gating on `_orderingDirty` was the Phase-1 ship-blocker: it made every untouched open/close append a junk `{changes: [], sequence}` op, turning transient loads (MCP reads, task reads, wiki-rename, search-replace, binder nav) into op-log writers whose newest-ULID sequence could revert a peer's not-yet-synced delete. **Clean close leaves NO pending file (Issue 2a, 2026-07-01):** after a successful burst flush `close()` clears the pending file, so the trailing autosave's zero-value `{seq, []}` mirror can't linger as a stale ordering assertion; on a FAILED burst flush the pending file is kept (it is the recovery source). On load, `Document.load`'s recovery fold fires for an empty-changes pending file only when its `sequence` **differs** from the op-log-derived sequence AND the pending file's **`basis` is current** (Issue 2b) — `basis` is the newest opId the writer had folded when the sequence was stamped; if peer ops have merged in since (basis != the log's newest opId), the pending order is stale and the empty-changes fold is skipped (a non-empty-changes fold still recovers the text but with `sequence: nil`). The Deriver honors an empty-changes `typing_burst`'s sequence; its junk-skip stays `.bootstrap`-kind-only.
 - **Clean-`.md` load contract (ADR 0019, hardened 2026-07-01).** Load + crash recovery are op-log-domain: the bootstrap signal is op-log-*emptiness* (`!logExists`), not the `.md`'s anchors; content + order come from `Deriver.deriveWithSequenceFallback` (first-appearance synthesis for legacy sequence-less logs). The `.md` reads left in `Document.load` are (1) the import-bootstrap read for a brand-new / imported plain file with an empty op log (the sanctioned mint read), (2) the echo-guard comparison seed (`EchoState.initialLoad`), and (3) the **divergence-snapshot reference** — see below. `Document.reconcile` is now `reconcile(derived:)`: it takes the derived state (no `parsed:` argument, no `.md`-anchor rescue branches — those were deleted once F2 closed the empty-log hole at Bootstrap) and does **orphan-drop only** (a paragraph present in the map but absent from `sequence` is trimmed). See [ADR 0019](../../docs/adr/0019-clean-md-on-disk.md) and its addendum #2.
 - `OpKind.swift` — the closed set of operation types. Adding a new one touches every store and the renderer.
 - `RewindCursor.swift` — typed scrub state (`.now` vs `.atOp(opId, at)`) consumed by `Deriver.derive(ops:upTo:)` and `RewindWindow`.
@@ -86,16 +86,25 @@ it is now enforced:
   A text-only burst can no longer stamp a stale sequence over a concurrent
   remote reorder (pinned by `…test_concurrentReorder_survivesTextOnlyBurstMerge`).
 - **First-bootstrap-wins (F3, 2026-07-01).** A doc bootstraps exactly once; the
-  Deriver **skips any `.bootstrap` op after the first** (in both `derive` and
-  `deriveWithSequenceFallback`, logged). This makes an iCloud partial-sync
-  re-mint — device B re-minting every `¶id` because it saw the clean `.md`
-  before `.maugham/ops/` synced — **inert** once the real log merges in, instead
-  of the real log reading all original ids as removed and mass-archiving every
-  paragraph-anchored annotation. **Residual risk (known limitation):** edits made
-  on top of a re-mint *before* the real log merges reference the re-minted ids and
-  are orphan-dropped — rarer/smaller than the mass-archive it prevents; a true fix
-  needs a bootstrap tombstone that syncs ahead of `ops/`, and no such channel
-  exists. See ADR 0019 addendum #2.
+  Deriver honors only the FIRST `.bootstrap` op (ULID order). For any later one
+  (an iCloud partial-sync re-mint — device B re-minting every `¶id` because it saw
+  the clean `.md` before `.maugham/ops/` synced) it **skips the SEQUENCE** (the
+  re-mint must not win ordering) but **KEEPS the changes** (Minor 4, 2026-07-01,
+  in both `derive` and `deriveWithSequenceFallback`, logged). Keeping the text
+  means a subsequent burst carrying an explicit sequence of the re-minted ids
+  renders full content instead of a near-empty doc. This makes the re-mint inert
+  once the real log merges in, instead of the real log reading all original ids as
+  removed and mass-archiving every paragraph-anchored annotation. **Residual risk
+  (known limitation):** with no post-re-mint edit the kept re-mint texts are orphan
+  paragraphs (ids not in the surviving sequence) that `Document.reconcile` drops;
+  WITH a post-re-mint edit the doc degrades to content-preserved-under-new-ids (an
+  annotation archive) rather than the near-empty render the old drop-changes
+  behavior produced. **Clock-skew winner inversion (accepted):** first-vs-later is
+  by opId (ULID), whose high bits are wall-clock; a device whose clock lags can
+  mint a re-mint bootstrap that sorts BEFORE the original, inverting which wins.
+  Single-editor by ethos makes concurrent bootstraps near-zero-risk, so this is
+  accepted, not gated. A true fix needs a bootstrap tombstone that syncs ahead of
+  `ops/`, and no such channel exists. See ADR 0019 addendum #2.
 - **Deferred to the collaboration milestone:** a skew-proof logical clock and
   same-paragraph **conflict surfacing** (two devices genuinely editing the same
   paragraph concurrently). Single-editor by ethos today, so skew-induced LWW loss

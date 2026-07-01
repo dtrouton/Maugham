@@ -119,9 +119,13 @@ final class OrderingOnlyPersistenceTests: XCTestCase {
         // Simulate a crash mid-delete: the pending file holds the post-delete
         // order [alpha, charlie] with NO recorded changes — exactly what
         // performAutosave's setSequence + flushToDisk leaves after a deletion.
+        // Stamp the basis (newest folded opId) the way performAutosave now does,
+        // so the load-time fold sees a CURRENT basis and recovers (Issue 2b).
         do {
+            let newest = try await OpLogStore(projectURL: project)
+                .load(docId: docId).map(\.opId).max()
             let pb = PendingBuffer(projectURL: project, docId: docId, device: "m")
-            pb.setSequence([ids[0], ids[2]])
+            pb.setSequence([ids[0], ids[2]], basis: newest)
             try await pb.flushToDisk()
         }
 
@@ -174,6 +178,65 @@ final class OrderingOnlyPersistenceTests: XCTestCase {
         let opsAfter = try await OpLogStore(projectURL: project).load(docId: docId)
         XCTAssertEqual(opsAfter.count, opsBefore.count,
             "a clean-quit pending file whose sequence matches derived must not append a recovery op")
+    }
+
+    // MARK: - Issue 1: an UNTOUCHED open/close appends NO op
+
+    /// Loading a doc and closing it with ZERO edits must append nothing. The
+    /// ordering-only burst arm is gated on a REAL ordering change since load
+    /// (`_orderingChangedSinceLoad`), not on `_orderingDirty`'s init-true keyframe
+    /// flag — otherwise every transient Document load (MCP annotation reads, task
+    /// reads, wiki-rename, search-replace, binder navigation) would append a junk
+    /// `{changes: [], sequence}` op whose newest-ULID sequence could revert a
+    /// peer's not-yet-synced delete.
+    func test_openThenCloseZeroEdits_appendsNoOp() async throws {
+        let (project, path) = try makeProject(initialMd: "Alpha.\n\nBravo.")
+        let url = project.appendingPathComponent(path)
+
+        let docId: String
+        let afterBootstrap: Int
+        do {
+            let doc = try await Document.load(
+                url: url, device: "m", session: "s1", presenter: nil)
+            docId = doc.docId
+            afterBootstrap = try await OpLogStore(projectURL: project)
+                .load(docId: docId).count
+            await doc.close()
+        }
+        let afterClose = try await OpLogStore(projectURL: project)
+            .load(docId: docId).count
+        XCTAssertEqual(afterClose, afterBootstrap,
+            "an untouched open/close must not append any op")
+    }
+
+    /// The MCP read-annotation shape: a transient load → (read-only body) → close
+    /// against an already-bootstrapped doc must append nothing.
+    func test_transientReadOnlyReload_appendsNothing() async throws {
+        let (project, path) = try makeProject(initialMd: "Alpha.\n\nBravo.")
+        let url = project.appendingPathComponent(path)
+
+        let docId: String
+        do {
+            let doc = try await Document.load(
+                url: url, device: "m", session: "s1", presenter: nil)
+            docId = doc.docId
+            await doc.close()
+        }
+        let before = try await OpLogStore(projectURL: project)
+            .load(docId: docId).count
+
+        // Transient reopen with the MCP device id — mirrors withAnnotationDocument's
+        // load → body → close, with a read-only body (no edits).
+        do {
+            let doc = try await Document.load(
+                url: url, device: "mcp", session: "mcp-1", presenter: nil)
+            await doc.close()
+        }
+
+        let after = try await OpLogStore(projectURL: project)
+            .load(docId: docId).count
+        XCTAssertEqual(after, before,
+            "a transient read-only load+close must append nothing")
     }
 }
 
