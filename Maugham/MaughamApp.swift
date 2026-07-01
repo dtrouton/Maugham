@@ -480,6 +480,15 @@ private struct WelcomeHost: View {
         .onReceive(NotificationCenter.default.publisher(for: .maughamShowHelp)) { _ in
             openWindow(id: "help")
         }
+        #if MAUGHAM_DEV_BUILD
+        // Dev-only: the test-MCP drive tools post this; reuse the existing
+        // open(_:) helper (records in Recents + opens the project window).
+        .onReceive(NotificationCenter.default.publisher(
+            for: .maughamTestOpenProject)) { note in
+            guard let url = note.userInfo?["url"] as? URL else { return }
+            open(url)
+        }
+        #endif
     }
 
     @MainActor private func consumeOnboardingIntent() {

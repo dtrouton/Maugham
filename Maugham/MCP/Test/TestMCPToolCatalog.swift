@@ -9,7 +9,9 @@ public enum TestMCPToolCatalog {
     public static let all: [any MCPTool.Type] = [
         TestPingTool.self,
         TestDumpDocumentTool.self,
-        TestDumpOplogTool.self
+        TestDumpOplogTool.self,
+        TestCreateProjectTool.self,
+        TestOpenProjectTool.self
     ]
 
     @MainActor
