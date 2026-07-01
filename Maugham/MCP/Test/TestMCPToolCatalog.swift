@@ -16,7 +16,10 @@ public enum TestMCPToolCatalog {
         TestFlushAutosaveTool.self,
         TestCheckpointTool.self,
         TestResetWorkspaceTool.self,
-        TestQuitTool.self
+        TestQuitTool.self,
+        TestAutosaveStatusTool.self,
+        TestPendingBufferTool.self,
+        TestListCheckpointsTool.self
     ]
 
     @MainActor
