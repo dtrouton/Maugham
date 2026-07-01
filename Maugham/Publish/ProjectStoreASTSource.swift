@@ -34,10 +34,18 @@ public struct ProjectStoreASTSource: ProjectASTBuilder.Source {
         let mode: ProjectAST.Mode = path.lowercased().hasSuffix(".fountain")
             ? .fountain
             : .prose
-        // ADR 0018: op log is the sole source of truth. Reading the .md as a
-        // fallback is forbidden — it would silently surface stale file content
-        // instead of the canonical op-log state.
-        let text = DerivedManuscript.materialize(forDocId: item.id, in: projectStore.url)
+        // ADR 0018 open-doc rule: an OPEN doc's live `Document` is the freshest
+        // source — the op log lags an actively-edited doc by the burst window
+        // (30s idle / 90s cap), since the 750ms autosave appends no ops. So a
+        // compile must take the in-memory anchored form (matching the derived
+        // fallback) for open docs, deriving only for closed ones. Reading the
+        // `.md` directly stays forbidden — it can be a stale artifact.
+        let text: String
+        if let ds = projectStore.documentStore, let doc = ds.document(for: path) {
+            text = doc.materialize()
+        } else {
+            text = DerivedManuscript.materialize(forDocId: item.id, in: projectStore.url)
+        }
         return ProjectASTBuilder.PieceRef(
             pieceID: item.id,
             title: item.title,

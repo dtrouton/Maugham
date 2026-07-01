@@ -6,8 +6,11 @@ import MaughamCore
 extension ProjectStore {
 
     /// Run a cross-document search. Cancels any in-flight search; debounces 300ms.
-    /// Flushes pending writes for the active document first so the search reads
-    /// the freshest content from disk. Results land on currentSearch (Observable).
+    /// Flushes pending research-note writes first so the research pass reads
+    /// fresh bytes from disk. Manuscript freshness needs no flush: the engine
+    /// reads an open doc's live `Document` state and a closed doc's op log
+    /// directly (ADR 0018), never the `.md`. Results land on currentSearch
+    /// (Observable).
     public func performSearch(
         query: String, options: SearchOptions
     ) async {
@@ -19,7 +22,8 @@ extension ProjectStore {
             if Task.isCancelled { return }
             guard let self else { return }
 
-            // Pre-search flush so disk reflects active-doc edits
+            // Pre-search flush so research notes on disk reflect pending edits
+            // (manuscripts read live/op-log, not disk — see doc comment).
             try? await self.documentStore?.flushPendingSave()
             if Task.isCancelled { return }
 

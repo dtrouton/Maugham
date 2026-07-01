@@ -80,7 +80,12 @@ public enum ReadDocumentTool: MCPTool {
             text = DerivedManuscript.materialize(forDocId: item.id, in: projectURL)
         }
         let mode = Self.modeFor(path: path, projectType: store.manifest.type)
-        let words = text.split { $0.isWhitespace || $0.isNewline }.count
+        // `text` is the ANCHORED body (so Claude can target `<!-- ¶id -->`
+        // paragraphs), but word_count must count the DISPLAY form — anchor
+        // comment tokens (`<!--`, `¶id`, `-->`) are not words and would inflate
+        // the count by ~3 per paragraph.
+        let displayForm = MarkdownDisplayFilter.stripAnchors(text)
+        let words = displayForm.split { $0.isWhitespace || $0.isNewline }.count
         let chars = text.count
         let content = DocumentContent(
             id: item.id,

@@ -162,8 +162,16 @@ public enum FindReferencesTool: MCPTool {
         let titles = Self.titlesToScan(target: params.target, resolvedId: resolvedId, store: store)
         if !titles.isEmpty {
             for doc in TreeWalk.collect(in: store.manifest.structure, where: { $0.type == .document }) {
-                // Derive text from op log (ADR 0018); never read the .md directly.
-                let text = DerivedManuscript.materialize(forDocId: doc.id, in: entry.url)
+                // ADR 0018: an OPEN doc's live `Document` is freshest (the op
+                // log lags an actively-edited doc by the burst window, 30s/90s);
+                // closed docs derive from the op log. Never read the `.md`.
+                let text: String
+                if let ds = store.documentStore, let path = doc.path,
+                   let live = ds.document(for: path) {
+                    text = live.materialize()
+                } else {
+                    text = DerivedManuscript.materialize(forDocId: doc.id, in: entry.url)
+                }
                 guard !text.isEmpty else { continue }
                 for title in titles where text.contains("[[\(title)]]") {
                     if seenFromIds.insert(doc.id).inserted {
