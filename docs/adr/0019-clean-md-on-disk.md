@@ -139,9 +139,17 @@ edges. Fixed:
   it). If a peer's ops (e.g. a delete) then synced in while the doc was closed, the
   next load saw `derived(merged) != S_local` and the empty-changes fold appended a
   newest-ULID op reasserting `S_local` — reverting the peer's deletion. Two-part
-  fix: **(a)** a successful `close()` clears the pending file once more, so a clean
-  quit leaves NO pending file (the `{seq, []}` mirror has zero recovery value once
-  the burst flushed); a FAILED burst flush keeps it (it is the recovery source).
+  fix: **(a)** a successful `close()` clears the pending file once more (the
+  `{seq, []}` mirror has zero recovery value once the burst flushed); a FAILED
+  burst flush keeps it (it is the recovery source). Scope note (2026-07-02
+  smoke): this clear applies to **in-app document closes** (binder navigation,
+  transient MCP loads, FS surgery). **App quit does NOT run `close()`** — the
+  `willTerminateNotification` path flushes autosave synchronously because an
+  async close can't reliably finish before the process dies — so a quit
+  legitimately leaves a basis-stamped `{sequence, changes: [], basis}` file
+  behind. That file is harmless by construction: part (b)'s basis guard is the
+  actual cross-device protection (smoke-verified: reload folds nothing; a peer
+  op moves the log's newest opId and the stale-basis skip fires).
   **(b)** `PendingBuffer`'s on-disk state gains an optional `basis` — the opId of
   the newest op the writer had folded when the sequence was stamped. At load, if
   `basis` is present and no longer equals the merged log's newest opId, the pending
