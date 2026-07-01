@@ -168,6 +168,35 @@ public final class Document {
     /// Consecutive bursts emitted without an explicit `sequence` (rule 2 counter).
     internal var _burstsSinceKeyframe: Int = 0
 
+    /// F7 ping-pong damping. The discard handler auto-rewrites the `.md` with
+    /// op-log truth on every while-open external edit. If op-log sync lags the
+    /// `.md` (iCloud's normal failure mode) or a version-skewed peer keeps
+    /// writing anchored files, two devices bounce rewrites indefinitely. After
+    /// `discardDampThreshold` discards with DISTINCT bytes in a session we stop
+    /// auto-rewriting (still snapshot, op log still authoritative in memory) and
+    /// log ONCE. Any local edit re-arms rewriting (via `noteLocalEdit`).
+    /// `_discardedByteSnapshots` dedups byte-identical repeat deliveries so a
+    /// re-fired presenter callback for the same bytes doesn't advance the count.
+    /// Plain per-instance state (not observable) — same lifecycle as
+    /// `_orderingDirty`; reset on `noteLocalEdit`, never persisted.
+    internal static let discardDampThreshold = 3
+    internal var _distinctDiscardCount = 0
+    internal var _discardedByteSnapshots: Set<String> = []
+    internal var _discardDampLogged = false
+
+    /// Re-arm discard rewriting after a local edit — the writer is clearly the
+    /// live source again, so a subsequent external divergence is a fresh event,
+    /// not part of a bounce. Called from every local-edit path
+    /// (`setFullText`/`setParagraph`) when a real change occurs. Cheap: an Int
+    /// reset plus (usually-empty) set clear on the typing hot path.
+    func noteLocalEdit() {
+        guard _distinctDiscardCount != 0 || !_discardedByteSnapshots.isEmpty
+            || _discardDampLogged else { return }
+        _distinctDiscardCount = 0
+        _discardedByteSnapshots.removeAll()
+        _discardDampLogged = false
+    }
+
     /// Internal autosave debounce (replaces DocumentStore.scheduleSave).
     internal var autosaveScheduler: DebounceScheduler<Void>!
 
@@ -519,6 +548,7 @@ public final class Document {
         if !changes.isEmpty || sequenceChanged {
             burstScheduler.recordActivity()
             autosaveScheduler.schedule(())
+            noteLocalEdit()   // F7: a local edit re-arms discard rewriting
         }
 
         // Inline-task fast path. Tasks pane reactivity expects "type
@@ -606,6 +636,7 @@ public final class Document {
         paragraphs[id] = text
         burstScheduler.recordActivity()
         autosaveScheduler.schedule(())
+        noteLocalEdit()   // F7: a local edit re-arms discard rewriting
         // Inline tasks are derived from paragraph text. The pane checkbox
         // click handler routes through here for status flips, and writers
         // expect the pane to refresh immediately — not at the 30s burst

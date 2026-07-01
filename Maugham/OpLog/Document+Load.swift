@@ -202,11 +202,13 @@ extension Document {
                     paragraphs: initial.paragraphs, sequence: initial.sequence))
             if MarkdownDisplayFilter.stripAnchors(storedBytes) != derivedRender {
                 do {
-                    let newest = Document.newestConflictBackup(forFileAt: url)
+                    let newest = Document.newestConflictBackup(
+                        forFileAt: url, docId: docId)
                         .flatMap { try? String(contentsOf: $0, encoding: .utf8) }
                     if newest != storedBytes {
                         _ = try Document.writeConflictBackup(
-                            forFileAt: url, text: storedBytes, kind: "diverged")
+                            forFileAt: url, docId: docId, text: storedBytes,
+                            kind: "diverged")
                     }
                 } catch {
                     documentLog.error(

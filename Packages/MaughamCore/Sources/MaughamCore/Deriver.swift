@@ -1,4 +1,11 @@
 import Foundation
+import os
+
+/// Diagnostic channel for derivation anomalies (F3: partial-sync bootstrap
+/// re-mints). MaughamCore is otherwise wall-clock- and side-effect-free; a
+/// `Logger` line is the lightest surface that doesn't change `DerivedState`'s
+/// shape or every caller's signature.
+private let deriverLog = Logger(subsystem: "com.maugham.core", category: "Deriver")
 
 /// Folds an op log into the current manuscript state (`paragraphs` + `sequence`)
 /// — the single shared op-replay. The Mac editor (`Document.load`) and the iOS
@@ -53,7 +60,26 @@ public enum Deriver {
     public static func derive(ops: [Op]) -> DerivedState {
         var paragraphs: [String: String] = [:]
         var sequence: [String] = []
+        var sawBootstrap = false
         for op in ops.sorted(by: opOrder) {
+            // F3 — first-bootstrap-wins. A doc bootstraps exactly once; any
+            // LATER `.bootstrap` op is a partial-sync re-mint (iCloud delivered
+            // the clean `.md` before `.maugham/ops/`, so device B re-minted every
+            // ¶id). Skip it entirely — changes AND sequence — so the re-mint is
+            // inert once the real log syncs in. Ordered by opId (ULID), so the
+            // FIRST bootstrap is the original; skipping the rest keeps the
+            // original ids authoritative. Residual risk: edits made on top of a
+            // re-mint before the merge reference re-minted ids and are
+            // orphan-dropped — rarer/smaller than the annotation mass-archive
+            // this prevents (ADR 0019 addendum).
+            if op.kind == .bootstrap {
+                if sawBootstrap {
+                    deriverLog.error(
+                        "ignoring re-mint bootstrap op \(op.opId, privacy: .public) for doc \(op.docId, privacy: .public) — first-bootstrap-wins")
+                    continue
+                }
+                sawBootstrap = true
+            }
             if Deriver.appliesToManuscript(op.kind) {
                 for change in op.changes {
                     paragraphs[change.paragraphId] = change.next
@@ -100,10 +126,20 @@ public enum Deriver {
         var synthesized: [String] = []
         var synthesizedSet: Set<String> = []
         var sequenceWasExplicit = false
+        var sawBootstrap = false
         // Same internal opId-order sort as `derive(ops:)` for full determinism.
         // The first-appearance sequence synthesis below then runs over the
         // canonical order, so the fallback sequence is also order-independent.
         for op in ops.sorted(by: opOrder) {
+            // F3 — first-bootstrap-wins (see `derive(ops:)` for the rationale).
+            if op.kind == .bootstrap {
+                if sawBootstrap {
+                    deriverLog.error(
+                        "ignoring re-mint bootstrap op \(op.opId, privacy: .public) for doc \(op.docId, privacy: .public) — first-bootstrap-wins")
+                    continue
+                }
+                sawBootstrap = true
+            }
             if Deriver.appliesToManuscript(op.kind) {
                 for change in op.changes {
                     paragraphs[change.paragraphId] = change.next
