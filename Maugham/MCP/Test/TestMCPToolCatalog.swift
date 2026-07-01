@@ -7,7 +7,9 @@ import Foundation
 /// from the stable binary. Every method is `test_`-prefixed.
 public enum TestMCPToolCatalog {
     public static let all: [any MCPTool.Type] = [
-        TestPingTool.self
+        TestPingTool.self,
+        TestDumpDocumentTool.self,
+        TestDumpOplogTool.self
     ]
 
     @MainActor
