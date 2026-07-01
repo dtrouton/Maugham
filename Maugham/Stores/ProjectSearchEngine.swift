@@ -40,8 +40,10 @@ public struct ProjectSearchEngine {
             if let ds = store.documentStore, let doc = ds.document(for: fullPath) {
                 content = doc.displayText
             } else {
-                let stored = DerivedManuscript.materialize(forDocId: item.id, in: store.url)
-                content = MarkdownDisplayFilter.stripAnchors(stored)
+                // Closed doc: display form through the per-project cache (F5),
+                // so a repeated search (per debounced keystroke × N docs)
+                // decodes each doc's log at most once until it changes.
+                content = store.derivedCache.displayText(forDocId: item.id, in: store.url)
             }
             // The DISPLAY form is what we search, not the raw anchored bytes. The
             // materialised `.md` carries op-log join anchors (`<!-- ¶id -->`

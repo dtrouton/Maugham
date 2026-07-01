@@ -44,10 +44,10 @@ public enum ListScenesTool: MCPTool {
             if let ds = store.documentStore, let doc = ds.document(for: path) {
                 text = doc.displayText
             } else {
-                // Closed doc: derive from op log (ADR 0018); strip anchors so the
-                // Fountain parser sees clean text, matching the open-doc displayText form.
-                let derived = DerivedManuscript.materialize(forDocId: item.id, in: entry.url)
-                text = MarkdownDisplayFilter.stripAnchors(derived)
+                // Closed doc: display form through the per-project cache (F5);
+                // strip anchors so the Fountain parser sees clean text, matching
+                // the open-doc displayText form.
+                text = store.derivedCache.displayText(forDocId: item.id, in: entry.url)
             }
             let script = FountainTokenizer().parse(text)
             for line in script.lines {
@@ -170,7 +170,7 @@ public enum FindReferencesTool: MCPTool {
                    let live = ds.document(for: path) {
                     text = live.materialize()
                 } else {
-                    text = DerivedManuscript.materialize(forDocId: doc.id, in: entry.url)
+                    text = store.derivedCache.materialize(forDocId: doc.id, in: entry.url)
                 }
                 guard !text.isEmpty else { continue }
                 for title in titles where text.contains("[[\(title)]]") {

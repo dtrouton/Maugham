@@ -73,7 +73,7 @@ public enum ListAllLinksTool: MCPTool {
                let live = ds.document(for: path) {
                 text = live.materialize()
             } else {
-                text = DerivedManuscript.materialize(forDocId: doc.id, in: entry.url)
+                text = store.derivedCache.materialize(forDocId: doc.id, in: entry.url)
             }
             guard !text.isEmpty else { continue }
             for token in Self.wikiTokens(in: text) {

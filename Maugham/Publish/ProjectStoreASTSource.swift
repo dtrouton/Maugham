@@ -44,7 +44,7 @@ public struct ProjectStoreASTSource: ProjectASTBuilder.Source {
         if let ds = projectStore.documentStore, let doc = ds.document(for: path) {
             text = doc.materialize()
         } else {
-            text = DerivedManuscript.materialize(forDocId: item.id, in: projectStore.url)
+            text = projectStore.derivedCache.materialize(forDocId: item.id, in: projectStore.url)
         }
         return ProjectASTBuilder.PieceRef(
             pieceID: item.id,

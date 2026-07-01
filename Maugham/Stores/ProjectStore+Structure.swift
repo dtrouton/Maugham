@@ -418,7 +418,7 @@ extension ProjectStore {
                 // Guard on !isEmpty: an unbootstrapped doc has no op log yet
                 // and materialises to ""; skipping it would silently miss the
                 // rename, so we fall through to Document.load which bootstraps.
-                let preCheckBody = DerivedManuscript.materialize(
+                let preCheckBody = derivedCache.materialize(
                     forDocId: doc.id, in: url)
                 if !preCheckBody.isEmpty,
                    WikiLinkRewriter.rewrite(
