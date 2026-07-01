@@ -27,10 +27,15 @@ final class MCPProtocolHandlersTests: XCTestCase {
               case .array(let tools) = obj["tools"] else {
             return XCTFail("expected {tools: [...]}")
         }
-        let names: [String] = tools.compactMap { t in
+        let allNames: [String] = tools.compactMap { t in
             if case .object(let o) = t, case .string(let n) = o["name"] { return n }
             return nil
         }
+        // Dev builds also advertise the dev-only `test_` tools (so Claude Code
+        // can discover them). Exclude them here — this test pins the PRODUCTION
+        // catalog exactly. The test_ catalog has its own coverage in
+        // TestMCPCatalogConsistencyTests.
+        let names = allNames.filter { !$0.hasPrefix("test_") }
         XCTAssertEqual(Set(names), Set([
             "list_projects", "get_metadata", "get_outline",
             "read_document", "search_text", "list_scenes",
@@ -61,7 +66,15 @@ final class MCPProtocolHandlersTests: XCTestCase {
               case .array(let tools) = obj["tools"] else {
             return XCTFail("expected {tools: [...]}")
         }
-        XCTAssertEqual(tools.count, 44)
+        // Every advertised tool (production AND the dev-only test_ tools, which
+        // dev builds also list) must carry name/description/schema — validate
+        // the whole set. The production count is pinned separately by filtering
+        // out test_ tools.
+        let productionTools = tools.filter { t in
+            if case .object(let o) = t, case .string(let n) = o["name"] { return !n.hasPrefix("test_") }
+            return true
+        }
+        XCTAssertEqual(productionTools.count, MCPToolCatalog.all.count)
         for t in tools {
             guard case .object(let o) = t else { return XCTFail("tool not object") }
             XCTAssertNotNil(o["name"])

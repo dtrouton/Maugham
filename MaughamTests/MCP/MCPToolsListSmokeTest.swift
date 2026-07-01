@@ -12,6 +12,10 @@ final class MCPToolsListSmokeTest: XCTestCase {
             "add_comment", "add_suggested_change", "add_query",
             "add_craft_note", "list_annotations", "get_annotation"
         ]))
-        XCTAssertEqual(tools.count, 44)
+        // Dev builds also advertise the dev-only `test_` tools; count only the
+        // production catalog here (see TestMCPCatalogConsistencyTests for the
+        // dev-tool discovery coverage).
+        let productionCount = names.filter { !$0.hasPrefix("test_") }.count
+        XCTAssertEqual(productionCount, 44)
     }
 }
