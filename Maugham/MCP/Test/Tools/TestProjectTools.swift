@@ -25,20 +25,43 @@ public enum TestCreateProjectTool: MCPTool {
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
         let p = try decodeParams(Params.self, from: paramsJSON)
+        // FENCE BEFORE ANY FILESYSTEM WRITE. `ProjectFactory` only trims the
+        // name then creates the directory tree, so an unsanitized `../` name
+        // would materialize a real project OUTSIDE the workspace before any
+        // post-hoc check could catch it. Reject separator/traversal names and
+        // require the candidate URL is inside the workspace up front — mirroring
+        // `test_open_project`'s ordering — so no `ProjectFactory` call and no
+        // directory creation can happen for a bad name.
+        let name = p.name
+        let comps = name.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard !name.contains("/"),
+              name != ".", name != "..",
+              !comps.contains("..") else {
+            throw MCPError.invalidArgument("invalid project name (path separators/traversal not allowed): \(name)")
+        }
+        let candidate = TestWorkspace.root.appendingPathComponent(name)
+        try TestWorkspace.require(candidate)
         // Ensure the workspace root exists WITHOUT wiping sibling test projects
         // (reset is a separate explicit tool).
         try FileManager.default.createDirectory(at: TestWorkspace.root, withIntermediateDirectories: true)
         let parent = TestWorkspace.root
         let url: URL
         switch p.type {
-        case "novel":       url = try await ProjectFactory.createNovelProject(named: p.name, in: parent)
-        case "screenplay":  url = try await ProjectFactory.createScreenplayProject(named: p.name, in: parent)
-        case "short_story": url = try await ProjectFactory.createShortStoryProject(named: p.name, in: parent)
-        case "collection":  url = try await ProjectFactory.createCollectionProject(named: p.name, in: parent)
+        case "novel":       url = try await ProjectFactory.createNovelProject(named: name, in: parent)
+        case "screenplay":  url = try await ProjectFactory.createScreenplayProject(named: name, in: parent)
+        case "short_story": url = try await ProjectFactory.createShortStoryProject(named: name, in: parent)
+        case "collection":  url = try await ProjectFactory.createCollectionProject(named: name, in: parent)
         default: throw MCPError.invalidArgument("unknown type: \(p.type)")
         }
-        // Belt-and-suspenders: the created path must be inside the workspace.
-        try TestWorkspace.require(url)
+        // Belt-and-suspenders: the created path must still be inside the
+        // workspace. If it somehow escaped, remove the created tree before
+        // rethrowing so nothing is orphaned outside the fence.
+        do {
+            try TestWorkspace.require(url)
+        } catch {
+            try? FileManager.default.removeItem(at: url)
+            throw error
+        }
         return try await TestProjectTools.encodeResult(url: url, registry: registry)
     }
 }

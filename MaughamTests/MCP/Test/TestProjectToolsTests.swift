@@ -71,6 +71,35 @@ final class TestProjectToolsTests: XCTestCase {
     }
 
     @MainActor
+    func test_createProject_traversalName_isFencedOutsideWorkspace() async throws {
+        try TestWorkspace.reset()
+        let registry = ProjectRegistry()
+        // A sibling of the workspace root — where a naive `appendingPathComponent`
+        // + traversal name would land a real project tree.
+        let sibling = TestWorkspace.root.deletingLastPathComponent()
+            .appendingPathComponent("Evil")
+        try? FileManager.default.removeItem(at: sibling)
+
+        for badName in ["../../Evil", "../Evil", "a/b", "..", "."] {
+            let json = "{\"type\":\"novel\",\"name\":\"\(badName)\"}"
+            let params = json.data(using: .utf8)
+            do {
+                _ = try await TestCreateProjectTool.handle(paramsJSON: params, registry: registry)
+                XCTFail("expected a throw fencing the traversal name: \(badName)")
+            } catch is MCPError {
+                // expected — up-front rejection before any filesystem write
+            } catch is TestWorkspaceError {
+                // also acceptable — the require() fence rejected it
+            }
+        }
+
+        // Nothing must have been created outside the workspace root.
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: sibling.path),
+            "traversal name created a project tree outside the workspace: \(sibling.path)")
+    }
+
+    @MainActor
     func test_openProject_traversalName_isFencedOutsideWorkspace() async throws {
         try TestWorkspace.reset()
         let registry = ProjectRegistry()
