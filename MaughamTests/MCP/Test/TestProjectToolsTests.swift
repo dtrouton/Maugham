@@ -80,7 +80,9 @@ final class TestProjectToolsTests: XCTestCase {
             .appendingPathComponent("Evil")
         try? FileManager.default.removeItem(at: sibling)
 
-        for badName in ["../../Evil", "../Evil", "a/b", "..", "."] {
+        // `".. "` is a padded traversal name: ProjectFactory would trim it back
+        // to ".." — the leading-trim in test_create_project must reject it up front.
+        for badName in ["../../Evil", "../Evil", "a/b", "..", ".", ".. "] {
             let json = "{\"type\":\"novel\",\"name\":\"\(badName)\"}"
             let params = json.data(using: .utf8)
             do {

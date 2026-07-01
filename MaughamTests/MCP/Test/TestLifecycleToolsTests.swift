@@ -52,6 +52,40 @@ final class TestLifecycleToolsTests: XCTestCase {
     // (MaughamTests runs injected into the live Maugham.app), which would
     // kill the test runner. It's verified in the manual smoke instead.
 
+    /// Safety-boundary guard: test_flush_autosave WRITES the clean .md to disk.
+    /// A project open in the registry but NOT under TestWorkspace.root must be
+    /// rejected by the fence — the tool must THROW, and no .md write must happen.
+    @MainActor
+    func test_flushAutosave_outsideWorkspace_throws() async throws {
+        let fx = try await OpenTestProjectFixture.novelOutsideWorkspace(named: "FlushGuard")
+        defer { fx.teardown() }
+        do {
+            _ = try await TestFlushAutosaveTool.handle(paramsJSON:
+                #"{"project_id":"\#(fx.projectId)","doc_id":"\#(fx.docId)"}"#.data(using: .utf8),
+                registry: fx.registry)
+            XCTFail("expected the TestWorkspace.require fence to throw for an out-of-workspace project")
+        } catch TestWorkspaceError.outsideWorkspace {
+            // expected
+        }
+    }
+
+    /// Safety-boundary guard: test_checkpoint writes a project-scope checkpoint.
+    /// A project open in the registry but NOT under TestWorkspace.root must be
+    /// rejected by the fence — the tool must THROW rather than write.
+    @MainActor
+    func test_checkpoint_outsideWorkspace_throws() async throws {
+        let fx = try await OpenTestProjectFixture.novelOutsideWorkspace(named: "CheckpointGuard")
+        defer { fx.teardown() }
+        do {
+            _ = try await TestCheckpointTool.handle(paramsJSON:
+                #"{"project_id":"\#(fx.projectId)","doc_id":"\#(fx.docId)","label":"Nope"}"#.data(using: .utf8),
+                registry: fx.registry)
+            XCTFail("expected the TestWorkspace.require fence to throw for an out-of-workspace project")
+        } catch TestWorkspaceError.outsideWorkspace {
+            // expected
+        }
+    }
+
     @MainActor
     func test_resetWorkspace_emptiesRoot() async throws {
         let junk = TestWorkspace.root.appendingPathComponent("junk.txt")

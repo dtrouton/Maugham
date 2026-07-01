@@ -20,6 +20,10 @@ public enum TestFlushAutosaveTool: MCPTool {
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
         let p = try decodeParams(Params.self, from: paramsJSON)
         let entry = try resolveProject(p.project_id, in: registry)
+        // Safety fence: performAutosave WRITES the clean .md to disk. Require the
+        // target live under TestWorkspace.root so this dev tool can never write
+        // over the writer's real (also-open) manuscripts.
+        try TestWorkspace.require(entry.url)
         guard let doc = entry.store.documentStore?.document(forDocId: p.doc_id) else {
             throw MCPError.invalidArgument("doc not open: \(p.doc_id)")
         }
@@ -45,6 +49,10 @@ public enum TestCheckpointTool: MCPTool {
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
         let p = try decodeParams(Params.self, from: paramsJSON)
         let entry = try resolveProject(p.project_id, in: registry)
+        // Safety fence: this writes a project-scope checkpoint (and flushes the
+        // live doc). Require the target live under TestWorkspace.root so it can
+        // never touch the writer's real projects.
+        try TestWorkspace.require(entry.url)
         guard let ds = entry.store.documentStore, let doc = ds.document(forDocId: p.doc_id) else {
             throw MCPError.invalidArgument("doc not open: \(p.doc_id)")
         }

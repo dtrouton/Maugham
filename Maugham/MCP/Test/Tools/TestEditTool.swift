@@ -28,6 +28,12 @@ public enum TestApplyEditTool: MCPTool {
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
         let p = try decodeParams(Params.self, from: paramsJSON)
         let entry = try resolveProject(p.project_id, in: registry)
+        // Safety fence: this tool MUTATES the manuscript (setFullText +
+        // recordEditorTextWrite). The dev-build ProjectRegistry also holds the
+        // writer's REAL open projects, so require the target live under
+        // TestWorkspace.root before any write can happen. Throws
+        // TestWorkspaceError.outsideWorkspace otherwise.
+        try TestWorkspace.require(entry.url)
         guard let ds = entry.store.documentStore, let doc = ds.document(forDocId: p.doc_id) else {
             throw MCPError.invalidArgument("doc not open: \(p.doc_id)")
         }

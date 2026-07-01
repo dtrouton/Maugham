@@ -34,7 +34,10 @@ public enum TestCreateProjectTool: MCPTool {
         // require the candidate URL is inside the workspace up front — mirroring
         // `test_open_project`'s ordering — so no `ProjectFactory` call and no
         // directory creation can happen for a bad name.
-        let name = p.name
+        // Trim leading/trailing whitespace + newlines BEFORE the literal guard
+        // checks, so a padded name (e.g. `".. "`) can't slip the `.`/`..` guard
+        // and then get re-trimmed to a traversal component by ProjectFactory.
+        let name = p.name.trimmingCharacters(in: .whitespacesAndNewlines)
         let comps = name.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
         guard !name.contains("/"),
               name != ".", name != "..",
