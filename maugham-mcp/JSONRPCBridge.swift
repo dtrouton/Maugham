@@ -72,7 +72,13 @@ final class JSONRPCBridge {
         // error — no point making "I haven't started Maugham yet" callers wait.
         closeSocket()
         if hadPriorConnection {
-            let deadline = Date().addingTimeInterval(5.0)
+            // Poll for the new server to bind the socket. A cold launch under
+            // load routinely takes >5s, which was the deferred
+            // "first-call-after-restart" flake (the first request after an app
+            // restart returned maugham_not_running). 15s comfortably covers a
+            // cold launch; we poll every 0.25s so we reconnect the instant the
+            // server is up, not after a fixed wait.
+            let deadline = Date().addingTimeInterval(15.0)
             while Date() < deadline {
                 Thread.sleep(forTimeInterval: 0.25)
                 let fd = openSocket()

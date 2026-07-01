@@ -36,6 +36,14 @@ struct MaughamApp: App {
         ) { _ in
             NotificationCenter.default.post(
                 name: .maughamAppWillTerminate, object: nil)
+            // Synchronously remove the MCP socket file. The async server stop()
+            // (via .maughamAppWillTerminate → WelcomeHost) often does NOT run
+            // before macOS kills the process on quit, which leaves a stale
+            // socket that makes the next launch look "not running" until its
+            // own unlink-before-bind clears it (and confuses a reconnecting
+            // bridge). unlink() is a fast syscall and willTerminate is on the
+            // main thread, so do it here, guaranteed, before we die.
+            unlink(BuildVariant.current.mcpSocketPath)
             // If a verified update was staged and the user dismissed the toast,
             // apply it silently now (no relaunch). willTerminate runs on the main
             // thread, so assumeIsolated is safe.
