@@ -125,7 +125,7 @@ public enum BackupWriter {
         let genDir = destination.appendingPathComponent(id)
         let manifestURL = genDir.appendingPathComponent(manifestName)
         let manifest = try JSONDecoder().decode(
-            MerkleManifest.self, from: Data(contentsOf: manifestURL))
+            MerkleManifest.self, from: Data(contentsOf: manifestURL))  // adr-0018-ok: backup Merkle manifest read, not manuscript
         return MerkleBuilder.verify(manifest: manifest, root: genDir)
     }
 }

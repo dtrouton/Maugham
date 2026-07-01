@@ -48,7 +48,7 @@ public enum BackupSignature {
             if rel.hasPrefix(".maugham/ops/") {
                 // Op log: contribute only the non-checkpoint op ids, so the per-save
                 // `.checkpoint` breadcrumb doesn't perturb the signature.
-                guard let data = try? Data(contentsOf: fileURL),
+                guard let data = try? Data(contentsOf: fileURL),  // adr-0018-ok: backup file bytes read for signature, not manuscript-as-truth
                       let text = String(data: data, encoding: .utf8) else { continue }
                 var ids: [String] = []
                 for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
@@ -59,7 +59,7 @@ public enum BackupSignature {
                 }
                 lines.append("\(rel)\tops\t\(ids.sorted().joined(separator: ","))")
             } else {
-                guard let data = try? Data(contentsOf: fileURL) else { continue }
+                guard let data = try? Data(contentsOf: fileURL) else { continue }  // adr-0018-ok: backup file bytes read for signature, not manuscript-as-truth
                 lines.append("\(rel)\t\(MerkleBuilder.sha256Hex(data))")
             }
         }

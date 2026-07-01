@@ -109,7 +109,7 @@ extension ProjectStore {
 
         case .research:
             let url = self.url.appendingPathComponent(match.documentPath)
-            let original = try String(contentsOf: url, encoding: .utf8)
+            let original = try String(contentsOf: url, encoding: .utf8)  // adr-0018-ok: research-note read (manuscript replace routes through the op log)
             let ns = original as NSString
             guard match.charRangeInDocument.location
                     + match.charRangeInDocument.length <= ns.length else {
@@ -142,7 +142,7 @@ extension ProjectStore {
 
             case .research:
                 let url = self.url.appendingPathComponent(path)
-                let original = try String(contentsOf: url, encoding: .utf8)
+                let original = try String(contentsOf: url, encoding: .utf8)  // adr-0018-ok: research-note read (manuscript replace routes through the op log)
                 var ns = original as NSString
                 // Right-to-left so earlier offsets aren't shifted by later edits.
                 let ordered = matches.sorted {

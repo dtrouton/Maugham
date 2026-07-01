@@ -12,7 +12,7 @@ public enum Bootstrap {
         projectURL: URL, docId: String, mdURL: URL,
         device: String, session: String
     ) async throws -> Result {
-        let original = (try? String(contentsOf: mdURL, encoding: .utf8)) ?? ""
+        let original = (try? String(contentsOf: mdURL, encoding: .utf8)) ?? ""  // adr-0018-ok: sanctioned import read — mints ids for a new/imported plain file; not read as truth for an existing doc (ADR 0018)
         let parsed = ParagraphParser.parse(original)
         let allHaveIds = !parsed.isEmpty && parsed.allSatisfy { $0.id != nil }
         if allHaveIds {

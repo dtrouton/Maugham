@@ -161,7 +161,7 @@ public final class DocumentStore {
         // presenter callback (if it's our own subsequent write, or an unchanged
         // re-read) doesn't trigger a spurious conflict archive.
         let manifestURL = url.appendingPathComponent(ProjectManifest.fileName)
-        if let data = try? Data(contentsOf: manifestURL) {
+        if let data = try? Data(contentsOf: manifestURL) {  // adr-0018-ok: project manifest JSON read, not manuscript
             store.lastWrittenManifest = .initialLoad(bytes: data)
         }
 
@@ -305,7 +305,7 @@ public final class DocumentStore {
             readingItemAt: manifestURL, options: [], error: &coordError
         ) { readURL in
             do {
-                data = try Data(contentsOf: readURL)
+                data = try Data(contentsOf: readURL)  // adr-0018-ok: project manifest JSON read, not manuscript
             } catch {
                 readError = error
             }
@@ -325,7 +325,7 @@ public final class DocumentStore {
         coordinator.coordinate(
             readingItemAt: logURL, options: [], error: &coordError
         ) { url in
-            guard let data = try? Data(contentsOf: url),
+            guard let data = try? Data(contentsOf: url),  // adr-0018-ok: sessions.json read, not manuscript
                   let log = try? {
                       let decoder = JSONDecoder()
                       decoder.dateDecodingStrategy = .iso8601
@@ -747,7 +747,7 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
             let projectRoot = projectURL
             Task { @MainActor in
                 let mdURL = projectRoot.appendingPathComponent(relativePath)
-                guard let data = try? Data(contentsOf: mdURL),
+                guard let data = try? Data(contentsOf: mdURL),  // adr-0018-ok: sanctioned external-change detector — .md bytes handed to handleExternalDiskChange; op log stays authoritative
                       let diskText = String(data: data, encoding: .utf8)
                 else { return }
                 try? await doc.handleExternalDiskChange(diskMd: diskText)
@@ -791,7 +791,7 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
 
     private func handleManifestChanged() {
         let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
-        guard let data = try? Data(contentsOf: manifestURL) else { return }
+        guard let data = try? Data(contentsOf: manifestURL) else { return }  // adr-0018-ok: project manifest JSON read, not manuscript
         // Decode to confirm the bytes are a well-formed manifest before reacting
         // (a partial/torn write isn't a conflict to archive).
         guard (try? ProjectManifest.makeDecoder().decode(

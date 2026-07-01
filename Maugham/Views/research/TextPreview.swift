@@ -16,7 +16,7 @@ struct TextPreview: View {
             noteText: text)
         .task(id: notePath) {
             let url = projectURL.appendingPathComponent(notePath)
-            text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+            text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""  // adr-0018-ok: research text-preview read, not manuscript
         }
     }
 }

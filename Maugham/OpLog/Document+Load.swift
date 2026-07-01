@@ -81,7 +81,7 @@ extension Document {
         // `<docId>.jsonl`; check the whole globbed set, or a doc whose only
         // writer was a non-current device reads as "no log" and re-bootstraps.
         let logExists = !OpLogStore.opLogFileURLs(forDocId: docId, in: projectURL).isEmpty
-        let storedBytes = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        let storedBytes = (try? String(contentsOf: url, encoding: .utf8)) ?? ""  // adr-0018-ok: sanctioned manuscript site — stored bytes as bootstrap-import / divergence reference; op log is authoritative
         let parsed = ParagraphParser.parse(storedBytes)
         // ADR 0019: the .md is clean (no anchors), so "the .md has no anchors"
         // no longer signals "needs bootstrap" — that would re-bootstrap every
@@ -204,7 +204,7 @@ extension Document {
                 do {
                     let newest = Document.newestConflictBackup(
                         forFileAt: url, docId: docId)
-                        .flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+                        .flatMap { try? String(contentsOf: $0, encoding: .utf8) }  // adr-0018-ok: conflict-backup snapshot read for dedup, not manuscript truth
                     if newest != storedBytes {
                         _ = try Document.writeConflictBackup(
                             forFileAt: url, docId: docId, text: storedBytes,
@@ -217,7 +217,7 @@ extension Document {
             }
         }
 
-        let lastWritten = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        let lastWritten = (try? String(contentsOf: url, encoding: .utf8)) ?? ""  // adr-0018-ok: sanctioned manuscript site — echo-guard baseline; op log is authoritative
         let initialEcho = EchoState.initialLoad(bytes: lastWritten)
 
         // BurstScheduler with caller-supplied thresholds (defaults: 30s/90s).
@@ -278,7 +278,7 @@ internal func resolveDocId(for url: URL) throws -> String {
         if fm.fileExists(atPath: manifestURL.path) {
             let relativePath = url.path
                 .replacingOccurrences(of: probe.path + "/", with: "")
-            if let data = try? Data(contentsOf: manifestURL) {
+            if let data = try? Data(contentsOf: manifestURL) {  // adr-0018-ok: project manifest JSON read, not manuscript
                 let dec = ProjectManifest.makeDecoder()
                 if let manifest = try? dec.decode(
                     ProjectManifest.self, from: data),

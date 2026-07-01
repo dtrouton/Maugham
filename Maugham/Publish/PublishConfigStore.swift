@@ -16,7 +16,7 @@ public actor PublishConfigStore {
     public func load() throws -> PublishConfig? {
         let url = fileURL
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-        let data = try Data(contentsOf: url)
+        let data = try Data(contentsOf: url)  // adr-0018-ok: publish config JSON read, not manuscript
         return try JSONDecoder().decode(PublishConfig.self, from: data)
     }
 

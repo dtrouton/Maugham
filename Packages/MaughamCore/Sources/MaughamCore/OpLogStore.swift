@@ -88,7 +88,7 @@ public final class OpLogStore {
             var coordErr: NSError?
             var bytes: Data?
             coord.coordinate(readingItemAt: url, options: [], error: &coordErr) { ru in
-                bytes = try? Data(contentsOf: ru)
+                bytes = try? Data(contentsOf: ru)  // adr-0018-ok: op-log file bytes — the op log IS the source of truth (ADR 0018)
             }
             if let coordErr { throw coordErr }
             guard let container = bytes else { return ([], ParseDiagnostics()) }
@@ -192,7 +192,7 @@ public final class OpLogStore {
         var coordErr: NSError?
         var tailBytes: Data?
         coord.coordinate(readingItemAt: tailURL, options: [], error: &coordErr) { ru in
-            tailBytes = try? Data(contentsOf: ru)
+            tailBytes = try? Data(contentsOf: ru)  // adr-0018-ok: op-log segment tail bytes — the op log IS the source of truth (ADR 0018)
         }
         if let coordErr { throw coordErr }
         guard let bytes = tailBytes, !bytes.isEmpty else { return nil }
@@ -335,7 +335,7 @@ public final class OpLogStore {
         dec.dateDecodingStrategy = JSONLAppendStore<Op>.dateDecoding
         var ops: [Op] = []
         for url in opLogFileURLs(forDocId: docId, in: projectURL) {
-            guard let data = try? Data(contentsOf: url) else { continue }
+            guard let data = try? Data(contentsOf: url) else { continue }  // adr-0018-ok: op-log file bytes — the op log IS the source of truth (ADR 0018)
             if url.pathExtension == OpLogSegment.fileExtension {
                 guard let jsonl = OpLogSegment.decodeVerifying(data).jsonl else { continue }
                 ops.append(contentsOf: JSONLAppendStore<Op>.parse(bytes: jsonl).elements)

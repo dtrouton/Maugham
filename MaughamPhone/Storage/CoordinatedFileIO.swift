@@ -65,7 +65,7 @@ struct CoordinatedFileIO: UbiquitousDownloader, Sendable {
 
         coordinator.coordinate(readingItemAt: url, options: [], error: &coordinationError) { coordinatedURL in
             do {
-                data = try Data(contentsOf: coordinatedURL)
+                data = try Data(contentsOf: coordinatedURL)  // adr-0018-ok: generic coordinated-read primitive; the Read-tab manuscript display read flows through here — contracted divergence, see cross-surface-contracts.md
             } catch {
                 accessorError = error
             }

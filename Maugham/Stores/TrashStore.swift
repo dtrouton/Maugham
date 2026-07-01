@@ -27,7 +27,7 @@ public struct TrashStore {
         var entries: [TrashEntry] = []
         for folder in folders where folder.hasDirectoryPath {
             let metaURL = folder.appendingPathComponent("meta.json")
-            guard let data = try? Data(contentsOf: metaURL),
+            guard let data = try? Data(contentsOf: metaURL),  // adr-0018-ok: trash metadata read, not manuscript
                   let meta = try? JSONDecoder().decode(TrashMeta.self, from: data),
                   let trashedAt = Self.parseTimestamp(from: folder.lastPathComponent) else {
                 continue
@@ -66,7 +66,7 @@ public struct TrashStore {
     public func restore(trashId: String) async throws -> TrashEntry {
         let entryFolder = trashRoot.appendingPathComponent(trashId)
         let metaURL = entryFolder.appendingPathComponent("meta.json")
-        let metaData = try Data(contentsOf: metaURL)
+        let metaData = try Data(contentsOf: metaURL)  // adr-0018-ok: trash metadata read, not manuscript
         let meta = try JSONDecoder().decode(TrashMeta.self, from: metaData)
 
         // Identify the file inside the entry folder (the non-meta.json file)

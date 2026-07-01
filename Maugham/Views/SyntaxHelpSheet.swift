@@ -69,7 +69,7 @@ struct SyntaxHelpSheet: View {
         }
         guard let url = Bundle.main.url(
                 forResource: resourceName, withExtension: "md"),
-              let raw = try? String(contentsOf: url, encoding: .utf8) else {
+              let raw = try? String(contentsOf: url, encoding: .utf8) else {  // adr-0018-ok: bundled syntax-help doc read, not manuscript
             return [.paragraph(text: AttributedString("Help content unavailable."))]
         }
         return parseMarkdownBlocks(raw)

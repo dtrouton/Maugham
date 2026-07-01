@@ -37,7 +37,7 @@ public enum BackupRunner {
             .appendingPathComponent(BackupWriter.manifestName)
         guard FileManager.default.fileExists(atPath: manifestURL.path) else { return nil }
         let manifest = try JSONDecoder().decode(
-            MerkleManifest.self, from: Data(contentsOf: manifestURL))
+            MerkleManifest.self, from: Data(contentsOf: manifestURL))  // adr-0018-ok: backup Merkle manifest read, not manuscript
         return manifest.rootHash
     }
 
@@ -96,7 +96,7 @@ public enum BackupRunner {
         guard let id = try BackupWriter.generationIds(at: destination).last else { return nil }
         let url = destination.appendingPathComponent(id)
             .appendingPathComponent(BackupSignature.signatureName)
-        guard let data = try? Data(contentsOf: url) else { return nil }
+        guard let data = try? Data(contentsOf: url) else { return nil }  // adr-0018-ok: backup file bytes read for checksum, not manuscript-as-truth
         return String(data: data, encoding: .utf8)
     }
 }

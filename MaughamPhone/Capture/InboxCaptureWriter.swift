@@ -142,7 +142,7 @@ struct InboxCaptureWriter {
         // Read the temp recording and write it into the coordinated destination.
         // Reading first (outside coordination) is fine: the temp file is the
         // phone's own scratch, not a shared iCloud path.
-        let bytes = try Data(contentsOf: tempURL)
+        let bytes = try Data(contentsOf: tempURL)  // adr-0018-ok: phone's own temp recording (scratch), not manuscript
         try io.coordinatedWrite(at: destURL) { url in
             try bytes.write(to: url)
         }

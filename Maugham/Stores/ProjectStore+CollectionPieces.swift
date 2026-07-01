@@ -109,7 +109,7 @@ extension ProjectStore {
             throw ProjectStoreError.fileSystemError(
                 "Selected folder is not a Maugham project: \(targetURL.path)")
         }
-        let data = try Data(contentsOf: targetManifestURL)
+        let data = try Data(contentsOf: targetManifestURL)  // adr-0018-ok: piece project manifest JSON read, not manuscript
         // Respect the schemaVersion gate (ADR 0015): don't add a reference to a
         // project written by a newer Maugham this build can't fully read.
         let targetManifest: ProjectManifest

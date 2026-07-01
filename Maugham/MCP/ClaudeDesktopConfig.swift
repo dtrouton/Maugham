@@ -24,7 +24,7 @@ public enum ClaudeDesktopConfig {
         serverKey: String = BuildVariant.current.mcpServerKey
     ) -> State {
         guard FileManager.default.fileExists(atPath: configURL.path) else { return .missing }
-        guard let data = try? Data(contentsOf: configURL) else { return .corrupt }
+        guard let data = try? Data(contentsOf: configURL) else { return .corrupt }  // adr-0018-ok: Claude Desktop config JSON read, not manuscript
         guard let any = try? JSONSerialization.jsonObject(with: data),
               let dict = any as? [String: Any] else { return .corrupt }
         let servers = dict["mcpServers"] as? [String: Any] ?? [:]
@@ -58,7 +58,7 @@ extension ClaudeDesktopConfig {
 
         var dict: [String: Any] = [:]
         if FileManager.default.fileExists(atPath: configURL.path) {
-            let data = try Data(contentsOf: configURL)
+            let data = try Data(contentsOf: configURL)  // adr-0018-ok: Claude Desktop config JSON read, not manuscript
             if data.isEmpty {
                 dict = [:]
             } else if let any = try? JSONSerialization.jsonObject(with: data),
@@ -88,7 +88,7 @@ extension ClaudeDesktopConfig {
         configURL: URL,
         serverKey: String = BuildVariant.current.mcpServerKey
     ) throws {
-        let data = try Data(contentsOf: configURL)
+        let data = try Data(contentsOf: configURL)  // adr-0018-ok: Claude Desktop config JSON read, not manuscript
         guard let any = try? JSONSerialization.jsonObject(with: data),
               var dict = any as? [String: Any] else {
             throw MergeError.existingConfigCorrupt

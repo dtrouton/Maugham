@@ -97,7 +97,7 @@ public final class PendingBuffer {
     public func loadFromDisk() async throws {
         let url = file()
         guard FileManager.default.fileExists(atPath: url.path),
-              let data = try? Data(contentsOf: url),
+              let data = try? Data(contentsOf: url),  // adr-0018-ok: PendingBuffer's own pending file, not a manuscript
               let state = try? JSONDecoder().decode(DiskState.self, from: data) else { return }
         seq = state.sequence
         for change in state.changes { buffer[change.paragraphId] = change }
