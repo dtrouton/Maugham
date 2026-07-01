@@ -28,6 +28,14 @@ import MaughamCore
 /// no longer needed to reconstruct ordering. Legacy line-delimited JSONL pending
 /// files (a bare `Op.ParagraphChange` per line) fail to decode as the wrapper
 /// object and are silently ignored = abandoned-by-design, per the contract above.
+///
+/// `sequence` is durable *independently* of `changes` (F1): an ordering-only
+/// edit (paragraph delete / pure reorder) records NO change here but autosave
+/// stamps the new order via `setSequence`, so a `{sequence, changes: []}`
+/// pending file is both (1) the normal post-quit state and (2) the crash-recovery
+/// carrier for an un-bursted reorder. `Document.load` folds trigger (2) into a
+/// real op only when this `sequence` diverges from the op-log-derived order —
+/// see `Document+Load`'s difference-check guard.
 @MainActor
 public final class PendingBuffer {
     public let projectURL: URL

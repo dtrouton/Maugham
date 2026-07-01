@@ -216,17 +216,39 @@ extension Document {
             }
         }
 
-        // Crash recovery: fold any pending changes into a real op.
+        // Crash recovery: fold the pending buffer into a real op. Two triggers:
+        //
+        //   1. pending has un-bursted CHANGES (the classic text-edit path).
+        //   2. pending has NO changes but carries a durable `sequence` that
+        //      DIFFERS from the op-log-derived sequence — an ordering-only edit
+        //      (paragraph delete / pure reorder) that recorded nothing in the
+        //      buffer but was stamped onto `pending.sequence` by autosave's
+        //      `setSequence` before the crash (F1). Without this the ordering
+        //      change was silently dropped and the deleted paragraph resurrected.
+        //
+        // The difference-check on trigger 2 is LOAD-BEARING: `performAutosave`
+        // stamps `pending.setSequence` on every 750ms flush and `close()`
+        // re-creates the pending file after the burst flush, so a
+        // `{sequence, changes: []}` pending file is the NORMAL post-quit state.
+        // Folding it unconditionally would append a junk op on every launch;
+        // folding ONLY when the sequences diverge appends exactly one recovery
+        // op for a genuinely-unbursted ordering change and nothing for a clean
+        // quit. A legacy pending file (pre-ADR-0019) loads `sequence == []` → the
+        // second trigger's non-empty guard never fires → behavior unchanged.
+        //
         // Order comes from the pending buffer (durable, op-log-domain) — NOT the
-        // .md (ADR 0019). Autosave stamps `pending.sequence` with the live order
-        // before each flush, so the un-bursted changes recover their paragraph
-        // ordering without consulting the .md's parsed anchors. A legacy pending
-        // file (pre-ADR-0019, no sequence) loads `sequence == []` → we fall back
-        // to `sequence: nil`, which the deriver reads as "ordering unchanged",
-        // carrying the op log's own last-explicit sequence forward.
+        // .md (ADR 0019). A legacy pending file with un-bursted changes but no
+        // sequence loads `sequence == []` → we fall back to `sequence: nil`,
+        // which the deriver reads as "ordering unchanged", carrying the op log's
+        // own last-explicit sequence forward.
         // NOTE (growth spec §4.2): this is a recovery op — correctness over
         // bytes. Keyframing applies only to flushBurstNow.
-        if !pending.isEmpty() {
+        let derivedSequenceBeforeRecovery =
+            Deriver.deriveWithSequenceFallback(ops: ops).sequence
+        let orderingOnlyDivergence = pending.isEmpty()
+            && !pending.sequence.isEmpty
+            && pending.sequence != derivedSequenceBeforeRecovery
+        if !pending.isEmpty() || orderingOnlyDivergence {
             let recoveredSequence = pending.sequence
             let recovered = Op(
                 opId: ULID.generate(), docId: docId, at: Date(),

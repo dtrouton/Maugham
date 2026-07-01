@@ -666,8 +666,19 @@ public final class Document {
 
     public func flushBurstNow() async throws {
         let hadPending = !pending.isEmpty()
-        if hadPending {
-            let changes = pending.snapshot()
+        // Emit an op when there are pending TEXT changes OR an ordering-only
+        // edit that recorded nothing in the pending buffer but flipped
+        // `_orderingDirty` (a paragraph DELETE or a pure REORDER — `setFullText`
+        // only records changes for paragraphs still present, so a deletion
+        // leaves `pending` empty). Without the second arm, a delete-then-quit
+        // emitted no op at all: the ordering change never reached the op log,
+        // so the next load re-derived the pre-delete order and the paragraph
+        // resurrected (F1). The sequence-only burst (`changes: []`, explicit
+        // `sequence`) is that change's durable record — for this session and
+        // for cross-device sync.
+        let emitOrderingOnly = !hadPending && _orderingDirty
+        if hadPending || emitOrderingOnly {
+            let changes = hadPending ? pending.snapshot() : []
             // Keyframed sequence emission (ADR 0016 / growth spec §4.1):
             // attach `sequence` only when the ordering changed since the last
             // sequence-bearing burst (`_orderingDirty`, which starts true so
@@ -675,7 +686,9 @@ public final class Document {
             // `sequenceKeyframeInterval`th burst as a robustness floor.
             // Otherwise emit nil — the deriver carries the last explicit
             // sequence forward (`Deriver.derive`), so cross-Mac merge still
-            // sees every ordering change.
+            // sees every ordering change. An ordering-only burst only reaches
+            // here with `_orderingDirty` set, so `emitSequence` is always true
+            // for it — the sequence IS its payload.
             let emitSequence = _orderingDirty
                 || _burstsSinceKeyframe >= Self.sequenceKeyframeInterval
             let op = Op(
@@ -697,11 +710,16 @@ public final class Document {
             } else {
                 _burstsSinceKeyframe += 1
             }
+            // `clear()` is a no-op on the buffer for the ordering-only arm
+            // (already empty) but also resets the durable `seq` + removes the
+            // on-disk pending file, so the freshly-emitted order isn't left
+            // behind as a phantom `{sequence, changes: []}` recovery candidate.
             try await pending.clear()
             // Inline tasks are derived from paragraph text — any pending
-            // typing change may have added/removed/toggled a `- [ ]` line.
-            // Invalidate unconditionally on burst; the cache rebuilds lazily
-            // on the next `tasks(filter:)` read.
+            // typing change may have added/removed/toggled a `- [ ]` line, and
+            // a deleted paragraph can carry inline tasks too. Invalidate
+            // unconditionally on burst; the cache rebuilds lazily on the next
+            // `tasks(filter:)` read.
             invalidateTasksCache()
         }
 
