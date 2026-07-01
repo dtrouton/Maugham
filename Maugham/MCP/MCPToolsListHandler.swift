@@ -13,7 +13,16 @@ public enum MCPToolsListHandler {
 
     public static func handle(paramsJSON: Data?) async throws -> Data {
         var tools: [AnyJSON] = []
-        for tool in MCPToolCatalog.all {
+        // Advertise the production catalog plus — in a dev build only — the
+        // dev-only test tools. They're registered on the router for dispatch,
+        // but MCP clients discover tools through THIS response, so they must be
+        // listed here too or they're invisible/uncallable. (Absent from stable:
+        // TestMCPToolCatalog is `#if MAUGHAM_DEV_BUILD`-only.)
+        var catalog = MCPToolCatalog.all
+        #if MAUGHAM_DEV_BUILD
+        catalog += TestMCPToolCatalog.all
+        #endif
+        for tool in catalog {
             let schemaAny = try JSONDecoder().decode(
                 AnyJSON.self, from: Data(tool.inputSchemaJSON.utf8))
             tools.append(.object([

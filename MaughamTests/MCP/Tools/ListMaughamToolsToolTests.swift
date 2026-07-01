@@ -5,6 +5,21 @@ import MaughamCore
 @MainActor
 final class ListMaughamToolsToolTests: XCTestCase {
 
+    /// The catalog size `list_maugham_tools` reports. Dev builds also advertise
+    /// the dev-only `test_` tools (so Claude Code can discover them), so the
+    /// expected total is production + test on dev. Mirrors the tool's own union.
+    private var expectedCatalogCount: Int {
+        // Runtime check (BuildVariant.current), NOT `#if MAUGHAM_DEV_BUILD`: the
+        // tool lives in the app target (dev flag set in Debug), but this test
+        // file's own compile flags may differ, so a #if here would compute the
+        // wrong total. BuildVariant.current is `.dev` in test runs.
+        var n = MCPToolCatalog.all.count
+        if BuildVariant.current == .dev {
+            n += TestMCPToolCatalog.all.count
+        }
+        return n
+    }
+
     // MARK: - Full catalog
 
     func test_listMaughamTools_returnsFullCatalog() async throws {
@@ -17,7 +32,7 @@ final class ListMaughamToolsToolTests: XCTestCase {
         let toolCount = server["tool_count"] as! Int
 
         // Unfiltered: tools == server.tool_count == catalog size == returned.
-        let catalogCount = MCPToolCatalog.all.count
+        let catalogCount = expectedCatalogCount
         XCTAssertEqual(toolCount, catalogCount,
                        "server.tool_count must equal the live catalog size")
         XCTAssertEqual(tools.count, catalogCount,
@@ -55,7 +70,7 @@ final class ListMaughamToolsToolTests: XCTestCase {
                        "returned must match the filtered tools array length")
 
         // server.tool_count must still be the TOTAL catalog size, not the filtered count.
-        XCTAssertEqual(toolCount, MCPToolCatalog.all.count,
+        XCTAssertEqual(toolCount, expectedCatalogCount,
                        "server.tool_count must be the full total regardless of filter")
 
         // Every returned name must contain "piece".

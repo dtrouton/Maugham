@@ -36,6 +36,14 @@ struct MaughamApp: App {
         ) { _ in
             NotificationCenter.default.post(
                 name: .maughamAppWillTerminate, object: nil)
+            // Synchronously remove the MCP socket file. The async server stop()
+            // (via .maughamAppWillTerminate → WelcomeHost) often does NOT run
+            // before macOS kills the process on quit, which leaves a stale
+            // socket that makes the next launch look "not running" until its
+            // own unlink-before-bind clears it (and confuses a reconnecting
+            // bridge). unlink() is a fast syscall and willTerminate is on the
+            // main thread, so do it here, guaranteed, before we die.
+            unlink(BuildVariant.current.mcpSocketPath)
             // If a verified update was staged and the user dismissed the toast,
             // apply it silently now (no relaunch). willTerminate runs on the main
             // thread, so assumeIsolated is safe.
@@ -312,6 +320,11 @@ struct MaughamApp: App {
         // Adding a tool: implement MCPTool on it and add to MCPToolCatalog.all.
         MCPToolCatalog.register(router: router, registry: registry)
 
+        #if MAUGHAM_DEV_BUILD
+        // Dev-only privileged test tools for Claude Code (absent from stable).
+        TestMCPToolCatalog.register(router: router, registry: registry)
+        #endif
+
         // MCP protocol layer — Claude Desktop and other MCP clients require these.
         router.register(method: MCPInitializeHandler.method) { params in
             try await MCPInitializeHandler.handle(paramsJSON: params)
@@ -475,6 +488,15 @@ private struct WelcomeHost: View {
         .onReceive(NotificationCenter.default.publisher(for: .maughamShowHelp)) { _ in
             openWindow(id: "help")
         }
+        #if MAUGHAM_DEV_BUILD
+        // Dev-only: the test-MCP drive tools post this; reuse the existing
+        // open(_:) helper (records in Recents + opens the project window).
+        .onReceive(NotificationCenter.default.publisher(
+            for: .maughamTestOpenProject)) { note in
+            guard let url = note.userInfo?["url"] as? URL else { return }
+            open(url)
+        }
+        #endif
     }
 
     @MainActor private func consumeOnboardingIntent() {

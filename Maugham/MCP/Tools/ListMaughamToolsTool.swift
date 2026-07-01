@@ -27,7 +27,13 @@ public enum ListMaughamToolsTool: MCPTool {
             .nameContains?
             .lowercased()
 
-        let all = MCPToolCatalog.all
+        // Production catalog plus — in a dev build only — the dev-only test
+        // tools, so this authoritative listing matches what tools/list
+        // advertises on the dev socket. (Absent from stable.)
+        var all = MCPToolCatalog.all
+        #if MAUGHAM_DEV_BUILD
+        all += TestMCPToolCatalog.all
+        #endif
         var tools: [[String: Any]] = all.map { ["name": $0.method, "description": $0.description] }
         if let f = filter, !f.isEmpty {
             tools = tools.filter { (($0["name"] as? String) ?? "").lowercased().contains(f) }

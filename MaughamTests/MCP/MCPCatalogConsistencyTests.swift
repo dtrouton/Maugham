@@ -18,10 +18,15 @@ final class MCPCatalogConsistencyTests: XCTestCase {
         let data = try await MCPToolsListHandler.handle(paramsJSON: nil)
         let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
         let tools = json["tools"] as! [[String: Any]]
-        let advertisedMethods = Set(tools.compactMap { $0["name"] as? String })
+        // Dev builds also advertise the dev-only `test_` tools; exclude them so
+        // this pins the PRODUCTION catalog ↔ production advertisement invariant.
+        // The dev tools' own catalog↔tools/list contract is covered by
+        // TestMCPCatalogConsistencyTests.test_discoverySurfaces_advertiseTestTools_inDevBuild.
+        let advertisedMethods = Set(
+            tools.compactMap { $0["name"] as? String }.filter { !$0.hasPrefix("test_") })
 
         XCTAssertEqual(catalogMethods, advertisedMethods,
-                       "tools/list and MCPToolCatalog.all must list the same methods")
+                       "tools/list and MCPToolCatalog.all must list the same (production) methods")
     }
 
     // MARK: - Catalog ↔ router

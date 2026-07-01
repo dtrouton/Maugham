@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "maugham-test": {
+      "command": "./scripts/maugham-test-mcp.sh",
+      "args": []
+    }
+  }
+}

@@ -70,6 +70,62 @@ The in-app MCP server: tool registration, JSON-RPC handling, the read/search/dis
 - `read_inbox_entry` — read the content of a single inbox entry
 - `promote_inbox_entry` — promote an inbox entry to a manuscript document
 
+## Dev-only Test MCP (`Maugham/MCP/Test/`)
+
+A **separate** catalog, `TestMCPToolCatalog`, that mirrors `MCPToolCatalog`'s shape
+(`register(router:registry:)`) but is registered onto the **same dev-build Unix socket**
+only inside `#if MAUGHAM_DEV_BUILD` in `MaughamApp.registerTools` — absent from the stable
+binary entirely (enforced by `TripwireGrepTests.test_testMCPCatalog_registeredOnlyUnderDevFlag`).
+It exists for **Claude Code**, not Claude Desktop, and is not part of the production 44-tool
+count above — the "Tool catalogue (44)" heading is unaffected by these tools.
+
+Purpose: let Claude Code drive the full create → edit → autosave → checkpoint → quit →
+relaunch → verify loop end to end without the owner acting as a human tester, so the
+canonical smoke's real value — verifying *invisible* internal state (op log, autosave,
+cursor restore, checkpoints, clean `.md` on disk) — can run unattended. It deliberately does
+**not** cover UI fidelity (typing feel, rendering, focus-dim); that stays a manual, eyes-on
+pass. See `docs/superpowers/specs/2026-07-01-test-mcp-design.md` and ADR 0020.
+
+Safety model — mutation is fenced to a throwaway workspace, never the owner's real projects:
+- **Compile gate:** the whole catalog and its tool implementations only exist in dev builds.
+- **Runtime guard:** every mutating tool resolves its target project URL through
+  `TestWorkspace.require(url:)` (MaughamCore), which throws unless the path is under
+  `~/Library/Application Support/Maugham Dev/TestWorkspace/`. Read-only inspect tools are not
+  workspace-restricted.
+
+Driving semantics: `test_apply_edit` routes through the **same** `Document` op-recording entry
+point the editor uses (`setFullText` + `recordEditorTextWrite`, mirroring `EditorHost`) — not a
+parallel mutation path, not faked keystrokes into `NSTextView`. This keeps a single manuscript
+write path (tripwires 6/7) and exercises the real op log → materializer → autosave → clean
+`.md` pipeline.
+
+Connection: a repo-root `.mcp.json` plus `scripts/maugham-test-mcp.sh`, which points
+`MAUGHAM_MCP_SOCKET` at the dev socket and execs the existing `maugham-mcp` bridge against the
+built `Maugham Dev.app`, surfacing the tools to Claude Code as `mcp__maugham_test__*`.
+
+**Drive** (mutating, `TestWorkspace`-fenced, dev-only):
+- `test_create_project` — create + open a project under TestWorkspace via the real
+  `Document.load`→`Bootstrap` path
+- `test_open_project` — open an existing TestWorkspace project
+- `test_apply_edit` — insert/edit/delete a paragraph via the real `Document` edit API
+- `test_checkpoint` — fire a labeled project-scope checkpoint
+- `test_reset_workspace` — delete everything under (and only under) TestWorkspace
+
+**Lifecycle:**
+- `test_ping` — cheap readiness probe; the loop polls it after relaunch to absorb the
+  cold-launch window before asserting
+- `test_flush_autosave` — force the 750ms debounced write to happen now
+- `test_quit` — acks ("terminating") first, then flushes and cleanly terminates ~100ms later
+
+**Inspect** (read-only, not workspace-fenced):
+- `test_dump_document` — in-memory `Document`: paragraphs by `sequence`, `¶id`+text, cursor,
+  `lastDiskEcho`, pending sweep
+- `test_dump_oplog` — raw ops for a doc: sequence, kind, paragraphId, payload
+- `test_autosave_status` — pending debounced write / echo state
+- `test_pending_buffer` — `PendingBuffer` durable sequence (crash-recovery / clean-`.md`
+  domain, ADR 0019)
+- `test_list_checkpoints` — checkpoints + metadata
+
 ## Layout
 
 - `MCPServer.swift` — Unix socket server, connection lifecycle, SIGPIPE handling. **SIGPIPE handling is idempotent and required** — don't simplify it away.
