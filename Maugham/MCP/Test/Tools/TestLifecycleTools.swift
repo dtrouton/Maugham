@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import MaughamCore
 
@@ -56,5 +57,53 @@ public enum TestCheckpointTool: MCPTool {
             activeDocument: doc)
         let all = try await CheckpointStore(projectURL: entry.url).load()
         return try JSONEncoder().encode(Result(label: cp.label, checkpoint_count: all.count))
+    }
+}
+
+/// `test_reset_workspace` — dev-only lifecycle tool. Deletes everything under
+/// `TestWorkspace.root` (and recreates an empty root). `TestWorkspace.reset()`
+/// itself is fenced to only ever touch paths under the root, so this can never
+/// reach the writer's real manuscripts.
+public enum TestResetWorkspaceTool: MCPTool {
+    public struct Result: Codable { public let ok: Bool }
+    public static let method = "test_reset_workspace"
+    public static let description = "Dev-only: delete everything under the test workspace root (only paths under the root)."
+    public static let inputSchemaJSON = #"{"type":"object","properties":{}}"#
+
+    @MainActor
+    public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
+        try TestWorkspace.reset()
+        return try JSONEncoder().encode(Result(ok: true))
+    }
+}
+
+/// `test_quit` — dev-only lifecycle tool. Acks immediately, then flushes every
+/// open doc's pending burst + autosave (so the manuscript is durable) and
+/// terminates the app on a short delay so this response reaches the client
+/// before the socket closes. NOT unit-tested: calling `NSApp.terminate` would
+/// kill the XCTest host process (`MaughamTests` runs injected into the live
+/// `Maugham.app` via `BUNDLE_LOADER`/`TEST_HOST`). Verified in the manual
+/// smoke instead. `TestMCPCatalogConsistencyTests.test_allTestTools_areDispatchable`
+/// explicitly skips this tool for the same reason.
+public enum TestQuitTool: MCPTool {
+    public struct Result: Codable { public let terminating: Bool }
+    public static let method = "test_quit"
+    public static let description = "Dev-only: ack, then flush + clean-terminate the app (~100ms later). The socket close is the expected signal."
+    public static let inputSchemaJSON = #"{"type":"object","properties":{}}"#
+
+    @MainActor
+    public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
+        // Flush every open doc so the manuscript is durable, then terminate on
+        // a short delay so this response reaches the client first.
+        for e in registry.list() {
+            for doc in e.store.documentStore?.allOpenDocuments() ?? [] {
+                try? await doc.flushBurstNow()
+                try? await doc.performAutosave()
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            NSApp.terminate(nil)
+        }
+        return try JSONEncoder().encode(Result(terminating: true))
     }
 }

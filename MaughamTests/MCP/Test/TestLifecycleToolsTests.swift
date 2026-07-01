@@ -47,4 +47,18 @@ final class TestLifecycleToolsTests: XCTestCase {
         XCTAssertEqual(result.label, "My Checkpoint")
         XCTAssertGreaterThanOrEqual(result.checkpoint_count, 1)
     }
+
+    // test_quit is NOT unit-tested here: it terminates the host process
+    // (MaughamTests runs injected into the live Maugham.app), which would
+    // kill the test runner. It's verified in the manual smoke instead.
+
+    @MainActor
+    func test_resetWorkspace_emptiesRoot() async throws {
+        let junk = TestWorkspace.root.appendingPathComponent("junk.txt")
+        try? FileManager.default.createDirectory(at: TestWorkspace.root, withIntermediateDirectories: true)
+        try "x".write(to: junk, atomically: true, encoding: .utf8)
+        _ = try await TestResetWorkspaceTool.handle(paramsJSON: nil, registry: ProjectRegistry())
+        XCTAssertFalse(FileManager.default.fileExists(atPath: junk.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: TestWorkspace.root.path))
+    }
 }

@@ -17,6 +17,12 @@ final class TestMCPCatalogConsistencyTests: XCTestCase {
         let router = MCPRouter()
         TestMCPToolCatalog.register(router: router, registry: registry)
         for tool in TestMCPToolCatalog.all {
+            // test_quit takes no params, so dispatching it here would actually
+            // run to completion and schedule NSApp.terminate — killing the
+            // XCTest host process (MaughamTests runs injected into the live
+            // Maugham.app via BUNDLE_LOADER/TEST_HOST). It's intentionally
+            // unverifiable by automated dispatch; see the manual smoke.
+            if tool.method == TestQuitTool.method { continue }
             do { _ = try await router.dispatch(method: tool.method, paramsJSON: nil) }
             catch MCPRouterError.methodNotFound(let m) { XCTFail("\(m) not registered") }
             catch { /* param/state errors fine */ }
