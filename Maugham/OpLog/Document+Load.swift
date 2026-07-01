@@ -3,116 +3,28 @@ import MaughamCore
 
 extension Document {
 
-    /// Reconcile the op-log-derived state with the parsed on-disk `.md`,
-    /// applying the four load-time recovery branches that decide what the
-    /// writer sees on open. Pure and self-contained: inputs are the derived
-    /// op-log state + parsed paragraphs, output is the final state fed into
-    /// the `Document` init. Lifted verbatim out of `load` so it is directly
-    /// testable; operates on the post-crash-recovery derived state.
+    /// Drop orphan paragraphs from the op-log-derived state: entries in
+    /// `paragraphs` whose ids the current `sequence` no longer references.
+    /// The deriver's `typing_burst` fold updates paragraph entries but never
+    /// deletes them, so a paragraph the writer split / merged away in an
+    /// earlier session lingers in the accumulator forever. Left in place these
+    /// orphans poison the inline-task deriver (it walks every paragraph, not
+    /// just `sequence`) — surfacing phantom checkbox rows in the Tasks pane
+    /// with no matching paragraph in the `.md`. Pure and self-contained so it
+    /// stays directly testable; operates on the post-crash-recovery derived
+    /// state.
+    ///
+    /// Pre-ADR-0019 this carried three additional branches that rebuilt
+    /// content / order from the parsed on-disk `.md`'s anchors (empty-derived
+    /// seeding, empty-sequence rebuild, stale-sequence recovery). ADR 0019 made
+    /// the op log authoritative — `Document.load` derives content + order from
+    /// it alone via `deriveWithSequenceFallback`, never the `.md` — and F2's
+    /// fix seeds the op log at Bootstrap for the one state (anchored file +
+    /// empty log) branch 1 covered, so those branches were dead and removed.
     internal nonisolated static func reconcile(
-        derived: Deriver.DerivedState,
-        parsed: [ParsedParagraph]
+        derived: Deriver.DerivedState
     ) -> Deriver.DerivedState {
         var initial = derived
-        // Two recovery paths from non-canonical op-log states:
-        //
-        // 1. Empty paragraphs + tagged on-disk file: `Bootstrap.run`
-        //    short-circuited with `allHaveIds` so no bootstrap op was
-        //    emitted. Seed paragraphs + sequence from the parsed file.
-        //
-        // 2. Non-empty paragraphs but empty sequence: an older typing_burst
-        //    landed without populating its `sequence` field (predates the
-        //    fix that always captures sequence on burst). The deriver
-        //    leaves sequence=[] in that case, which collapses displayText
-        //    to "" and stops the doc rendering. Recover the sequence from
-        //    the parsed on-disk file's id order — that's the source of
-        //    truth for paragraph ordering anyway.
-        if initial.paragraphs.isEmpty && parsed.contains(where: { $0.id != nil }) {
-            var paragraphs: [String: String] = [:]
-            var sequence: [String] = []
-            for p in parsed {
-                guard let id = p.id else { continue }
-                paragraphs[id] = p.text
-                sequence.append(id)
-            }
-            initial = Deriver.DerivedState(paragraphs: paragraphs, sequence: sequence)
-        } else if initial.sequence.isEmpty && !initial.paragraphs.isEmpty {
-            // Legacy log: typing_burst captured changes but not the
-            // `sequence` field. The on-disk .md is the more current source
-            // for both paragraph text AND order — autosave runs faster
-            // than the burst scheduler so the .md reflects edits the op
-            // log hasn't seen yet (e.g., user split a paragraph by adding
-            // blank lines; autosave wrote the new anchors but the typing
-            // burst hasn't fired yet so the new paragraph_ids aren't in
-            // initial.paragraphs).
-            //
-            // Trust parsed entirely when it has anchored paragraphs.
-            // Without this, addAnnotation for a freshly-minted paragraph
-            // id reads paragraphs[id]=nil and persists prior_text=nil,
-            // which silently breaks the staleness check for every
-            // markdown annotation on a legacy doc.
-            var freshParagraphs: [String: String] = [:]
-            var freshSequence: [String] = []
-            for p in parsed {
-                guard let id = p.id else { continue }
-                freshParagraphs[id] = p.text
-                freshSequence.append(id)
-            }
-            if !freshSequence.isEmpty {
-                initial = Deriver.DerivedState(
-                    paragraphs: freshParagraphs, sequence: freshSequence)
-            } else {
-                // .md has no anchored content — fall back to whatever
-                // the op log gave us so the doc still renders.
-                initial = Deriver.DerivedState(
-                    paragraphs: initial.paragraphs,
-                    sequence: Array(initial.paragraphs.keys))
-            }
-        }
-
-        // 3. Stale-sequence recovery. The op log's last explicit sequence
-        //    may predate paragraph splits / inserts that autosave wrote
-        //    to .md but the typing burst never captured (e.g., crash
-        //    before flush, or the legacy crash-recovery path above prior
-        //    to its sequence fix). When the parsed .md contains anchored
-        //    paragraph ids that are NOT in `initial.sequence`, the .md is
-        //    the more current source — trust its ordering.
-        //
-        //    Also drop orphan entries from `paragraphs` whose ids the
-        //    new (parsed) sequence doesn't reference. Leaving them in
-        //    place pollutes `tasks(filter:)` (the deriver walks every
-        //    paragraph in `paragraphs`, not just those in `sequence`)
-        //    with stale inline-task derivations.
-        let parsedIds = parsed.compactMap(\.id)
-        if !parsedIds.isEmpty {
-            let parsedIdSet = Set(parsedIds)
-            let sequenceIdSet = Set(initial.sequence)
-            let parsedHasIdsNotInSequence = !parsedIdSet.isSubset(of: sequenceIdSet)
-            let sequenceHasIdsNotInParsed = !sequenceIdSet.isSubset(of: parsedIdSet)
-            if parsedHasIdsNotInSequence || sequenceHasIdsNotInParsed {
-                var freshParagraphs: [String: String] = [:]
-                for p in parsed {
-                    guard let id = p.id else { continue }
-                    // Prefer the op log's text if the op log knows this id
-                    // (it may carry edits autosave hasn't redrawn yet);
-                    // fall back to the parsed text otherwise.
-                    freshParagraphs[id] = initial.paragraphs[id] ?? p.text
-                }
-                initial = Deriver.DerivedState(
-                    paragraphs: freshParagraphs, sequence: parsedIds)
-            }
-        }
-
-        // 4. Orphan-paragraph drop. Even when sequence and parsed agree,
-        //    `paragraphs` can still carry entries for ids the writer
-        //    split / merged away in earlier sessions (typing_burst doesn't
-        //    delete entries from the deriver's accumulator, only updates
-        //    them; once a paragraph_id is dropped from `sequence` its
-        //    last-known text lingers forever in the in-memory map).
-        //    These orphans poison the inline-task deriver (it walks every
-        //    paragraph, not just sequence) — surfacing phantom checkbox
-        //    rows in the Tasks pane that have no matching paragraph in
-        //    the .md. Restrict `paragraphs` to keys in `sequence`.
         if !initial.sequence.isEmpty {
             let sequenceIdSet = Set(initial.sequence)
             let paragraphsHasOrphans = initial.paragraphs.keys.contains {
@@ -263,16 +175,12 @@ extension Document {
         // ADR 0019: content + order come ONLY from the op log, never from the
         // `.md`'s anchors. `deriveWithSequenceFallback` synthesises a sequence
         // from first-appearance order for legacy logs whose typing bursts
-        // predate the always-capture-sequence fix (replacing the old on-disk
-        // `.md` recovery). We still route through `reconcile` — but with an
-        // empty `parsed` so its `.md`-anchor-join branches (1–3) are inert —
-        // to preserve its op-log-only branch 4: dropping orphan paragraphs
-        // (ids in the accumulator but not in `sequence`) so the inline-task
-        // deriver doesn't surface phantom rows. The `.md` is still ANCHORED on
-        // disk at this stage (Task 3 makes it clean); passing `parsed: []`
-        // ensures load ignores those anchors for content/order today.
+        // predate the always-capture-sequence fix. `reconcile` then drops orphan
+        // paragraphs (ids in the accumulator but not in `sequence`) so the
+        // inline-task deriver doesn't surface phantom rows. The `.md` on disk is
+        // clean (ADR 0019) and plays no part in content or order.
         let initial = Document.reconcile(
-            derived: Deriver.deriveWithSequenceFallback(ops: ops), parsed: [])
+            derived: Deriver.deriveWithSequenceFallback(ops: ops))
         let lastWritten = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
         let initialEcho = EchoState.initialLoad(bytes: lastWritten)
 

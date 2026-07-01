@@ -203,8 +203,8 @@ final class SequenceKeyframingTests: XCTestCase {
                        "A's text edit must still apply")
     }
 
-    // T5 — spec §4.4: fresh keyframed log can't present
-    // empty-sequence-with-paragraphs, so reconcile()'s legacy branch is inert.
+    // T5 — spec §4.4: a fresh keyframed log always derives a non-empty
+    // sequence, so nothing forces the doc to render empty on load.
     func test_freshLog_neverTriggersEmptySequenceRecovery() async throws {
         let doc = try await makeDoc()
         let id = doc.sequence[0]
@@ -222,13 +222,11 @@ final class SequenceKeyframingTests: XCTestCase {
                        "keyframed fresh log must never derive an empty sequence")
         XCTAssertFalse(derived.paragraphs.isEmpty)
 
-        // And reconcile() must treat that derived state as canonical (the
-        // branch-2 trigger `sequence.isEmpty && !paragraphs.isEmpty` is false).
-        let parsedText = try String(contentsOf: doc.url, encoding: .utf8)
-        let reconciled = Document.reconcile(
-            derived: derived, parsed: ParagraphParser.parse(parsedText))
+        // And reconcile() must treat that derived state as canonical: no orphan
+        // paragraphs to drop, so sequence passes through unchanged.
+        let reconciled = Document.reconcile(derived: derived)
         XCTAssertEqual(reconciled.sequence, derived.sequence,
-                       "legacy .md-recovery must not rewrite a keyframed log's ordering")
+                       "reconcile must not rewrite a keyframed log's ordering")
 
         // End-to-end: a fresh load shows the edited text.
         let reloaded = try await Document.load(

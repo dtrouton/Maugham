@@ -2,68 +2,45 @@ import XCTest
 @testable import Maugham
 import MaughamCore
 
-/// Pins the four load-time recovery branches lifted out of `Document.load`
-/// into the pure `Document.reconcile(derived:parsed:)` function. These cross
-/// the .md ↔ op-log boundary, so ids use the 4-char restricted alphabet
-/// (`0123456789abcdefghjkmnpqrstvwxyz`, no i/l/o/u).
+/// Pins the op-log-only orphan-drop that `Document.reconcile(derived:)` applies
+/// after load derives state. Crosses the .md ↔ op-log boundary, so ids use the
+/// 4-char restricted alphabet (`0123456789abcdefghjkmnpqrstvwxyz`, no i/l/o/u).
+///
+/// (Pre-ADR-0019 `reconcile` also carried three `.md`-anchor recovery branches
+/// that rebuilt content/order from the parsed on-disk file. ADR 0019 made the
+/// op log authoritative and F2's Bootstrap fix seeds the empty-log case, so
+/// those branches were removed; only the orphan-drop remains.)
 final class DocumentReconcileTests: XCTestCase {
 
-    private func parsed(_ pairs: [(String?, String)]) -> [ParsedParagraph] {
-        pairs.map { ParsedParagraph(id: $0.0, text: $0.1) }
-    }
-
-    // Branch 1: empty derived state + tagged on-disk file → seed from parsed.
-    func test_branch1_emptyDerived_seedsFromParsedIds() {
-        let derived = Deriver.DerivedState(paragraphs: [:], sequence: [])
-        let out = Document.reconcile(
-            derived: derived, parsed: parsed([("aaaa", "Hello"), ("bbbb", "World")]))
-        XCTAssertEqual(out.sequence, ["aaaa", "bbbb"])
-        XCTAssertEqual(out.paragraphs["aaaa"], "Hello")
-        XCTAssertEqual(out.paragraphs["bbbb"], "World")
-    }
-
-    // Branch 2: non-empty paragraphs but empty sequence → rebuild from parsed.
-    func test_branch2_emptySequence_rebuildsFromParsed() {
-        let derived = Deriver.DerivedState(
-            paragraphs: ["aaaa": "stale"], sequence: [])
-        let out = Document.reconcile(
-            derived: derived, parsed: parsed([("aaaa", "fresh"), ("bbbb", "added")]))
-        XCTAssertEqual(out.sequence, ["aaaa", "bbbb"])
-        XCTAssertEqual(out.paragraphs["aaaa"], "fresh")
-        XCTAssertEqual(out.paragraphs["bbbb"], "added")
-    }
-
-    // Branch 2 fallback: empty sequence + parsed has no anchored ids →
-    // fall back to op-log paragraphs with their keys as the sequence.
-    func test_branch2_emptySequence_noParsedIds_fallsBackToOpLog() {
-        let derived = Deriver.DerivedState(
-            paragraphs: ["aaaa": "kept"], sequence: [])
-        let out = Document.reconcile(
-            derived: derived, parsed: parsed([(nil, "unanchored")]))
-        XCTAssertEqual(out.paragraphs["aaaa"], "kept")
-        XCTAssertEqual(out.sequence, ["aaaa"])
-    }
-
-    // Branch 3: parsed has ids not in sequence → trust parsed ordering,
-    // prefer op-log text per id where known.
-    func test_branch3_parsedHasNewIds_trustsParsedOrdering() {
-        let derived = Deriver.DerivedState(
-            paragraphs: ["aaaa": "old"], sequence: ["aaaa"])
-        let out = Document.reconcile(
-            derived: derived,
-            parsed: parsed([("aaaa", "old"), ("cccc", "new para")]))
-        XCTAssertEqual(out.sequence, ["aaaa", "cccc"])
-        XCTAssertEqual(out.paragraphs["aaaa"], "old")
-        XCTAssertEqual(out.paragraphs["cccc"], "new para")
-    }
-
-    // Branch 4: paragraphs carry an orphan id not in sequence → drop it.
-    func test_branch4_dropsOrphansNotInSequence() {
+    // Orphan drop: paragraphs carry an id not in sequence → drop it, so the
+    // inline-task deriver doesn't surface a phantom row for it.
+    func test_dropsOrphansNotInSequence() {
         let derived = Deriver.DerivedState(
             paragraphs: ["aaaa": "Hello", "zzzz": "orphan"], sequence: ["aaaa"])
-        let out = Document.reconcile(
-            derived: derived, parsed: parsed([("aaaa", "Hello")]))
+        let out = Document.reconcile(derived: derived)
         XCTAssertNil(out.paragraphs["zzzz"])
         XCTAssertEqual(Set(out.paragraphs.keys), Set(out.sequence))
+        XCTAssertEqual(out.sequence, ["aaaa"])
+        XCTAssertEqual(out.paragraphs["aaaa"], "Hello")
+    }
+
+    // No orphans: sequence and paragraphs already agree → state passes through
+    // unchanged.
+    func test_noOrphans_passesThrough() {
+        let derived = Deriver.DerivedState(
+            paragraphs: ["aaaa": "Hello", "bbbb": "World"],
+            sequence: ["aaaa", "bbbb"])
+        let out = Document.reconcile(derived: derived)
+        XCTAssertEqual(out.sequence, ["aaaa", "bbbb"])
+        XCTAssertEqual(out.paragraphs, ["aaaa": "Hello", "bbbb": "World"])
+    }
+
+    // Empty sequence: the orphan-drop is gated on a non-empty sequence, so an
+    // empty-sequence derived state passes through untouched.
+    func test_emptySequence_passesThrough() {
+        let derived = Deriver.DerivedState(paragraphs: [:], sequence: [])
+        let out = Document.reconcile(derived: derived)
+        XCTAssertTrue(out.paragraphs.isEmpty)
+        XCTAssertTrue(out.sequence.isEmpty)
     }
 }
