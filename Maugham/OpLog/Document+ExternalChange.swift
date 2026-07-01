@@ -15,7 +15,7 @@ extension Document {
         // the op-log truth over them — the edit is discarded; the op log is
         // untouched. Cross-device sync is unaffected (it flows through the op-log
         // merge in handleExternalLogChange, not the .md).
-        try writeConflictBackup(text: diskMd, kind: "discarded")
+        try Document.writeConflictBackup(forFileAt: url, text: diskMd, kind: "discarded")
         autosaveScheduler.schedule(())
         await autosaveScheduler.flush()
     }
@@ -86,23 +86,73 @@ extension Document {
         recomputeDisplayText()
     }
 
-    private func writeConflictBackup(text: String, kind: String) throws {
-        let projectURL = url.deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let conflictsDir = projectURL.appendingPathComponent(".maugham/conflicts")
+    // MARK: - Conflict backups (forensic snapshots of discarded / diverged bytes)
+
+    /// The `.maugham/conflicts/` directory for the project that contains `url`.
+    /// Resolves the project root via `resolveProjectURL` — which walks UP to the
+    /// manifest — so a Collection piece at `pieces/<NN>-<slug>/<file>.md` files
+    /// its backups under the PROJECT root, not the piece folder (F8). A fixed
+    /// two-level `deletingLastPathComponent` landed Collection backups in
+    /// `pieces/.maugham/conflicts/` where nothing ever looks.
+    static func conflictsDir(for url: URL) -> URL {
+        resolveProjectURL(for: url).appendingPathComponent(".maugham/conflicts")
+    }
+
+    /// Writes `text` as a forensic backup of the manuscript file `url` under
+    /// `<project>/.maugham/conflicts/<stem>-<kind>-<stamp>.<ext>`, returning the
+    /// URL written. The op log is untouched — this only preserves bytes about to
+    /// be discarded (a while-open external edit) or that diverged from op-log
+    /// truth while the app was closed (F4). Static so `Document.load` can call it
+    /// before a `Document` instance exists.
+    @discardableResult
+    static func writeConflictBackup(
+        forFileAt url: URL, text: String, kind: String, at date: Date = Date()
+    ) throws -> URL {
+        let conflictsDir = conflictsDir(for: url)
         try FileManager.default.createDirectory(
             at: conflictsDir, withIntermediateDirectories: true)
         let filename = url.lastPathComponent
         let stem = (filename as NSString).deletingPathExtension
         let ext = (filename as NSString).pathExtension
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let stamp = formatter.string(from: Date())
-            .replacingOccurrences(of: ":", with: "-")
+        let stamp = ISO8601DateFormatter.quarantineStamp(from: date)
         let backupName = ext.isEmpty
             ? "\(stem)-\(kind)-\(stamp)"
             : "\(stem)-\(kind)-\(stamp).\(ext)"
         let backupURL = conflictsDir.appendingPathComponent(backupName)
         try text.data(using: .utf8)?.write(to: backupURL, options: [.atomic])
+        return backupURL
+    }
+
+    /// The most-recently-written conflict backup for the manuscript file `url`
+    /// (any `kind`), or nil if none exists. Matched by the doc file's
+    /// `<stem>-…​.<ext>` naming — the `-` delimiter keeps `c1` from matching
+    /// `c10-…`. Used to dedup repeated snapshots of an unchanged divergent file.
+    static func newestConflictBackup(forFileAt url: URL) -> URL? {
+        let conflictsDir = conflictsDir(for: url)
+        let filename = url.lastPathComponent
+        let stem = (filename as NSString).deletingPathExtension
+        let ext = (filename as NSString).pathExtension
+        let prefix = "\(stem)-"
+        let suffix = ext.isEmpty ? "" : ".\(ext)"
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: conflictsDir,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]) else { return nil }
+        let matches = entries.filter { entry in
+            let name = entry.lastPathComponent
+            guard name.hasPrefix(prefix) else { return false }
+            // An extensionless doc must not match a candidate that carries an
+            // extension (e.g. `c1` should not dedup against `c1.md`).
+            return suffix.isEmpty
+                ? (name as NSString).pathExtension.isEmpty
+                : name.hasSuffix(suffix)
+        }
+        return matches.max { a, b in
+            let da = (try? a.resourceValues(forKeys: [.contentModificationDateKey]))?
+                .contentModificationDate ?? .distantPast
+            let db = (try? b.resourceValues(forKeys: [.contentModificationDateKey]))?
+                .contentModificationDate ?? .distantPast
+            return da < db
+        }
     }
 }

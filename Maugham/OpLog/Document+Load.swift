@@ -181,6 +181,40 @@ extension Document {
         // clean (ADR 0019) and plays no part in content or order.
         let initial = Document.reconcile(
             derived: Deriver.deriveWithSequenceFallback(ops: ops))
+
+        // F4: a file edited while Maugham was CLOSED is otherwise silently
+        // overwritten by the first autosave, with no `.maugham/conflicts/`
+        // trace — the backup-on-discard net (`handleExternalDiskChange`) only
+        // covers live presenter events. When a log already existed (so this is
+        // NOT the fresh-bootstrap path, whose `.md` IS the seed) and the
+        // on-disk display form diverges from the op-log-derived display form,
+        // snapshot the on-disk bytes forensically BEFORE the `Document` — and
+        // its autosave — exist to clobber them. Compare DISPLAY forms
+        // (`stripAnchors` both) so an unmigrated still-anchored file whose
+        // content equals op-log truth does not false-positive. Dedup against
+        // the newest existing snapshot so repeated open/close of an unchanged
+        // divergent file doesn't accumulate identical copies. A backup-write
+        // failure must NEVER abort the load — the manuscript still opens; the
+        // snapshot is forensics, not a gate (mirrors the quarantine-write above).
+        if logExists {
+            let derivedRender = MarkdownDisplayFilter.stripAnchors(
+                Materializer.materialize(
+                    paragraphs: initial.paragraphs, sequence: initial.sequence))
+            if MarkdownDisplayFilter.stripAnchors(storedBytes) != derivedRender {
+                do {
+                    let newest = Document.newestConflictBackup(forFileAt: url)
+                        .flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+                    if newest != storedBytes {
+                        _ = try Document.writeConflictBackup(
+                            forFileAt: url, text: storedBytes, kind: "diverged")
+                    }
+                } catch {
+                    documentLog.error(
+                        "divergence snapshot write failed for \(docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                }
+            }
+        }
+
         let lastWritten = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
         let initialEcho = EchoState.initialLoad(bytes: lastWritten)
 

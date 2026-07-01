@@ -222,7 +222,18 @@ public final class Document {
         // paragraph order so recovery is op-log-domain — not reconstructed from
         // the .md (ADR 0019).
         pending.setSequence(self.sequence)
-        try? await pending.flushToDisk()
+        // The pending file is now the ONLY crash-recovery source (ADR 0019 made
+        // the .md a clean derived render, no longer a fallback). A swallowed
+        // `try?` here would drop the recovery mirror silently; record the
+        // failure non-silently (matches close()'s catch) — the autosave still
+        // proceeds to write the .md, but the forensic trace tells us the
+        // pending mirror is stale.
+        do {
+            try await pending.flushToDisk()
+        } catch {
+            documentLog.error(
+                "pending mirror flush failed for doc \(self.docId, privacy: .public); crash recovery may lose the un-bursted tail: \(error.localizedDescription, privacy: .public)")
+        }
 
         // ADR 0019: the on-disk file is the clean display form (no ¶id / t-
         // anchors). The op log + in-memory NSTextStorage keep the anchors.
