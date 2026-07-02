@@ -175,6 +175,46 @@ scene-release half is manual), and the brief explicitly asks to prepare exactly
 this instrument. Everything else (the three levers) is documented above rather
 than left as compiled experiment code.
 
+## Measured outcome (2026-07-02, manual run — loop closed)
+
+Run on macOS 26.5, dev build `88e4d2b`, 174 KB / 400-scene single-file
+screenplay fixture, window closed via ⌘W. Instrument: `heap <pid>` instance
+counts (`EditorCoordinator`, `Document` under `Maugham.debug.dylib`) +
+`footprint <pid>` — note `heap` works WITHOUT the in-app probe menu, so it is
+the scriptable instrument of record; `CoordinatorLeakProbe` remains the
+in-app/Console option.
+
+| Step | live `EditorCoordinator` | live `Document` | phys_footprint |
+|---|---|---|---|
+| Project open | 1 | 1 | 150 MB |
+| ⌘W (close window) | **1 — retained** | 1 | 112 MB |
+| Reopen SAME project | **2 — new instance minted** | 2 | 125 MB |
+| ⌘W again | **2** | **2** | 150 MB |
+
+Three findings:
+
+1. **Scene retention confirmed** — the closed window's coordinator (and its
+   Document) survive ⌘W indefinitely. The ADR 0021 premise holds as measured.
+2. **The retained scene is NOT reused.** Reopening the *same* URL mints a
+   fresh coordinator/Document; the old pair stays stranded. Retention buys
+   nothing — it is pure waste, not a warm cache.
+3. **The residual is monotonic across open/close cycles, not bounded.** One
+   stranded coordinator+Document pair per cycle; footprint suggests roughly
+   tens of MB per cycle at this fixture size (noisy — window-server/graphics
+   memory dominates the swings; the instance counts are the reliable signal).
+   A writer repeatedly opening and closing a large project in a long-lived app
+   session accumulates stranded editor graphs. With the liveness guard they do
+   NO work — this is RAM only — but "bounded residual" in the ADR addendum
+   understated it; the addendum has been corrected.
+
+Attempt 1 (`dismissWindow` lever) remains un-run — finding 2 lowers its odds
+further (SwiftUI isn't holding the storage for reuse, so a dismiss hint seems
+unlikely to trigger release), but the A/B recipe stands if anyone wants the
+definitive answer. **The accumulation finding upgrades the future
+explicit-window-hosting milestone from "if footprint ever matters" to "worth
+scheduling if long-session RAM complaints appear"** — the trigger to watch is
+Activity Monitor creep after a day of opening/closing big projects.
+
 ## Conclusion
 
 **Documented as framework cost — needs one manual probe run to close the loop.**

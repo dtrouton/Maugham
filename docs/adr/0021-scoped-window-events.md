@@ -86,10 +86,16 @@ the receiving view has no live window), making the milestone's guarantee "a
 closed window receives nothing," not merely "receivers only get their own
 events." Actually *releasing* the retained graph is framework behavior and
 stays out of scope beyond a timeboxed spike (see the spec) — with the guard,
-zombies are inert and deaf; the residual is bounded memory. The spike ran and
-its outcome (framework cost; ARC-side no-cycle proven headless; three levers
-assessed; manual probe + footprint recipe) is recorded in
-`docs/superpowers/notes/2026-07-02-scene-storage-spike.md`.
+zombies are inert and deaf. The spike ran and its outcome is recorded in
+`docs/superpowers/notes/2026-07-02-scene-storage-spike.md`; the manual probe
+run (2026-07-02, macOS 26.5) then **confirmed retention, found the retained
+scene is NOT reused on reopen (a fresh coordinator is minted), and measured
+the residual as MONOTONIC across open/close cycles** — one stranded
+coordinator+Document pair per cycle, roughly tens of MB each at 174 KB-doc
+scale. So the residual is per-cycle-bounded but grows over a long app session,
+not "bounded" outright as this addendum originally claimed. RAM only (the
+liveness guard keeps stranded graphs at zero work); the explicit-window-hosting
+fix is a future milestone whose trigger is long-session footprint creep.
 
 ## Implementation notes (2026-07-02)
 
