@@ -20,7 +20,7 @@ final class RewindEntryPointsTests: XCTestCase {
         let projectURL = URL(fileURLWithPath: "/tmp/MaughamRewindEntryTest-header")
         var observed: Notification?
         let exp = expectation(description: "header notification")
-        let token = NotificationCenter.default.addObserver(
+        let token = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer asserting the rewind post carries its project scope
             forName: .maughamOpenRewind, object: nil, queue: nil
         ) { note in
             observed = note
@@ -41,7 +41,7 @@ final class RewindEntryPointsTests: XCTestCase {
         let projectURL = URL(fileURLWithPath: "/tmp/MaughamRewindEntryTest-row")
         var observed: Notification?
         let exp = expectation(description: "row notification")
-        let token = NotificationCenter.default.addObserver(
+        let token = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer asserting the rewind post carries its project scope
             forName: .maughamOpenRewind, object: nil, queue: nil
         ) { note in
             observed = note

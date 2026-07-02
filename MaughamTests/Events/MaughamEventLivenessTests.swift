@@ -186,8 +186,7 @@ final class MaughamEventLivenessTests: XCTestCase {
         // production name and assert it passes shouldDeliver once the OS-only
         // key grant is in place (forced true — the one fact not grantable headless).
         var captured: Notification?
-        // adr-0021-ok: capture-only observer asserting the scoped post passes the filter
-        let obs = NotificationCenter.default.addObserver(
+        let obs = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer asserting the scoped post passes the filter
             forName: .maughamNavigateToScene, object: nil, queue: nil) { captured = $0 }
         defer { NotificationCenter.default.removeObserver(obs) }
         MaughamEvent.post(.maughamNavigateToScene, to: .keyWindow,

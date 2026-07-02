@@ -572,4 +572,123 @@ final class TripwireGrepTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - ADR 0021: no raw maugham.* posts/subscriptions outside the wrapper
+
+    /// Whole-file regex patterns (the codebase splits post(/publisher( across
+    /// lines, so line-based grep misses them). SHARED with the self-test.
+    static let adr0021PostPattern = "NotificationCenter\\.default\\.post\\("
+    static let adr0021SubscribePatterns = [
+        "publisher\\(\\s*for:\\s*\\.maugham",
+        "addObserver\\(\\s*forName:\\s*\\.maugham",
+    ]
+
+    /// Scan whole file text for regex matches; report `file:line`. A match
+    /// whose LINE carries `// adr-0021-ok:` is exempt; comment-only lines are
+    /// exempt.
+    private func scanWholeText(
+        in dirs: [URL], patterns: [String], allowed: Set<String>
+    ) throws -> [String] {
+        var offenders: [String] = []
+        for dir in dirs {
+            guard let walker = FileManager.default.enumerator(
+                at: dir, includingPropertiesForKeys: nil) else { continue }
+            for case let url as URL in walker where url.pathExtension == "swift" {
+                if allowed.contains(url.lastPathComponent) { continue }
+                let text = try String(contentsOf: url, encoding: .utf8)
+                for pattern in patterns {
+                    let regex = try NSRegularExpression(pattern: pattern)
+                    let ns = text as NSString
+                    regex.enumerateMatches(
+                        in: text, range: NSRange(location: 0, length: ns.length)
+                    ) { match, _, _ in
+                        guard let match else { return }
+                        let upTo = ns.substring(to: match.range.location)
+                        let lineNumber = upTo.reduce(into: 1) { if $1 == "\n" { $0 += 1 } }
+                        let lineStart = (upTo as NSString).range(
+                            of: "\n", options: .backwards).location
+                        let lineStartIndex = lineStart == NSNotFound ? 0 : lineStart + 1
+                        let lineEnd = ns.range(
+                            of: "\n", options: [],
+                            range: NSRange(location: match.range.location,
+                                           length: ns.length - match.range.location)).location
+                        let lineEndIndex = lineEnd == NSNotFound ? ns.length : lineEnd
+                        let line = ns.substring(
+                            with: NSRange(location: lineStartIndex,
+                                          length: lineEndIndex - lineStartIndex))
+                        let trimmed = line.trimmingCharacters(in: .whitespaces)
+                        if trimmed.contains("// adr-0021-ok:") { return }
+                        if trimmed.hasPrefix("//") { return }
+                        offenders.append(
+                            "\(url.lastPathComponent):\(lineNumber): \(trimmed)")
+                    }
+                }
+            }
+        }
+        return offenders
+    }
+
+    /// ADR 0021: every `maugham.*` post/subscription goes through the
+    /// MaughamEvent wrapper, which forces a delivery scope at the post site.
+    /// A raw NotificationCenter post/subscription is the unscoped-broadcast
+    /// defect class that shipped ≥3 times (rewind retrofit, script.did.update,
+    /// toggleInspector). If a raw call is genuinely NOT a maugham event
+    /// (e.g. posting an Apple system notification), annotate the line with
+    /// `// adr-0021-ok: <reason>`.
+    func test_noRawMaughamPostsOrSubscriptionsOutsideWrapper() throws {
+        let testsDir = repoRoot.appendingPathComponent("MaughamTests", isDirectory: true)
+        let offenders = try scanWholeText(
+            in: [sourceDir, testsDir],
+            patterns: [Self.adr0021PostPattern] + Self.adr0021SubscribePatterns,
+            allowed: ["MaughamEvent.swift", "MaughamEvent+Receive.swift",
+                      "TripwireGrepTests.swift"])
+        XCTAssertTrue(offenders.isEmpty,
+            "Raw NotificationCenter post/subscription outside the MaughamEvent "
+            + "wrapper (ADR 0021). Post with MaughamEvent.post(_:to:) — every event "
+            + "declares its scope — and receive via .onKeyWindowCommand / "
+            + ".onDocumentEvent / .onProjectEvent / .onGlobalEvent / "
+            + "MaughamEvent.observe. If this is genuinely not a maugham.* event, "
+            + "annotate with // adr-0021-ok: <reason>. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// Self-check: prove the ADR 0021 tripwire FIRES on planted offenders —
+    /// a raw post, a LINE-SPLIT publisher(for: .maugham…) subscription, and an
+    /// addObserver(forName: .maugham…) — and that an annotated line and a
+    /// comment line are exempt.
+    func test_adr0021TripwireFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-adr0021-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        func bad1() {
+            NotificationCenter.default.post(name: .maughamToggleInspector, object: nil)
+        }
+        var bad2: some View {
+            EmptyView().onReceive(NotificationCenter.default.publisher(
+                for: .maughamOpenRewind)) { _ in }
+        }
+        func bad3() {
+            _ = NotificationCenter.default.addObserver(forName: .maughamNavigateToScene,
+                object: nil, queue: .main) { _ in }
+        }
+        func fine() {
+            NotificationCenter.default.post(name: someSystemName, object: nil) // adr-0021-ok: planted exemption
+            // comment mentioning NotificationCenter.default.post( is fine
+        }
+        """.write(to: tmp.appendingPathComponent("BadEventUser.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let offenders = try scanWholeText(
+            in: [tmp],
+            patterns: [Self.adr0021PostPattern] + Self.adr0021SubscribePatterns,
+            allowed: [])
+        XCTAssertEqual(offenders.count, 3,
+            "Self-check expected the raw post, the line-split publisher, and the "
+            + "addObserver to fire (and only those). Got:\n"
+            + offenders.joined(separator: "\n"))
+    }
 }

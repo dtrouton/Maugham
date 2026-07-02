@@ -79,7 +79,7 @@ final class MaughamEventTests: XCTestCase {
         var deliveries = 0
         let keyCtx = ctx(.keyWindow, key: true)
         let backgroundCtx = ctx(.keyWindow, key: false)
-        let obs = NotificationCenter.default.addObserver(
+        let obs = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer verifying single-window delivery of the scoped post
             forName: .maughamToggleInspector, object: nil, queue: nil) { n in
             if MaughamEvent.shouldDeliver(n, to: keyCtx) { deliveries += 1 }
             if MaughamEvent.shouldDeliver(n, to: backgroundCtx) { deliveries += 1 }
@@ -145,8 +145,7 @@ final class MaughamEventTests: XCTestCase {
         let obs = NotificationCenter.default.addObserver(
             forName: testName, object: nil, queue: nil) { captured = $0 }
         defer { NotificationCenter.default.removeObserver(obs) }
-        // adr-0021-ok: deliberately-raw post proving the helper drops legacy/unscoped traffic
-        NotificationCenter.default.post(name: testName, object: nil)
+        NotificationCenter.default.post(name: testName, object: nil) // adr-0021-ok: deliberately-raw post proving the helper drops legacy/unscoped traffic
         XCTAssertFalse(MaughamEvent.shouldDeliver(captured!, to: ctx(.keyWindow, key: true)),
             "an unscoped post must never be delivered through a scoped helper")
         XCTAssertFalse(MaughamEvent.shouldDeliver(captured!, to: ctx(.global)))

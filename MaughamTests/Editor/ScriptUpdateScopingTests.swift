@@ -20,7 +20,7 @@ final class ScriptUpdateScopingTests: XCTestCase {
     /// Capture the exact Notification the wrapper posts for `scope`.
     private func post(_ scope: EventScope, object: Any?) -> Notification {
         var captured: Notification?
-        let obs = NotificationCenter.default.addObserver(
+        let obs = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer inspecting the exact scoped Notification the wrapper posts
             forName: .maughamScriptDidUpdate, object: nil, queue: nil) { captured = $0 }
         defer { NotificationCenter.default.removeObserver(obs) }
         MaughamEvent.post(.maughamScriptDidUpdate, to: scope, object: object)
@@ -50,11 +50,10 @@ final class ScriptUpdateScopingTests: XCTestCase {
 
     func test_unscopedRawPost_notDelivered() {
         var captured: Notification?
-        let obs = NotificationCenter.default.addObserver(
+        let obs = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer inspecting the exact scoped Notification the wrapper posts
             forName: .maughamScriptDidUpdate, object: nil, queue: nil) { captured = $0 }
         defer { NotificationCenter.default.removeObserver(obs) }
-        // adr-0021-ok: deliberately-raw legacy post proving the helper drops it
-        NotificationCenter.default.post(
+        NotificationCenter.default.post( // adr-0021-ok: deliberately-raw legacy post proving the helper drops it
             name: .maughamScriptDidUpdate, object: makeScript())
         XCTAssertFalse(
             MaughamEvent.shouldDeliver(captured!, to: ctx("proj_A")),
@@ -81,7 +80,7 @@ final class ScriptUpdateScopingTests: XCTestCase {
 
         var receivedKind: String?
         var receivedId: String?
-        let obs = NotificationCenter.default.addObserver(
+        let obs = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer asserting the coordinator stamps the project scope keys
             forName: .maughamScriptDidUpdate, object: nil, queue: nil) { note in
             receivedKind = note.userInfo?[MaughamEvent.scopeKindKey] as? String
             receivedId = note.userInfo?[MaughamEvent.scopeIdKey] as? String
@@ -119,7 +118,7 @@ final class ScriptUpdateScopingTests: XCTestCase {
         // scriptOriginProjectId deliberately left nil.
 
         var postCount = 0
-        let obs = NotificationCenter.default.addObserver(
+        let obs = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer counting posts to prove a nil-origin coordinator emits nothing
             forName: .maughamScriptDidUpdate, object: nil, queue: nil) { _ in
             postCount += 1
         }
