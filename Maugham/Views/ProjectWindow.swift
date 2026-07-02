@@ -192,9 +192,7 @@ struct ProjectWindow: View {
                 Task { await ds.close() }
             }
         }
-        .onReceive(NotificationCenter.default.publisher(
-            for: .maughamShowProjectStatistics)) { _ in
-            guard window?.isKeyWindow == true else { return }
+        .onKeyWindowCommand(.maughamShowProjectStatistics, window: window) { _ in
             openWindow(id: "project-stats", value: url)
         }
         .onReceive(NotificationCenter.default.publisher(

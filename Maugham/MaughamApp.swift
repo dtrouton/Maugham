@@ -143,8 +143,7 @@ struct MaughamApp: App {
                 }
                 Divider()
                 Button("Show Project Statistics") {
-                    NotificationCenter.default.post(
-                        name: .maughamShowProjectStatistics, object: nil)
+                    MaughamEvent.post(.maughamShowProjectStatistics, to: .keyWindow)
                 }
                 Divider()
                 Button("New Prose Story") {
