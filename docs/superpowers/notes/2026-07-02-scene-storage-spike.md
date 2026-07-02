@@ -215,6 +215,46 @@ explicit-window-hosting milestone from "if footprint ever matters" to "worth
 scheduling if long-session RAM complaints appear"** — the trigger to watch is
 Activity Monitor creep after a day of opening/closing big projects.
 
+## Retain-root trace + prior art (2026-07-02, follow-up)
+
+`leaks <pid> --trace=<coordinator addr>` (address from
+`heap <pid> -addresses EditorCoordinator`) gives the exact roots for the
+stranded coordinator — no more inference:
+
+1. **PRIMARY: `static GraphHost.sharedGraph` (SwiftUICore `__DATA_DIRTY`) →
+   AGGraphStorage → … → `ViewLeafView<PlatformViewRepresentableAdaptor
+   <Maugham.EditorSurface>>` → `__strong value.coordinator` → EditorCoordinator.**
+   SwiftUI's shared AttributeGraph keeps the dead scene's view-graph nodes
+   alive after ⌘W. This is a framework-internal *static*; nothing we own is on
+   the path. It also proves **`dismantleNSView` never runs on window close**
+   (the representable's node is never torn down) — `detach()` fires only on
+   in-window teardowns like the `.id(path)` piece flip. The liveness guard is
+   unaffected: `MaughamEvent.isLive` checks `isVisible || isMiniaturized`, so
+   the zombie (whose retained `@State` still strongly holds the closed
+   `NSWindow`) is still correctly dropped.
+2. Secondary: NotificationCenter registrar entries → the coordinator's five
+   observers — not removed because neither `deinit` nor `detach()` ever ran
+   (pinned by root 1). Removing them eagerly wouldn't help; root 1 suffices.
+
+**Hypotheses tested and disproven along the way:**
+- *Our `@State private var window: NSWindow?` (WindowAccessor) pins the graph*
+  — NO. A/B with `window = nil` in ProjectWindow's `.onDisappear`: coordinator
+  still retained (1 live after close). Reverted.
+- *byla.lt-style interference (custom `NSWindowDelegate` replacing
+  `SwiftUI.AppKitWindowController`, which performs close-time release)* — NOT
+  our case; Maugham sets no window delegate (grep-verified).
+
+**Prior art:** the closed-window release path exists and works in SwiftUI
+(byla.lt, "This Window Is Leaking" — leaks only when the framework delegate is
+replaced), but representable-under-App-lifecycle leaks on macOS have been
+reported since Xcode 12 with no resolution (Charts #4555, closed "missing
+info"; assorted Apple-forums threads on macOS SwiftUI memory climbing). No
+public report names the `GraphHost.sharedGraph` dead-scene retention this
+trace pins — worth filing a Feedback with Apple: minimal repro is any
+`WindowGroup(id:for:)` window hosting an `NSViewRepresentable` whose
+coordinator is strongly held by the representable's stored value; close the
+window; `heap`/`leaks --trace` shows the AG root.
+
 ## Conclusion
 
 **Documented as framework cost — needs one manual probe run to close the loop.**
