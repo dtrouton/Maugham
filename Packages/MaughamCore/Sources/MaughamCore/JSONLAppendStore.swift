@@ -46,7 +46,7 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
         var coordErr: NSError?
         var bytes: Data?
         coord.coordinate(readingItemAt: fileURL, options: [], error: &coordErr) { ru in
-            bytes = try? Data(contentsOf: ru)
+            bytes = try? Data(contentsOf: ru)  // adr-0018-ok: append-store (op-log / inbox JSONL) bytes — the log IS the source of truth (ADR 0018)
         }
         if let coordErr { throw coordErr }
         return bytes ?? Data()

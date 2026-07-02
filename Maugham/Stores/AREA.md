@@ -62,6 +62,30 @@ Each runs the **close-before-FS-surgery** discipline INTERNALLY before any FS ca
 
 **The boundary (intentionally NOT routed):** internal, non-user-edited moves stay raw and are excluded from the grep via an explicit `// internal-move:` marker — the `promotePieceToProject` staging moves (into a temp `staging/` tree, which already closes+flushes upstream), and the no-`DocumentStore` fallback branches (load-only contexts like unit tests have no registry/scheduler, so the discipline is a provable no-op). Empty-file scaffolding (`Data().write`), `.maugham-link.json`/manifest writes, scratch tmp writes, and `executeCopy` (Duplicate) are derived/internal and out of scope. When you add a NEW mover of user-editable content, route it through one of the three entry points above — do not add a raw move with an `// internal-move:` marker unless it's genuinely one of these internal classes.
 
+## Derived-manuscript cache + async word counts (F5, 2026-07-01)
+
+- **`ProjectStore.derivedCache` (`DerivedManuscriptCache`, MaughamCore)** fronts
+  `DerivedManuscript` for **closed** docs, so the hot read-loops (cross-document
+  search per debounced keystroke, project-open word counts, the
+  link/reference/scenes tools, the wiki-rename pre-check) don't replay a doc's
+  full op-log history on every call. Validity token = the doc's op-log file set
+  with each file's `(url, mtime, size)`; a token match returns the cached derived
+  state, else it derives and stores. **Open docs bypass the cache** and read the
+  live `Document` (they're already the freshest source; ADR 0018 open-doc rule).
+- **Owner is `ProjectStore`, not `DocumentStore`** — deliberately. Every adopter
+  already holds a `ProjectStore`, and word-count population needs the cache
+  *during / just after* `load`, when the weak `documentStore` back-ref isn't wired
+  yet. It's content-keyed on op-log mtimes, so even the fresh (cold) `ProjectStore`
+  the Statistics window loads derives correctly against its own instance.
+  `@ObservationIgnored` — internal machinery, never an observed SwiftUI dependency.
+- **Project-open word counts are now ASYNC** (`beginWordCountPopulation`, held as
+  `wordCountPopulationTask` so tests can await it). They left the blocking `load`
+  path: counts populate after the window appears, with a `Task.yield()` per doc,
+  streaming in as they land. **Accepted trade-off:** `projectWordCount` is partial
+  for an instant after open (transient live-counter skew) and self-corrects as the
+  counts stream in. Perf guards assert derive-COUNTS (cache hits), not wall-clock,
+  so CI can't flake.
+
 ## Tripwires
 
 1. **Don't reintroduce a shared "current text" field on `DocumentStore`.** The historical `currentDocumentText: String` was overloaded between conflict detection (stored-form) and op-log context (display-form) — that field is gone post-`milestone-document-first-class`. Document text now lives only on `Document` itself: `displayText` (public, observed) and `lastDiskEcho.bytes` (private, echo-guard only, see `Maugham/OpLog/EchoState.swift`). If you find yourself wanting a "DocumentStore-side current text" again, you're probably about to recreate the bug; route via the registry's `document(for:)` lookup instead.

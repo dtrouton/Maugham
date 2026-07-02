@@ -44,10 +44,10 @@ public enum ListScenesTool: MCPTool {
             if let ds = store.documentStore, let doc = ds.document(for: path) {
                 text = doc.displayText
             } else {
-                // Closed doc: derive from op log (ADR 0018); strip anchors so the
-                // Fountain parser sees clean text, matching the open-doc displayText form.
-                let derived = DerivedManuscript.materialize(forDocId: item.id, in: entry.url)
-                text = MarkdownDisplayFilter.stripAnchors(derived)
+                // Closed doc: display form through the per-project cache (F5);
+                // strip anchors so the Fountain parser sees clean text, matching
+                // the open-doc displayText form.
+                text = store.derivedCache.displayText(forDocId: item.id, in: entry.url)
             }
             let script = FountainTokenizer().parse(text)
             for line in script.lines {
@@ -162,8 +162,16 @@ public enum FindReferencesTool: MCPTool {
         let titles = Self.titlesToScan(target: params.target, resolvedId: resolvedId, store: store)
         if !titles.isEmpty {
             for doc in TreeWalk.collect(in: store.manifest.structure, where: { $0.type == .document }) {
-                // Derive text from op log (ADR 0018); never read the .md directly.
-                let text = DerivedManuscript.materialize(forDocId: doc.id, in: entry.url)
+                // ADR 0018: an OPEN doc's live `Document` is freshest (the op
+                // log lags an actively-edited doc by the burst window, 30s/90s);
+                // closed docs derive from the op log. Never read the `.md`.
+                let text: String
+                if let ds = store.documentStore, let path = doc.path,
+                   let live = ds.document(for: path) {
+                    text = live.materialize()
+                } else {
+                    text = store.derivedCache.materialize(forDocId: doc.id, in: entry.url)
+                }
                 guard !text.isEmpty else { continue }
                 for title in titles where text.contains("[[\(title)]]") {
                     if seenFromIds.insert(doc.id).inserted {

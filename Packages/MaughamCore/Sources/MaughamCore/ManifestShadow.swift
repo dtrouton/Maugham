@@ -33,8 +33,8 @@ public enum ManifestShadow {
     /// the checksum validates. Returns nil otherwise (no shadow, or a corrupt one).
     public static func recover(in projectURL: URL) -> Data? {
         let d = dir(in: projectURL)
-        guard let data = try? Data(contentsOf: d.appendingPathComponent(shadowName)),
-              let shaBytes = try? Data(contentsOf: d.appendingPathComponent(checksumName)),
+        guard let data = try? Data(contentsOf: d.appendingPathComponent(shadowName)),  // adr-0018-ok: manifest shadow bytes read, not manuscript
+              let shaBytes = try? Data(contentsOf: d.appendingPathComponent(checksumName)),  // adr-0018-ok: manifest shadow checksum read, not manuscript
               let sha = String(data: shaBytes, encoding: .utf8) else { return nil }
         return MerkleBuilder.sha256Hex(data) == sha ? data : nil
     }

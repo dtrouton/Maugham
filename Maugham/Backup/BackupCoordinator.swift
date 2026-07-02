@@ -92,7 +92,7 @@ public final class BackupCoordinator {
     /// projects can share one backup destination.
     public static func projectKey(for projectURL: URL) -> String {
         let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
-        if let data = try? Data(contentsOf: manifestURL),
+        if let data = try? Data(contentsOf: manifestURL),  // adr-0018-ok: backup manifest read, not manuscript
            let manifest = try? ProjectManifest.makeDecoder().decode(ProjectManifest.self, from: data),
            let id = manifest.id, !id.isEmpty {
             return id

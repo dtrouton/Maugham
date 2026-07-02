@@ -47,6 +47,11 @@ struct EditorSurface: NSViewRepresentable {
     /// Returns the doc id if the title resolves, nil otherwise.
     var wikiLinkClickResolver: ((String) -> String?)? = nil
     var showElementGutter: Bool = true
+    /// Origin project id (`ProjectIdentifier.id(for:)`) stamped onto the
+    /// coordinator's `.maughamScriptDidUpdate` posts so receivers scope them to
+    /// their own window (Channel A). Passed by manuscript hosts (EditorHost);
+    /// nil for research notes, which never post scripts.
+    var scriptOriginProjectId: String? = nil
     /// When set, the text view's paste(_:) routes pasteboard images to this
     /// handler instead of pasting them as text. Used for research notes to
     /// save images to a sibling _assets/ folder and insert a Markdown ref.
@@ -119,6 +124,7 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.reviewParagraphTextProvider = reviewParagraphTextProvider
         coordinator.reviewParagraphRangeProvider = reviewParagraphRangeProvider
         coordinator.reviewAnnotationsProvider = reviewAnnotationsProvider
+        coordinator.scriptOriginProjectId = scriptOriginProjectId
         assignReviewCardHandlers(to: coordinator)
         return coordinator
     }
@@ -244,6 +250,18 @@ struct EditorSurface: NSViewRepresentable {
         return scrollView
     }
 
+    /// Teardown hook — SwiftUI calls this when the representable leaves the view
+    /// tree (piece flip via `.id(path)`, and window close when SwiftUI releases
+    /// the scene). Break the coordinator↔text-view graph and cancel its async
+    /// work so a coordinator SwiftUI has not yet released holds nothing heavy and
+    /// does no work. See `EditorCoordinator.detach()` for why the leak is scene
+    /// retention rather than an ARC cycle.
+    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: EditorCoordinator) {
+        MainActor.assumeIsolated {
+            coordinator.detach()
+        }
+    }
+
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? MaughamTextView else { return }
         // SwiftUI's NSViewRepresentable doesn't always propagate scroll-view
@@ -288,6 +306,7 @@ struct EditorSurface: NSViewRepresentable {
         // Pull-on-entry provider: the coordinator invokes it on review entry to
         // resolve the real annotation set synchronously (first-toggle marks fix).
         context.coordinator.reviewAnnotationsProvider = reviewAnnotationsProvider
+        context.coordinator.scriptOriginProjectId = scriptOriginProjectId
         // Interactive-card handlers + local-author provider must be current before
         // the recompute path reads ownership.
         assignReviewCardHandlers(to: context.coordinator)
@@ -420,10 +439,13 @@ final class MaughamTextView: NSTextView {
         // OS appearance flipped (or app appearance changed under Follow System).
         // Re-render so syntax highlighting and theme colors re-resolve.
         needsDisplay = true
-        // Notify the coordinator so it can re-run the full styling pipeline
-        // (background color, caret color, syntax highlighting attributes).
-        NotificationCenter.default.post(
-            name: .maughamEffectiveAppearanceChanged, object: nil)
+        // Tell THIS view's coordinator directly — one delegate hop. AppKit calls
+        // this on a view's FIRST mount too (every EditorSurface build = every
+        // piece flip), so a NotificationCenter broadcast (object: nil) fanned a
+        // full whole-doc restyle out to every live coordinator, including leaked
+        // ones from closed windows. The direct call touches only our own
+        // coordinator, which further no-ops when the appearance is unchanged.
+        coordinator?.effectiveAppearanceDidChange()
     }
 
     fileprivate func updateColumnInset() {

@@ -64,9 +64,17 @@ public enum ListAllLinksTool: MCPTool {
             }
         }
 
-        // Wiki edges — derive text from op log (ADR 0018); never read the .md directly.
+        // Wiki edges — ADR 0018: an OPEN doc's live `Document` is freshest (the
+        // op log lags an actively-edited doc by the burst window, 30s/90s);
+        // closed docs derive from the op log. Never read the `.md` directly.
         for doc in docs {
-            let text = DerivedManuscript.materialize(forDocId: doc.id, in: entry.url)
+            let text: String
+            if let ds = store.documentStore, let path = doc.path,
+               let live = ds.document(for: path) {
+                text = live.materialize()
+            } else {
+                text = store.derivedCache.materialize(forDocId: doc.id, in: entry.url)
+            }
             guard !text.isEmpty else { continue }
             for token in Self.wikiTokens(in: text) {
                 if let hit = titleIndex[token.lowercased()] {

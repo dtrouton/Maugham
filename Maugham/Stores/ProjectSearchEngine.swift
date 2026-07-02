@@ -28,13 +28,24 @@ public struct ProjectSearchEngine {
             if Task.isCancelled { break }
             // ADR 0018: manuscript content is derived from the op log, never
             // read from the `.md` on disk (which is a derived, potentially
-            // stale artifact). DerivedManuscript.materialize returns the
-            // anchored form (<!-- ¶id --> lines) — identical to what autosave
-            // writes — so the strip below produces the same display form the
-            // editor and iOS reader see. Returns "" when the doc has no ops
-            // (new doc before first keystroke); matchesIn on "" yields nothing.
-            let stored = DerivedManuscript.materialize(forDocId: item.id, in: store.url)
-            // Search the DISPLAY form, not the raw anchored bytes. The
+            // stale artifact). For an OPEN doc, the live `Document`'s
+            // `displayText` is fresher still — the op log lags an actively-
+            // edited doc by the burst window (30s/90s), since the 750ms
+            // autosave appends no ops. `displayText` is already the anchor-
+            // stripped display form, so the closed-doc branch strips the
+            // derived anchored bytes to match. DerivedManuscript.materialize
+            // returns "" when the doc has no ops (new doc before first
+            // keystroke); matchesIn on "" yields nothing.
+            let content: String
+            if let ds = store.documentStore, let doc = ds.document(for: fullPath) {
+                content = doc.displayText
+            } else {
+                // Closed doc: display form through the per-project cache (F5),
+                // so a repeated search (per debounced keystroke × N docs)
+                // decodes each doc's log at most once until it changes.
+                content = store.derivedCache.displayText(forDocId: item.id, in: store.url)
+            }
+            // The DISPLAY form is what we search, not the raw anchored bytes. The
             // materialised `.md` carries op-log join anchors (`<!-- ¶id -->`
             // lines + inline `<!--t-XXXXXX-->` task anchors) whose 4/6-char
             // ids overlap the ordinary-text alphabet — so searching raw bytes
@@ -47,7 +58,6 @@ public struct ProjectSearchEngine {
             // RenderFilter.stripComments and the iOS reader both use — so
             // every coordinate this engine emits (charRangeInDocument /
             // lineNumber / matchRangeInLine) is in display form.
-            let content = MarkdownDisplayFilter.stripAnchors(stored)
             let matches = Self.matchesIn(
                 content: content,
                 query: query,

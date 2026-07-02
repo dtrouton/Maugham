@@ -3,116 +3,28 @@ import MaughamCore
 
 extension Document {
 
-    /// Reconcile the op-log-derived state with the parsed on-disk `.md`,
-    /// applying the four load-time recovery branches that decide what the
-    /// writer sees on open. Pure and self-contained: inputs are the derived
-    /// op-log state + parsed paragraphs, output is the final state fed into
-    /// the `Document` init. Lifted verbatim out of `load` so it is directly
-    /// testable; operates on the post-crash-recovery derived state.
+    /// Drop orphan paragraphs from the op-log-derived state: entries in
+    /// `paragraphs` whose ids the current `sequence` no longer references.
+    /// The deriver's `typing_burst` fold updates paragraph entries but never
+    /// deletes them, so a paragraph the writer split / merged away in an
+    /// earlier session lingers in the accumulator forever. Left in place these
+    /// orphans poison the inline-task deriver (it walks every paragraph, not
+    /// just `sequence`) — surfacing phantom checkbox rows in the Tasks pane
+    /// with no matching paragraph in the `.md`. Pure and self-contained so it
+    /// stays directly testable; operates on the post-crash-recovery derived
+    /// state.
+    ///
+    /// Pre-ADR-0019 this carried three additional branches that rebuilt
+    /// content / order from the parsed on-disk `.md`'s anchors (empty-derived
+    /// seeding, empty-sequence rebuild, stale-sequence recovery). ADR 0019 made
+    /// the op log authoritative — `Document.load` derives content + order from
+    /// it alone via `deriveWithSequenceFallback`, never the `.md` — and F2's
+    /// fix seeds the op log at Bootstrap for the one state (anchored file +
+    /// empty log) branch 1 covered, so those branches were dead and removed.
     internal nonisolated static func reconcile(
-        derived: Deriver.DerivedState,
-        parsed: [ParsedParagraph]
+        derived: Deriver.DerivedState
     ) -> Deriver.DerivedState {
         var initial = derived
-        // Two recovery paths from non-canonical op-log states:
-        //
-        // 1. Empty paragraphs + tagged on-disk file: `Bootstrap.run`
-        //    short-circuited with `allHaveIds` so no bootstrap op was
-        //    emitted. Seed paragraphs + sequence from the parsed file.
-        //
-        // 2. Non-empty paragraphs but empty sequence: an older typing_burst
-        //    landed without populating its `sequence` field (predates the
-        //    fix that always captures sequence on burst). The deriver
-        //    leaves sequence=[] in that case, which collapses displayText
-        //    to "" and stops the doc rendering. Recover the sequence from
-        //    the parsed on-disk file's id order — that's the source of
-        //    truth for paragraph ordering anyway.
-        if initial.paragraphs.isEmpty && parsed.contains(where: { $0.id != nil }) {
-            var paragraphs: [String: String] = [:]
-            var sequence: [String] = []
-            for p in parsed {
-                guard let id = p.id else { continue }
-                paragraphs[id] = p.text
-                sequence.append(id)
-            }
-            initial = Deriver.DerivedState(paragraphs: paragraphs, sequence: sequence)
-        } else if initial.sequence.isEmpty && !initial.paragraphs.isEmpty {
-            // Legacy log: typing_burst captured changes but not the
-            // `sequence` field. The on-disk .md is the more current source
-            // for both paragraph text AND order — autosave runs faster
-            // than the burst scheduler so the .md reflects edits the op
-            // log hasn't seen yet (e.g., user split a paragraph by adding
-            // blank lines; autosave wrote the new anchors but the typing
-            // burst hasn't fired yet so the new paragraph_ids aren't in
-            // initial.paragraphs).
-            //
-            // Trust parsed entirely when it has anchored paragraphs.
-            // Without this, addAnnotation for a freshly-minted paragraph
-            // id reads paragraphs[id]=nil and persists prior_text=nil,
-            // which silently breaks the staleness check for every
-            // markdown annotation on a legacy doc.
-            var freshParagraphs: [String: String] = [:]
-            var freshSequence: [String] = []
-            for p in parsed {
-                guard let id = p.id else { continue }
-                freshParagraphs[id] = p.text
-                freshSequence.append(id)
-            }
-            if !freshSequence.isEmpty {
-                initial = Deriver.DerivedState(
-                    paragraphs: freshParagraphs, sequence: freshSequence)
-            } else {
-                // .md has no anchored content — fall back to whatever
-                // the op log gave us so the doc still renders.
-                initial = Deriver.DerivedState(
-                    paragraphs: initial.paragraphs,
-                    sequence: Array(initial.paragraphs.keys))
-            }
-        }
-
-        // 3. Stale-sequence recovery. The op log's last explicit sequence
-        //    may predate paragraph splits / inserts that autosave wrote
-        //    to .md but the typing burst never captured (e.g., crash
-        //    before flush, or the legacy crash-recovery path above prior
-        //    to its sequence fix). When the parsed .md contains anchored
-        //    paragraph ids that are NOT in `initial.sequence`, the .md is
-        //    the more current source — trust its ordering.
-        //
-        //    Also drop orphan entries from `paragraphs` whose ids the
-        //    new (parsed) sequence doesn't reference. Leaving them in
-        //    place pollutes `tasks(filter:)` (the deriver walks every
-        //    paragraph in `paragraphs`, not just those in `sequence`)
-        //    with stale inline-task derivations.
-        let parsedIds = parsed.compactMap(\.id)
-        if !parsedIds.isEmpty {
-            let parsedIdSet = Set(parsedIds)
-            let sequenceIdSet = Set(initial.sequence)
-            let parsedHasIdsNotInSequence = !parsedIdSet.isSubset(of: sequenceIdSet)
-            let sequenceHasIdsNotInParsed = !sequenceIdSet.isSubset(of: parsedIdSet)
-            if parsedHasIdsNotInSequence || sequenceHasIdsNotInParsed {
-                var freshParagraphs: [String: String] = [:]
-                for p in parsed {
-                    guard let id = p.id else { continue }
-                    // Prefer the op log's text if the op log knows this id
-                    // (it may carry edits autosave hasn't redrawn yet);
-                    // fall back to the parsed text otherwise.
-                    freshParagraphs[id] = initial.paragraphs[id] ?? p.text
-                }
-                initial = Deriver.DerivedState(
-                    paragraphs: freshParagraphs, sequence: parsedIds)
-            }
-        }
-
-        // 4. Orphan-paragraph drop. Even when sequence and parsed agree,
-        //    `paragraphs` can still carry entries for ids the writer
-        //    split / merged away in earlier sessions (typing_burst doesn't
-        //    delete entries from the deriver's accumulator, only updates
-        //    them; once a paragraph_id is dropped from `sequence` its
-        //    last-known text lingers forever in the in-memory map).
-        //    These orphans poison the inline-task deriver (it walks every
-        //    paragraph, not just sequence) — surfacing phantom checkbox
-        //    rows in the Tasks pane that have no matching paragraph in
-        //    the .md. Restrict `paragraphs` to keys in `sequence`.
         if !initial.sequence.isEmpty {
             let sequenceIdSet = Set(initial.sequence)
             let paragraphsHasOrphans = initial.paragraphs.keys.contains {
@@ -169,11 +81,12 @@ extension Document {
         // `<docId>.jsonl`; check the whole globbed set, or a doc whose only
         // writer was a non-current device reads as "no log" and re-bootstraps.
         let logExists = !OpLogStore.opLogFileURLs(forDocId: docId, in: projectURL).isEmpty
-        let storedBytes = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        let storedBytes = (try? String(contentsOf: url, encoding: .utf8)) ?? ""  // adr-0018-ok: sanctioned manuscript site — stored bytes as bootstrap-import / divergence reference; op log is authoritative
         let parsed = ParagraphParser.parse(storedBytes)
         // ADR 0019: the .md is clean (no anchors), so "the .md has no anchors"
         // no longer signals "needs bootstrap" — that would re-bootstrap every
-        // clean file once Task 3 lands. An existing op log is authoritative;
+        // clean file now that clean-`.md` output has shipped. An existing op log
+        // is authoritative;
         // only a doc with NO op log (a brand-new or imported plain file)
         // bootstraps from its .md. Reading the .md to MINT ids for that
         // new/imported doc is the sanctioned import read — not reading it as
@@ -216,18 +129,52 @@ extension Document {
             }
         }
 
-        // Crash recovery: fold any pending changes into a real op.
+        // Crash recovery: fold the pending buffer into a real op. Two triggers:
+        //
+        //   1. pending has un-bursted CHANGES (the classic text-edit path).
+        //   2. pending has NO changes but carries a durable `sequence` that
+        //      DIFFERS from the op-log-derived sequence — an ordering-only edit
+        //      (paragraph delete / pure reorder) that recorded nothing in the
+        //      buffer but was stamped onto `pending.sequence` by autosave's
+        //      `setSequence` before the crash (F1). Without this the ordering
+        //      change was silently dropped and the deleted paragraph resurrected.
+        //
+        // Trigger 2 is additionally gated on the pending file's `basis` being
+        // CURRENT (Issue 2b — see below): a `{sequence, changes: []}` mirror
+        // whose basis no longer matches the log's newest opId is stale relative
+        // to ops it never saw, and folding it would reassert an order over a
+        // peer's while-closed delete. Clean quits leave no pending file at all
+        // now (Issue 2a), so trigger 2 fires only for a genuine crash-mid-reorder.
+        //
         // Order comes from the pending buffer (durable, op-log-domain) — NOT the
-        // .md (ADR 0019). Autosave stamps `pending.sequence` with the live order
-        // before each flush, so the un-bursted changes recover their paragraph
-        // ordering without consulting the .md's parsed anchors. A legacy pending
-        // file (pre-ADR-0019, no sequence) loads `sequence == []` → we fall back
-        // to `sequence: nil`, which the deriver reads as "ordering unchanged",
-        // carrying the op log's own last-explicit sequence forward.
+        // .md (ADR 0019). A legacy pending file with un-bursted changes but no
+        // sequence loads `sequence == []` → we fall back to `sequence: nil`,
+        // which the deriver reads as "ordering unchanged", carrying the op log's
+        // own last-explicit sequence forward.
         // NOTE (growth spec §4.2): this is a recovery op — correctness over
         // bytes. Keyframing applies only to flushBurstNow.
+        let derivedSequenceBeforeRecovery =
+            Deriver.deriveWithSequenceFallback(ops: ops).sequence
+
+        // Issue 2b — basis-aware staleness. The pending file's `sequence` was
+        // stamped against a known-newest op (`basis`). If ops it never saw have
+        // merged in since (basis != the log's current newest opId — e.g. a peer's
+        // while-closed delete synced in), the pending order is STALE: it must not
+        // reassert an ordering over ops it predates. A legacy pending file has no
+        // basis; for the empty-changes fold that's treated as stale (skip — the
+        // safer default, and legacy files predate the sequence field anyway),
+        // while non-empty changes keep today's text+sequence recovery.
+        let newestFoldedOpId = ops.map(\.opId).max()
+        let pendingBasis = pending.basis
+        let basisStale = pendingBasis != nil && pendingBasis != newestFoldedOpId
+        let basisCurrent = pendingBasis != nil && pendingBasis == newestFoldedOpId
+
         if !pending.isEmpty() {
-            let recoveredSequence = pending.sequence
+            // Non-empty changes: ALWAYS recover the text. Attach the pending
+            // sequence unless the basis is stale — a stale basis recovers text
+            // with `sequence: nil` so the deriver carries the last explicit
+            // sequence forward instead of reasserting a superseded order.
+            let recoveredSequence = basisStale ? [] : pending.sequence
             let recovered = Op(
                 opId: ULID.generate(), docId: docId, at: Date(),
                 device: device, session: session, kind: .typingBurst,
@@ -236,22 +183,71 @@ extension Document {
             try await opStore.append(recovered)
             try await pending.clear()
             ops.append(recovered)
+        } else if basisCurrent
+            && !pending.sequence.isEmpty
+            && pending.sequence != derivedSequenceBeforeRecovery {
+            // Empty-changes ordering-only fold: only when the basis is CURRENT
+            // (present AND == the newest opId) and the pending order genuinely
+            // diverges from the derived order. A stale or missing basis means the
+            // order predates ops it never saw — skip, so a clean-quit
+            // `{sequence, changes: []}` mirror (Issue 2a already deletes it) or a
+            // peer's while-closed delete never reasserts a superseded order.
+            let recovered = Op(
+                opId: ULID.generate(), docId: docId, at: Date(),
+                device: device, session: session, kind: .typingBurst,
+                changes: [],
+                sequence: pending.sequence)
+            try await opStore.append(recovered)
+            try await pending.clear()
+            ops.append(recovered)
         }
 
         // ADR 0019: content + order come ONLY from the op log, never from the
         // `.md`'s anchors. `deriveWithSequenceFallback` synthesises a sequence
         // from first-appearance order for legacy logs whose typing bursts
-        // predate the always-capture-sequence fix (replacing the old on-disk
-        // `.md` recovery). We still route through `reconcile` — but with an
-        // empty `parsed` so its `.md`-anchor-join branches (1–3) are inert —
-        // to preserve its op-log-only branch 4: dropping orphan paragraphs
-        // (ids in the accumulator but not in `sequence`) so the inline-task
-        // deriver doesn't surface phantom rows. The `.md` is still ANCHORED on
-        // disk at this stage (Task 3 makes it clean); passing `parsed: []`
-        // ensures load ignores those anchors for content/order today.
+        // predate the always-capture-sequence fix. `reconcile` then drops orphan
+        // paragraphs (ids in the accumulator but not in `sequence`) so the
+        // inline-task deriver doesn't surface phantom rows. The `.md` on disk is
+        // clean (ADR 0019) and plays no part in content or order.
         let initial = Document.reconcile(
-            derived: Deriver.deriveWithSequenceFallback(ops: ops), parsed: [])
-        let lastWritten = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+            derived: Deriver.deriveWithSequenceFallback(ops: ops))
+
+        // F4: a file edited while Maugham was CLOSED is otherwise silently
+        // overwritten by the first autosave, with no `.maugham/conflicts/`
+        // trace — the backup-on-discard net (`handleExternalDiskChange`) only
+        // covers live presenter events. When a log already existed (so this is
+        // NOT the fresh-bootstrap path, whose `.md` IS the seed) and the
+        // on-disk display form diverges from the op-log-derived display form,
+        // snapshot the on-disk bytes forensically BEFORE the `Document` — and
+        // its autosave — exist to clobber them. Compare DISPLAY forms
+        // (`stripAnchors` both) so an unmigrated still-anchored file whose
+        // content equals op-log truth does not false-positive. Dedup against
+        // the newest existing snapshot so repeated open/close of an unchanged
+        // divergent file doesn't accumulate identical copies. A backup-write
+        // failure must NEVER abort the load — the manuscript still opens; the
+        // snapshot is forensics, not a gate (mirrors the quarantine-write above).
+        if logExists {
+            let derivedRender = MarkdownDisplayFilter.stripAnchors(
+                Materializer.materialize(
+                    paragraphs: initial.paragraphs, sequence: initial.sequence))
+            if MarkdownDisplayFilter.stripAnchors(storedBytes) != derivedRender {
+                do {
+                    let newest = Document.newestConflictBackup(
+                        forFileAt: url, docId: docId)
+                        .flatMap { try? String(contentsOf: $0, encoding: .utf8) }  // adr-0018-ok: conflict-backup snapshot read for dedup, not manuscript truth
+                    if newest != storedBytes {
+                        _ = try Document.writeConflictBackup(
+                            forFileAt: url, docId: docId, text: storedBytes,
+                            kind: "diverged")
+                    }
+                } catch {
+                    documentLog.error(
+                        "divergence snapshot write failed for \(docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                }
+            }
+        }
+
+        let lastWritten = (try? String(contentsOf: url, encoding: .utf8)) ?? ""  // adr-0018-ok: sanctioned manuscript site — echo-guard baseline; op log is authoritative
         let initialEcho = EchoState.initialLoad(bytes: lastWritten)
 
         // BurstScheduler with caller-supplied thresholds (defaults: 30s/90s).
@@ -312,7 +308,7 @@ internal func resolveDocId(for url: URL) throws -> String {
         if fm.fileExists(atPath: manifestURL.path) {
             let relativePath = url.path
                 .replacingOccurrences(of: probe.path + "/", with: "")
-            if let data = try? Data(contentsOf: manifestURL) {
+            if let data = try? Data(contentsOf: manifestURL) {  // adr-0018-ok: project manifest JSON read, not manuscript
                 let dec = ProjectManifest.makeDecoder()
                 if let manifest = try? dec.decode(
                     ProjectManifest.self, from: data),

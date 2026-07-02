@@ -199,7 +199,13 @@ struct ProjectWindow: View {
         }
         .onReceive(NotificationCenter.default.publisher(
             for: .maughamScriptDidUpdate)) { note in
-            if let script = note.object as? FountainScript {
+            // Scope to this window's project (Channel A): adopt the script only
+            // when it originated here. A foreign post (another window flipping to
+            // a screenplay piece) must not relayout this editor or clobber this
+            // window's scene-navigator payload. NOT a key-window guard — a
+            // background window's own MCP-driven re-parse still updates it.
+            if let script = ScriptUpdateRouting.acceptedScript(
+                from: note, forProjectId: ProjectIdentifier.id(for: url)) {
                 self.lastParsedScript = script
             }
         }

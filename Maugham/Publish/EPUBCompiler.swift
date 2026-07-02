@@ -59,13 +59,13 @@ public struct EPUBCompiler {
             atomically: true, encoding: .utf8)
 
         let cssURL = publish.appendingPathComponent("styles.css")
-        let css = (try? String(contentsOf: cssURL)) ?? ""
+        let css = (try? String(contentsOf: cssURL)) ?? ""  // adr-0018-ok: bundled EPUB CSS asset read, not manuscript
 
         var cover: EPUBPackage.Cover? = nil
         if let coverPath = config.cover.path {
             let coverURL = publish.appendingPathComponent(coverPath)
             if FileManager.default.fileExists(atPath: coverURL.path),
-               let data = try? Data(contentsOf: coverURL) {
+               let data = try? Data(contentsOf: coverURL) {  // adr-0018-ok: cover-image bytes read, not manuscript
                 let mediaType: String
                 let ext = coverURL.pathExtension.lowercased()
                 switch ext {

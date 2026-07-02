@@ -31,7 +31,7 @@ public enum BackupRestore {
                 let manifestURL = dest.appendingPathComponent(id)
                     .appendingPathComponent(BackupWriter.manifestName)
                 let builtAt = (try? JSONDecoder().decode(
-                    MerkleManifest.self, from: Data(contentsOf: manifestURL)))?.builtAt
+                    MerkleManifest.self, from: Data(contentsOf: manifestURL)))?.builtAt  // adr-0018-ok: backup Merkle manifest read, not manuscript
                 all.append(RestoreGeneration(destination: dest, id: id, builtAt: builtAt))
             }
         }

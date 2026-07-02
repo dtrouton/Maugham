@@ -729,7 +729,7 @@ extension ProjectStore {
                 try await move(oldAssetsURL, newAssetsURL)
 
                 // Update internal refs in the renamed note
-                if let content = try? String(contentsOf: newURL, encoding: .utf8) {
+                if let content = try? String(contentsOf: newURL, encoding: .utf8) {  // adr-0018-ok: research-note read, not manuscript
                     let oldRef = "./\(oldSlug)_assets/"
                     let newRef = "./\(dedupedSlug)_assets/"
                     let rewritten = content.replacingOccurrences(of: oldRef, with: newRef)

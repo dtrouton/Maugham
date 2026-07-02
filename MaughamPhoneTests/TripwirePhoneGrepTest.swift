@@ -214,4 +214,131 @@ final class TripwirePhoneGrepTest: XCTestCase {
         XCTAssertTrue(offenders.contains { $0.contains(".mzseg") })
         XCTAssertTrue(offenders.contains { $0.contains("sealTailIfNeeded") })
     }
+
+    // MARK: - Manuscript-body read tripwire (ADR 0018) — phone twin
+
+    /// Mirror of `TripwireGrepTests.adr0018ReadPatterns` (the two test targets
+    /// can't share symbols, so the pattern list is duplicated by necessity —
+    /// same reality as the `hasPrefix("d_")` / `.mzseg` spellings above). Widen
+    /// BOTH copies together. Concrete file-read call shapes that could pull a
+    /// manuscript body off disk, bypassing the op log.
+    static let adr0018ReadPatterns: [String] = [
+        "String(contentsOf",
+        "Data(contentsOf",
+        "contentsOfFile",
+        ".contents(atPath",
+        "FileHandle(forReadingFrom",
+        ".resourceBytes",
+    ]
+
+    /// `.lines` compromise, identical to the Mac twin: a bare `.lines` is too
+    /// greppy (the phone's `FountainSemanticRenderer` iterates
+    /// `script.lines`), so flag only the async-line-read shape (`.lines` AND
+    /// `await` — the `for try await … in url.lines` signature).
+    static func adr0018IsAsyncURLLinesRead(_ line: String) -> Bool {
+        line.contains(".lines") && line.contains("await")
+    }
+
+    /// A line is exempt when it carries `// adr-0018-ok: <reason>` or is a pure
+    /// comment line. Mirror of the Mac twin's predicate.
+    static func adr0018ExcludeLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        if trimmed.contains("// adr-0018-ok:") { return true }
+        if trimmed.hasPrefix("//") || trimmed.hasPrefix("///") { return true }
+        return false
+    }
+
+    /// Walk all `.swift` files under `dir`, recording offenders for any
+    /// `patterns` substring or the `extraOffender` predicate, skipping lines
+    /// the `excludeLine` predicate rejects. Pure-Swift (no `Process` on iOS),
+    /// mirroring the Mac `grepSwift`.
+    private func grepSwiftDir(
+        in dir: URL,
+        patterns: [String],
+        excludeLine: (String) -> Bool,
+        extraOffender: (String) -> Bool
+    ) throws -> [String] {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            XCTFail("could not enumerate \(dir.path)")
+            return []
+        }
+        var offenders: [String] = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+                let lineStr = String(line)
+                if excludeLine(lineStr) { continue }
+                let hit = patterns.contains { lineStr.contains($0) } || extraOffender(lineStr)
+                if hit {
+                    offenders.append("\(url.lastPathComponent):\(i + 1): "
+                        + lineStr.trimmingCharacters(in: .whitespaces))
+                }
+            }
+        }
+        return offenders
+    }
+
+    /// ADR 0018 phone twin (finding F9): every production file-read of a
+    /// manuscript body under `MaughamPhone/` must carry a `// adr-0018-ok:`
+    /// annotation. The phone's Read tab renders the on-disk `.md` for display
+    /// (freshest render; no live cross-device Document) — a CONTRACTED
+    /// divergence registered in docs/superpowers/notes/cross-surface-contracts.md;
+    /// its read (through `CoordinatedFileIO.coordinatedRead`) is annotated as
+    /// such. Anchors and sequence still derive from the op log via
+    /// AnnotationLoading.
+    func test_noManuscriptFileReadsOutsideReconciler() throws {
+        let here = URL(fileURLWithPath: #filePath)
+        let repoRoot = here.deletingLastPathComponent().deletingLastPathComponent()
+        let sourceDir = repoRoot.appendingPathComponent("MaughamPhone", isDirectory: true)
+        let offenders = try grepSwiftDir(
+            in: sourceDir,
+            patterns: Self.adr0018ReadPatterns,
+            excludeLine: Self.adr0018ExcludeLine,
+            extraOffender: Self.adr0018IsAsyncURLLinesRead)
+        XCTAssertTrue(offenders.isEmpty,
+            "A MaughamPhone/ file reads a manuscript body off disk without justification. "
+            + "The Read-tab display read is a contracted divergence (annotate "
+            + "`// adr-0018-ok: contracted display read — see cross-surface-contracts.md`); "
+            + "any other non-manuscript read (inbox capture, manifest, checksum bytes) must "
+            + "state what it is. See docs/adr/0018-manuscript-reads-derive-from-oplog.md and "
+            + "docs/superpowers/notes/cross-surface-contracts.md. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// Self-check: prove the phone ADR 0018 tripwire FIRES on a planted
+    /// unannotated read, and that the annotation + the synchronous
+    /// `script.lines` exclusion both hold. Shares the pattern list + predicates
+    /// with the production check.
+    func test_phoneManuscriptReadTripwireFiresOnPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("phone-tripwire-adr0018-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        let planted = tmp.appendingPathComponent("SomeReader.swift")
+        try """
+        func read(at url: URL) throws -> Data {
+            return try Data(contentsOf: url)  // should be caught
+        }
+        func display(at url: URL) throws -> Data {
+            return try Data(contentsOf: url) // adr-0018-ok: contracted display read — see cross-surface-contracts.md
+        }
+        func render(_ script: FountainScript) {
+            _ = script.lines.count  // must NOT fire — sync in-memory property
+        }
+        """.write(to: planted, atomically: true, encoding: .utf8)
+
+        let offenders = try grepSwiftDir(
+            in: tmp,
+            patterns: Self.adr0018ReadPatterns,
+            excludeLine: Self.adr0018ExcludeLine,
+            extraOffender: Self.adr0018IsAsyncURLLinesRead)
+        XCTAssertEqual(offenders.count, 1,
+            "Self-check expected exactly the unannotated Data(contentsOf:) to fire. Got:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.first?.contains("Data(contentsOf: url)") == true,
+            "Self-check: the planted unannotated Data(contentsOf:) should be caught.")
+    }
 }

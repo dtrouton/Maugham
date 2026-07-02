@@ -125,7 +125,7 @@ struct ResearchNoteEditor: View {
         // Flush any pending file save before switching research notes.
         try? await documentStore.flushPendingSave()
         let url = store.url.appendingPathComponent(path)
-        let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""  // adr-0018-ok: research-note read, not manuscript
         documentText = text
         researchCursor = nil
         loadedPath = path

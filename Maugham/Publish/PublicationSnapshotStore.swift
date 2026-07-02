@@ -70,7 +70,7 @@ public actor PublicationSnapshotStore {
     nonisolated public func load(id: String) throws -> PublicationSnapshot {
         try Self.validate(snapshotID: id)
         let url = snapshotURL(id: id)
-        let data = try Data(contentsOf: url)
+        let data = try Data(contentsOf: url)  // adr-0018-ok: publication snapshot JSON read, not manuscript
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(PublicationSnapshot.self, from: data)
@@ -147,11 +147,11 @@ public actor PublicationSnapshotStore {
 
             let ext = (relativePath as NSString).pathExtension.lowercased()
             if Self.textExtensions.contains(ext) {
-                let text = try String(contentsOf: url)
+                let text = try String(contentsOf: url)  // adr-0018-ok: publication snapshot text read, not manuscript
                 out.append(.init(relativePath: relativePath,
                                  textContent: text, base64Content: nil))
             } else {
-                let data = try Data(contentsOf: url)
+                let data = try Data(contentsOf: url)  // adr-0018-ok: publication snapshot bytes read, not manuscript
                 out.append(.init(relativePath: relativePath,
                                  textContent: nil,
                                  base64Content: data.base64EncodedString()))

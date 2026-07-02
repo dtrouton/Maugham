@@ -65,7 +65,7 @@ public struct UIState: Codable, Equatable, Sendable {
     /// a schemaVersion newer than this build understands. v1 JSONs upgrade
     /// to v2 transparently — missing fields default.
     public static func loadOrEmpty(from url: URL) -> UIState {
-        guard let data = try? Data(contentsOf: url) else { return .empty }
+        guard let data = try? Data(contentsOf: url) else { return .empty }  // adr-0018-ok: UI-state read, not manuscript
         guard let decoded = try? JSONDecoder().decode(UIState.self, from: data) else {
             return .empty
         }

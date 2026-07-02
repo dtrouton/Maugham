@@ -66,4 +66,54 @@ final class EditorControlBridgeTests: XCTestCase {
         XCTAssertEqual(coordinator.typography.fontSize, bumped.fontSize,
             "typography change must reach the coordinator via the model")
     }
+
+    // MARK: - Fix 2 (Channel B): narrowed observation capture
+
+    /// The control-plane observation must track ONLY `EditorControl` properties.
+    /// Mutating a value that `applyControl` merely *reads through* while in review
+    /// posture — e.g. `UserPreferences.collaboratorDisplayName`, read by the
+    /// `reviewLocalAuthorName` provider inside `recomputeReviewMarks` — must NOT
+    /// re-fire `applyControl` (which whole-doc restyles). Before the fix the
+    /// initial `applyControl` ran INSIDE `withObservationTracking`, so those
+    /// provider reads were tracked and any shared-prefs mutation re-fired the
+    /// control plane in every review-mode window (ADR 0017 D1 exposure).
+    func test_reviewObservation_ignoresSharedPreferencesMutation() async {
+        let (coordinator, _) = makeCoordinator()
+        let prefs = UserPreferences(defaults: UserDefaults(suiteName: "fix2-\(UUID().uuidString)")!)
+        prefs.collaboratorDisplayName = "Before"
+        // Provider read inside recomputeReviewMarks — the captured-before path.
+        coordinator.reviewLocalAuthorName = { prefs.collaboratorDisplayName }
+
+        let control = EditorControl()
+        control.isReviewMode = true
+        coordinator.observeControl(control)   // initial apply (review on)
+        await settle()
+
+        let baseline = coordinator.applyControlCount
+        // Mutating the shared prefs must NOT re-fire the control plane.
+        prefs.collaboratorDisplayName = "After"
+        await settle()
+
+        XCTAssertEqual(coordinator.applyControlCount, baseline,
+            "a shared-prefs mutation must not re-fire applyControl (narrowed capture)")
+    }
+
+    /// The positive half: mutating an actual `EditorControl` property DOES
+    /// re-apply — the observation is narrowed, not severed.
+    func test_reviewObservation_stillFiresOnControlPropertyChange() async {
+        let (coordinator, _) = makeCoordinator()
+        let control = EditorControl()
+        control.isReviewMode = true
+        coordinator.observeControl(control)
+        await settle()
+
+        let baseline = coordinator.applyControlCount
+        var bumped = TypographySettings.defaults
+        bumped.fontSize = bumped.fontSize + 4
+        control.typography = bumped
+        await settle()
+
+        XCTAssertGreaterThan(coordinator.applyControlCount, baseline,
+            "an EditorControl property change must still re-apply the control plane")
+    }
 }

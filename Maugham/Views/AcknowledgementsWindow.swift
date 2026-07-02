@@ -19,7 +19,7 @@ struct AcknowledgementsWindow: View {
         .frame(minWidth: 640, minHeight: 480)
         .task {
             if let url = Bundle.main.url(forResource: "THIRD-PARTY-LICENSES", withExtension: "md"),
-               let text = try? String(contentsOf: url, encoding: .utf8) {
+               let text = try? String(contentsOf: url, encoding: .utf8) {  // adr-0018-ok: bundled acknowledgements doc read, not manuscript
                 markdown = text
             }
         }

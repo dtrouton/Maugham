@@ -156,7 +156,7 @@ public enum ReadPublishFileTool: MCPTool {
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw MCPError.invalidArgument("file not found: \(params.path)")
         }
-        let text = try String(contentsOf: url, encoding: .utf8)
+        let text = try String(contentsOf: url, encoding: .utf8)  // adr-0018-ok: publish-source file read (validated publish path), not manuscript
         return try JSONSerialization.data(
             withJSONObject: ["path": params.path, "content": text],
             options: [.sortedKeys])

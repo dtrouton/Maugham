@@ -115,7 +115,7 @@ enum TestProjectTools {
     /// Walks nested groups so compound structures are covered.
     static func docIdsFromDisk(projectURL: URL) -> [String] {
         let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
-        guard let data = try? Data(contentsOf: manifestURL),
+        guard let data = try? Data(contentsOf: manifestURL),  // adr-0018-ok: project manifest JSON read, not manuscript
               let manifest = try? ProjectManifest.makeDecoder()
                   .decode(ProjectManifest.self, from: data) else {
             return []

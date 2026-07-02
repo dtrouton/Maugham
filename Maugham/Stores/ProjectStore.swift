@@ -46,6 +46,17 @@ public final class ProjectStore {
     /// the legacy direct atomic-write path.
     public weak var documentStore: DocumentStore?
 
+    /// Per-project cache fronting `DerivedManuscript` for CLOSED docs (F5).
+    /// Owned here — not on `DocumentStore` — because every adopter (search,
+    /// word counts, wiki-rename pre-check, the link tools) already holds a
+    /// `ProjectStore` directly, and word-count population (below) needs the
+    /// cache during/just-after `load`, when the weak `documentStore` isn't
+    /// wired yet. Content-keyed on op-log file mtimes, so even the fresh
+    /// `ProjectStore` the Statistics window loads derives correctly against
+    /// its own (cold) instance. `@ObservationIgnored`: the cache is internal
+    /// machinery, never an observed SwiftUI dependency.
+    @ObservationIgnored public let derivedCache = DerivedManuscriptCache()
+
     /// Per-document cached word counts. Refreshed by EditorHost on text
     /// change. Aggregate sum is used by SessionTracker for project-wide
     /// net delta calculation.
@@ -62,6 +73,12 @@ public final class ProjectStore {
     public func cachedWordCount(for id: String) -> Int? {
         wordCountCache[id]
     }
+
+    /// Async word-count population kicked off at the tail of `load(from:)`.
+    /// Held so tests can await it (`await store.wordCountPopulationTask?.value`)
+    /// and so it's cancelled if the store is torn down mid-sweep.
+    /// `@ObservationIgnored`: internal lifecycle handle, not observed.
+    @ObservationIgnored public internal(set) var wordCountPopulationTask: Task<Void, Never>?
 
     static let manifestFilename = ProjectManifest.fileName
 
@@ -209,29 +226,42 @@ public final class ProjectStore {
             manifest: manifest,
             trashStore: trashStore,
             trashEntries: trashEntries)
-        Self.populateWordCountCache(in: store, from: manifest, at: url)
+        // F5: word counts move OFF the blocking load path. `load` returns as
+        // soon as the manifest is ready so the window appears immediately; the
+        // per-doc derive sweep (the JSONL-decode cost, ~tens of ms/doc on a
+        // month-old project × 50–100 docs) runs async afterward, publishing
+        // counts as they land. Trade-off: `projectWordCount` is partial until
+        // the sweep finishes, so a session started by typing in the first
+        // instant captures a partial baseline — accepted (a transient live-
+        // counter skew, self-corrects as counts land). See `Stores/AREA.md`.
+        store.beginWordCountPopulation(from: manifest, at: url)
         return store
     }
 
-    /// Walk every document in `manifest.structure`, derive its word count
-    /// from the op-log-materialised text (ADR 0018), and record it via
-    /// the WritingMode for that file's extension. Called during `load(from:)`
-    /// so consumers (goal indicator, Statistics window, etc.) see correct
-    /// totals from the start instead of zeros until the user types into
-    /// each document.
-    private static func populateWordCountCache(
-        in store: ProjectStore,
+    /// Walk every document in `manifest.structure`, derive its word count from
+    /// the op-log-materialised text (ADR 0018) via the shared `derivedCache`,
+    /// and record it. Runs asynchronously off `load`'s blocking path with a
+    /// `Task.yield()` between docs so a big project doesn't monopolise the main
+    /// actor; each `recordWordCount` publishes through `@Observable`, so
+    /// consumers (goal indicator, Statistics window, binder) render counts
+    /// incrementally as they populate.
+    func beginWordCountPopulation(
         from manifest: ProjectManifest,
         at projectURL: URL
     ) {
-        for item in collectDocuments(in: manifest.structure) {
-            guard let path = item.path else { continue }
-            // ADR 0018: derive content from the op log, never the .md file.
-            let state = DerivedManuscript.derivedState(
-                forDocId: item.id, in: projectURL)
-            let text = state.paragraphs.values.joined(separator: " ")
-            let count = WritingModeFactory.mode(for: path).wordCount(text)
-            store.recordWordCount(forDocumentId: item.id, wordCount: count)
+        wordCountPopulationTask?.cancel()
+        wordCountPopulationTask = Task { @MainActor [weak self] in
+            for item in Self.collectDocuments(in: manifest.structure) {
+                if Task.isCancelled { return }
+                guard let self, let path = item.path else { continue }
+                // ADR 0018: derive from the op log, never the .md file.
+                let state = self.derivedCache.state(
+                    forDocId: item.id, in: projectURL)
+                let text = state.paragraphs.values.joined(separator: " ")
+                let count = WritingModeFactory.mode(for: path).wordCount(text)
+                self.recordWordCount(forDocumentId: item.id, wordCount: count)
+                await Task.yield()
+            }
         }
     }
 

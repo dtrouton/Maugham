@@ -48,8 +48,11 @@ final class WordCountOpLogSourceTests: XCTestCase {
         let staleMd = "one two three four five six seven"   // 7 words
         try staleMd.write(to: docURL, atomically: true, encoding: .utf8)
 
-        // --- load project (calls populateWordCountCache internally) ----------
+        // --- load project (kicks off async word-count population) ------------
         let store = try await ProjectStore.load(from: tmp)
+        // F5: population is now off the blocking load path — await it before
+        // asserting on the recorded count.
+        await store.wordCountPopulationTask?.value
 
         let recorded = store.cachedWordCount(for: docId)
         XCTAssertNotNil(recorded, "populateWordCountCache must record a count for the document")

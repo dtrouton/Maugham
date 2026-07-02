@@ -74,3 +74,48 @@ edits are discarded on re-materialize.
   invariant (ADRs 6–8, 0012, 0016); it reuses the existing
   `loadSyncMerged`/`Deriver`/`Materializer` primitives rather than adding new
   derivation logic.
+
+## Addendum (2026-07-01) — open-doc rule enforced at the freshness sites; annotation-based tripwire; derive cache
+
+The op-log-spine-hardening review (spec
+`docs/superpowers/specs/2026-07-01-oplog-spine-hardening.md`) found the standing
+rule — *open doc → live `Document`; closed doc → derive* — was only followed by
+`read_document` / `list_scenes`. Several always-derive consumers therefore lagged
+an OPEN doc.
+
+- **The open-doc branch is now enforced at four more sites (F6):**
+  `ProjectStoreASTSource` (compile / `preview_compile`), `ProjectSearchEngine`
+  (in-app + MCP `search_text`), `ListAllLinksTool`, and `FindReferencesTool` all
+  take the live `Document`'s in-memory state when the doc is open, deriving only
+  for closed docs — the same pattern `read_document` uses. `read_document`'s
+  word_count is now computed over the *stripped* text.
+
+- **The staleness figure is the burst window, not 750ms.** For any remaining
+  always-derive consumer, an open doc's newest text lags by the **burst window
+  (30s idle / 90s cap / force-flush)** — because the 750ms autosave writes the
+  `.md` + pending mirror but appends **no ops**; ops land at burst close. Earlier
+  docs/roadmap notes that said "~750ms" understated it. With the four sites
+  converted, an open doc is now read from live memory (zero lag) rather than
+  derived at all.
+
+- **The tripwire is now an invariant guard, not a site guard (F9).**
+  `TripwireGrepTests` no longer scans a fixed 8-file allowlist for 3 patterns; it
+  scans **all production `.swift`** under `Maugham/`,
+  `Packages/MaughamCore/Sources/`, and `MaughamPhone/` for a widened pattern set
+  (`String(contentsOf`, `Data(contentsOf`, `contentsOfFile`,
+  `FileManager.contents(atPath`, `FileHandle(forReadingFrom`, `.resourceBytes`,
+  `url.lines`). Every hit must carry a `// adr-0018-ok: <reason>` annotation; a
+  planted-offender self-test proves the guard fires. Note the nuance:
+  **op-log / inbox / pending JSONL reads are annotated `ok`** — the op log *is*
+  the truth, so the guard is about the derived `.md`, not all file I/O. Known
+  limitation: `url.lines` is detected only by its async shape. A phone twin
+  covers `MaughamPhone`, and the phone Read tab's on-disk `.md` display read is
+  registered as a contracted divergence (Tier 2) in
+  `docs/superpowers/notes/cross-surface-contracts.md`.
+
+- **Closed-doc derivation is cached (F5).** The perf note above ("cache by docId
+  if a hot loop regresses") is realized as `DerivedManuscriptCache` (MaughamCore),
+  keyed on the doc's op-log file set + mtimes + sizes, fronting `DerivedManuscript`
+  for closed docs. Adopted by search / compile / the link+reference+scenes tools /
+  wiki-rename pre-check / word counts; open docs bypass it (they read live). See
+  `Maugham/Stores/AREA.md` for the owner and rationale.
