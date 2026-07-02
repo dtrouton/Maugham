@@ -387,6 +387,11 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         self.paragraphFocus = paragraphFocus
         self.wikiLinkResolver = wikiLinkResolver
         super.init()
+        #if MAUGHAM_DEV_BUILD
+        // Weakly register with the scene-storage-spike leak probe (ADR 0021).
+        // Dev-only; absent from stable. See CoordinatorLeakProbe.
+        CoordinatorLeakProbe.register(self)
+        #endif
         // NotificationCenter posts these on `.main` so we're on the main
         // thread when the closures fire, but the closure types aren't
         // @MainActor-annotated. `MainActor.assumeIsolated` bridges the gap

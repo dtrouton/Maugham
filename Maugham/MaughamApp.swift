@@ -199,6 +199,17 @@ struct MaughamApp: App {
                     MaughamEvent.post(.maughamSetDetailSegment, to: .keyWindow, payload: ["segment": "annotations"])
                 }
                 .keyboardShortcut("a", modifiers: [.command, .option])
+                #if MAUGHAM_DEV_BUILD
+                // Scene-storage spike instrument (ADR 0021): logs how many
+                // EditorCoordinators are still alive. Close a project window,
+                // then click this — live→0 means SwiftUI released the scene
+                // graph; live staying >0 is the documented framework retention.
+                // See docs/superpowers/notes/2026-07-02-scene-storage-spike.md.
+                Divider()
+                Button("Dump Coordinator Leak Probe (dev)") {
+                    CoordinatorLeakProbe.dump()
+                }
+                #endif
             }
             CommandGroup(after: .pasteboard) {
                 Divider()

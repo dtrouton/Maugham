@@ -86,7 +86,10 @@ the receiving view has no live window), making the milestone's guarantee "a
 closed window receives nothing," not merely "receivers only get their own
 events." Actually *releasing* the retained graph is framework behavior and
 stays out of scope beyond a timeboxed spike (see the spec) — with the guard,
-zombies are inert and deaf; the residual is bounded memory.
+zombies are inert and deaf; the residual is bounded memory. The spike ran and
+its outcome (framework cost; ARC-side no-cycle proven headless; three levers
+assessed; manual probe + footprint recipe) is recorded in
+`docs/superpowers/notes/2026-07-02-scene-storage-spike.md`.
 
 ## Implementation notes (2026-07-02)
 
