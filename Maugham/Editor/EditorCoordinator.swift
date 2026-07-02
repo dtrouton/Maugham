@@ -445,19 +445,18 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             textView.scrollRangeToVisible(range)
             textView.window?.makeFirstResponder(textView)
         }
-        annotationNavigateObserver = NotificationCenter.default.addObserver(
-            forName: .maughamNavigateToAnnotation,
-            object: nil,
-            queue: .main
+        // Key-window scoped via the helper (ADR 0021) — the former inline
+        // `textView.window?.isKeyWindow` guard is deleted; the `.keyWindow`
+        // context owns it now.
+        annotationNavigateObserver = MaughamEvent.observe(
+            .maughamNavigateToAnnotation,
+            context: { [weak self] in self?.receiverContext(.keyWindow) }
         ) { [weak self] note in
-            MainActor.assumeIsolated {
-                guard let self,
-                      let annId = note.userInfo?["annotation_id"] as? String,
-                      let textView = self.textView else { return }
-                guard textView.window?.isKeyWindow == true else { return }
-                let pid = note.userInfo?["paragraph_id"] as? String
-                self.navigateToAnnotation(id: annId, fallbackParagraphId: pid, in: textView)
-            }
+            guard let self,
+                  let annId = note.userInfo?["annotation_id"] as? String,
+                  let textView = self.textView else { return }
+            let pid = note.userInfo?["paragraph_id"] as? String
+            self.navigateToAnnotation(id: annId, fallbackParagraphId: pid, in: textView)
         }
         reviewToggleObserver = NotificationCenter.default.addObserver(
             forName: .maughamToggleReviewMode,

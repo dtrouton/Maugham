@@ -305,8 +305,8 @@ struct AnnotationsPane: View {
         // manuscript pane.
         var info: [String: Any] = ["annotation_id": ann.id]
         if let pid = ann.paragraphId { info["paragraph_id"] = pid }
-        NotificationCenter.default.post(
-            name: .maughamNavigateToAnnotation, object: nil, userInfo: info)
+        MaughamEvent.post(
+            .maughamNavigateToAnnotation, to: .keyWindow, payload: info)
         if let pid = ann.paragraphId {
             MaughamEvent.post(
                 .maughamNavigateToParagraph, to: .keyWindow,
