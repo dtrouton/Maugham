@@ -55,4 +55,47 @@ final class DocumentDoubleCloseTests: XCTestCase {
         }
         XCTAssertTrue(hasEdit, "the flushed edit must survive the double close")
     }
+
+    /// `close()` husks the heavy in-memory state after the disk truth is written.
+    /// This is the load-bearing memory win: a closed Document's `@State` box can
+    /// stay retained by a dead SwiftUI scene graph (we can't nil another view's
+    /// @State), so husking makes the stranded instance weightless.
+    func test_close_husksHeavyInMemoryState() async throws {
+        let doc = try await makeDoc(text: "First paragraph.\n\nSecond paragraph.")
+        // Sanity: the heavy state is populated before close.
+        XCTAssertFalse(doc.paragraphs.isEmpty)
+        XCTAssertFalse(doc.sequence.isEmpty)
+        XCTAssertFalse(doc.displayText.isEmpty)
+        XCTAssertFalse(doc.opLogSnapshot.isEmpty)
+
+        await doc.close()
+
+        XCTAssertTrue(doc.isClosed, "close() sets isClosed")
+        XCTAssertTrue(doc.paragraphs.isEmpty, "close() husks the paragraphs dict")
+        XCTAssertTrue(doc.sequence.isEmpty, "close() husks the sequence array")
+        XCTAssertTrue(doc.displayText.isEmpty, "close() husks displayText")
+        XCTAssertTrue(doc.opLogSnapshot.isEmpty, "close() husks the op-log mirror")
+
+        // Disk truth is untouched by husking — the async accessor reads it back.
+        let ops = try await doc.opLog()
+        XCTAssertFalse(ops.isEmpty,
+            "husking is memory-only: the persisted op log is intact on disk")
+    }
+
+    /// A mutation on a closed (husked) doc no-ops rather than resurrecting the
+    /// husk. `setFullText` is the documented misuse case (a still-referenced
+    /// zombie's editor binding): it must not re-parse the text into empty prior
+    /// state and re-populate paragraphs.
+    func test_setFullText_onClosedDoc_noOpsWithoutResurrectingHusk() async throws {
+        let doc = try await makeDoc(text: "Original paragraph.")
+        await doc.close()
+        XCTAssertTrue(doc.isClosed)
+
+        doc.setFullText("Resurrected text that must be ignored.")
+
+        XCTAssertTrue(doc.displayText.isEmpty,
+            "setFullText on a closed doc must not resurrect displayText")
+        XCTAssertTrue(doc.paragraphs.isEmpty,
+            "setFullText on a closed doc must not repopulate paragraphs")
+    }
 }

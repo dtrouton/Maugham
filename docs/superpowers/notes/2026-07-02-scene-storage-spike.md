@@ -284,8 +284,10 @@ entirely our own `@State`** (the `Document` with its paragraphs + op-log
 mirror, the `ProjectStore` with its derived cache, the `DocumentStore`, the
 parsed `FountainScript` AST) — not, as Attempt 2 assumed, a graph owned by an
 un-nil-able retained view tree. SwiftUI never dismantles the zombie (`heap`/
-`leaks --trace` prove `dismantleNSView` never runs on ⌘W), but **`.onDisappear`
-DOES fire on window close**, so we can empty the zombie ourselves. This does
+`leaks --trace` prove `dismantleNSView` never runs on ⌘W), but the ROOT scene
+view's **`.onDisappear` (ProjectWindow) DOES fire on window close** (nested
+views' `.onDisappear` do NOT — see the EditorHost correction below), so we can
+empty the zombie from there. This does
 not *release* the AttributeGraph husk (that is still the future
 explicit-`NSWindowController` milestone) — it drops the residual from tens of
 MB per closed window to the husk alone (100s of KB).
@@ -306,10 +308,15 @@ MB per closed window to the husk alone (100s of KB).
   immediate nil is safe), unregisters it from the `DocumentStore`, and also
   nils `loadedItemId`/`priorLoadedPath` so a re-appear reloads. **No isLive
   guard** — EditorHost holds no window ref and tripwire 6 forbids adding
-  observable state; instead, `EditorHost.onDisappear` fires ONLY on
-  document-abandonment paths (leaving the manuscript/scenes/find segment, which
-  re-mounts a fresh EditorHost that reloads; or window close), and nil-ing
-  `loadedItemId` makes any spurious fire self-heal via the reload path.
+  observable state; nil-ing `loadedItemId` makes any spurious fire self-heal via
+  the reload path.
+  **CORRECTION (measured 2026-07-02 — see the husk follow-up below):** a *nested*
+  view's `.onDisappear` does **NOT** fire on window close — only the ROOT scene
+  view's (`ProjectWindow`) does. So this bullet covers the **segment-switch**
+  abandonment case only (leaving manuscript/scenes/find, which re-mounts a fresh
+  EditorHost). It is a belt, not the window-close fix; the window-close Document
+  teardown is the `DocumentStore.close()` registry-drain (below) plus the
+  Document husk (below).
 - **`MaughamTextView.viewWillMove(toWindow:)`** (`Maugham/Editor/EditorSurface.swift`):
   when `newWindow == nil`, calls `coordinator?.detach()`. This is the
   window-close teardown path `dismantleNSView` never takes; `detach()` is now
@@ -358,6 +365,69 @@ the piece doc before `close()` and does not reuse the store for reads
 afterward, and the app-terminate handler is a quit path — draining is correct
 (or a no-op) in both. Regression net: `DocumentStoreOpenCloseTests.test_close_drainsRegistry_releasingRegisteredDocuments`
 (weak ref to a registered doc goes nil after `close()`; registry empties).
+
+### Document husk-on-close (2026-07-02, second follow-up)
+
+The registry drain removed the `DocumentStore` root from the trace and held
+`EditorCoordinator` at 0, but re-measurement showed **live `Document` was still
+1 after ⌘W**, now via a different root:
+
+```
+SwiftUI.StoredLocation<Optional<Maugham.Document>>   ← EditorHost's @State box
+```
+
+i.e. **EditorHost's own `@State private var document`** box, retained by the
+dead scene graph. This is the finding that corrected the earlier note: EditorHost
+is a NESTED view, and its `.onDisappear` does **not** fire on window close (only
+the root `ProjectWindow`'s does), so EditorHost never nils its `document` box on
+⌘W — and we cannot nil another view's `@State` from outside.
+
+**Fix — make the stranded object weightless (mirror of `EditorCoordinator.detach()`):**
+at the END of a successful `Document.close()` (after the burst flush, trailing
+autosave, `pending.clear`, and seal — so disk truth is already durable), husk the
+O(doc) in-memory state: `paragraphs`, `sequence`, `displayText`, `_opLogMirror`,
+the annotation/task caches, `lastDiskEcho`'s byte snapshot, and the discard-hash
+window. A new `isClosed` flag (set first) gates every mutation entry point so a
+late call can't operate on — or resurrect — the husk:
+
+- `setFullText` / `setParagraph` / `insertParagraph` / `deleteParagraph` /
+  `reorder` → no-op + `documentLog.error` (via `rejectMutationIfClosed`). Chosen
+  over silent no-op because a post-close mutation is a contract violation worth a
+  forensic trace; the instance is abandoned by contract.
+- `performAutosave` → bails on `isClosed`. **Data-safety-critical:** a husked
+  doc's `materialize()` is empty, so a stray autosave firing after the husk would
+  write an EMPTY `.md` over the real manuscript. (Husking only runs AFTER the
+  in-`close()` autosave flush, so this guards a scheduler tail, not the normal
+  close flush.)
+- `handleExternalDiskChange` / `handleExternalLogChange` → belt-guard on
+  `isClosed` (a closed doc is unregistered + its presenter removed, so these
+  shouldn't fire; the guard stops a stray callback writing a spurious conflict
+  backup or re-deriving state from disk and resurrecting the husk).
+
+`close()` also gained a top `guard !isClosed` so a double-close returns
+immediately instead of re-running the flush machinery over husked state.
+
+**Data safety:** husking is memory-only and happens strictly AFTER the disk
+truth is written by `close()`'s existing flush ordering — the persisted op log +
+clean `.md` are untouched (`opLog()`, the async accessor, falls back to a disk
+read once the mirror is husked). No production reader uses a `Document` after
+`close()` (verified across every `close()` call site: EditorHost doc-switch +
+onDisappear, DocumentStore drain, the transient MCP annotation/task closes, the
+search-replace transient close, and the CollectionPieces promote — each awaits
+`body(doc)` / applies its edit BEFORE closing and abandons the instance after).
+One TEST (`CleanMdWriteTests.test_externalCleanEdit_isDiscarded_opLogUnchanged`)
+had used `close()` as a "flush a clean `.md`" shortcut and then kept driving the
+same instance through `handleExternalDiskChange`; it was updated to call
+`performAutosave()` (which writes the same clean derived form and seeds
+`lastDiskEcho`) so the doc stays LIVE for the external-change assertions —
+matching the new contract.
+
+**Expected after this fix:** live `Document` stays flat across open/close cycles
+(was 1→2), matching `EditorCoordinator`; the per-closed-window residual is the
+AttributeGraph husk only (100s of KB), the standing framework cost the
+explicit-`NSWindowController` milestone would address. Regression net:
+`DocumentDoubleCloseTests.test_close_husksHeavyInMemoryState` (heavy state empty
+after close, disk log intact) + `…test_setFullText_onClosedDoc_noOpsWithoutResurrectingHusk`.
 
 **What can only be verified manually:** the `@State`-scorch itself needs a real
 window close (SwiftUI scene lifecycle, not drivable from an XCTest host) — the

@@ -98,14 +98,19 @@ liveness guard keeps stranded graphs at zero work); the explicit-window-hosting
 fix is a future milestone whose trigger is long-session footprint creep.
 
 **Mitigation shipped (workaround 1, 2026-07-02):** since the retain-root trace
-showed the stranded payload is almost entirely our own `@State` and
-`.onDisappear` still fires on close, we now empty the zombie ourselves —
-`ProjectWindow.onDisappear` scorches the heavy `@State` (isLive-guarded),
-`EditorHost.onDisappear` closes-and-nils its `Document`, and
-`MaughamTextView.viewWillMove(toWindow: nil)` detaches the coordinator on the
-close path `dismantleNSView` misses — leaving only the AttributeGraph husk; the
-explicit `NSWindowController` hosting above remains the future escalation if a
-footprint A/B still shows material residual.
+showed the stranded payload is almost entirely our own `@State` and the ROOT
+scene view's `.onDisappear` fires on close, we now empty the zombie ourselves in
+three measured parts — (1) `ProjectWindow.onDisappear` scorches its heavy
+`@State` (isLive-guarded) + `MaughamTextView.viewWillMove(toWindow: nil)`
+detaches the coordinator on the close path `dismantleNSView` misses; (2)
+`DocumentStore.close()` drains its document registry; (3) `Document.close()`
+husks its own O(doc) in-memory state (EditorHost's `@State` box for the
+`Document` stays retained by the dead scene, and a NESTED view's `.onDisappear`
+does not fire on window close, so it can't nil itself). `EditorHost.onDisappear`
+remains a belt for segment-switch only. Result: only the AttributeGraph husk
+survives; explicit `NSWindowController` hosting above remains the future
+escalation if a footprint A/B still shows material residual. Full trace +
+iteration: `docs/superpowers/notes/2026-07-02-scene-storage-spike.md`.
 
 ## Implementation notes (2026-07-02)
 

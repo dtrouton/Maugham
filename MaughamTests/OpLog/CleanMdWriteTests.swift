@@ -162,7 +162,12 @@ final class CleanMdWriteTests: XCTestCase {
         let doc = try await Document.load(
             url: project.appendingPathComponent(path),
             device: "m", session: "s", presenter: nil)
-        await doc.close()  // clean .md now on disk
+        // Write the clean .md to disk while keeping the doc LIVE. (This used to
+        // call `close()`, but close() now husks the instance — abandoned by
+        // contract — so it can no longer be used as a flush shortcut for a doc
+        // that keeps handling external changes below. `performAutosave` writes
+        // the same clean derived form and seeds `lastDiskEcho`.)
+        try await doc.performAutosave()
 
         let opCountBefore = doc.opLogMirrorCount
         let materializeBefore = doc.materialize()

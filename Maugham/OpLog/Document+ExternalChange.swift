@@ -4,6 +4,11 @@ import MaughamCore
 extension Document {
 
     public func handleExternalDiskChange(diskMd: String) async throws {
+        // A closed doc is husked + abandoned; it shouldn't receive presenter
+        // callbacks (the DocumentStore removed the presenter and drained the
+        // registry on close), but belt-guard so a stray one can't write a
+        // spurious conflict backup against the empty husked `materialize()`.
+        guard !isClosed else { return }
         // Echo guard: the change we ourselves just wrote.
         guard diskMd != lastDiskEcho.bytes else { return }
         // The on-disk file is the clean render (ADR 0019). If it already matches
@@ -40,6 +45,10 @@ extension Document {
     }
 
     public func handleExternalLogChange() async throws {
+        // A closed doc is husked + abandoned; belt-guard so a stray presenter
+        // callback can't re-derive state from disk and RESURRECT the husk
+        // (rebuilding paragraphs/sequence into a doc no reader observes).
+        guard !isClosed else { return }
         // Reload the log file (OpLogStore.load dedupes by op_id and sorts).
         let ops = try await opStore.load(docId: docId)
 
