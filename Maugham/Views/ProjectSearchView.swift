@@ -151,10 +151,9 @@ struct ProjectSearchView: View {
 
     private func matchRow(for match: SearchMatch) -> some View {
         Button {
-            NotificationCenter.default.post(
-                name: .maughamFindMatchSelected,
-                object: nil,
-                userInfo: ["match": match])
+            MaughamEvent.post(
+                .maughamFindMatchSelected, to: .keyWindow,
+                payload: ["match": match])
         } label: {
             HStack(spacing: 8) {
                 Text("\(match.lineNumber)")

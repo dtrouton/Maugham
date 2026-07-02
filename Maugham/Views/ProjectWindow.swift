@@ -424,8 +424,7 @@ struct ProjectWindow: View {
                     findActive = false
                     binderSegment = store?.manifest.type == .screenplay ? .scenes : .manuscript
                 }
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamFindMatchSelected)) { note in
+                .onKeyWindowCommand(.maughamFindMatchSelected, window: window) { note in
                     guard let store,
                           let match = note.userInfo?["match"] as? SearchMatch else { return }
                     switch match.documentSource {

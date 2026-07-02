@@ -401,25 +401,22 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                   let textView = self.textView else { return }
             self.navigateToLine(at: location, in: textView)
         }
-        findMatchObserver = NotificationCenter.default.addObserver(
-            forName: .maughamFindMatchSelected,
-            object: nil,
-            queue: .main
+        findMatchObserver = MaughamEvent.observe(
+            .maughamFindMatchSelected,
+            context: { [weak self] in self?.receiverContext(.keyWindow) }
         ) { [weak self] note in
-            MainActor.assumeIsolated {
-                guard let self,
-                      let match = note.userInfo?["match"] as? SearchMatch,
-                      let textView = self.textView else { return }
+            guard let self,
+                  let match = note.userInfo?["match"] as? SearchMatch,
+                  let textView = self.textView else { return }
 
-                // Defer to allow the document load to complete first.
-                Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 50_000_000)
-                    let range = match.charRangeInDocument
-                    guard let storage = textView.textStorage,
-                          range.location + range.length <= storage.length else { return }
-                    textView.setSelectedRange(range)
-                    textView.scrollRangeToVisible(range)
-                }
+            // Defer to allow the document load to complete first.
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 50_000_000)
+                let range = match.charRangeInDocument
+                guard let storage = textView.textStorage,
+                      range.location + range.length <= storage.length else { return }
+                textView.setSelectedRange(range)
+                textView.scrollRangeToVisible(range)
             }
         }
         paragraphNavigateObserver = NotificationCenter.default.addObserver(
