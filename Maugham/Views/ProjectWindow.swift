@@ -372,8 +372,7 @@ struct ProjectWindow: View {
                 .onKeyWindowCommand(.maughamTidyAllFilenames, window: window) { _ in
                     showingTidyAllConfirmation = true
                 }
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamSessionLogChanged)) { _ in
+                .onProjectEvent(.maughamSessionLogChanged, url: url, window: window) { _ in
                     Task {
                         sessionLog = (try? await documentStore?.loadSessionLog()) ?? .empty
                     }

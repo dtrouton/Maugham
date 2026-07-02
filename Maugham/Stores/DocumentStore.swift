@@ -373,8 +373,7 @@ public final class DocumentStore {
         }
         if let coordError { throw coordError }
         if let writeError { throw writeError }
-        NotificationCenter.default.post(
-            name: .maughamSessionLogChanged, object: nil)
+        MaughamEvent.post(.maughamSessionLogChanged, to: .project(for: projectURL))
     }
 
     /// Records all the side-effects that must fire when the editor writes

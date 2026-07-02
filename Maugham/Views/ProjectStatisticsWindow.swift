@@ -1,10 +1,15 @@
 import SwiftUI
+import AppKit
 
 struct ProjectStatisticsWindow: View {
     let projectURL: URL
     @State private var store: ProjectStore?
     @State private var sessionLog: SessionLog = .empty
     @State private var loadError: String?
+    /// Hosting window (this is its own scene) for the ADR 0021 project scope +
+    /// closed-window liveness guard — a closed stats window's zombie no longer
+    /// reloads on a session-log change.
+    @State private var window: NSWindow?
 
     var body: some View {
         Group {
@@ -32,10 +37,10 @@ struct ProjectStatisticsWindow: View {
             }
         }
         .frame(minWidth: 720, minHeight: 600)
+        .background(WindowAccessor(window: $window))
         .navigationTitle(store?.manifest.title ?? "Statistics")
         .task(id: projectURL) { await load() }
-        .onReceive(NotificationCenter.default.publisher(
-            for: .maughamSessionLogChanged)) { _ in
+        .onProjectEvent(.maughamSessionLogChanged, url: projectURL, window: window) { _ in
             Task { await reloadSessionLog() }
         }
     }
