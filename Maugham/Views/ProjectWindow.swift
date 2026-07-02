@@ -418,8 +418,7 @@ struct ProjectWindow: View {
                         $0.researchPreviewVisible = researchPreviewVisible
                     }
                 }
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamFindInProject)) { _ in
+                .onKeyWindowCommand(.maughamFindInProject, window: window) { _ in
                     binderSegment = .find
                 }
                 .onReceive(NotificationCenter.default.publisher(

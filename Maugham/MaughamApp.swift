@@ -238,8 +238,7 @@ struct MaughamApp: App {
             }
             CommandGroup(after: .pasteboard) {
                 Button("Find in Project…") {
-                    NotificationCenter.default.post(
-                        name: .maughamFindInProject, object: nil)
+                    MaughamEvent.post(.maughamFindInProject, to: .keyWindow)
                 }
                 .keyboardShortcut("f", modifiers: [.command, .option])
                 Button("Restore Last Deleted Item") {
