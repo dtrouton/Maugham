@@ -316,15 +316,48 @@ MB per closed window to the husk alone (100s of KB).
   explicitly idempotent (`guard !isDetached`) because a piece flip fires BOTH
   `dismantleNSView` and this hook.
 
-**Double-close ownership:** `DocumentStore.close()` (called by
-`ProjectWindow.onDisappear`) does NOT close registered `Document`s — it flushes
-the session/pending-file-save/UI-state and removes the file presenter. So
-**`EditorHost` is the sole owner of `Document.close()`** and there is no racing
-double-close between the two `.onDisappear`s. `Document.close()` is idempotent
-regardless (`flushBurstNow` no-ops on an empty pending buffer, the trailing
-`autosaveScheduler.flush()` no-ops, `pending.clear()` is idempotent), which is
-what makes the workaround safe alongside the doc-switch close in
-`loadDocumentIfNeeded`.
+**Double-close ownership:** `Document.close()` is idempotent (`flushBurstNow`
+no-ops on an empty pending buffer, the trailing `autosaveScheduler.flush()`
+no-ops, `pending.clear()` is idempotent), so the several close paths
+(EditorHost.onDisappear, the doc-switch close in `loadDocumentIfNeeded`, and —
+after the registry-drain fix below — `DocumentStore.close()`) can all fire
+without a racing-double-close hazard.
+
+### Registry-drain follow-up (2026-07-02, load-bearing half)
+
+The first cut of the mitigation killed the coordinator leak but NOT the
+`Document` leak. **Measured (dev build, ⌘W):** `EditorCoordinator` → **0 live
+after close** (the primary win — `viewWillMove` + `detach` work). But `Document`
+still accumulated one per open/close cycle (1 after close #1, 2 after close #2).
+`leaks --trace` on the stranded `Document`s gave the retain path:
+
+```
+value._documentStore.wrappedValue → DocumentStore → __strong _openDocuments._variant
+  → DictionaryStorage<String, Document> → Document
+```
+
+The `DocumentStore` **registry** (`_openDocuments`, a strong `[path: Document]`
+map) still held them. The `DocumentStore` object itself rides the dead scene's
+retained property-wrapper storage (nil-ing ProjectWindow's `@State` didn't free
+it — EditorHost's own stored `documentStore` in the retained graph still
+references it), and EditorHost.onDisappear's `unregister` did not reliably run
+on window close (it races nested-onDisappear ordering / the path it unregisters
+against).
+
+**Fix:** make `DocumentStore.close()` **drain the registry** — snapshot the
+open documents, clear the map, then `await doc.close()` on each (idempotent, so
+double-close with EditorHost's path is safe) before removing the file
+presenter. Because `ProjectWindow.onDisappear` already makes exactly one
+`close()` call unconditionally (before the isLive-guarded scorch), the registry
+empties regardless of any nested-onDisappear ordering. `EditorHost.onDisappear`
+stays as a belt (it still covers the segment-switch abandonment case, where the
+DocumentStore is NOT being closed), but the drain is the load-bearing fix for
+the window-close path. Other `DocumentStore.close()` callers were checked: the
+promote path (`ProjectStore+CollectionPieces.swift`) already closes+unregisters
+the piece doc before `close()` and does not reuse the store for reads
+afterward, and the app-terminate handler is a quit path — draining is correct
+(or a no-op) in both. Regression net: `DocumentStoreOpenCloseTests.test_close_drainsRegistry_releasingRegisteredDocuments`
+(weak ref to a registered doc goes nil after `close()`; registry empties).
 
 **What can only be verified manually:** the `@State`-scorch itself needs a real
 window close (SwiftUI scene lifecycle, not drivable from an XCTest host) — the
