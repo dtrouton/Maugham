@@ -503,10 +503,8 @@ struct ProjectWindow: View {
                         }
                     }
                 }
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamAddScreenplayPiece)) { _ in
-                    guard window?.isKeyWindow == true,
-                          let store, store.manifest.type == .collection else { return }
+                .onKeyWindowCommand(.maughamAddScreenplayPiece, window: window) { _ in
+                    guard let store, store.manifest.type == .collection else { return }
                     Task {
                         let piece = try? await store.addLoosePiece(
                             title: "Untitled Screenplay", mode: .screenplay)

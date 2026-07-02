@@ -101,8 +101,7 @@ struct CollectionPiecesPane: View {
                     MaughamEvent.post(.maughamAddLoosePiece, to: .keyWindow)
                 }
                 Button("New Screenplay") {
-                    NotificationCenter.default.post(
-                        name: .maughamAddScreenplayPiece, object: nil)
+                    MaughamEvent.post(.maughamAddScreenplayPiece, to: .keyWindow)
                 }
                 Button("Link Existing Project…") {
                     NotificationCenter.default.post(
