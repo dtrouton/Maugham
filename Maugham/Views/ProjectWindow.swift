@@ -1112,7 +1112,11 @@ private struct CheckpointModifier: ViewModifier {
 private struct RewindModifier: ViewModifier {
     let documentStore: DocumentStore?
     let store: ProjectStore?
+    /// The owning project window, for the ADR 0021 `.onProjectEvent`
+    /// liveness guard on `.maughamOpenRewind`.
     let window: NSWindow?
+    /// Fallback project URL naming this window's project scope while `store`
+    /// hasn't loaded yet (threaded from CheckpointModifier, ADR 0021).
     let url: URL
     let selectedItemId: String?
     @State private var showingRewindModal: Bool = false

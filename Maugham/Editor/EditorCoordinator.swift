@@ -1501,13 +1501,18 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // NOT a key-window guard — a background window's own MCP-driven
         // re-parse must still update its navigator. A nil origin
         // (non-manuscript surface) never reaches here (only ScreenplayMode
-        // posts), so drop defensively rather than fan out unscoped.
-        guard let projectId = scriptOriginProjectId else { return }
+        // posts), and if it ever did, only the `MaughamEvent.post` is skipped —
+        // the cancel/reschedule bookkeeping the doc comment above promises
+        // stays UNCONDITIONAL, so a nil-origin call can't strand a stale
+        // in-flight debounced post (tripwire 3/6/7 debounce-race class).
+        let projectId = scriptOriginProjectId
         guard debounced else {
             scriptUpdateNotifyTask?.cancel()
             scriptUpdateNotifyTask = nil
-            MaughamEvent.post(
-                .maughamScriptDidUpdate, to: .project(id: projectId), object: script)
+            if let projectId {
+                MaughamEvent.post(
+                    .maughamScriptDidUpdate, to: .project(id: projectId), object: script)
+            }
             return
         }
         scriptUpdateNotifyTask?.cancel()
@@ -1515,8 +1520,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             try? await Task.sleep(for: .milliseconds(350))
             guard !Task.isCancelled else { return }
             self?.scriptUpdateNotifyTask = nil
-            MaughamEvent.post(
-                .maughamScriptDidUpdate, to: .project(id: projectId), object: script)
+            if let projectId {
+                MaughamEvent.post(
+                    .maughamScriptDidUpdate, to: .project(id: projectId), object: script)
+            }
         }
     }
 

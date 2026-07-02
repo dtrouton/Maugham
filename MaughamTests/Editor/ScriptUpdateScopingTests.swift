@@ -96,4 +96,40 @@ final class ScriptUpdateScopingTests: XCTestCase {
         XCTAssertEqual(receivedId, "proj_origin_under_test",
             "the coordinator must stamp its origin project id as the scope id")
     }
+
+    /// Behavior pin (ADR 0021 migration): with no origin project id the
+    /// coordinator posts NOTHING — previously it fanned out an unscoped post
+    /// every scoped receiver would have dropped anyway. Unreachable in
+    /// production (only manuscript surfaces post scripts, and they always
+    /// wire the id), but the drop is deliberate; pin it.
+    func test_poster_withNilOrigin_postsNothing() {
+        let storage = NSTextStorage(string: "INT. ROOM - DAY\n\nAction.\n")
+        let layout = NSLayoutManager()
+        storage.addLayoutManager(layout)
+        let container = NSTextContainer(size: NSSize(width: 600, height: 600))
+        layout.addTextContainer(container)
+        let tv = NSTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 600),
+                            textContainer: container)
+        let binding: Binding<String> = .init(
+            get: { tv.string }, set: { tv.string = $0 })
+        let coordinator = EditorCoordinator(
+            text: binding, mode: ScreenplayMode(),
+            theme: .light, typography: .screenplayDefaults,
+            typewriterScroll: false, sentenceFocus: false, paragraphFocus: false)
+        // scriptOriginProjectId deliberately left nil.
+
+        var postCount = 0
+        let obs = NotificationCenter.default.addObserver(
+            forName: .maughamScriptDidUpdate, object: nil, queue: nil) { _ in
+            postCount += 1
+        }
+        defer { NotificationCenter.default.removeObserver(obs) }
+
+        // attach → retokenizeAndStyle would post synchronously (non-debounced)
+        // if an origin were set.
+        coordinator.attach(to: tv)
+
+        XCTAssertEqual(postCount, 0,
+            "a coordinator with no origin project id must not post at all")
+    }
 }
