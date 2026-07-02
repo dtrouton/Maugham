@@ -1164,8 +1164,8 @@ private struct RewindModifier: ViewModifier {
                     case .cancel:
                         break
                     case .snapshotHere:
-                        NotificationCenter.default.post(
-                            name: .maughamCheckpointAdded, object: nil)
+                        MaughamEvent.post(
+                            .maughamCheckpointAdded, to: .project(for: store.url))
                     case .restoreHere(let opId):
                         Task { @MainActor in
                             _ = try? await documentStore.document(forDocId: docId)?

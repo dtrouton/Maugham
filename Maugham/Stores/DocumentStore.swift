@@ -734,8 +734,7 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
                 userInfo: ["docId": docId])
 
         case .checkpoints:
-            NotificationCenter.default.post(
-                name: .maughamCheckpointAdded, object: nil)
+            MaughamEvent.post(.maughamCheckpointAdded, to: .project(for: projectURL))
 
         case .otherProjectFile(let relativePath):
             // Manuscripts live alongside research notes and binder content
