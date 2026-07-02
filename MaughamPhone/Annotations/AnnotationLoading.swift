@@ -1,6 +1,13 @@
 import Foundation
 import MaughamCore
 
+/// The Annotations tab's global scope toggle. `open` (default) drives triage;
+/// `all` reveals fully-triaged chapters/projects for review.
+enum AnnotationsMode: String, CaseIterable {
+    case open, all
+    var title: String { self == .open ? "Open" : "All" }
+}
+
 /// One annotation plus the docId it came from. Promoted to top-level (was nested
 /// in AnnotationsListView) so the store, the grouping function, and the three
 /// drill-down views share one type.
@@ -133,5 +140,25 @@ enum AnnotationLoading {
     /// Short, human-readable stub of an unmapped docId for the "Other" fallback.
     static func docIdStub(_ docId: String) -> String {
         String(docId.prefix(16))
+    }
+
+    /// Chapters visible in a mode: `open` keeps only chapters with ≥1 open note;
+    /// `all` keeps any chapter with a note at all.
+    static func visibleChapters(_ chapters: [ChapterAnnotations], mode: AnnotationsMode) -> [ChapterAnnotations] {
+        switch mode {
+        case .open: return chapters.filter { $0.openCount > 0 }
+        case .all:  return chapters.filter { $0.openCount > 0 || $0.resolvedCount > 0 }
+        }
+    }
+
+    /// Projects visible in a mode, each rebuilt with only its mode-visible
+    /// chapters. A project left with no visible chapter is dropped.
+    static func visibleProjects(_ projects: [ProjectAnnotations], mode: AnnotationsMode) -> [ProjectAnnotations] {
+        projects.compactMap { p in
+            let vis = visibleChapters(p.chapters, mode: mode)
+            guard !vis.isEmpty else { return nil }
+            return ProjectAnnotations(
+                id: p.id, projectName: p.projectName, projectURL: p.projectURL, chapters: vis)
+        }
     }
 }
