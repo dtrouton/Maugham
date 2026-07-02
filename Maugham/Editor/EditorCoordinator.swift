@@ -458,20 +458,18 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             let pid = note.userInfo?["paragraph_id"] as? String
             self.navigateToAnnotation(id: annId, fallbackParagraphId: pid, in: textView)
         }
-        reviewToggleObserver = NotificationCenter.default.addObserver(
-            forName: .maughamToggleReviewMode,
-            object: nil,
-            queue: .main
+        // This NC receiver exists deliberately (Editor AREA.md, Bug B): ⌘⌥R
+        // flips the review membrane SYNCHRONOUSLY on the coordinator so the very
+        // next keystroke already sees the toggled value — a `control.*` mirror
+        // would land a frame later. Key-window scoping is now the helper's
+        // `.keyWindow` context (ADR 0021); the former inline `isKeyWindow` guard
+        // is deleted (it, and FocusPostureModifier, both act only when key).
+        reviewToggleObserver = MaughamEvent.observe(
+            .maughamToggleReviewMode,
+            context: { [weak self] in self?.receiverContext(.keyWindow) }
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                // Mirror FocusPostureModifier's key-window guard: the toggle is
-                // posted to every open window, but only the key window's editor
-                // (and ProjectWindow) acts. Flip the membrane synchronously to
-                // the toggled value so the very next keystroke sees it.
-                guard self.textView?.window?.isKeyWindow == true else { return }
-                self.setReviewMode(!self.isReviewMode)
-            }
+            guard let self else { return }
+            self.setReviewMode(!self.isReviewMode)
         }
         // The former annotation-set-changed notification observer is gone (ADR
         // 0017): an AnnotationsPane edit/withdraw bumps `annotationsVersion` on the shared

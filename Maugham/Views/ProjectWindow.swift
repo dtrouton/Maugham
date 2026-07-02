@@ -1198,9 +1198,7 @@ private struct FocusPostureModifier: ViewModifier {
                 isNoChromeOn.toggle()
                 applyNoChrome()
             }
-            .onReceive(NotificationCenter.default.publisher(
-                for: .maughamToggleReviewMode)) { _ in
-                guard window?.isKeyWindow == true else { return }
+            .onKeyWindowCommand(.maughamToggleReviewMode, window: window) { _ in
                 isReviewModeOn.toggle()
             }
             .onChange(of: isNoChromeOn) { _, newValue in
