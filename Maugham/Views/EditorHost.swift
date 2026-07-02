@@ -245,6 +245,36 @@ struct EditorHost: View {
         .onChange(of: selectedItemId) { _, _ in
             Task { await loadDocumentIfNeeded() }
         }
+        .onDisappear {
+            // EditorHost's `.onDisappear` fires only on document-abandonment
+            // paths: leaving the manuscript/scenes/find segment (a fresh
+            // EditorHost re-mounts and reloads on return) and window close
+            // (SwiftUI never dismantles the zombie scene — GraphHost.sharedGraph
+            // retains it — but `.onDisappear` still fires). In BOTH the Document
+            // is being abandoned, so scorch it here rather than leaking its
+            // paragraphs + op-log mirror into the retained scene graph.
+            //
+            // EditorHost is the sole owner of Document.close(): DocumentStore.close()
+            // (called by ProjectWindow) flushes the session/UI-state/presenter but
+            // does NOT close registered Documents. `Document.close()` is idempotent
+            // anyway (flushBurstNow no-ops on empty pending, autosave flush no-ops,
+            // pending.clear is idempotent), so this can't race the doc-switch close
+            // in `loadDocumentIfNeeded`. `Task { … }` captures `doc` by value, so
+            // nil-ing @State immediately is safe.
+            //
+            // No isLive guard (EditorHost holds no window ref, and tripwire 6
+            // forbids adding observable state): instead we also nil loadedItemId
+            // and priorLoadedPath, so if this fires spuriously and the view
+            // re-appears, `.task`/`.onChange(of: selectedItemId)` see
+            // loadedItemId != item.id and reload — no stuck "Loading…".
+            if let doc = document, let path = priorLoadedPath {
+                Task { await doc.close() }
+                documentStore.unregister(path: path)
+            }
+            document = nil
+            loadedItemId = nil
+            priorLoadedPath = nil
+        }
         // The inspector/goal-indicator metrics mirror now lives entirely in the
         // EditorCoordinator (spec §7): it delivers precomputed `EditorMetrics`
         // via `onMetricsChanged` on its own debounced trailing edge while typing

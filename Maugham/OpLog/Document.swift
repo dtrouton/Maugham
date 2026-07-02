@@ -27,6 +27,17 @@ public final class Document {
     public private(set) var displayText: String = ""
     public var cursorLocation: Int = 0
 
+    /// True once `close()` has run. A closed Document is ABANDONED by contract:
+    /// its `@State` box can stay retained by a dead SwiftUI scene graph
+    /// (`StoredLocation<Optional<Document>>` under `GraphHost.sharedGraph` — see
+    /// `docs/superpowers/notes/2026-07-02-scene-storage-spike.md`), which we
+    /// cannot nil from outside. So `close()` HUSKS the heavy in-memory state
+    /// (paragraphs / sequence / displayText / op-log mirror / caches — after the
+    /// disk truth is durably written) to make the stranded instance weightless,
+    /// and every mutation entry point no-ops (logged) on a closed doc rather than
+    /// resurrecting the husk. Mirror of `EditorCoordinator.detach()`.
+    public private(set) var isClosed = false
+
     // === Internal state ===
     // Several of these are `internal` rather than `private` because the
     // method bodies that touch them live in `Document+*.swift` peer
@@ -291,6 +302,11 @@ public final class Document {
     internal var currentFoldBasis: String? { _opLogMirror.last?.opId }
 
     internal func performAutosave() async throws {
+        // Data-safety guard: a husked doc's `materialize()` is empty, so an
+        // autosave firing after close() would write an EMPTY .md over the real
+        // manuscript. close() flushes autosave BEFORE husking, so this only
+        // rejects a stray post-close scheduler tail.
+        guard !isClosed else { return }
         // Mirror pending buffer to disk for crash recovery. Carry the live
         // paragraph order so recovery is op-log-domain — not reconstructed from
         // the .md (ADR 0019). Stamp the basis (newest folded opId) so load can
@@ -482,6 +498,11 @@ public final class Document {
         preEditCursor: Int? = nil,
         postEditCursor: Int? = nil
     ) {
+        // A closed doc is husked + abandoned; a late binding write (e.g. a
+        // still-referenced zombie) must no-op rather than resurrect the husk
+        // (which would parse `text` against empty prior state and re-populate
+        // paragraphs). documentLog.error records the misuse.
+        if rejectMutationIfClosed("setFullText") { return }
         // Parse-once keystroke path (perf fix B). The prior stored state is
         // already in hand as `paragraphs`/`sequence` — the load path and this
         // method's own orphan-prune below enforce `paragraphs.keys ⊆ sequence`,
@@ -678,6 +699,7 @@ public final class Document {
     }
 
     public func setParagraph(id: String, text: String) {
+        if rejectMutationIfClosed("setParagraph") { return }
         let prior = paragraphs[id]
         guard prior != text else { return }
         pending.recordChange(paragraphId: id, prior: prior, next: text)
@@ -699,6 +721,7 @@ public final class Document {
     }
 
     public func insertParagraph(after: String?, text: String) -> String {
+        if rejectMutationIfClosed("insertParagraph") { return "" }
         // Unique against the doc's live id population (birthday hazard over
         // the ~1.05M id space — see ParagraphID.mintUnique).
         let newId = ParagraphID.mintUnique(
@@ -722,6 +745,7 @@ public final class Document {
     }
 
     public func deleteParagraph(id: String) {
+        if rejectMutationIfClosed("deleteParagraph") { return }
         guard paragraphs[id] != nil else { return }
         let priorText = paragraphs[id]
         paragraphs.removeValue(forKey: id)
@@ -744,6 +768,7 @@ public final class Document {
     }
 
     public func reorder(sequence: [String]) {
+        if rejectMutationIfClosed("reorder") { return }
         self.sequence = sequence
         _orderingDirty = true
         _orderingChangedSinceLoad = true
@@ -852,6 +877,11 @@ public final class Document {
     }
 
     public func close() async {
+        // Idempotent: a closed doc is already husked and its disk truth written,
+        // so a second close (DocumentStore drain + EditorHost belt, or
+        // appWillTerminate racing onDisappear) returns immediately rather than
+        // re-running the flush machinery over husked state.
+        guard !isClosed else { return }
         // Flush any pending burst so editorial classification survives the
         // close (matches EditorHost's onDocChange behaviour).
         //
@@ -920,5 +950,42 @@ public final class Document {
 
         // Drop the per-keystroke shingle/bigram memo — the doc is going away.
         _shingleSetCache.clear()
+
+        // Husk (mirror of EditorCoordinator.detach()): the disk truth is now
+        // durably written above (burst flushed, trailing autosave flushed,
+        // pending cleared, tail sealed), so drop the O(doc) in-memory state.
+        // This is the load-bearing memory win — a closed Document's `@State`
+        // box can stay retained by a dead SwiftUI scene graph
+        // (`StoredLocation<Optional<Document>>` under `GraphHost.sharedGraph`;
+        // window close never dismantles it and we can't nil another view's
+        // @State), so husking makes that stranded instance weightless. `isClosed`
+        // (set FIRST) gates every mutation path so nothing resurrects the husk;
+        // `performAutosave` also bails on it, so no stray scheduler tail can
+        // write the now-empty `materialize()` over the on-disk manuscript.
+        isClosed = true
+        paragraphs = [:]
+        sequence = []
+        displayText = ""
+        _opLogMirror = []
+        _annotationsCache = []
+        _annotationsCacheValid = false
+        _tasksCache = []
+        _tasksCacheValid = false
+        _discardedByteHashes = []
+        // Drop the last-written-bytes snapshot (a full manuscript copy) while
+        // honouring EchoState's two-call-site construction contract.
+        lastDiskEcho = .afterWrite(bytes: "")
+    }
+
+    /// Guard for mutation entry points: on a closed (husked) Document, logs once
+    /// and tells the caller to bail. A closed doc is abandoned by contract — a
+    /// late mutation (a still-referenced zombie, an MCP misuse, a scheduler tail)
+    /// must no-op rather than operate on husked state or resurrect it. Data
+    /// safety is unaffected: the disk truth was written before husking.
+    private func rejectMutationIfClosed(_ site: StaticString) -> Bool {
+        guard isClosed else { return false }
+        documentLog.error(
+            "\(site, privacy: .public) called on a closed Document \(self.docId, privacy: .public); no-op (the instance is abandoned by contract)")
+        return true
     }
 }

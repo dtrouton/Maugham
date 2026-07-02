@@ -65,9 +65,10 @@ extension Notification.Name {
     /// (`DocumentStore.swift`) is idempotent on a second call —
     /// `flushSessionOnQuit()` guards on `activeSession` (nil after the first
     /// close, so `endSessionImmediately` no-ops), `flushPendingSave()` flushes
-    /// an already-empty debounce scheduler, and the file-presenter removal is
-    /// guarded by `if let presenter = _presenter` (nilled after the first
-    /// removal). Harmless double-close. OK.
+    /// an already-empty debounce scheduler, the registry drain iterates an
+    /// already-empty `_openDocuments` (drained on the first close), and the
+    /// file-presenter removal is guarded by `if let presenter = _presenter`
+    /// (nilled after the first removal). Harmless double-close. OK.
     public static let maughamAppWillTerminate = Notification.Name("maugham.appWillTerminate")
     public static let maughamAddResearchFile = Notification.Name("maugham.addResearchFile")
     public static let maughamNavigateToDocument = Notification.Name("maugham.navigateToDocument")

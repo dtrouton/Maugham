@@ -564,6 +564,12 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// `isDetached`, so any residual callback (a leaked coordinator's own OS
     /// appearance flip) does no whole-doc restyle work.
     func detach() {
+        // Explicitly idempotent: on a piece flip BOTH `dismantleNSView` AND
+        // `MaughamTextView.viewWillMove(toWindow: nil)` fire, so detach runs
+        // twice on the same coordinator. The body below already tolerates a
+        // second pass (textView/tokens are nil'd), but the early return makes
+        // the contract explicit and skips the redundant work.
+        guard !isDetached else { return }
         isDetached = true
         scriptUpdateNotifyTask?.cancel(); scriptUpdateNotifyTask = nil
         metricsNotifyTask?.cancel(); metricsNotifyTask = nil

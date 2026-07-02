@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 @MainActor
@@ -58,6 +59,47 @@ final class DocumentStoreOpenCloseTests: XCTestCase {
         let decoded = try JSONDecoder().decode(UIState.self, from: data)
         XCTAssertEqual(decoded.selectedItemId, "doc-y")
         await store.close()
+    }
+
+    /// `close()` drains the document registry: it closes every open Document and
+    /// removes all entries, releasing the last strong reference to each. This is
+    /// the load-bearing half of the zombie-window teardown — the registry (a
+    /// strong `[path: Document]` map) rides ProjectWindow's retained scene @State,
+    /// so a Document left registered survives window close even after the @State
+    /// scorch. The single `close()` ProjectWindow.onDisappear makes must empty it.
+    func test_close_drainsRegistry_releasingRegisteredDocuments() async throws {
+        let url = try await ProjectFactory.createShortStoryProject(
+            named: "Doc", in: temp.url)
+        let store = try await DocumentStore.open(url: url)
+        let storyURL = url.appendingPathComponent("story.md")
+        try "A registered paragraph.".write(
+            to: storyURL, atomically: true, encoding: .utf8)
+
+        // Register a Document holding only a weak ref locally, so after this
+        // closure returns the registry is the ONLY strong owner. (A nested
+        // closure keeps the strong `doc` local out of the test's own scope.)
+        weak var weakDoc: Document?
+        let registerFreshDoc: () async throws -> Void = {
+            let doc = try await Document.load(
+                url: storyURL, device: "t", session: "s",
+                presenter: store.presenter)
+            weakDoc = doc
+            store.register(document: doc, for: "story.md")
+        }
+        try await registerFreshDoc()
+
+        XCTAssertNotNil(weakDoc, "sanity: the registry holds the doc before close")
+        XCTAssertEqual(store.allOpenDocuments().count, 1,
+            "sanity: exactly one doc registered")
+
+        await store.close()
+
+        XCTAssertTrue(store.allOpenDocuments().isEmpty,
+            "close() must empty the document registry")
+        XCTAssertNil(weakDoc,
+            "draining the registry must release the last strong ref to the doc — "
+            + "otherwise a closed window's DocumentStore strands it (the observed "
+            + "per-open/close Document accumulation)")
     }
 
     func test_close_flushesPendingUIStateWrite() async throws {

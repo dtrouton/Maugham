@@ -211,6 +211,25 @@ public final class DocumentStore {
         await flushSessionOnQuit()
         try? await flushPendingSave()
         await uiStateScheduler.flush()
+        // Drain the document registry (zombie-window teardown, load-bearing
+        // half): `_openDocuments` is a STRONG `[path: Document]` map. It rides
+        // ProjectWindow's retained scene @State (SwiftUI's GraphHost.sharedGraph
+        // never dismantles a closed WindowGroup scene), so a Document left
+        // registered survives window close even after ProjectWindow.onDisappear
+        // nils its @State — the surviving strong edge is `_openDocuments`, not
+        // the nil'd @State (`leaks --trace`: DocumentStore._openDocuments →
+        // DictionaryStorage → Document). EditorHost.onDisappear also
+        // closes+unregisters, but that races nested-onDisappear ordering; the
+        // single `close()` ProjectWindow.onDisappear always makes drains the
+        // registry regardless. Close each doc (idempotent — DocumentDoubleCloseTests)
+        // so its final burst/autosave still flush through the installed
+        // presenter, THEN remove the presenter. Snapshot first so the terminal
+        // close can't observe a mutating map.
+        let openDocs = Array(openDocuments.values)
+        openDocuments.removeAll()
+        for doc in openDocs {
+            await doc.close()
+        }
         if let presenter = _presenter {
             NSFileCoordinator.removeFilePresenter(presenter)
             self._presenter = nil

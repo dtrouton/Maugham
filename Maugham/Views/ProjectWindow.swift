@@ -158,7 +158,28 @@ struct ProjectWindow: View {
         .task(id: url) { await load() }
         .onDisappear {
             mcpRegistry.unregister(url: url)
+            // `Task { … }` captures `documentStore` by value, so nil-ing the
+            // @State immediately after is safe — the close still runs on the
+            // captured reference.
             Task { await documentStore?.close() }
+            // Scorch the heavy @State on window close. SwiftUI never dismantles
+            // a closed `WindowGroup` scene's view graph (`GraphHost.sharedGraph`
+            // retains it — see the scene-storage spike note), but `.onDisappear`
+            // DOES fire on close, so we empty the zombie ourselves: the Document
+            // (paragraphs + op-log mirror), the derived-cache-bearing ProjectStore,
+            // the DocumentStore, and the parsed FountainScript AST all drop here,
+            // leaving only SwiftUI's AttributeGraph husk.
+            //
+            // GUARD on the window actually being gone (ADR 0021 liveness helper):
+            // a spurious `.onDisappear` on a still-live window must NOT blank the
+            // @State — `body` renders "Loading…" when `store == nil` and
+            // `.task(id: url)` won't re-fire for the same url, so a live blank
+            // would stick.
+            if !MaughamEvent.isLive(window) {
+                store = nil
+                documentStore = nil
+                lastParsedScript = nil
+            }
         }
         .onKeyWindowCommand(.maughamToggleFullScreen, window: window) { _ in
             toggleFullScreen()
