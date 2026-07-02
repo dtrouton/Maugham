@@ -436,3 +436,35 @@ verification, expected to show the per-closed-window residual drop to the AG
 husk. Headlessly pinned instead: `detach()` idempotency, the `viewWillMove(
 toWindow: nil)` → detach hook, and `Document.close()` double-call safety
 (`WindowTeardownScorchTests`, `DocumentDoubleCloseTests`).
+
+## Final A/B (2026-07-02, dev build d0c294b, macOS 26.5) — mitigation verified
+
+heap instance counts + phys_footprint across open/⌘W cycles (empty-template
+screenplay doc; the residual is doc-size-independent now, so fixture size no
+longer matters):
+
+| Step | live `EditorCoordinator` | live `Document` | notes |
+|---|---|---|---|
+| open | 1 | 1 | |
+| ⌘W #1 | **0** | 1 (husk, 384 B) | coordinator freed by `viewWillMove` detach |
+| reopen + ⌘W #2 | **0** | 2 (husks, 384 B each) | drain + husk: weightless shells only |
+
+- **Everything we own is released or weightless.** Coordinators free entirely;
+  Documents survive only as 384-byte husks pinned by EditorHost's dead-scene
+  `@State` box (`SwiftUI.StoredLocation<Optional<Document>>` — traced with
+  `leaks --trace`), with paragraphs/sequence/mirror/displayText dropped.
+  `FountainScript` live count is 0 post-close (the ProjectWindow scorch works).
+- **Remaining per-cycle residue is SwiftUI-internal.** A heap class diff across
+  one full open/close cycle shows ~4–5 MB of malloc growth in closure contexts
+  (+~9,000 objects), `DictionaryStorage<ObjectIdentifier, AnyTrackedValue>`
+  observation-tracking tables (+542), and non-object allocations — the dead
+  scene's AttributeGraph machinery itself, unreachable from our code.
+  `phys_footprint` creeps more per cycle (~15–25 MB) but includes system-side
+  reclaimable memory; the malloc number is the honest floor.
+- **Revised option-2 trigger arithmetic:** ~5 MB malloc per open/close cycle,
+  independent of document size. A heavy multi-window day (~20 cycles) strands
+  ~100 MB until app quit. Acceptable as a documented framework cost; the
+  explicit-`NSWindowController` hosting milestone remains the escalation if
+  real long-session numbers say otherwise. The earlier "100s of KB husk"
+  estimate was optimistic — the husk is megabyte-scale per cycle, but flat
+  with respect to everything the writer actually does inside the window.
