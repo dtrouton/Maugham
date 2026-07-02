@@ -121,8 +121,7 @@ struct MaughamApp: App {
                 }
                 Divider()
                 Button("Save") {
-                    NotificationCenter.default.post(
-                        name: .maughamDummySave, object: nil)
+                    MaughamEvent.post(.maughamDummySave, to: .keyWindow)
                     NotificationCenter.default.post(
                         name: .maughamSaveCheckpoint, object: nil)
                 }

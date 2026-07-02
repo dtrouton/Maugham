@@ -163,7 +163,7 @@ struct ProjectWindow: View {
         .onKeyWindowCommand(.maughamToggleFullScreen, window: window) { _ in
             toggleFullScreen()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .maughamDummySave)) { _ in
+        .onKeyWindowCommand(.maughamDummySave, window: window) { _ in
             Task {
                 try? await documentStore?.flushPendingSave()
                 showSaveFlash()
