@@ -188,8 +188,7 @@ struct MaughamApp: App {
                 }
                 .keyboardShortcut("i", modifiers: [.command, .option])
                 Button("Toggle Research Preview") {
-                    NotificationCenter.default.post(
-                        name: .maughamToggleResearchPreview, object: nil)
+                    MaughamEvent.post(.maughamToggleResearchPreview, to: .keyWindow)
                 }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
                 Divider()

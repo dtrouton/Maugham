@@ -412,8 +412,7 @@ struct ProjectWindow: View {
                         try? await store?.restoreLastDeleted()
                     }
                 }
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamToggleResearchPreview)) { _ in
+                .onKeyWindowCommand(.maughamToggleResearchPreview, window: window) { _ in
                     researchPreviewVisible.toggle()
                     documentStore?.updateUIState {
                         $0.researchPreviewVisible = researchPreviewVisible
