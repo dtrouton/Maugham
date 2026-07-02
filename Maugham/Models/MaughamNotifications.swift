@@ -40,17 +40,8 @@ extension Notification.Name {
     public static let maughamSaveCheckpoint = Notification.Name("maugham.save.checkpoint")
     /// Posted when Shift-⌘S is pressed — triggers the checkpoint label prompt sheet.
     public static let maughamNamedCheckpoint = Notification.Name("maugham.named.checkpoint")
-    /// Posted when a `.maugham/ops/<docId>.jsonl` file is added or changed.
-    /// userInfo["path"] contains the relative path string.
-    public static let maughamOpLogChanged = Notification.Name("maughamOpLogChanged")
     /// Posted when `.maugham/checkpoints.jsonl` is added or changed.
     public static let maughamCheckpointAdded = Notification.Name("maughamCheckpointAdded")
-    /// Posted when any file under `.maugham/inbox/` is added or changed (a phone
-    /// capture or a Mac-side status transition). `object` is the owning
-    /// DocumentStore (window-scoped); userInfo["kind"] is the InboxFileKind raw
-    /// value. InboxStore refreshes on any kind; the transcription worker filters
-    /// to "audio".
-    public static let maughamInboxChanged = Notification.Name("maughamInboxChanged")
     /// Posted when the AnnotationsPane wants the editor to scroll to/select a paragraph.
     /// userInfo["paragraph_id"] contains the paragraph id string.
     public static let maughamNavigateToParagraph = Notification.Name(
