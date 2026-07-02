@@ -172,7 +172,7 @@ struct ProjectWindow: View {
         .onKeyWindowCommand(.maughamShowProjectSettings, window: window) { _ in
             activeSheet = .projectSettings
         }
-        .onReceive(NotificationCenter.default.publisher(for: .maughamShowClaudeDesktopHelp)) { _ in
+        .onKeyWindowCommand(.maughamShowClaudeDesktopHelp, window: window) { _ in
             activeSheet = .claudeDesktop
         }
         .onReceive(NotificationCenter.default.publisher(for: .maughamShareForReview)) { _ in

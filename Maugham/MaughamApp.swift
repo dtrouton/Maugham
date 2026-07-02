@@ -416,8 +416,7 @@ private struct HelpCommands: Commands {
             }
             .keyboardShortcut("/", modifiers: .command)
             Button("Set up Claude Desktop…") {
-                NotificationCenter.default.post(
-                    name: .maughamShowClaudeDesktopHelp, object: nil)
+                MaughamEvent.post(.maughamShowClaudeDesktopHelp, to: .keyWindow)
             }
             Divider()
             Button("Acknowledgements") { openWindow(id: "acknowledgements") }
