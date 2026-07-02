@@ -1060,10 +1060,8 @@ private struct CheckpointModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .onReceive(NotificationCenter.default.publisher(
-                for: .maughamSaveCheckpoint)) { _ in
-                guard window?.isKeyWindow == true,
-                      let store, let documentStore else { return }
+            .onKeyWindowCommand(.maughamSaveCheckpoint, window: window) { _ in
+                guard let store, let documentStore else { return }
                 let activeDocId = selectedItemId ?? "__no-selection__"
                 let allDocIds = ProjectWindow.documentIds(in: store.manifest.structure)
                 let activeDoc = activeDocument(
