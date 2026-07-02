@@ -34,6 +34,10 @@ struct AnnotationDetailView: View {
     let projectURL: URL
     let docId: String
     let recents: RecentsTracker
+    /// Whether this note was already resolved when the detail opened (entered
+    /// from a resolved row in All mode). Drives the read-only review branch and
+    /// keeps `rederive()` from mistaking a pure review for the cross-device race.
+    let openedResolved: Bool
     var io: CoordinatedFileIO = .live
     /// Called after THIS view resolves the annotation (accept/reject/archive), so
     /// the list can reload and drop the now-resolved item from the open set —
@@ -81,6 +85,7 @@ struct AnnotationDetailView: View {
         self.io = io
         self.onResolved = onResolved
         _current = State(initialValue: annotation)
+        self.openedResolved = (annotation.status != .open)
     }
 
     var body: some View {
@@ -89,7 +94,9 @@ struct AnnotationDetailView: View {
                 header
                 contextSection
                 noteSection
-                if resolvedElsewhere || didResolveHere {
+                if openedResolved {
+                    reviewNotice
+                } else if resolvedElsewhere || didResolveHere {
                     resolvedNotice
                 } else if current.status == .open {
                     actionButtons
@@ -266,6 +273,26 @@ struct AnnotationDetailView: View {
     private var acceptLabel: String { current.kind == .query ? "Mark answered" : "Accept" }
     private var rejectLabel: String { current.kind == .query ? "Reply…" : "Reject…" }
 
+    /// Read-only recorded outcome for a note entered already-resolved (All mode).
+    /// Reuses the status-chip vocabulary; falls back to a generic label/symbol for
+    /// the theoretically-open case (never reached here since `openedResolved` gates
+    /// this branch). Shows the writer's recorded response when present.
+    @ViewBuilder
+    private var reviewNotice: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: AnnotationStatusChip.symbol(current.status) ?? "checkmark.seal")
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(AnnotationStatusChip.label(current.status) ?? "Resolved")
+                    .foregroundStyle(.secondary)
+                if let r = current.userResponse, !r.isEmpty {
+                    Text(r).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(.top, 8)
+    }
+
     @ViewBuilder
     private var resolvedNotice: some View {
         HStack(spacing: 8) {
@@ -391,23 +418,12 @@ struct AnnotationDetailView: View {
         }
         paragraphs = Deriver.derive(ops: ops).paragraphs
         let derived = AnnotationDeriver.derive(ops: ops, paragraphs: paragraphs)
-        guard let fresh = derived.first(where: { $0.id == current.id }) else {
-            // Disappeared entirely (e.g. its creation op never landed locally) —
-            // treat as resolved-elsewhere; nothing actionable here.
-            resolvedElsewhere = true
-            onResolved()   // also let the list drop this now-stale item
-            return
-        }
-        if fresh.status == .open {
-            current = fresh
-        } else {
-            // Resolved on another device since the list loaded. Hide the actions
-            // (race collapse) AND tell the list to reload so it doesn't keep
-            // showing this as open after the writer backs out.
-            resolvedElsewhere = true
-            current = fresh
-            onResolved()
-        }
+        let fresh = derived.first(where: { $0.id == current.id })
+        if let fresh { current = fresh }   // refresh context/status when still present
+        let decision = ResolvedEntryDecision.afterRederive(
+            openedResolved: openedResolved, freshStatus: fresh?.status)
+        if decision.raceCollapse { resolvedElsewhere = true }
+        if decision.notifyList { onResolved() }
     }
 
     private var appVersion: String {
