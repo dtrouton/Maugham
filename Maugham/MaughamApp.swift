@@ -138,8 +138,7 @@ struct MaughamApp: App {
                     MaughamEvent.post(.maughamTidyAllFilenames, to: .keyWindow)
                 }
                 Button("Add Research File…") {
-                    NotificationCenter.default.post(
-                        name: .maughamAddResearchFile, object: nil)
+                    MaughamEvent.post(.maughamAddResearchFile, to: .keyWindow)
                 }
                 Divider()
                 Button("Show Project Statistics") {

@@ -387,9 +387,7 @@ struct ProjectWindow: View {
                         selectedItemId = id
                     }
                 }
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamAddResearchFile)) { _ in
-                    guard window?.isKeyWindow == true else { return }
+                .onKeyWindowCommand(.maughamAddResearchFile, window: window) { _ in
                     Task {
                         let panel = NSOpenPanel()
                         panel.allowsMultipleSelection = true
