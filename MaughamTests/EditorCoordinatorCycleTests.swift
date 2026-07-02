@@ -82,14 +82,28 @@ final class EditorCoordinatorCycleTests: XCTestCase {
 
     @MainActor
     func test_maughamNavigateToScene_movesCursor() throws {
+        // ADR 0021: the coordinator's scene observer is now key-window scoped
+        // (`.forWindow(tv.window, .keyWindow)`), so delivery requires the text
+        // view's window to actually be key. Host a real window and make it key.
+        // Key status is NOT reliably grantable in a headless test host, so skip
+        // (rather than flake) when it isn't granted — the scope semantics are
+        // pinned deterministically in MaughamEvent(Liveness)Tests either way.
         let tv = makeTextView(text: "INT. KITCHEN - DAY\n\nLarry sits.\n\nINT. ROOFTOP - NIGHT")
+        let w = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 600),
+            styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        w.isReleasedWhenClosed = false
+        w.contentView = tv
+        w.makeKeyAndOrderFront(nil)
+        defer { w.close() }
         let coord = makeCoordinator(textView: tv, mode: ScreenplayMode())
+        try XCTSkipUnless(w.isKeyWindow,
+            "headless host did not grant key-window status; key-scoped delivery is pinned in MaughamEventTests")
         // Post navigation to position 21 (start of second scene heading).
         let secondSceneStart = ("INT. KITCHEN - DAY\n\nLarry sits.\n\n" as NSString).length
-        NotificationCenter.default.post(
-            name: .maughamNavigateToScene,
-            object: nil,
-            userInfo: ["lineLocation": secondSceneStart])
+        MaughamEvent.post(
+            .maughamNavigateToScene, to: .keyWindow,
+            payload: ["lineLocation": secondSceneStart])
         // Allow the .main queue to deliver.
         let expectation = XCTestExpectation()
         DispatchQueue.main.async { expectation.fulfill() }

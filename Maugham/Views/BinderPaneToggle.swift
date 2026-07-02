@@ -42,10 +42,9 @@ struct BinderPaneToggle: View {
                     SceneNavigatorPane(
                         script: lastParsedScript,
                         onSelect: { lineLocation in
-                            NotificationCenter.default.post(
-                                name: .maughamNavigateToScene,
-                                object: nil,
-                                userInfo: ["lineLocation": lineLocation])
+                            MaughamEvent.post(
+                                .maughamNavigateToScene, to: .keyWindow,
+                                payload: ["lineLocation": lineLocation])
                         })
                 case .trash:
                     TrashView(store: store)

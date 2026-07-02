@@ -392,17 +392,14 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // @MainActor-annotated. `MainActor.assumeIsolated` bridges the gap
         // without an extra Task hop (and asserts in debug if we're wrong
         // about being on the main thread).
-        navigateObserver = NotificationCenter.default.addObserver(
-            forName: .maughamNavigateToScene,
-            object: nil,
-            queue: .main
+        navigateObserver = MaughamEvent.observe(
+            .maughamNavigateToScene,
+            context: { [weak self] in self?.receiverContext(.keyWindow) }
         ) { [weak self] note in
-            MainActor.assumeIsolated {
-                guard let self,
-                      let location = note.userInfo?["lineLocation"] as? Int,
-                      let textView = self.textView else { return }
-                self.navigateToLine(at: location, in: textView)
-            }
+            guard let self,
+                  let location = note.userInfo?["lineLocation"] as? Int,
+                  let textView = self.textView else { return }
+            self.navigateToLine(at: location, in: textView)
         }
         findMatchObserver = NotificationCenter.default.addObserver(
             forName: .maughamFindMatchSelected,
@@ -575,12 +572,33 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         scriptUpdateNotifyTask?.cancel(); scriptUpdateNotifyTask = nil
         metricsNotifyTask?.cancel(); metricsNotifyTask = nil
         deferredRestyleTask?.cancel(); deferredRestyleTask = nil
+        // Explicit liveness contract (ADR 0021): drop the scoped-event tokens on
+        // teardown so a coordinator SwiftUI hasn't yet released stops receiving
+        // deliveries. `receiverContext` also returns nil once `isDetached`, so
+        // this is belt-and-suspenders with the deinit removal (which stays).
+        for token in [navigateObserver, findMatchObserver, paragraphNavigateObserver,
+                      annotationNavigateObserver, reviewToggleObserver] {
+            if let token { NotificationCenter.default.removeObserver(token) }
+        }
+        navigateObserver = nil; findMatchObserver = nil; paragraphNavigateObserver = nil
+        annotationNavigateObserver = nil; reviewToggleObserver = nil
         if let tv = textView, tv.delegate === self {
             tv.delegate = nil
         }
         (textView as? MaughamTextView)?.coordinator = nil
         textView = nil
         selectionToolbar = nil
+    }
+
+    /// The non-View `MaughamEvent.observe` liveness contract (ADR 0021): the
+    /// scope context the scene/find/paragraph/annotation/review observers filter
+    /// each delivery against. `nil` — once detached or before attach — drops the
+    /// delivery. `.keyWindow` also excludes closed/background windows (a closed
+    /// window is never key), fixing cross-window navigation: previously every
+    /// live editor moved its cursor on another window's scene/find/history jump.
+    private func receiverContext(_ kind: EventReceiverContext.Kind) -> EventReceiverContext? {
+        guard !isDetached, let tv = textView else { return nil }
+        return .forWindow(tv.window, kind: kind)
     }
 
     /// External (binding-side) update — replace text without disturbing user.
