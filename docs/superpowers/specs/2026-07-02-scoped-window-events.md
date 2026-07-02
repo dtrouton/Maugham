@@ -66,7 +66,17 @@ implementation time; names may have shifted):
   `mcp.note.added`, `maughamPublicationCompleted`. Pick `.document` vs
   `.project` per event by what receivers actually key on — read each receiver
   first; several already do userInfo comparisons that the helper replaces.
-- **`.allWindows` (~6):** `appWillTerminate`, `effective.appearance.changed`,
+- **`.allWindows` (~6):** `appWillTerminate`,
+  ~~`effective.appearance.changed`~~ (DELETED on fix/oplog-spine-hardening,
+  2026-07-02 — NOT migrated: it was mis-classified here as global. It was the
+  THIRD live instance of the unscoped-broadcast defect this branch has hit
+  (after `script.did.update` and the control-plane observation, commit
+  aaecd1a). `MaughamTextView.viewDidChangeEffectiveAppearance` posted it
+  `object: nil` on EVERY view's first mount — i.e. every piece flip — fanning a
+  whole-doc restyle to every live coordinator including leaked closed-window
+  ones. Replaced with a DIRECT per-view coordinator call
+  (`effectiveAppearanceDidChange()`), so there is no `maugham.*` appearance name
+  left for this milestone to migrate. See `Maugham/Editor/AREA.md`.),
   `newProject`, `openProject`, `maughamTestOpenProject` (dev),
   and any name that is genuinely Welcome-window/global. Deliveries unchanged;
   they migrate for tripwire uniformity only.

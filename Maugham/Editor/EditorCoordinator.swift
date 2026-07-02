@@ -187,9 +187,6 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// Observer token for `maughamFindMatchSelected` notifications.
     private var findMatchObserver: NSObjectProtocol?
 
-    /// Observer token for `maughamEffectiveAppearanceChanged` notifications.
-    private var appearanceObserver: NSObjectProtocol?
-
     /// Observer token for `maughamNavigateToParagraph` notifications, used
     /// to scroll the textView to the paragraph an annotation is anchored
     /// to when the user clicks an annotation row.
@@ -347,6 +344,26 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// Production never reads it.
     internal private(set) var applyControlCount: Int = 0
 
+    /// Number of times `applyAppearance` has run (i.e. a whole-doc restyle for a
+    /// theme/appearance reason). Internal so @testable importers can assert the
+    /// appearance hook is a DIRECT per-view call that no-ops on an unchanged
+    /// effective appearance — the piece-flip-stall regression net. Production
+    /// never reads it.
+    internal private(set) var applyAppearanceCount: Int = 0
+
+    /// The effective appearance (NSAppearance.name) as of the last handled
+    /// `effectiveAppearanceDidChange()`. AppKit calls
+    /// `viewDidChangeEffectiveAppearance` on a view's FIRST mount, not only on an
+    /// OS light/dark flip, so this lets the handler no-op the mount-time call when
+    /// the appearance hasn't actually changed. `nil` until the first sync.
+    private var lastEffectiveAppearanceName: NSAppearance.Name?
+
+    /// Set by `detach()` (called from `EditorSurface.dismantleNSView` on
+    /// teardown). Once detached the coordinator drops its text-view handle and
+    /// refuses restyle work, so a coordinator SwiftUI has not yet released holds
+    /// no heavy text-view graph and does nothing on any residual callback.
+    private(set) var isDetached = false
+
     /// Origin project id (`ProjectIdentifier.id(for:)`) stamped onto every
     /// `.maughamScriptDidUpdate` post so receivers can scope it to their own
     /// window (Channel A). Set by `EditorSurface` from `EditorHost`; nil for
@@ -406,18 +423,6 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                     textView.setSelectedRange(range)
                     textView.scrollRangeToVisible(range)
                 }
-            }
-        }
-        appearanceObserver = NotificationCenter.default.addObserver(
-            forName: .maughamEffectiveAppearanceChanged,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                // Re-run the full appearance pass so background/caret/syntax
-                // highlight colors re-resolve against the new effective appearance.
-                self.applyAppearance(theme: self.theme, typography: self.typography)
             }
         }
         paragraphNavigateObserver = NotificationCenter.default.addObserver(
@@ -496,9 +501,6 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         if let token = findMatchObserver {
             NotificationCenter.default.removeObserver(token)
         }
-        if let token = appearanceObserver {
-            NotificationCenter.default.removeObserver(token)
-        }
         if let token = paragraphNavigateObserver {
             NotificationCenter.default.removeObserver(token)
         }
@@ -512,6 +514,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
 
     /// Set the text view from outside (called by EditorSurface.makeNSView).
     func attach(to textView: NSTextView) {
+        isDetached = false
         self.textView = textView
         // Wire the review selection toolbar's button actions to the annotation
         // flow (Suggest is Task 4; for now it falls through to nothing).
@@ -533,6 +536,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         deferredRestyleTask = nil
         burstBaselineText = nil
         applyAppearance(theme: theme, typography: typography)
+        // Seed the appearance baseline so the FIRST-mount
+        // `viewDidChangeEffectiveAppearance` (same appearance) is a no-op; only a
+        // genuine light/dark flip afterwards restyles.
+        lastEffectiveAppearanceName = textView.effectiveAppearance.name
         retokenizeAndStyle()
         if let location = initialCursorLocation {
             let length = (textView.string as NSString).length
@@ -548,6 +555,32 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             }
             initialCursorLocation = nil
         }
+    }
+
+    /// Release the text-view graph and silence the coordinator. Called from
+    /// `EditorSurface.dismantleNSView` when SwiftUI tears the representable down
+    /// (piece flip via `.id(path)`, and window close when SwiftUI cooperates).
+    ///
+    /// The coordinator itself holds no ARC cycle — the delegate, `textView`,
+    /// overlay/gutter back-pointers and all NC observers are `weak`/`[weak self]`,
+    /// so the only strong owner is SwiftUI's per-scene storage. When a `WindowGroup`
+    /// window closes, SwiftUI does not deterministically release that storage, so
+    /// the coordinator (and the `NSScrollView`→`NSTextView`→`NSTextStorage` graph
+    /// its documentView chain retains) can outlive the window. `detach()` breaks
+    /// that graph proactively on every teardown SwiftUI DOES perform and flips
+    /// `isDetached`, so any residual callback (a leaked coordinator's own OS
+    /// appearance flip) does no whole-doc restyle work.
+    func detach() {
+        isDetached = true
+        scriptUpdateNotifyTask?.cancel(); scriptUpdateNotifyTask = nil
+        metricsNotifyTask?.cancel(); metricsNotifyTask = nil
+        deferredRestyleTask?.cancel(); deferredRestyleTask = nil
+        if let tv = textView, tv.delegate === self {
+            tv.delegate = nil
+        }
+        (textView as? MaughamTextView)?.coordinator = nil
+        textView = nil
+        selectionToolbar = nil
     }
 
     /// External (binding-side) update — replace text without disturbing user.
@@ -1108,11 +1141,27 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         applyFocusDim(in: textView)
     }
 
+    /// The view's effective appearance changed (OS light/dark flip, or the app's
+    /// appearance under Follow System). Called DIRECTLY by the owning
+    /// `MaughamTextView.viewDidChangeEffectiveAppearance` — one delegate hop, no
+    /// NotificationCenter broadcast — so only THIS view's coordinator restyles,
+    /// never every live coordinator (including leaked ones). AppKit also fires the
+    /// underlying callback on a view's first mount, so this no-ops when the
+    /// effective appearance name is unchanged since the last handled change.
+    func effectiveAppearanceDidChange() {
+        guard !isDetached, let textView else { return }
+        let name = textView.effectiveAppearance.name
+        guard name != lastEffectiveAppearanceName else { return }
+        lastEffectiveAppearanceName = name
+        applyAppearance(theme: theme, typography: typography)
+    }
+
     /// Theme/typography changed — re-style without re-text.
     func applyAppearance(theme: Theme, typography: TypographySettings) {
         self.theme = theme
         self.typography = typography
-        guard let textView else { return }
+        guard !isDetached, let textView else { return }
+        applyAppearanceCount += 1
         textView.backgroundColor = theme.resolved(
             systemAppearanceIsDark: NSApp.effectiveAppearance.bestMatch(
                 from: [.darkAqua, .aqua]) == .darkAqua
