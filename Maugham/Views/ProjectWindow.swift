@@ -482,10 +482,10 @@ struct ProjectWindow: View {
     /// so that SessionAndNavigationModifier.body stays within the type-checker limit.
     private struct CollectionPieceModifier: ViewModifier {
         let store: ProjectStore?
-        /// The owning project window. The add-piece notifications are posted with
-        /// `object: nil` (from the binder buttons + the menu command), so EVERY open
-        /// collection window receives them. We act only when this window is key, so
-        /// "add a screenplay" adds it to the front project, not all of them.
+        /// The owning project window. Key-window commands (ADR 0021):
+        /// `.onKeyWindowCommand` scopes delivery to the key window, so "add a
+        /// screenplay" adds it to the front project only. The collection-type
+        /// and membership checks below are action preconditions, not scope guards.
         let window: NSWindow?
         @Binding var selectedItemId: String?
         @Binding var pendingPieceRenameId: String?
@@ -1042,9 +1042,10 @@ struct ProjectWindow: View {
 private struct CheckpointModifier: ViewModifier {
     let documentStore: DocumentStore?
     let store: ProjectStore?
-    /// The owning project window. ⌘S / Shift-⌘S are posted with `object: nil`
-    /// (menu commands), so every open window receives them. We act only when
-    /// this window is key, so ⌘S checkpoints + backs up the front project only.
+    /// The owning project window. Key-window commands (ADR 0021):
+    /// `.onKeyWindowCommand` scopes ⌘S / Shift-⌘S delivery to the key window,
+    /// so ⌘S checkpoints + backs up the front project only. The store /
+    /// documentStore checks below are action preconditions, not scope guards.
     let window: NSWindow?
     let selectedItemId: String?
     @Binding var showingCheckpointLabelSheet: Bool
