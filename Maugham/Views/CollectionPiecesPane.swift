@@ -104,8 +104,7 @@ struct CollectionPiecesPane: View {
                     MaughamEvent.post(.maughamAddScreenplayPiece, to: .keyWindow)
                 }
                 Button("Link Existing Project…") {
-                    NotificationCenter.default.post(
-                        name: .maughamLinkProject, object: nil)
+                    MaughamEvent.post(.maughamLinkProject, to: .keyWindow)
                 }
             } label: {
                 Image(systemName: "plus.circle")

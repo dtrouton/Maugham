@@ -514,10 +514,8 @@ struct ProjectWindow: View {
                         }
                     }
                 }
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamLinkProject)) { _ in
-                    guard window?.isKeyWindow == true,
-                          let store, store.manifest.type == .collection else { return }
+                .onKeyWindowCommand(.maughamLinkProject, window: window) { _ in
+                    guard let store, store.manifest.type == .collection else { return }
                     let panel = NSOpenPanel()
                     panel.canChooseDirectories = true
                     panel.canChooseFiles = false
