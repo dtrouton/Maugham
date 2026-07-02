@@ -36,8 +36,27 @@ enum EventScope {
     `.onProjectEvent(_ name:, url:)` — compare the scope id, drop mismatches.
   - `.onGlobalEvent(_ name:)` — passthrough, exists so the tripwire's "every
     receiver goes through a helper" rule has no exceptions.
+- **Liveness guard (in scope as of 2026-07-02):** every window-scoped helper
+  (`.onKeyWindowCommand`, `.onDocumentEvent`, `.onProjectEvent`) ALSO drops
+  delivery when the receiving view is no longer attached to a live window
+  (`window == nil` after close). Rationale: scope filtering alone does not
+  exclude CLOSED windows — SwiftUI's `WindowGroup` scene storage retains a
+  closed window's view graph (verified 2026-07-02, no ARC cycle on our side),
+  so a zombie receiver for project A still *matches* a legitimate
+  project-A-scoped event and would do real work handling it. The key-window
+  filter subsumes this for commands; the guard makes it explicit for the data
+  classes. Written once, in the helpers — the ADR's whole philosophy.
+  `.onGlobalEvent` deliberately does NOT get the guard by default
+  (`appWillTerminate` must reach everything); audit each global receiver for
+  whether a zombie handling it is harmful and note the finding per name.
+- Alongside the guard, an **audit task**: verify the teardown discipline
+  (`EditorCoordinator.detach()` via `dismantleNSView`, `DocumentStore`
+  close/presenter-removal via `.onDisappear`) actually runs on every
+  window-close path, and pin whatever of it is pinnable headlessly.
 - Non-View receivers (AppKit/coordinator code using `addObserver`) get a
-  matching non-View helper on `MaughamEvent`.
+  matching non-View helper on `MaughamEvent` — with an explicit liveness
+  contract (the owner passes a `isLive` closure or deregisters on detach; a
+  coordinator past `detach()` must not act on deliveries).
 - Phone target: not applicable (single-window; no `maugham.*` window bus).
   MaughamCore: no NC usage may be added there (the wrapper is Mac-side by
   design; core stays notification-free).
@@ -115,6 +134,18 @@ self-test, like the ADR 0018 guard):
    pointer (ProjectWindow guidance) updated; CLAUDE.md tripwire table gets a
    row.
 
+### Spike (timeboxed, allowed to fail): releasing closed-window scene storage
+
+Half a day, no more. Investigate whether anything cheap makes SwiftUI actually
+release a closed project window's view graph (the `WindowGroup(id:"project",
+for: URL.self)` retention verified 2026-07-02) — e.g. clearing the presented
+value binding on close. Success = a weak ref to a closed window's coordinator
+goes nil without app quit; record the measurement either way (footprint before/
+after closing a large-doc window). If the spike fails, the retention stays a
+documented framework cost — with the liveness guard above, zombies are inert
+AND deaf, so the residual is bounded RAM only. Do NOT restructure window
+presentation (explicit NSWindowControllers etc.) inside this milestone.
+
 ## Non-goals
 
 - No change to notification *timing/semantics* — same NC delivery underneath.
@@ -122,12 +153,22 @@ self-test, like the ADR 0018 guard):
   appearance KVO, etc.) — only the `maugham.*` namespace.
 - No `@Observable`-based replacement of data events in this milestone (noted in
   the ADR as a compatible future direction per event).
+- No window-presentation restructuring to defeat scene-storage retention —
+  spike only (above); the full fix, if ever needed, is its own milestone.
 
 ## Acceptance
 
 - Zero raw `maugham.*` posts/subscriptions outside the wrapper (tripwire green
   with planted-offender proof).
+- **Closed windows receive nothing:** per scope class, a test that closes
+  window A (or tears down its harness equivalent), posts an event scoped to
+  A's project/document, and asserts A's receiver never fires and no restyle/
+  work counter moves.
 - Two-window manual smoke: ⌘⌥I toggles ONLY the key window's inspector; a
   screenplay piece flip in window B causes no relayout/scene-navigator change
-  in window A; rewind/checkpoint/find commands hit only the key window.
+  in window A; rewind/checkpoint/find commands hit only the key window; close
+  a large-doc window, then edit/flip in another — no stall, no work attributed
+  to the closed window.
+- Spike outcome recorded (released or documented-as-framework-cost, with
+  footprint numbers).
 - Full Mac + phone suites green.

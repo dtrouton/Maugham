@@ -75,6 +75,19 @@ Rejected alternatives:
   useless for menu commands. May be adopted opportunistically per event later;
   it composes with, rather than replaces, this decision.
 
+## Addendum (2026-07-02) — liveness is part of delivery scope
+
+Scope filtering alone does not exclude **closed** windows: SwiftUI's
+`WindowGroup` scene storage retains a closed window's view graph (verified —
+no ARC cycle on our side), so a zombie receiver for project A still *matches*
+a legitimate project-A-scoped event and does real work handling it. The
+receive helpers therefore also carry a **liveness guard** (drop delivery when
+the receiving view has no live window), making the milestone's guarantee "a
+closed window receives nothing," not merely "receivers only get their own
+events." Actually *releasing* the retained graph is framework behavior and
+stays out of scope beyond a timeboxed spike (see the spec) — with the guard,
+zombies are inert and deaf; the residual is bounded memory.
+
 ## Consequences
 
 - Posting an event forces the author to answer "who is this for?" at compile
