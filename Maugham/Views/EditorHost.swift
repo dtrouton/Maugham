@@ -101,6 +101,10 @@ struct EditorHost: View {
                     wikiLinkResolver: wikiLinkResolver,
                     wikiLinkClickResolver: wikiLinkClickResolver,
                     showElementGutter: store.manifest.showElementGutter ?? true,
+                    // Scope this window's script posts to its project so another
+                    // window's screenplay re-parse can't relayout this editor or
+                    // clobber its scene navigator (Channel A, ADR 0017 addendum).
+                    scriptOriginProjectId: ProjectIdentifier.id(for: store.url),
                     paragraphRangeProvider: { paragraphId in
                         doc.displayRange(forParagraphId: paragraphId)
                     },

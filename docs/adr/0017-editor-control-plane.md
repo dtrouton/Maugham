@@ -93,3 +93,19 @@ Two invariants keep it fast and safe:
   observation framework is built — one concrete model for one concrete seam.
 - Implemented incrementally (parallel-then-remove) under the existing test net;
   see the design doc for the sequencing.
+
+## Addendum (2026-07-02) — narrowed capture + scoped script notification
+
+Two cross-window fixes hardened this seam. **(1)** `armControlObservation` now runs
+the initial `applyControl` *outside* `withObservationTracking` and the tracking
+closure reads only the `control.*` properties — closing D1's latent exposure
+where `applyControl`'s review-posture reads through Document/UserPreferences were
+tracked, so a shared-prefs/Document mutation re-fired the whole-doc restyle in
+every review-mode window. **(2)** `.maughamScriptDidUpdate` is now origin-scoped:
+posters stamp the project id (`ScriptUpdateRouting.projectIdKey`) and receivers
+filter via `ScriptUpdateRouting.acceptedScript(from:forProjectId:)`, so an
+unrelated window flipping to a screenplay piece no longer relayouts another
+window's editor or clobbers its scene-navigator payload. This is the tactical
+shim ADR 0021 (scoped window events) anticipates absorbing into the typed bus
+when the name migrates. See `Maugham/Editor/AREA.md` for the contracts and
+regression nets.

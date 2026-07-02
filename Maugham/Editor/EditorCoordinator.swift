@@ -340,6 +340,19 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// never reads this.
     internal private(set) var applyExternalTextCallCount: Int = 0
 
+    /// Number of times `applyControl` has run. Internal so @testable importers
+    /// can assert the control-plane observation is narrowed to `EditorControl`
+    /// properties (ADR 0017 D1) — a mutation of a value `applyControl` merely
+    /// reads through (Document / UserPreferences) must not increment this.
+    /// Production never reads it.
+    internal private(set) var applyControlCount: Int = 0
+
+    /// Origin project id (`ProjectIdentifier.id(for:)`) stamped onto every
+    /// `.maughamScriptDidUpdate` post so receivers can scope it to their own
+    /// window (Channel A). Set by `EditorSurface` from `EditorHost`; nil for
+    /// non-manuscript surfaces (research notes), which never post scripts.
+    var scriptOriginProjectId: String?
+
     init(text: Binding<String>,
          mode: any WritingMode,
          theme: Theme,
@@ -677,8 +690,26 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
 
     private func armControlObservation() {
         guard let control else { return }
+        // Apply OUTSIDE the tracking closure (ADR 0017 D1). `applyControl` reads
+        // through Document/UserPreferences providers (recomputeReviewMarks,
+        // reviewLocalAuthorName) in review posture; if that ran inside
+        // `withObservationTracking`, those reads would be tracked and any shared
+        // UserPreferences / Document mutation would re-fire the whole-doc restyle
+        // in every review-mode window. Keeping the apply outside means the
+        // tracked set is EXACTLY the EditorControl properties touched below.
+        applyControl(control)
         withObservationTracking {
-            applyControl(control)            // reads every tracked property
+            // Establish the observation set: read ONLY EditorControl's own
+            // properties — the exact set `applyControl` consumes. Touch each
+            // explicitly so the tracked set never silently widens.
+            _ = control.lockEditing
+            _ = control.isReviewMode
+            _ = control.theme
+            _ = control.typography
+            _ = control.typewriterScroll
+            _ = control.sentenceFocus
+            _ = control.paragraphFocus
+            _ = control.reviewAnnotations
         } onChange: { [weak self] in
             // onChange fires once (pre-change). Re-arm on the next main-actor
             // turn — after the mutation commits — so the re-applied values are
@@ -701,6 +732,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// `Document`'s observable state stays untracked. A future unconditional
     /// `Document` read in this path would cause observation to fire every keystroke.
     func applyControl(_ c: EditorControl) {
+        applyControlCount += 1
         setLockEditing(c.lockEditing)        // self-guarded
         setReviewMode(c.isReviewMode)        // self-guarded
         if theme != c.theme || typography != c.typography {
@@ -1402,11 +1434,18 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// pending task, so a doc switch mid-debounce never strands a stale
     /// script post on the new document's navigator.
     private func postScriptDidUpdate(_ script: FountainScript, debounced: Bool) {
+        // Channel A scoping: stamp the origin project id so a receiver only
+        // adopts a script from its OWN project (ScriptUpdateRouting). Without
+        // this, an unrelated window flipping to a screenplay piece re-lays-out
+        // this window's editor and clobbers its scene-navigator payload.
+        let originInfo: [AnyHashable: Any]? = scriptOriginProjectId.map {
+            [ScriptUpdateRouting.projectIdKey: $0]
+        }
         guard debounced else {
             scriptUpdateNotifyTask?.cancel()
             scriptUpdateNotifyTask = nil
             NotificationCenter.default.post(
-                name: .maughamScriptDidUpdate, object: script)
+                name: .maughamScriptDidUpdate, object: script, userInfo: originInfo)
             return
         }
         scriptUpdateNotifyTask?.cancel()
@@ -1415,7 +1454,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             guard !Task.isCancelled else { return }
             self?.scriptUpdateNotifyTask = nil
             NotificationCenter.default.post(
-                name: .maughamScriptDidUpdate, object: script)
+                name: .maughamScriptDidUpdate, object: script, userInfo: originInfo)
         }
     }
 

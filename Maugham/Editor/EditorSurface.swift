@@ -47,6 +47,11 @@ struct EditorSurface: NSViewRepresentable {
     /// Returns the doc id if the title resolves, nil otherwise.
     var wikiLinkClickResolver: ((String) -> String?)? = nil
     var showElementGutter: Bool = true
+    /// Origin project id (`ProjectIdentifier.id(for:)`) stamped onto the
+    /// coordinator's `.maughamScriptDidUpdate` posts so receivers scope them to
+    /// their own window (Channel A). Passed by manuscript hosts (EditorHost);
+    /// nil for research notes, which never post scripts.
+    var scriptOriginProjectId: String? = nil
     /// When set, the text view's paste(_:) routes pasteboard images to this
     /// handler instead of pasting them as text. Used for research notes to
     /// save images to a sibling _assets/ folder and insert a Markdown ref.
@@ -119,6 +124,7 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.reviewParagraphTextProvider = reviewParagraphTextProvider
         coordinator.reviewParagraphRangeProvider = reviewParagraphRangeProvider
         coordinator.reviewAnnotationsProvider = reviewAnnotationsProvider
+        coordinator.scriptOriginProjectId = scriptOriginProjectId
         assignReviewCardHandlers(to: coordinator)
         return coordinator
     }
@@ -288,6 +294,7 @@ struct EditorSurface: NSViewRepresentable {
         // Pull-on-entry provider: the coordinator invokes it on review entry to
         // resolve the real annotation set synchronously (first-toggle marks fix).
         context.coordinator.reviewAnnotationsProvider = reviewAnnotationsProvider
+        context.coordinator.scriptOriginProjectId = scriptOriginProjectId
         // Interactive-card handlers + local-author provider must be current before
         // the recompute path reads ownership.
         assignReviewCardHandlers(to: context.coordinator)
