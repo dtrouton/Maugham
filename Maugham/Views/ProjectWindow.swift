@@ -440,13 +440,10 @@ struct ProjectWindow: View {
                         }
                     }
                 }
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamMCPNoteAdded)) { note in
+                .onProjectEvent(.maughamMCPNoteAdded, url: url, window: window) { note in
                     guard let info = note.userInfo,
-                          let projectId = info["project_id"] as? String,
                           let researchId = info["research_id"] as? String,
-                          let title = info["title"] as? String,
-                          ProjectIdentifier.id(for: url) == projectId else { return }
+                          let title = info["title"] as? String else { return }
                     DispatchQueue.main.async {
                         mcpBanner.bump(title: title, latestId: researchId)
                     }

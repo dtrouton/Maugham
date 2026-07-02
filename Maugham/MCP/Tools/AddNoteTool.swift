@@ -60,11 +60,12 @@ public enum AddNoteTool: MCPTool {
             try params.body.write(to: absURL, atomically: true, encoding: .utf8)
         }
 
-        NotificationCenter.default.post(
-            name: .maughamMCPNoteAdded,
-            object: nil,
-            userInfo: [
-                "project_id": params.project_id,
+        // Project-scoped (ADR 0021): the project id that was manual payload +
+        // a receiver-side compare is now the delivery scope itself.
+        MaughamEvent.post(
+            .maughamMCPNoteAdded,
+            to: .project(id: params.project_id),
+            payload: [
                 "research_id": created.id,
                 "title": created.title
             ])
