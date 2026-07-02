@@ -126,8 +126,7 @@ struct MaughamApp: App {
                 }
                 .keyboardShortcut("s", modifiers: .command)
                 Button("Save Checkpoint As…") {
-                    NotificationCenter.default.post(
-                        name: .maughamNamedCheckpoint, object: nil)
+                    MaughamEvent.post(.maughamNamedCheckpoint, to: .keyWindow)
                 }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
                 Divider()

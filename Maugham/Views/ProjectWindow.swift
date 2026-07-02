@@ -1087,9 +1087,8 @@ private struct CheckpointModifier: ViewModifier {
                         at: Date())
                 }
             }
-            .onReceive(NotificationCenter.default.publisher(
-                for: .maughamNamedCheckpoint)) { _ in
-                guard window?.isKeyWindow == true, store != nil else { return }
+            .onKeyWindowCommand(.maughamNamedCheckpoint, window: window) { _ in
+                guard store != nil else { return }
                 showingCheckpointLabelSheet = true
             }
             .modifier(RewindModifier(
