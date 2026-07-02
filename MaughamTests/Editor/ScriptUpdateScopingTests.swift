@@ -8,8 +8,8 @@ import MaughamCore
 /// scoped to its origin project so an unrelated window flipping to a screenplay
 /// piece can't invalidate (and re-lay-out) another window's editor or clobber
 /// its scene-navigator payload. The routing now rides the `MaughamEvent`
-/// wrapper (`.project(id:)` scope) — the tactical `ScriptUpdateRouting`
-/// helper it absorbed is gone. See Editor AREA.md.
+/// wrapper (`.project(id:)` scope) — the tactical origin-filter helper it
+/// absorbed is gone. See Editor AREA.md.
 @MainActor
 final class ScriptUpdateScopingTests: XCTestCase {
 
