@@ -577,10 +577,19 @@ final class TripwireGrepTests: XCTestCase {
 
     /// Whole-file regex patterns (the codebase splits post(/publisher( across
     /// lines, so line-based grep misses them). SHARED with the self-test.
+    /// The gap between the open-paren and the argument label tolerates
+    /// whitespace AND interposed line comments — `(?://[^\n]*\s*)*` — so a
+    /// split call with a trailing comment on its first line (the
+    /// `// adr-0021-ok:` annotation itself, or any unrelated comment) still
+    /// MATCHES and is then judged by the match-start-line exemption. Without
+    /// the comment arm, ANY comment in the gap silently broke the match and an
+    /// unannotated violation could land undetected. Do NOT widen the gap
+    /// beyond whitespace + line comments (a bare `addObserver\(` would
+    /// false-positive every system-notification observer).
     static let adr0021PostPattern = "NotificationCenter\\.default\\.post\\("
     static let adr0021SubscribePatterns = [
-        "publisher\\(\\s*for:\\s*\\.maugham",
-        "addObserver\\(\\s*forName:\\s*\\.maugham",
+        "publisher\\(\\s*(?://[^\\n]*\\s*)*for:\\s*\\.maugham",
+        "addObserver\\(\\s*(?://[^\\n]*\\s*)*forName:\\s*\\.maugham",
     ]
 
     /// Scan whole file text for regex matches; report `file:line`. A match
@@ -648,14 +657,21 @@ final class TripwireGrepTests: XCTestCase {
             + "declares its scope — and receive via .onKeyWindowCommand / "
             + ".onDocumentEvent / .onProjectEvent / .onGlobalEvent / "
             + "MaughamEvent.observe. If this is genuinely not a maugham.* event, "
-            + "annotate with // adr-0021-ok: <reason>. Offenders:\n"
+            + "annotate with // adr-0021-ok: <reason> — place the annotation on "
+            + "the line where the call STARTS (the `NotificationCenter.default.…(` "
+            + "line), not on a split argument line. Offenders:\n"
             + offenders.joined(separator: "\n"))
     }
 
     /// Self-check: prove the ADR 0021 tripwire FIRES on planted offenders —
-    /// a raw post, a LINE-SPLIT publisher(for: .maugham…) subscription, and an
-    /// addObserver(forName: .maugham…) — and that an annotated line and a
-    /// comment line are exempt.
+    /// a raw post, a LINE-SPLIT publisher(for: .maugham…) subscription, an
+    /// addObserver(forName: .maugham…), and a line-split addObserver with an
+    /// UNRELATED comment interposed in the gap (the comment must not break the
+    /// match) — and that an annotated line and a comment line are exempt,
+    /// INCLUDING split calls whose match-start line carries the
+    /// `// adr-0021-ok:` annotation (the annotation is itself an interposed
+    /// comment; the pattern must match through it so the exemption path — not
+    /// regex breakage — is what passes them).
     func test_adr0021TripwireFiresOnPlantedOffenders() throws {
         let fm = FileManager.default
         let tmp = fm.temporaryDirectory
@@ -675,9 +691,25 @@ final class TripwireGrepTests: XCTestCase {
             _ = NotificationCenter.default.addObserver(forName: .maughamNavigateToScene,
                 object: nil, queue: .main) { _ in }
         }
+        func bad4() {
+            // An interposed UNRELATED comment must not break the match —
+            // this unannotated split observer is a real violation and must fire.
+            _ = NotificationCenter.default.addObserver( // listen for changes
+                forName: .maughamScriptDidUpdate,
+                object: nil, queue: .main) { _ in }
+        }
         func fine() {
             NotificationCenter.default.post(name: someSystemName, object: nil) // adr-0021-ok: planted exemption
             // comment mentioning NotificationCenter.default.post( is fine
+        }
+        func fineSplitObserver() {
+            _ = NotificationCenter.default.addObserver( // adr-0021-ok: planted split-observer exemption
+                forName: .maughamOpenRewind,
+                object: nil, queue: .main) { _ in }
+        }
+        var fineSplitPublisher: some View {
+            EmptyView().onReceive(NotificationCenter.default.publisher( // adr-0021-ok: planted split-publisher exemption
+                for: .maughamOpenRewind)) { _ in }
         }
         """.write(to: tmp.appendingPathComponent("BadEventUser.swift"),
                   atomically: true, encoding: .utf8)
@@ -686,9 +718,17 @@ final class TripwireGrepTests: XCTestCase {
             in: [tmp],
             patterns: [Self.adr0021PostPattern] + Self.adr0021SubscribePatterns,
             allowed: [])
-        XCTAssertEqual(offenders.count, 3,
-            "Self-check expected the raw post, the line-split publisher, and the "
-            + "addObserver to fire (and only those). Got:\n"
+        XCTAssertEqual(offenders.count, 4,
+            "Self-check expected the raw post, the line-split publisher, the "
+            + "addObserver, and the comment-interposed split addObserver to fire "
+            + "(and only those). Got:\n"
             + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.contains { $0.contains("// listen for changes") },
+            "Self-check: the split addObserver with an unrelated interposed comment "
+            + "must fire — a comment in the gap must not break the pattern. Got:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertFalse(offenders.contains { $0.contains("adr-0021-ok") },
+            "Self-check: annotated split calls must pass via the match-start-line "
+            + "exemption, not fire. Got:\n" + offenders.joined(separator: "\n"))
     }
 }

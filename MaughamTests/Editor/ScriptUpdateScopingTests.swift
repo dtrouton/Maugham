@@ -78,13 +78,18 @@ final class ScriptUpdateScopingTests: XCTestCase {
             typewriterScroll: false, sentenceFocus: false, paragraphFocus: false)
         coordinator.scriptOriginProjectId = "proj_origin_under_test"
 
+        // Receive through the REAL wrapper with a matching-project context, so
+        // both the coordinator's scope stamping AND the delivery filter are on
+        // the asserted path: a mis-stamped scope would be dropped and fail here.
         var receivedKind: String?
         var receivedId: String?
-        let obs = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer asserting the coordinator stamps the project scope keys
-            forName: .maughamScriptDidUpdate, object: nil, queue: nil) { note in
-            receivedKind = note.userInfo?[MaughamEvent.scopeKindKey] as? String
-            receivedId = note.userInfo?[MaughamEvent.scopeIdKey] as? String
-        }
+        let obs = MaughamEvent.observe(
+            .maughamScriptDidUpdate,
+            context: { self.ctx("proj_origin_under_test") },
+            handler: { note in
+                receivedKind = note.userInfo?[MaughamEvent.scopeKindKey] as? String
+                receivedId = note.userInfo?[MaughamEvent.scopeIdKey] as? String
+            })
         defer { NotificationCenter.default.removeObserver(obs) }
 
         // attach → retokenizeAndStyle posts synchronously (non-debounced).

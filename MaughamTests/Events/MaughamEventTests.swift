@@ -75,16 +75,24 @@ final class MaughamEventTests: XCTestCase {
 
     /// The toggleInspector regression shape: one event, two windows, exactly
     /// one delivery (ProjectWindow.swift:185 had NO guard — ⌘⌥I toggled BOTH).
+    /// Two REAL `MaughamEvent.observe` subscriptions — one key-window context,
+    /// one background — so the test exercises the actual delivery path (the
+    /// wrapper's filter), not a hand-rolled re-application of shouldDeliver.
+    @MainActor
     func test_toggleInspector_regression_singleWindowDelivery() {
         var deliveries = 0
-        let keyCtx = ctx(.keyWindow, key: true)
-        let backgroundCtx = ctx(.keyWindow, key: false)
-        let obs = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer verifying single-window delivery of the scoped post
-            forName: .maughamToggleInspector, object: nil, queue: nil) { n in
-            if MaughamEvent.shouldDeliver(n, to: keyCtx) { deliveries += 1 }
-            if MaughamEvent.shouldDeliver(n, to: backgroundCtx) { deliveries += 1 }
+        let keyObs = MaughamEvent.observe(
+            .maughamToggleInspector,
+            context: { self.ctx(.keyWindow, key: true) },
+            handler: { _ in deliveries += 1 })
+        let backgroundObs = MaughamEvent.observe(
+            .maughamToggleInspector,
+            context: { self.ctx(.keyWindow, key: false) },
+            handler: { _ in deliveries += 1 })
+        defer {
+            NotificationCenter.default.removeObserver(keyObs)
+            NotificationCenter.default.removeObserver(backgroundObs)
         }
-        defer { NotificationCenter.default.removeObserver(obs) }
         MaughamEvent.post(.maughamToggleInspector, to: .keyWindow)
         XCTAssertEqual(deliveries, 1, "⌘⌥I must toggle exactly ONE window's inspector")
     }

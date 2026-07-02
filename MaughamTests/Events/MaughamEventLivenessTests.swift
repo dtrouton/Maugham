@@ -182,23 +182,25 @@ final class MaughamEventLivenessTests: XCTestCase {
         XCTAssertTrue(ctx.isWindowLive,
             "an ordered-front window must read as live in the coordinator's context")
 
-        // 2. Filter delivery under key status: capture a REAL scoped post of the
-        // production name and assert it passes shouldDeliver once the OS-only
-        // key grant is in place (forced true — the one fact not grantable headless).
-        var captured: Notification?
-        let obs = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer asserting the scoped post passes the filter
-            forName: .maughamNavigateToScene, object: nil, queue: nil) { captured = $0 }
+        // 2. Filter delivery under key status: subscribe through the REAL
+        // wrapper (observe) with the coordinator's context plus the OS-only
+        // key grant forced true (the one fact not grantable headless), and
+        // assert a real scoped post of the production name is DELIVERED
+        // through observe()'s own filter — the actual delivery path.
+        let keyGranted = EventReceiverContext(
+            kind: ctx.kind, isWindowLive: ctx.isWindowLive, isWindowKey: true)
+        var delivered: Notification?
+        let obs = MaughamEvent.observe(
+            .maughamNavigateToScene,
+            context: { keyGranted },
+            handler: { delivered = $0 })
         defer { NotificationCenter.default.removeObserver(obs) }
         MaughamEvent.post(.maughamNavigateToScene, to: .keyWindow,
                           payload: ["lineLocation": 17])
-        guard let note = captured else {
-            XCTFail("the scoped post must reach NotificationCenter observers")
-            return
-        }
-        let keyGranted = EventReceiverContext(
-            kind: ctx.kind, isWindowLive: ctx.isWindowLive, isWindowKey: true)
-        XCTAssertTrue(MaughamEvent.shouldDeliver(note, to: keyGranted),
+        XCTAssertNotNil(delivered,
             "a .keyWindow-scoped navigateToScene post must deliver to the attached coordinator's context once its window is key")
+        XCTAssertEqual(delivered?.userInfo?["lineLocation"] as? Int, 17,
+            "the delivered notification must carry the post's payload")
         _ = coordinator
     }
 
