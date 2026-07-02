@@ -18,13 +18,18 @@ enum AnnotationLoading {
         OpLogStore.docIds(inOpsDirectoryFilenames: filenames)
     }
 
-    /// Open annotations from one document's merged op stream: replay to the
-    /// current paragraph map (`Deriver`), derive the annotation projection
-    /// (`AnnotationDeriver`), and keep only those still `.open` (accepted /
-    /// rejected / archived are resolved and don't belong on the triage list).
-    static func openAnnotations(ops: [Op]) -> [Annotation] {
+    /// Every derived annotation for one document's merged op stream (all
+    /// statuses), in `AnnotationDeriver`'s newest-first order. The show-resolved
+    /// (All) mode needs resolved annotations too, so we derive the full set once
+    /// and let callers partition by `.status`.
+    static func allAnnotations(ops: [Op]) -> [Annotation] {
         let paragraphs = Deriver.derive(ops: ops).paragraphs
         return AnnotationDeriver.derive(ops: ops, paragraphs: paragraphs)
-            .filter { $0.status == .open }
+    }
+
+    /// Open annotations only — the triage subset. Kept as the thin filter over
+    /// `allAnnotations` so the two never drift.
+    static func openAnnotations(ops: [Op]) -> [Annotation] {
+        allAnnotations(ops: ops).filter { $0.status == .open }
     }
 }
