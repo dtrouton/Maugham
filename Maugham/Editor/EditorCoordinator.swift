@@ -1495,18 +1495,19 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// pending task, so a doc switch mid-debounce never strands a stale
     /// script post on the new document's navigator.
     private func postScriptDidUpdate(_ script: FountainScript, debounced: Bool) {
-        // Channel A scoping: stamp the origin project id so a receiver only
-        // adopts a script from its OWN project (ScriptUpdateRouting). Without
-        // this, an unrelated window flipping to a screenplay piece re-lays-out
-        // this window's editor and clobbers its scene-navigator payload.
-        let originInfo: [AnyHashable: Any]? = scriptOriginProjectId.map {
-            [ScriptUpdateRouting.projectIdKey: $0]
-        }
+        // Channel A scoping (ADR 0021): deliver only to windows on the
+        // originating project. A receiver adopting a foreign project's script
+        // would re-lay-out its editor and clobber its scene-navigator payload.
+        // NOT a key-window guard — a background window's own MCP-driven
+        // re-parse must still update its navigator. A nil origin
+        // (non-manuscript surface) never reaches here (only ScreenplayMode
+        // posts), so drop defensively rather than fan out unscoped.
+        guard let projectId = scriptOriginProjectId else { return }
         guard debounced else {
             scriptUpdateNotifyTask?.cancel()
             scriptUpdateNotifyTask = nil
-            NotificationCenter.default.post(
-                name: .maughamScriptDidUpdate, object: script, userInfo: originInfo)
+            MaughamEvent.post(
+                .maughamScriptDidUpdate, to: .project(id: projectId), object: script)
             return
         }
         scriptUpdateNotifyTask?.cancel()
@@ -1514,8 +1515,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             try? await Task.sleep(for: .milliseconds(350))
             guard !Task.isCancelled else { return }
             self?.scriptUpdateNotifyTask = nil
-            NotificationCenter.default.post(
-                name: .maughamScriptDidUpdate, object: script, userInfo: originInfo)
+            MaughamEvent.post(
+                .maughamScriptDidUpdate, to: .project(id: projectId), object: script)
         }
     }
 

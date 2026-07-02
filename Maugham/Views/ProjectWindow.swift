@@ -195,15 +195,14 @@ struct ProjectWindow: View {
         .onKeyWindowCommand(.maughamShowProjectStatistics, window: window) { _ in
             openWindow(id: "project-stats", value: url)
         }
-        .onReceive(NotificationCenter.default.publisher(
-            for: .maughamScriptDidUpdate)) { note in
-            // Scope to this window's project (Channel A): adopt the script only
-            // when it originated here. A foreign post (another window flipping to
-            // a screenplay piece) must not relayout this editor or clobber this
-            // window's scene-navigator payload. NOT a key-window guard — a
-            // background window's own MCP-driven re-parse still updates it.
-            if let script = ScriptUpdateRouting.acceptedScript(
-                from: note, forProjectId: ProjectIdentifier.id(for: url)) {
+        .onProjectEvent(.maughamScriptDidUpdate, url: url, window: window) { note in
+            // Scope to this window's project (Channel A, ADR 0021): the helper
+            // delivers only own-project posts, so a foreign post (another window
+            // flipping to a screenplay piece) never relayouts this editor or
+            // clobbers this window's scene-navigator payload. NOT a key-window
+            // guard — a background window's own MCP-driven re-parse still lands
+            // here (it's live and on this project) and updates the navigator.
+            if let script = note.object as? FountainScript {
                 self.lastParsedScript = script
             }
         }
