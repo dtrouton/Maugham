@@ -59,6 +59,9 @@ Daily-writing improvements. Reduces friction in the surface you spend hours in.
 **Visual reference:**
 - • Mood board — a board surface for arranging images, swatches, and notes when thinking through a project's visual identity (colour palettes, character looks, locations). Project-level (not per-document). Needs brainstorming on scope: dedicated binder pane vs. new project type vs. extension of the Research browser.
 
+**Project Statistics polish for screenplays (parked 2026-07-02, smoke finding adjacent):**
+- • Screenplay Project Statistics show novel-shaped content — the "Words by chapter" section renders a single row (the one `.fountain` doc), which reads as "one chapter" and invites a click that navigates somewhere unhelpful (the click itself is fixed — it now lands on the Scenes navigator, `BinderSegment.documentHome(for:)` — but the stats display is still wrong-shaped). Polish: for screenplay projects, replace words-by-chapter with scene-shaped stats — scenes with per-scene page lengths (the `sceneSummaries()` / `formatPagesCompact` machinery from the Scene Navigator already computes this), total page count vs page target, and click-a-scene-row → navigate-to-scene. Small, self-contained; pick up with any stats/UI-polish batch.
+
 **Right-pane onboarding polish (carry-forward from the editing milestone):**
 - • Annotations vs History pane onboarding affordance — they're sibling right-pane segments with opposite affordances (Annotations = action surface with Accept/Reject/Archive buttons; History = read-only forensic log). Today the segment-picker icons read as a generic "right pane mode" picker without communicating the difference, which led to real confusion during editing-milestone testing. Smallest fix: tooltips on the segment icons. Bigger fix: empty-state hints that point across ("looking for action buttons? Press ⌘⌥A").
 
