@@ -363,8 +363,7 @@ struct ProjectWindow: View {
 
         func body(content: Content) -> some View {
             content
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamSetDetailSegment)) { note in
+                .onKeyWindowCommand(.maughamSetDetailSegment, window: window) { note in
                     guard let raw = note.userInfo?["segment"] as? String,
                           let seg = DetailSegment(rawValue: raw) else { return }
                     showInspector = true     // ensure pane is visible

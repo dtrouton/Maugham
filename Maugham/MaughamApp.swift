@@ -193,31 +193,19 @@ struct MaughamApp: App {
                 .keyboardShortcut("p", modifiers: [.command, .shift])
                 Divider()
                 Button("Inspector") {
-                    NotificationCenter.default.post(
-                        name: .maughamSetDetailSegment,
-                        object: nil,
-                        userInfo: ["segment": "inspector"])
+                    MaughamEvent.post(.maughamSetDetailSegment, to: .keyWindow, payload: ["segment": "inspector"])
                 }
                 .keyboardShortcut("1", modifiers: [.command, .option])
                 Button("Linked Research") {
-                    NotificationCenter.default.post(
-                        name: .maughamSetDetailSegment,
-                        object: nil,
-                        userInfo: ["segment": "research"])
+                    MaughamEvent.post(.maughamSetDetailSegment, to: .keyWindow, payload: ["segment": "research"])
                 }
                 .keyboardShortcut("2", modifiers: [.command, .option])
                 Button("Outline") {
-                    NotificationCenter.default.post(
-                        name: .maughamSetDetailSegment,
-                        object: nil,
-                        userInfo: ["segment": "outline"])
+                    MaughamEvent.post(.maughamSetDetailSegment, to: .keyWindow, payload: ["segment": "outline"])
                 }
                 .keyboardShortcut("3", modifiers: [.command, .option])
                 Button("Annotations") {
-                    NotificationCenter.default.post(
-                        name: .maughamSetDetailSegment,
-                        object: nil,
-                        userInfo: ["segment": "annotations"])
+                    MaughamEvent.post(.maughamSetDetailSegment, to: .keyWindow, payload: ["segment": "annotations"])
                 }
                 .keyboardShortcut("a", modifiers: [.command, .option])
             }
