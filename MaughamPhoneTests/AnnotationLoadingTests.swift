@@ -70,6 +70,85 @@ final class AnnotationLoadingTests: XCTestCase {
         XCTAssertEqual(byId["01COMMENT"]?.status, .open)
     }
 
+    // MARK: - groupByChapter
+
+    /// Helper: a LoadedAnnotation with a chosen status, for grouping tests.
+    private func loaded(_ id: String, docId: String, status: AnnotationStatus) -> LoadedAnnotation {
+        let ann = Annotation(
+            id: id, kind: .comment, paragraphId: "k7m3", body: "b",
+            suggestedText: nil, priorText: nil,
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000), createdBySession: nil,
+            status: status, userResponse: nil, resolvedAt: nil, isStale: false)
+        return LoadedAnnotation(annotation: ann, docId: docId)
+    }
+
+    private func doc(_ id: String, _ title: String) -> StructureItem {
+        StructureItem(id: id, title: title, type: .document, path: "\(title).md")
+    }
+    private func group(_ id: String, _ title: String, _ kids: [StructureItem]) -> StructureItem {
+        StructureItem(id: id, title: title, type: .group, children: kids)
+    }
+
+    func test_groupByChapter_binderOrder_withParentGroupHeaders() {
+        let structure = [
+            group("g1", "Act I", [doc("doc-a", "Arrival"), doc("doc-b", "The Letter")]),
+            group("g2", "Act II", [doc("doc-c", "Nightfall")]),
+        ]
+        let anns = [
+            loaded("n3", docId: "doc-c", status: .open),
+            loaded("n1", docId: "doc-a", status: .open),
+            loaded("n2", docId: "doc-b", status: .open),
+        ]
+        let chapters = AnnotationLoading.groupByChapter(anns, structure: structure, research: [])
+        XCTAssertEqual(chapters.map(\.docId), ["doc-a", "doc-b", "doc-c"], "binder order, not annotation order")
+        XCTAssertEqual(chapters.map(\.chapterTitle), ["Arrival", "The Letter", "Nightfall"])
+        XCTAssertEqual(chapters.map(\.groupTitle), ["Act I", "Act I", "Act II"])
+    }
+
+    func test_groupByChapter_partitionsOpenAndResolved() {
+        let structure = [doc("doc-a", "Arrival")]
+        let anns = [
+            loaded("n1", docId: "doc-a", status: .open),
+            loaded("n2", docId: "doc-a", status: .accepted),
+            loaded("n3", docId: "doc-a", status: .archived),
+        ]
+        let chapters = AnnotationLoading.groupByChapter(anns, structure: structure, research: [])
+        XCTAssertEqual(chapters.count, 1)
+        XCTAssertEqual(chapters[0].open.map(\.id), ["n1"])
+        XCTAssertEqual(Set(chapters[0].resolved.map(\.id)), ["n2", "n3"])
+        XCTAssertEqual(chapters[0].openCount, 1)
+        XCTAssertEqual(chapters[0].resolvedCount, 2)
+    }
+
+    func test_groupByChapter_ungroupedDocument_hasNilGroupTitle() {
+        let structure = [doc("doc-a", "Loose Chapter")]
+        let chapters = AnnotationLoading.groupByChapter([loaded("n1", docId: "doc-a", status: .open)], structure: structure, research: [])
+        XCTAssertEqual(chapters[0].groupTitle, nil)
+    }
+
+    func test_groupByChapter_researchFallbackTitle() {
+        let research = [ResearchItem(id: "doc-r", title: "World Bible", type: .asset, kind: .document, path: "r.md")]
+        let chapters = AnnotationLoading.groupByChapter([loaded("n1", docId: "doc-r", status: .open)], structure: [], research: research)
+        XCTAssertEqual(chapters.map(\.chapterTitle), ["World Bible"])
+        XCTAssertEqual(chapters.map(\.groupTitle), ["Research"])
+    }
+
+    func test_groupByChapter_unmappedDocId_goesToOther_lastAndNeverDropped() {
+        let structure = [doc("doc-a", "Arrival")]
+        let anns = [
+            loaded("n1", docId: "doc-a", status: .open),
+            loaded("n2", docId: "doc-ORPHAN9999", status: .open),
+        ]
+        let chapters = AnnotationLoading.groupByChapter(anns, structure: structure, research: [])
+        XCTAssertEqual(chapters.map(\.docId), ["doc-a", "doc-ORPHAN9999"], "unmapped sorts last, never dropped")
+        XCTAssertEqual(chapters.last?.groupTitle, "Other")
+        XCTAssertTrue(chapters.last?.chapterTitle.contains("doc-ORPHAN") ?? false)
+    }
+
+    func test_groupByChapter_empty_isEmpty() {
+        XCTAssertTrue(AnnotationLoading.groupByChapter([], structure: [], research: []).isEmpty)
+    }
+
     // MARK: - Op builders (mirrors AnnotationWriterTests' shape)
 
     private func suggestionOp(opId: String, paragraphId: String, prior: String, next: String) -> Op {
