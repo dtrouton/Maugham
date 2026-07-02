@@ -374,7 +374,7 @@ private struct FocusedShareForReviewButton: View {
     @FocusedValue(\.projectURL) private var projectURL
     var body: some View {
         Button("Share for Review…") {
-            NotificationCenter.default.post(name: .maughamShareForReview, object: nil)
+            MaughamEvent.post(.maughamShareForReview, to: .keyWindow)
         }
         .disabled(projectURL == nil)
     }

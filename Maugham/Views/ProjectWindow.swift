@@ -175,10 +175,10 @@ struct ProjectWindow: View {
         .onKeyWindowCommand(.maughamShowClaudeDesktopHelp, window: window) { _ in
             activeSheet = .claudeDesktop
         }
-        .onReceive(NotificationCenter.default.publisher(for: .maughamShareForReview)) { _ in
-            // Broadcast command — only the focused project window acts, anchoring
+        .onKeyWindowCommand(.maughamShareForReview, window: window) { _ in
+            // Scoped command — only the focused project window acts, anchoring
             // the share sheet to its own NSWindow and reusing its resolved snapshot.
-            guard window?.isKeyWindow == true, let store else { return }
+            guard let store else { return }
             ProjectShareSheetPresenter.present(
                 projectURL: store.url, snapshot: shareSnapshot, in: window)
         }
