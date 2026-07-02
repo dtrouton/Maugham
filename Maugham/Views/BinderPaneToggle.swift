@@ -63,12 +63,12 @@ struct BinderPaneToggle: View {
         }
         .onChange(of: store.trashEntries.count) { _, newValue in
             if newValue == 0 && segment == .trash {
-                segment = projectType == .screenplay ? .scenes : .manuscript
+                segment = .documentHome(for: projectType)
             }
         }
         .onChange(of: findActive) { _, newValue in
             if !newValue && segment == .find {
-                segment = projectType == .screenplay ? .scenes : .manuscript
+                segment = .documentHome(for: projectType)
             }
         }
     }

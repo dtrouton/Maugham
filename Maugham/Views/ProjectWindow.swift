@@ -381,8 +381,10 @@ struct ProjectWindow: View {
                 // OR a click in the separate stats-window scene must navigate
                 // this project's window even when it isn't key.
                 .onProjectEvent(.maughamNavigateToDocument, url: url, window: window) { note in
-                    if let id = note.userInfo?["id"] as? String {
-                        binderSegment = .manuscript
+                    if let id = note.userInfo?["id"] as? String, let store {
+                        // Screenplays have no Manuscript segment — their
+                        // document home is the Scenes navigator.
+                        binderSegment = .documentHome(for: store.manifest.type)
                         selectedItemId = id
                     }
                 }
@@ -422,7 +424,7 @@ struct ProjectWindow: View {
                 }
                 .onKeyWindowCommand(.maughamCloseFind, window: window) { _ in
                     findActive = false
-                    binderSegment = store?.manifest.type == .screenplay ? .scenes : .manuscript
+                    binderSegment = .documentHome(for: store?.manifest.type ?? .novel)
                 }
                 .onKeyWindowCommand(.maughamFindMatchSelected, window: window) { note in
                     guard let store,
