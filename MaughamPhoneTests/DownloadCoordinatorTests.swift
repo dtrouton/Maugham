@@ -14,12 +14,9 @@ final class MockUbiquitousDownloader: UbiquitousDownloader, @unchecked Sendable 
     private let lock = NSLock()
     private var starts: [URL: Int] = [:]
     private var continuations: [URL: AsyncThrowingStream<Double, Error>.Continuation] = [:]
-    /// Total `download(at:)` invocations, and the count already consumed by an
-    /// `awaitNextStart()`. Lets a waiter resolve immediately if a start already
-    /// happened (no hang on lost races), and otherwise park until the next one.
-    private var totalStarts = 0
-    private var consumedStarts = 0
-    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    /// Per-URL waiters parked in `awaitDownload(for:)`, resumed when that url's
+    /// `download(at:)` is invoked.
+    private var startWaiters: [URL: [CheckedContinuation<Void, Never>]] = [:]
 
     func fileSize(at url: URL) -> Int64? { nil }
 
@@ -27,11 +24,9 @@ final class MockUbiquitousDownloader: UbiquitousDownloader, @unchecked Sendable 
         AsyncThrowingStream { continuation in
             lock.lock()
             starts[url, default: 0] += 1
-            totalStarts += 1
             continuations[url] = continuation
-            let waiters = startWaiters
-            startWaiters.removeAll()
-            consumedStarts = totalStarts
+            let waiters = startWaiters[url] ?? []
+            startWaiters[url] = nil
             lock.unlock()
             for w in waiters { w.resume() }
         }
@@ -42,19 +37,26 @@ final class MockUbiquitousDownloader: UbiquitousDownloader, @unchecked Sendable 
         return starts[url] ?? 0
     }
 
-    /// Suspends until the next `download(at:)` invocation. Resolves immediately
-    /// if an as-yet-unconsumed start has already happened, so the caller can't
-    /// hang by racing the start.
-    func awaitNextStart() async {
+    /// Suspends until `download(at: url)` has been invoked for THIS url — i.e.
+    /// its continuation is registered, so a later `succeed(url)` / `fail(url)`
+    /// is guaranteed to take effect. Resolves immediately if it already happened
+    /// (no lost-signal hang), and waits for THIS url specifically.
+    ///
+    /// This is the fix for the 2026-07-01 `DownloadCoordinatorBudgetTests` CI
+    /// hang. The old url-agnostic `awaitNextStart()` resolved on ANY download
+    /// start, so a stale unresolved start (e.g. a budget-reservation download
+    /// left in flight) could satisfy it — letting `succeed(otherURL)` race ahead
+    /// of that url's registration, where `succeed` no-ops and the awaiting
+    /// `ensureDownloaded` hangs forever. Waiting per-url removes the race.
+    func awaitDownload(for url: URL) async {
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
             lock.lock()
-            if totalStarts > consumedStarts {
-                consumedStarts = totalStarts
+            if (starts[url] ?? 0) >= 1 {
                 lock.unlock()
                 cont.resume()
                 return
             }
-            startWaiters.append(cont)
+            startWaiters[url, default: []].append(cont)
             lock.unlock()
         }
     }
@@ -82,9 +84,27 @@ private struct MockError: Error, LocalizedError {
 
 private func u(_ s: String) -> URL { URL(string: "file:///icloud/\(s)")! }
 
+// MARK: - Base
+
+/// Base for the DownloadCoordinator suites. These tests coordinate across Tasks
+/// and AsyncStreams via `await`s on cross-task signals (`awaitDownload(for:)`)
+/// and `observe()` stream termination. The specific 2026-07-01 CI hang (a
+/// url-agnostic wait resolving on a stale start) is fixed at the source in
+/// `MockUbiquitousDownloader.awaitDownload(for:)`. This per-test bound stays as
+/// defense-in-depth: any future missed signal fails fast and names itself
+/// instead of stalling the whole run until CI's 30-min job timeout. Only
+/// enforced when test timeouts are enabled (CI passes `-test-timeouts-enabled`);
+/// ignored otherwise, so local runs are unaffected.
+class DownloadCoordinatorTestCase: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        executionTimeAllowance = 30
+    }
+}
+
 // MARK: - Dedup
 
-final class DownloadCoordinatorDedupTests: XCTestCase {
+final class DownloadCoordinatorDedupTests: DownloadCoordinatorTestCase {
     func test_threeConcurrentCallers_shareOneDownload() async throws {
         let mock = MockUbiquitousDownloader()
         let coord = DownloadCoordinator(downloader: mock)
@@ -96,7 +116,7 @@ final class DownloadCoordinatorDedupTests: XCTestCase {
         async let c: Void = coord.ensureDownloaded(url)
 
         // Wait until at least one download has actually been kicked off.
-        await mock.awaitNextStart()
+        await mock.awaitDownload(for: url)
         // No sync point needed for the other two callers: the actor serializes
         // them, and `startIfNeeded` returns the existing in-flight task rather
         // than starting a new one — so `startCount` stays 1 regardless of
@@ -113,7 +133,7 @@ final class DownloadCoordinatorDedupTests: XCTestCase {
 
 // MARK: - Budget
 
-final class DownloadCoordinatorBudgetTests: XCTestCase {
+final class DownloadCoordinatorBudgetTests: DownloadCoordinatorTestCase {
     func test_budgetExhaustion_rejectsWithoutStarting() async throws {
         let mock = MockUbiquitousDownloader()
         let coord = DownloadCoordinator(downloader: mock)
@@ -128,7 +148,7 @@ final class DownloadCoordinatorBudgetTests: XCTestCase {
         XCTAssertTrue(started1)
         // The budget path starts the driving task without awaiting, so the
         // actual `download(at:)` invocation lands asynchronously — wait for it.
-        await mock.awaitNextStart()
+        await mock.awaitDownload(for: big)
         XCTAssertEqual(mock.startCount(for: big), 1)
 
         let remaining = await coord.coldLaunchBudgetRemaining
@@ -161,7 +181,7 @@ final class DownloadCoordinatorBudgetTests: XCTestCase {
         // ...but the lazy path ignores the budget entirely and downloads.
         let lazyURL = u("lazy.jsonl")
         async let lazy: Void = coord.ensureDownloaded(lazyURL)
-        await mock.awaitNextStart()
+        await mock.awaitDownload(for: lazyURL)
         mock.succeed(lazyURL)
         try await lazy
 
@@ -177,7 +197,7 @@ final class DownloadCoordinatorBudgetTests: XCTestCase {
 
         // Drive it to .downloaded via the lazy path first.
         async let lazy: Void = coord.ensureDownloaded(url)
-        await mock.awaitNextStart()
+        await mock.awaitDownload(for: url)
         mock.succeed(url)
         try await lazy
         let downloaded = await coord.states[url]
@@ -196,7 +216,7 @@ final class DownloadCoordinatorBudgetTests: XCTestCase {
 
 // MARK: - Failure propagation
 
-final class DownloadCoordinatorFailurePropagationTests: XCTestCase {
+final class DownloadCoordinatorFailurePropagationTests: DownloadCoordinatorTestCase {
     func test_failure_setsStateRethrowsAndNotifiesObservers() async throws {
         let mock = MockUbiquitousDownloader()
         let coord = DownloadCoordinator(downloader: mock)
@@ -210,7 +230,7 @@ final class DownloadCoordinatorFailurePropagationTests: XCTestCase {
         }
 
         async let caller: Void = coord.ensureDownloaded(url)
-        await mock.awaitNextStart()
+        await mock.awaitDownload(for: url)
         mock.fail(url, MockError(message: "boom"))
 
         // ensureDownloaded must rethrow.
@@ -243,7 +263,7 @@ final class DownloadCoordinatorFailurePropagationTests: XCTestCase {
 
 // MARK: - Cancel
 
-final class DownloadCoordinatorCancelTests: XCTestCase {
+final class DownloadCoordinatorCancelTests: DownloadCoordinatorTestCase {
     func test_cancel_setsFailedNotifiesObserversAndIgnoresLateSuccess() async throws {
         let mock = MockUbiquitousDownloader()
         let coord = DownloadCoordinator(downloader: mock)
@@ -259,7 +279,7 @@ final class DownloadCoordinatorCancelTests: XCTestCase {
         // Start an in-flight download in a child task. It will throw
         // CancellationError once we cancel; we tolerate that here.
         let caller = Task { try? await coord.ensureDownloaded(url) }
-        await mock.awaitNextStart()
+        await mock.awaitDownload(for: url)
 
         await coord.cancel(url)
 
