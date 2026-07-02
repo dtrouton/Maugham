@@ -56,6 +56,20 @@ final class AnnotationLoadingTests: XCTestCase {
         XCTAssertEqual(open.first?.body, "nice line")
     }
 
+    // MARK: - allAnnotations
+
+    func test_allAnnotations_includesResolvedAndOpen() {
+        let creation = suggestionOp(opId: "01CREATION", paragraphId: "k7m3", prior: "Old.", next: "New.")
+        let accept = acceptOp(opId: "01ACCEPT", sourceAnnotationId: "01CREATION", paragraphId: "k7m3", prior: "Old.", next: "New.")
+        let comment = commentOp(opId: "01COMMENT", paragraphId: "k7m3", body: "nice line")
+
+        let all = AnnotationLoading.allAnnotations(ops: [creation, accept, comment])
+        let byId = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
+        XCTAssertEqual(all.count, 2, "both the resolved suggestion and the open comment are present")
+        XCTAssertEqual(byId["01CREATION"]?.status, .accepted)
+        XCTAssertEqual(byId["01COMMENT"]?.status, .open)
+    }
+
     // MARK: - Op builders (mirrors AnnotationWriterTests' shape)
 
     private func suggestionOp(opId: String, paragraphId: String, prior: String, next: String) -> Op {
