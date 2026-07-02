@@ -275,3 +275,29 @@ milestone. Show-resolved (read-only) ships now and stands alone.
   let the view own it — match how `ProjectsBrowser` is wired; decide in the plan).
 - **Edit:** `MaughamPhoneTests/` — `groupByChapter` + mode-filter table tests.
 ```
+
+## Post-implementation note (2026-07-02, shipped phone-v0.2.0)
+
+Implemented via subagent-driven development; whole-branch review surfaced two
+**emergent** issues on the newly-reachable resolved-note path that the per-task
+gates structurally couldn't see. Both were fixed before release; two design
+statements above were consequently corrected:
+
+- **"No change to `AnnotationDetailView`" was wrong.** Making resolved notes
+  openable (All mode) exercised a previously-dead path in `AnnotationDetailView.rederive()`
+  that mislabeled a locally-resolved note as "resolved on another device" and fired
+  a full `store.reload()` on every open. The fix (which *fulfils* this spec's own
+  "opening a resolved note shows its recorded outcome" intent) adds a pure
+  `ResolvedEntryDecision` gated on the note's status **at open time**: an
+  already-resolved note is read-only review (no notice, no reload); only a
+  loaded-**open**→resolved transition keeps the cross-device Race-2 guard
+  (`resolvedElsewhere` + `onResolved()`). `ResolvedEntryDecision` is unit-tested;
+  the guard was verified byte-for-byte preserved.
+- **"Counts recompute at every level" was not met mid-stack.** The leaf/middle
+  views received value snapshots at push time, so counts went stale after a resolve
+  until you popped to root. Fixed by having `ProjectChaptersView`/`ChapterAnnotationsView`
+  take the `@Observable AnnotationsStore` and **re-slice their slice live by id**
+  (`store.projects` is all-status, so a resolved note never makes a chapter vanish).
+
+Both are additive, phone-local, and preserve every stated tripwire. Undo/reopen
+remains deferred (§ Deferred).

@@ -41,8 +41,24 @@ xcodebuild -project Maugham.xcodeproj -scheme MaughamPhone \
   so paragraphs/headings survive), `FountainStyler`/`FountainSemanticRenderer`,
   `BinderRouting`. (The anchor-strip itself is shared: `MarkdownDisplayFilter` in
   MaughamCore.)
-- **`Annotations/`** — `AnnotationWriter` (lifecycle ops), `AnnotationsListView`
-  (cross-project), `AnnotationDetailView`, pure `AnnotationLoading` + `AnnotationsBanner`.
+- **`Annotations/`** — a project → chapter → notes **drill-down** (phone-v0.2.0):
+  `AnnotationsStore` (`@Observable` load + grouped tree, the one source of truth) →
+  `AnnotationsListView` (Projects root + Open/All toggle + single-doc skip) →
+  `ProjectChaptersView` (chapters, binder-order, group-header sections) →
+  `ChapterAnnotationsView` (a chapter's OPEN + dimmed RESOLVED notes) →
+  `AnnotationDetailView`. Pure/testable core in `AnnotationLoading`
+  (`groupByChapter`/`allAnnotations`/`AnnotationsMode`+visibility filters, all
+  table-tested), `AnnotationStatusChip`, and `ResolvedEntryDecision` (the
+  race-vs-review decision — see tripwire below). `AnnotationWriter` (lifecycle
+  ops) + `AnnotationsBanner` unchanged. **`store.projects` holds ALL statuses**
+  (mode-filtering is a pure view-layer step); the leaf/middle **re-slice from the
+  store by id** so mid-stack counts stay fresh after a resolve.
+  **Resolved-note review is read-only:** `AnnotationDetailView` gates on the
+  note's status *at open time* (`openedResolved`) — an already-resolved note shows
+  its recorded outcome and calls neither the Race-2 collapse nor `onResolved()`;
+  only a note that was OPEN at load and became resolved triggers the cross-device
+  race guard (`ResolvedEntryDecision`, spec §5.3). Don't collapse those two cases
+  back together. Undo/reopen is a deferred cross-surface milestone (see roadmap).
 - **`Auth/`** — `LaunchAuthGate` (opt-in Face ID).
 - `MaughamPhoneApp.swift` owns the shared stores (`ProjectsRoot`/`RecentsTracker`/
   one `DownloadCoordinator`/`ProjectsBrowser`/`LaunchAuthGate`) and runs the §3.13
