@@ -367,7 +367,7 @@ private struct HelpCommands: Commands {
     var body: some Commands {
         CommandGroup(replacing: .help) {
             Button("Maugham Help") {
-                NotificationCenter.default.post(name: .maughamShowHelp, object: nil)
+                MaughamEvent.post(.maughamShowHelp, to: .allWindows)
             }
             .keyboardShortcut("?", modifiers: .command)
             Button("Welcome to Maugham") {
@@ -454,7 +454,7 @@ private struct WelcomeHost: View {
                 openViaPanel()
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .maughamShowHelp)) { _ in
+        .onGlobalEvent(.maughamShowHelp) { _ in
             openWindow(id: "help")
         }
         #if MAUGHAM_DEV_BUILD

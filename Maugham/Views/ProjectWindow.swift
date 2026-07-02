@@ -1231,10 +1231,11 @@ private struct ParagraphNavModifier: ViewModifier {
                 _ = note.userInfo?["paragraph_id"] as? String
                 binderSegment = .manuscript
             }
-            // `.maughamShowHelp` is posted with `object: nil`, so every window
-            // receives it; `openWindow(id:)` for a singleton Window is idempotent
-            // (it brings the one Help window forward), so no key-window guard.
-            .onReceive(NotificationCenter.default.publisher(for: .maughamShowHelp)) { _ in
+            // `.maughamShowHelp` is `.allWindows` scoped, so every live-or-zombie
+            // window receives it; `openWindow(id:)` for a singleton Window is
+            // idempotent (it brings the one Help window forward), so no
+            // key-window guard.
+            .onGlobalEvent(.maughamShowHelp) { _ in
                 openWindow(id: "help")
             }
     }
