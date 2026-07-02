@@ -113,7 +113,7 @@ struct MaughamApp: App {
                 }
                 .keyboardShortcut("n", modifiers: .command)
                 Button("Open Project…") {
-                    NotificationCenter.default.post(name: .maughamOpenProject, object: nil)
+                    MaughamEvent.post(.maughamOpenProject, to: .allWindows)
                 }
                 .keyboardShortcut("o", modifiers: .command)
                 Menu("Open Recent") {
@@ -447,7 +447,7 @@ private struct WelcomeHost: View {
         .onGlobalEvent(.maughamNewProject) { _ in
             showingNewProject = true
         }
-        .onReceive(NotificationCenter.default.publisher(for: .maughamOpenProject)) { notification in
+        .onGlobalEvent(.maughamOpenProject) { notification in
             if let url = notification.userInfo?["url"] as? URL {
                 open(url)
             } else {
@@ -527,10 +527,7 @@ private struct OpenRecentSubmenu: View {
             } else {
                 ForEach(recents.recents, id: \.path) { url in
                     Button(url.lastPathComponent) {
-                        NotificationCenter.default.post(
-                            name: .maughamOpenProject,
-                            object: nil,
-                            userInfo: ["url": url])
+                        MaughamEvent.post(.maughamOpenProject, to: .allWindows, payload: ["url": url])
                     }
                 }
                 Divider()

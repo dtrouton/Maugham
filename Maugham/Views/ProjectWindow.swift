@@ -541,9 +541,9 @@ struct ProjectWindow: View {
                             do {
                                 let newProjectURL = try await store.promotePieceToProject(
                                     pieceId: pieceId, destination: destination)
-                                NotificationCenter.default.post(
-                                    name: .maughamOpenProject, object: nil,
-                                    userInfo: ["url": newProjectURL])
+                                MaughamEvent.post(
+                                    .maughamOpenProject, to: .allWindows,
+                                    payload: ["url": newProjectURL])
                             } catch {
                                 _projectWindowLog.error("Promote failed: \(error, privacy: .public)")
                             }
@@ -720,8 +720,7 @@ struct ProjectWindow: View {
         case .resolvedViaPathFallback(let u): url = u
         case .unresolved: return
         }
-        NotificationCenter.default.post(
-            name: .maughamOpenProject, object: nil, userInfo: ["url": url])
+        MaughamEvent.post(.maughamOpenProject, to: .allWindows, payload: ["url": url])
     }
 
     @ViewBuilder

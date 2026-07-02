@@ -80,10 +80,7 @@ struct ReferencePieceInspector: View {
         case .resolvedViaPathFallback(let u): url = u
         default: return
         }
-        NotificationCenter.default.post(
-            name: .maughamOpenProject,
-            object: nil,
-            userInfo: ["url": url])
+        MaughamEvent.post(.maughamOpenProject, to: .allWindows, payload: ["url": url])
     }
 
     private func relink(piece: StructureItem) {
