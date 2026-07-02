@@ -1,5 +1,28 @@
 import Foundation
 
+/// Every `maugham.*` name below posts and is received exclusively via
+/// `MaughamEvent` (`Maugham/Events/MaughamEvent.swift`, ADR 0021) — no raw
+/// `NotificationCenter.default.post`/`addObserver`/`.onReceive` outside the
+/// wrapper (enforced by `TripwireGrepTests`). Two more `maugham.*` names live
+/// outside this file (`ExportsListView.maughamPublicationCompleted`, `.project`;
+/// `TestOpenBridge.maughamTestOpenProject`, dev-only, `.allWindows`) — they
+/// follow the same rule but aren't declared here. Names below are
+/// grouped/annotated by their delivery scope class:
+///
+/// - **`.keyWindow`** (the majority — menu-command class; unannotated names
+///   below are this class unless noted otherwise): delivered only to the key
+///   window.
+/// - **`.project(id:)`** (data events for windows on one project —
+///   `maughamScriptDidUpdate`, `maughamOpenRewind`, `maughamMCPNoteAdded`,
+///   `maughamCheckpointAdded`, `maughamSessionLogChanged`,
+///   `maughamNavigateToDocument`): delivered to live windows on the matching
+///   project only.
+/// - **`.allWindows`** (genuinely global fan-out, no liveness guard — see the
+///   per-name zombie-harm audit note where present): `maughamNewProject`,
+///   `maughamOpenProject`, `maughamAppWillTerminate`, `maughamShowHelp`.
+///
+/// `.document(docId:)` exists in `EventScope` and is tested, but no shipped
+/// name currently posts at that scope.
 extension Notification.Name {
     /// Scope: .allWindows (no liveness guard — must reach everything; ADR 0021).
     /// Zombie-harm audit: sole receiver is `WelcomeHost`
