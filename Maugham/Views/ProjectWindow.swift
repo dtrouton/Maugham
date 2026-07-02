@@ -377,9 +377,10 @@ struct ProjectWindow: View {
                         sessionLog = (try? await documentStore?.loadSessionLog()) ?? .empty
                     }
                 }
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamNavigateToDocument)) { note in
-                    guard window?.isKeyWindow == true else { return }
+                // Project-scoped (ADR 0021), NOT key-window: a wiki-link click
+                // OR a click in the separate stats-window scene must navigate
+                // this project's window even when it isn't key.
+                .onProjectEvent(.maughamNavigateToDocument, url: url, window: window) { note in
                     if let id = note.userInfo?["id"] as? String {
                         binderSegment = .manuscript
                         selectedItemId = id

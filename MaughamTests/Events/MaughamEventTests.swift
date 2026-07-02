@@ -118,6 +118,19 @@ final class MaughamEventTests: XCTestCase {
             note(.keyWindow), to: ctx(.keyWindow, live: false, key: false)))
     }
 
+    /// ADR 0021 spec deviation 1: `.maughamNavigateToDocument` is a DATA event,
+    /// not a menu command — a wiki-link click or the separate stats-window scene
+    /// must navigate the (live, non-key) project window. The old key-window
+    /// receiver guard could never pass while the stats window was key. This is
+    /// exactly that broken shape: project-scoped, live, NOT key → must deliver.
+    func test_navigateToDocument_projectScoped_deliversToNonKeyProjectWindow() {
+        let n = note(.project(id: "proj_A"))
+        XCTAssertTrue(
+            MaughamEvent.shouldDeliver(
+                n, to: ctx(.project(id: "proj_A"), live: true, key: false)),
+            "a project-scoped navigate must reach a live, non-key project window")
+    }
+
     func test_globalEvent_deliveredEvenWithoutLiveWindow() {
         // Deliberate: .onGlobalEvent has NO liveness guard (appWillTerminate
         // must reach everything). Per-name zombie-harm audit is in the docs.

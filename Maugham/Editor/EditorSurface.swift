@@ -379,11 +379,16 @@ final class MaughamTextView: NSTextView {
         }
         if let title = coordinator?.wikiLinkTitle(atCharacterIndex: charIndex),
            let resolver = coordinator?.wikiLinkResolverForClick,
-           let id = resolver(title) {
-            NotificationCenter.default.post(
-                name: .maughamNavigateToDocument,
-                object: nil,
-                userInfo: ["id": id])
+           let id = resolver(title),
+           // The coordinator's origin project id is wired for ALL manuscript
+           // modes (EditorHost → EditorSurface, not screenplay-only), and
+           // wiki links only exist in manuscripts, so it's present here.
+           // Scope the navigation to this project (ADR 0021).
+           let projectId = coordinator?.scriptOriginProjectId {
+            MaughamEvent.post(
+                .maughamNavigateToDocument,
+                to: .project(id: projectId),
+                payload: ["id": id])
             return
         }
         super.mouseDown(with: event)

@@ -18,10 +18,13 @@ struct ProjectStatisticsWindow: View {
                     store: store,
                     sessionLog: sessionLog,
                     onSelectChapter: { id in
-                        NotificationCenter.default.post(
-                            name: .maughamNavigateToDocument,
-                            object: nil,
-                            userInfo: ["id": id])
+                        // Project-scoped (ADR 0021): un-breaks stats-window
+                        // navigation. The old key-window receiver guard could
+                        // never pass while the (separate) stats window was key.
+                        MaughamEvent.post(
+                            .maughamNavigateToDocument,
+                            to: .project(for: projectURL),
+                            payload: ["id": id])
                     })
             } else if let loadError {
                 VStack {
