@@ -492,10 +492,8 @@ struct ProjectWindow: View {
 
         func body(content: Content) -> some View {
             content
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamAddLoosePiece)) { _ in
-                    guard window?.isKeyWindow == true,
-                          let store, store.manifest.type == .collection else { return }
+                .onKeyWindowCommand(.maughamAddLoosePiece, window: window) { _ in
+                    guard let store, store.manifest.type == .collection else { return }
                     Task {
                         let piece = try? await store.addLoosePiece(
                             title: "Untitled Piece", mode: .prose)
@@ -589,7 +587,7 @@ struct ProjectWindow: View {
                 renamingItemId: $pendingPieceRenameId,
                 activePiece: activePiece(in: store),
                 onAddPiece: {
-                    NotificationCenter.default.post(name: .maughamAddLoosePiece, object: nil)
+                    MaughamEvent.post(.maughamAddLoosePiece, to: .keyWindow)
                 },
                 onAddSharedNote: { Task { try? await addSharedNoteAction(store: store) } },
                 onAddPieceNote: { Task { try? await addPieceNoteAction(store: store) } }

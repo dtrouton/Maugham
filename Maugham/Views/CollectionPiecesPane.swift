@@ -98,8 +98,7 @@ struct CollectionPiecesPane: View {
             Spacer()
             Menu {
                 Button("New Prose Story") {
-                    NotificationCenter.default.post(
-                        name: .maughamAddLoosePiece, object: nil)
+                    MaughamEvent.post(.maughamAddLoosePiece, to: .keyWindow)
                 }
                 Button("New Screenplay") {
                     NotificationCenter.default.post(

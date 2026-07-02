@@ -144,8 +144,7 @@ struct MaughamApp: App {
                 }
                 Divider()
                 Button("New Prose Story") {
-                    NotificationCenter.default.post(
-                        name: .maughamAddLoosePiece, object: nil)
+                    MaughamEvent.post(.maughamAddLoosePiece, to: .keyWindow)
                 }
                 Button("New Screenplay (Collection)") {
                     NotificationCenter.default.post(
