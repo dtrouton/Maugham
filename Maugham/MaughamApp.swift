@@ -190,8 +190,7 @@ struct MaughamApp: App {
                 }
                 .keyboardShortcut("f", modifiers: [.command, .shift])
                 Button("Toggle Inspector") {
-                    NotificationCenter.default.post(
-                        name: .maughamToggleInspector, object: nil)
+                    MaughamEvent.post(.maughamToggleInspector, to: .keyWindow)
                 }
                 .keyboardShortcut("i", modifiers: [.command, .option])
                 Button("Toggle Research Preview") {

@@ -182,7 +182,7 @@ struct ProjectWindow: View {
             ProjectShareSheetPresenter.present(
                 projectURL: store.url, snapshot: shareSnapshot, in: window)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .maughamToggleInspector)) { _ in
+        .onKeyWindowCommand(.maughamToggleInspector, window: window) { _ in
             showInspector.toggle()
         }
         .onReceive(NotificationCenter.default.publisher(for: .maughamAppWillTerminate)) { _ in
