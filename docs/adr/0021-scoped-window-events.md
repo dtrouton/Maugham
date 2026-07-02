@@ -97,6 +97,16 @@ not "bounded" outright as this addendum originally claimed. RAM only (the
 liveness guard keeps stranded graphs at zero work); the explicit-window-hosting
 fix is a future milestone whose trigger is long-session footprint creep.
 
+**Mitigation shipped (workaround 1, 2026-07-02):** since the retain-root trace
+showed the stranded payload is almost entirely our own `@State` and
+`.onDisappear` still fires on close, we now empty the zombie ourselves —
+`ProjectWindow.onDisappear` scorches the heavy `@State` (isLive-guarded),
+`EditorHost.onDisappear` closes-and-nils its `Document`, and
+`MaughamTextView.viewWillMove(toWindow: nil)` detaches the coordinator on the
+close path `dismantleNSView` misses — leaving only the AttributeGraph husk; the
+explicit `NSWindowController` hosting above remains the future escalation if a
+footprint A/B still shows material residual.
+
 ## Implementation notes (2026-07-02)
 
 The 39 surviving `maugham.*` names (re-verified against the original 2026-07-02

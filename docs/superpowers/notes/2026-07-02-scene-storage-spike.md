@@ -274,3 +274,62 @@ window; `heap`/`leaks --trace` shows the AG root.
   presentation to chase it; if a future footprint run shows the residual is
   material at scale, that is its own milestone (explicit `NSWindowController`
   hosting), not a spike lever.
+
+## Mitigation shipped (workaround 1, 2026-07-02)
+
+The retain-root trace above (`GraphHost.sharedGraph → … →
+EditorSurface.coordinator`) revised Attempt 2's earlier "shrink-not-release,
+not worth it" dismissal: the trace showed the stranded payload is **almost
+entirely our own `@State`** (the `Document` with its paragraphs + op-log
+mirror, the `ProjectStore` with its derived cache, the `DocumentStore`, the
+parsed `FountainScript` AST) — not, as Attempt 2 assumed, a graph owned by an
+un-nil-able retained view tree. SwiftUI never dismantles the zombie (`heap`/
+`leaks --trace` prove `dismantleNSView` never runs on ⌘W), but **`.onDisappear`
+DOES fire on window close**, so we can empty the zombie ourselves. This does
+not *release* the AttributeGraph husk (that is still the future
+explicit-`NSWindowController` milestone) — it drops the residual from tens of
+MB per closed window to the husk alone (100s of KB).
+
+**What is scorched, and where:**
+
+- **`ProjectWindow.onDisappear`** (`Maugham/Views/ProjectWindow.swift`): after
+  the existing `mcpRegistry.unregister` + `documentStore.close()`, nils
+  `store`, `documentStore`, and `lastParsedScript`. The `Task { await
+  documentStore?.close() }` captures the value, so nil-ing the `@State`
+  immediately after is safe. **Guarded on `!MaughamEvent.isLive(window)`** (the
+  ADR 0021 liveness helper): a spurious `.onDisappear` on a still-live window
+  must not blank the `@State` — `body` renders `ProgressView("Loading…")` when
+  `store == nil` and `.task(id: url)` won't re-fire for the same url, so an
+  un-guarded blank would stick.
+- **`EditorHost.onDisappear`** (`Maugham/Views/EditorHost.swift`): closes and
+  nils the `Document` `@State` (`Task { await doc.close() }`; captured, so the
+  immediate nil is safe), unregisters it from the `DocumentStore`, and also
+  nils `loadedItemId`/`priorLoadedPath` so a re-appear reloads. **No isLive
+  guard** — EditorHost holds no window ref and tripwire 6 forbids adding
+  observable state; instead, `EditorHost.onDisappear` fires ONLY on
+  document-abandonment paths (leaving the manuscript/scenes/find segment, which
+  re-mounts a fresh EditorHost that reloads; or window close), and nil-ing
+  `loadedItemId` makes any spurious fire self-heal via the reload path.
+- **`MaughamTextView.viewWillMove(toWindow:)`** (`Maugham/Editor/EditorSurface.swift`):
+  when `newWindow == nil`, calls `coordinator?.detach()`. This is the
+  window-close teardown path `dismantleNSView` never takes; `detach()` is now
+  explicitly idempotent (`guard !isDetached`) because a piece flip fires BOTH
+  `dismantleNSView` and this hook.
+
+**Double-close ownership:** `DocumentStore.close()` (called by
+`ProjectWindow.onDisappear`) does NOT close registered `Document`s — it flushes
+the session/pending-file-save/UI-state and removes the file presenter. So
+**`EditorHost` is the sole owner of `Document.close()`** and there is no racing
+double-close between the two `.onDisappear`s. `Document.close()` is idempotent
+regardless (`flushBurstNow` no-ops on an empty pending buffer, the trailing
+`autosaveScheduler.flush()` no-ops, `pending.clear()` is idempotent), which is
+what makes the workaround safe alongside the doc-switch close in
+`loadDocumentIfNeeded`.
+
+**What can only be verified manually:** the `@State`-scorch itself needs a real
+window close (SwiftUI scene lifecycle, not drivable from an XCTest host) — the
+heap/footprint A/B from the "Footprint methodology" section above is the
+verification, expected to show the per-closed-window residual drop to the AG
+husk. Headlessly pinned instead: `detach()` idempotency, the `viewWillMove(
+toWindow: nil)` → detach hook, and `Document.close()` double-call safety
+(`WindowTeardownScorchTests`, `DocumentDoubleCloseTests`).

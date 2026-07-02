@@ -439,6 +439,23 @@ final class MaughamTextView: NSTextView {
         }
     }
 
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        // Window close: SwiftUI never calls `EditorSurface.dismantleNSView` for
+        // a closed `WindowGroup` scene — `GraphHost.sharedGraph` retains the
+        // dead scene's view graph indefinitely (see the scene-storage spike
+        // note, "Retain-root trace"). So the coordinator's `detach()`, which
+        // rides `dismantleNSView` on IN-window teardowns (the `.id(path)` piece
+        // flip), never fires on ⌘W. Catch that path here: when the view is
+        // leaving its window, break the coordinator↔text-view graph and cancel
+        // its async work so a coordinator SwiftUI has not yet released holds
+        // nothing heavy and does no work. `detach()` is idempotent, so the flip
+        // path (dismantle + this) is safe.
+        if newWindow == nil {
+            coordinator?.detach()
+        }
+    }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         // OS appearance flipped (or app appearance changed under Follow System).
