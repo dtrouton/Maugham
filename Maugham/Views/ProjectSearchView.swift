@@ -53,8 +53,7 @@ struct ProjectSearchView: View {
                 Button {
                     isActive = false
                     store.clearSearch()
-                    NotificationCenter.default.post(
-                        name: .maughamCloseFind, object: nil)
+                    MaughamEvent.post(.maughamCloseFind, to: .keyWindow)
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)

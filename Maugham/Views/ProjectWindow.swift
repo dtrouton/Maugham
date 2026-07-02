@@ -420,8 +420,7 @@ struct ProjectWindow: View {
                 .onKeyWindowCommand(.maughamFindInProject, window: window) { _ in
                     binderSegment = .find
                 }
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamCloseFind)) { _ in
+                .onKeyWindowCommand(.maughamCloseFind, window: window) { _ in
                     findActive = false
                     binderSegment = store?.manifest.type == .screenplay ? .scenes : .manuscript
                 }
