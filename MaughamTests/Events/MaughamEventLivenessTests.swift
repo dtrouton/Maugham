@@ -157,4 +157,49 @@ final class MaughamEventLivenessTests: XCTestCase {
             "a closed-window (zombie) coordinator must not move its editor on a scoped navigate event")
         _ = coordinator
     }
+
+    /// Positive-path coverage the zombie tests can't provide (they would pass
+    /// even if `receiverContext` always returned nil). Deterministic — no
+    /// dependence on the OS granting key-window status headless:
+    /// 1. an attached coordinator in a real ordered-front window yields a
+    ///    non-nil, LIVE `.keyWindow` context (the real coordinator wiring), and
+    /// 2. a real `.keyWindow`-scoped `.maughamNavigateToScene` post passes
+    ///    `shouldDeliver` for that context's key-status-granted variant.
+    /// Together every link in the delivery chain is pinned; only the OS key
+    /// grant itself remains untested here, which EditorCoordinatorCycleTests'
+    /// XCTSkipUnless end-to-end test covers when the host grants it.
+    func test_attachedCoordinator_receiverContext_isLiveAndDeliverable() {
+        let w = makeWindow()
+        let (coordinator, _) = makeAttachedCoordinator(in: w)
+        defer { w.close() }
+
+        // 1. Real wiring: attached + open window → non-nil, live context.
+        guard let ctx = coordinator.receiverContext(.keyWindow) else {
+            XCTFail("an attached coordinator in an open window must yield a non-nil receiver context")
+            return
+        }
+        XCTAssertEqual(ctx.kind, .keyWindow)
+        XCTAssertTrue(ctx.isWindowLive,
+            "an ordered-front window must read as live in the coordinator's context")
+
+        // 2. Filter delivery under key status: capture a REAL scoped post of the
+        // production name and assert it passes shouldDeliver once the OS-only
+        // key grant is in place (forced true — the one fact not grantable headless).
+        var captured: Notification?
+        // adr-0021-ok: capture-only observer asserting the scoped post passes the filter
+        let obs = NotificationCenter.default.addObserver(
+            forName: .maughamNavigateToScene, object: nil, queue: nil) { captured = $0 }
+        defer { NotificationCenter.default.removeObserver(obs) }
+        MaughamEvent.post(.maughamNavigateToScene, to: .keyWindow,
+                          payload: ["lineLocation": 17])
+        guard let note = captured else {
+            XCTFail("the scoped post must reach NotificationCenter observers")
+            return
+        }
+        let keyGranted = EventReceiverContext(
+            kind: ctx.kind, isWindowLive: ctx.isWindowLive, isWindowKey: true)
+        XCTAssertTrue(MaughamEvent.shouldDeliver(note, to: keyGranted),
+            "a .keyWindow-scoped navigateToScene post must deliver to the attached coordinator's context once its window is key")
+        _ = coordinator
+    }
 }

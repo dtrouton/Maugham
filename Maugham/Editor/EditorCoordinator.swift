@@ -587,7 +587,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// delivery. `.keyWindow` also excludes closed/background windows (a closed
     /// window is never key), fixing cross-window navigation: previously every
     /// live editor moved its cursor on another window's scene/find/history jump.
-    private func receiverContext(_ kind: EventReceiverContext.Kind) -> EventReceiverContext? {
+    /// Internal (not private) so MaughamEventLivenessTests can pin the positive
+    /// path deterministically — the negative-path zombie tests alone can't
+    /// distinguish correct scoping from a context that always returns nil.
+    func receiverContext(_ kind: EventReceiverContext.Kind) -> EventReceiverContext? {
         guard !isDetached, let tv = textView else { return nil }
         return .forWindow(tv.window, kind: kind)
     }
