@@ -149,6 +149,31 @@ final class AnnotationLoadingTests: XCTestCase {
         XCTAssertTrue(AnnotationLoading.groupByChapter([], structure: [], research: []).isEmpty)
     }
 
+    // MARK: - mode filters
+
+    private func chapter(_ docId: String, open: Int, resolved: Int) -> ChapterAnnotations {
+        ChapterAnnotations(
+            docId: docId, chapterTitle: docId, groupTitle: nil,
+            open: (0..<open).map { loaded("o\(docId)\($0)", docId: docId, status: .open) },
+            resolved: (0..<resolved).map { loaded("r\(docId)\($0)", docId: docId, status: .accepted) })
+    }
+
+    func test_visibleChapters_open_hidesZeroOpen() {
+        let chapters = [chapter("doc-a", open: 2, resolved: 1), chapter("doc-b", open: 0, resolved: 3)]
+        XCTAssertEqual(AnnotationLoading.visibleChapters(chapters, mode: .open).map(\.docId), ["doc-a"])
+        XCTAssertEqual(AnnotationLoading.visibleChapters(chapters, mode: .all).map(\.docId), ["doc-a", "doc-b"])
+    }
+
+    func test_visibleProjects_open_dropsFullyResolvedProject_all_keepsIt() {
+        let p = ProjectAnnotations(
+            id: "p1", projectName: "Novel", projectURL: URL(fileURLWithPath: "/tmp/p1"),
+            chapters: [chapter("doc-b", open: 0, resolved: 3)])
+        XCTAssertTrue(AnnotationLoading.visibleProjects([p], mode: .open).isEmpty)
+        let all = AnnotationLoading.visibleProjects([p], mode: .all)
+        XCTAssertEqual(all.map(\.id), ["p1"])
+        XCTAssertEqual(all.first?.chapters.map(\.docId), ["doc-b"])
+    }
+
     // MARK: - Op builders (mirrors AnnotationWriterTests' shape)
 
     private func suggestionOp(opId: String, paragraphId: String, prior: String, next: String) -> Op {
