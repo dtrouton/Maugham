@@ -34,8 +34,7 @@ struct MaughamApp: App {
             forName: NSApplication.willTerminateNotification,
             object: nil, queue: nil
         ) { _ in
-            NotificationCenter.default.post(
-                name: .maughamAppWillTerminate, object: nil)
+            MaughamEvent.post(.maughamAppWillTerminate, to: .allWindows)
             // Synchronously remove the MCP socket file. The async server stop()
             // (via .maughamAppWillTerminate → WelcomeHost) often does NOT run
             // before macOS kills the process on quit, which leaves a stale
@@ -99,8 +98,7 @@ struct MaughamApp: App {
                     backupCoordinator.destinations =
                         BackupCoordinator.resolveDestinations(new)
                 }
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamAppWillTerminate)) { _ in
+                .onGlobalEvent(.maughamAppWillTerminate) { _ in
                     Task { await mcpServer?.stop() }
                 }
         }

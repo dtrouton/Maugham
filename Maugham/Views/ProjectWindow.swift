@@ -185,7 +185,7 @@ struct ProjectWindow: View {
         .onKeyWindowCommand(.maughamToggleInspector, window: window) { _ in
             showInspector.toggle()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .maughamAppWillTerminate)) { _ in
+        .onGlobalEvent(.maughamAppWillTerminate) { _ in
             // Best-effort flush. Task is fire-and-forget; NSApplication may
             // give us only ~100ms before terminating us.
             if let ds = documentStore {
