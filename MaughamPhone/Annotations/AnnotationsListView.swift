@@ -151,6 +151,7 @@ struct AnnotationsListView: View {
         if project.chapters.count == 1, let only = project.chapters.first {
             ChapterAnnotationsView(
                 chapter: only,
+                store: store,
                 projectId: project.id,
                 projectURL: project.projectURL,
                 recents: recents,
@@ -159,6 +160,7 @@ struct AnnotationsListView: View {
         } else {
             ProjectChaptersView(
                 project: project,
+                store: store,
                 recents: recents,
                 mode: mode,
                 onResolved: { resolveTick &+= 1 })
