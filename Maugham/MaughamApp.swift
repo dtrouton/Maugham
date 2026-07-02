@@ -163,8 +163,7 @@ struct MaughamApp: App {
                 Divider()
                 FocusedShareForReviewButton()
                 Button("Project Settings…") {
-                    NotificationCenter.default.post(
-                        name: .maughamShowProjectSettings, object: nil)
+                    MaughamEvent.post(.maughamShowProjectSettings, to: .keyWindow)
                 }
                 .keyboardShortcut(",", modifiers: [.command, .shift])
             }

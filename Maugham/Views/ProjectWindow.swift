@@ -169,7 +169,7 @@ struct ProjectWindow: View {
                 showSaveFlash()
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .maughamShowProjectSettings)) { _ in
+        .onKeyWindowCommand(.maughamShowProjectSettings, window: window) { _ in
             activeSheet = .projectSettings
         }
         .onReceive(NotificationCenter.default.publisher(for: .maughamShowClaudeDesktopHelp)) { _ in
