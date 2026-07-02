@@ -404,7 +404,7 @@ struct ProjectWindow: View {
                         }
                     }
                 }
-                .onReceive(NotificationCenter.default.publisher(for: .maughamShowSyntaxHelp)) { _ in
+                .onKeyWindowCommand(.maughamShowSyntaxHelp, window: window) { _ in
                     showingSyntaxHelp = true
                 }
                 .onReceive(NotificationCenter.default.publisher(

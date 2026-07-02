@@ -408,8 +408,7 @@ private struct HelpCommands: Commands {
             }
             Divider()
             Button("Syntax Reference") {
-                NotificationCenter.default.post(
-                    name: .maughamShowSyntaxHelp, object: nil)
+                MaughamEvent.post(.maughamShowSyntaxHelp, to: .keyWindow)
             }
             .keyboardShortcut("/", modifiers: .command)
             Button("Set up Claude Desktop…") {
