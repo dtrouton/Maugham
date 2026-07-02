@@ -1,5 +1,6 @@
 // Maugham/Views/HistoryPane.swift
 import SwiftUI
+import AppKit
 import MaughamCore
 
 // MARK: - History entry + filter
@@ -108,6 +109,9 @@ struct HistoryPane: View {
     @State private var expanded: Set<String> = []
     @State private var selectedCheckpoint: Checkpoint?
     @State private var showingRestorePicker: Bool = false
+    /// Hosting window for the ADR 0021 project scope + closed-window liveness
+    /// guard on `.maughamCheckpointAdded`.
+    @State private var window: NSWindow?
 
     private var entries: [HistoryEntry] {
         HistoryEntry.merge(ops: ops, checkpoints: checkpoints)
@@ -198,9 +202,13 @@ struct HistoryPane: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(WindowAccessor(window: $window))
         .task { await reload() }
         .onChange(of: activeDocId) { _, _ in Task { await reload() } }
-        .onReceive(NotificationCenter.default.publisher(for: .maughamCheckpointAdded)) { _ in
+        // Project-scoped (ADR 0021): only this project's checkpoint reloads
+        // this pane. Fixes the cross-window leak where every open window's
+        // HistoryPane reloaded on ANY project's checkpoint.
+        .onProjectEvent(.maughamCheckpointAdded, url: projectURL, window: window) { _ in
             Task { await reload() }
         }
         .sheet(isPresented: $showingRestorePicker) {
@@ -233,10 +241,7 @@ struct HistoryPane: View {
                 .layoutPriority(1)
             Spacer(minLength: 4)
             Button {
-                NotificationCenter.default.post(
-                    name: .maughamOpenRewind,
-                    object: projectURL,
-                    userInfo: [:])
+                MaughamEvent.post(.maughamOpenRewind, to: .project(for: projectURL))
             } label: {
                 Image(systemName: "clock.arrow.circlepath")
             }
@@ -277,10 +282,9 @@ struct HistoryPane: View {
     private func jump(_ entry: HistoryEntry) {
         guard case .op(let op) = entry,
               let pid = op.changes.first?.paragraphId else { return }
-        NotificationCenter.default.post(
-            name: .maughamNavigateToParagraph,
-            object: nil,
-            userInfo: ["paragraph_id": pid])
+        MaughamEvent.post(
+            .maughamNavigateToParagraph, to: .keyWindow,
+            payload: ["paragraph_id": pid])
     }
 }
 
@@ -294,9 +298,9 @@ private struct HistoryRow: View {
     let onToggle: () -> Void
     let onJump: () -> Void
     let onRevert: () -> Void
-    /// Used as the notification `object` when the per-row Rewind button
-    /// posts `.maughamOpenRewind`, so multi-window setups dispatch the
-    /// modal only on the window that originated the click.
+    /// Names the project scope the per-row Rewind button posts
+    /// `.maughamOpenRewind` to (ADR 0021), so multi-window setups dispatch the
+    /// modal only on the window on that project.
     let projectURL: URL
 
     /// For lifecycle ops (claudeAccept/claudeReject/claudeArchive) the body
@@ -343,11 +347,10 @@ private struct HistoryRow: View {
                     .simultaneousGesture(TapGesture().onEnded { })
             } else if case .op(let op) = entry, mutatesManuscript(op.kind) {
                 Button {
-                    NotificationCenter.default.post(
-                        name: .maughamOpenRewind,
-                        object: projectURL,
-                        userInfo: ["scrub_op_id": op.opId,
-                                   "scrub_op_at": op.at])
+                    MaughamEvent.post(
+                        .maughamOpenRewind, to: .project(for: projectURL),
+                        payload: ["scrub_op_id": op.opId,
+                                  "scrub_op_at": op.at])
                 } label: {
                     Label("Rewind to before this…", systemImage: "arrow.uturn.backward")
                         .labelStyle(.iconOnly)

@@ -160,52 +160,49 @@ struct ProjectWindow: View {
             mcpRegistry.unregister(url: url)
             Task { await documentStore?.close() }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .maughamToggleFullScreen)) { _ in
+        .onKeyWindowCommand(.maughamToggleFullScreen, window: window) { _ in
             toggleFullScreen()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .maughamDummySave)) { _ in
+        .onKeyWindowCommand(.maughamDummySave, window: window) { _ in
             Task {
                 try? await documentStore?.flushPendingSave()
                 showSaveFlash()
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .maughamShowProjectSettings)) { _ in
+        .onKeyWindowCommand(.maughamShowProjectSettings, window: window) { _ in
             activeSheet = .projectSettings
         }
-        .onReceive(NotificationCenter.default.publisher(for: .maughamShowClaudeDesktopHelp)) { _ in
+        .onKeyWindowCommand(.maughamShowClaudeDesktopHelp, window: window) { _ in
             activeSheet = .claudeDesktop
         }
-        .onReceive(NotificationCenter.default.publisher(for: .maughamShareForReview)) { _ in
-            // Broadcast command — only the focused project window acts, anchoring
+        .onKeyWindowCommand(.maughamShareForReview, window: window) { _ in
+            // Scoped command — only the focused project window acts, anchoring
             // the share sheet to its own NSWindow and reusing its resolved snapshot.
-            guard window?.isKeyWindow == true, let store else { return }
+            guard let store else { return }
             ProjectShareSheetPresenter.present(
                 projectURL: store.url, snapshot: shareSnapshot, in: window)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .maughamToggleInspector)) { _ in
+        .onKeyWindowCommand(.maughamToggleInspector, window: window) { _ in
             showInspector.toggle()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .maughamAppWillTerminate)) { _ in
+        .onGlobalEvent(.maughamAppWillTerminate) { _ in
             // Best-effort flush. Task is fire-and-forget; NSApplication may
             // give us only ~100ms before terminating us.
             if let ds = documentStore {
                 Task { await ds.close() }
             }
         }
-        .onReceive(NotificationCenter.default.publisher(
-            for: .maughamShowProjectStatistics)) { _ in
-            guard window?.isKeyWindow == true else { return }
+        .onKeyWindowCommand(.maughamShowProjectStatistics, window: window) { _ in
             openWindow(id: "project-stats", value: url)
         }
-        .onReceive(NotificationCenter.default.publisher(
-            for: .maughamScriptDidUpdate)) { note in
-            // Scope to this window's project (Channel A): adopt the script only
-            // when it originated here. A foreign post (another window flipping to
-            // a screenplay piece) must not relayout this editor or clobber this
-            // window's scene-navigator payload. NOT a key-window guard — a
-            // background window's own MCP-driven re-parse still updates it.
-            if let script = ScriptUpdateRouting.acceptedScript(
-                from: note, forProjectId: ProjectIdentifier.id(for: url)) {
+        .onProjectEvent(.maughamScriptDidUpdate, url: url, window: window) { note in
+            // Scope to this window's project (Channel A, ADR 0021): the helper
+            // delivers only own-project posts, so a foreign post (another window
+            // flipping to a screenplay piece) never relayouts this editor or
+            // clobbers this window's scene-navigator payload. NOT a key-window
+            // guard — a background window's own MCP-driven re-parse still lands
+            // here (it's live and on this project) and updates the navigator.
+            if let script = note.object as? FountainScript {
                 self.lastParsedScript = script
             }
         }
@@ -245,6 +242,7 @@ struct ProjectWindow: View {
             documentStore: documentStore,
             store: store,
             window: window,
+            url: url,
             selectedItemId: selectedItemId,
             showingCheckpointLabelSheet: $showingCheckpointLabelSheet,
             onSaveFlash: { showSaveFlash() }))
@@ -365,35 +363,32 @@ struct ProjectWindow: View {
 
         func body(content: Content) -> some View {
             content
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamSetDetailSegment)) { note in
+                .onKeyWindowCommand(.maughamSetDetailSegment, window: window) { note in
                     guard let raw = note.userInfo?["segment"] as? String,
                           let seg = DetailSegment(rawValue: raw) else { return }
                     showInspector = true     // ensure pane is visible
                     detailSegment = seg
                 }
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamTidyAllFilenames)) { _ in
-                    guard window?.isKeyWindow == true else { return }
+                .onKeyWindowCommand(.maughamTidyAllFilenames, window: window) { _ in
                     showingTidyAllConfirmation = true
                 }
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamSessionLogChanged)) { _ in
+                .onProjectEvent(.maughamSessionLogChanged, url: url, window: window) { _ in
                     Task {
                         sessionLog = (try? await documentStore?.loadSessionLog()) ?? .empty
                     }
                 }
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamNavigateToDocument)) { note in
-                    guard window?.isKeyWindow == true else { return }
-                    if let id = note.userInfo?["id"] as? String {
-                        binderSegment = .manuscript
+                // Project-scoped (ADR 0021), NOT key-window: a wiki-link click
+                // OR a click in the separate stats-window scene must navigate
+                // this project's window even when it isn't key.
+                .onProjectEvent(.maughamNavigateToDocument, url: url, window: window) { note in
+                    if let id = note.userInfo?["id"] as? String, let store {
+                        // Screenplays have no Manuscript segment — their
+                        // document home is the Scenes navigator.
+                        binderSegment = .documentHome(for: store.manifest.type)
                         selectedItemId = id
                     }
                 }
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamAddResearchFile)) { _ in
-                    guard window?.isKeyWindow == true else { return }
+                .onKeyWindowCommand(.maughamAddResearchFile, window: window) { _ in
                     Task {
                         let panel = NSOpenPanel()
                         panel.allowsMultipleSelection = true
@@ -410,34 +405,28 @@ struct ProjectWindow: View {
                         }
                     }
                 }
-                .onReceive(NotificationCenter.default.publisher(for: .maughamShowSyntaxHelp)) { _ in
+                .onKeyWindowCommand(.maughamShowSyntaxHelp, window: window) { _ in
                     showingSyntaxHelp = true
                 }
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamRestoreLastDeleted)) { _ in
-                    guard window?.isKeyWindow == true else { return }
+                .onKeyWindowCommand(.maughamRestoreLastDeleted, window: window) { _ in
                     Task {
                         try? await store?.restoreLastDeleted()
                     }
                 }
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamToggleResearchPreview)) { _ in
+                .onKeyWindowCommand(.maughamToggleResearchPreview, window: window) { _ in
                     researchPreviewVisible.toggle()
                     documentStore?.updateUIState {
                         $0.researchPreviewVisible = researchPreviewVisible
                     }
                 }
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamFindInProject)) { _ in
+                .onKeyWindowCommand(.maughamFindInProject, window: window) { _ in
                     binderSegment = .find
                 }
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamCloseFind)) { _ in
+                .onKeyWindowCommand(.maughamCloseFind, window: window) { _ in
                     findActive = false
-                    binderSegment = store?.manifest.type == .screenplay ? .scenes : .manuscript
+                    binderSegment = .documentHome(for: store?.manifest.type ?? .novel)
                 }
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamFindMatchSelected)) { note in
+                .onKeyWindowCommand(.maughamFindMatchSelected, window: window) { note in
                     guard let store,
                           let match = note.userInfo?["match"] as? SearchMatch else { return }
                     switch match.documentSource {
@@ -453,13 +442,10 @@ struct ProjectWindow: View {
                         }
                     }
                 }
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamMCPNoteAdded)) { note in
+                .onProjectEvent(.maughamMCPNoteAdded, url: url, window: window) { note in
                     guard let info = note.userInfo,
-                          let projectId = info["project_id"] as? String,
                           let researchId = info["research_id"] as? String,
-                          let title = info["title"] as? String,
-                          ProjectIdentifier.id(for: url) == projectId else { return }
+                          let title = info["title"] as? String else { return }
                     DispatchQueue.main.async {
                         mcpBanner.bump(title: title, latestId: researchId)
                     }
@@ -494,20 +480,18 @@ struct ProjectWindow: View {
     /// so that SessionAndNavigationModifier.body stays within the type-checker limit.
     private struct CollectionPieceModifier: ViewModifier {
         let store: ProjectStore?
-        /// The owning project window. The add-piece notifications are posted with
-        /// `object: nil` (from the binder buttons + the menu command), so EVERY open
-        /// collection window receives them. We act only when this window is key, so
-        /// "add a screenplay" adds it to the front project, not all of them.
+        /// The owning project window. Key-window commands (ADR 0021):
+        /// `.onKeyWindowCommand` scopes delivery to the key window, so "add a
+        /// screenplay" adds it to the front project only. The collection-type
+        /// and membership checks below are action preconditions, not scope guards.
         let window: NSWindow?
         @Binding var selectedItemId: String?
         @Binding var pendingPieceRenameId: String?
 
         func body(content: Content) -> some View {
             content
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamAddLoosePiece)) { _ in
-                    guard window?.isKeyWindow == true,
-                          let store, store.manifest.type == .collection else { return }
+                .onKeyWindowCommand(.maughamAddLoosePiece, window: window) { _ in
+                    guard let store, store.manifest.type == .collection else { return }
                     Task {
                         let piece = try? await store.addLoosePiece(
                             title: "Untitled Piece", mode: .prose)
@@ -517,10 +501,8 @@ struct ProjectWindow: View {
                         }
                     }
                 }
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamAddScreenplayPiece)) { _ in
-                    guard window?.isKeyWindow == true,
-                          let store, store.manifest.type == .collection else { return }
+                .onKeyWindowCommand(.maughamAddScreenplayPiece, window: window) { _ in
+                    guard let store, store.manifest.type == .collection else { return }
                     Task {
                         let piece = try? await store.addLoosePiece(
                             title: "Untitled Screenplay", mode: .screenplay)
@@ -530,10 +512,8 @@ struct ProjectWindow: View {
                         }
                     }
                 }
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamLinkProject)) { _ in
-                    guard window?.isKeyWindow == true,
-                          let store, store.manifest.type == .collection else { return }
+                .onKeyWindowCommand(.maughamLinkProject, window: window) { _ in
+                    guard let store, store.manifest.type == .collection else { return }
                     let panel = NSOpenPanel()
                     panel.canChooseDirectories = true
                     panel.canChooseFiles = false
@@ -547,8 +527,7 @@ struct ProjectWindow: View {
                         }
                     }
                 }
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamPromotePiece)) { note in
+                .onKeyWindowCommand(.maughamPromotePiece, window: window) { note in
                     guard let store, store.manifest.type == .collection,
                           let info = note.userInfo,
                           let pieceId = info["piece_id"] as? String,
@@ -564,9 +543,9 @@ struct ProjectWindow: View {
                             do {
                                 let newProjectURL = try await store.promotePieceToProject(
                                     pieceId: pieceId, destination: destination)
-                                NotificationCenter.default.post(
-                                    name: .maughamOpenProject, object: nil,
-                                    userInfo: ["url": newProjectURL])
+                                MaughamEvent.post(
+                                    .maughamOpenProject, to: .allWindows,
+                                    payload: ["url": newProjectURL])
                             } catch {
                                 _projectWindowLog.error("Promote failed: \(error, privacy: .public)")
                             }
@@ -601,7 +580,7 @@ struct ProjectWindow: View {
                 renamingItemId: $pendingPieceRenameId,
                 activePiece: activePiece(in: store),
                 onAddPiece: {
-                    NotificationCenter.default.post(name: .maughamAddLoosePiece, object: nil)
+                    MaughamEvent.post(.maughamAddLoosePiece, to: .keyWindow)
                 },
                 onAddSharedNote: { Task { try? await addSharedNoteAction(store: store) } },
                 onAddPieceNote: { Task { try? await addPieceNoteAction(store: store) } }
@@ -743,8 +722,7 @@ struct ProjectWindow: View {
         case .resolvedViaPathFallback(let u): url = u
         case .unresolved: return
         }
-        NotificationCenter.default.post(
-            name: .maughamOpenProject, object: nil, userInfo: ["url": url])
+        MaughamEvent.post(.maughamOpenProject, to: .allWindows, payload: ["url": url])
     }
 
     @ViewBuilder
@@ -1061,10 +1039,14 @@ struct ProjectWindow: View {
 private struct CheckpointModifier: ViewModifier {
     let documentStore: DocumentStore?
     let store: ProjectStore?
-    /// The owning project window. ⌘S / Shift-⌘S are posted with `object: nil`
-    /// (menu commands), so every open window receives them. We act only when
-    /// this window is key, so ⌘S checkpoints + backs up the front project only.
+    /// The owning project window. Key-window commands (ADR 0021):
+    /// `.onKeyWindowCommand` scopes ⌘S / Shift-⌘S delivery to the key window,
+    /// so ⌘S checkpoints + backs up the front project only. The store /
+    /// documentStore checks below are action preconditions, not scope guards.
     let window: NSWindow?
+    /// Fallback project URL, threaded to RewindModifier for its project scope
+    /// when `store` hasn't loaded yet (ADR 0021).
+    let url: URL
     let selectedItemId: String?
     @Binding var showingCheckpointLabelSheet: Bool
     let onSaveFlash: () -> Void
@@ -1072,10 +1054,8 @@ private struct CheckpointModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .onReceive(NotificationCenter.default.publisher(
-                for: .maughamSaveCheckpoint)) { _ in
-                guard window?.isKeyWindow == true,
-                      let store, let documentStore else { return }
+            .onKeyWindowCommand(.maughamSaveCheckpoint, window: window) { _ in
+                guard let store, let documentStore else { return }
                 let activeDocId = selectedItemId ?? "__no-selection__"
                 let allDocIds = ProjectWindow.documentIds(in: store.manifest.structure)
                 let activeDoc = activeDocument(
@@ -1101,14 +1081,15 @@ private struct CheckpointModifier: ViewModifier {
                         at: Date())
                 }
             }
-            .onReceive(NotificationCenter.default.publisher(
-                for: .maughamNamedCheckpoint)) { _ in
-                guard window?.isKeyWindow == true, store != nil else { return }
+            .onKeyWindowCommand(.maughamNamedCheckpoint, window: window) { _ in
+                guard store != nil else { return }
                 showingCheckpointLabelSheet = true
             }
             .modifier(RewindModifier(
                 documentStore: documentStore,
                 store: store,
+                window: window,
+                url: url,
                 selectedItemId: selectedItemId))
     }
 
@@ -1132,22 +1113,26 @@ private struct CheckpointModifier: ViewModifier {
 private struct RewindModifier: ViewModifier {
     let documentStore: DocumentStore?
     let store: ProjectStore?
+    /// The owning project window, for the ADR 0021 `.onProjectEvent`
+    /// liveness guard on `.maughamOpenRewind`.
+    let window: NSWindow?
+    /// Fallback project URL naming this window's project scope while `store`
+    /// hasn't loaded yet (threaded from CheckpointModifier, ADR 0021).
+    let url: URL
     let selectedItemId: String?
     @State private var showingRewindModal: Bool = false
     @State private var rewindInitialCursor: RewindCursor = .now
 
     func body(content: Content) -> some View {
         content
-            .onReceive(NotificationCenter.default.publisher(
-                for: .maughamOpenRewind)) { note in
-                // Scope to the originating window: HistoryPane posts the
-                // notification with `object: projectURL`. With multiple
-                // ProjectWindows open, this prevents every window's modal
-                // from opening on a single click — only the window whose
-                // projectURL matches the originator presents.
-                guard let originator = note.object as? URL,
-                      originator == store?.url,
-                      selectedItemId != nil else { return }
+            .onProjectEvent(.maughamOpenRewind,
+                            url: store?.url ?? url, window: window) { note in
+                // Project-scoped (ADR 0021): HistoryPane posts to
+                // `.project(for: projectURL)`, so with multiple ProjectWindows
+                // open only the window on the originating project — and only
+                // while live — presents the modal. `selectedItemId != nil` is
+                // an action precondition (need a doc to rewind), not a scope.
+                guard selectedItemId != nil else { return }
                 if let opId = note.userInfo?["scrub_op_id"] as? String,
                    let at = note.userInfo?["scrub_op_at"] as? Date {
                     rewindInitialCursor = .atOp(opId: opId, at: at)
@@ -1184,8 +1169,8 @@ private struct RewindModifier: ViewModifier {
                     case .cancel:
                         break
                     case .snapshotHere:
-                        NotificationCenter.default.post(
-                            name: .maughamCheckpointAdded, object: nil)
+                        MaughamEvent.post(
+                            .maughamCheckpointAdded, to: .project(for: store.url))
                     case .restoreHere(let opId):
                         Task { @MainActor in
                             _ = try? await documentStore.document(forDocId: docId)?
@@ -1216,14 +1201,11 @@ private struct FocusPostureModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .onReceive(NotificationCenter.default.publisher(
-                for: .maughamToggleNoChrome)) { _ in
+            .onKeyWindowCommand(.maughamToggleNoChrome, window: window) { _ in
                 isNoChromeOn.toggle()
                 applyNoChrome()
             }
-            .onReceive(NotificationCenter.default.publisher(
-                for: .maughamToggleReviewMode)) { _ in
-                guard window?.isKeyWindow == true else { return }
+            .onKeyWindowCommand(.maughamToggleReviewMode, window: window) { _ in
                 isReviewModeOn.toggle()
             }
             .onChange(of: isNoChromeOn) { _, newValue in
@@ -1237,26 +1219,25 @@ private struct FocusPostureModifier: ViewModifier {
 }
 
 private struct ParagraphNavModifier: ViewModifier {
-    /// The owning project window. `.maughamNavigateToParagraph` is posted with
-    /// `object: nil`, so every open window receives it; we act only when key.
+    /// The owning project window. `.maughamNavigateToParagraph` is key-window
+    /// scoped (ADR 0021), so only the key window acts.
     let window: NSWindow?
     @Binding var binderSegment: BinderSegment
     @Environment(\.openWindow) private var openWindow
 
     func body(content: Content) -> some View {
         content
-            .onReceive(NotificationCenter.default.publisher(
-                for: .maughamNavigateToParagraph)) { note in
-                guard window?.isKeyWindow == true else { return }
+            .onKeyWindowCommand(.maughamNavigateToParagraph, window: window) { note in
                 // v1: just ensure the manuscript pane is focused.
                 // Anchored scroll-to-paragraph is a follow-up.
                 _ = note.userInfo?["paragraph_id"] as? String
                 binderSegment = .manuscript
             }
-            // `.maughamShowHelp` is posted with `object: nil`, so every window
-            // receives it; `openWindow(id:)` for a singleton Window is idempotent
-            // (it brings the one Help window forward), so no key-window guard.
-            .onReceive(NotificationCenter.default.publisher(for: .maughamShowHelp)) { _ in
+            // `.maughamShowHelp` is `.allWindows` scoped, so every live-or-zombie
+            // window receives it; `openWindow(id:)` for a singleton Window is
+            // idempotent (it brings the one Help window forward), so no
+            // key-window guard.
+            .onGlobalEvent(.maughamShowHelp) { _ in
                 openWindow(id: "help")
             }
     }

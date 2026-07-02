@@ -4,10 +4,12 @@ import AppKit
 import MaughamCore
 @testable import Maugham
 
-/// Fix 1 (Channel A): `.maughamScriptDidUpdate` must be scoped to its origin
-/// project so an unrelated window flipping to a screenplay piece can't
-/// invalidate (and re-lay-out) another window's editor or clobber its
-/// scene-navigator payload. See ADR 0017 addendum + Editor AREA.md.
+/// Channel A (ADR 0017 addendum → ADR 0021): `.maughamScriptDidUpdate` must be
+/// scoped to its origin project so an unrelated window flipping to a screenplay
+/// piece can't invalidate (and re-lay-out) another window's editor or clobber
+/// its scene-navigator payload. The routing now rides the `MaughamEvent`
+/// wrapper (`.project(id:)` scope) — the tactical origin-filter helper it
+/// absorbed is gone. See Editor AREA.md.
 @MainActor
 final class ScriptUpdateScopingTests: XCTestCase {
 
@@ -15,41 +17,52 @@ final class ScriptUpdateScopingTests: XCTestCase {
         FountainTokenizer().parse("INT. ROOM - DAY\n\nAction line.\n")
     }
 
-    // MARK: - Receiver filter
+    /// Capture the exact Notification the wrapper posts for `scope`.
+    private func post(_ scope: EventScope, object: Any?) -> Notification {
+        var captured: Notification?
+        let obs = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer inspecting the exact scoped Notification the wrapper posts
+            forName: .maughamScriptDidUpdate, object: nil, queue: nil) { captured = $0 }
+        defer { NotificationCenter.default.removeObserver(obs) }
+        MaughamEvent.post(.maughamScriptDidUpdate, to: scope, object: object)
+        return captured!
+    }
 
-    func test_acceptedScript_rejectsForeignProjectOrigin() {
-        let note = Notification(
-            name: .maughamScriptDidUpdate,
-            object: makeScript(),
-            userInfo: [ScriptUpdateRouting.projectIdKey: "proj_B"])
-        XCTAssertNil(
-            ScriptUpdateRouting.acceptedScript(from: note, forProjectId: "proj_A"),
+    private func ctx(_ id: String) -> EventReceiverContext {
+        EventReceiverContext(
+            kind: .project(id: id), isWindowLive: true, isWindowKey: false)
+    }
+
+    // MARK: - Scope filter (the three behaviors, through the wrapper)
+
+    func test_foreignProjectPost_notDelivered() {
+        let note = post(.project(id: "proj_B"), object: makeScript())
+        XCTAssertFalse(
+            MaughamEvent.shouldDeliver(note, to: ctx("proj_A")),
             "a script originating from project B must not be adopted by project A")
     }
 
-    func test_acceptedScript_acceptsOwnProjectOrigin() {
-        let note = Notification(
-            name: .maughamScriptDidUpdate,
-            object: makeScript(),
-            userInfo: [ScriptUpdateRouting.projectIdKey: "proj_A"])
-        XCTAssertNotNil(
-            ScriptUpdateRouting.acceptedScript(from: note, forProjectId: "proj_A"),
-            "a script originating from this window's own project must be accepted")
+    func test_ownProjectPost_delivered() {
+        let note = post(.project(id: "proj_A"), object: makeScript())
+        XCTAssertTrue(
+            MaughamEvent.shouldDeliver(note, to: ctx("proj_A")),
+            "a script originating from this window's own project must be delivered")
     }
 
-    func test_acceptedScript_rejectsMissingOrigin() {
-        let note = Notification(
-            name: .maughamScriptDidUpdate,
-            object: makeScript(),
-            userInfo: nil)
-        XCTAssertNil(
-            ScriptUpdateRouting.acceptedScript(from: note, forProjectId: "proj_A"),
-            "an unscoped post (no origin) must be rejected, not blindly adopted")
+    func test_unscopedRawPost_notDelivered() {
+        var captured: Notification?
+        let obs = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer inspecting the exact scoped Notification the wrapper posts
+            forName: .maughamScriptDidUpdate, object: nil, queue: nil) { captured = $0 }
+        defer { NotificationCenter.default.removeObserver(obs) }
+        NotificationCenter.default.post( // adr-0021-ok: deliberately-raw legacy post proving the helper drops it
+            name: .maughamScriptDidUpdate, object: makeScript())
+        XCTAssertFalse(
+            MaughamEvent.shouldDeliver(captured!, to: ctx("proj_A")),
+            "an unscoped post (no origin) must be dropped, not blindly adopted")
     }
 
-    // MARK: - Poster carries origin
+    // MARK: - Poster stamps the scope keys
 
-    func test_poster_carriesProjectIdInUserInfo() {
+    func test_poster_carriesProjectScopeInUserInfo() {
         let storage = NSTextStorage(string: "INT. ROOM - DAY\n\nAction.\n")
         let layout = NSLayoutManager()
         storage.addLayoutManager(layout)
@@ -65,17 +78,62 @@ final class ScriptUpdateScopingTests: XCTestCase {
             typewriterScroll: false, sentenceFocus: false, paragraphFocus: false)
         coordinator.scriptOriginProjectId = "proj_origin_under_test"
 
+        // Receive through the REAL wrapper with a matching-project context, so
+        // both the coordinator's scope stamping AND the delivery filter are on
+        // the asserted path: a mis-stamped scope would be dropped and fail here.
+        var receivedKind: String?
         var receivedId: String?
-        let obs = NotificationCenter.default.addObserver(
-            forName: .maughamScriptDidUpdate, object: nil, queue: nil) { note in
-            receivedId = note.userInfo?[ScriptUpdateRouting.projectIdKey] as? String
-        }
+        let obs = MaughamEvent.observe(
+            .maughamScriptDidUpdate,
+            context: { self.ctx("proj_origin_under_test") },
+            handler: { note in
+                receivedKind = note.userInfo?[MaughamEvent.scopeKindKey] as? String
+                receivedId = note.userInfo?[MaughamEvent.scopeIdKey] as? String
+            })
         defer { NotificationCenter.default.removeObserver(obs) }
 
         // attach → retokenizeAndStyle posts synchronously (non-debounced).
         coordinator.attach(to: tv)
 
+        XCTAssertEqual(receivedKind, "project",
+            "the coordinator must post its script under the .project scope")
         XCTAssertEqual(receivedId, "proj_origin_under_test",
-            "the coordinator must stamp its origin project id onto the post")
+            "the coordinator must stamp its origin project id as the scope id")
+    }
+
+    /// Behavior pin (ADR 0021 migration): with no origin project id the
+    /// coordinator posts NOTHING — previously it fanned out an unscoped post
+    /// every scoped receiver would have dropped anyway. Unreachable in
+    /// production (only manuscript surfaces post scripts, and they always
+    /// wire the id), but the drop is deliberate; pin it.
+    func test_poster_withNilOrigin_postsNothing() {
+        let storage = NSTextStorage(string: "INT. ROOM - DAY\n\nAction.\n")
+        let layout = NSLayoutManager()
+        storage.addLayoutManager(layout)
+        let container = NSTextContainer(size: NSSize(width: 600, height: 600))
+        layout.addTextContainer(container)
+        let tv = NSTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 600),
+                            textContainer: container)
+        let binding: Binding<String> = .init(
+            get: { tv.string }, set: { tv.string = $0 })
+        let coordinator = EditorCoordinator(
+            text: binding, mode: ScreenplayMode(),
+            theme: .light, typography: .screenplayDefaults,
+            typewriterScroll: false, sentenceFocus: false, paragraphFocus: false)
+        // scriptOriginProjectId deliberately left nil.
+
+        var postCount = 0
+        let obs = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer counting posts to prove a nil-origin coordinator emits nothing
+            forName: .maughamScriptDidUpdate, object: nil, queue: nil) { _ in
+            postCount += 1
+        }
+        defer { NotificationCenter.default.removeObserver(obs) }
+
+        // attach → retokenizeAndStyle would post synchronously (non-debounced)
+        // if an origin were set.
+        coordinator.attach(to: tv)
+
+        XCTAssertEqual(postCount, 0,
+            "a coordinator with no origin project id must not post at all")
     }
 }

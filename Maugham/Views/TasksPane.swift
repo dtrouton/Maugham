@@ -423,10 +423,12 @@ struct TasksPane: View {
               let pid = anchor.paragraphId,
               anchor.docId != ProjectStore.projectTasksDocId
         else { return }
-        NotificationCenter.default.post(
-            name: .maughamNavigateToParagraph,
-            object: projectURL,
-            userInfo: [
+        // Key-window scoped (ADR 0021): the old `object: projectURL` scoping was
+        // dead — both receivers ignored it — so it's dropped; the doc_id/
+        // paragraph_id payload is preserved.
+        MaughamEvent.post(
+            .maughamNavigateToParagraph, to: .keyWindow,
+            payload: [
                 "doc_id": anchor.docId,
                 "paragraph_id": pid,
             ])

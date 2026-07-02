@@ -7,8 +7,9 @@ import AppKit
 ///
 /// Refresh is driven by:
 /// - `.onAppear`
-/// - `.maughamPublicationCompleted` notification (posted by
-///   `CompileOrchestrator` on successful publish)
+/// - `.maughamPublicationCompleted` — scope declared at the post
+///   (`CompileOrchestrator`, `.project(for: projectURL)`); the `.onProjectEvent`
+///   helper filters to this project and drops closed windows (ADR 0021).
 ///
 /// Sort is by file modification date, newest first — the most recently
 /// compiled publication is always at the top, regardless of version-string
@@ -19,6 +20,9 @@ struct ExportsListView: View {
 
     @State private var entries: [Model.Entry] = []
     @State private var isExpanded: Bool = true
+    /// Hosting window for the ADR 0021 project scope + closed-window liveness
+    /// guard on `.maughamPublicationCompleted`.
+    @State private var window: NSWindow?
 
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
@@ -71,9 +75,10 @@ struct ExportsListView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
+        .background(WindowAccessor(window: $window))
         .onAppear(perform: refresh)
-        .onReceive(NotificationCenter.default.publisher(
-            for: .maughamPublicationCompleted)) { _ in refresh() }
+        .onProjectEvent(.maughamPublicationCompleted,
+                        url: projectURL, window: window) { _ in refresh() }
     }
 
     private func refresh() {

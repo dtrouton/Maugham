@@ -52,10 +52,7 @@ struct CollectionPiecesPane: View {
                         }
                         if piece.pieceKind == .loose {
                             Button("Promote to Standalone Project…") {
-                                NotificationCenter.default.post(
-                                    name: .maughamPromotePiece,
-                                    object: nil,
-                                    userInfo: ["piece_id": piece.id])
+                                MaughamEvent.post(.maughamPromotePiece, to: .keyWindow, payload: ["piece_id": piece.id])
                             }
                         }
                         Divider()
@@ -98,16 +95,13 @@ struct CollectionPiecesPane: View {
             Spacer()
             Menu {
                 Button("New Prose Story") {
-                    NotificationCenter.default.post(
-                        name: .maughamAddLoosePiece, object: nil)
+                    MaughamEvent.post(.maughamAddLoosePiece, to: .keyWindow)
                 }
                 Button("New Screenplay") {
-                    NotificationCenter.default.post(
-                        name: .maughamAddScreenplayPiece, object: nil)
+                    MaughamEvent.post(.maughamAddScreenplayPiece, to: .keyWindow)
                 }
                 Button("Link Existing Project…") {
-                    NotificationCenter.default.post(
-                        name: .maughamLinkProject, object: nil)
+                    MaughamEvent.post(.maughamLinkProject, to: .keyWindow)
                 }
             } label: {
                 Image(systemName: "plus.circle")

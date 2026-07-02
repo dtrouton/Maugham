@@ -140,8 +140,7 @@ enum TestProjectTools {
     static func postOpenAndAwaitRegistration(url: URL, registry: ProjectRegistry) async -> Bool {
         let id = ProjectIdentifier.id(for: url)
         if registry.lookup(id: id) != nil { return true }
-        NotificationCenter.default.post(
-            name: .maughamTestOpenProject, object: nil, userInfo: ["url": url])
+        MaughamEvent.post(.maughamTestOpenProject, to: .allWindows, payload: ["url": url])
         let deadline = Date(timeIntervalSinceNow: 2)
         while Date() < deadline {
             if registry.lookup(id: id) != nil { return true }

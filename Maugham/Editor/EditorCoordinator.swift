@@ -387,101 +387,94 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         self.paragraphFocus = paragraphFocus
         self.wikiLinkResolver = wikiLinkResolver
         super.init()
+        #if MAUGHAM_DEV_BUILD
+        // Weakly register with the scene-storage-spike leak probe (ADR 0021).
+        // Dev-only; absent from stable. See CoordinatorLeakProbe.
+        CoordinatorLeakProbe.register(self)
+        #endif
         // NotificationCenter posts these on `.main` so we're on the main
         // thread when the closures fire, but the closure types aren't
         // @MainActor-annotated. `MainActor.assumeIsolated` bridges the gap
         // without an extra Task hop (and asserts in debug if we're wrong
         // about being on the main thread).
-        navigateObserver = NotificationCenter.default.addObserver(
-            forName: .maughamNavigateToScene,
-            object: nil,
-            queue: .main
+        navigateObserver = MaughamEvent.observe(
+            .maughamNavigateToScene,
+            context: { [weak self] in self?.receiverContext(.keyWindow) }
         ) { [weak self] note in
-            MainActor.assumeIsolated {
-                guard let self,
-                      let location = note.userInfo?["lineLocation"] as? Int,
-                      let textView = self.textView else { return }
-                self.navigateToLine(at: location, in: textView)
-            }
+            guard let self,
+                  let location = note.userInfo?["lineLocation"] as? Int,
+                  let textView = self.textView else { return }
+            self.navigateToLine(at: location, in: textView)
         }
-        findMatchObserver = NotificationCenter.default.addObserver(
-            forName: .maughamFindMatchSelected,
-            object: nil,
-            queue: .main
+        findMatchObserver = MaughamEvent.observe(
+            .maughamFindMatchSelected,
+            context: { [weak self] in self?.receiverContext(.keyWindow) }
         ) { [weak self] note in
-            MainActor.assumeIsolated {
-                guard let self,
-                      let match = note.userInfo?["match"] as? SearchMatch,
-                      let textView = self.textView else { return }
+            guard let self,
+                  let match = note.userInfo?["match"] as? SearchMatch,
+                  let textView = self.textView else { return }
 
-                // Defer to allow the document load to complete first.
-                Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 50_000_000)
-                    let range = match.charRangeInDocument
-                    guard let storage = textView.textStorage,
-                          range.location + range.length <= storage.length else { return }
-                    textView.setSelectedRange(range)
-                    textView.scrollRangeToVisible(range)
-                }
-            }
-        }
-        paragraphNavigateObserver = NotificationCenter.default.addObserver(
-            forName: .maughamNavigateToParagraph,
-            object: nil,
-            queue: .main
-        ) { [weak self] note in
-            MainActor.assumeIsolated {
-                guard let self,
-                      let pid = note.userInfo?["paragraph_id"] as? String,
-                      let textView = self.textView,
-                      let provider = self.paragraphRangeProvider,
-                      let range = provider(pid) else { return }
-                let length = (textView.string as NSString).length
-                guard range.location >= 0,
-                      range.location + range.length <= length else { return }
-                // Position a cursor (length 0) at paragraph start rather
-                // than selecting the whole paragraph. Selecting the entire
-                // range was disorienting when navigating from the Tasks
-                // pane — the writer's "jump to this task" became "select
-                // the whole containing paragraph including unrelated
-                // text." A future refinement could thread an
-                // intra-paragraph offset through the notification to land
-                // exactly on the task line; for now, paragraph start is
-                // close enough and avoids the surprising selection.
-                let cursor = NSRange(location: range.location, length: 0)
-                textView.setSelectedRange(cursor)
+            // Defer to allow the document load to complete first.
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 50_000_000)
+                let range = match.charRangeInDocument
+                guard let storage = textView.textStorage,
+                      range.location + range.length <= storage.length else { return }
+                textView.setSelectedRange(range)
                 textView.scrollRangeToVisible(range)
-                textView.window?.makeFirstResponder(textView)
             }
         }
-        annotationNavigateObserver = NotificationCenter.default.addObserver(
-            forName: .maughamNavigateToAnnotation,
-            object: nil,
-            queue: .main
+        paragraphNavigateObserver = MaughamEvent.observe(
+            .maughamNavigateToParagraph,
+            context: { [weak self] in self?.receiverContext(.keyWindow) }
         ) { [weak self] note in
-            MainActor.assumeIsolated {
-                guard let self,
-                      let annId = note.userInfo?["annotation_id"] as? String,
-                      let textView = self.textView else { return }
-                guard textView.window?.isKeyWindow == true else { return }
-                let pid = note.userInfo?["paragraph_id"] as? String
-                self.navigateToAnnotation(id: annId, fallbackParagraphId: pid, in: textView)
-            }
+            guard let self,
+                  let pid = note.userInfo?["paragraph_id"] as? String,
+                  let textView = self.textView,
+                  let provider = self.paragraphRangeProvider,
+                  let range = provider(pid) else { return }
+            let length = (textView.string as NSString).length
+            guard range.location >= 0,
+                  range.location + range.length <= length else { return }
+            // Position a cursor (length 0) at paragraph start rather
+            // than selecting the whole paragraph. Selecting the entire
+            // range was disorienting when navigating from the Tasks
+            // pane — the writer's "jump to this task" became "select
+            // the whole containing paragraph including unrelated
+            // text." A future refinement could thread an
+            // intra-paragraph offset through the notification to land
+            // exactly on the task line; for now, paragraph start is
+            // close enough and avoids the surprising selection.
+            let cursor = NSRange(location: range.location, length: 0)
+            textView.setSelectedRange(cursor)
+            textView.scrollRangeToVisible(range)
+            textView.window?.makeFirstResponder(textView)
         }
-        reviewToggleObserver = NotificationCenter.default.addObserver(
-            forName: .maughamToggleReviewMode,
-            object: nil,
-            queue: .main
+        // Key-window scoped via the helper (ADR 0021) — the former inline
+        // `textView.window?.isKeyWindow` guard is deleted; the `.keyWindow`
+        // context owns it now.
+        annotationNavigateObserver = MaughamEvent.observe(
+            .maughamNavigateToAnnotation,
+            context: { [weak self] in self?.receiverContext(.keyWindow) }
+        ) { [weak self] note in
+            guard let self,
+                  let annId = note.userInfo?["annotation_id"] as? String,
+                  let textView = self.textView else { return }
+            let pid = note.userInfo?["paragraph_id"] as? String
+            self.navigateToAnnotation(id: annId, fallbackParagraphId: pid, in: textView)
+        }
+        // This NC receiver exists deliberately (Editor AREA.md, Bug B): ⌘⌥R
+        // flips the review membrane SYNCHRONOUSLY on the coordinator so the very
+        // next keystroke already sees the toggled value — a `control.*` mirror
+        // would land a frame later. Key-window scoping is now the helper's
+        // `.keyWindow` context (ADR 0021); the former inline `isKeyWindow` guard
+        // is deleted (it, and FocusPostureModifier, both act only when key).
+        reviewToggleObserver = MaughamEvent.observe(
+            .maughamToggleReviewMode,
+            context: { [weak self] in self?.receiverContext(.keyWindow) }
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                // Mirror FocusPostureModifier's key-window guard: the toggle is
-                // posted to every open window, but only the key window's editor
-                // (and ProjectWindow) acts. Flip the membrane synchronously to
-                // the toggled value so the very next keystroke sees it.
-                guard self.textView?.window?.isKeyWindow == true else { return }
-                self.setReviewMode(!self.isReviewMode)
-            }
+            guard let self else { return }
+            self.setReviewMode(!self.isReviewMode)
         }
         // The former annotation-set-changed notification observer is gone (ADR
         // 0017): an AnnotationsPane edit/withdraw bumps `annotationsVersion` on the shared
@@ -575,12 +568,36 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         scriptUpdateNotifyTask?.cancel(); scriptUpdateNotifyTask = nil
         metricsNotifyTask?.cancel(); metricsNotifyTask = nil
         deferredRestyleTask?.cancel(); deferredRestyleTask = nil
+        // Explicit liveness contract (ADR 0021): drop the scoped-event tokens on
+        // teardown so a coordinator SwiftUI hasn't yet released stops receiving
+        // deliveries. `receiverContext` also returns nil once `isDetached`, so
+        // this is belt-and-suspenders with the deinit removal (which stays).
+        for token in [navigateObserver, findMatchObserver, paragraphNavigateObserver,
+                      annotationNavigateObserver, reviewToggleObserver] {
+            if let token { NotificationCenter.default.removeObserver(token) }
+        }
+        navigateObserver = nil; findMatchObserver = nil; paragraphNavigateObserver = nil
+        annotationNavigateObserver = nil; reviewToggleObserver = nil
         if let tv = textView, tv.delegate === self {
             tv.delegate = nil
         }
         (textView as? MaughamTextView)?.coordinator = nil
         textView = nil
         selectionToolbar = nil
+    }
+
+    /// The non-View `MaughamEvent.observe` liveness contract (ADR 0021): the
+    /// scope context the scene/find/paragraph/annotation/review observers filter
+    /// each delivery against. `nil` — once detached or before attach — drops the
+    /// delivery. `.keyWindow` also excludes closed/background windows (a closed
+    /// window is never key), fixing cross-window navigation: previously every
+    /// live editor moved its cursor on another window's scene/find/history jump.
+    /// Internal (not private) so MaughamEventLivenessTests can pin the positive
+    /// path deterministically — the negative-path zombie tests alone can't
+    /// distinguish correct scoping from a context that always returns nil.
+    func receiverContext(_ kind: EventReceiverContext.Kind) -> EventReceiverContext? {
+        guard !isDetached, let tv = textView else { return nil }
+        return .forWindow(tv.window, kind: kind)
     }
 
     /// External (binding-side) update — replace text without disturbing user.
@@ -1483,18 +1500,24 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// pending task, so a doc switch mid-debounce never strands a stale
     /// script post on the new document's navigator.
     private func postScriptDidUpdate(_ script: FountainScript, debounced: Bool) {
-        // Channel A scoping: stamp the origin project id so a receiver only
-        // adopts a script from its OWN project (ScriptUpdateRouting). Without
-        // this, an unrelated window flipping to a screenplay piece re-lays-out
-        // this window's editor and clobbers its scene-navigator payload.
-        let originInfo: [AnyHashable: Any]? = scriptOriginProjectId.map {
-            [ScriptUpdateRouting.projectIdKey: $0]
-        }
+        // Channel A scoping (ADR 0021): deliver only to windows on the
+        // originating project. A receiver adopting a foreign project's script
+        // would re-lay-out its editor and clobber its scene-navigator payload.
+        // NOT a key-window guard — a background window's own MCP-driven
+        // re-parse must still update its navigator. A nil origin
+        // (non-manuscript surface) never reaches here (only ScreenplayMode
+        // posts), and if it ever did, only the `MaughamEvent.post` is skipped —
+        // the cancel/reschedule bookkeeping the doc comment above promises
+        // stays UNCONDITIONAL, so a nil-origin call can't strand a stale
+        // in-flight debounced post (tripwire 3/6/7 debounce-race class).
+        let projectId = scriptOriginProjectId
         guard debounced else {
             scriptUpdateNotifyTask?.cancel()
             scriptUpdateNotifyTask = nil
-            NotificationCenter.default.post(
-                name: .maughamScriptDidUpdate, object: script, userInfo: originInfo)
+            if let projectId {
+                MaughamEvent.post(
+                    .maughamScriptDidUpdate, to: .project(id: projectId), object: script)
+            }
             return
         }
         scriptUpdateNotifyTask?.cancel()
@@ -1502,8 +1525,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             try? await Task.sleep(for: .milliseconds(350))
             guard !Task.isCancelled else { return }
             self?.scriptUpdateNotifyTask = nil
-            NotificationCenter.default.post(
-                name: .maughamScriptDidUpdate, object: script, userInfo: originInfo)
+            if let projectId {
+                MaughamEvent.post(
+                    .maughamScriptDidUpdate, to: .project(id: projectId), object: script)
+            }
         }
     }
 

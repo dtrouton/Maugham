@@ -53,8 +53,7 @@ struct ProjectSearchView: View {
                 Button {
                     isActive = false
                     store.clearSearch()
-                    NotificationCenter.default.post(
-                        name: .maughamCloseFind, object: nil)
+                    MaughamEvent.post(.maughamCloseFind, to: .keyWindow)
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)
@@ -152,10 +151,9 @@ struct ProjectSearchView: View {
 
     private func matchRow(for match: SearchMatch) -> some View {
         Button {
-            NotificationCenter.default.post(
-                name: .maughamFindMatchSelected,
-                object: nil,
-                userInfo: ["match": match])
+            MaughamEvent.post(
+                .maughamFindMatchSelected, to: .keyWindow,
+                payload: ["match": match])
         } label: {
             HStack(spacing: 8) {
                 Text("\(match.lineNumber)")

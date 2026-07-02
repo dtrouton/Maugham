@@ -373,8 +373,7 @@ public final class DocumentStore {
         }
         if let coordError { throw coordError }
         if let writeError { throw writeError }
-        NotificationCenter.default.post(
-            name: .maughamSessionLogChanged, object: nil)
+        MaughamEvent.post(.maughamSessionLogChanged, to: .project(for: projectURL))
     }
 
     /// Records all the side-effects that must fire when the editor writes
@@ -729,13 +728,9 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
                     try? await doc.handleExternalLogChange()
                 }
             }
-            NotificationCenter.default.post(
-                name: .maughamOpLogChanged, object: nil,
-                userInfo: ["docId": docId])
 
         case .checkpoints:
-            NotificationCenter.default.post(
-                name: .maughamCheckpointAdded, object: nil)
+            MaughamEvent.post(.maughamCheckpointAdded, to: .project(for: projectURL))
 
         case .otherProjectFile(let relativePath):
             // Manuscripts live alongside research notes and binder content
@@ -754,12 +749,8 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
             }
 
         case .inbox(let kind, _):
-            // A capture (or a Mac-side status transition) landed in
-            // `.maugham/inbox/`. `object: self` scopes the post to this project
-            // window so multiple windows don't cross-talk. See spec §3.3.
-            NotificationCenter.default.post(
-                name: .maughamInboxChanged, object: self,
-                userInfo: ["kind": kind.rawValue])
+            // A capture (or a Mac-side status transition) landed in `.maugham/inbox/`.
+            // Refresh is a direct call — deliberately NOT a notification (ADR 0021).
             Task { @MainActor in
                 await inboxStore.refresh()
                 // Poke the transcription worker on ANY inbox change, not just

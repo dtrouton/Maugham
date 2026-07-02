@@ -77,10 +77,10 @@ struct InspectorView: View {
                         draftLinks: $draftLinks,
                         onCommit: scheduleSave,
                         onNavigate: { id in
-                            NotificationCenter.default.post(
-                                name: .maughamNavigateToDocument,
-                                object: nil,
-                                userInfo: ["id": id])
+                            MaughamEvent.post(
+                                .maughamNavigateToDocument,
+                                to: .project(for: store.url),
+                                payload: ["id": id])
                         })
 
                     LabeledContent("Words") {

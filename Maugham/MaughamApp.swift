@@ -34,8 +34,7 @@ struct MaughamApp: App {
             forName: NSApplication.willTerminateNotification,
             object: nil, queue: nil
         ) { _ in
-            NotificationCenter.default.post(
-                name: .maughamAppWillTerminate, object: nil)
+            MaughamEvent.post(.maughamAppWillTerminate, to: .allWindows)
             // Synchronously remove the MCP socket file. The async server stop()
             // (via .maughamAppWillTerminate → WelcomeHost) often does NOT run
             // before macOS kills the process on quit, which leaves a stale
@@ -99,8 +98,7 @@ struct MaughamApp: App {
                     backupCoordinator.destinations =
                         BackupCoordinator.resolveDestinations(new)
                 }
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamAppWillTerminate)) { _ in
+                .onGlobalEvent(.maughamAppWillTerminate) { _ in
                     Task { await mcpServer?.stop() }
                 }
         }
@@ -109,11 +107,11 @@ struct MaughamApp: App {
             UpdateMenuCommand()
             CommandGroup(replacing: .newItem) {
                 Button("New Project…") {
-                    NotificationCenter.default.post(name: .maughamNewProject, object: nil)
+                    MaughamEvent.post(.maughamNewProject, to: .allWindows)
                 }
                 .keyboardShortcut("n", modifiers: .command)
                 Button("Open Project…") {
-                    NotificationCenter.default.post(name: .maughamOpenProject, object: nil)
+                    MaughamEvent.post(.maughamOpenProject, to: .allWindows)
                 }
                 .keyboardShortcut("o", modifiers: .command)
                 Menu("Open Recent") {
@@ -121,51 +119,41 @@ struct MaughamApp: App {
                 }
                 Divider()
                 Button("Save") {
-                    NotificationCenter.default.post(
-                        name: .maughamDummySave, object: nil)
-                    NotificationCenter.default.post(
-                        name: .maughamSaveCheckpoint, object: nil)
+                    MaughamEvent.post(.maughamDummySave, to: .keyWindow)
+                    MaughamEvent.post(.maughamSaveCheckpoint, to: .keyWindow)
                 }
                 .keyboardShortcut("s", modifiers: .command)
                 Button("Save Checkpoint As…") {
-                    NotificationCenter.default.post(
-                        name: .maughamNamedCheckpoint, object: nil)
+                    MaughamEvent.post(.maughamNamedCheckpoint, to: .keyWindow)
                 }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
                 Divider()
                 FocusedRestoreButton()
                 Divider()
                 Button("Tidy All Filenames") {
-                    NotificationCenter.default.post(
-                        name: .maughamTidyAllFilenames, object: nil)
+                    MaughamEvent.post(.maughamTidyAllFilenames, to: .keyWindow)
                 }
                 Button("Add Research File…") {
-                    NotificationCenter.default.post(
-                        name: .maughamAddResearchFile, object: nil)
+                    MaughamEvent.post(.maughamAddResearchFile, to: .keyWindow)
                 }
                 Divider()
                 Button("Show Project Statistics") {
-                    NotificationCenter.default.post(
-                        name: .maughamShowProjectStatistics, object: nil)
+                    MaughamEvent.post(.maughamShowProjectStatistics, to: .keyWindow)
                 }
                 Divider()
                 Button("New Prose Story") {
-                    NotificationCenter.default.post(
-                        name: .maughamAddLoosePiece, object: nil)
+                    MaughamEvent.post(.maughamAddLoosePiece, to: .keyWindow)
                 }
                 Button("New Screenplay (Collection)") {
-                    NotificationCenter.default.post(
-                        name: .maughamAddScreenplayPiece, object: nil)
+                    MaughamEvent.post(.maughamAddScreenplayPiece, to: .keyWindow)
                 }
                 Button("Link Existing Project…") {
-                    NotificationCenter.default.post(
-                        name: .maughamLinkProject, object: nil)
+                    MaughamEvent.post(.maughamLinkProject, to: .keyWindow)
                 }
                 Divider()
                 FocusedShareForReviewButton()
                 Button("Project Settings…") {
-                    NotificationCenter.default.post(
-                        name: .maughamShowProjectSettings, object: nil)
+                    MaughamEvent.post(.maughamShowProjectSettings, to: .keyWindow)
                 }
                 .keyboardShortcut(",", modifiers: [.command, .shift])
             }
@@ -175,59 +163,53 @@ struct MaughamApp: App {
             CommandGroup(after: .toolbar) {
                 Divider()
                 Button("Toggle Focus Mode") {
-                    NotificationCenter.default.post(
-                        name: .maughamToggleNoChrome, object: nil)
+                    MaughamEvent.post(.maughamToggleNoChrome, to: .keyWindow)
                 }
                 .keyboardShortcut("\\", modifiers: .command)
                 Button("Toggle Review Mode") {
-                    NotificationCenter.default.post(
-                        name: .maughamToggleReviewMode, object: nil)
+                    MaughamEvent.post(.maughamToggleReviewMode, to: .keyWindow)
                 }
                 .keyboardShortcut("r", modifiers: [.command, .option])
                 Button("Toggle Full-Screen Focus") {
-                    NotificationCenter.default.post(
-                        name: .maughamToggleFullScreen, object: nil)
+                    MaughamEvent.post(.maughamToggleFullScreen, to: .keyWindow)
                 }
                 .keyboardShortcut("f", modifiers: [.command, .shift])
                 Button("Toggle Inspector") {
-                    NotificationCenter.default.post(
-                        name: .maughamToggleInspector, object: nil)
+                    MaughamEvent.post(.maughamToggleInspector, to: .keyWindow)
                 }
                 .keyboardShortcut("i", modifiers: [.command, .option])
                 Button("Toggle Research Preview") {
-                    NotificationCenter.default.post(
-                        name: .maughamToggleResearchPreview, object: nil)
+                    MaughamEvent.post(.maughamToggleResearchPreview, to: .keyWindow)
                 }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
                 Divider()
                 Button("Inspector") {
-                    NotificationCenter.default.post(
-                        name: .maughamSetDetailSegment,
-                        object: nil,
-                        userInfo: ["segment": "inspector"])
+                    MaughamEvent.post(.maughamSetDetailSegment, to: .keyWindow, payload: ["segment": "inspector"])
                 }
                 .keyboardShortcut("1", modifiers: [.command, .option])
                 Button("Linked Research") {
-                    NotificationCenter.default.post(
-                        name: .maughamSetDetailSegment,
-                        object: nil,
-                        userInfo: ["segment": "research"])
+                    MaughamEvent.post(.maughamSetDetailSegment, to: .keyWindow, payload: ["segment": "research"])
                 }
                 .keyboardShortcut("2", modifiers: [.command, .option])
                 Button("Outline") {
-                    NotificationCenter.default.post(
-                        name: .maughamSetDetailSegment,
-                        object: nil,
-                        userInfo: ["segment": "outline"])
+                    MaughamEvent.post(.maughamSetDetailSegment, to: .keyWindow, payload: ["segment": "outline"])
                 }
                 .keyboardShortcut("3", modifiers: [.command, .option])
                 Button("Annotations") {
-                    NotificationCenter.default.post(
-                        name: .maughamSetDetailSegment,
-                        object: nil,
-                        userInfo: ["segment": "annotations"])
+                    MaughamEvent.post(.maughamSetDetailSegment, to: .keyWindow, payload: ["segment": "annotations"])
                 }
                 .keyboardShortcut("a", modifiers: [.command, .option])
+                #if MAUGHAM_DEV_BUILD
+                // Scene-storage spike instrument (ADR 0021): logs how many
+                // EditorCoordinators are still alive. Close a project window,
+                // then click this — live→0 means SwiftUI released the scene
+                // graph; live staying >0 is the documented framework retention.
+                // See docs/superpowers/notes/2026-07-02-scene-storage-spike.md.
+                Divider()
+                Button("Dump Coordinator Leak Probe (dev)") {
+                    CoordinatorLeakProbe.dump()
+                }
+                #endif
             }
             CommandGroup(after: .pasteboard) {
                 Divider()
@@ -246,13 +228,11 @@ struct MaughamApp: App {
             }
             CommandGroup(after: .pasteboard) {
                 Button("Find in Project…") {
-                    NotificationCenter.default.post(
-                        name: .maughamFindInProject, object: nil)
+                    MaughamEvent.post(.maughamFindInProject, to: .keyWindow)
                 }
                 .keyboardShortcut("f", modifiers: [.command, .option])
                 Button("Restore Last Deleted Item") {
-                    NotificationCenter.default.post(
-                        name: .maughamRestoreLastDeleted, object: nil)
+                    MaughamEvent.post(.maughamRestoreLastDeleted, to: .keyWindow)
                 }
                 .keyboardShortcut("z", modifiers: [.command, .option])
             }
@@ -378,7 +358,7 @@ private struct FocusedShareForReviewButton: View {
     @FocusedValue(\.projectURL) private var projectURL
     var body: some View {
         Button("Share for Review…") {
-            NotificationCenter.default.post(name: .maughamShareForReview, object: nil)
+            MaughamEvent.post(.maughamShareForReview, to: .keyWindow)
         }
         .disabled(projectURL == nil)
     }
@@ -396,7 +376,7 @@ private struct HelpCommands: Commands {
     var body: some Commands {
         CommandGroup(replacing: .help) {
             Button("Maugham Help") {
-                NotificationCenter.default.post(name: .maughamShowHelp, object: nil)
+                MaughamEvent.post(.maughamShowHelp, to: .allWindows)
             }
             .keyboardShortcut("?", modifiers: .command)
             Button("Welcome to Maugham") {
@@ -415,13 +395,11 @@ private struct HelpCommands: Commands {
             }
             Divider()
             Button("Syntax Reference") {
-                NotificationCenter.default.post(
-                    name: .maughamShowSyntaxHelp, object: nil)
+                MaughamEvent.post(.maughamShowSyntaxHelp, to: .keyWindow)
             }
             .keyboardShortcut("/", modifiers: .command)
             Button("Set up Claude Desktop…") {
-                NotificationCenter.default.post(
-                    name: .maughamShowClaudeDesktopHelp, object: nil)
+                MaughamEvent.post(.maughamShowClaudeDesktopHelp, to: .keyWindow)
             }
             Divider()
             Button("Acknowledgements") { openWindow(id: "acknowledgements") }
@@ -475,24 +453,23 @@ private struct WelcomeHost: View {
         .onChange(of: onboarding.sampleRequested) { _, v in
             if v != nil { consumeOnboardingIntent() }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .maughamNewProject)) { _ in
+        .onGlobalEvent(.maughamNewProject) { _ in
             showingNewProject = true
         }
-        .onReceive(NotificationCenter.default.publisher(for: .maughamOpenProject)) { notification in
+        .onGlobalEvent(.maughamOpenProject) { notification in
             if let url = notification.userInfo?["url"] as? URL {
                 open(url)
             } else {
                 openViaPanel()
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .maughamShowHelp)) { _ in
+        .onGlobalEvent(.maughamShowHelp) { _ in
             openWindow(id: "help")
         }
         #if MAUGHAM_DEV_BUILD
         // Dev-only: the test-MCP drive tools post this; reuse the existing
         // open(_:) helper (records in Recents + opens the project window).
-        .onReceive(NotificationCenter.default.publisher(
-            for: .maughamTestOpenProject)) { note in
+        .onGlobalEvent(.maughamTestOpenProject) { note in
             guard let url = note.userInfo?["url"] as? URL else { return }
             open(url)
         }
@@ -558,10 +535,7 @@ private struct OpenRecentSubmenu: View {
             } else {
                 ForEach(recents.recents, id: \.path) { url in
                     Button(url.lastPathComponent) {
-                        NotificationCenter.default.post(
-                            name: .maughamOpenProject,
-                            object: nil,
-                            userInfo: ["url": url])
+                        MaughamEvent.post(.maughamOpenProject, to: .allWindows, payload: ["url": url])
                     }
                 }
                 Divider()

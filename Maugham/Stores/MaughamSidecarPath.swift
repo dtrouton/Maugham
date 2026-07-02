@@ -79,9 +79,8 @@ internal enum MaughamSidecarPath: Equatable {
     /// `.maugham/inbox/*` — the capture inbox synced from MaughamPhone.
     /// `kind` distinguishes the manifest stream (`inbox.<slug>.jsonl`) from the
     /// kind-scoped asset subdirs (`text/`, `images/`, `audio/`). Routing intent:
-    /// post `maughamInboxChanged` so `InboxStore` refreshes and the audio
-    /// transcription worker picks up new `.audio` files. See ADR 0013-adjacent
-    /// inbox design (spec §3.2–3.3).
+    /// trigger `InboxStore` refresh and audio transcription worker via direct calls
+    /// in `DocumentStore` (ADR 0021). See ADR 0013-adjacent inbox design (spec §3.2–3.3).
     case inbox(kind: InboxFileKind, relativePath: String)
 
     /// A path under `.maugham/` that doesn't match any known subdir.

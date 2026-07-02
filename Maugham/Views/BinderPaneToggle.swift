@@ -42,10 +42,9 @@ struct BinderPaneToggle: View {
                     SceneNavigatorPane(
                         script: lastParsedScript,
                         onSelect: { lineLocation in
-                            NotificationCenter.default.post(
-                                name: .maughamNavigateToScene,
-                                object: nil,
-                                userInfo: ["lineLocation": lineLocation])
+                            MaughamEvent.post(
+                                .maughamNavigateToScene, to: .keyWindow,
+                                payload: ["lineLocation": lineLocation])
                         })
                 case .trash:
                     TrashView(store: store)
@@ -64,12 +63,12 @@ struct BinderPaneToggle: View {
         }
         .onChange(of: store.trashEntries.count) { _, newValue in
             if newValue == 0 && segment == .trash {
-                segment = projectType == .screenplay ? .scenes : .manuscript
+                segment = .documentHome(for: projectType)
             }
         }
         .onChange(of: findActive) { _, newValue in
             if !newValue && segment == .find {
-                segment = projectType == .screenplay ? .scenes : .manuscript
+                segment = .documentHome(for: projectType)
             }
         }
     }

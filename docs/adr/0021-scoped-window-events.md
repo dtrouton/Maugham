@@ -1,6 +1,6 @@
 # 0021 — Window events are scoped at the post site (typed event bus over NotificationCenter)
 
-- **Status:** Accepted (implementation queued — see
+- **Status:** Implemented (2026-07-02, this branch — see
   `docs/superpowers/specs/2026-07-02-scoped-window-events.md`)
 - **Date:** 2026-07-02
 
@@ -86,7 +86,39 @@ the receiving view has no live window), making the milestone's guarantee "a
 closed window receives nothing," not merely "receivers only get their own
 events." Actually *releasing* the retained graph is framework behavior and
 stays out of scope beyond a timeboxed spike (see the spec) — with the guard,
-zombies are inert and deaf; the residual is bounded memory.
+zombies are inert and deaf; the residual is bounded memory. The spike ran and
+its outcome (framework cost; ARC-side no-cycle proven headless; three levers
+assessed; manual probe + footprint recipe) is recorded in
+`docs/superpowers/notes/2026-07-02-scene-storage-spike.md`.
+
+## Implementation notes (2026-07-02)
+
+The 39 surviving `maugham.*` names (re-verified against the original 2026-07-02
+survey; 2 of the original names were dead posts with no receiver and were
+deleted rather than migrated — `maughamOpLogChanged`, `maughamInboxChanged`)
+now all flow through `MaughamEvent.post(_:to:object:payload:)`
+(`Maugham/Events/MaughamEvent.swift`) and the matching receive helpers
+(`Maugham/Events/MaughamEvent+Receive.swift`). Final classification: 27
+`.keyWindow`, 7 `.project`, 5 `.allWindows`, 0 names carrying `.document` in
+production (the case exists and is tested, but no shipped post uses it).
+
+Two names landed on a different scope than this ADR's provisional lists,
+both resolved by checking the actual receiver rather than the name's prose
+description:
+
+- **`navigateToDocument` → `.project`, not `.keyWindow`.** The prior
+  unscoped broadcast was, in practice, posted from a stats window that was
+  itself key at post time — a key-window-only receiver would never have
+  fired, so the retrofit fixes a dead navigation path, not just a
+  cross-window leak.
+- **`openRewind` stays `.project`** (not `.keyWindow`), preserving the
+  original 2026-05-21 rewind-retrofit's multi-window semantics; the ad hoc
+  URL-equality check from that retrofit is upgraded to
+  `ProjectIdentifier.id` equality via `EventScope.project(for:)`.
+
+`ScriptUpdateRouting.swift` (the tactical `script.did.update` scoping
+mentioned above) is deleted — its origin-scoping behavior is absorbed into
+the wrapper's `.project` scope.
 
 ## Consequences
 
