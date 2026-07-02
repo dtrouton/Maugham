@@ -277,10 +277,9 @@ struct HistoryPane: View {
     private func jump(_ entry: HistoryEntry) {
         guard case .op(let op) = entry,
               let pid = op.changes.first?.paragraphId else { return }
-        NotificationCenter.default.post(
-            name: .maughamNavigateToParagraph,
-            object: nil,
-            userInfo: ["paragraph_id": pid])
+        MaughamEvent.post(
+            .maughamNavigateToParagraph, to: .keyWindow,
+            payload: ["paragraph_id": pid])
     }
 }
 

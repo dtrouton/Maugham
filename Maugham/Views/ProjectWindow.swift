@@ -1214,17 +1214,15 @@ private struct FocusPostureModifier: ViewModifier {
 }
 
 private struct ParagraphNavModifier: ViewModifier {
-    /// The owning project window. `.maughamNavigateToParagraph` is posted with
-    /// `object: nil`, so every open window receives it; we act only when key.
+    /// The owning project window. `.maughamNavigateToParagraph` is key-window
+    /// scoped (ADR 0021), so only the key window acts.
     let window: NSWindow?
     @Binding var binderSegment: BinderSegment
     @Environment(\.openWindow) private var openWindow
 
     func body(content: Content) -> some View {
         content
-            .onReceive(NotificationCenter.default.publisher(
-                for: .maughamNavigateToParagraph)) { note in
-                guard window?.isKeyWindow == true else { return }
+            .onKeyWindowCommand(.maughamNavigateToParagraph, window: window) { note in
                 // v1: just ensure the manuscript pane is focused.
                 // Anchored scroll-to-paragraph is a follow-up.
                 _ = note.userInfo?["paragraph_id"] as? String

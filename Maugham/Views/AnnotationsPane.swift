@@ -308,10 +308,9 @@ struct AnnotationsPane: View {
         NotificationCenter.default.post(
             name: .maughamNavigateToAnnotation, object: nil, userInfo: info)
         if let pid = ann.paragraphId {
-            NotificationCenter.default.post(
-                name: .maughamNavigateToParagraph,
-                object: nil,
-                userInfo: ["paragraph_id": pid])
+            MaughamEvent.post(
+                .maughamNavigateToParagraph, to: .keyWindow,
+                payload: ["paragraph_id": pid])
         }
     }
 }
