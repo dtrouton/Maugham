@@ -127,10 +127,15 @@ final class PresenterRoutingTests: XCTestCase {
         fx.documentStore.register(document: doc, for: fx.docPath)
 
         // Establish real op-log truth (this fixture starts with an anchored .md
-        // but an empty op log, so paragraphs derive empty until we write). The
-        // close() flushes the burst to the op log + a clean .md to disk.
+        // but an empty op log, so paragraphs derive empty until we write).
+        // Burst-flush + autosave keep the doc LIVE — close() would husk it
+        // (isClosed guards handleExternalDiskChange), and closed-but-still-
+        // registered isn't a production state: the live discard path only runs
+        // for open docs; while-closed edits are handled by the load-time
+        // divergence snapshot instead.
         doc.setFullText("Canonical content.")
-        await doc.close()
+        try await doc.flushBurstNow()
+        try await doc.performAutosave()
 
         let externalEditsBefore = (try await doc.opLog())
             .filter { $0.kind == .externalEdit }.count

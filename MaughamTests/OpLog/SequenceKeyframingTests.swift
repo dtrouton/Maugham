@@ -149,9 +149,12 @@ final class SequenceKeyframingTests: XCTestCase {
         try await doc.flushBurstNow()                       // keyframe
         doc.setParagraph(id: doc.sequence[0], text: "delta edit")
         try await doc.flushBurstNow()                       // nil-sequence burst
+
+        // Snapshot BEFORE close: close() husks the in-memory mirror
+        // (opLogSnapshot goes empty on a closed doc by design).
+        let keyframed = doc.opLogSnapshot.sorted { $0.opId < $1.opId }
         await doc.close()
 
-        let keyframed = doc.opLogSnapshot.sorted { $0.opId < $1.opId }
         XCTAssertTrue(keyframed.contains { $0.kind == .typingBurst && $0.sequence == nil },
                       "script must actually produce keyframed (nil) bursts")
         let full = fullCaptureTwin(of: keyframed)
