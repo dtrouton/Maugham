@@ -1204,8 +1204,7 @@ private struct FocusPostureModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .onReceive(NotificationCenter.default.publisher(
-                for: .maughamToggleNoChrome)) { _ in
+            .onKeyWindowCommand(.maughamToggleNoChrome, window: window) { _ in
                 isNoChromeOn.toggle()
                 applyNoChrome()
             }

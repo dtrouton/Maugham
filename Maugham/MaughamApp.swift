@@ -170,8 +170,7 @@ struct MaughamApp: App {
             CommandGroup(after: .toolbar) {
                 Divider()
                 Button("Toggle Focus Mode") {
-                    NotificationCenter.default.post(
-                        name: .maughamToggleNoChrome, object: nil)
+                    MaughamEvent.post(.maughamToggleNoChrome, to: .keyWindow)
                 }
                 .keyboardShortcut("\\", modifiers: .command)
                 Button("Toggle Review Mode") {
