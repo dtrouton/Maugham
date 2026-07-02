@@ -407,9 +407,7 @@ struct ProjectWindow: View {
                 .onKeyWindowCommand(.maughamShowSyntaxHelp, window: window) { _ in
                     showingSyntaxHelp = true
                 }
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamRestoreLastDeleted)) { _ in
-                    guard window?.isKeyWindow == true else { return }
+                .onKeyWindowCommand(.maughamRestoreLastDeleted, window: window) { _ in
                     Task {
                         try? await store?.restoreLastDeleted()
                     }

@@ -244,8 +244,7 @@ struct MaughamApp: App {
                 }
                 .keyboardShortcut("f", modifiers: [.command, .option])
                 Button("Restore Last Deleted Item") {
-                    NotificationCenter.default.post(
-                        name: .maughamRestoreLastDeleted, object: nil)
+                    MaughamEvent.post(.maughamRestoreLastDeleted, to: .keyWindow)
                 }
                 .keyboardShortcut("z", modifiers: [.command, .option])
             }
