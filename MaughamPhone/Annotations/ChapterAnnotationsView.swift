@@ -9,33 +9,48 @@ import MaughamCore
 @MainActor
 struct ChapterAnnotationsView: View {
     let chapter: ChapterAnnotations
+    /// The shared store, so this leaf re-slices its chapter live on reload (a
+    /// resolve elsewhere in the stack refreshes counts/sections in place instead
+    /// of going stale until you pop to root). `@Observable`, so reading
+    /// `store.projects` in the body re-renders on reload.
+    let store: AnnotationsStore
     let projectId: ProjectId
     let projectURL: URL
     let recents: RecentsTracker
     let mode: AnnotationsMode
     var onResolved: () -> Void = {}
 
+    /// Re-slice this chapter from the store (which holds all-status chapters) so
+    /// a resolve elsewhere in the stack refreshes counts/sections in place; falls
+    /// back to the pushed seed before the first observe / if absent.
+    private var liveChapter: ChapterAnnotations {
+        for project in store.projects {
+            if let c = project.chapters.first(where: { $0.docId == chapter.docId }) { return c }
+        }
+        return chapter
+    }
+
     var body: some View {
         List {
             Section(header: Text("Open")) {
-                if chapter.open.isEmpty {
+                if liveChapter.open.isEmpty {
                     Text("No open notes").foregroundStyle(.secondary)
                 } else {
-                    ForEach(chapter.open) { loaded in
+                    ForEach(liveChapter.open) { loaded in
                         noteLink(loaded, resolved: false)
                     }
                 }
             }
-            if mode == .all && !chapter.resolved.isEmpty {
+            if mode == .all && !liveChapter.resolved.isEmpty {
                 Section(header: Text("Resolved")) {
-                    ForEach(chapter.resolved) { loaded in
+                    ForEach(liveChapter.resolved) { loaded in
                         noteLink(loaded, resolved: true)
                     }
                 }
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle(chapter.chapterTitle)
+        .navigationTitle(liveChapter.chapterTitle)
         .navigationBarTitleDisplayMode(.inline)
     }
 
