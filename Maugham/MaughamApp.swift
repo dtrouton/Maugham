@@ -185,8 +185,7 @@ struct MaughamApp: App {
                 }
                 .keyboardShortcut("r", modifiers: [.command, .option])
                 Button("Toggle Full-Screen Focus") {
-                    NotificationCenter.default.post(
-                        name: .maughamToggleFullScreen, object: nil)
+                    MaughamEvent.post(.maughamToggleFullScreen, to: .keyWindow)
                 }
                 .keyboardShortcut("f", modifiers: [.command, .shift])
                 Button("Toggle Inspector") {

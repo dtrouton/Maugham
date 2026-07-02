@@ -160,7 +160,7 @@ struct ProjectWindow: View {
             mcpRegistry.unregister(url: url)
             Task { await documentStore?.close() }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .maughamToggleFullScreen)) { _ in
+        .onKeyWindowCommand(.maughamToggleFullScreen, window: window) { _ in
             toggleFullScreen()
         }
         .onReceive(NotificationCenter.default.publisher(for: .maughamDummySave)) { _ in
