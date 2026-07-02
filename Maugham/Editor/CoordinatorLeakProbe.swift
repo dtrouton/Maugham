@@ -1,5 +1,6 @@
 #if MAUGHAM_DEV_BUILD
 import AppKit
+import MaughamCore
 import os
 
 /// Dev-build-only weak registry of every `EditorCoordinator` ever created,
@@ -33,8 +34,12 @@ enum CoordinatorLeakProbe {
 
     private static var boxes: [WeakBox] = []
 
+    // Subsystem from the running bundle id; fallback routes through
+    // BuildVariant (tripwire 13 — no maugham identity literal outside
+    // BuildVariant.swift). `mcpServerKey` is the sanctioned variant-scoped
+    // identity string ("maugham-dev" here, since this file is dev-only).
     private static let log = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "com.maugham.Maugham.dev",
+        subsystem: Bundle.main.bundleIdentifier ?? BuildVariant.current.mcpServerKey,
         category: "CoordinatorLeakProbe")
 
     /// Record a newly created coordinator. Called from `EditorCoordinator.init`.
