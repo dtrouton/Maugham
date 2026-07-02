@@ -372,9 +372,7 @@ struct ProjectWindow: View {
                     showInspector = true     // ensure pane is visible
                     detailSegment = seg
                 }
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamTidyAllFilenames)) { _ in
-                    guard window?.isKeyWindow == true else { return }
+                .onKeyWindowCommand(.maughamTidyAllFilenames, window: window) { _ in
                     showingTidyAllConfirmation = true
                 }
                 .onReceive(NotificationCenter.default.publisher(

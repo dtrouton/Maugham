@@ -135,8 +135,7 @@ struct MaughamApp: App {
                 FocusedRestoreButton()
                 Divider()
                 Button("Tidy All Filenames") {
-                    NotificationCenter.default.post(
-                        name: .maughamTidyAllFilenames, object: nil)
+                    MaughamEvent.post(.maughamTidyAllFilenames, to: .keyWindow)
                 }
                 Button("Add Research File…") {
                     NotificationCenter.default.post(
