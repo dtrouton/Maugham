@@ -202,4 +202,111 @@ final class MaughamEventLivenessTests: XCTestCase {
             "a .keyWindow-scoped navigateToScene post must deliver to the attached coordinator's context once its window is key")
         _ = coordinator
     }
+
+    // MARK: - Teardown discipline (Task 8, ADR 0021)
+    // Pins the two headless-testable teardown obligations traced in
+    // docs/superpowers/notes/2026-07-02-window-teardown-audit.md.
+
+    /// `EditorSurface.dismantleNSView` — SwiftUI's teardown hook — must funnel
+    /// into `coordinator.detach()`. Previously only `detach()` was pinned
+    /// directly (EditorAppearanceChangeTests.test_detach_releasesViewAndSilencesRestyle);
+    /// this pins the WIRING point, so a refactor that stops routing dismantle →
+    /// detach (re-opening the graph-retention leak) fails here. The scrollView
+    /// argument is unused by dismantleNSView, so a bare NSScrollView suffices.
+    func test_dismantleNSView_callsDetach() {
+        let w = makeWindow()
+        let (coordinator, _) = makeAttachedCoordinator(in: w)
+        XCTAssertFalse(coordinator.isDetached)
+        XCTAssertNotNil(coordinator.textView)
+
+        EditorSurface.dismantleNSView(NSScrollView(), coordinator: coordinator)
+
+        XCTAssertTrue(coordinator.isDetached,
+            "dismantleNSView must flip isDetached via detach()")
+        XCTAssertNil(coordinator.textView,
+            "dismantleNSView must drop the text-view handle via detach()")
+        w.close()
+    }
+
+    /// `detach()` removes all five scoped observer tokens (belt) in addition to
+    /// `receiverContext` returning nil once `isDetached` (braces). This pins a
+    /// SECOND observer beyond the navigate one already covered by
+    /// `test_detachedCoordinator_receivesNoNavigateToScene`: a detached
+    /// coordinator must not flip its review membrane on a `.maughamToggleReviewMode`
+    /// post. (The two mechanisms are not independently isolable headlessly —
+    /// detach() both removes the token AND nils `textView` so `receiverContext`
+    /// returns nil — so this is a behavioral belt-and-braces net for a distinct
+    /// observer, not a token-removal-in-isolation assertion.)
+    func test_detach_silencesReviewToggleObserver() {
+        let w = makeWindow()
+        let (coordinator, _) = makeAttachedCoordinator(in: w)
+        XCTAssertFalse(coordinator.isReviewMode)
+        coordinator.detach()
+
+        MaughamEvent.post(.maughamToggleReviewMode, to: .keyWindow)
+
+        XCTAssertFalse(coordinator.isReviewMode,
+            "a detached coordinator must not flip review mode on a scoped toggle post")
+        _ = coordinator
+        w.close()
+    }
+
+    // MARK: - Per-scope-class closed-window matrix (Task 8, ADR 0021)
+    // Completes the set: .keyWindow (Task 4's test_closedWindowCoordinator_receivesNothing),
+    // .project (Task 2's test_observe_deliversToLiveProjectContext_dropsAfterClose),
+    // and below .document + the deliberate .allWindows exception.
+
+    /// `.document`: a document-scoped event must NOT reach a receiver whose
+    /// window has closed, even when the docId matches. Mirrors the `.project`
+    /// closed-window test (both funnel through the same `shouldDeliver` liveness
+    /// arm: `isWindowLive && scopeId == …`).
+    func test_closedWindow_documentEvent_dropped() {
+        let w = makeWindow()
+        var workCounter = 0
+        let token = MaughamEvent.observe(
+            testName,
+            context: { .forWindow(w, kind: .document(docId: "doc-xyz")) },
+            handler: { _ in workCounter += 1 })
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        MaughamEvent.post(testName, to: .document(docId: "doc-xyz"))
+        XCTAssertEqual(workCounter, 1, "live window, matching docId → delivered")
+
+        w.close()
+        MaughamEvent.post(testName, to: .document(docId: "doc-xyz"))
+        XCTAssertEqual(workCounter, 1,
+            "a closed window must receive NOTHING — even for its own document's events")
+    }
+
+    /// `.allWindows`: the DELIBERATE exception. A global event reaches a
+    /// closed-window receiver BY DESIGN — the `.global` arm of `shouldDeliver`
+    /// has NO liveness guard (`appWillTerminate` must reach view graphs SwiftUI
+    /// has already detached; Help must work with no project window open). Here
+    /// the context is built from a genuinely-closed window (`isWindowLive ==
+    /// false`) and delivery STILL happens.
+    ///
+    /// This test pins the exception so a future "helpful" liveness guard added
+    /// to the `.global` branch fails here and forces a conversation. Before
+    /// adding any such guard, read the per-global-name zombie-harm audit notes
+    /// in `Maugham/Models/MaughamNotifications.swift` (maughamNewProject,
+    /// maughamOpenProject, maughamAppWillTerminate, maughamShowHelp) — each
+    /// documents WHY its closed-window zombie delivery is harmless.
+    func test_globalEvent_reachesClosedWindowReceiver_byDesign() {
+        let w = makeWindow()
+        w.close()
+        XCTAssertFalse(MaughamEvent.isLive(w), "precondition: window is closed")
+
+        var workCounter = 0
+        // .forWindow(closedWindow, kind: .global) → isWindowLive == false, yet
+        // the .global arm ignores liveness entirely.
+        let token = MaughamEvent.observe(
+            testName,
+            context: { .forWindow(w, kind: .global) },
+            handler: { _ in workCounter += 1 })
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        MaughamEvent.post(testName, to: .allWindows)
+        XCTAssertEqual(workCounter, 1,
+            "a global (.allWindows) event MUST reach a closed-window receiver by design — see MaughamNotifications.swift zombie-harm audit notes before changing this")
+    }
 }
