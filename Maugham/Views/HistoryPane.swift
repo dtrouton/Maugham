@@ -233,10 +233,7 @@ struct HistoryPane: View {
                 .layoutPriority(1)
             Spacer(minLength: 4)
             Button {
-                NotificationCenter.default.post(
-                    name: .maughamOpenRewind,
-                    object: projectURL,
-                    userInfo: [:])
+                MaughamEvent.post(.maughamOpenRewind, to: .project(for: projectURL))
             } label: {
                 Image(systemName: "clock.arrow.circlepath")
             }
@@ -293,9 +290,9 @@ private struct HistoryRow: View {
     let onToggle: () -> Void
     let onJump: () -> Void
     let onRevert: () -> Void
-    /// Used as the notification `object` when the per-row Rewind button
-    /// posts `.maughamOpenRewind`, so multi-window setups dispatch the
-    /// modal only on the window that originated the click.
+    /// Names the project scope the per-row Rewind button posts
+    /// `.maughamOpenRewind` to (ADR 0021), so multi-window setups dispatch the
+    /// modal only on the window on that project.
     let projectURL: URL
 
     /// For lifecycle ops (claudeAccept/claudeReject/claudeArchive) the body
@@ -342,11 +339,10 @@ private struct HistoryRow: View {
                     .simultaneousGesture(TapGesture().onEnded { })
             } else if case .op(let op) = entry, mutatesManuscript(op.kind) {
                 Button {
-                    NotificationCenter.default.post(
-                        name: .maughamOpenRewind,
-                        object: projectURL,
-                        userInfo: ["scrub_op_id": op.opId,
-                                   "scrub_op_at": op.at])
+                    MaughamEvent.post(
+                        .maughamOpenRewind, to: .project(for: projectURL),
+                        payload: ["scrub_op_id": op.opId,
+                                  "scrub_op_at": op.at])
                 } label: {
                     Label("Rewind to before this…", systemImage: "arrow.uturn.backward")
                         .labelStyle(.iconOnly)

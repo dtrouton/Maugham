@@ -242,6 +242,7 @@ struct ProjectWindow: View {
             documentStore: documentStore,
             store: store,
             window: window,
+            url: url,
             selectedItemId: selectedItemId,
             showingCheckpointLabelSheet: $showingCheckpointLabelSheet,
             onSaveFlash: { showSaveFlash() }))
@@ -1045,6 +1046,9 @@ private struct CheckpointModifier: ViewModifier {
     /// so ⌘S checkpoints + backs up the front project only. The store /
     /// documentStore checks below are action preconditions, not scope guards.
     let window: NSWindow?
+    /// Fallback project URL, threaded to RewindModifier for its project scope
+    /// when `store` hasn't loaded yet (ADR 0021).
+    let url: URL
     let selectedItemId: String?
     @Binding var showingCheckpointLabelSheet: Bool
     let onSaveFlash: () -> Void
@@ -1086,6 +1090,8 @@ private struct CheckpointModifier: ViewModifier {
             .modifier(RewindModifier(
                 documentStore: documentStore,
                 store: store,
+                window: window,
+                url: url,
                 selectedItemId: selectedItemId))
     }
 
@@ -1109,22 +1115,22 @@ private struct CheckpointModifier: ViewModifier {
 private struct RewindModifier: ViewModifier {
     let documentStore: DocumentStore?
     let store: ProjectStore?
+    let window: NSWindow?
+    let url: URL
     let selectedItemId: String?
     @State private var showingRewindModal: Bool = false
     @State private var rewindInitialCursor: RewindCursor = .now
 
     func body(content: Content) -> some View {
         content
-            .onReceive(NotificationCenter.default.publisher(
-                for: .maughamOpenRewind)) { note in
-                // Scope to the originating window: HistoryPane posts the
-                // notification with `object: projectURL`. With multiple
-                // ProjectWindows open, this prevents every window's modal
-                // from opening on a single click — only the window whose
-                // projectURL matches the originator presents.
-                guard let originator = note.object as? URL,
-                      originator == store?.url,
-                      selectedItemId != nil else { return }
+            .onProjectEvent(.maughamOpenRewind,
+                            url: store?.url ?? url, window: window) { note in
+                // Project-scoped (ADR 0021): HistoryPane posts to
+                // `.project(for: projectURL)`, so with multiple ProjectWindows
+                // open only the window on the originating project — and only
+                // while live — presents the modal. `selectedItemId != nil` is
+                // an action precondition (need a doc to rewind), not a scope.
+                guard selectedItemId != nil else { return }
                 if let opId = note.userInfo?["scrub_op_id"] as? String,
                    let at = note.userInfo?["scrub_op_at"] as? Date {
                     rewindInitialCursor = .atOp(opId: opId, at: at)
