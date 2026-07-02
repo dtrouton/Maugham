@@ -109,7 +109,7 @@ struct MaughamApp: App {
             UpdateMenuCommand()
             CommandGroup(replacing: .newItem) {
                 Button("New Project…") {
-                    NotificationCenter.default.post(name: .maughamNewProject, object: nil)
+                    MaughamEvent.post(.maughamNewProject, to: .allWindows)
                 }
                 .keyboardShortcut("n", modifiers: .command)
                 Button("Open Project…") {
@@ -444,7 +444,7 @@ private struct WelcomeHost: View {
         .onChange(of: onboarding.sampleRequested) { _, v in
             if v != nil { consumeOnboardingIntent() }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .maughamNewProject)) { _ in
+        .onGlobalEvent(.maughamNewProject) { _ in
             showingNewProject = true
         }
         .onReceive(NotificationCenter.default.publisher(for: .maughamOpenProject)) { notification in
