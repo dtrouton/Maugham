@@ -52,10 +52,7 @@ struct CollectionPiecesPane: View {
                         }
                         if piece.pieceKind == .loose {
                             Button("Promote to Standalone Project…") {
-                                NotificationCenter.default.post(
-                                    name: .maughamPromotePiece,
-                                    object: nil,
-                                    userInfo: ["piece_id": piece.id])
+                                MaughamEvent.post(.maughamPromotePiece, to: .keyWindow, payload: ["piece_id": piece.id])
                             }
                         }
                         Divider()

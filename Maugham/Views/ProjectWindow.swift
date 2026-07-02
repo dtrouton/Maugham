@@ -529,8 +529,7 @@ struct ProjectWindow: View {
                         }
                     }
                 }
-                .onReceive(NotificationCenter.default.publisher(
-                    for: .maughamPromotePiece)) { note in
+                .onKeyWindowCommand(.maughamPromotePiece, window: window) { note in
                     guard let store, store.manifest.type == .collection,
                           let info = note.userInfo,
                           let pieceId = info["piece_id"] as? String,
