@@ -105,21 +105,31 @@ public enum ProjectASTBuilder {
                 continue
             }
 
-            // List: consecutive marker lines collect items; a non-marker,
-            // non-blank line stays inside the CURRENT item's text (flat/tight
-            // nesting — YAGNI per spec ledger). A blank line ends the block.
-            // Ordered-vs-unordered is decided by the first item's marker.
+            // List: consecutive marker lines collect items; an INDENTED
+            // non-marker, non-blank line stays inside the CURRENT item's text
+            // (flat/tight nesting — YAGNI per spec ledger). A blank line ends
+            // the block; so does an UNINDENTED non-marker line — that line is
+            // left for the outer loop to reprocess as a normal block, so a
+            // trailing scene-break/heading/blockquote reclaims it rather than
+            // being swallowed as list-item text.
+            // Ordered-vs-unordered is decided by the first item's marker —
+            // mixing (`- a` then `2. b`) is lossy-but-intentional: the list
+            // stays unordered, the later numeral is just item text.
             if let (ordered, firstContent) = parseListMarker(lines[i]) {
                 var itemTexts: [String] = [firstContent]
                 i += 1
-                while i < lines.count {
+                listLoop: while i < lines.count {
                     if let (_, content) = parseListMarker(lines[i]) {
                         itemTexts.append(content)
-                    } else {
-                        let t = lines[i].trimmingCharacters(in: .whitespaces)
-                        if t.isEmpty { break }
-                        itemTexts[itemTexts.count - 1] += " " + t
+                        i += 1
+                        continue
                     }
+                    let t = lines[i].trimmingCharacters(in: .whitespaces)
+                    if t.isEmpty { break listLoop }
+                    guard lines[i].hasPrefix(" ") || lines[i].hasPrefix("\t") else {
+                        break listLoop   // unindented — end list, reprocess line
+                    }
+                    itemTexts[itemTexts.count - 1] += " " + t
                     i += 1
                 }
                 nodes.append(.list(ordered: ordered, items: itemTexts.map(InlineParser.parse)))

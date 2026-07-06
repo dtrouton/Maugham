@@ -150,4 +150,14 @@ final class InlineParserTests: XCTestCase {
         XCTAssertEqual(parse("a\\\nb"),
                        [.text("a"), .lineBreak, .text("b")])
     }
+
+    // An escaped backslash (`\\`) is an escape PAIR, not a hard-break opener:
+    // the first `\` neutralizes the second into a literal character, so the
+    // following newline is an ordinary (soft) newline, not `.lineBreak`.
+    // Source chars: a, \, \, \n, b.
+    func testEscapedBackslash_thenNewline_isNotAHardBreak() {
+        let result = parse("a\\\\\nb")
+        XCTAssertFalse(result.contains(.lineBreak))
+        XCTAssertEqual(result, [.text("a\\\nb")])
+    }
 }

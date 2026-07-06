@@ -25,6 +25,14 @@ public enum InlineParser {
     private static let newline: unichar    = 10
     private static let backslash: unichar  = 92
 
+    /// Mirrors `InlineEmphasisScanner`'s escapable set (`* ~ _ \`` `/`\`).
+    /// A backslash before one of these — including another backslash — is an
+    /// escape pair the scanner neutralizes on its own; recognizing the pair
+    /// here (without protecting it) means we skip past BOTH chars before
+    /// asking "is this backslash followed by a newline", so the second `\` of
+    /// an escaped `\\` pair can't be misread as opening its own hard break.
+    private static let escapableAfterBackslash: Set<unichar> = [42, 126, 95, 96, 92]
+
     /// Left-to-right scan collecting inline code, wiki links, and hard breaks.
     /// Order at any index is unambiguous (each starts with a distinct char);
     /// unbalanced openers degrade to literal text (left for the converter).
@@ -70,15 +78,29 @@ public enum InlineParser {
                 continue
             }
 
-            // Hard line break, second spelling: a backslash immediately before
-            // a newline. Must be claimed HERE, before `EmphasisRunConverter`
-            // masks this span and hands the rest to `InlineEmphasisScanner`'s
-            // own escape pre-pass — that pre-pass only neutralizes a backslash
-            // before `* ~ _ \``/`\`, so newline (not in that set) would leave
-            // the backslash to survive as literal text otherwise.
-            if ch == backslash, i + 1 < n, ns.character(at: i + 1) == newline {
-                spans.append(ProtectedSpan(range: NSRange(location: i, length: 2), node: .lineBreak))
-                i += 2
+            if ch == backslash {
+                // Escape pair takes priority: `\` before an escapable char
+                // (including another `\`) is left UNPROTECTED — the scanner's
+                // own escape pre-pass renders it — but both chars are skipped
+                // here so the second char never reaches the hard-break check
+                // below as if it were an unescaped backslash.
+                if i + 1 < n, escapableAfterBackslash.contains(ns.character(at: i + 1)) {
+                    i += 2
+                    continue
+                }
+                // Hard line break, second spelling: a backslash immediately
+                // before a newline. Must be claimed HERE, before
+                // `EmphasisRunConverter` masks this span and hands the rest to
+                // `InlineEmphasisScanner`'s own escape pre-pass — that
+                // pre-pass only neutralizes a backslash before `* ~ _ \``/`\`,
+                // so newline (not in that set) would leave the backslash to
+                // survive as literal text otherwise.
+                if i + 1 < n, ns.character(at: i + 1) == newline {
+                    spans.append(ProtectedSpan(range: NSRange(location: i, length: 2), node: .lineBreak))
+                    i += 2
+                    continue
+                }
+                i += 1
                 continue
             }
 

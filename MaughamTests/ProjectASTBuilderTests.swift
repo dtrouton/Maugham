@@ -403,6 +403,29 @@ final class ProjectASTBuilderTests: XCTestCase {
             [.prose(.verbatim(["line one", "line two"]))])
     }
 
+    // An UNINDENTED non-marker line ends the list and is reprocessed by the
+    // normal block loop — so a trailing scene-break/heading isn't swallowed
+    // as list-item text (regression: the original implementation treated any
+    // non-blank line as a continuation regardless of indentation).
+    func test_list_unindentedSceneBreak_endsListAndBecomesSceneBreak() {
+        XCTAssertEqual(buildProse("- item\n***\n"),
+            [.prose(.list(ordered: false, items: [[.text("item")]])), .prose(.sceneBreak)])
+    }
+
+    func test_list_unindentedHeading_endsListAndBecomesHeading() {
+        XCTAssertEqual(buildProse("- item\n# H\n"),
+            [.prose(.list(ordered: false, items: [[.text("item")]])),
+             .prose(.heading(level: 1, [.text("H")]))])
+    }
+
+    // Mixing markers is lossy-but-intentional (spec ledger: flat/tight
+    // lists) — the FIRST item's marker decides ordered-vs-unordered for the
+    // whole block; a later numeral is just item text, not a mode switch.
+    func test_list_mixedMarkers_firstMarkerWins_unordered() {
+        XCTAssertEqual(buildProse("- a\n2. b\n"),
+            [.prose(.list(ordered: false, items: [[.text("a")], [.text("b")]]))])
+    }
+
     func testMixedPieces_preserveOrder() {
         let src = FixtureSource(pieces: [
             (id: "p1", title: "First", mode: .prose, text: "Hello."),
