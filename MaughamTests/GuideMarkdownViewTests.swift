@@ -48,4 +48,67 @@ final class GuideMarkdownViewTests: XCTestCase {
         guard case .paragraph(let p) = blocks[0] else { return XCTFail("expected paragraph") }
         XCTAssertEqual(p, "Quoted line one quoted line two.")
     }
+
+    func test_orderedListItemsDoNotReflowIntoOneParagraph() {
+        let md = "1. Install\n2. Open"
+        let blocks = GuideMarkdownView.parse(md)
+        XCTAssertEqual(blocks.count, 2, "each ordered line is its own block, not reflowed")
+        guard case .orderedItem(let n1, let t1) = blocks[0] else { return XCTFail("expected orderedItem") }
+        XCTAssertEqual(n1, "1"); XCTAssertEqual(t1, "Install")
+        guard case .orderedItem(let n2, let t2) = blocks[1] else { return XCTFail("expected orderedItem") }
+        XCTAssertEqual(n2, "2"); XCTAssertEqual(t2, "Open")
+    }
+
+    func test_orderedListAcceptsParenMarkerAndMultiDigit() {
+        let md = "10) Tenth step"
+        let blocks = GuideMarkdownView.parse(md)
+        guard case .orderedItem(let n, let t) = blocks[0] else { return XCTFail("expected orderedItem") }
+        XCTAssertEqual(n, "10"); XCTAssertEqual(t, "Tenth step")
+    }
+
+    func test_literalPipeWithoutDelimiterRowStaysParagraph() {
+        let md = "Cost is $5 | $10 depending on plan."
+        let blocks = GuideMarkdownView.parse(md)
+        XCTAssertEqual(blocks.count, 1)
+        guard case .paragraph(let p) = blocks[0] else { return XCTFail("expected paragraph, got \(blocks)") }
+        XCTAssertEqual(p, "Cost is $5 | $10 depending on plan.")
+    }
+
+    func test_parsesPipeTable() {
+        let md = """
+        | Key | Action |
+        |---|---|
+        | `⌘N` | New project |
+        | `⌘O` | Open project |
+        """
+        let blocks = GuideMarkdownView.parse(md)
+        XCTAssertEqual(blocks.count, 1)
+        guard case .table(let header, let rows) = blocks[0] else { return XCTFail("expected table, got \(blocks)") }
+        XCTAssertEqual(header, ["Key", "Action"])
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows[0], ["`⌘N`", "New project"])
+        XCTAssertEqual(rows[1], ["`⌘O`", "Open project"])
+    }
+
+    /// Parses the actual shipped `docs/guide/reference.md` — the corpus this
+    /// bug was filed against (audit A3). Reads it straight from the repo the
+    /// way `GuideDocsDriftTests` does, not a synthetic fixture.
+    func test_parsesRealReferenceDocKeyboardShortcutTable() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // MaughamTests/
+            .deletingLastPathComponent()   // repo root
+        let md = try String(contentsOf: repoRoot.appendingPathComponent("docs/guide/reference.md"), encoding: .utf8)
+        let blocks = GuideMarkdownView.parse(md)
+
+        let tables = blocks.compactMap { block -> ([String], [[String]])? in
+            if case .table(let header, let rows) = block { return (header, rows) }
+            return nil
+        }
+        XCTAssertEqual(tables.count, 1, "expected exactly one table in reference.md")
+        let (header, rows) = try XCTUnwrap(tables.first)
+        XCTAssertEqual(header, ["", ""], "reference.md's shortcut table header row is blank cells")
+        XCTAssertEqual(rows.count, 15, "one row per documented shortcut")
+        XCTAssertEqual(rows.first, ["`⌘N`", "New project"])
+        XCTAssertTrue(rows.contains(["`⌘/`", "Syntax + keyboard reference"]))
+    }
 }
