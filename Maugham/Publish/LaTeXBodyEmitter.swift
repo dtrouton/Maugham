@@ -9,12 +9,23 @@ import Foundation
 public enum LaTeXBodyEmitter {
 
     public static func emit(_ ast: ProjectAST, config: PublishConfig = PublishConfig()) -> String {
-        var lines: [String] = []
+        var lines: [String] = [strikethroughProvidecommand]
         for (index, section) in ast.sections.enumerated() {
             emit(section: section, isFirst: index == 0, config: config, into: &lines)
         }
         return lines.joined(separator: "\n")
     }
+
+    /// Fallback for `\st` (strikethrough): the starter `preamble.tex` loads
+    /// `soul` so `\st` normally renders a real strikethrough, but an EXISTING
+    /// per-project preamble authored before this package was added won't have
+    /// it. `\providecommand` (never `\newcommand`) keeps `soul`'s own
+    /// definition when present and only degrades to plain text — never a
+    /// compile failure — when it isn't. Emitted once, unconditionally, at the
+    /// top of the body so both prose and fountain sections are covered
+    /// regardless of which mode first uses `~~strikethrough~~`.
+    private static let strikethroughProvidecommand =
+        "\\providecommand{\\st}[1]{#1}"
 
     // MARK: - section
 

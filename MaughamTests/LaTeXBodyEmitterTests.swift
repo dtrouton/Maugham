@@ -3,9 +3,12 @@ import XCTest
 
 final class LaTeXBodyEmitterTests: XCTestCase {
 
-    func testEmits_emptyAST_emptyBody() {
+    func testEmits_emptyAST_onlyStrikethroughFallback() {
+        // The unconditional \st providecommand fallback (task-8) is the only
+        // line emitted even with zero sections.
         let body = LaTeXBodyEmitter.emit(ProjectAST(sections: []))
-        XCTAssertEqual(body.trimmingCharacters(in: .whitespacesAndNewlines), "")
+        XCTAssertEqual(body.trimmingCharacters(in: .whitespacesAndNewlines),
+                       "\\providecommand{\\st}[1]{#1}")
     }
 
     func testEmits_proseSection_environment() {
