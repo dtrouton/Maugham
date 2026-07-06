@@ -130,13 +130,17 @@ public enum MarkdownBlockParser {
             }
 
             // Paragraph: gather consecutive raw lines until a blank line
-            // or the start of another block kind.
+            // or the start of another block kind. Quote is the ONLY new
+            // block kind that interrupts accumulation without a blank line
+            // — a verbatim port of ProjectASTBuilder's paragraph loop. Table
+            // and solo image do NOT interrupt: byte-for-byte parity with
+            // publish's existing paragraph-loop behavior is the gate, so a
+            // `text\n| a | b |` input stays one paragraph, matching today.
             var paraLines: [String] = []
             while i < lines.count {
                 let t = lines[i].trimmingCharacters(in: .whitespaces)
                 if t.isEmpty || isThematicBreakLine(t) || parseHeading(t) != nil
-                    || t.hasPrefix(">") || parseSoloImage(t) != nil
-                    || (t.contains("|") && i + 1 < lines.count && isTableDelimiterRow(lines[i + 1])) {
+                    || t.hasPrefix(">") {
                     break
                 }
                 paraLines.append(lines[i])

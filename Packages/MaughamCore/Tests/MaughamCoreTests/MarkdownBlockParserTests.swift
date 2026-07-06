@@ -105,4 +105,12 @@ final class MarkdownBlockParserTests: XCTestCase {
         XCTAssertEqual(MarkdownBlockParser.parse("![x](https://a/b.png)"),
             [.paragraph(lines: ["![x](https://a/b.png)"])])
     }
+    // Pins publish parity: table/image require a preceding blank line to
+    // start a new block — unlike quote, they do NOT interrupt paragraph
+    // accumulation. `text` directly followed by a table with no blank line
+    // stays ONE paragraph, matching publish's existing (pre-Task-3) behavior.
+    func test_tableWithoutBlankLine_staysInParagraph() {
+        XCTAssertEqual(MarkdownBlockParser.parse("text\n| a | b |\n|---|---|"),
+            [.paragraph(lines: ["text", "| a | b |", "|---|---|"])])
+    }
 }
