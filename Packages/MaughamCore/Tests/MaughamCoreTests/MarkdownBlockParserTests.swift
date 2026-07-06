@@ -40,4 +40,36 @@ final class MarkdownBlockParserTests: XCTestCase {
             [.paragraph(lines: ["text"]), .thematicBreak,
              .paragraph(lines: ["text2"])])
     }
+
+    func test_unorderedList_flat() {
+        XCTAssertEqual(MarkdownBlockParser.parse("- one\n- two"),
+            [.list(ordered: false, items: [["one"], ["two"]])])
+    }
+    func test_orderedList_bothDelimiters_firstMarkerWins() {
+        XCTAssertEqual(MarkdownBlockParser.parse("1. a\n2) b"),
+            [.list(ordered: true, items: [["a"], ["b"]])])
+        XCTAssertEqual(MarkdownBlockParser.parse("- a\n2. b"),
+            [.list(ordered: false, items: [["a"], ["b"]])])
+    }
+    func test_list_indentedContinuation_staysInItem() {
+        XCTAssertEqual(MarkdownBlockParser.parse("- item\n  continued"),
+            [.list(ordered: false, items: [["item", "  continued"]])])
+    }
+    func test_list_unindentedLine_endsList_reprocessed() {
+        XCTAssertEqual(MarkdownBlockParser.parse("- item\n***"),
+            [.list(ordered: false, items: [["item"]]), .thematicBreak])
+        XCTAssertEqual(MarkdownBlockParser.parse("- item\n# H"),
+            [.list(ordered: false, items: [["item"]]), .heading(level: 1, text: "H")])
+    }
+    func test_starListMarker_vsThematicBreak() {
+        XCTAssertEqual(MarkdownBlockParser.parse("* item"),
+            [.list(ordered: false, items: [["item"]])])
+        XCTAssertEqual(MarkdownBlockParser.parse("***"), [.thematicBreak])
+    }
+    func test_fence_verbatim_infoString_unclosed() {
+        XCTAssertEqual(MarkdownBlockParser.parse("```swift\nlet *x* = 1\n```"),
+            [.fence(lines: ["let *x* = 1"], info: "swift")])
+        XCTAssertEqual(MarkdownBlockParser.parse("```\n  raw indent kept"),
+            [.fence(lines: ["  raw indent kept"], info: nil)])
+    }
 }

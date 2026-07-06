@@ -16,10 +16,10 @@ public enum MarkdownBlock: Equatable, Sendable {
 
 /// Shared block-level Markdown parser: one line-oriented state machine
 /// replacing the hand-rolled splitters previously duplicated across
-/// publish/editor/phone surfaces. This task implements headings,
-/// paragraphs, and thematic breaks; list/fence/quote/table/image
-/// recognition land in later tasks — until then those inputs fall through
-/// to paragraph accumulation.
+/// publish/editor/phone surfaces. Headings, paragraphs, thematic breaks,
+/// lists, and fences are implemented; quote/table/image recognition land
+/// in a later task — until then those inputs fall through to paragraph
+/// accumulation.
 public enum MarkdownBlockParser {
     public static func parse(_ text: String) -> [MarkdownBlock] {
         let lines = text.components(separatedBy: "\n")
@@ -27,6 +27,24 @@ public enum MarkdownBlockParser {
         var i = 0
         while i < lines.count {
             let trimmed = lines[i].trimmingCharacters(in: .whitespaces)
+
+            // Fence FIRST of all — its interior suppresses every other rule,
+            // including blank-line paragraph breaks.
+            if trimmed.hasPrefix("```") {
+                let info = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+                var rawLines: [String] = []
+                i += 1
+                while i < lines.count {
+                    if lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                        i += 1
+                        break
+                    }
+                    rawLines.append(lines[i])
+                    i += 1
+                }
+                blocks.append(.fence(lines: rawLines, info: info.isEmpty ? nil : info))
+                continue
+            }
 
             if trimmed.isEmpty { i += 1; continue }
 
@@ -41,6 +59,33 @@ public enum MarkdownBlockParser {
             if let (level, content) = parseHeading(trimmed) {
                 blocks.append(.heading(level: level, text: content))
                 i += 1; continue
+            }
+
+            // List: consecutive marker lines collect items. An INDENTED
+            // non-marker, non-blank line stays inside the current item's
+            // text. A blank line ends the block; so does an UNINDENTED
+            // non-marker line — that line is left for the outer loop to
+            // reprocess as a normal block (verbatim port of
+            // ProjectASTBuilder.parseProseBlocks's list loop).
+            if let (ordered, firstContent) = parseListMarker(lines[i]) {
+                var items: [[String]] = [[firstContent]]
+                i += 1
+                listLoop: while i < lines.count {
+                    if let (_, content) = parseListMarker(lines[i]) {
+                        items.append([content])
+                        i += 1
+                        continue
+                    }
+                    let t = lines[i].trimmingCharacters(in: .whitespaces)
+                    if t.isEmpty { break listLoop }
+                    guard lines[i].hasPrefix(" ") || lines[i].hasPrefix("\t") else {
+                        break listLoop   // unindented — end list, reprocess line
+                    }
+                    items[items.count - 1].append(lines[i])
+                    i += 1
+                }
+                blocks.append(.list(ordered: ordered, items: items))
+                continue
             }
 
             // Paragraph: gather consecutive raw lines until a blank line
@@ -78,5 +123,40 @@ public enum MarkdownBlockParser {
         let content = after.trimmingCharacters(in: .whitespaces)
         guard !content.isEmpty else { return nil }
         return (level, content)
+    }
+
+    /// Match `^\s*([-*+]|\d{1,9}[.)])\s+` and return whether the marker is
+    /// ordered plus the content that follows the marker's whitespace run.
+    /// Verbatim port of `ProjectASTBuilder.parseListMarker`. Called after
+    /// the thematic-break check, so `* * *` never reaches here.
+    private static func parseListMarker(_ line: String) -> (ordered: Bool, content: String)? {
+        var idx = line.startIndex
+        while idx < line.endIndex, line[idx] == " " || line[idx] == "\t" {
+            idx = line.index(after: idx)
+        }
+        guard idx < line.endIndex else { return nil }
+
+        let ordered: Bool
+        if line[idx] == "-" || line[idx] == "*" || line[idx] == "+" {
+            ordered = false
+            idx = line.index(after: idx)
+        } else if line[idx].isNumber {
+            var digits = 0
+            while idx < line.endIndex, line[idx].isNumber, digits < 9 {
+                idx = line.index(after: idx)
+                digits += 1
+            }
+            guard idx < line.endIndex, line[idx] == "." || line[idx] == ")" else { return nil }
+            ordered = true
+            idx = line.index(after: idx)
+        } else {
+            return nil
+        }
+
+        guard idx < line.endIndex, line[idx] == " " || line[idx] == "\t" else { return nil }
+        while idx < line.endIndex, line[idx] == " " || line[idx] == "\t" {
+            idx = line.index(after: idx)
+        }
+        return (ordered, String(line[idx...]))
     }
 }
