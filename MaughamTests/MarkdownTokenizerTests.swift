@@ -76,6 +76,26 @@ final class MarkdownTokenizerTests: XCTestCase {
         XCTAssertTrue(kinds.contains(.syntaxPunctuation))
     }
 
+    /// Audit A5: `![alt](url)` image syntax was mis-tokenizing its
+    /// `[alt](url)` tail as a link.
+    func test_imageSyntax_producesNoLinkToken() {
+        let tokens = tokenizer.tokenize("![alt](x.png)")
+        XCTAssertFalse(tokens.contains { if case .link = $0.kind { return true }; return false },
+                       "image alt/url tail should not be link-styled")
+    }
+
+    func test_plainLink_stillLinkStyled() {
+        let tokens = tokenizer.tokenize("[a](b)")
+        XCTAssertTrue(tokens.contains { $0.kind == .link(href: "b") })
+    }
+
+    func test_imageFollowedByLink_onlyLinkIsTokenized() {
+        let tokens = tokenizer.tokenize("a ![i](u) b [l](v)")
+        let linkTokens = tokens.filter { if case .link = $0.kind { return true }; return false }
+        XCTAssertEqual(linkTokens.count, 1)
+        XCTAssertEqual(linkTokens.first?.kind, .link(href: "v"))
+    }
+
     func test_listMarker_producesListMarker() {
         let tokens = tokenizer.tokenize("- item")
         XCTAssertTrue(tokens.contains { $0.kind == .listMarker })

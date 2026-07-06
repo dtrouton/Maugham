@@ -98,10 +98,12 @@ public struct MarkdownTokenizer: Sendable {
                 ]
             }
 
-        // Link: \[([^\]\n]+)\]\(([^\)\n]+)\)
+        // Link: (?<!\!)\[([^\]\n]+)\]\(([^\)\n]+)\)
+        // Negative lookbehind excludes `![alt](url)` image syntax — its
+        // `[alt](url)` tail is not a link and must not be link-styled.
         addMatches(
             in: nsText, fullRange: fullRange,
-            pattern: #"\[([^\]\n]+)\]\(([^\)\n]+)\)"#,
+            pattern: #"(?<!\!)\[([^\]\n]+)\]\(([^\)\n]+)\)"#,
             into: &tokens) { match in
                 let outer = match.range(at: 0)
                 let labelInner = match.range(at: 1)
