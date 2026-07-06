@@ -439,6 +439,30 @@ final class ProjectASTBuilderTests: XCTestCase {
             [.prose(.list(ordered: false, items: [[.text("a")], [.text("b")]]))])
     }
 
+    // MARK: - degrade pins (Task 5: table + solo image → literal paragraph)
+
+    // A GFM pipe table is display-only grammar the publish path does not
+    // render; today it falls through the block loop as literal paragraph text
+    // (no block rule claims a `|` line). This pin captures that exact
+    // literal-paragraph AST so the shared-parser cutover — which recognizes the
+    // table as its own block, then DEGRADES it back through the same paragraph
+    // helper — stays byte-identical.
+    func test_pipeTable_degradesToLiteralParagraph() {
+        let nodes = buildProse("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        XCTAssertEqual(nodes, [.prose(.paragraph([
+            .text("| a | b | | --- | --- | | 1 | 2 |")]))])
+    }
+
+    // A whole-line `./`-relative image reference is likewise display-only;
+    // today it is swallowed as literal paragraph text. The cutover recognizes
+    // it as a solo-image block and degrades it back through the same paragraph
+    // helper — this pin locks the byte-identical result.
+    func test_soloImageLine_degradesToParagraph() {
+        let nodes = buildProse("![Alt](./img/pic.png)")
+        XCTAssertEqual(nodes, [.prose(.paragraph([
+            .text("![Alt](./img/pic.png)")]))])
+    }
+
     // MARK: - E1 (MCP smoke): held blank survives the op-log round trip
 
     /// The full E1 fixture through the real publish path: a Fountain piece whose
