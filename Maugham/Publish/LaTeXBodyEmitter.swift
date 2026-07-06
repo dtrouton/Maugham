@@ -9,12 +9,23 @@ import Foundation
 public enum LaTeXBodyEmitter {
 
     public static func emit(_ ast: ProjectAST, config: PublishConfig = PublishConfig()) -> String {
-        var lines: [String] = []
+        var lines: [String] = [strikethroughProvidecommand]
         for (index, section) in ast.sections.enumerated() {
             emit(section: section, isFirst: index == 0, config: config, into: &lines)
         }
         return lines.joined(separator: "\n")
     }
+
+    /// Fallback for `\st` (strikethrough): the starter `preamble.tex` loads
+    /// `soul` so `\st` normally renders a real strikethrough, but an EXISTING
+    /// per-project preamble authored before this package was added won't have
+    /// it. `\providecommand` (never `\newcommand`) keeps `soul`'s own
+    /// definition when present and only degrades to plain text — never a
+    /// compile failure — when it isn't. Emitted once, unconditionally, at the
+    /// top of the body so both prose and fountain sections are covered
+    /// regardless of which mode first uses `~~strikethrough~~`.
+    private static let strikethroughProvidecommand =
+        "\\providecommand{\\st}[1]{#1}"
 
     // MARK: - section
 
@@ -64,6 +75,7 @@ public enum LaTeXBodyEmitter {
             out.append("\\end{prose}")
         case .fountain:
             out.append("\\begin{screenplay}\(opt){\(title)}")
+            out.append(contentsOf: fountainProvidecommands)
             for node in section.nodes { emit(node: node, into: &out) }
             out.append("\\end{screenplay}")
         }
@@ -96,6 +108,18 @@ public enum LaTeXBodyEmitter {
             out.append("\\end{quote}")
         case .sceneBreak:
             out.append("\\scenebreak")
+        case .list(let ordered, let items):
+            let env = ordered ? "enumerate" : "itemize"
+            out.append("\\begin{\(env)}")
+            for item in items {
+                out.append("\\item \(emitInline(item))")
+            }
+            out.append("\\end{\(env)}")
+        case .verbatim(let lines):
+            // A mangle guard, not code support: escaped text joined by `\\`
+            // in a plain paragraph — no `\texttt`, no monospace pretension.
+            out.append(lines.map(LaTeXEscape.escape).joined(separator: "\\\\"))
+            out.append("")   // blank line → \par, matching .paragraph
         }
     }
 
@@ -106,6 +130,7 @@ public enum LaTeXBodyEmitter {
             case .text(let s):     return LaTeXEscape.escape(s)
             case .emphasis(let xs): return "\\emph{\(emitInline(xs))}"
             case .strong(let xs):   return "\\textbf{\(emitInline(xs))}"
+            case .strikethrough(let xs): return "\\st{\(emitInline(xs))}"
             case .underline(let xs): return "\\underline{\(emitInline(xs))}"
             case .code(let s):      return "\\texttt{\(LaTeXEscape.escape(s))}"
             case .wikiLink(let target, let display):
@@ -124,6 +149,7 @@ public enum LaTeXBodyEmitter {
             case .text(let s):              return LaTeXEscape.escape(s)
             case .emphasis(let xs):         return plainText(xs)
             case .strong(let xs):           return plainText(xs)
+            case .strikethrough(let xs):    return plainText(xs)
             case .underline(let xs):        return plainText(xs)
             case .code(let s):              return LaTeXEscape.escape(s)
             case .wikiLink(_, let display): return LaTeXEscape.escape(display)
@@ -132,14 +158,34 @@ public enum LaTeXBodyEmitter {
         }.joined()
     }
 
+    /// Fallback definitions for the fountain-mode commands introduced by the
+    /// lyric/centered/scene-number vocabulary expansion. `\providecommand`
+    /// (not `\newcommand`) so an EXISTING per-project template that already
+    /// defines one of these keeps its own definition — this is what lets
+    /// the expanded vocabulary compile against templates authored before it
+    /// existed.
+    private static let fountainProvidecommands: [String] = [
+        "\\providecommand{\\lyricline}[1]{\\textit{#1}\\par}",
+        "\\providecommand{\\centeredline}[1]{\\begin{center}#1\\end{center}}",
+        "\\providecommand{\\scenenumber}[1]{\\hfill #1}",
+    ]
+
     private static func emit(fountain: ProjectAST.FountainNode, into out: inout [String]) {
         switch fountain {
-        case .sceneHeading(let s):  out.append("\\scene{\(LaTeXEscape.escape(s))}")
+        case .sceneHeading(let s, let number):
+            if let number {
+                out.append("\\scene{\(LaTeXEscape.escape(s))\\scenenumber{\(LaTeXEscape.escape(number))}}")
+            } else {
+                out.append("\\scene{\(LaTeXEscape.escape(s))}")
+            }
         case .action(let xs):       out.append("\\action{\(emitInline(xs))}")
         case .character(let s):     out.append("\\character{\(LaTeXEscape.escape(s))}")
         case .dialogue(let xs):     out.append("\\dialogue{\(emitInline(xs))}")
         case .parenthetical(let xs): out.append("\\parenthetical{\(emitInline(xs))}")
         case .transition(let s):    out.append("\\transition{\(LaTeXEscape.escape(s))}")
+        case .lyric(let xs):        out.append("\\lyricline{\(emitInline(xs))}")
+        case .centered(let xs):     out.append("\\centeredline{\(emitInline(xs))}")
+        case .pageBreak:            out.append("\\clearpage")
         case .titlePage(let fields): emitTitlePage(fields, into: &out)
         case .dualDialogue(let left, let right):
             var leftLines: [String] = []

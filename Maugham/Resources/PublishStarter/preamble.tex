@@ -13,6 +13,9 @@
 \providecommand{\MaughamCompiledAt}{}
 
 \usepackage[utf8]{inputenc}
+% soul: backs \st{...}, the strikethrough command LaTeXBodyEmitter emits for
+% GFM ~~strikethrough~~. Probed against the bundled tectonic (task-8 brief).
+\usepackage{soul}
 \usepackage{geometry}
 \geometry{margin=1in}
 \usepackage{titling}

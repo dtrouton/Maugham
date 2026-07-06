@@ -82,7 +82,12 @@ extension Document {
         // writer was a non-current device reads as "no log" and re-bootstraps.
         let logExists = !OpLogStore.opLogFileURLs(forDocId: docId, in: projectURL).isEmpty
         let storedBytes = (try? String(contentsOf: url, encoding: .utf8)) ?? ""  // adr-0018-ok: sanctioned manuscript site — stored bytes as bootstrap-import / divergence reference; op log is authoritative
-        let parsed = ParagraphParser.parse(storedBytes)
+        // Fountain docs preserve the two-space "held blank" dialogue pause inside
+        // the paragraph (E1); prose keeps whitespace-only = blank. The `.md` vs
+        // `.fountain` extension decides — consistent with Bootstrap + setFullText.
+        let isFountain = url.pathExtension.lowercased() == "fountain"
+        let parsed = ParagraphParser.parse(
+            storedBytes, preservesHeldBlankLines: isFountain)
         // ADR 0019: the .md is clean (no anchors), so "the .md has no anchors"
         // no longer signals "needs bootstrap" — that would re-bootstrap every
         // clean file now that clean-`.md` output has shipped. An existing op log

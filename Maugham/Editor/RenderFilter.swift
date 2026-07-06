@@ -130,11 +130,21 @@ public enum RenderFilter {
     /// be reused once. This is what makes "insert a middle paragraph" produce
     /// a fresh id for the inserted one rather than stealing an existing id by
     /// shingle match.
+    ///
+    /// `preservesHeldBlankLines` mirrors `ParagraphParser.parse`: pass `true` for
+    /// a Fountain document so a two-space "held blank" dialogue pause (E1) is kept
+    /// inside its paragraph on BOTH the prior-stored and display parses rather than
+    /// splitting. Defaults to prose. The per-keystroke `Document.setFullText` path
+    /// does not route through this wrapper (it calls `restorePairs` directly with
+    /// its own extension-aware parse); this stays correct for any other caller.
     public static func restoreComments(
-        stored: String, displayEdited: String
+        stored: String, displayEdited: String,
+        preservesHeldBlankLines: Bool = false
     ) -> String {
-        let storedParsed = ParagraphParser.parse(stored)
-        let displayParsed = ParagraphParser.parse(displayEdited)
+        let storedParsed = ParagraphParser.parse(
+            stored, preservesHeldBlankLines: preservesHeldBlankLines)
+        let displayParsed = ParagraphParser.parse(
+            displayEdited, preservesHeldBlankLines: preservesHeldBlankLines)
 
         // Build the {id: task-anchor-stripped prior text} map the matcher
         // pairs against, plus the ids in stored order for deterministic

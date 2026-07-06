@@ -185,16 +185,43 @@ public enum ScreenplayLineMutator {
         return hasLetter
     }
 
-    private static let sceneHeadingPrefixes = [
-        "INT.", "EXT.", "EST.", "I/E.", "INT/EXT.",
+    // RECOGNITION only. Mirrors FountainTokenizer's dot-less stem rule (Task
+    // 12): a slugline opens with one of these stems followed by `.` or a space
+    // (with the delimiter guards below). GENERATION still emits a dotted `.`
+    // forced heading (see mutateToSceneHeading) — this set only decides whether
+    // an existing line already reads as a heading so cycling leaves it intact.
+    private static let sceneHeadingStems = [
+        "INT/EXT", "EXT/INT", "INT", "EXT", "EST", "I/E",
     ]
 
     private static func hasSceneHeadingPrefix(_ line: String) -> Bool {
-        let upper = line.uppercased()
-        for prefix in sceneHeadingPrefixes {
-            if upper.hasPrefix(prefix + " ") || upper == prefix {
-                return true
+        let scalars = Array(line.uppercased().unicodeScalars)
+        for stem in sceneHeadingStems {
+            let su = Array(stem.unicodeScalars)
+            guard scalars.count >= su.count else { continue }
+            var matched = true
+            for i in 0..<su.count where scalars[i] != su[i] { matched = false; break }
+            guard matched else { continue }
+            let end = su.count
+            // Bare stem with no delimiter → not a heading.
+            guard end < scalars.count else { continue }
+            let delim = scalars[end]
+            if delim == "." {
+                // Dot form: require a space or end after the dot.
+                if end + 1 == scalars.count || scalars[end + 1] == " " { return true }
+                continue
             }
+            if delim == " " {
+                // Space form: require at least one more non-whitespace char.
+                var j = end + 1
+                while j < scalars.count {
+                    let c = scalars[j]
+                    if c != " " && c != "\t" { return true }
+                    j += 1
+                }
+                continue
+            }
+            // Any other char after the stem (a longer word) → not a heading.
         }
         return false
     }

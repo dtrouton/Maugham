@@ -6,7 +6,7 @@ The full list lives in the in-app cheatsheet: **⌘/** → Keyboard tab.
 
 The ones you'll use most:
 
-| | |
+| Shortcut | Action |
 |---|---|
 | `⌘N` | New project |
 | `⌘O` | Open project |

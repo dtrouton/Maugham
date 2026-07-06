@@ -76,6 +76,26 @@ final class MarkdownTokenizerTests: XCTestCase {
         XCTAssertTrue(kinds.contains(.syntaxPunctuation))
     }
 
+    /// Audit A5: `![alt](url)` image syntax was mis-tokenizing its
+    /// `[alt](url)` tail as a link.
+    func test_imageSyntax_producesNoLinkToken() {
+        let tokens = tokenizer.tokenize("![alt](x.png)")
+        XCTAssertFalse(tokens.contains { if case .link = $0.kind { return true }; return false },
+                       "image alt/url tail should not be link-styled")
+    }
+
+    func test_plainLink_stillLinkStyled() {
+        let tokens = tokenizer.tokenize("[a](b)")
+        XCTAssertTrue(tokens.contains { $0.kind == .link(href: "b") })
+    }
+
+    func test_imageFollowedByLink_onlyLinkIsTokenized() {
+        let tokens = tokenizer.tokenize("a ![i](u) b [l](v)")
+        let linkTokens = tokens.filter { if case .link = $0.kind { return true }; return false }
+        XCTAssertEqual(linkTokens.count, 1)
+        XCTAssertEqual(linkTokens.first?.kind, .link(href: "v"))
+    }
+
     func test_listMarker_producesListMarker() {
         let tokens = tokenizer.tokenize("- item")
         XCTAssertTrue(tokens.contains { $0.kind == .listMarker })
@@ -91,6 +111,45 @@ final class MarkdownTokenizerTests: XCTestCase {
         XCTAssertTrue(tokens.contains { $0.kind == .horizontalRule })
     }
 
+    func test_tripleAsterisk_alone_producesHR() {
+        let tokens = tokenizer.tokenize("***")
+        XCTAssertTrue(tokens.contains { $0.kind == .horizontalRule })
+    }
+
+    func test_tripleHash_alone_producesHR() {
+        let tokens = tokenizer.tokenize("###")
+        XCTAssertTrue(tokens.contains { $0.kind == .horizontalRule })
+    }
+
+    func test_headingStillWorks_withTripleHashPrefix() {
+        let tokens = tokenizer.tokenize("# H")
+        XCTAssertTrue(tokens.contains { $0.kind == .heading(level: 1) })
+    }
+
+    func test_tripleAsteriskEmphasis_stillEmphasis_notHR() {
+        let tokens = tokenizer.tokenize("***x***")
+        let emph = tokens.first { if case .emphasis = $0.kind { return true }; return false }
+        XCTAssertNotNil(emph)
+        XCTAssertFalse(tokens.contains { $0.kind == .horizontalRule })
+    }
+
+    func test_quadHash_alone_notHR() {
+        let tokens = tokenizer.tokenize("####")
+        XCTAssertFalse(tokens.contains { $0.kind == .horizontalRule })
+    }
+
+    func test_tripleAsteriskLine_insideProse_isHR_noEmphasisSpanningIt() {
+        let text = "text\n***\ntext"
+        let tokens = MarkdownTokenizer().tokenize(text)
+        XCTAssertTrue(tokens.contains { $0.kind == .horizontalRule })
+        let nsText = text as NSString
+        let hrRange = nsText.range(of: "***")
+        XCTAssertFalse(tokens.contains {
+            guard case .emphasis = $0.kind else { return false }
+            return $0.range.intersection(hrRange) != nil
+        }, "emphasis run must not span the scene-break line")
+    }
+
     func test_multilineDocument_tokenizesEachLine() {
         let md = """
         # Title
@@ -104,11 +163,33 @@ final class MarkdownTokenizerTests: XCTestCase {
         XCTAssertTrue(kinds.contains { $0.contains("link") })
     }
 
-    func testEmphasisDoesNotSpanLineBreak() {
-        // An unclosed * on one line must not emphasize across the newline.
-        let tokens = MarkdownTokenizer().tokenize("*foo\nbar*")
-        let hasEmphasis = tokens.contains { if case .emphasis = $0.kind { return true }; return false }
-        XCTAssertFalse(hasEmphasis, "emphasis must not span a line break")
+    func test_emphasisSpansHardBreakWithinParagraph_stanzaCase() {
+        let text = "She read it. *How could he\npossibly have known?* Odd."
+        let tokens = MarkdownTokenizer().tokenize(text)
+        // one italic run covering "How could he\npossibly have known?"
+        XCTAssertTrue(tokens.contains { $0.kind == .emphasis(.italic)
+            && (text as NSString).substring(with: $0.range)
+                == "How could he\npossibly have known?" })
+    }
+    func test_emphasisDoesNotCrossBlankLine() {
+        let tokens = MarkdownTokenizer().tokenize("*open\n\nclose*")
+        XCTAssertFalse(tokens.contains { if case .emphasis = $0.kind { return true }
+                                         else { return false } })
+    }
+    func test_strikethrough_stylesInProse() {
+        let text = "keep ~~cut this~~ keep"
+        let tokens = MarkdownTokenizer().tokenize(text)
+        XCTAssertTrue(tokens.contains { $0.kind == .emphasis(.strikethrough)
+            && (text as NSString).substring(with: $0.range) == "cut this" })
+    }
+    func test_escapedAsterisk_backslashFades_noEmphasis() {
+        let text = #"\*literal\*"#
+        let tokens = MarkdownTokenizer().tokenize(text)
+        XCTAssertFalse(tokens.contains { if case .emphasis = $0.kind { return true }
+                                         else { return false } })
+        // backslashes fade as syntax punctuation
+        XCTAssertTrue(tokens.contains { $0.kind == .syntaxPunctuation
+            && $0.range == NSRange(location: 0, length: 1) })
     }
 
     func testEmphasisStillWorksWithinOneLineOfMultiline() {

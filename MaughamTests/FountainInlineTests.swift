@@ -33,14 +33,38 @@ final class FountainInlineTests: XCTestCase {
                        [.text("He said "), .emphasis([.text("no")]), .text(" loudly.")])
     }
 
-    func testBoldContainingItalic() {
+    // The scanner emits FLATTENED cumulative-trait runs, so mixed nesting
+    // becomes sibling runs each independently wrapped (emitters flatten anyway).
+    func testBoldContainingItalic_flattened() {
         XCTAssertEqual(parse("**a *b* c**"),
-                       [.strong([.text("a "), .emphasis([.text("b")]), .text(" c")])])
+                       [.strong([.text("a ")]),
+                        .strong([.emphasis([.text("b")])]),
+                        .strong([.text(" c")])])
     }
 
-    func testItalicContainingBold() {
+    func testItalicContainingBold_flattened() {
         XCTAssertEqual(parse("*a **b** c*"),
-                       [.emphasis([.text("a "), .strong([.text("b")]), .text(" c")])])
+                       [.emphasis([.text("a ")]),
+                        .strong([.emphasis([.text("b")])]),
+                        .emphasis([.text(" c")])])
+    }
+
+    // Emphasis inside underline is preserved: the underline's inner text runs
+    // through the converter too.
+    func test_underline_containingEmphasis() {
+        XCTAssertEqual(parse("_a *b* c_"),
+                       [.underline([.text("a "), .emphasis([.text("b")]), .text(" c")])])
+    }
+
+    // Fountain does NOT enable strikethrough — `~` is a lyric marker there, so
+    // tildes stay literal.
+    func test_fountain_tildesStayLiteral() {
+        XCTAssertEqual(parse("a ~~x~~ b"), [.text("a ~~x~~ b")])
+    }
+
+    // Escapes match prose: backslash dropped, delimiter literal.
+    func test_fountain_escapes_matchProse() {
+        XCTAssertEqual(parse(#"\*x\*"#), [.text("*x*")])
     }
 
     func testEscapedStar_isLiteral() {

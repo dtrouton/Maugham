@@ -29,7 +29,23 @@ public enum ParagraphParser {
     /// non-ASCII byte routes that line's blank/anchor check through Foundation
     /// (where Unicode whitespace like U+00A0 could differ) — the fix-C deferral
     /// pattern, unchanged in meaning.
-    public static func parse(_ markdown: String) -> [ParsedParagraph] {
+    ///
+    /// `preservesHeldBlankLines` (Fountain documents only) makes a whitespace-only
+    /// line of length >= 1 — a Fountain "held blank", the two-space dialogue pause
+    /// tokenized by `FountainTokenizer` (Task 13) — stay inside the in-progress
+    /// paragraph's content VERBATIM instead of splitting it. A truly empty line
+    /// (length 0) still separates, in every mode; and a whitespace-only line with
+    /// no paragraph in progress is still dropped (it is a separator, not a pause).
+    /// Prose keeps whitespace-only = blank (default `false`): writers routinely
+    /// leave invisible trailing spaces on separator lines and paragraph identity —
+    /// the op-log join key — must not hinge on them. Because Materializer joins
+    /// paragraphs with clean `\n\n` (never trailing-space) and truly-empty lines
+    /// always split, `parse -> materialize -> parse` is idempotent in both modes:
+    /// only a user-typed held line is preserved, and on re-parse it is still a
+    /// whitespace-only line inside the same paragraph. See E1 (MCP smoke).
+    public static func parse(
+        _ markdown: String, preservesHeldBlankLines: Bool = false
+    ) -> [ParsedParagraph] {
         guard !markdown.isEmpty else { return [] }
 
         var result: [ParsedParagraph] = []
@@ -78,7 +94,20 @@ public enum ParagraphParser {
                 // `&buffer`/`flushParagraph`) so the exclusivity checker sees a
                 // single access to the captured paragraph state per line.
                 if isBlankSpan(buf, lineStart, contentEnd, isASCII) {
-                    flushParagraph()
+                    // Fountain "held blank": a whitespace-only line (length >= 1)
+                    // inside an open paragraph is a paused dialogue continuation
+                    // (Task 13) — preserve it as content verbatim, don't split.
+                    // A truly empty line (contentEnd == lineStart) always
+                    // separates; a whitespace-only line with an empty buffer is a
+                    // leading/inter-paragraph separator, not a pause, so it flushes
+                    // (a no-op when the buffer is already empty) and is dropped.
+                    if preservesHeldBlankLines
+                        && contentEnd > lineStart
+                        && !buffer.isEmpty {
+                        buffer.append(spanString(buf, lineStart, contentEnd))
+                    } else {
+                        flushParagraph()
+                    }
                 } else if mightBeAnchorSpan(buf, lineStart, contentEnd, isASCII) {
                     let lineStr = spanString(buf, lineStart, contentEnd)
                     if let id = ParagraphID.parseComment(lineStr) {

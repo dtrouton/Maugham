@@ -39,6 +39,12 @@ public struct FountainLine: Equatable, Sendable {
     /// (`FountainSemanticRenderer`) — so neither re-parses emphasis.
     public let inlineSpans: [FountainInlineSpan]
 
+    /// Scene number lifted from a `.sceneHeading` line's trailing `#…#`
+    /// bracket (e.g. `INT. HOUSE - DAY #12#` → "12"). Nil for every other
+    /// element and for scene headings without an explicit number. Populated
+    /// by the tokenizer (Task 11); stays nil until then.
+    public let sceneNumber: String?
+
     public init(
         range: NSRange,
         element: ScreenplayElement,
@@ -46,7 +52,8 @@ public struct FountainLine: Equatable, Sendable {
         isForced: Bool,
         sourceCase: SourceCase,
         isDualSecond: Bool = false,
-        inlineSpans: [FountainInlineSpan] = []
+        inlineSpans: [FountainInlineSpan] = [],
+        sceneNumber: String? = nil
     ) {
         self.range = range
         self.element = element
@@ -55,5 +62,6 @@ public struct FountainLine: Equatable, Sendable {
         self.sourceCase = sourceCase
         self.isDualSecond = isDualSecond
         self.inlineSpans = inlineSpans
+        self.sceneNumber = sceneNumber
     }
 }

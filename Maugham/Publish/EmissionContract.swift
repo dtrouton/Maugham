@@ -28,6 +28,27 @@ public enum EmissionContract {
         .init(label: "Scene break", source: "***"),
         .init(label: "Inline mix", source: "Text with *em*, **strong**, _under_, `code`."),
         .init(label: "Anchor-only paragraph", source: "<!-- ¶ab12 -->"),
+        .init(label: "Bold italic", source: "Both ***kinds*** now."),
+        .init(label: "Strikethrough", source: "Cut ~~this clause~~ entirely."),
+        .init(label: "Escaped asterisk", source: #"A literal \*star\* here."#),
+        .init(label: "Underscore is literal in prose", source: "snake_case stays flat."),
+        .init(label: "List", source: "- one\n- two"),
+        .init(label: "Fenced code block (mangle guard, not code support)",
+              source: "```\n*not em*\n`nor code`\n```"),
+    ]
+
+    public static let fountainExamples: [Example] = [
+        // The trailing `#4A#` is extracted into a scene number (Task 11) and
+        // renders right-aligned via `\scenenumber{4A}`; the heading text loses
+        // the bracket.
+        .init(label: "Scene heading with number",
+              source: "INT. HOUSE - DAY #4A#"),
+        .init(label: "Dual dialogue", source: "ALICE\nHello.\n\nBOB ^\nHi."),
+        .init(label: "Lyric", source: "~The moon is out"),
+        .init(label: "Centered", source: "> THE END <"),
+        .init(label: "Page break (===)", source: "==="),
+        .init(label: "Boneyard omitted", source: "/* gone */\n\nKept."),
+        .init(label: "Note omitted", source: "Before [[skip me]] after."),
     ]
 
     /// Render the `body.tex` the emitter actually produces for a prose snippet.
@@ -35,6 +56,14 @@ public enum EmissionContract {
     static func emittedProse(_ source: String) -> String {
         let ast = ProjectASTBuilder.build(from: SinglePieceSource(
             pieceID: "ex01", title: "Example", mode: .prose, text: source))
+        return LaTeXBodyEmitter.emit(ast, config: PublishConfig())
+    }
+
+    /// Render the `body.tex` the emitter actually produces for a fountain
+    /// snippet. Mirrors `emittedProse` with `mode: .fountain`.
+    static func emittedFountain(_ source: String) -> String {
+        let ast = ProjectASTBuilder.build(from: SinglePieceSource(
+            pieceID: "ex01", title: "Example", mode: .fountain, text: source))
         return LaTeXBodyEmitter.emit(ast, config: PublishConfig())
     }
 
@@ -49,6 +78,10 @@ public enum EmissionContract {
         out += "## Positive space — recognized patterns\n\n"
         for ex in proseExamples {
             out += "### \(ex.label)\n\n```\n\(ex.source)\n```\n\nemits:\n\n```latex\n\(emittedProse(ex.source))\n```\n\n"
+        }
+        out += "## Fountain positive space — recognized patterns\n\n"
+        for ex in fountainExamples {
+            out += "### \(ex.label)\n\n```\n\(ex.source)\n```\n\nemits:\n\n```latex\n\(emittedFountain(ex.source))\n```\n\n"
         }
         out += negativeSpace + "\n\n"
         out += styleFileContract + "\n\n"

@@ -23,7 +23,7 @@ struct ResearchNotePreviewPane: View {
         .background(Color(NSColor.textBackgroundColor))
     }
 
-    private enum Block {
+    enum Block {
         case heading(level: Int, text: String)
         case paragraph(AttributedString)
         case image(NSImage)
@@ -31,16 +31,42 @@ struct ResearchNotePreviewPane: View {
     }
 
     private func parsedBlocks() -> [Block] {
-        let lines = noteText.components(separatedBy: "\n")
+        Self.parse(text: noteText, notePath: notePath, projectURL: projectURL)
+    }
+
+    /// Exposed as `static` (rather than an instance method) so tests can drive
+    /// the parse step directly, mirroring `GuideMarkdownView.parse`.
+    ///
+    /// Consecutive non-empty, non-heading, non-solo-image lines accumulate into
+    /// a single `.paragraph` block (joined with a space) so hard-wrapped prose
+    /// renders as one flowing paragraph instead of stacked line fragments. The
+    /// buffer flushes on a blank line, a heading, a solo image, or end of text.
+    static func parse(text: String, notePath: String, projectURL: URL) -> [Block] {
+        let lines = text.components(separatedBy: "\n")
         var blocks: [Block] = []
+        var paragraphBuffer: [String] = []
         let imageRegex = try? NSRegularExpression(
             pattern: #"^!\[.*?\]\((\.[/][^)]+)\)$"#)
         let headingRegex = try? NSRegularExpression(
             pattern: #"^(#{1,6})\s+(.+)$"#)
 
+        func flushParagraph() {
+            guard !paragraphBuffer.isEmpty else { return }
+            let joined = paragraphBuffer.joined(separator: " ")
+            paragraphBuffer.removeAll()
+            if let attr = try? AttributedString(markdown: joined) {
+                blocks.append(.paragraph(attr))
+            } else {
+                blocks.append(.unknown(joined))
+            }
+        }
+
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.isEmpty { continue }
+            if trimmed.isEmpty {
+                flushParagraph()
+                continue
+            }
 
             // Heading detection: # through ######
             // AttributedString(markdown:) uses inline-only parsing by default,
@@ -51,6 +77,7 @@ struct ResearchNotePreviewPane: View {
                    match.numberOfRanges >= 3 {
                     let hashes = (trimmed as NSString).substring(with: match.range(at: 1))
                     let text   = (trimmed as NSString).substring(with: match.range(at: 2))
+                    flushParagraph()
                     blocks.append(.heading(level: hashes.count, text: text))
                     continue
                 }
@@ -71,19 +98,16 @@ struct ResearchNotePreviewPane: View {
                         .deletingLastPathComponent()
                     let imageURL = noteDir.appendingPathComponent(trimmedRel)
                     if let img = NSImage(contentsOf: imageURL) {
+                        flushParagraph()
                         blocks.append(.image(img))
                         continue
                     }
                 }
             }
 
-            // Try Markdown inline parsing for regular paragraphs
-            if let attr = try? AttributedString(markdown: trimmed) {
-                blocks.append(.paragraph(attr))
-            } else {
-                blocks.append(.unknown(trimmed))
-            }
+            paragraphBuffer.append(trimmed)
         }
+        flushParagraph()
         return blocks
     }
 

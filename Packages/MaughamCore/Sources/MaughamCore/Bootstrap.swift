@@ -13,7 +13,12 @@ public enum Bootstrap {
         device: String, session: String
     ) async throws -> Result {
         let original = (try? String(contentsOf: mdURL, encoding: .utf8)) ?? ""  // adr-0018-ok: sanctioned import read — mints ids for a new/imported plain file; not read as truth for an existing doc (ADR 0018)
-        let parsed = ParagraphParser.parse(original)
+        // A Fountain manuscript's two-space "held blank" (Task 13 dialogue pause)
+        // is legitimate content that must stay inside its paragraph, not split it
+        // (E1). Prose keeps whitespace-only = blank. The extension decides.
+        let isFountain = mdURL.pathExtension.lowercased() == "fountain"
+        let parsed = ParagraphParser.parse(
+            original, preservesHeldBlankLines: isFountain)
         let allHaveIds = !parsed.isEmpty && parsed.allSatisfy { $0.id != nil }
         if allHaveIds {
             // The file is already anchored. Whether there's work to do depends

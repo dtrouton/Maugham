@@ -87,6 +87,55 @@ public enum ProjectASTBuilder {
                 continue
             }
 
+            // Fenced verbatim: a mangle guard, not code support — raw lines,
+            // NO trimming, NO inline parsing, until the closing fence or
+            // end-of-input. The fence lines themselves are dropped.
+            if trimmed.hasPrefix("```") {
+                var rawLines: [String] = []
+                i += 1
+                while i < lines.count {
+                    if lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                        i += 1
+                        break
+                    }
+                    rawLines.append(lines[i])
+                    i += 1
+                }
+                nodes.append(.verbatim(rawLines))
+                continue
+            }
+
+            // List: consecutive marker lines collect items; an INDENTED
+            // non-marker, non-blank line stays inside the CURRENT item's text
+            // (flat/tight nesting — YAGNI per spec ledger). A blank line ends
+            // the block; so does an UNINDENTED non-marker line — that line is
+            // left for the outer loop to reprocess as a normal block, so a
+            // trailing scene-break/heading/blockquote reclaims it rather than
+            // being swallowed as list-item text.
+            // Ordered-vs-unordered is decided by the first item's marker —
+            // mixing (`- a` then `2. b`) is lossy-but-intentional: the list
+            // stays unordered, the later numeral is just item text.
+            if let (ordered, firstContent) = parseListMarker(lines[i]) {
+                var itemTexts: [String] = [firstContent]
+                i += 1
+                listLoop: while i < lines.count {
+                    if let (_, content) = parseListMarker(lines[i]) {
+                        itemTexts.append(content)
+                        i += 1
+                        continue
+                    }
+                    let t = lines[i].trimmingCharacters(in: .whitespaces)
+                    if t.isEmpty { break listLoop }
+                    guard lines[i].hasPrefix(" ") || lines[i].hasPrefix("\t") else {
+                        break listLoop   // unindented — end list, reprocess line
+                    }
+                    itemTexts[itemTexts.count - 1] += " " + t
+                    i += 1
+                }
+                nodes.append(.list(ordered: ordered, items: itemTexts.map(InlineParser.parse)))
+                continue
+            }
+
             // Paragraph: gather consecutive lines until a blank line or the
             // start of another block kind.
             var paraLines: [String] = []
@@ -147,189 +196,63 @@ public enum ProjectASTBuilder {
         return rest
     }
 
+    /// Match `^\s*([-*+]|\d{1,9}[.)])\s+` and return whether the marker is
+    /// ordered plus the content that follows the marker's whitespace run.
+    /// Called on the SCENE-BREAK/HEADING/BLOCKQUOTE-checked remainder, so
+    /// `* * *` never reaches here (scene-break claims it first).
+    private static func parseListMarker(_ line: String) -> (ordered: Bool, content: String)? {
+        var idx = line.startIndex
+        while idx < line.endIndex, line[idx] == " " || line[idx] == "\t" {
+            idx = line.index(after: idx)
+        }
+        guard idx < line.endIndex else { return nil }
+
+        let ordered: Bool
+        if line[idx] == "-" || line[idx] == "*" || line[idx] == "+" {
+            ordered = false
+            idx = line.index(after: idx)
+        } else if line[idx].isNumber {
+            var digits = 0
+            while idx < line.endIndex, line[idx].isNumber, digits < 9 {
+                idx = line.index(after: idx)
+                digits += 1
+            }
+            guard idx < line.endIndex, line[idx] == "." || line[idx] == ")" else { return nil }
+            ordered = true
+            idx = line.index(after: idx)
+        } else {
+            return nil
+        }
+
+        guard idx < line.endIndex, line[idx] == " " || line[idx] == "\t" else { return nil }
+        while idx < line.endIndex, line[idx] == " " || line[idx] == "\t" {
+            idx = line.index(after: idx)
+        }
+        return (ordered, String(line[idx...]))
+    }
+
     private static func isSceneBreakLine(_ s: String) -> Bool {
         let stripped = s.replacingOccurrences(of: " ", with: "")
-        return stripped == "***" || stripped == "###" || stripped == "---"
+        if stripped == "***" || stripped == "###" { return true }
+        // Editor parity: the tokenizer's rule accepts any run of 3+ dashes,
+        // not just exactly `---`.
+        return stripped.count >= 3 && stripped.allSatisfy { $0 == "-" }
     }
 
     // MARK: - fountain
 
     private static func parseFountain(_ text: String) -> [ProjectAST.Node] {
-        // Best-effort line classification — full fidelity comes via
-        // Maugham/Editor's existing FountainParser, which v1's builder
-        // bridges through in production (see Task 31). For tests with
-        // fixture text, we use this inline classifier.
         // Strip inline <!-- ¶XXXX --> anchors via the shared single source of
         // truth, exactly as parseProse does — otherwise op-log join keys leak
-        // into rendered screenplay output (action/dialogue text).
+        // into rendered screenplay output (ADR 0019). Then classify through the
+        // real shared FountainTokenizer (the same parser the editor and phone
+        // use) and map its elements into publish `FountainNode`s, so published
+        // PDF/EPUB output classifies exactly as the on-screen editor does. This
+        // omits author-only content (boneyard, notes, synopses, sections),
+        // strips forced markers, and unlocks dual dialogue — none of which the
+        // former hand-rolled classifier could do (audit A1).
         let stripped = MarkdownDisplayFilter.stripAnchors(text)
-        var nodes: [ProjectAST.FountainNode] = []
-        let lines = stripped.split(separator: "\n", omittingEmptySubsequences: false)
-            .map(String.init)
-
-        var i = 0
-        // A Fountain title-page block, if present, occupies the document head.
-        if let (fields, consumed) = parseTitlePage(lines) {
-            nodes.append(.titlePage(fields))
-            i = consumed
-        }
-        while i < lines.count {
-            let line = lines[i].trimmingCharacters(in: .whitespaces)
-            defer { i += 1 }
-            if line.isEmpty { continue }
-
-            if isSceneHeading(line) {
-                nodes.append(.sceneHeading(line))
-            } else if let transition = transitionText(line) {
-                // Checked before isCharacter: "CUT TO:" is all-caps with no
-                // period, so isCharacter would otherwise claim it.
-                nodes.append(.transition(transition))
-            } else if isCharacter(line) {
-                nodes.append(.character(line))
-                // Look ahead for parenthetical + dialogue. Consecutive
-                // dialogue lines coalesce into one speech block (one
-                // \dialogue/minipage) so a hard-wrapped speech doesn't split
-                // into one minipage per source line. A parenthetical flushes
-                // the buffered dialogue and stands as its own node.
-                var dialogueBuffer: [String] = []
-                func flushDialogue() {
-                    guard !dialogueBuffer.isEmpty else { return }
-                    nodes.append(.dialogue(
-                        FountainInline.parse(dialogueBuffer.joined(separator: " "))))
-                    dialogueBuffer = []
-                }
-                while i + 1 < lines.count {
-                    let next = lines[i + 1].trimmingCharacters(in: .whitespaces)
-                    if next.isEmpty { break }
-                    if isCharacter(next) || isSceneHeading(next)
-                        || transitionText(next) != nil { break }
-                    if next.hasPrefix("(") && next.hasSuffix(")") {
-                        flushDialogue()
-                        nodes.append(.parenthetical(FountainInline.parse(next)))
-                    } else {
-                        dialogueBuffer.append(next)
-                    }
-                    i += 1
-                }
-                flushDialogue()
-            } else {
-                // Coalesce consecutive action lines into one paragraph.
-                var actionBuffer = [line]
-                while i + 1 < lines.count {
-                    let next = lines[i + 1].trimmingCharacters(in: .whitespaces)
-                    if next.isEmpty || isSceneHeading(next) || isCharacter(next)
-                        || transitionText(next) != nil { break }
-                    actionBuffer.append(next)
-                    i += 1
-                }
-                nodes.append(.action(
-                    FountainInline.parse(actionBuffer.joined(separator: " "))))
-            }
-        }
-
-        return nodes.map { ProjectAST.Node.fountain($0) }
-    }
-
-    private static let titlePageKeyMap: [String: String] = [
-        "title": "Title", "credit": "Credit", "author": "Author",
-        "authors": "Author", "source": "Source", "notes": "Notes",
-        "draft date": "Draft date", "contact": "Contact", "copyright": "Copyright",
-    ]
-
-    private static func canonicalTitleKey(_ raw: String) -> String? {
-        titlePageKeyMap[raw.lowercased()]
-    }
-
-    /// "Key: ..." → the key (trimmed), else nil if no colon / empty key.
-    private static func parseTitleKey(_ line: String) -> String? {
-        guard let colon = line.firstIndex(of: ":") else { return nil }
-        let key = String(line[..<colon]).trimmingCharacters(in: .whitespaces)
-        return key.isEmpty ? nil : key
-    }
-
-    /// Parse the Fountain title-page block at the head of `lines`. Recognized
-    /// only when the first non-empty line is a canonical `Key: Value` (mirrors
-    /// the editor's `FountainTokenizer.parseTitlePage`). Indented lines (≥3
-    /// spaces or a tab) continue the previous field; a blank line or a
-    /// non-key, non-indented line ends the block. Returns the parsed fields
-    /// and the absolute line index where the body begins, or nil if absent.
-    private static func parseTitlePage(
-        _ lines: [String]
-    ) -> (fields: [ProjectAST.TitleField], consumed: Int)? {
-        var first = 0
-        while first < lines.count,
-              lines[first].trimmingCharacters(in: .whitespaces).isEmpty { first += 1 }
-        guard first < lines.count,
-              let firstKey = parseTitleKey(lines[first].trimmingCharacters(in: .whitespaces)),
-              canonicalTitleKey(firstKey) != nil else { return nil }
-
-        var fields: [ProjectAST.TitleField] = []
-        var currentKey: String?
-        var currentValue: [String] = []
-        func flush() {
-            guard let key = currentKey else { return }
-            fields.append(.init(key: key, value: currentValue.joined(separator: "\n")))
-            currentKey = nil
-            currentValue = []
-        }
-
-        var i = first
-        while i < lines.count {
-            let raw = lines[i]
-            let trimmed = raw.trimmingCharacters(in: .whitespaces)
-            if trimmed.isEmpty {
-                flush()
-                return (fields, i + 1)   // consume the closing blank line
-            }
-            let leading = raw.prefix { $0 == " " || $0 == "\t" }.count
-            let indented = leading >= 3 || raw.hasPrefix("\t")
-            if let key = parseTitleKey(trimmed), !indented {
-                flush()
-                currentKey = canonicalTitleKey(key) ?? key
-                if let colon = trimmed.firstIndex(of: ":") {
-                    let v = String(trimmed[trimmed.index(after: colon)...])
-                        .trimmingCharacters(in: .whitespaces)
-                    currentValue = v.isEmpty ? [] : [v]
-                }
-            } else if currentKey != nil && indented {
-                currentValue.append(trimmed)
-            } else {
-                flush()
-                return (fields, i)       // body starts at this line
-            }
-            i += 1
-        }
-        flush()
-        return (fields, lines.count)
-    }
-
-    private static func isSceneHeading(_ line: String) -> Bool {
-        let upper = line.uppercased()
-        return upper.hasPrefix("INT.") || upper.hasPrefix("EXT.") ||
-               upper.hasPrefix("INT ")  || upper.hasPrefix("EXT ")  ||
-               upper.hasPrefix("INT/EXT") || upper.hasPrefix("I/E")
-    }
-
-    /// Fountain transition: an all-caps line ending in "TO:" (`CUT TO:`,
-    /// `DISSOLVE TO:`), or a line forced with a leading `>` that is not a
-    /// `>centered<` line. Returns the transition text with any forced marker
-    /// stripped, else nil.
-    private static func transitionText(_ line: String) -> String? {
-        if line.hasPrefix(">") && !line.hasSuffix("<") {
-            return String(line.dropFirst()).trimmingCharacters(in: .whitespaces)
-        }
-        let letters = line.filter { $0.isLetter }
-        guard !letters.isEmpty, letters == letters.uppercased(),
-              line.uppercased().hasSuffix("TO:") else { return nil }
-        return line
-    }
-
-    private static func isCharacter(_ line: String) -> Bool {
-        guard !line.isEmpty else { return false }
-        // ALL-CAPS lines (allowing digits, spaces, punctuation) with no
-        // sentence-ending punctuation are character cues.
-        let letters = line.filter { $0.isLetter }
-        guard !letters.isEmpty else { return false }
-        return letters == letters.uppercased() && !line.contains(".")
+        return FountainNodeMapper.map(FountainTokenizer().parse(stripped))
+            .map(ProjectAST.Node.fountain)
     }
 }

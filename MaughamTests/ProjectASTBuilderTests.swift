@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 final class ProjectASTBuilderTests: XCTestCase {
@@ -40,6 +41,18 @@ final class ProjectASTBuilderTests: XCTestCase {
     func testProseSceneBreak_lineOfAsterisks_becomesSceneBreak() {
         let src = FixtureSource(pieces: [
             (id: "p1", title: "C", mode: .prose, text: "Before.\n\n* * *\n\nAfter.")
+        ])
+        let ast = ProjectASTBuilder.build(from: src)
+        XCTAssertEqual(ast.sections[0].nodes, [
+            .paragraph("Before."), .sceneBreak, .paragraph("After.")
+        ])
+    }
+
+    func testProseSceneBreak_fourOrMoreDashes_becomesSceneBreak() {
+        // Editor parity: the tokenizer's horizontal-rule rule accepts
+        // `-{3,}` (any run of 3+ dashes), not just exactly `---`.
+        let src = FixtureSource(pieces: [
+            (id: "p1", title: "C", mode: .prose, text: "Before.\n\n----\n\nAfter.")
         ])
         let ast = ProjectASTBuilder.build(from: src)
         XCTAssertEqual(ast.sections[0].nodes, [
@@ -306,6 +319,204 @@ final class ProjectASTBuilderTests: XCTestCase {
             .fountain(.character("BETH")),
             .fountain(.dialogue([.text("Hello.")])),
         ])
+    }
+
+    func testFountainEndToEnd_viaRealTokenizer_omitsAuthorContentAndPairsDual() {
+        // End-to-end through the real FountainTokenizer (Task 7 cutover): one
+        // fixture that exercises title page + scene heading + an inline note +
+        // a boneyard block + dual dialogue (`^`) + lyric + centered + page break.
+        // Author-only material (boneyard, inline note) is omitted; lyric,
+        // centered, and page break survive; the `^`-marked second cue pairs the
+        // two speeches into one .dualDialogue. The old hand-rolled classifier
+        // could produce NONE of this (audit A1): it leaked boneyard/note/caret
+        // text and had no lyric/centered/pageBreak/dualDialogue path at all.
+        let text = """
+        Title: Good Luck Babe
+        Author: Chappell Roan
+
+        INT. CLUB - NIGHT
+
+        Aaron enters [[check the lighting]] and pauses.
+
+        /*
+        This whole beat is cut.
+        */
+
+        AARON
+        Morning.
+
+        BETH ^
+        Evening.
+
+        ~And so we sing
+
+        > THE END <
+
+        ===
+        """
+        let src = FixtureSource(pieces: [
+            (id: "p1", title: "S", mode: .fountain, text: text)
+        ])
+        let ast = ProjectASTBuilder.build(from: src)
+        XCTAssertEqual(ast.sections[0].nodes, [
+            .fountain(.titlePage([
+                .init(key: "Title", value: "Good Luck Babe"),
+                .init(key: "Author", value: "Chappell Roan"),
+            ])),
+            .fountain(.sceneHeading("INT. CLUB - NIGHT")),
+            // inline [[note]] stripped from the action; surrounding text remains.
+            .fountain(.action("Aaron enters and pauses.")),
+            // boneyard block (/* … */) omitted entirely.
+            .fountain(.dualDialogue(
+                left: [.character("AARON"), .dialogue("Morning.")],
+                right: [.character("BETH"), .dialogue("Evening.")])),
+            .fountain(.lyric("And so we sing")),
+            .fountain(.centered("THE END")),
+            .fountain(.pageBreak),
+        ])
+    }
+
+    // MARK: - lists + fenced verbatim
+
+    /// Mirrors `SinglePieceSource` (EmissionContract.swift) — a tiny one-piece
+    /// prose builder for tests that only care about the resulting nodes.
+    private func buildProse(_ text: String) -> [ProjectAST.Node] {
+        let src = FixtureSource(pieces: [(id: "p1", title: "T", mode: .prose, text: text)])
+        return ProjectASTBuilder.build(from: src).sections[0].nodes
+    }
+
+    func test_unorderedList_parses() {
+        let nodes = buildProse("- one\n- two *em*\n")
+        XCTAssertEqual(nodes, [.prose(.list(ordered: false,
+            items: [[.text("one")], [.text("two "), .emphasis([.text("em")])]]))])
+    }
+
+    func test_orderedList_bothDelimiters() {
+        XCTAssertEqual(buildProse("1. a\n2) b\n"),
+            [.prose(.list(ordered: true, items: [[.text("a")], [.text("b")]]))])
+    }
+
+    func test_list_indentedContinuation_joinsCurrentItem() {
+        XCTAssertEqual(buildProse("- one\n  still one\n- two\n"),
+            [.prose(.list(ordered: false, items: [[.text("one still one")], [.text("two")]]))])
+    }
+
+    func test_list_blankLineEndsBlock() {
+        XCTAssertEqual(buildProse("- one\n\nAfter."),
+            [.prose(.list(ordered: false, items: [[.text("one")]])), .prose(.paragraph([.text("After.")]))])
+    }
+
+    func test_fence_verbatim_noInlineMangle() {
+        let nodes = buildProse("```\n*not em*\n`nor code`\n```\n")
+        XCTAssertEqual(nodes, [.prose(.verbatim(["*not em*", "`nor code`"]))])
+    }
+
+    func test_fence_unterminated_collectsToEndOfInput() {
+        XCTAssertEqual(buildProse("```\nline one\nline two"),
+            [.prose(.verbatim(["line one", "line two"]))])
+    }
+
+    // An UNINDENTED non-marker line ends the list and is reprocessed by the
+    // normal block loop — so a trailing scene-break/heading isn't swallowed
+    // as list-item text (regression: the original implementation treated any
+    // non-blank line as a continuation regardless of indentation).
+    func test_list_unindentedSceneBreak_endsListAndBecomesSceneBreak() {
+        XCTAssertEqual(buildProse("- item\n***\n"),
+            [.prose(.list(ordered: false, items: [[.text("item")]])), .prose(.sceneBreak)])
+    }
+
+    func test_list_unindentedHeading_endsListAndBecomesHeading() {
+        XCTAssertEqual(buildProse("- item\n# H\n"),
+            [.prose(.list(ordered: false, items: [[.text("item")]])),
+             .prose(.heading(level: 1, [.text("H")]))])
+    }
+
+    // Mixing markers is lossy-but-intentional (spec ledger: flat/tight
+    // lists) — the FIRST item's marker decides ordered-vs-unordered for the
+    // whole block; a later numeral is just item text, not a mode switch.
+    func test_list_mixedMarkers_firstMarkerWins_unordered() {
+        XCTAssertEqual(buildProse("- a\n2. b\n"),
+            [.prose(.list(ordered: false, items: [[.text("a")], [.text("b")]]))])
+    }
+
+    // MARK: - E1 (MCP smoke): held blank survives the op-log round trip
+
+    /// The full E1 fixture through the real publish path: a Fountain piece whose
+    /// text went through a `ParagraphParser` -> `Materializer` round trip (the
+    /// op-log paragraph layer) before reaching `ProjectASTBuilder.build`. Task 13
+    /// made a two-space "held blank" a paused dialogue continuation; the op-log
+    /// layer used to eat it (split the paragraph on the whitespace-only line), so
+    /// the held line re-materialized as a REAL blank and the continuation became
+    /// `.action` — which also broke the FOLLOWING dual-dialogue block. With the
+    /// mode-aware parse both knock-ons are fixed: ONE `.dialogue` node carries a
+    /// `.lineBreak` for the held pause, and the later `^` block still pairs into a
+    /// `.dualDialogue`, with no spurious `.action` node.
+    func testHeldBlank_survivesOpLogRoundTrip_intoAST() {
+        let fixture = """
+        ALICE
+        I wrote you every day for a *year*.
+        \u{20}\u{20}
+        And you never answered once.
+
+        BOB
+        Then explain the letters.
+
+        CAROL ^
+        I burned them.
+        """
+        // Round-trip through the op-log paragraph layer exactly as a Fountain
+        // document does: parse held-blank-preserving, then materialize the stored
+        // form the publish path reads back (anchors and all).
+        let parsed = ParagraphParser.parse(fixture, preservesHeldBlankLines: true)
+        // 4-char alphabet-restricted ids (tripwire 8) — this crosses the
+        // .md <-> op-log boundary via materialize.
+        let ids = ["aaaa", "bbbb", "cccc"]
+        XCTAssertEqual(parsed.count, ids.count,
+            "the held blank must keep ALICE's speech as ONE paragraph")
+        var paragraphs: [String: String] = [:]
+        for (id, p) in zip(ids, parsed) { paragraphs[id] = p.text }
+        let materialized = Materializer.materialize(
+            paragraphs: paragraphs, sequence: ids)
+
+        let src = FixtureSource(pieces: [
+            (id: "p1", title: "S", mode: .fountain, text: materialized)
+        ])
+        let nodes = ProjectASTBuilder.build(from: src).sections[0].nodes
+
+        // Knock-on 1: the held pause survives as ONE dialogue node with a
+        // `.lineBreak`, NOT two paragraphs with a real blank between them.
+        let dialogueWithBreak = nodes.contains { node in
+            if case .fountain(.dialogue(let inlines)) = node {
+                return inlines.contains(.lineBreak)
+            }
+            return false
+        }
+        XCTAssertTrue(dialogueWithBreak,
+            "held blank must render as one .dialogue containing a .lineBreak, got \(nodes)")
+
+        // Knock-on 2: the later `^` block still pairs into a dual dialogue —
+        // no spurious action node severed it.
+        let hasDualDialogue = nodes.contains { node in
+            if case .fountain(.dualDialogue) = node { return true }
+            return false
+        }
+        XCTAssertTrue(hasDualDialogue,
+            "BOB / CAROL ^ must still pair into a .dualDialogue, got \(nodes)")
+
+        // The held continuation must NEVER leak as an action line.
+        let leakedAsAction = nodes.contains { node in
+            if case .fountain(.action(let inlines)) = node {
+                return inlines.contains { inline in
+                    if case .text(let s) = inline {
+                        return s.contains("And you never answered once")
+                    }
+                    return false
+                }
+            }
+            return false
+        }
+        XCTAssertFalse(leakedAsAction,
+            "the dialogue continuation must not re-materialize as an .action, got \(nodes)")
     }
 
     func testMixedPieces_preserveOrder() {

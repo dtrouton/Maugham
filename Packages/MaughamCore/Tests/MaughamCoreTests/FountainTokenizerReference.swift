@@ -123,6 +123,25 @@ struct FountainTokenizerReference: Sendable {
             }
 
             if trimmed.isEmpty {
+                // Fountain "held" line: whitespace-only content of length >= 1
+                // (canonically two spaces) inside an active dialogue block is
+                // a `.dialogue` line with empty content — it pauses the block
+                // rather than ending it. A truly empty line (length 0) always
+                // ends the block, exactly as before.
+                let dialogueBlockActive = prevElement == .character
+                    || prevElement == .dialogue || prevElement == .parenthetical
+                if !raw.isEmpty && dialogueBlockActive {
+                    lines.append(FountainLine(
+                        range: enclosingRange,
+                        element: .dialogue,
+                        content: "",
+                        isForced: false,
+                        sourceCase: .neutral,
+                        isDualSecond: prevWasDualSecond))
+                    prevBlank = false
+                    prevElement = .dialogue
+                    return
+                }
                 lines.append(FountainLine(
                     range: enclosingRange,
                     element: .action,
@@ -198,6 +217,26 @@ struct FountainTokenizerReference: Sendable {
                 lineIsDualSecond = prevWasDualSecond
             }
 
+            // Scene number: a scene heading may end with a `#<id>#` bracket.
+            // Lift the id, strip it (and preceding spaces) from the content,
+            // and emit a `.sceneNumber` span over the marker (document-relative).
+            var sceneNumber: String? = nil
+            var sceneNumberSpan: FountainInlineSpan? = nil
+            if classified.element == .sceneHeading,
+               let extracted = Self.extractSceneNumber(from: emittedContent) {
+                emittedContent = extracted.content
+                sceneNumber = extracted.number
+                let rawLine = raw as NSString
+                let markerRange = rawLine.range(of: extracted.marker, options: .backwards)
+                if markerRange.location != NSNotFound {
+                    sceneNumberSpan = FountainInlineSpan(
+                        range: NSRange(
+                            location: enclosingRange.location + markerRange.location,
+                            length: markerRange.length),
+                        kind: .sceneNumber)
+                }
+            }
+
             lines.append(FountainLine(
                 range: enclosingRange,
                 element: classified.element,
@@ -205,7 +244,8 @@ struct FountainTokenizerReference: Sendable {
                 isForced: classified.isForced,
                 sourceCase: Self.sourceCase(of: emittedContent),
                 isDualSecond: lineIsDualSecond,
-                inlineSpans: inlineSpans))
+                inlineSpans: sceneNumberSpan.map { inlineSpans + [$0] } ?? inlineSpans,
+                sceneNumber: sceneNumber))
             prevBlank = false
             prevElement = classified.element
             prevWasDualSecond = lineIsDualSecond
@@ -321,8 +361,9 @@ struct FountainTokenizerReference: Sendable {
                 isForced: true)
         }
 
-        // Context-sensitive scene heading: starts with INT./EXT./EST./I/E./
-        // INT/EXT., case-insensitive, and has a blank line above.
+        // Context-sensitive scene heading: starts with a dot-less stem —
+        // INT, EXT, EST, INT/EXT, EXT/INT, I/E, case-insensitive — followed by
+        // `.` or a space, and has a blank line above.
         if prevBlank && Self.isSceneHeadingPrefix(line) {
             return Classified(
                 element: .sceneHeading,
@@ -339,10 +380,10 @@ struct FountainTokenizerReference: Sendable {
                 isForced: false)
         }
 
-        // Tentative Character: ALL-CAPS letters with blank line above.
-        // The "followed by a non-blank line" requirement is enforced in a
-        // post-pass (second loop), since enumerateSubstrings doesn't give
-        // us forward lookahead cheaply.
+        // Character: ALL-CAPS letters with a blank line above. Deliberately
+        // NOT gated on what follows (live-editing choice) — mirrors
+        // FountainTokenizer.classifyContextual exactly, this oracle's whole
+        // purpose.
         if prevBlank && Self.isAllCapsCueCandidate(line) {
             return Classified(
                 element: .character,
@@ -401,16 +442,42 @@ struct FountainTokenizerReference: Sendable {
         return Self.isAllCapsCueCandidate(line)
     }
 
-    private static let sceneHeadingPrefixes = [
-        "INT.", "EXT.", "EST.", "I/E.", "INT/EXT."
+    private static let sceneHeadingStems = [
+        "INT/EXT", "EXT/INT", "INT", "EXT", "EST", "I/E"
     ]
 
     private static func isSceneHeadingPrefix(_ line: String) -> Bool {
+        // Independent frozen-copy computation of the dot-less stem rule: match a
+        // stem (case-insensitive), then require a `.`/space delimiter with the
+        // guards below. No shared helpers with the production tokenizer.
         let upper = line.uppercased()
-        for prefix in sceneHeadingPrefixes {
-            if upper.hasPrefix(prefix + " ") || upper == prefix {
-                return true
+        let scalars = Array(upper.unicodeScalars)
+        for stem in sceneHeadingStems {
+            let su = Array(stem.unicodeScalars)
+            guard scalars.count >= su.count else { continue }
+            var matched = true
+            for i in 0..<su.count where scalars[i] != su[i] { matched = false; break }
+            guard matched else { continue }
+            let end = su.count
+            // Nothing after the stem → bare "INT" is not a heading.
+            guard end < scalars.count else { continue }
+            let delim = scalars[end]
+            if delim == "." {
+                // Dot form: require a space or end after the dot.
+                if end + 1 == scalars.count || scalars[end + 1] == " " { return true }
+                continue
             }
+            if delim == " " {
+                // Space form: require at least one more non-whitespace char.
+                var j = end + 1
+                while j < scalars.count {
+                    let c = scalars[j]
+                    if c != " " && c != "\t" { return true }
+                    j += 1
+                }
+                continue
+            }
+            // Any other char after the stem (a longer word) → not a heading.
         }
         return false
     }
@@ -418,6 +485,53 @@ struct FountainTokenizerReference: Sendable {
     private static func isPageBreak(_ line: String) -> Bool {
         guard line.count >= 3 else { return false }
         return line.allSatisfy { $0 == "=" }
+    }
+
+    /// True for a scene-number id scalar: `[0-9A-Za-z.-]`.
+    private static func isSceneNumberIDChar(_ s: Unicode.Scalar) -> Bool {
+        let v = s.value
+        return (v >= 0x30 && v <= 0x39)   // 0-9
+            || (v >= 0x41 && v <= 0x5A)   // A-Z
+            || (v >= 0x61 && v <= 0x7A)   // a-z
+            || v == 0x2E                  // .
+            || v == 0x2D                  // -
+    }
+
+    /// If `content` ends with a Fountain scene-number bracket `#<id>#`
+    /// (id = 1+ chars of `[0-9A-Za-z.-]`), return the id, the full marker
+    /// substring (both `#` inclusive), and `content` with the marker and any
+    /// spaces/tabs immediately preceding it removed. Returns nil otherwise.
+    static func extractSceneNumber(from content: String)
+        -> (content: String, number: String, marker: String)? {
+        let scalars = content.unicodeScalars
+        guard scalars.last == "#" else { return nil }
+        let closeIndex = scalars.index(before: scalars.endIndex)   // closing '#'
+        var i = closeIndex
+        var idCount = 0
+        while i > scalars.startIndex {
+            let prev = scalars.index(before: i)
+            let s = scalars[prev]
+            if s == "#" {
+                guard idCount >= 1 else { return nil }   // "##" — empty bracket
+                let openIndex = prev
+                let number = String(scalars[scalars.index(after: openIndex)..<closeIndex])
+                let marker = String(scalars[openIndex...closeIndex])
+                var stripEnd = openIndex
+                while stripEnd > scalars.startIndex {
+                    let b = scalars.index(before: stripEnd)
+                    if scalars[b] == " " || scalars[b] == "\t" { stripEnd = b } else { break }
+                }
+                let stripped = String(scalars[scalars.startIndex..<stripEnd])
+                return (stripped, number, marker)
+            }
+            if Self.isSceneNumberIDChar(s) {
+                idCount += 1
+                i = prev
+            } else {
+                return nil
+            }
+        }
+        return nil
     }
 
     private static func parseSection(_ line: String) -> (level: Int, content: String)? {

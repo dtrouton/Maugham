@@ -43,6 +43,8 @@ public struct ProjectAST: Equatable, Sendable {
         case heading(level: Int, [Inline])    // ATX `## Day 1/3` — section title
         indirect case blockquote([ProseNode]) // `> …` markdown blockquote
         case sceneBreak
+        case list(ordered: Bool, items: [[Inline]])   // flat, tight `- x` / `1. x`
+        case verbatim([String])               // ``` fenced block — a mangle guard, not code support
         // Inline emphasis/strong/code/wiki-links live inside
         // `paragraph([Inline])` via the `Inline` enum below — they are not
         // standalone block nodes.
@@ -53,8 +55,9 @@ public struct ProjectAST: Equatable, Sendable {
     /// a single `String` payload can't represent nesting, an `[Inline]` can.
     public enum Inline: Equatable, Sendable {
         case text(String)
-        case emphasis([Inline])               // *italic* / _italic_ (prose)
+        case emphasis([Inline])               // *italic* (prose + fountain)
         case strong([Inline])                 // **bold**
+        case strikethrough([Inline])          // ~~strike~~ (prose GFM only)
         case underline([Inline])              // _underline_ (fountain)
         case code(String)                     // `inline code` — never nests
         case wikiLink(target: String, display: String)
@@ -62,12 +65,15 @@ public struct ProjectAST: Equatable, Sendable {
     }
 
     public enum FountainNode: Equatable, Sendable {
-        case sceneHeading(String)
+        case sceneHeading(String, sceneNumber: String?)
         case action([Inline])                 // emphasis-bearing
         case character(String)
         case dialogue([Inline])               // emphasis-bearing
         case parenthetical([Inline])          // emphasis-bearing
         case transition(String)
+        case lyric([Inline])                  // emphasis-bearing; `~lyric line~`
+        case centered([Inline])               // emphasis-bearing; `>centered<`
+        case pageBreak                         // `===`
         case titlePage([TitleField])          // Fountain title-page block
         indirect case dualDialogue(left: [FountainNode], right: [FountainNode])
     }
@@ -102,7 +108,10 @@ public extension ProjectAST.Node {
 // tests can write `.action("plain")` for unformatted text; the builder uses
 // the `[Inline]` cases directly via `FountainInline.parse`.
 public extension ProjectAST.FountainNode {
+    static func sceneHeading(_ s: String) -> Self { .sceneHeading(s, sceneNumber: nil) }
     static func action(_ s: String) -> Self { .action([.text(s)]) }
     static func dialogue(_ s: String) -> Self { .dialogue([.text(s)]) }
     static func parenthetical(_ s: String) -> Self { .parenthetical([.text(s)]) }
+    static func lyric(_ s: String) -> Self { .lyric([.text(s)]) }
+    static func centered(_ s: String) -> Self { .centered([.text(s)]) }
 }

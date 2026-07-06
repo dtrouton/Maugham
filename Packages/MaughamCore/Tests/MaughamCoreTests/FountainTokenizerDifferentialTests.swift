@@ -83,6 +83,28 @@ final class FountainTokenizerDifferentialTests: XCTestCase {
         for (label, text) in cases { assertParity(text, label) }
     }
 
+    // -- Held blank line (Task 13): two-space line inside a dialogue block --
+
+    func test_heldBlankInDialogue() {
+        let cases: [(String, String)] = [
+            ("basic held blank", "DAN\nThen.\n  \nWhaddya want?\n"),
+            ("empty line still ends dialogue", "DAN\nThen.\n\nAction now.\n"),
+            ("held blank after parenthetical", "DAN\n(beat)\nThen.\n  \nMore."),
+            ("held blank then scene-heading-shaped line stays dialogue",
+             "DAN\nThen.\n  \nINT. HOUSE - DAY"),
+            ("held blank then all-caps-shaped line stays dialogue",
+             "DAN\nThen.\n  \nSTEVE"),
+            ("held blank across dual-second block",
+             "BRICK\nHi.\n\nSTEVE ^\nThen.\n  \nMore."),
+            ("held blank outside dialogue is plain blank action",
+             "Action one.\n  \nAction two."),
+            ("tab-only held line", "DAN\nThen.\n\t\nMore."),
+            ("multiple held blanks in a row", "DAN\nThen.\n  \n  \nMore."),
+            ("held blank immediately after cue", "DAN\n  \nThen."),
+        ]
+        for (label, text) in cases { assertParity(text, label) }
+    }
+
     // -- Line-separator zoo: .byLines recognizes \n \r \r\n NEL LS PS --
 
     func test_lineSeparatorZoo() {
@@ -112,6 +134,50 @@ final class FountainTokenizerDifferentialTests: XCTestCase {
         for (label, text) in cases { assertParity(text, label) }
     }
 
+    // -- Scene numbers (Task 11): trailing `#<id>#` on scene headings --
+
+    func test_sceneNumbers() {
+        let cases: [(String, String)] = [
+            ("contextual + number", "INT. HOUSE - DAY #4A#\n\nAction.\n"),
+            ("forced + number", ".ROOFTOP #12#\n\nAction.\n"),
+            ("alnum-dot-dash id", "EXT. STREET - NIGHT #1.A-2#\n"),
+            ("trailing spaces after marker", "INT. HOUSE - DAY #7#   \n"),
+            ("no number", "INT. HOUSE - DAY\n"),
+            ("empty bracket ##", "INT. HOUSE - DAY ##\n"),
+            ("space in bracket", "INT. HOUSE - DAY #1 #\n"),
+            ("marker not at end", "INT. HOUSE #4A# - DAY\n"),
+            ("hash section not scene number", "# Act One\n"),
+            ("action hash suffix", "He wrote #1# on the wall.\n"),
+            ("non-ascii heading + number", "INT. CAFÉ - DAY #4A#\n"),
+            ("number + emphasis in heading", "INT. HOUSE - *DAY* #4A#\n"),
+            ("CRLF + number", "INT. HALL - DAY #9#\r\nAction.\r\n"),
+        ]
+        for (label, text) in cases { assertParity(text, label) }
+    }
+
+    // -- Dot-less scene stems (Task 12): stem + `.`-or-space delimiter --
+
+    func test_dotlessSceneStems() {
+        let cases: [(String, String)] = [
+            ("space form INT", "INT ROOM - DAY\n\nAction.\n"),
+            ("space form I/E", "I/E CAR - NIGHT\n\nAction.\n"),
+            ("dotted EXT/INT", "EXT/INT. HOUSE\n\nAction.\n"),
+            ("space form INT/EXT", "INT/EXT WAREHOUSE - DAWN\n"),
+            ("dot alone", "INT.\n\nAction.\n"),
+            ("bare stem (not heading)", "INT\n\nAction.\n"),
+            ("space nothing after", "INT \n\nAction.\n"),
+            ("longer word INTERIOR", "INTERIOR SHOT\n\nAction.\n"),
+            ("mixed case Int room", "Int room\n\nAction.\n"),
+            ("lowercase int room", "int room\n\nAction.\n"),
+            ("lowercase interesting prose", "Interesting things happened.\n"),
+            ("mid-paragraph not heading", "He yelled.\nINT ROOM - DAY\n"),
+            ("non-ascii dotless stem", "INT CAFÉ - DAY\n\nÉmile sips.\n"),
+            ("EST space form", "EST MEADOW - DAWN\n"),
+            ("tab after dot not heading", "INT.\tROOM\n"),
+        ]
+        for (label, text) in cases { assertParity(text, label) }
+    }
+
     // -- Randomized generative corpus (seeded; catches what we didn't think of) --
 
     func test_randomizedScripts() {
@@ -120,8 +186,22 @@ final class FountainTokenizerDifferentialTests: XCTestCase {
             var lines: [String] = []
             let n = 20 + Int(rng.next() % 180)
             for _ in 0..<n {
-                switch rng.next() % 14 {
-                case 0: lines.append("INT. LOC\(rng.next() % 50) - DAY")
+                switch rng.next() % 15 {
+                case 0:
+                    // Sometimes a trailing scene-number bracket (Task 11),
+                    // occasionally malformed so the non-match paths get exercised.
+                    // Vary the slugline opener across dotted and dot-less stem
+                    // forms (Task 12) so both delimiter paths are stressed.
+                    let opener = ["INT.", "EXT.", "INT", "EXT", "I/E", "INT/EXT",
+                                  "EXT/INT.", "EST", "INTERIOR"][Int(rng.next() % 9)]
+                    let stem = "\(opener) LOC\(rng.next() % 50) - DAY"
+                    switch rng.next() % 5 {
+                    case 0: lines.append(stem + " #\(rng.next() % 200)#")
+                    case 1: lines.append(stem + " #\(rng.next() % 20)A-\(rng.next() % 9)#")
+                    case 2: lines.append(stem + " ##")
+                    case 3: lines.append(stem + " #\(rng.next() % 10) #")
+                    default: lines.append(stem)
+                    }
                 case 1: lines.append("")
                 case 2: lines.append("CHARACTER\(rng.next() % 9)" + (rng.next() % 4 == 0 ? " ^" : ""))
                 case 3: lines.append("(beat)")
@@ -134,6 +214,7 @@ final class FountainTokenizerDifferentialTests: XCTestCase {
                 case 10: lines.append("*/")
                 case 11: lines.append("[[note \(rng.next() % 10)]]")
                 case 12: lines.append("Text with *emph\(rng.next() % 10)* inline.")
+                case 13: lines.append("  ")   // two-space held-blank candidate
                 default: lines.append("   indented action \(rng.next() % 10)")
                 }
             }

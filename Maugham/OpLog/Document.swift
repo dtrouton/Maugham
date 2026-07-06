@@ -533,7 +533,13 @@ public final class Document {
                 : anchored
         }
 
-        let displayParsed = ParagraphParser.parse(text)
+        // Fountain docs preserve the two-space "held blank" dialogue pause inside
+        // the paragraph rather than splitting on it (E1); prose keeps
+        // whitespace-only = blank. Consistent with Bootstrap + Document.load so
+        // the same doc parses to the same ¶ split on every path.
+        let isFountain = url.pathExtension.lowercased() == "fountain"
+        let displayParsed = ParagraphParser.parse(
+            text, preservesHeldBlankLines: isFountain)
         // `pairs` is exactly what `parse(restoreComments(...))` yielded before:
         // ids in display order paired with the (anchor-free) display text.
         let pairs = RenderFilter.restorePairs(

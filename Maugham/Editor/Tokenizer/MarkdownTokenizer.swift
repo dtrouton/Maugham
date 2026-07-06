@@ -2,8 +2,12 @@ import Foundation
 import MaughamCore
 
 /// Regex-based Markdown tokenizer. Classifies ranges of text into Token kinds
-/// for syntax highlighting. Does not handle tables, fenced code blocks, or
-/// nested emphasis — defer to later milestones if needed.
+/// for syntax highlighting. Asterisk emphasis (incl. `***both***`, nesting,
+/// and `~~strikethrough~~`) is paragraph-scoped via the shared
+/// `InlineEmphasisScanner` (see the emphasis pass below) — nested emphasis IS
+/// handled, contrary to this header's old claim. Does not handle tables or
+/// fenced-code syntax highlighting; see `markdown-syntax.md` for the full
+/// documented subset.
 public struct MarkdownTokenizer: Sendable {
 
     public init() {}
@@ -14,6 +18,22 @@ public struct MarkdownTokenizer: Sendable {
         let fullRange = NSRange(location: 0, length: nsText.length)
 
         var tokens: [Token] = []
+
+        // Horizontal rule / scene break: ^ {0,3}(-{3,}|\*{3}|#{3})\s*$
+        // Runs FIRST so a lone `***` or `###` line is claimed as a rule
+        // before the heading pass (which would otherwise read `### ` as an
+        // empty level-3 heading) or the paragraph-scoped emphasis scan
+        // (which would otherwise see `***` as an open/close delimiter run
+        // spanning into surrounding prose). The overlap-skip in addMatches
+        // and in the emphasis loop then keeps those passes off this range.
+        // Kept in exact parity with publish's `isSceneBreakLine`: exactly
+        // three `*`/`#` (space-stripped equality) or three-or-more `-`.
+        addMatches(
+            in: nsText, fullRange: fullRange,
+            pattern: #"(?m)^ {0,3}(-{3,}|\*{3}|#{3})\s*$"#,
+            into: &tokens) { match in
+                return [Token(range: match.range(at: 1), kind: .horizontalRule)]
+            }
 
         // Headings: ^(#{1,6})\s+
         addMatches(
@@ -31,14 +51,18 @@ public struct MarkdownTokenizer: Sendable {
                 ]
             }
 
-        // Asterisk emphasis (*, **, ***, nesting) via the shared scanner,
-        // scanned PER LINE so emphasis never spans a line break (matching the
-        // old [^*\n] regex behavior and FountainTokenizer's per-line approach).
-        nsText.enumerateSubstrings(in: fullRange, options: .byLines) { substring, lineRange, _, _ in
-            guard let line = substring else { return }
-            let scan = InlineEmphasisScanner.scan(line as NSString)
+        // Asterisk emphasis (*, **, ***, nesting) + `~~strikethrough~~` via the
+        // shared scanner, scanned PER BLANK-LINE-DELIMITED BLOCK so emphasis is
+        // paragraph-scoped: it spans a hard line break within a stanza but never
+        // crosses a blank line (spec ledger: paragraph-scoped emphasis, which
+        // inverts the old per-line rule). Backslash escapes are faded as syntax
+        // punctuation so `\*literal\*` reads as literal asterisks.
+        BlankLineBlocks.enumerate(nsText, in: fullRange) { blockRange in
+            let block = nsText.substring(with: blockRange)
+            let scan = InlineEmphasisScanner.scan(block as NSString,
+                                                  options: [.strikethrough])
             for run in scan.runs {
-                let r = NSRange(location: lineRange.location + run.range.location,
+                let r = NSRange(location: blockRange.location + run.range.location,
                                 length: run.range.length)
                 let tok = Token(range: r, kind: .emphasis(run.traits))
                 if !tokens.contains(where: { $0.range.intersection(r) != nil }) {
@@ -46,11 +70,18 @@ public struct MarkdownTokenizer: Sendable {
                 }
             }
             for marker in scan.markers {
-                let r = NSRange(location: lineRange.location + marker.location,
+                let r = NSRange(location: blockRange.location + marker.location,
                                 length: marker.length)
                 let tok = Token(range: r, kind: .syntaxPunctuation)
                 if !tokens.contains(where: { $0.range.intersection(r) != nil }) {
                     tokens.append(tok)
+                }
+            }
+            for esc in scan.escapes {
+                let r = NSRange(location: blockRange.location + esc.location,
+                                length: esc.length)
+                if !tokens.contains(where: { $0.range.intersection(r) != nil }) {
+                    tokens.append(Token(range: r, kind: .syntaxPunctuation))
                 }
             }
         }
@@ -71,10 +102,12 @@ public struct MarkdownTokenizer: Sendable {
                 ]
             }
 
-        // Link: \[([^\]\n]+)\]\(([^\)\n]+)\)
+        // Link: (?<!\!)\[([^\]\n]+)\]\(([^\)\n]+)\)
+        // Negative lookbehind excludes `![alt](url)` image syntax — its
+        // `[alt](url)` tail is not a link and must not be link-styled.
         addMatches(
             in: nsText, fullRange: fullRange,
-            pattern: #"\[([^\]\n]+)\]\(([^\)\n]+)\)"#,
+            pattern: #"(?<!\!)\[([^\]\n]+)\]\(([^\)\n]+)\)"#,
             into: &tokens) { match in
                 let outer = match.range(at: 0)
                 let labelInner = match.range(at: 1)
@@ -200,14 +233,6 @@ public struct MarkdownTokenizer: Sendable {
             pattern: #"(?m)^(>)\s"#,
             into: &tokens) { match in
                 return [Token(range: match.range(at: 1), kind: .blockquote)]
-            }
-
-        // Horizontal rule: ^---+\s*$
-        addMatches(
-            in: nsText, fullRange: fullRange,
-            pattern: #"(?m)^(---+)\s*$"#,
-            into: &tokens) { match in
-                return [Token(range: match.range(at: 1), kind: .horizontalRule)]
             }
 
         // Sort by location and fill gaps with .plain tokens

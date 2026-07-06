@@ -102,6 +102,43 @@ final class XHTMLBodyEmitterTests: XCTestCase {
         XCTAssertTrue(xhtml.contains("</blockquote>"))
     }
 
+    // MARK: - lists + verbatim
+
+    func testEmits_unorderedList_ulLi() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .prose(.list(ordered: false, items: [[.text("one")], [.text("two")]]))
+            ])
+        ])
+        let xhtml = XHTMLBodyEmitter.emit(ast)
+        XCTAssertTrue(xhtml.contains("<ul>"))
+        XCTAssertTrue(xhtml.contains("<li>one</li>"))
+        XCTAssertTrue(xhtml.contains("<li>two</li>"))
+        XCTAssertTrue(xhtml.contains("</ul>"))
+    }
+
+    func testEmits_orderedList_olLi() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .prose(.list(ordered: true, items: [[.text("a")], [.text("b")]]))
+            ])
+        ])
+        let xhtml = XHTMLBodyEmitter.emit(ast)
+        XCTAssertTrue(xhtml.contains("<ol>"))
+        XCTAssertTrue(xhtml.contains("<li>a</li>"))
+        XCTAssertTrue(xhtml.contains("</ol>"))
+    }
+
+    func testEmits_verbatim_paragraphWithBrLineBreaks() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .prose(.verbatim(["*not em*", "`nor code`"]))
+            ])
+        ])
+        let xhtml = XHTMLBodyEmitter.emit(ast)
+        XCTAssertTrue(xhtml.contains("<p class=\"verbatim\">*not em*<br/>`nor code`</p>"))
+    }
+
     // MARK: - scene break + escaping
 
     func testEmits_sceneBreak_asHR() {
@@ -174,6 +211,62 @@ final class XHTMLBodyEmitterTests: XCTestCase {
         XCTAssertTrue(xhtml.contains("<h1 class=\"title\">Good Luck Babe</h1>"))
         XCTAssertTrue(xhtml.contains("<p class=\"draft-date\">2026-05-28</p>"))
         XCTAssertTrue(xhtml.contains("</header>"))
+    }
+
+    // MARK: - fountain vocabulary expansion (lyric/centered/pageBreak/scene numbers)
+
+    func testEmits_sceneHeading_nilSceneNumber_isByteIdenticalToToday() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.sceneHeading("INT. KITCHEN - DAY", sceneNumber: nil)),
+            ])
+        ])
+        let xhtml = XHTMLBodyEmitter.emit(ast)
+        XCTAssertTrue(xhtml.contains("<p class=\"scene-heading\">INT. KITCHEN - DAY</p>"))
+        XCTAssertFalse(xhtml.contains("scene-number"))
+    }
+
+    func testEmits_sceneHeading_withSceneNumber_appendsSpanInsideSceneHeading() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.sceneHeading("INT. HOUSE - DAY", sceneNumber: "42")),
+            ])
+        ])
+        let xhtml = XHTMLBodyEmitter.emit(ast)
+        XCTAssertTrue(xhtml.contains(
+            "<p class=\"scene-heading\">INT. HOUSE - DAY<span class=\"scene-number\">42</span></p>"))
+    }
+
+    func testEmits_lyric_asPTag() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.lyric("Hush now, quiet now")),
+            ])
+        ])
+        let xhtml = XHTMLBodyEmitter.emit(ast)
+        XCTAssertTrue(xhtml.contains("<p class=\"lyric\">Hush now, quiet now</p>"))
+    }
+
+    func testEmits_centered_asPTag() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.centered("THE END")),
+            ])
+        ])
+        let xhtml = XHTMLBodyEmitter.emit(ast)
+        XCTAssertTrue(xhtml.contains("<p class=\"centered\">THE END</p>"))
+    }
+
+    func testEmits_pageBreak_asHR() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.action("Before.")),
+                .fountain(.pageBreak),
+                .fountain(.action("After.")),
+            ])
+        ])
+        let xhtml = XHTMLBodyEmitter.emit(ast)
+        XCTAssertTrue(xhtml.contains("<hr class=\"page-break\"/>"))
     }
 
     func testEmits_dualDialogue_wrappedInDiv() {

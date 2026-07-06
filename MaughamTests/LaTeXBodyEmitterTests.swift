@@ -3,9 +3,12 @@ import XCTest
 
 final class LaTeXBodyEmitterTests: XCTestCase {
 
-    func testEmits_emptyAST_emptyBody() {
+    func testEmits_emptyAST_onlyStrikethroughFallback() {
+        // The unconditional \st providecommand fallback (task-8) is the only
+        // line emitted even with zero sections.
         let body = LaTeXBodyEmitter.emit(ProjectAST(sections: []))
-        XCTAssertEqual(body.trimmingCharacters(in: .whitespacesAndNewlines), "")
+        XCTAssertEqual(body.trimmingCharacters(in: .whitespacesAndNewlines),
+                       "\\providecommand{\\st}[1]{#1}")
     }
 
     func testEmits_proseSection_environment() {
@@ -139,6 +142,45 @@ final class LaTeXBodyEmitterTests: XCTestCase {
         XCTAssertTrue(body.contains("\\end{quote}"))
     }
 
+    // MARK: - lists + verbatim
+
+    func testEmits_unorderedList_itemizeEnvironment() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .prose(.list(ordered: false, items: [[.text("one")], [.text("two")]]))
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("\\begin{itemize}"))
+        XCTAssertTrue(body.contains("\\item one"))
+        XCTAssertTrue(body.contains("\\item two"))
+        XCTAssertTrue(body.contains("\\end{itemize}"))
+    }
+
+    func testEmits_orderedList_enumerateEnvironment() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .prose(.list(ordered: true, items: [[.text("a")], [.text("b")]]))
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("\\begin{enumerate}"))
+        XCTAssertTrue(body.contains("\\item a"))
+        XCTAssertTrue(body.contains("\\end{enumerate}"))
+    }
+
+    func testEmits_verbatim_escapedLinesJoinedByHardBreak_noMonospace() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .prose(.verbatim(["*not em*", "50% off"]))
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("*not em*\\\\50\\% off"))
+        XCTAssertFalse(body.contains("\\texttt"))
+        XCTAssertFalse(body.contains("\\emph"))
+    }
+
     // MARK: - scene break + escaping
 
     func testEmits_sceneBreak_command() {
@@ -247,6 +289,87 @@ final class LaTeXBodyEmitterTests: XCTestCase {
         let firstIdx = body.range(of: "First")!.lowerBound
         let secondIdx = body.range(of: "Second")!.lowerBound
         XCTAssertLessThan(firstIdx, secondIdx)
+    }
+
+    // MARK: - fountain vocabulary expansion (lyric/centered/pageBreak/scene numbers)
+
+    func testEmits_sceneHeading_nilSceneNumber_isByteIdenticalToToday() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.sceneHeading("INT. KITCHEN - DAY", sceneNumber: nil)),
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("\\scene{INT. KITCHEN - DAY}"))
+        // The scene command itself carries no \scenenumber invocation (the
+        // providecommand *definition* legitimately mentions the token, so
+        // check the call site specifically, not mere substring presence).
+        XCTAssertFalse(body.contains("\\scene{INT. KITCHEN - DAY\\scenenumber"))
+    }
+
+    func testEmits_sceneHeading_withSceneNumber_appendsScenenumberInsideArgument() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.sceneHeading("INT. HOUSE - DAY", sceneNumber: "42")),
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("\\scene{INT. HOUSE - DAY\\scenenumber{42}}"))
+    }
+
+    func testEmits_lyric_command() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.lyric("Hush now, don't you cry")),
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("\\lyricline{Hush now, don't you cry}"))
+    }
+
+    func testEmits_centered_command() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.centered("THE END")),
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("\\centeredline{THE END}"))
+    }
+
+    func testEmits_pageBreak_command() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.action("Before.")),
+                .fountain(.pageBreak),
+                .fountain(.action("After.")),
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        // Two \clearpage: one from the providecommand-adjacent... no — just the
+        // explicit page break node. Assert it appears between the two actions.
+        let beforeIdx = body.range(of: "Before.")!.lowerBound
+        let afterIdx = body.range(of: "After.")!.lowerBound
+        let breakRange = body.range(of: "\\clearpage", range: beforeIdx..<afterIdx)
+        XCTAssertNotNil(breakRange)
+    }
+
+    func testEmits_fountainSection_includesProvidecommandPrologue_onceBeforeFirstNode() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.action("Aaron pours coffee.")),
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("\\providecommand{\\lyricline}[1]{\\textit{#1}\\par}"))
+        XCTAssertTrue(body.contains("\\providecommand{\\centeredline}[1]{\\begin{center}#1\\end{center}}"))
+        XCTAssertTrue(body.contains("\\providecommand{\\scenenumber}[1]{\\hfill #1}"))
+        // Prologue precedes the first content node.
+        let prologueIdx = body.range(of: "\\providecommand{\\lyricline}")!.lowerBound
+        let actionIdx = body.range(of: "\\action{Aaron")!.lowerBound
+        XCTAssertLessThan(prologueIdx, actionIdx)
+        // Emitted exactly once even though only one fountain section exists.
+        XCTAssertEqual(body.components(separatedBy: "\\providecommand{\\lyricline}").count - 1, 1)
     }
 
     func testSubsequentSections_clearPage_firstDoesNot() {

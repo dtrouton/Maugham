@@ -29,6 +29,7 @@ A plain sentence.
 emits:
 
 ```latex
+\providecommand{\st}[1]{#1}
 \begin{prose}{Example}
 A plain sentence.
 
@@ -44,6 +45,7 @@ A plain sentence.
 emits:
 
 ```latex
+\providecommand{\st}[1]{#1}
 \begin{prose}{Example}
 \section*{Chapter Title}
 \addcontentsline{toc}{section}{Chapter Title}
@@ -59,6 +61,7 @@ emits:
 emits:
 
 ```latex
+\providecommand{\st}[1]{#1}
 \begin{prose}{Example}
 \begin{quote}
 A quote with \emph{italic} inside.
@@ -76,6 +79,7 @@ A quote with \emph{italic} inside.
 emits:
 
 ```latex
+\providecommand{\st}[1]{#1}
 \begin{prose}{Example}
 \scenebreak
 \end{prose}
@@ -90,8 +94,9 @@ Text with *em*, **strong**, _under_, `code`.
 emits:
 
 ```latex
+\providecommand{\st}[1]{#1}
 \begin{prose}{Example}
-Text with \emph{em}, \textbf{strong}, \emph{under}, \texttt{code}.
+Text with \emph{em}, \textbf{strong}, \_under\_, \texttt{code}.
 
 \end{prose}
 ```
@@ -105,8 +110,251 @@ Text with \emph{em}, \textbf{strong}, \emph{under}, \texttt{code}.
 emits:
 
 ```latex
+\providecommand{\st}[1]{#1}
 \begin{prose}{Example}
 \end{prose}
+```
+
+### Bold italic
+
+```
+Both ***kinds*** now.
+```
+
+emits:
+
+```latex
+\providecommand{\st}[1]{#1}
+\begin{prose}{Example}
+Both \textbf{\emph{kinds}} now.
+
+\end{prose}
+```
+
+### Strikethrough
+
+```
+Cut ~~this clause~~ entirely.
+```
+
+emits:
+
+```latex
+\providecommand{\st}[1]{#1}
+\begin{prose}{Example}
+Cut \st{this clause} entirely.
+
+\end{prose}
+```
+
+### Escaped asterisk
+
+```
+A literal \*star\* here.
+```
+
+emits:
+
+```latex
+\providecommand{\st}[1]{#1}
+\begin{prose}{Example}
+A literal *star* here.
+
+\end{prose}
+```
+
+### Underscore is literal in prose
+
+```
+snake_case stays flat.
+```
+
+emits:
+
+```latex
+\providecommand{\st}[1]{#1}
+\begin{prose}{Example}
+snake\_case stays flat.
+
+\end{prose}
+```
+
+### List
+
+```
+- one
+- two
+```
+
+emits:
+
+```latex
+\providecommand{\st}[1]{#1}
+\begin{prose}{Example}
+\begin{itemize}
+\item one
+\item two
+\end{itemize}
+\end{prose}
+```
+
+### Fenced code block (mangle guard, not code support)
+
+```
+```
+*not em*
+`nor code`
+```
+```
+
+emits:
+
+```latex
+\providecommand{\st}[1]{#1}
+\begin{prose}{Example}
+*not em*\\`nor code`
+
+\end{prose}
+```
+
+## Fountain positive space — recognized patterns
+
+### Scene heading with number
+
+```
+INT. HOUSE - DAY #4A#
+```
+
+emits:
+
+```latex
+\providecommand{\st}[1]{#1}
+\begin{screenplay}{Example}
+\providecommand{\lyricline}[1]{\textit{#1}\par}
+\providecommand{\centeredline}[1]{\begin{center}#1\end{center}}
+\providecommand{\scenenumber}[1]{\hfill #1}
+\scene{INT. HOUSE - DAY\scenenumber{4A}}
+\end{screenplay}
+```
+
+### Dual dialogue
+
+```
+ALICE
+Hello.
+
+BOB ^
+Hi.
+```
+
+emits:
+
+```latex
+\providecommand{\st}[1]{#1}
+\begin{screenplay}{Example}
+\providecommand{\lyricline}[1]{\textit{#1}\par}
+\providecommand{\centeredline}[1]{\begin{center}#1\end{center}}
+\providecommand{\scenenumber}[1]{\hfill #1}
+\dualdialogue{%
+\character{ALICE}
+\dialogue{Hello.}
+}{%
+\character{BOB}
+\dialogue{Hi.}
+}
+\end{screenplay}
+```
+
+### Lyric
+
+```
+~The moon is out
+```
+
+emits:
+
+```latex
+\providecommand{\st}[1]{#1}
+\begin{screenplay}{Example}
+\providecommand{\lyricline}[1]{\textit{#1}\par}
+\providecommand{\centeredline}[1]{\begin{center}#1\end{center}}
+\providecommand{\scenenumber}[1]{\hfill #1}
+\lyricline{The moon is out}
+\end{screenplay}
+```
+
+### Centered
+
+```
+> THE END <
+```
+
+emits:
+
+```latex
+\providecommand{\st}[1]{#1}
+\begin{screenplay}{Example}
+\providecommand{\lyricline}[1]{\textit{#1}\par}
+\providecommand{\centeredline}[1]{\begin{center}#1\end{center}}
+\providecommand{\scenenumber}[1]{\hfill #1}
+\centeredline{THE END}
+\end{screenplay}
+```
+
+### Page break (===)
+
+```
+===
+```
+
+emits:
+
+```latex
+\providecommand{\st}[1]{#1}
+\begin{screenplay}{Example}
+\providecommand{\lyricline}[1]{\textit{#1}\par}
+\providecommand{\centeredline}[1]{\begin{center}#1\end{center}}
+\providecommand{\scenenumber}[1]{\hfill #1}
+\clearpage
+\end{screenplay}
+```
+
+### Boneyard omitted
+
+```
+/* gone */
+
+Kept.
+```
+
+emits:
+
+```latex
+\providecommand{\st}[1]{#1}
+\begin{screenplay}{Example}
+\providecommand{\lyricline}[1]{\textit{#1}\par}
+\providecommand{\centeredline}[1]{\begin{center}#1\end{center}}
+\providecommand{\scenenumber}[1]{\hfill #1}
+\action{Kept.}
+\end{screenplay}
+```
+
+### Note omitted
+
+```
+Before [[skip me]] after.
+```
+
+emits:
+
+```latex
+\providecommand{\st}[1]{#1}
+\begin{screenplay}{Example}
+\providecommand{\lyricline}[1]{\textit{#1}\par}
+\providecommand{\centeredline}[1]{\begin{center}#1\end{center}}
+\providecommand{\scenenumber}[1]{\hfill #1}
+\action{Before after.}
+\end{screenplay}
 ```
 
 ## Negative space — patterns the emitter does NOT give special meaning

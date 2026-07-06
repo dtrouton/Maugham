@@ -2,7 +2,7 @@
 
 Maugham's screenplay mode uses [Fountain](https://fountain.io) — a plain-text screenplay format readable by Final Draft, Highland, Slugline, FountainJS, and other screenwriting tools. This page documents what Maugham specifically recognizes and how it renders each element.
 
-The underlying parser is `FountainTokenizer.swift`. The styling pipeline is `ScreenplayMode.applyTypography`. Layout follows the Cole & Haag standard (Hollywood spec): 60-character page width at 10cpi, scene heading bold, character cue at column 22, dialogue indented at column 10 with 35-char width, parenthetical at column 15 with 20-char width, transition right-aligned. Maugham's screenplay text container is fixed at 60 characters wide regardless of your prose-mode page-width setting. Dual-dialogue second blocks render with deeper indents to mark the simultaneous-speech pair visually.
+The underlying parser is `FountainTokenizer.swift`, shared by the Mac editor and the phone reader. The styling pipeline is `ScreenplayMode.applyTypography` on Mac. Publish (PDF/EPUB) parses through the same tokenizer via a mapper (`FountainNodeMapper`), so what you see while writing and what gets published agree. Layout follows the Cole & Haag standard (Hollywood spec): 60-character page width at 10cpi, scene heading bold, character cue at column 22, dialogue indented at column 10 with 35-char width, parenthetical at column 15 with 20-char width, transition right-aligned. Maugham's screenplay text container is fixed at 60 characters wide regardless of your prose-mode page-width setting. Dual-dialogue second blocks render with deeper indents to mark the simultaneous-speech pair visually.
 
 ## The basics
 
@@ -63,7 +63,7 @@ Two friends sit across from each other.
 
 ### Scene heading
 
-A line preceded by a blank line and starting with `INT.`, `EXT.`, `EST.`, `I/E.`, or `INT/EXT.` (case-insensitive). Renders bold, left-aligned.
+A line preceded by a blank line and starting with one of the spec's dot-less stems — `INT`, `EXT`, `EST`, `INT/EXT`, `EXT/INT`, or `I/E` (case-insensitive) — followed by **either** a period **or** a space, then more text. Renders bold, left-aligned.
 
 ```
 INT. KITCHEN - DAY
@@ -71,7 +71,11 @@ EXT. ROOFTOP - NIGHT
 EST. MEADOW - DAWN
 I/E. CAR - CONTINUOUS
 INT/EXT. WAREHOUSE - DAWN
+INT ROOM - DAY
+EXT/INT GARAGE - NIGHT
 ```
+
+The dot is optional — `INT ROOM - DAY` is a valid scene heading, matching the Fountain spec (stem + dot OR space). Because the stem match is case-insensitive and only needs a blank line above, a stray line like `Int room` sitting right after a blank line will also read as a slugline, not action — worth knowing if you have dialogue or action text that happens to start with one of these words in a sentence-case line.
 
 You can also force a scene heading with a leading `.` (single dot, not double):
 
@@ -81,16 +85,28 @@ You can also force a scene heading with a leading `.` (single dot, not double):
 
 A forced scene heading lets you write sluglines that don't start with the standard prefixes.
 
+### Scene numbers
+
+Append a scene number in hash-delimited form at the end of a scene heading:
+
+```
+INT. KITCHEN - DAY #4A#
+```
+
+Maugham parses the `#...#` off the slugline and carries it as metadata (`FountainLine.sceneNumber`) rather than styling it as part of the heading text. On Mac, the marker fades dim like other forced-syntax punctuation, same treatment as the `#...#` brackets themselves. On the phone Read tab, the number is not displayed — the reading view renders the cleaned slugline, and the number lives in metadata. In published PDF/EPUB, the number is right-aligned on the slugline line.
+
+Scene numbers are recognized on parse only — Maugham has no UI affordance for auto-numbering or renumbering scenes; you type them yourself.
+
 ### Character
 
-A line in **ALL CAPS** preceded by a blank line and followed by a non-blank line. Renders left-aligned, indented to column 22.
+A line in **ALL CAPS** preceded by a blank line. Renders left-aligned, indented to column 22.
 
 ```
 BARRY
 Hello there.
 ```
 
-You can force a character with a leading `@`:
+You can also force a character with a leading `@`:
 
 ```
 @Sam
@@ -99,7 +115,7 @@ Hi.
 
 The `@` lets you write character names with mixed case (e.g., `@McConnell`) when the writer wants the name preserved as-typed. Without `@`, only ALL CAPS lines are recognized as character cues. Currently Maugham renders forced character lines as-typed (option A — the visual-uppercase glyph substitution feature is deferred to a future milestone).
 
-A character cue must be followed by a non-blank line. An ALL CAPS line followed by a blank line is treated as action — that catches "He yelled SOMETHING!" mid-paragraph from being misread as a character.
+**An ALL CAPS line preceded by a blank is classified as a character cue on its own** — Maugham does not wait to see whether a non-blank line follows before committing to the classification. This is a deliberate live-editing choice: as you type a new character cue, the line needs to render as a cue immediately, before you've typed the dialogue that would follow it. The practical consequence is that a one-line ALL CAPS action beat directly after a blank line (`He yelled SOMETHING!` written entirely upper-case) will also read as a character cue, not action — write it in mixed case, or don't isolate it after a blank line, to avoid the misread.
 
 #### Character extensions
 
@@ -130,7 +146,7 @@ You ever wonder if we made the right call?
 What if we'd just driven north that night?
 ```
 
-Dialogue continues across multiple lines until a blank.
+Dialogue continues across multiple lines until a blank — **except** a line consisting of exactly two spaces, which is a "held" blank: it keeps the dialogue block open instead of ending it (per the Fountain spec). A line with zero characters, or more than two spaces of whitespace-only content, still ends the block normally.
 
 ### Parenthetical
 
@@ -156,7 +172,7 @@ Screw retirement.
 
 The `^` itself fades to dim, like other forced-syntax markers. Page count treats the pair as the height of the longer block (Final Draft semantics), not the sum — so a dual pair won't inflate your page count.
 
-**Asymmetric layout.** Maugham renders dual dialogue as **stacked + visually offset** rather than true side-by-side columns. The first block sits at the normal cue position; the second block is pushed right. The on-disk `.fountain` file is standard Fountain — opens correctly in Highland, Slugline, FountainJS, and other tools that may render true columns. A future print/PDF export milestone may upgrade Maugham's on-screen layout to true columns too.
+**Asymmetric layout on screen; true columns in print.** Maugham's Mac editor and phone reader render dual dialogue as **stacked + visually offset** rather than true side-by-side columns — there's no on-screen affordance for the true layout. The on-disk `.fountain` file is standard Fountain — opens correctly in Highland, Slugline, FountainJS, and other tools. **Published PDF and EPUB render true side-by-side columns** — the emitters have always supported it; publish now reaches that code path by parsing through the real tokenizer instead of a separate hand-rolled classifier.
 
 **Pairing.** Maugham pairs blocks two-at-a-time, greedily. A chain like `A`, `B^`, `C^` pairs (A,B) and leaves C standing alone. Multi-speaker chains are exotic; if you actually need them, file an issue.
 
@@ -166,11 +182,16 @@ An ALL CAPS line preceded by a blank, ending in `TO:`, renders right-aligned and
 
 ```
 SMASH CUT TO:
-FADE OUT:
 DISSOLVE TO:
 ```
 
-Or force a transition with a leading `>`:
+**`FADE OUT:` is not auto-detected** — it doesn't end in `TO:`, so on its own it classifies as a character cue (an all-caps line after a blank), not a transition. Force it instead:
+
+```
+> FADE OUT.
+```
+
+Or force any transition with a leading `>`:
 
 ```
 > Cut to:
@@ -190,7 +211,7 @@ Useful for title cards, end credits, montage labels.
 
 ### Lyric
 
-A line starting with `~` is a lyric (used for songs, poetry, chants). Renders italic.
+A line starting with `~` is a lyric (used for songs, poetry, chants). Renders italic on every surface, including published PDF/EPUB (its own block, one lyric line per paragraph).
 
 ```
 ~la la la
@@ -199,7 +220,7 @@ A line starting with `~` is a lyric (used for songs, poetry, chants). Renders it
 
 ### Sections
 
-Structural markers using `#` (1 to 6 levels). Render bold + underlined. Sections aren't part of the screenplay per se — they're the writer's outline structure. They're not counted in the page count.
+Structural markers using `#` (1 to 6 levels). Render bold + underlined. Sections aren't part of the screenplay per se — they're the writer's outline structure. They're not counted in the page count, and they are **omitted entirely from published PDF/EPUB** — organizational metadata, not printed content.
 
 ```
 # ACT ONE
@@ -209,7 +230,7 @@ Structural markers using `#` (1 to 6 levels). Render bold + underlined. Sections
 
 ### Synopses
 
-A line starting with `= ` (single equals + space) is a synopsis — a one-line beat description. Renders dim italic. Like sections, synopses are working-doc metadata and aren't counted in the page count.
+A line starting with `= ` (single equals + space) is a synopsis — a one-line beat description. Renders dim italic. Like sections, synopses are working-doc metadata: not counted in the page count, and **omitted from published output**.
 
 ```
 = Sam confronts Barry about the lie.
@@ -217,7 +238,7 @@ A line starting with `= ` (single equals + space) is a synopsis — a one-line b
 
 ### Page break
 
-A line consisting of three or more `=` characters (and only `=`) is a page break.
+A line consisting of three or more `=` characters (and only `=`) is a page break. Published PDF/EPUB honor it as a real page break; it never prints as literal text.
 
 ```
 ===
@@ -225,7 +246,7 @@ A line consisting of three or more `=` characters (and only `=`) is a page break
 
 ### Boneyard (cut content)
 
-Wrap content in `/* ... */` to mark it as cut from the script. Renders dim italic. Boneyard content can span multiple lines and is not counted in the page count.
+Wrap content in `/* ... */` to mark it as cut from the script. Renders dim italic while editing. Boneyard content can span multiple lines and is not counted in the page count, and is **omitted entirely from published PDF/EPUB** — that's the point of cutting it. Only line-level boneyard is recognized (`/*` must open a line); a mid-line `/* … */` embedded inside action or dialogue is not recognized as boneyard and stays as literal text.
 
 ```
 /* This scene was cut for pacing.
@@ -249,7 +270,7 @@ Wrap content in `[[ ... ]]` to mark it as a note. Notes can be:
   Action paragraph with a [[ side note ]] embedded inline.
   ```
 
-Notes render dim italic. Inline notes get their `[[ ... ]]` range styled dim while the rest of the line keeps its parent element styling (action, dialogue, etc.). Notes don't count toward page count.
+Notes render dim italic while editing. Inline notes get their `[[ ... ]]` range styled dim while the rest of the line keeps its parent element styling (action, dialogue, etc.). Notes don't count toward page count and are **omitted entirely from published PDF/EPUB** — they're author-only.
 
 ### Inline emphasis
 
@@ -257,14 +278,17 @@ Within any line, Maugham recognizes:
 
 - `*italic*` — single asterisks around the run.
 - `**bold**` — double asterisks around the run.
+- `***bold italic***` — triple asterisks, and nesting (`*a **b** a*`) both work.
 - `_underline_` — single underscores around the run.
+- `\*`, `\_` — a backslash before an emphasis or underline delimiter renders it literal; the escaped character can't open or close a span. Same escape set as prose (`* _ \` \\`, plus `~` which has no Fountain meaning).
 
 ```
 She glances at the *worn* photograph, then **slams** the drawer shut.
 The sign reads _Closed for inventory_.
+She almost said \*yes\* out loud.
 ```
 
-Markers fade to dim while the inner text renders styled. Emphasis works inside action, dialogue, parenthetical — anywhere there's prose. It does **not** affect line classification (a `**ALL CAPS**` line is still classified by its bracketed content's case).
+Markers (and consumed escape backslashes) fade to dim while the inner text renders styled. Emphasis works inside action, dialogue, parenthetical — anywhere there's prose. It does **not** affect line classification (a `**ALL CAPS**` line is still classified by its bracketed content's case). Fountain emphasis is scanned per-line, not paragraph-scoped like prose — a Fountain element is fundamentally line-based, so this doesn't change dialogue/action behavior. Strikethrough (`~~`) is **not** recognized in Fountain — `~` is reserved for lyrics.
 
 ### Inline task anchors
 
@@ -291,15 +315,27 @@ The page count appears in the bottom-right goal indicator capsule. Set a Page ta
 
 Smart typography (em dash, curly quotes, ellipsis substitution) is **disabled** by default for screenplay mode. Screenplays stay ASCII so they remain compatible with Final Draft, Highland, FountainJS, and other tools that expect plain Fountain.
 
+## Publish (PDF/EPUB)
+
+Published output is generated by parsing the same `.fountain` file through the real `FountainTokenizer` — the identical parser the editor and phone reader use — and mapping its elements to publish's own node vocabulary. That means:
+
+- Boneyard, notes, synopses, and sections never leak into compiled output (they're author-only or organizational).
+- Forced markers (`.` scene heading, `@` character, `!` action, `>` transition/centered) are honored, not printed as literal punctuation.
+- Page breaks (`===`) become real page breaks.
+- Lyrics render italic, each as its own block.
+- Dual dialogue renders as true side-by-side columns (see "Dual dialogue" above).
+- Scene numbers right-align on the slugline.
+
 ## Not supported (deliberately)
 
 The following Fountain features render as plain text or are simply not recognized:
 
-- **Scene numbers** (`INT. KITCHEN - DAY #5#`) — production-side metadata, not a writing concern.
+- **Mid-line boneyard** (`Some action /* cut */ more action` on one line) — only line-opening `/*` is recognized; this is rare enough that line-level boneyard covers the real use case.
 - **MORE / CONT'D markers** across page breaks — production-prep concern handled at export, not while drafting.
 - **Revision marks** (color-coded change marks per draft) — production-tool concern.
 - **FDX import/export** (Final Draft binary format) — Maugham keeps screenplays in plain Fountain so they stay readable in any tool. Convert via Highland or any other Fountain-aware editor if you need FDX.
 - **Visual uppercase for forced characters** — `@sam` renders as-typed (lowercase preserved). Glyph-substituting it to "SAM" was deliberately rejected to keep what you type and what you see aligned.
+- **Editor/phone affordance for dual dialogue** — typing `^` works and is recognized, but there's no button or menu command that inserts it, and Tab-cycle doesn't include it.
 
 These omissions keep the screenplay surface focused on writing. If a screenwriter needs a feature on this list, file an issue.
 

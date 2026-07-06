@@ -49,6 +49,16 @@ public enum XHTMLBodyEmitter {
             out.append("</blockquote>")
         case .sceneBreak:
             out.append("<hr class=\"scene-break\"/>")
+        case .list(let ordered, let items):
+            let tag = ordered ? "ol" : "ul"
+            out.append("<\(tag)>")
+            for item in items {
+                out.append("<li>\(emitInline(item))</li>")
+            }
+            out.append("</\(tag)>")
+        case .verbatim(let lines):
+            let joined = lines.map(XHTMLEscape.escape).joined(separator: "<br/>")
+            out.append("<p class=\"verbatim\">\(joined)</p>")
         }
     }
 
@@ -59,6 +69,7 @@ public enum XHTMLBodyEmitter {
             case .text(let s):      return XHTMLEscape.escape(s)
             case .emphasis(let xs): return "<em>\(emitInline(xs))</em>"
             case .strong(let xs):   return "<strong>\(emitInline(xs))</strong>"
+            case .strikethrough(let xs): return "<s>\(emitInline(xs))</s>"
             case .underline(let xs): return "<u>\(emitInline(xs))</u>"
             case .code(let s):      return "<code>\(XHTMLEscape.escape(s))</code>"
             case .wikiLink(let target, let display):
@@ -71,12 +82,21 @@ public enum XHTMLBodyEmitter {
 
     private static func emit(fountain: ProjectAST.FountainNode, into out: inout [String]) {
         switch fountain {
-        case .sceneHeading(let s):  out.append("<p class=\"scene-heading\">\(XHTMLEscape.escape(s))</p>")
+        case .sceneHeading(let s, let number):
+            if let number {
+                out.append("<p class=\"scene-heading\">\(XHTMLEscape.escape(s))"
+                    + "<span class=\"scene-number\">\(XHTMLEscape.escape(number))</span></p>")
+            } else {
+                out.append("<p class=\"scene-heading\">\(XHTMLEscape.escape(s))</p>")
+            }
         case .action(let xs):       out.append("<p class=\"action\">\(emitInline(xs))</p>")
         case .character(let s):     out.append("<p class=\"character\">\(XHTMLEscape.escape(s))</p>")
         case .dialogue(let xs):     out.append("<p class=\"dialogue\">\(emitInline(xs))</p>")
         case .parenthetical(let xs): out.append("<p class=\"parenthetical\">\(emitInline(xs))</p>")
         case .transition(let s):    out.append("<p class=\"transition\">\(XHTMLEscape.escape(s))</p>")
+        case .lyric(let xs):        out.append("<p class=\"lyric\">\(emitInline(xs))</p>")
+        case .centered(let xs):     out.append("<p class=\"centered\">\(emitInline(xs))</p>")
+        case .pageBreak:            out.append("<hr class=\"page-break\"/>")
         case .titlePage(let fields):
             out.append("<header class=\"title-page\">")
             for field in fields {
