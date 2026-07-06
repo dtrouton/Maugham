@@ -123,17 +123,11 @@ struct ResearchNotePreviewPane: View {
         return result
     }
 
-    private static let soloImageLineRegex = try? NSRegularExpression(
-        pattern: #"^!\[.*?\]\((\.[/][^)]+)\)$"#)
-
     /// Matches a whole trimmed line as a `./`-relative solo image reference,
-    /// returning its path. Verbatim port of the pre-cutover regex.
+    /// returning its path. Shares `MarkdownBlockParser`'s regex rather than
+    /// keeping a second copy — this call site only needs the path.
     private static func soloImagePath(inLine trimmed: String) -> String? {
-        guard let regex = soloImageLineRegex else { return nil }
-        let range = NSRange(location: 0, length: (trimmed as NSString).length)
-        guard let match = regex.firstMatch(in: trimmed, range: range),
-              match.numberOfRanges >= 2 else { return nil }
-        return (trimmed as NSString).substring(with: match.range(at: 1))
+        MarkdownBlockParser.matchSoloImage(trimmed)?.path
     }
 
     private static func loadImage(relativePath: String, noteDir: URL) -> NSImage? {

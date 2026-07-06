@@ -105,6 +105,16 @@ final class MarkdownBlockParserTests: XCTestCase {
         XCTAssertEqual(MarkdownBlockParser.parse("![x](https://a/b.png)"),
             [.paragraph(lines: ["![x](https://a/b.png)"])])
     }
+    // Pins the public entry point consumers use to detect a solo-image line
+    // that ISN'T at a block boundary (e.g. `ResearchNotePreviewPane` re-scanning
+    // a `.paragraph` block's embedded lines) — same regex `parse` uses above,
+    // exposed directly so there's exactly one copy of the rule.
+    func test_matchSoloImage_relativeCapturesAltAndPath_remoteIsNil() {
+        let match = MarkdownBlockParser.matchSoloImage("![cover](./art/cover.png)")
+        XCTAssertEqual(match?.altText, "cover")
+        XCTAssertEqual(match?.path, "./art/cover.png")
+        XCTAssertNil(MarkdownBlockParser.matchSoloImage("![x](https://a/b.png)"))
+    }
     // Pins publish parity: table/image require a preceding blank line to
     // start a new block — unlike quote, they do NOT interrupt paragraph
     // accumulation. `text` directly followed by a table with no blank line

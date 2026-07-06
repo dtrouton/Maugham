@@ -124,7 +124,7 @@ public enum MarkdownBlockParser {
             // Solo image: whole trimmed line is a `![alt](./relative/path)`
             // reference — never a remote URL. Checked before paragraph
             // accumulation so it isn't swallowed as prose.
-            if let (altText, path) = parseSoloImage(trimmed) {
+            if let (altText, path) = matchSoloImage(trimmed) {
                 blocks.append(.soloImage(altText: altText, path: path, rawLine: lines[i]))
                 i += 1; continue
             }
@@ -273,10 +273,13 @@ public enum MarkdownBlockParser {
         return cells.map { $0.trimmingCharacters(in: .whitespaces) }
     }
 
-    /// Matches a whole trimmed line as a `./`-relative solo image reference.
-    /// Port of `ResearchNotePreviewPane`'s regex; alt text is captured too
-    /// (that source only captured the path, since it didn't need alt text).
-    private static func parseSoloImage(_ trimmed: String) -> (altText: String, path: String)? {
+    /// Matches a whole trimmed line as a `./`-relative solo image reference,
+    /// returning its alt text and path. Public so consumers that need to
+    /// detect an embedded (non-block-start) solo-image line — e.g.
+    /// `ResearchNotePreviewPane` re-scanning a `.paragraph` block's raw lines
+    /// for a same-run image reference — share this one regex instead of
+    /// keeping a second copy.
+    public static func matchSoloImage(_ trimmed: String) -> (altText: String, path: String)? {
         guard let regex = try? NSRegularExpression(pattern: #"^!\[(.*?)\]\((\.[/][^)]+)\)$"#) else { return nil }
         let range = NSRange(trimmed.startIndex..., in: trimmed)
         guard let match = regex.firstMatch(in: trimmed, range: range),
