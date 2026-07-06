@@ -104,11 +104,33 @@ final class MarkdownTokenizerTests: XCTestCase {
         XCTAssertTrue(kinds.contains { $0.contains("link") })
     }
 
-    func testEmphasisDoesNotSpanLineBreak() {
-        // An unclosed * on one line must not emphasize across the newline.
-        let tokens = MarkdownTokenizer().tokenize("*foo\nbar*")
-        let hasEmphasis = tokens.contains { if case .emphasis = $0.kind { return true }; return false }
-        XCTAssertFalse(hasEmphasis, "emphasis must not span a line break")
+    func test_emphasisSpansHardBreakWithinParagraph_stanzaCase() {
+        let text = "She read it. *How could he\npossibly have known?* Odd."
+        let tokens = MarkdownTokenizer().tokenize(text)
+        // one italic run covering "How could he\npossibly have known?"
+        XCTAssertTrue(tokens.contains { $0.kind == .emphasis(.italic)
+            && (text as NSString).substring(with: $0.range)
+                == "How could he\npossibly have known?" })
+    }
+    func test_emphasisDoesNotCrossBlankLine() {
+        let tokens = MarkdownTokenizer().tokenize("*open\n\nclose*")
+        XCTAssertFalse(tokens.contains { if case .emphasis = $0.kind { return true }
+                                         else { return false } })
+    }
+    func test_strikethrough_stylesInProse() {
+        let text = "keep ~~cut this~~ keep"
+        let tokens = MarkdownTokenizer().tokenize(text)
+        XCTAssertTrue(tokens.contains { $0.kind == .emphasis(.strikethrough)
+            && (text as NSString).substring(with: $0.range) == "cut this" })
+    }
+    func test_escapedAsterisk_backslashFades_noEmphasis() {
+        let text = #"\*literal\*"#
+        let tokens = MarkdownTokenizer().tokenize(text)
+        XCTAssertFalse(tokens.contains { if case .emphasis = $0.kind { return true }
+                                         else { return false } })
+        // backslashes fade as syntax punctuation
+        XCTAssertTrue(tokens.contains { $0.kind == .syntaxPunctuation
+            && $0.range == NSRange(location: 0, length: 1) })
     }
 
     func testEmphasisStillWorksWithinOneLineOfMultiline() {

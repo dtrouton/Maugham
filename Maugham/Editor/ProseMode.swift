@@ -230,7 +230,14 @@ public struct ProseMode: WritingMode {
                 descriptor: baseFont.fontDescriptor.withSymbolicTraits(symbolic),
                 size: baseFont.pointSize
             ) ?? baseFont
-            return [.font: font]
+            // Strikethrough is an attribute, not a font trait — compose it with
+            // any bold/italic font above (mirrors the task-row idiom at the
+            // .taskBody case in applyTypography).
+            var attrs: [NSAttributedString.Key: Any] = [.font: font]
+            if traits.contains(.strikethrough) {
+                attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+            }
+            return attrs
 
         case .code:
             let mono = NSFont.monospacedSystemFont(
