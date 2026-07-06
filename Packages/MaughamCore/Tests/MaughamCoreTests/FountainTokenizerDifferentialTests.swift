@@ -83,6 +83,28 @@ final class FountainTokenizerDifferentialTests: XCTestCase {
         for (label, text) in cases { assertParity(text, label) }
     }
 
+    // -- Held blank line (Task 13): two-space line inside a dialogue block --
+
+    func test_heldBlankInDialogue() {
+        let cases: [(String, String)] = [
+            ("basic held blank", "DAN\nThen.\n  \nWhaddya want?\n"),
+            ("empty line still ends dialogue", "DAN\nThen.\n\nAction now.\n"),
+            ("held blank after parenthetical", "DAN\n(beat)\nThen.\n  \nMore."),
+            ("held blank then scene-heading-shaped line stays dialogue",
+             "DAN\nThen.\n  \nINT. HOUSE - DAY"),
+            ("held blank then all-caps-shaped line stays dialogue",
+             "DAN\nThen.\n  \nSTEVE"),
+            ("held blank across dual-second block",
+             "BRICK\nHi.\n\nSTEVE ^\nThen.\n  \nMore."),
+            ("held blank outside dialogue is plain blank action",
+             "Action one.\n  \nAction two."),
+            ("tab-only held line", "DAN\nThen.\n\t\nMore."),
+            ("multiple held blanks in a row", "DAN\nThen.\n  \n  \nMore."),
+            ("held blank immediately after cue", "DAN\n  \nThen."),
+        ]
+        for (label, text) in cases { assertParity(text, label) }
+    }
+
     // -- Line-separator zoo: .byLines recognizes \n \r \r\n NEL LS PS --
 
     func test_lineSeparatorZoo() {
@@ -164,7 +186,7 @@ final class FountainTokenizerDifferentialTests: XCTestCase {
             var lines: [String] = []
             let n = 20 + Int(rng.next() % 180)
             for _ in 0..<n {
-                switch rng.next() % 14 {
+                switch rng.next() % 15 {
                 case 0:
                     // Sometimes a trailing scene-number bracket (Task 11),
                     // occasionally malformed so the non-match paths get exercised.
@@ -192,6 +214,7 @@ final class FountainTokenizerDifferentialTests: XCTestCase {
                 case 10: lines.append("*/")
                 case 11: lines.append("[[note \(rng.next() % 10)]]")
                 case 12: lines.append("Text with *emph\(rng.next() % 10)* inline.")
+                case 13: lines.append("  ")   // two-space held-blank candidate
                 default: lines.append("   indented action \(rng.next() % 10)")
                 }
             }

@@ -115,4 +115,18 @@ final class FountainStylerTests: XCTestCase {
                        "dual-second adds a deeper indent on top of the base")
         XCTAssertEqual(dual.trailingIndent, base.trailingIndent)
     }
+
+    func test_dialogue_emptyContent_stylesLikeAnyOtherDialogueLine() {
+        // Task 13: a two-space "held" line inside a dialogue block is a
+        // `.dialogue` FountainLine with empty content — the first time
+        // `.dialogue` has ever carried empty content. FountainStyler is
+        // purely element-keyed (no content-emptiness branch), so this must
+        // style identically to any other `.dialogue` line: no crash, no
+        // special-cased indent collapse.
+        let empty = FountainStyler.style(for: line(.dialogue, content: ""))
+        let nonEmpty = FountainStyler.style(for: line(.dialogue, content: "Hi."))
+        XCTAssertEqual(empty.leadingIndent, nonEmpty.leadingIndent)
+        XCTAssertEqual(empty.trailingIndent, nonEmpty.trailingIndent)
+        XCTAssertEqual(empty.role, nonEmpty.role)
+    }
 }

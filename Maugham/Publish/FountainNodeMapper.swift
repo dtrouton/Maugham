@@ -141,11 +141,34 @@ public enum FountainNodeMapper {
         _ lines: [FountainLine], from start: Int
     ) -> (block: [ProjectAST.FountainNode], next: Int) {
         var block: [ProjectAST.FountainNode] = [.character(lines[start].content)]
-        var dialogueBuffer: [String] = []
+        // Consecutive stretches of dialogue text awaiting a flush, separated
+        // by held-blank markers (`nil`) so the break survives into the
+        // parsed inline output as `.lineBreak` instead of being lost to a
+        // joining space. A held blank (a `.dialogue` line with empty content
+        // — the tokenizer only emits that shape for a two-space held line;
+        // a real blank line is `.action` and hits `default: break loop`
+        // below) pauses the block rather than ending it.
+        var dialogueBuffer: [String?] = []
 
         func flushDialogue() {
             guard !dialogueBuffer.isEmpty else { return }
-            block.append(.dialogue(FountainInline.parse(dialogueBuffer.joined(separator: " "))))
+            var inlines: [ProjectAST.Inline] = []
+            var stretch: [String] = []
+            func flushStretch() {
+                guard !stretch.isEmpty else { return }
+                inlines += FountainInline.parse(stretch.joined(separator: " "))
+                stretch = []
+            }
+            for entry in dialogueBuffer {
+                if let text = entry {
+                    stretch.append(text)
+                } else {
+                    flushStretch()
+                    inlines.append(.lineBreak)
+                }
+            }
+            flushStretch()
+            block.append(.dialogue(inlines))
             dialogueBuffer = []
         }
 
@@ -155,8 +178,11 @@ public enum FountainNodeMapper {
             switch line.element {
             case .dialogue:
                 let content = stripInlineNotes(line)
-                if content.isEmpty { break loop }   // blank line ends the block
-                dialogueBuffer.append(content)
+                if content.isEmpty {
+                    dialogueBuffer.append(nil)   // held blank: pause, don't end
+                } else {
+                    dialogueBuffer.append(content)
+                }
             case .parenthetical:
                 flushDialogue()
                 block.append(.parenthetical(FountainInline.parse(stripInlineNotes(line))))

@@ -123,6 +123,25 @@ struct FountainTokenizerReference: Sendable {
             }
 
             if trimmed.isEmpty {
+                // Fountain "held" line: whitespace-only content of length >= 1
+                // (canonically two spaces) inside an active dialogue block is
+                // a `.dialogue` line with empty content — it pauses the block
+                // rather than ending it. A truly empty line (length 0) always
+                // ends the block, exactly as before.
+                let dialogueBlockActive = prevElement == .character
+                    || prevElement == .dialogue || prevElement == .parenthetical
+                if !raw.isEmpty && dialogueBlockActive {
+                    lines.append(FountainLine(
+                        range: enclosingRange,
+                        element: .dialogue,
+                        content: "",
+                        isForced: false,
+                        sourceCase: .neutral,
+                        isDualSecond: prevWasDualSecond))
+                    prevBlank = false
+                    prevElement = .dialogue
+                    return
+                }
                 lines.append(FountainLine(
                     range: enclosingRange,
                     element: .action,

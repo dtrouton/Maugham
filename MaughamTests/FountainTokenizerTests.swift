@@ -123,6 +123,76 @@ final class FountainTokenizerTests: XCTestCase {
         XCTAssertEqual(script.lines[3].element, .action)
     }
 
+    // MARK: - Held blank (two-space) line in dialogue
+
+    func test_twoSpaceLine_holdsDialogueOpen() {
+        let s = FountainTokenizer().parse("DAN\nThen.\n  \nWhaddya want?\n")
+        // [DAN, Then., <held blank>, Whaddya want?, <trailing synthetic empty
+        // from the source's final "\n">]
+        XCTAssertEqual(s.lines.map(\.element),
+                       [.character, .dialogue, .dialogue, .dialogue, .action])
+        // The held line itself is a `.dialogue` line with empty content.
+        XCTAssertEqual(s.lines[2].content, "")
+    }
+
+    func test_emptyLine_stillEndsDialogue() {
+        let s = FountainTokenizer().parse("DAN\nThen.\n\nAction now.\n")
+        // [DAN, Then., <blank action>, Action now., <trailing empty>]
+        XCTAssertEqual(s.lines.map(\.element),
+                       [.character, .dialogue, .action, .action, .action])
+        XCTAssertEqual(s.lines[2].content, "")
+    }
+
+    func test_heldBlank_afterParenthetical_staysDialogue() {
+        // A held blank while inside a dialogue block gated by a preceding
+        // parenthetical (not just a cue) also stays open.
+        let script = parser.parse("DAN\n(beat)\nThen.\n  \nMore.")
+        XCTAssertEqual(script.lines.map(\.element),
+                       [.character, .parenthetical, .dialogue, .dialogue, .dialogue])
+    }
+
+    func test_heldBlank_doesNotMisclassifyFollowingSceneHeading() {
+        // A following ALL-CAPS-with-dot line inside an *open* dialogue block
+        // must still be treated as dialogue continuation — the held blank
+        // must not set prevBlank=true and re-trigger the blank-gated
+        // scene-heading check mid-block.
+        let script = parser.parse("DAN\nThen.\n  \nINT. HOUSE - DAY")
+        XCTAssertEqual(script.lines.map(\.element),
+                       [.character, .dialogue, .dialogue, .dialogue])
+        XCTAssertEqual(script.lines[3].content, "INT. HOUSE - DAY")
+    }
+
+    func test_heldBlank_doesNotMisclassifyFollowingCue() {
+        // Same concern for the all-caps-cue check.
+        let script = parser.parse("DAN\nThen.\n  \nSTEVE")
+        XCTAssertEqual(script.lines.map(\.element),
+                       [.character, .dialogue, .dialogue, .dialogue])
+    }
+
+    func test_heldBlank_preservesDualSecondPropagation() {
+        // The held blank line itself, and the dialogue after it, both keep
+        // carrying the dual-second flag across the pause.
+        let script = parser.parse("BRICK\nHi.\n\nSTEVE ^\nThen.\n  \nMore.")
+        // [BRICK, Hi., blank, STEVE ^, Then., <held>, More.]
+        XCTAssertEqual(script.lines[3].element, .character)
+        XCTAssertTrue(script.lines[3].isDualSecond)
+        XCTAssertEqual(script.lines[4].element, .dialogue)
+        XCTAssertTrue(script.lines[4].isDualSecond)
+        XCTAssertEqual(script.lines[5].element, .dialogue)
+        XCTAssertEqual(script.lines[5].content, "")
+        XCTAssertTrue(script.lines[5].isDualSecond)
+        XCTAssertEqual(script.lines[6].element, .dialogue)
+        XCTAssertTrue(script.lines[6].isDualSecond)
+    }
+
+    func test_twoSpaceLine_outsideDialogue_isStillBlankAction() {
+        // Outside a dialogue block, a whitespace-only line behaves exactly
+        // as a truly empty line always has — an `.action` blank row.
+        let script = parser.parse("Action one.\n  \nAction two.")
+        XCTAssertEqual(script.lines.map(\.element), [.action, .action, .action])
+        XCTAssertEqual(script.lines[1].content, "")
+    }
+
     func test_forcedActionBang_classifiesAsAction() {
         // Without bang, an ALL-CAPS line preceded by blank with following
         // non-blank line would be Character. Forced-action bang overrides.

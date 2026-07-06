@@ -85,6 +85,47 @@ final class FountainNodeMapperTests: XCTestCase {
         ])
     }
 
+    func test_dialogueHeldBlank_staysOneDialogueNode_withLineBreak() {
+        // A two-space "held" blank line inside a dialogue block (Task 13) is
+        // tokenized as a `.dialogue` line with empty content — the mapper must
+        // treat it as a continuation, not a block end, and preserve the pause
+        // as an explicit `.lineBreak` inside the single coalesced `.dialogue`
+        // node (rather than silently losing it to a joining space, or ending
+        // the block and splitting into two separate nodes).
+        let src = "DAN\nThen.\n  \nWhaddya want?\n"
+        let nodes = map(src)
+        XCTAssertEqual(nodes, [
+            .character("DAN"),
+            .dialogue([.text("Then."), .lineBreak, .text("Whaddya want?")]),
+        ])
+    }
+
+    func test_dialogueHeldBlank_doesNotEndBlock_parentheticalAfterStillAttaches() {
+        // A held blank followed by a parenthetical: the dialogue-so-far
+        // flushes with a trailing lineBreak, and the parenthetical still
+        // attaches to the SAME character block (not treated as orphaned).
+        let src = "DAN\nThen.\n  \n(beat)\nMore.\n"
+        let nodes = map(src)
+        XCTAssertEqual(nodes, [
+            .character("DAN"),
+            .dialogue([.text("Then."), .lineBreak]),
+            .parenthetical([.text("(beat)")]),
+            .dialogue([.text("More.")]),
+        ])
+    }
+
+    func test_emptyLine_stillEndsDialogueBlock_atMapperLevel() {
+        // A truly empty line (not a held blank) still ends the block: the
+        // following action text is NOT folded into the dialogue node.
+        let src = "DAN\nThen.\n\nAction now.\n"
+        let nodes = map(src)
+        XCTAssertEqual(nodes, [
+            .character("DAN"),
+            .dialogue([.text("Then.")]),
+            .action([.text("Action now.")]),
+        ])
+    }
+
     func test_dialogue_inlineNoteStripped() {
         let nodes = map("JANE\nHello [[TODO polish]] world.\n")
         XCTAssertEqual(nodes, [
