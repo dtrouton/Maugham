@@ -32,6 +32,9 @@ final class SyntaxHelpSheetTests: XCTestCase {
                     "\(name): an ordered-list marker leaked into a paragraph block — \(text)")
                 XCTAssertNil(Self.unorderedMarker.firstMatch(in: text, range: range),
                     "\(name): an unordered-list marker leaked into a paragraph block — \(text)")
+                // Opening-fence-glued-to-prose guard (final-review latent-gap note).
+                XCTAssertFalse(text.contains("```"),
+                    "\(name): a fence marker leaked into a paragraph block — \(text)")
             }
         }
     }

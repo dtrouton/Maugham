@@ -56,6 +56,13 @@ final class GuideCorpusRenderabilityTest: XCTestCase {
                 XCTAssertFalse(unorderedLeaked,
                     "\(file.lastPathComponent): an unordered-list marker leaked into a paragraph block " +
                     "(not claimed by the list parser) — \(text)")
+                // An OPENING fence glued to preceding prose (no blank line)
+                // would be swallowed into the paragraph the same way — the
+                // paragraph loop doesn't break on a fence line. Guarded here
+                // per the final whole-branch review's latent-gap note.
+                XCTAssertFalse(text.contains("```"),
+                    "\(file.lastPathComponent): a fence marker leaked into a paragraph block " +
+                    "(opening fence glued to prose?) — \(text)")
             }
         }
     }
