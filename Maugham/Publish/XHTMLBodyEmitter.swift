@@ -59,6 +59,7 @@ public enum XHTMLBodyEmitter {
             case .text(let s):      return XHTMLEscape.escape(s)
             case .emphasis(let xs): return "<em>\(emitInline(xs))</em>"
             case .strong(let xs):   return "<strong>\(emitInline(xs))</strong>"
+            case .strikethrough(let xs): return "<s>\(emitInline(xs))</s>"
             case .underline(let xs): return "<u>\(emitInline(xs))</u>"
             case .code(let s):      return "<code>\(XHTMLEscape.escape(s))</code>"
             case .wikiLink(let target, let display):

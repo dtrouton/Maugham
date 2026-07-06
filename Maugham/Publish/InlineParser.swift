@@ -1,143 +1,98 @@
 import Foundation
+import MaughamCore
 
-/// Parses a single block of prose text into a tree of `ProjectAST.Inline`
-/// runs. Targets the markdown subset Maugham writers actually use — emphasis,
-/// strong, inline code, wiki links, and hard line breaks — not full
-/// CommonMark. Recursive-descent with fallback-to-literal: an opening
-/// delimiter with no matching close degrades to plain text rather than
-/// swallowing the rest of the paragraph.
+/// Parses a single block of PROSE text into a tree of `ProjectAST.Inline` runs.
+/// A thin adapter over the shared `InlineEmphasisScanner` (via
+/// `EmphasisRunConverter`): it pre-extracts the grammar features the scanner
+/// doesn't own — inline code, wiki links, and hard line breaks — as protected
+/// spans, then lets the scanner resolve all asterisk emphasis and GFM
+/// strikethrough. Underscore carries no emphasis in prose (spec ledger: prose
+/// publish aligns to the editor's asterisk-only rule).
 public enum InlineParser {
 
     public static func parse(_ text: String) -> [ProjectAST.Inline] {
-        let chars = Array(text)
-        return parse(chars, 0, chars.count)
+        EmphasisRunConverter.inlines(for: text,
+                                     options: [.strikethrough],
+                                     protected: protectedSpans(text as NSString))
     }
 
-    /// Parse `chars[lo..<hi]` into inline runs.
-    private static func parse(_ c: [Character], _ lo: Int, _ hi: Int) -> [ProjectAST.Inline] {
-        var out: [ProjectAST.Inline] = []
-        var text = ""
-        var i = lo
+    // MARK: - protected-span pre-extraction
 
-        func flush() {
-            if !text.isEmpty { out.append(.text(text)); text = "" }
-        }
+    private static let backtick: unichar   = 96   // `
+    private static let openBracket: unichar = 91  // [
+    private static let closeBracket: unichar = 93 // ]
+    private static let space: unichar      = 32
+    private static let newline: unichar    = 10
 
-        while i < hi {
-            let ch = c[i]
+    /// Left-to-right scan collecting inline code, wiki links, and hard breaks.
+    /// Order at any index is unambiguous (each starts with a distinct char);
+    /// unbalanced openers degrade to literal text (left for the converter).
+    private static func protectedSpans(_ ns: NSString) -> [ProtectedSpan] {
+        let n = ns.length
+        var spans: [ProtectedSpan] = []
+        var i = 0
+        while i < n {
+            let ch = ns.character(at: i)
+
+            // Inline code `…` — literal content, first-close match.
+            if ch == backtick {
+                if let close = findChar(backtick, ns, i + 1, n) {
+                    let content = ns.substring(with: NSRange(location: i + 1, length: close - i - 1))
+                    spans.append(ProtectedSpan(range: NSRange(location: i, length: close - i + 1),
+                                               node: .code(content)))
+                    i = close + 1
+                    continue
+                }
+                i += 1
+                continue
+            }
+
+            // Wiki link [[target|display]] or [[target]].
+            if ch == openBracket, i + 1 < n, ns.character(at: i + 1) == openBracket {
+                if let close = findSeq([closeBracket, closeBracket], ns, i + 2, n) {
+                    let inner = ns.substring(with: NSRange(location: i + 2, length: close - i - 2))
+                    let (target, display) = splitWikiLink(inner)
+                    spans.append(ProtectedSpan(range: NSRange(location: i, length: close + 2 - i),
+                                               node: .wikiLink(target: target, display: display)))
+                    i = close + 2
+                    continue
+                }
+                i += 1
+                continue
+            }
 
             // Hard line break: two spaces followed by a newline.
-            if ch == " ", i + 2 < hi, c[i + 1] == " ", c[i + 2] == "\n" {
-                flush()
-                out.append(.lineBreak)
+            if ch == space, i + 2 < n,
+               ns.character(at: i + 1) == space, ns.character(at: i + 2) == newline {
+                spans.append(ProtectedSpan(range: NSRange(location: i, length: 3), node: .lineBreak))
                 i += 3
                 continue
             }
 
-            // Inline code — literal content, never recurses.
-            if ch == "`" {
-                if let close = findChar("`", c, i + 1, hi) {
-                    flush()
-                    out.append(.code(String(c[(i + 1)..<close])))
-                    i = close + 1
-                    continue
-                }
-                text.append(ch); i += 1; continue
-            }
-
-            // Wiki link [[target|display]] or [[target]].
-            if ch == "[", i + 1 < hi, c[i + 1] == "[" {
-                if let close = findSeq(["]", "]"], c, i + 2, hi) {
-                    flush()
-                    let inner = String(c[(i + 2)..<close])
-                    let (target, display) = splitWikiLink(inner)
-                    out.append(.wikiLink(target: target, display: display))
-                    i = close + 2
-                    continue
-                }
-                text.append(ch); i += 1; continue
-            }
-
-            // Strong: **...**
-            if ch == "*", i + 1 < hi, c[i + 1] == "*" {
-                if let close = findSeq(["*", "*"], c, i + 2, hi) {
-                    flush()
-                    out.append(.strong(parse(c, i + 2, close)))
-                    i = close + 2
-                    continue
-                }
-                text.append(ch); i += 1; continue
-            }
-
-            // Emphasis: *...* — the close scan skips over `**` pairs so a
-            // single-star emphasis doesn't snap shut on the first star of a
-            // nested **strong** run.
-            if ch == "*" {
-                if let close = findEmphasisClose("*", c, i + 1, hi) {
-                    flush()
-                    out.append(.emphasis(parse(c, i + 1, close)))
-                    i = close + 1
-                    continue
-                }
-                text.append(ch); i += 1; continue
-            }
-
-            // Emphasis: _..._
-            if ch == "_" {
-                if let close = findChar("_", c, i + 1, hi) {
-                    flush()
-                    out.append(.emphasis(parse(c, i + 1, close)))
-                    i = close + 1
-                    continue
-                }
-                text.append(ch); i += 1; continue
-            }
-
-            text.append(ch)
             i += 1
         }
-
-        flush()
-        return out
+        return spans
     }
 
     // MARK: - matching helpers
 
-    private static func findChar(_ target: Character, _ c: [Character],
-                                 _ from: Int, _ hi: Int) -> Int? {
+    private static func findChar(_ target: unichar, _ ns: NSString,
+                                 _ from: Int, _ n: Int) -> Int? {
         var i = from
-        while i < hi {
-            if c[i] == target { return i }
+        while i < n {
+            if ns.character(at: i) == target { return i }
             i += 1
         }
         return nil
     }
 
-    /// Find a single `target` that is NOT half of a doubled pair (e.g. a lone
-    /// `*` that isn't part of `**`). Lets `*em **strong** em*` close correctly.
-    private static func findEmphasisClose(_ target: Character, _ c: [Character],
-                                          _ from: Int, _ hi: Int) -> Int? {
-        var i = from
-        while i < hi {
-            if c[i] == target {
-                if i + 1 < hi, c[i + 1] == target {
-                    i += 2   // doubled — part of a strong run, skip both
-                    continue
-                }
-                return i
-            }
-            i += 1
-        }
-        return nil
-    }
-
-    private static func findSeq(_ seq: [Character], _ c: [Character],
-                                _ from: Int, _ hi: Int) -> Int? {
+    private static func findSeq(_ seq: [unichar], _ ns: NSString,
+                                _ from: Int, _ n: Int) -> Int? {
         guard !seq.isEmpty else { return nil }
         var i = from
-        while i + seq.count <= hi {
+        while i + seq.count <= n {
             var match = true
-            for k in 0..<seq.count where c[i + k] != seq[k] { match = false; break }
+            for k in 0..<seq.count where ns.character(at: i + k) != seq[k] { match = false; break }
             if match { return i }
             i += 1
         }

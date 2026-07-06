@@ -106,6 +106,7 @@ public enum LaTeXBodyEmitter {
             case .text(let s):     return LaTeXEscape.escape(s)
             case .emphasis(let xs): return "\\emph{\(emitInline(xs))}"
             case .strong(let xs):   return "\\textbf{\(emitInline(xs))}"
+            case .strikethrough(let xs): return "\\st{\(emitInline(xs))}"
             case .underline(let xs): return "\\underline{\(emitInline(xs))}"
             case .code(let s):      return "\\texttt{\(LaTeXEscape.escape(s))}"
             case .wikiLink(let target, let display):
@@ -124,6 +125,7 @@ public enum LaTeXBodyEmitter {
             case .text(let s):              return LaTeXEscape.escape(s)
             case .emphasis(let xs):         return plainText(xs)
             case .strong(let xs):           return plainText(xs)
+            case .strikethrough(let xs):    return plainText(xs)
             case .underline(let xs):        return plainText(xs)
             case .code(let s):              return LaTeXEscape.escape(s)
             case .wikiLink(_, let display): return LaTeXEscape.escape(display)

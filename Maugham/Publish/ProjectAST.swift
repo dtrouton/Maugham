@@ -53,8 +53,9 @@ public struct ProjectAST: Equatable, Sendable {
     /// a single `String` payload can't represent nesting, an `[Inline]` can.
     public enum Inline: Equatable, Sendable {
         case text(String)
-        case emphasis([Inline])               // *italic* / _italic_ (prose)
+        case emphasis([Inline])               // *italic* (prose + fountain)
         case strong([Inline])                 // **bold**
+        case strikethrough([Inline])          // ~~strike~~ (prose GFM only)
         case underline([Inline])              // _underline_ (fountain)
         case code(String)                     // `inline code` — never nests
         case wikiLink(target: String, display: String)

@@ -23,12 +23,22 @@ final class InlineParserTests: XCTestCase {
         XCTAssertEqual(parse("*italic*"), [.emphasis([.text("italic")])])
     }
 
-    func testEmphasis_underscore() {
-        XCTAssertEqual(parse("_italic_"), [.emphasis([.text("italic")])])
+    // Prose underscore is no longer emphasis (spec ledger: prose publish aligns
+    // to the editor's asterisk-only rule). `_x_` is literal text.
+    func test_underscore_isLiteralInProse() {
+        XCTAssertEqual(parse("snake_case_word"),
+                       [.text("snake_case_word")])
     }
 
     func testStrong_doubleAsterisk() {
         XCTAssertEqual(parse("**bold**"), [.strong([.text("bold")])])
+    }
+
+    // Prose `***x***` is bold-italic (audit A2: the old hand-rolled parser
+    // mangled triple asterisk). Nesting order: strong outermost, emphasis inner.
+    func test_tripleAsterisk_boldItalic() {
+        XCTAssertEqual(parse("***x***"),
+                       [.strong([.emphasis([.text("x")])])])
     }
 
     func testTextThenEmphasis() {
@@ -37,19 +47,42 @@ final class InlineParserTests: XCTestCase {
     }
 
     // MARK: - nesting
-
-    func testStrongContainingEmphasis() {
+    //
+    // The scanner emits FLATTENED cumulative-trait runs, so a `*em with **bold**
+    // inside*` span becomes sibling runs each independently wrapped by its
+    // cumulative traits (emitters flatten anyway). This replaces the old
+    // recursive-descent parser's nested-tree output. `_italic_` inside a strong
+    // run is now literal (prose asterisk-only).
+    func testStrongContainingLiteralUnderscore() {
         XCTAssertEqual(parse("**bold _italic_**"),
-                       [.strong([.text("bold "), .emphasis([.text("italic")])])])
+                       [.strong([.text("bold _italic_")])])
     }
 
-    func testEmphasisContainingStrong() {
+    func testEmphasisContainingStrong_flattened() {
         XCTAssertEqual(parse("*italic with **bold** inside*"),
-                       [.emphasis([
-                            .text("italic with "),
-                            .strong([.text("bold")]),
-                            .text(" inside")
-                       ])])
+                       [.emphasis([.text("italic with ")]),
+                        .strong([.emphasis([.text("bold")])]),
+                        .emphasis([.text(" inside")])])
+    }
+
+    // MARK: - escapes and strikethrough (via the scanner)
+
+    func test_escapedAsterisk_literal_backslashDropped() {
+        XCTAssertEqual(parse(#"\*x\*"#), [.text("*x*")])
+    }
+
+    func test_strikethrough_parses() {
+        XCTAssertEqual(parse("a ~~b~~ c"),
+                       [.text("a "), .strikethrough([.text("b")]), .text(" c")])
+    }
+
+    func test_emphasisAcrossSoftBreak_withinParagraph() {
+        XCTAssertEqual(parse("*a\nb*"),
+                       [.emphasis([.text("a\nb")])])
+    }
+
+    func test_codeSpanContent_neverEmphasized_andBlocksFlanking() {
+        XCTAssertEqual(parse("`*x*`"), [.code("*x*")])
     }
 
     // MARK: - unbalanced delimiters fall back to literal
