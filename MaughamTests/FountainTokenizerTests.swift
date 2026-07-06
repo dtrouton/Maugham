@@ -185,6 +185,27 @@ final class FountainTokenizerTests: XCTestCase {
         XCTAssertTrue(script.lines[6].isDualSecond)
     }
 
+    func test_doubleHeldBlank_bothStayDialogue() {
+        // Two consecutive two-space held lines both stay open as dialogue
+        // (the held gate doesn't require the very next line to close it).
+        let s = FountainTokenizer().parse("DAN\nA.\n  \n  \nB.\n")
+        // [DAN, A., <held>, <held>, B., <trailing synthetic empty>]
+        XCTAssertEqual(s.lines.map(\.element),
+                       [.character, .dialogue, .dialogue, .dialogue, .dialogue, .action])
+        XCTAssertEqual(s.lines[2].content, "")
+        XCTAssertEqual(s.lines[3].content, "")
+    }
+
+    func test_heldBlank_atEndOfFile_noCrash_staysDialogue() {
+        // A held blank with nothing after it (no trailing newline) must not
+        // crash the state machine, and the held line itself stays dialogue —
+        // there's no follow-on content to force it closed.
+        let s = FountainTokenizer().parse("DAN\nA.\n  ")
+        XCTAssertEqual(s.lines.map(\.element),
+                       [.character, .dialogue, .dialogue])
+        XCTAssertEqual(s.lines[2].content, "")
+    }
+
     func test_twoSpaceLine_outsideDialogue_isStillBlankAction() {
         // Outside a dialogue block, a whitespace-only line behaves exactly
         // as a truly empty line always has — an `.action` blank row.

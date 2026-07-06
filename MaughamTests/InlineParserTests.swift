@@ -85,6 +85,19 @@ final class InlineParserTests: XCTestCase {
         XCTAssertEqual(parse("`*x*`"), [.code("*x*")])
     }
 
+    // The masked (non-space) placeholder keeps flanking alive ACROSS a
+    // protected span sitting inside emphasis markers, but the scanner emits
+    // flattened cumulative-trait runs (same mechanism as
+    // testEmphasisContainingStrong_flattened above) — the protected span is
+    // spliced in as a sibling, not re-wrapped in the enclosing emphasis.
+    // Pinned so a converter change can't silently flip this shape.
+    func test_emphasisFlanksAcrossCodeSpan() {
+        XCTAssertEqual(parse("*a `code` b*"),
+                       [.emphasis([.text("a ")]),
+                        .code("code"),
+                        .emphasis([.text(" b")])])
+    }
+
     // MARK: - unbalanced delimiters fall back to literal
 
     func testUnbalancedEmphasis_isLiteral() {

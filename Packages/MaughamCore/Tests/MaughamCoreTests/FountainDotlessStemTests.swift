@@ -33,6 +33,10 @@ final class FountainDotlessStemTests: XCTestCase {
         XCTAssertEqual(element("INT/EXT WAREHOUSE - DAWN"), .sceneHeading)
     }
 
+    func test_extIntSpaceForm_afterBlank_isSceneHeading() {
+        XCTAssertEqual(element("EXT/INT ROOM - DAY"), .sceneHeading)
+    }
+
     // MARK: - Dotted forms unchanged (today's behavior preserved)
 
     func test_intDotAlone_isSceneHeading() {
