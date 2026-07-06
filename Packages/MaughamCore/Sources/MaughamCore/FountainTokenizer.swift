@@ -599,8 +599,8 @@ public struct FountainTokenizer: Sendable {
         prevElement: ScreenplayElement
     ) -> Classified {
         // Context-sensitive scene heading: starts with a dot-less stem —
-        // INT/EXT/EST/INT/EXT/EXT/INT/I/E, case-insensitive — followed by `.`
-        // or a space, and has a blank line above. (See isSceneHeadingPrefix
+        // INT, EXT, EST, INT/EXT, EXT/INT, I/E, case-insensitive — followed by
+        // `.` or a space, and has a blank line above. (See isSceneHeadingPrefix
         // for the exact delimiter rule.)
         if prevBlank && Self.isSceneHeadingPrefix(line) {
             return Classified(
@@ -618,10 +618,12 @@ public struct FountainTokenizer: Sendable {
                 isForced: false)
         }
 
-        // Tentative Character: ALL-CAPS letters with blank line above.
-        // The "followed by a non-blank line" requirement is enforced in a
-        // post-pass (second loop), since enumerateSubstrings doesn't give
-        // us forward lookahead cheaply.
+        // Character: ALL-CAPS letters with a blank line above. Deliberately
+        // NOT gated on what follows — a live-editing choice, so a cue
+        // classifies as you type it rather than waiting on the next
+        // (not-yet-typed) line. See test_allCapsLine_alone_classifiesAsCharacter.
+        // Consequence: an isolated ALL-CAPS action beat right after a blank
+        // line reads as a character cue too (documented in fountain-syntax.md).
         if prevBlank && Self.isAllCapsCueCandidate(line) {
             return Classified(
                 element: .character,

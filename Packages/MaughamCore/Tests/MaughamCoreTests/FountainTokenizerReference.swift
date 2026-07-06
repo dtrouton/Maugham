@@ -362,8 +362,8 @@ struct FountainTokenizerReference: Sendable {
         }
 
         // Context-sensitive scene heading: starts with a dot-less stem —
-        // INT/EXT/EST/INT/EXT/EXT/INT/I/E, case-insensitive — followed by `.`
-        // or a space, and has a blank line above.
+        // INT, EXT, EST, INT/EXT, EXT/INT, I/E, case-insensitive — followed by
+        // `.` or a space, and has a blank line above.
         if prevBlank && Self.isSceneHeadingPrefix(line) {
             return Classified(
                 element: .sceneHeading,
@@ -380,10 +380,10 @@ struct FountainTokenizerReference: Sendable {
                 isForced: false)
         }
 
-        // Tentative Character: ALL-CAPS letters with blank line above.
-        // The "followed by a non-blank line" requirement is enforced in a
-        // post-pass (second loop), since enumerateSubstrings doesn't give
-        // us forward lookahead cheaply.
+        // Character: ALL-CAPS letters with a blank line above. Deliberately
+        // NOT gated on what follows (live-editing choice) — mirrors
+        // FountainTokenizer.classifyContextual exactly, this oracle's whole
+        // purpose.
         if prevBlank && Self.isAllCapsCueCandidate(line) {
             return Classified(
                 element: .character,

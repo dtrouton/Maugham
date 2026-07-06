@@ -2,8 +2,12 @@ import Foundation
 import MaughamCore
 
 /// Regex-based Markdown tokenizer. Classifies ranges of text into Token kinds
-/// for syntax highlighting. Does not handle tables, fenced code blocks, or
-/// nested emphasis — defer to later milestones if needed.
+/// for syntax highlighting. Asterisk emphasis (incl. `***both***`, nesting,
+/// and `~~strikethrough~~`) is paragraph-scoped via the shared
+/// `InlineEmphasisScanner` (see the emphasis pass below) — nested emphasis IS
+/// handled, contrary to this header's old claim. Does not handle tables or
+/// fenced-code syntax highlighting; see `markdown-syntax.md` for the full
+/// documented subset.
 public struct MarkdownTokenizer: Sendable {
 
     public init() {}

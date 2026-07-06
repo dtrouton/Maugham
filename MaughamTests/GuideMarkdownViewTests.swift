@@ -106,7 +106,7 @@ final class GuideMarkdownViewTests: XCTestCase {
         }
         XCTAssertEqual(tables.count, 1, "expected exactly one table in reference.md")
         let (header, rows) = try XCTUnwrap(tables.first)
-        XCTAssertEqual(header, ["", ""], "reference.md's shortcut table header row is blank cells")
+        XCTAssertEqual(header, ["Shortcut", "Action"], "reference.md's shortcut table now has real header text (audit C-item follow-up)")
         XCTAssertEqual(rows.count, 15, "one row per documented shortcut")
         XCTAssertEqual(rows.first, ["`⌘N`", "New project"])
         XCTAssertTrue(rows.contains(["`⌘/`", "Syntax + keyboard reference"]))
