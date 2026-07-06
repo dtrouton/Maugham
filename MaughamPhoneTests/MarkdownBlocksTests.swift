@@ -39,4 +39,37 @@ final class MarkdownBlocksTests: XCTestCase {
     func test_noAnchorPlainParagraph() {
         XCTAssertEqual(MarkdownBlocks.parse("Just prose."), [.paragraph("Just prose.")])
     }
+
+    func test_fence_becomesCode_noEmphasisInterpretation() {
+        let md = "```swift\nlet *x* = 1\n```"
+        XCTAssertEqual(MarkdownBlocks.parse(md), [.code("let *x* = 1")])
+    }
+
+    func test_unorderedList() {
+        XCTAssertEqual(MarkdownBlocks.parse("- a\n- b"),
+                       [.list(ordered: false, items: ["a", "b"])])
+    }
+
+    func test_orderedList() {
+        XCTAssertEqual(MarkdownBlocks.parse("1. x"),
+                       [.list(ordered: true, items: ["x"])])
+    }
+
+    func test_pipeTable() {
+        let md = "| a | b |\n|---|---|\n| 1 | 2 |"
+        XCTAssertEqual(MarkdownBlocks.parse(md),
+                       [.table(header: ["a", "b"], rows: [["1", "2"]])])
+    }
+
+    func test_blockquote() {
+        XCTAssertEqual(MarkdownBlocks.parse("> q"), [.quote([.paragraph("q")])])
+    }
+
+    func test_hashWithoutSpace_staysParagraph() {
+        XCTAssertEqual(MarkdownBlocks.parse("#foo"), [.paragraph("#foo")])
+    }
+
+    func test_thematicBreak_becomesDivider() {
+        XCTAssertEqual(MarkdownBlocks.parse("***"), [.divider])
+    }
 }

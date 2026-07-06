@@ -102,20 +102,94 @@ struct DocumentReaderView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                    switch block {
-                    case let .heading(level, text):
-                        Text(text)
-                            .font(Self.headingFont(level)).bold()
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    case let .paragraph(md):
-                        Text(Self.inlineEmphasis(md))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
+                    Self.blockView(block)
                 }
             }
             .textSelection(.enabled)
             .padding(20)
         }
+    }
+
+    @ViewBuilder
+    private static func blockView(_ block: MarkdownBlocks.Block) -> some View {
+        switch block {
+        case let .heading(level, text):
+            Text(text)
+                .font(headingFont(level)).bold()
+                .frame(maxWidth: .infinity, alignment: .leading)
+        case let .paragraph(md):
+            Text(inlineEmphasis(md))
+                .frame(maxWidth: .infinity, alignment: .leading)
+        case let .list(ordered, items):
+            listView(ordered: ordered, items: items)
+        case let .code(text):
+            Text(text)
+                .font(.system(.footnote, design: .monospaced))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
+                .background(Color(.secondarySystemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+        case let .table(header, rows):
+            tableView(header: header, rows: rows)
+        case let .quote(inner):
+            quoteView(inner)
+        case .divider:
+            Text("* * *")
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .center)
+        }
+    }
+
+    private static func listView(ordered: Bool, items: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(ordered ? "\(index + 1)." : "•")
+                    Text(inlineEmphasis(item))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private static func tableView(header: [String], rows: [[String]]) -> some View {
+        let hasHeaderText = header.contains { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        return Grid(alignment: .topLeading, horizontalSpacing: 16, verticalSpacing: 6) {
+            if hasHeaderText {
+                GridRow {
+                    ForEach(Array(header.enumerated()), id: \.offset) { _, cell in
+                        Text(inlineEmphasis(cell)).fontWeight(.semibold)
+                    }
+                }
+                Divider()
+            }
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                GridRow {
+                    ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
+                        Text(inlineEmphasis(cell))
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // `AnyView`-erased: `blockView` and `quoteView` are mutually recursive
+    // (a quote can contain a quote), and opaque `some View` return types
+    // can't be inferred through a recursive cycle.
+    private static func quoteView(_ inner: [MarkdownBlocks.Block]) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Rectangle()
+                .fill(Color(.separator))
+                .frame(width: 3)
+            VStack(alignment: .leading, spacing: 14) {
+                ForEach(Array(inner.enumerated()), id: \.offset) { _, block in
+                    AnyView(blockView(block))
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private static func headingFont(_ level: Int) -> Font {
