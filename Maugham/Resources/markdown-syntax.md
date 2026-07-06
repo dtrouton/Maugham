@@ -56,7 +56,7 @@ The `>` marker renders in the syntax-punctuation color. A `>` **without** a foll
 ###
 ```
 
-A line consisting of three or more `-` characters, or exactly three `*` or `#` characters (surrounding spaces allowed, but the marker count must be exact for `*`/`#`), renders as a horizontal divider. `----` or `_____` (four-or-more, or underscore-form) is **not** recognized — it mangles as inline emphasis/heading soup instead of a rule. This matches publish's `isSceneBreakLine` rule exactly, so editor and PDF/EPUB agree on what counts as a break.
+A line consisting of three or more `-` characters, or exactly three `*` or `#` characters (surrounding spaces allowed; the marker count must be exact for `*`/`#` but not for dashes), renders as a horizontal divider. `****`, `####`, or the underscore form `___` are **not** recognized as dividers. This matches publish's `isSceneBreakLine` rule exactly, so editor and PDF/EPUB agree on what counts as a break.
 
 ## Inline elements
 
