@@ -308,6 +308,61 @@ final class ProjectASTBuilderTests: XCTestCase {
         ])
     }
 
+    func testFountainEndToEnd_viaRealTokenizer_omitsAuthorContentAndPairsDual() {
+        // End-to-end through the real FountainTokenizer (Task 7 cutover): one
+        // fixture that exercises title page + scene heading + an inline note +
+        // a boneyard block + dual dialogue (`^`) + lyric + centered + page break.
+        // Author-only material (boneyard, inline note) is omitted; lyric,
+        // centered, and page break survive; the `^`-marked second cue pairs the
+        // two speeches into one .dualDialogue. The old hand-rolled classifier
+        // could produce NONE of this (audit A1): it leaked boneyard/note/caret
+        // text and had no lyric/centered/pageBreak/dualDialogue path at all.
+        let text = """
+        Title: Good Luck Babe
+        Author: Chappell Roan
+
+        INT. CLUB - NIGHT
+
+        Aaron enters [[check the lighting]] and pauses.
+
+        /*
+        This whole beat is cut.
+        */
+
+        AARON
+        Morning.
+
+        BETH ^
+        Evening.
+
+        ~And so we sing
+
+        > THE END <
+
+        ===
+        """
+        let src = FixtureSource(pieces: [
+            (id: "p1", title: "S", mode: .fountain, text: text)
+        ])
+        let ast = ProjectASTBuilder.build(from: src)
+        XCTAssertEqual(ast.sections[0].nodes, [
+            .fountain(.titlePage([
+                .init(key: "Title", value: "Good Luck Babe"),
+                .init(key: "Author", value: "Chappell Roan"),
+            ])),
+            .fountain(.sceneHeading("INT. CLUB - NIGHT")),
+            // inline [[note]] stripped from the action; surrounding text remains.
+            .fountain(.action("Aaron enters and pauses.")),
+            // boneyard block (/* … */) omitted entirely.
+            .fountain(.dualDialogue(
+                left: [.character("AARON"), .dialogue("Morning.")],
+                right: [.character("BETH"), .dialogue("Evening.")])),
+            .fountain(.lyric("And so we sing")),
+            .fountain(.centered("THE END")),
+            .fountain(.pageBreak),
+        ])
+    }
+
     func testMixedPieces_preserveOrder() {
         let src = FixtureSource(pieces: [
             (id: "p1", title: "First", mode: .prose, text: "Hello."),
