@@ -78,6 +78,25 @@ final class ResearchNotePreviewParseTests: XCTestCase {
         XCTAssertEqual(plainText(blocks[2]), "line two")
     }
 
+    /// If an `![alt](./path)` line's image can't actually be loaded (missing
+    /// file), it is not a real image block — it falls through and joins the
+    /// paragraph buffer as text, same as any other line, rather than always
+    /// isolating itself as its own paragraph. The joined buffer still goes
+    /// through `AttributedString(markdown:)`, which parses `![alt](url)` as
+    /// Markdown image syntax and renders only the alt text (no inline image
+    /// support in `AttributedString`) — so the surviving text is "alt", not
+    /// the raw `![alt](./missing.png)` source line.
+    func test_missingImageFile_lineJoinsParagraphBufferAsText() throws {
+        let project = try makeProject()
+        // Deliberately do NOT write research/missing.png.
+        let text = "line one\n![alt](./missing.png)\nline two"
+        let blocks = ResearchNotePreviewPane.parse(
+            text: text, notePath: "research/sarah.md", projectURL: project)
+
+        XCTAssertEqual(blocks.count, 1, "got \(blocks)")
+        XCTAssertEqual(plainText(blocks[0]), "line one alt line two")
+    }
+
     func test_endOfTextFlushesTrailingParagraph() throws {
         let project = try makeProject()
         let text = "only one\nwrapped line"
