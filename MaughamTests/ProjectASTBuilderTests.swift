@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 final class ProjectASTBuilderTests: XCTestCase {
@@ -436,6 +437,86 @@ final class ProjectASTBuilderTests: XCTestCase {
     func test_list_mixedMarkers_firstMarkerWins_unordered() {
         XCTAssertEqual(buildProse("- a\n2. b\n"),
             [.prose(.list(ordered: false, items: [[.text("a")], [.text("b")]]))])
+    }
+
+    // MARK: - E1 (MCP smoke): held blank survives the op-log round trip
+
+    /// The full E1 fixture through the real publish path: a Fountain piece whose
+    /// text went through a `ParagraphParser` -> `Materializer` round trip (the
+    /// op-log paragraph layer) before reaching `ProjectASTBuilder.build`. Task 13
+    /// made a two-space "held blank" a paused dialogue continuation; the op-log
+    /// layer used to eat it (split the paragraph on the whitespace-only line), so
+    /// the held line re-materialized as a REAL blank and the continuation became
+    /// `.action` — which also broke the FOLLOWING dual-dialogue block. With the
+    /// mode-aware parse both knock-ons are fixed: ONE `.dialogue` node carries a
+    /// `.lineBreak` for the held pause, and the later `^` block still pairs into a
+    /// `.dualDialogue`, with no spurious `.action` node.
+    func testHeldBlank_survivesOpLogRoundTrip_intoAST() {
+        let fixture = """
+        ALICE
+        I wrote you every day for a *year*.
+        \u{20}\u{20}
+        And you never answered once.
+
+        BOB
+        Then explain the letters.
+
+        CAROL ^
+        I burned them.
+        """
+        // Round-trip through the op-log paragraph layer exactly as a Fountain
+        // document does: parse held-blank-preserving, then materialize the stored
+        // form the publish path reads back (anchors and all).
+        let parsed = ParagraphParser.parse(fixture, preservesHeldBlankLines: true)
+        // 4-char alphabet-restricted ids (tripwire 8) — this crosses the
+        // .md <-> op-log boundary via materialize.
+        let ids = ["aaaa", "bbbb", "cccc"]
+        XCTAssertEqual(parsed.count, ids.count,
+            "the held blank must keep ALICE's speech as ONE paragraph")
+        var paragraphs: [String: String] = [:]
+        for (id, p) in zip(ids, parsed) { paragraphs[id] = p.text }
+        let materialized = Materializer.materialize(
+            paragraphs: paragraphs, sequence: ids)
+
+        let src = FixtureSource(pieces: [
+            (id: "p1", title: "S", mode: .fountain, text: materialized)
+        ])
+        let nodes = ProjectASTBuilder.build(from: src).sections[0].nodes
+
+        // Knock-on 1: the held pause survives as ONE dialogue node with a
+        // `.lineBreak`, NOT two paragraphs with a real blank between them.
+        let dialogueWithBreak = nodes.contains { node in
+            if case .fountain(.dialogue(let inlines)) = node {
+                return inlines.contains(.lineBreak)
+            }
+            return false
+        }
+        XCTAssertTrue(dialogueWithBreak,
+            "held blank must render as one .dialogue containing a .lineBreak, got \(nodes)")
+
+        // Knock-on 2: the later `^` block still pairs into a dual dialogue —
+        // no spurious action node severed it.
+        let hasDualDialogue = nodes.contains { node in
+            if case .fountain(.dualDialogue) = node { return true }
+            return false
+        }
+        XCTAssertTrue(hasDualDialogue,
+            "BOB / CAROL ^ must still pair into a .dualDialogue, got \(nodes)")
+
+        // The held continuation must NEVER leak as an action line.
+        let leakedAsAction = nodes.contains { node in
+            if case .fountain(.action(let inlines)) = node {
+                return inlines.contains { inline in
+                    if case .text(let s) = inline {
+                        return s.contains("And you never answered once")
+                    }
+                    return false
+                }
+            }
+            return false
+        }
+        XCTAssertFalse(leakedAsAction,
+            "the dialogue continuation must not re-materialize as an .action, got \(nodes)")
     }
 
     func testMixedPieces_preserveOrder() {
