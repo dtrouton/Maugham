@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 public enum SyntaxHelpMode {
     case prose
@@ -12,6 +13,9 @@ enum HelpBlock {
     case paragraph(text: AttributedString)
     case codeBlock(text: String)
     case bullet(text: AttributedString)
+    /// The curated content's one real GFM table (markdown-syntax.md's Smart
+    /// typography section) — cells rendered inline-markdown at render time.
+    case table(header: [String], rows: [[String]])
 }
 
 // MARK: - Main view
@@ -77,82 +81,71 @@ struct SyntaxHelpSheet: View {
 
     // MARK: - Block parser
 
+    /// Block parsing comes from the shared `MarkdownBlockParser`
+    /// (MaughamCore); this only maps `MarkdownBlock` into the view-layer
+    /// `HelpBlock`. The curated content (`markdown-syntax.md`,
+    /// `fountain-syntax.md`) uses headings, paragraphs, fences, unordered
+    /// bullet lists, and one GFM table — those map directly. Ordered lists,
+    /// blockquotes, thematic breaks, and solo images don't appear in the
+    /// curated content; they degrade to visible text (bullet/paragraph)
+    /// rather than dropping silently, per `expand`'s fallback cases below.
     static func parseMarkdownBlocks(_ raw: String) -> [HelpBlock] {
-        var result: [HelpBlock] = []
-        let lines = raw.components(separatedBy: "\n")
-        var index = 0
+        MarkdownBlockParser.parse(raw).flatMap(expand)
+    }
 
-        enum State {
-            case normal
-            case inCode(buffer: [String])
+    private static func expand(_ block: MarkdownBlock) -> [HelpBlock] {
+        switch block {
+        case .heading(let level, let text):
+            return [.heading(level: level, text: text)]
+        case .paragraph(let lines):
+            let joined = lines.map { $0.trimmingCharacters(in: .whitespaces) }
+                .joined(separator: " ")
+                .trimmingCharacters(in: .whitespaces)
+            return joined.isEmpty ? [] : [.paragraph(text: parseInline(joined))]
+        case .list(_, let items):
+            // Both ordered and unordered render as bullets: the curated
+            // content has no ordered list, so there's no source numbering
+            // to preserve — a bullet keeps the item visible rather than
+            // inventing an ordinal case nothing uses (see task-9 report).
+            return items.map { .bullet(text: parseInline(reflowListItem($0))) }
+        case .fence(let lines, _):
+            return [.codeBlock(text: lines.joined(separator: "\n"))]
+        case .table(let header, let rows, _):
+            return [.table(header: header, rows: rows)]
+        case .thematicBreak:
+            // Not used by the curated content; degrades to visible text
+            // rather than vanishing between two blocks.
+            return [.paragraph(text: AttributedString("—"))]
+        case .soloImage(_, _, let rawLine):
+            return [.paragraph(text: parseInline(rawLine))]
+        case .blockquote(let inner):
+            let text = flattenQuote(inner)
+            return text.isEmpty ? [] : [.paragraph(text: parseInline(text))]
         }
-        var state: State = .normal
+    }
 
-        while index < lines.count {
-            let line = lines[index]
+    private static func reflowListItem(_ lines: [String]) -> String {
+        lines.enumerated()
+            .map { index, line in index == 0 ? line : line.trimmingCharacters(in: .whitespaces) }
+            .joined(separator: " ")
+    }
 
-            switch state {
-            case .inCode(var buffer):
-                if line.trimmingCharacters(in: .whitespaces) == "```" {
-                    result.append(.codeBlock(text: buffer.joined(separator: "\n")))
-                    state = .normal
-                } else {
-                    buffer.append(line)
-                    state = .inCode(buffer: buffer)
-                }
-                index += 1
-
-            case .normal:
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-
-                if trimmed.isEmpty {
-                    index += 1
-                } else if trimmed.hasPrefix("```") {
-                    state = .inCode(buffer: [])
-                    index += 1
-                } else if trimmed.hasPrefix("###### ") {
-                    result.append(.heading(level: 6, text: String(trimmed.dropFirst(7))))
-                    index += 1
-                } else if trimmed.hasPrefix("##### ") {
-                    result.append(.heading(level: 5, text: String(trimmed.dropFirst(6))))
-                    index += 1
-                } else if trimmed.hasPrefix("#### ") {
-                    result.append(.heading(level: 4, text: String(trimmed.dropFirst(5))))
-                    index += 1
-                } else if trimmed.hasPrefix("### ") {
-                    result.append(.heading(level: 3, text: String(trimmed.dropFirst(4))))
-                    index += 1
-                } else if trimmed.hasPrefix("## ") {
-                    result.append(.heading(level: 2, text: String(trimmed.dropFirst(3))))
-                    index += 1
-                } else if trimmed.hasPrefix("# ") {
-                    result.append(.heading(level: 1, text: String(trimmed.dropFirst(2))))
-                    index += 1
-                } else if trimmed.hasPrefix("- ") {
-                    result.append(.bullet(text: parseInline(String(trimmed.dropFirst(2)))))
-                    index += 1
-                } else {
-                    // Paragraph: collect contiguous non-blank, non-special lines
-                    var paragraphLines: [String] = []
-                    while index < lines.count {
-                        let pLine = lines[index]
-                        let pTrimmed = pLine.trimmingCharacters(in: .whitespaces)
-                        if pTrimmed.isEmpty
-                            || pTrimmed.hasPrefix("#")
-                            || pTrimmed.hasPrefix("- ")
-                            || pTrimmed.hasPrefix("```") {
-                            break
-                        }
-                        paragraphLines.append(pTrimmed)
-                        index += 1
-                    }
-                    let joined = paragraphLines.joined(separator: " ")
-                    result.append(.paragraph(text: parseInline(joined)))
-                }
+    /// Not exercised by the curated content (no nested blockquote), but
+    /// keeps a blockquote from dropping silently if one is ever added.
+    private static func flattenQuote(_ blocks: [MarkdownBlock]) -> String {
+        blocks.flatMap { inner -> [String] in
+            switch inner {
+            case .paragraph(let lines):
+                let joined = lines.joined(separator: " ").trimmingCharacters(in: .whitespaces)
+                return joined.isEmpty ? [] : [joined]
+            case .heading(_, let text): return [text]
+            case .list(_, let items): return items.map(reflowListItem)
+            case .fence(let lines, _): return [lines.joined(separator: " ")]
+            case .blockquote(let nested): return [flattenQuote(nested)]
+            case .table, .thematicBreak: return []
+            case .soloImage(_, _, let rawLine): return [rawLine]
             }
-        }
-
-        return result
+        }.joined(separator: " ")
     }
 
     // MARK: - Inline markdown helper
@@ -209,7 +202,29 @@ private struct SyntaxHelpBlocksView: View {
                     .font(.body)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+        case .table(let header, let rows):
+            tableView(header: header, rows: rows)
         }
+    }
+
+    @ViewBuilder
+    private func tableView(header: [String], rows: [[String]]) -> some View {
+        Grid(alignment: .topLeading, horizontalSpacing: 16, verticalSpacing: 6) {
+            GridRow {
+                ForEach(Array(header.enumerated()), id: \.offset) { _, cell in
+                    Text(SyntaxHelpSheet.parseInline(cell)).fontWeight(.semibold)
+                }
+            }
+            Divider()
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                GridRow {
+                    ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
+                        Text(SyntaxHelpSheet.parseInline(cell))
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
