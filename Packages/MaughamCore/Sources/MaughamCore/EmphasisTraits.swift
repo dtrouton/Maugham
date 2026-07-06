@@ -9,6 +9,9 @@ public struct EmphasisTraits: OptionSet, Sendable, Hashable {
     public let rawValue: Int
     public init(rawValue: Int) { self.rawValue = rawValue }
 
-    public static let bold   = EmphasisTraits(rawValue: 1 << 0)
-    public static let italic = EmphasisTraits(rawValue: 1 << 1)
+    public static let bold          = EmphasisTraits(rawValue: 1 << 0)
+    public static let italic        = EmphasisTraits(rawValue: 1 << 1)
+    /// GFM `~~struck~~`. A separate rendering axis (`strikethroughStyle`), but
+    /// modeled here so one scan carries every inline mark a run accumulates.
+    public static let strikethrough = EmphasisTraits(rawValue: 1 << 2)
 }

@@ -115,31 +115,21 @@ final class InlineEmphasisScannerTests: XCTestCase {
         XCTAssertTrue(markers("****").isEmpty)
     }
 
-    /// Escaped asterisk: `\*foo\*` — DIVERGENCE FROM COMMONMARK.
+    /// Escaped asterisk: `\*foo\*` — now ALIGNS with CommonMark (Task 1).
     ///
-    /// CommonMark: `\*` is a backslash escape, so `\*foo\*` renders as the literal
-    /// text `*foo*` (no emphasis, asterisks stripped).
+    /// The scanner's escape pre-pass neutralizes a `*` preceded by `\`, so both
+    /// asterisks here are literal: no emphasis, no markers. The two backslashes
+    /// are reported in `escapes` (indices 0 and 5) so callers strip them.
     ///
-    /// Scanner: backslash is not treated as an escape character — it is a plain
-    /// non-space character. The `*` at index 1 has `\` before it (non-space →
-    /// canClose=true) and `f` after it (canOpen=true). The `*` at index 6 has `\`
-    /// before it (canClose=true) and string-end after it (canOpen=false). The closer
-    /// at index 6 matches the opener at index 1, producing italic on `foo\` (the
-    /// backslash before the closing `*` is included in the run).
-    ///
-    /// INTENDED CONTRACT: the scanner is asterisk-only and does not implement
-    /// backslash escaping. Callers that need escape handling must pre-process the
-    /// string before scanning. This divergence is acceptable for the current use
-    /// cases (prose and Fountain emphasis in manuscript text rarely uses `\*`).
-    func testEscapedAsteriskDivergesFromCommonMark() {
-        // Scanner output (current behavior, pinned as contract):
-        // Run "foo\" is italic; the backslash is included in the run content.
-        let r = runs("\\*foo\\*")
-        XCTAssertEqual(r.map(\.0), ["foo\\"],
-            "DIVERGENCE: scanner includes the backslash before '*' in the italic run; "
-            + "CommonMark would treat '\\*' as a backslash escape producing literal '*'")
-        XCTAssertEqual(r.map(\.1), [.italic])
-        XCTAssertEqual(markers("\\*foo\\*"), ["*", "*"])
+    /// This supersedes the earlier documented divergence, where backslash was a
+    /// plain char and `\*foo\*` produced an italic run over `foo\`.
+    func testEscapedAsteriskAlignsWithCommonMark() {
+        let scan = InlineEmphasisScanner.scan("\\*foo\\*" as NSString)
+        XCTAssertTrue(scan.runs.isEmpty,
+            "escaped asterisks must not open/close emphasis")
+        XCTAssertTrue(scan.markers.isEmpty)
+        XCTAssertEqual(scan.escapes, [NSRange(location: 0, length: 1),
+                                      NSRange(location: 5, length: 1)])
     }
 
     /// Mixed nested emphasis: `*a **b** a*` is already covered by
@@ -161,5 +151,51 @@ final class InlineEmphasisScannerTests: XCTestCase {
         XCTAssertEqual(r.map(\.1), [[.bold, .italic]])
         // Markers collapse to one contiguous span per side.
         XCTAssertEqual(markers("***x***"), ["***", "***"])
+    }
+
+    // MARK: - Task 1: backslash escapes + opt-in strikethrough
+
+    func test_escapedAsterisk_isLiteral() {
+        let scan = InlineEmphasisScanner.scan(#"\*not emphasis\*"# as NSString)
+        XCTAssertTrue(scan.runs.isEmpty)
+        XCTAssertTrue(scan.markers.isEmpty)
+        XCTAssertEqual(scan.escapes, [NSRange(location: 0, length: 1),
+                                      NSRange(location: 14, length: 1)])
+    }
+    func test_escapedOpenerOnly_leavesCloserUnpaired_literal() {
+        let scan = InlineEmphasisScanner.scan(#"\*x*"# as NSString)
+        XCTAssertTrue(scan.runs.isEmpty)   // lone closer degrades to literal
+    }
+    func test_doubleBackslash_thenEmphasis_stillEmphasizes() {
+        // \\ escapes the backslash; the * run is live: \\*x* → literal "\" + em "x"
+        let scan = InlineEmphasisScanner.scan(#"\\*x*"# as NSString)
+        XCTAssertEqual(scan.runs, [.init(range: NSRange(location: 3, length: 1),
+                                         traits: .italic)])
+        XCTAssertEqual(scan.escapes, [NSRange(location: 0, length: 1)])
+    }
+    func test_strikethrough_basic() {
+        let scan = InlineEmphasisScanner.scan("a ~~gone~~ b" as NSString,
+                                              options: [.strikethrough])
+        XCTAssertEqual(scan.runs, [.init(range: NSRange(location: 4, length: 4),
+                                         traits: .strikethrough)])
+        XCTAssertEqual(scan.markers, [NSRange(location: 2, length: 2),
+                                      NSRange(location: 8, length: 2)])
+    }
+    func test_strikethrough_offByDefault_tildesLiteral() {
+        let scan = InlineEmphasisScanner.scan("a ~~x~~ b" as NSString)
+        XCTAssertTrue(scan.runs.isEmpty)
+    }
+    func test_strikethrough_nestsWithEmphasis() {
+        // *em ~~struck~~ em* → struck region carries [.italic, .strikethrough]
+        let scan = InlineEmphasisScanner.scan("*em ~~st~~ em*" as NSString,
+                                              options: [.strikethrough])
+        XCTAssertTrue(scan.runs.contains(
+            .init(range: NSRange(location: 6, length: 2),
+                  traits: [.italic, .strikethrough])))
+    }
+    func test_singleTilde_neverStrikethrough() {
+        let scan = InlineEmphasisScanner.scan("a ~x~ b" as NSString,
+                                              options: [.strikethrough])
+        XCTAssertTrue(scan.runs.isEmpty)   // GFM requires ~~
     }
 }
