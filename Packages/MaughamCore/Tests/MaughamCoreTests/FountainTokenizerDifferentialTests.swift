@@ -112,6 +112,27 @@ final class FountainTokenizerDifferentialTests: XCTestCase {
         for (label, text) in cases { assertParity(text, label) }
     }
 
+    // -- Scene numbers (Task 11): trailing `#<id>#` on scene headings --
+
+    func test_sceneNumbers() {
+        let cases: [(String, String)] = [
+            ("contextual + number", "INT. HOUSE - DAY #4A#\n\nAction.\n"),
+            ("forced + number", ".ROOFTOP #12#\n\nAction.\n"),
+            ("alnum-dot-dash id", "EXT. STREET - NIGHT #1.A-2#\n"),
+            ("trailing spaces after marker", "INT. HOUSE - DAY #7#   \n"),
+            ("no number", "INT. HOUSE - DAY\n"),
+            ("empty bracket ##", "INT. HOUSE - DAY ##\n"),
+            ("space in bracket", "INT. HOUSE - DAY #1 #\n"),
+            ("marker not at end", "INT. HOUSE #4A# - DAY\n"),
+            ("hash section not scene number", "# Act One\n"),
+            ("action hash suffix", "He wrote #1# on the wall.\n"),
+            ("non-ascii heading + number", "INT. CAFÉ - DAY #4A#\n"),
+            ("number + emphasis in heading", "INT. HOUSE - *DAY* #4A#\n"),
+            ("CRLF + number", "INT. HALL - DAY #9#\r\nAction.\r\n"),
+        ]
+        for (label, text) in cases { assertParity(text, label) }
+    }
+
     // -- Randomized generative corpus (seeded; catches what we didn't think of) --
 
     func test_randomizedScripts() {
@@ -121,7 +142,17 @@ final class FountainTokenizerDifferentialTests: XCTestCase {
             let n = 20 + Int(rng.next() % 180)
             for _ in 0..<n {
                 switch rng.next() % 14 {
-                case 0: lines.append("INT. LOC\(rng.next() % 50) - DAY")
+                case 0:
+                    // Sometimes a trailing scene-number bracket (Task 11),
+                    // occasionally malformed so the non-match paths get exercised.
+                    let stem = "INT. LOC\(rng.next() % 50) - DAY"
+                    switch rng.next() % 5 {
+                    case 0: lines.append(stem + " #\(rng.next() % 200)#")
+                    case 1: lines.append(stem + " #\(rng.next() % 20)A-\(rng.next() % 9)#")
+                    case 2: lines.append(stem + " ##")
+                    case 3: lines.append(stem + " #\(rng.next() % 10) #")
+                    default: lines.append(stem)
+                    }
                 case 1: lines.append("")
                 case 2: lines.append("CHARACTER\(rng.next() % 9)" + (rng.next() % 4 == 0 ? " ^" : ""))
                 case 3: lines.append("(beat)")

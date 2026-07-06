@@ -392,6 +392,27 @@ public struct FountainTokenizer: Sendable {
                 lineIsDualSecond = prevWasDualSecond
             }
 
+            // Scene number: a scene heading may end with a `#<id>#` bracket.
+            // Lift the id into `sceneNumber`, strip it (and preceding spaces)
+            // from the content, and emit a `.sceneNumber` span over the marker
+            // (document-relative) so both surfaces fade it in place.
+            var sceneNumber: String? = nil
+            var sceneNumberSpan: FountainInlineSpan? = nil
+            if classified.element == .sceneHeading,
+               let extracted = Self.extractSceneNumber(from: emittedContent) {
+                emittedContent = extracted.content
+                sceneNumber = extracted.number
+                let rawContent = nsText.substring(with: record.contentRange) as NSString
+                let markerRange = rawContent.range(of: extracted.marker, options: .backwards)
+                if markerRange.location != NSNotFound {
+                    sceneNumberSpan = FountainInlineSpan(
+                        range: NSRange(
+                            location: record.contentRange.location + markerRange.location,
+                            length: markerRange.length),
+                        kind: .sceneNumber)
+                }
+            }
+
             lines.append(FountainLine(
                 range: enclosingRange,
                 element: classified.element,
@@ -399,7 +420,8 @@ public struct FountainTokenizer: Sendable {
                 isForced: classified.isForced,
                 sourceCase: Self.sourceCase(of: emittedContent),
                 isDualSecond: lineIsDualSecond,
-                inlineSpans: inlineSpans))
+                inlineSpans: sceneNumberSpan.map { inlineSpans + [$0] } ?? inlineSpans,
+                sceneNumber: sceneNumber))
             prevBlank = false
             prevElement = classified.element
             prevWasDualSecond = lineIsDualSecond
@@ -731,6 +753,57 @@ public struct FountainTokenizer: Sendable {
     private static func isPageBreak(_ line: String) -> Bool {
         guard line.count >= 3 else { return false }
         return line.allSatisfy { $0 == "=" }
+    }
+
+    /// True for a scene-number id scalar: `[0-9A-Za-z.-]`.
+    @inline(__always)
+    private static func isSceneNumberIDChar(_ s: Unicode.Scalar) -> Bool {
+        let v = s.value
+        return (v >= 0x30 && v <= 0x39)   // 0-9
+            || (v >= 0x41 && v <= 0x5A)   // A-Z
+            || (v >= 0x61 && v <= 0x7A)   // a-z
+            || v == 0x2E                  // .
+            || v == 0x2D                  // -
+    }
+
+    /// If `content` ends with a Fountain scene-number bracket `#<id>#`
+    /// (id = 1+ chars of `[0-9A-Za-z.-]`), return the id, the full marker
+    /// substring (both `#` inclusive), and `content` with the marker and any
+    /// spaces/tabs immediately preceding it removed. Returns nil otherwise.
+    /// `content` is expected already trailing-trimmed (the classified content),
+    /// so a trailing `#` is the closing bracket, not stray whitespace.
+    static func extractSceneNumber(from content: String)
+        -> (content: String, number: String, marker: String)? {
+        let scalars = content.unicodeScalars
+        guard scalars.last == "#" else { return nil }
+        let closeIndex = scalars.index(before: scalars.endIndex)   // closing '#'
+        var i = closeIndex
+        var idCount = 0
+        while i > scalars.startIndex {
+            let prev = scalars.index(before: i)
+            let s = scalars[prev]
+            if s == "#" {
+                guard idCount >= 1 else { return nil }   // "##" — empty bracket
+                let openIndex = prev
+                let number = String(scalars[scalars.index(after: openIndex)..<closeIndex])
+                let marker = String(scalars[openIndex...closeIndex])
+                // Strip the marker and any spaces/tabs immediately before it.
+                var stripEnd = openIndex
+                while stripEnd > scalars.startIndex {
+                    let b = scalars.index(before: stripEnd)
+                    if scalars[b] == " " || scalars[b] == "\t" { stripEnd = b } else { break }
+                }
+                let stripped = String(scalars[scalars.startIndex..<stripEnd])
+                return (stripped, number, marker)
+            }
+            if Self.isSceneNumberIDChar(s) {
+                idCount += 1
+                i = prev
+            } else {
+                return nil   // non-id char (e.g. a space) breaks the bracket
+            }
+        }
+        return nil
     }
 
     private static func parseSection(_ line: String) -> (level: Int, content: String)? {

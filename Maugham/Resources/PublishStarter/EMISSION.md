@@ -219,7 +219,7 @@ emits:
 
 ## Fountain positive space — recognized patterns
 
-### Scene heading with number (extraction lands in Task 11)
+### Scene heading with number
 
 ```
 INT. HOUSE - DAY #4A#
@@ -233,7 +233,7 @@ emits:
 \providecommand{\lyricline}[1]{\textit{#1}\par}
 \providecommand{\centeredline}[1]{\begin{center}#1\end{center}}
 \providecommand{\scenenumber}[1]{\hfill #1}
-\scene{INT. HOUSE - DAY \#4A\#}
+\scene{INT. HOUSE - DAY\scenenumber{4A}}
 \end{screenplay}
 ```
 

@@ -37,6 +37,10 @@ public struct FountainInlineSpan: Equatable, Sendable {
         /// An asterisk-marker range to fade. Carries no font change.
         case emphasisMarker
         case underline
+        /// A scene-heading trailing `#…#` bracket (both `#` inclusive). Faded
+        /// in place by both surfaces; the number itself is lifted into
+        /// `FountainLine.sceneNumber` and stripped from `content`.
+        case sceneNumber
     }
     public let range: NSRange
     public let kind: Kind

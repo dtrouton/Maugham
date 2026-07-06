@@ -124,6 +124,13 @@ enum FountainInlineEmphasisRenderer {
                 attr[r].foregroundColor = Color.primary.opacity(0.3)
             }
 
+        case .sceneNumber:
+            // Fade the whole `#…#` marker like an emphasis marker; the number
+            // is carried in FountainLine.sceneNumber for the styler/publish.
+            if let r = attrRange(span, in: content, attr: attr) {
+                attr[r].foregroundColor = Color.primary.opacity(0.3)
+            }
+
         case .underline:
             // Underline decoration on inner; fade the single-char markers.
             let inner = NSRange(location: span.location + 1, length: span.length - 2)

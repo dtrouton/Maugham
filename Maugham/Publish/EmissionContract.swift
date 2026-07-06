@@ -38,9 +38,10 @@ public enum EmissionContract {
     ]
 
     public static let fountainExamples: [Example] = [
-        // The trailing `#4A#` is not yet extracted into a scene number (that's
-        // Task 11) — it renders as plain (escaped) heading text for now.
-        .init(label: "Scene heading with number (extraction lands in Task 11)",
+        // The trailing `#4A#` is extracted into a scene number (Task 11) and
+        // renders right-aligned via `\scenenumber{4A}`; the heading text loses
+        // the bracket.
+        .init(label: "Scene heading with number",
               source: "INT. HOUSE - DAY #4A#"),
         .init(label: "Dual dialogue", source: "ALICE\nHello.\n\nBOB ^\nHi."),
         .init(label: "Lyric", source: "~The moon is out"),

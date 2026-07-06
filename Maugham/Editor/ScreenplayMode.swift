@@ -507,6 +507,12 @@ public struct ScreenplayMode: WritingMode {
             fadeMarker(in: storage, location: span.range.location,
                        length: span.range.length, palette: palette)
 
+        case .sceneNumber:
+            // Fade the whole `#…#` marker in place, exactly like an asterisk
+            // marker — the number itself is carried in FountainLine.sceneNumber.
+            fadeMarker(in: storage, location: span.range.location,
+                       length: span.range.length, palette: palette)
+
         case .underline:
             let markerLen = 1
             let inner = NSRange(
