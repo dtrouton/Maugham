@@ -63,12 +63,15 @@ public struct ProjectAST: Equatable, Sendable {
     }
 
     public enum FountainNode: Equatable, Sendable {
-        case sceneHeading(String)
+        case sceneHeading(String, sceneNumber: String?)
         case action([Inline])                 // emphasis-bearing
         case character(String)
         case dialogue([Inline])               // emphasis-bearing
         case parenthetical([Inline])          // emphasis-bearing
         case transition(String)
+        case lyric([Inline])                  // emphasis-bearing; `~lyric line~`
+        case centered([Inline])               // emphasis-bearing; `>centered<`
+        case pageBreak                         // `===`
         case titlePage([TitleField])          // Fountain title-page block
         indirect case dualDialogue(left: [FountainNode], right: [FountainNode])
     }
@@ -103,7 +106,10 @@ public extension ProjectAST.Node {
 // tests can write `.action("plain")` for unformatted text; the builder uses
 // the `[Inline]` cases directly via `FountainInline.parse`.
 public extension ProjectAST.FountainNode {
+    static func sceneHeading(_ s: String) -> Self { .sceneHeading(s, sceneNumber: nil) }
     static func action(_ s: String) -> Self { .action([.text(s)]) }
     static func dialogue(_ s: String) -> Self { .dialogue([.text(s)]) }
     static func parenthetical(_ s: String) -> Self { .parenthetical([.text(s)]) }
+    static func lyric(_ s: String) -> Self { .lyric([.text(s)]) }
+    static func centered(_ s: String) -> Self { .centered([.text(s)]) }
 }

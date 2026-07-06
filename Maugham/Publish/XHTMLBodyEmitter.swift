@@ -72,12 +72,21 @@ public enum XHTMLBodyEmitter {
 
     private static func emit(fountain: ProjectAST.FountainNode, into out: inout [String]) {
         switch fountain {
-        case .sceneHeading(let s):  out.append("<p class=\"scene-heading\">\(XHTMLEscape.escape(s))</p>")
+        case .sceneHeading(let s, let number):
+            if let number {
+                out.append("<p class=\"scene-heading\">\(XHTMLEscape.escape(s))"
+                    + "<span class=\"scene-number\">\(XHTMLEscape.escape(number))</span></p>")
+            } else {
+                out.append("<p class=\"scene-heading\">\(XHTMLEscape.escape(s))</p>")
+            }
         case .action(let xs):       out.append("<p class=\"action\">\(emitInline(xs))</p>")
         case .character(let s):     out.append("<p class=\"character\">\(XHTMLEscape.escape(s))</p>")
         case .dialogue(let xs):     out.append("<p class=\"dialogue\">\(emitInline(xs))</p>")
         case .parenthetical(let xs): out.append("<p class=\"parenthetical\">\(emitInline(xs))</p>")
         case .transition(let s):    out.append("<p class=\"transition\">\(XHTMLEscape.escape(s))</p>")
+        case .lyric(let xs):        out.append("<p class=\"lyric\">\(emitInline(xs))</p>")
+        case .centered(let xs):     out.append("<p class=\"centered\">\(emitInline(xs))</p>")
+        case .pageBreak:            out.append("<hr class=\"page-break\"/>")
         case .titlePage(let fields):
             out.append("<header class=\"title-page\">")
             for field in fields {

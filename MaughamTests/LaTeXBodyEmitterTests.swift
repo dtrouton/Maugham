@@ -249,6 +249,87 @@ final class LaTeXBodyEmitterTests: XCTestCase {
         XCTAssertLessThan(firstIdx, secondIdx)
     }
 
+    // MARK: - fountain vocabulary expansion (lyric/centered/pageBreak/scene numbers)
+
+    func testEmits_sceneHeading_nilSceneNumber_isByteIdenticalToToday() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.sceneHeading("INT. KITCHEN - DAY", sceneNumber: nil)),
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("\\scene{INT. KITCHEN - DAY}"))
+        // The scene command itself carries no \scenenumber invocation (the
+        // providecommand *definition* legitimately mentions the token, so
+        // check the call site specifically, not mere substring presence).
+        XCTAssertFalse(body.contains("\\scene{INT. KITCHEN - DAY\\scenenumber"))
+    }
+
+    func testEmits_sceneHeading_withSceneNumber_appendsScenenumberInsideArgument() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.sceneHeading("INT. HOUSE - DAY", sceneNumber: "42")),
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("\\scene{INT. HOUSE - DAY\\scenenumber{42}}"))
+    }
+
+    func testEmits_lyric_command() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.lyric("Hush now, don't you cry")),
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("\\lyricline{Hush now, don't you cry}"))
+    }
+
+    func testEmits_centered_command() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.centered("THE END")),
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("\\centeredline{THE END}"))
+    }
+
+    func testEmits_pageBreak_command() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.action("Before.")),
+                .fountain(.pageBreak),
+                .fountain(.action("After.")),
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        // Two \clearpage: one from the providecommand-adjacent... no — just the
+        // explicit page break node. Assert it appears between the two actions.
+        let beforeIdx = body.range(of: "Before.")!.lowerBound
+        let afterIdx = body.range(of: "After.")!.lowerBound
+        let breakRange = body.range(of: "\\clearpage", range: beforeIdx..<afterIdx)
+        XCTAssertNotNil(breakRange)
+    }
+
+    func testEmits_fountainSection_includesProvidecommandPrologue_onceBeforeFirstNode() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.action("Aaron pours coffee.")),
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("\\providecommand{\\lyricline}[1]{\\textit{#1}\\par}"))
+        XCTAssertTrue(body.contains("\\providecommand{\\centeredline}[1]{\\begin{center}#1\\end{center}}"))
+        XCTAssertTrue(body.contains("\\providecommand{\\scenenumber}[1]{\\hfill #1}"))
+        // Prologue precedes the first content node.
+        let prologueIdx = body.range(of: "\\providecommand{\\lyricline}")!.lowerBound
+        let actionIdx = body.range(of: "\\action{Aaron")!.lowerBound
+        XCTAssertLessThan(prologueIdx, actionIdx)
+        // Emitted exactly once even though only one fountain section exists.
+        XCTAssertEqual(body.components(separatedBy: "\\providecommand{\\lyricline}").count - 1, 1)
+    }
+
     func testSubsequentSections_clearPage_firstDoesNot() {
         let ast = ProjectAST(sections: [
             .init(pieceID: "p1", title: "First", mode: .prose, nodes: []),

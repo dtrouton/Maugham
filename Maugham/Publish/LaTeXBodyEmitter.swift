@@ -64,6 +64,7 @@ public enum LaTeXBodyEmitter {
             out.append("\\end{prose}")
         case .fountain:
             out.append("\\begin{screenplay}\(opt){\(title)}")
+            out.append(contentsOf: fountainProvidecommands)
             for node in section.nodes { emit(node: node, into: &out) }
             out.append("\\end{screenplay}")
         }
@@ -134,14 +135,34 @@ public enum LaTeXBodyEmitter {
         }.joined()
     }
 
+    /// Fallback definitions for the fountain-mode commands introduced by the
+    /// lyric/centered/scene-number vocabulary expansion. `\providecommand`
+    /// (not `\newcommand`) so an EXISTING per-project template that already
+    /// defines one of these keeps its own definition — this is what lets
+    /// the expanded vocabulary compile against templates authored before it
+    /// existed.
+    private static let fountainProvidecommands: [String] = [
+        "\\providecommand{\\lyricline}[1]{\\textit{#1}\\par}",
+        "\\providecommand{\\centeredline}[1]{\\begin{center}#1\\end{center}}",
+        "\\providecommand{\\scenenumber}[1]{\\hfill #1}",
+    ]
+
     private static func emit(fountain: ProjectAST.FountainNode, into out: inout [String]) {
         switch fountain {
-        case .sceneHeading(let s):  out.append("\\scene{\(LaTeXEscape.escape(s))}")
+        case .sceneHeading(let s, let number):
+            if let number {
+                out.append("\\scene{\(LaTeXEscape.escape(s))\\scenenumber{\(LaTeXEscape.escape(number))}}")
+            } else {
+                out.append("\\scene{\(LaTeXEscape.escape(s))}")
+            }
         case .action(let xs):       out.append("\\action{\(emitInline(xs))}")
         case .character(let s):     out.append("\\character{\(LaTeXEscape.escape(s))}")
         case .dialogue(let xs):     out.append("\\dialogue{\(emitInline(xs))}")
         case .parenthetical(let xs): out.append("\\parenthetical{\(emitInline(xs))}")
         case .transition(let s):    out.append("\\transition{\(LaTeXEscape.escape(s))}")
+        case .lyric(let xs):        out.append("\\lyricline{\(emitInline(xs))}")
+        case .centered(let xs):     out.append("\\centeredline{\(emitInline(xs))}")
+        case .pageBreak:            out.append("\\clearpage")
         case .titlePage(let fields): emitTitlePage(fields, into: &out)
         case .dualDialogue(let left, let right):
             var leftLines: [String] = []
