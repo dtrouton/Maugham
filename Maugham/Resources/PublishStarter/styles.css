@@ -37,3 +37,13 @@ section.screenplay p.character {
 section.screenplay p.dialogue { margin-left: 15%; margin-right: 15%; }
 section.screenplay p.parenthetical { margin-left: 20%; font-style: italic; }
 section.screenplay p.transition { text-align: right; text-transform: uppercase; }
+section.screenplay div.dual-dialogue {
+  display: flex;
+  gap: 1em;
+}
+section.screenplay div.dual-dialogue > div.left,
+section.screenplay div.dual-dialogue > div.right {
+  flex: 1 1 50%;
+}
+section.screenplay div.dual-dialogue p.character { margin-left: 0; text-align: center; }
+section.screenplay div.dual-dialogue p.dialogue { margin-left: 0; margin-right: 0; }
