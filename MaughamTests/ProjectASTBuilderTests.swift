@@ -463,6 +463,29 @@ final class ProjectASTBuilderTests: XCTestCase {
             .text("![Alt](./img/pic.png)")]))])
     }
 
+    // A LEADING table/image block followed by prose with no blank line splits
+    // into TWO nodes post-cutover, where the pre-cutover glue produced ONE
+    // accumulated paragraph. This is an INTENTIONAL, ledger-sanctioned
+    // deviation (Task 5 review, resolved option (a): the shared parser's
+    // uniform block grammar is the accepted behavior; re-gluing table/image
+    // lines back into a trailing paragraph would reintroduce the divergence the
+    // shared parser exists to remove). These pins lock the accepted shape.
+    func test_leadingTable_thenProse_splitsIntoTwoNodes() {
+        let nodes = buildProse("| a |\n|---|\ntrailing prose")
+        XCTAssertEqual(nodes, [
+            .prose(.paragraph([.text("| a | |---|")])),
+            .prose(.paragraph([.text("trailing prose")])),
+        ])
+    }
+
+    func test_leadingSoloImage_thenCaption_splitsIntoTwoNodes() {
+        let nodes = buildProse("![Alt](./img.png)\nCaption line")
+        XCTAssertEqual(nodes, [
+            .prose(.paragraph([.text("![Alt](./img.png)")])),
+            .prose(.paragraph([.text("Caption line")])),
+        ])
+    }
+
     // MARK: - E1 (MCP smoke): held blank survives the op-log round trip
 
     /// The full E1 fixture through the real publish path: a Fountain piece whose
