@@ -190,6 +190,10 @@ final class FountainTokenizerTests: XCTestCase {
         // (the held gate doesn't require the very next line to close it).
         let s = FountainTokenizer().parse("DAN\nA.\n  \n  \nB.\n")
         // [DAN, A., <held>, <held>, B., <trailing synthetic empty>]
+        // The final .action is NOT a held-blank leak: it is the zero-length
+        // synthetic line the tokenizer appends when the source ends in "\n"
+        // (caret-home behavior) — see the trailing-empty-line synthesis in
+        // FountainTokenizer.parse.
         XCTAssertEqual(s.lines.map(\.element),
                        [.character, .dialogue, .dialogue, .dialogue, .dialogue, .action])
         XCTAssertEqual(s.lines[2].content, "")
