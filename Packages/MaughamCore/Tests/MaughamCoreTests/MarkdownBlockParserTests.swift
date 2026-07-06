@@ -72,4 +72,37 @@ final class MarkdownBlockParserTests: XCTestCase {
         XCTAssertEqual(MarkdownBlockParser.parse("```\n  raw indent kept"),
             [.fence(lines: ["  raw indent kept"], info: nil)])
     }
+
+    func test_blockquote_recursive_optionalSpace() {
+        XCTAssertEqual(MarkdownBlockParser.parse("> quoted *em*\n>second"),
+            [.blockquote(blocks: [.paragraph(lines: ["quoted *em*", "second"])])])
+    }
+    func test_blockquote_endsAtPlainLine() {
+        XCTAssertEqual(MarkdownBlockParser.parse("> q\nplain"),
+            [.blockquote(blocks: [.paragraph(lines: ["q"])]),
+             .paragraph(lines: ["plain"])])
+    }
+    func test_table_gated_onDelimiterRow() {
+        let src = "| a | b |\n|---|:--:|\n| 1 | 2 |"
+        let blocks = MarkdownBlockParser.parse(src)
+        guard case .table(let h, let r, let raw) = blocks.first else { return XCTFail() }
+        XCTAssertEqual(h, ["a", "b"]); XCTAssertEqual(r, [["1", "2"]])
+        XCTAssertEqual(raw, ["| a | b |", "|---|:--:|", "| 1 | 2 |"])
+    }
+    func test_pipeWithoutDelimiter_staysParagraph() {
+        XCTAssertEqual(MarkdownBlockParser.parse("costs 3 | 4 either way"),
+            [.paragraph(lines: ["costs 3 | 4 either way"])])
+    }
+    func test_escapedPipe_inCell() {
+        let blocks = MarkdownBlockParser.parse("| a \\| b | c |\n|---|---|")
+        guard case .table(let h, _, _) = blocks.first else { return XCTFail() }
+        XCTAssertEqual(h, ["a | b", "c"])
+    }
+    func test_soloImage_relativeOnly() {
+        XCTAssertEqual(MarkdownBlockParser.parse("![cover](./art/cover.png)"),
+            [.soloImage(altText: "cover", path: "./art/cover.png",
+                        rawLine: "![cover](./art/cover.png)")])
+        XCTAssertEqual(MarkdownBlockParser.parse("![x](https://a/b.png)"),
+            [.paragraph(lines: ["![x](https://a/b.png)"])])
+    }
 }

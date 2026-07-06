@@ -16,10 +16,9 @@ public enum MarkdownBlock: Equatable, Sendable {
 
 /// Shared block-level Markdown parser: one line-oriented state machine
 /// replacing the hand-rolled splitters previously duplicated across
-/// publish/editor/phone surfaces. Headings, paragraphs, thematic breaks,
-/// lists, and fences are implemented; quote/table/image recognition land
-/// in a later task — until then those inputs fall through to paragraph
-/// accumulation.
+/// publish/editor/phone surfaces. Block precedence, checked top of loop:
+/// fence → blank → thematic break → heading → blockquote → table → list →
+/// solo image → paragraph.
 public enum MarkdownBlockParser {
     public static func parse(_ text: String) -> [MarkdownBlock] {
         let lines = text.components(separatedBy: "\n")
@@ -61,6 +60,40 @@ public enum MarkdownBlockParser {
                 i += 1; continue
             }
 
+            // Blockquote: consecutive `>`-prefixed lines, marker-stripped and
+            // recursively parsed. No lazy continuation — a non-`>` line ends
+            // the quote and is left for the outer loop to reprocess.
+            if trimmed.hasPrefix(">") {
+                var quoteLines: [String] = []
+                while i < lines.count {
+                    let t = lines[i].trimmingCharacters(in: .whitespaces)
+                    guard t.hasPrefix(">") else { break }
+                    quoteLines.append(stripQuoteMarker(lines[i]))
+                    i += 1
+                }
+                blocks.append(.blockquote(blocks: parse(quoteLines.joined(separator: "\n"))))
+                continue
+            }
+
+            // Table: a `|`-containing line followed by a GFM delimiter row.
+            // Checked BEFORE list so `| a | b |` never falls into list/paragraph.
+            if trimmed.contains("|"), i + 1 < lines.count,
+               isTableDelimiterRow(lines[i + 1]) {
+                let header = splitTableRow(trimmed)
+                var rawLines = [lines[i], lines[i + 1]]
+                i += 2
+                var rows: [[String]] = []
+                while i < lines.count {
+                    let t = lines[i].trimmingCharacters(in: .whitespaces)
+                    guard t.contains("|"), !t.isEmpty else { break }
+                    rows.append(splitTableRow(t))
+                    rawLines.append(lines[i])
+                    i += 1
+                }
+                blocks.append(.table(header: header, rows: rows, rawLines: rawLines))
+                continue
+            }
+
             // List: consecutive marker lines collect items. An INDENTED
             // non-marker, non-blank line stays inside the current item's
             // text. A blank line ends the block; so does an UNINDENTED
@@ -88,12 +121,24 @@ public enum MarkdownBlockParser {
                 continue
             }
 
+            // Solo image: whole trimmed line is a `![alt](./relative/path)`
+            // reference — never a remote URL. Checked before paragraph
+            // accumulation so it isn't swallowed as prose.
+            if let (altText, path) = parseSoloImage(trimmed) {
+                blocks.append(.soloImage(altText: altText, path: path, rawLine: lines[i]))
+                i += 1; continue
+            }
+
             // Paragraph: gather consecutive raw lines until a blank line
             // or the start of another block kind.
             var paraLines: [String] = []
             while i < lines.count {
                 let t = lines[i].trimmingCharacters(in: .whitespaces)
-                if t.isEmpty || isThematicBreakLine(t) || parseHeading(t) != nil { break }
+                if t.isEmpty || isThematicBreakLine(t) || parseHeading(t) != nil
+                    || t.hasPrefix(">") || parseSoloImage(t) != nil
+                    || (t.contains("|") && i + 1 < lines.count && isTableDelimiterRow(lines[i + 1])) {
+                    break
+                }
                 paraLines.append(lines[i])
                 i += 1
             }
@@ -158,5 +203,75 @@ public enum MarkdownBlockParser {
             idx = line.index(after: idx)
         }
         return (ordered, String(line[idx...]))
+    }
+
+    /// Strip leading whitespace, one `>`, and one optional following space.
+    /// Verbatim port of `ProjectASTBuilder.stripQuoteMarker`.
+    private static func stripQuoteMarker(_ line: String) -> String {
+        let trimmedLeading = String(line.drop(while: { $0 == " " || $0 == "\t" }))
+        guard trimmedLeading.hasPrefix(">") else { return line }
+        var rest = String(trimmedLeading.dropFirst())
+        if rest.hasPrefix(" ") { rest.removeFirst() }
+        return rest
+    }
+
+    /// A GFM-style delimiter row: pipe-separated cells each matching `:?-+:?`.
+    /// Verbatim port of `GuideMarkdownView.isTableDelimiterRow`.
+    private static func isTableDelimiterRow(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.contains("|") else { return false }
+        let cells = splitTableRow(trimmed)
+        guard !cells.isEmpty else { return false }
+        return cells.allSatisfy { cell in
+            var s = Substring(cell)
+            if s.first == ":" { s.removeFirst() }
+            if s.last == ":" { s.removeLast() }
+            return !s.isEmpty && s.allSatisfy { $0 == "-" }
+        }
+    }
+
+    /// Splits a table row on unescaped `|`, trims each cell, and drops a
+    /// leading/trailing empty cell produced by enclosing pipes (`| a | b |`).
+    /// Verbatim port of `GuideMarkdownView.splitTableRow`.
+    private static func splitTableRow(_ line: String) -> [String] {
+        var cells: [String] = []
+        var current = ""
+        let chars = Array(line)
+        var idx = 0
+        while idx < chars.count {
+            if chars[idx] == "\\", idx + 1 < chars.count, chars[idx + 1] == "|" {
+                current.append("|")
+                idx += 2
+                continue
+            }
+            if chars[idx] == "|" {
+                cells.append(current)
+                current = ""
+                idx += 1
+                continue
+            }
+            current.append(chars[idx])
+            idx += 1
+        }
+        cells.append(current)
+        if let first = cells.first, first.trimmingCharacters(in: .whitespaces).isEmpty {
+            cells.removeFirst()
+        }
+        if let last = cells.last, last.trimmingCharacters(in: .whitespaces).isEmpty {
+            cells.removeLast()
+        }
+        return cells.map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
+    /// Matches a whole trimmed line as a `./`-relative solo image reference.
+    /// Port of `ResearchNotePreviewPane`'s regex; alt text is captured too
+    /// (that source only captured the path, since it didn't need alt text).
+    private static func parseSoloImage(_ trimmed: String) -> (altText: String, path: String)? {
+        guard let regex = try? NSRegularExpression(pattern: #"^!\[(.*?)\]\((\.[/][^)]+)\)$"#) else { return nil }
+        let range = NSRange(trimmed.startIndex..., in: trimmed)
+        guard let match = regex.firstMatch(in: trimmed, range: range),
+              let altRange = Range(match.range(at: 1), in: trimmed),
+              let pathRange = Range(match.range(at: 2), in: trimmed) else { return nil }
+        return (String(trimmed[altRange]), String(trimmed[pathRange]))
     }
 }
