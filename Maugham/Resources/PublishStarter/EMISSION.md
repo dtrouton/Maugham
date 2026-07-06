@@ -91,7 +91,7 @@ emits:
 
 ```latex
 \begin{prose}{Example}
-Text with \emph{em}, \textbf{strong}, \emph{under}, \texttt{code}.
+Text with \emph{em}, \textbf{strong}, \_under\_, \texttt{code}.
 
 \end{prose}
 ```
