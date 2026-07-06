@@ -49,6 +49,16 @@ public enum XHTMLBodyEmitter {
             out.append("</blockquote>")
         case .sceneBreak:
             out.append("<hr class=\"scene-break\"/>")
+        case .list(let ordered, let items):
+            let tag = ordered ? "ol" : "ul"
+            out.append("<\(tag)>")
+            for item in items {
+                out.append("<li>\(emitInline(item))</li>")
+            }
+            out.append("</\(tag)>")
+        case .verbatim(let lines):
+            let joined = lines.map(XHTMLEscape.escape).joined(separator: "<br/>")
+            out.append("<p class=\"verbatim\">\(joined)</p>")
         }
     }
 

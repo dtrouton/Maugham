@@ -108,6 +108,18 @@ public enum LaTeXBodyEmitter {
             out.append("\\end{quote}")
         case .sceneBreak:
             out.append("\\scenebreak")
+        case .list(let ordered, let items):
+            let env = ordered ? "enumerate" : "itemize"
+            out.append("\\begin{\(env)}")
+            for item in items {
+                out.append("\\item \(emitInline(item))")
+            }
+            out.append("\\end{\(env)}")
+        case .verbatim(let lines):
+            // A mangle guard, not code support: escaped text joined by `\\`
+            // in a plain paragraph — no `\texttt`, no monospace pretension.
+            out.append(lines.map(LaTeXEscape.escape).joined(separator: "\\\\"))
+            out.append("")   // blank line → \par, matching .paragraph
         }
     }
 

@@ -43,6 +43,8 @@ public struct ProjectAST: Equatable, Sendable {
         case heading(level: Int, [Inline])    // ATX `## Day 1/3` — section title
         indirect case blockquote([ProseNode]) // `> …` markdown blockquote
         case sceneBreak
+        case list(ordered: Bool, items: [[Inline]])   // flat, tight `- x` / `1. x`
+        case verbatim([String])               // ``` fenced block — a mangle guard, not code support
         // Inline emphasis/strong/code/wiki-links live inside
         // `paragraph([Inline])` via the `Inline` enum below — they are not
         // standalone block nodes.

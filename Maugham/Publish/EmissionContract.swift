@@ -32,6 +32,9 @@ public enum EmissionContract {
         .init(label: "Strikethrough", source: "Cut ~~this clause~~ entirely."),
         .init(label: "Escaped asterisk", source: #"A literal \*star\* here."#),
         .init(label: "Underscore is literal in prose", source: "snake_case stays flat."),
+        .init(label: "List", source: "- one\n- two"),
+        .init(label: "Fenced code block (mangle guard, not code support)",
+              source: "```\n*not em*\n`nor code`\n```"),
     ]
 
     public static let fountainExamples: [Example] = [

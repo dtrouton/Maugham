@@ -102,6 +102,43 @@ final class XHTMLBodyEmitterTests: XCTestCase {
         XCTAssertTrue(xhtml.contains("</blockquote>"))
     }
 
+    // MARK: - lists + verbatim
+
+    func testEmits_unorderedList_ulLi() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .prose(.list(ordered: false, items: [[.text("one")], [.text("two")]]))
+            ])
+        ])
+        let xhtml = XHTMLBodyEmitter.emit(ast)
+        XCTAssertTrue(xhtml.contains("<ul>"))
+        XCTAssertTrue(xhtml.contains("<li>one</li>"))
+        XCTAssertTrue(xhtml.contains("<li>two</li>"))
+        XCTAssertTrue(xhtml.contains("</ul>"))
+    }
+
+    func testEmits_orderedList_olLi() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .prose(.list(ordered: true, items: [[.text("a")], [.text("b")]]))
+            ])
+        ])
+        let xhtml = XHTMLBodyEmitter.emit(ast)
+        XCTAssertTrue(xhtml.contains("<ol>"))
+        XCTAssertTrue(xhtml.contains("<li>a</li>"))
+        XCTAssertTrue(xhtml.contains("</ol>"))
+    }
+
+    func testEmits_verbatim_paragraphWithBrLineBreaks() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .prose(.verbatim(["*not em*", "`nor code`"]))
+            ])
+        ])
+        let xhtml = XHTMLBodyEmitter.emit(ast)
+        XCTAssertTrue(xhtml.contains("<p class=\"verbatim\">*not em*<br/>`nor code`</p>"))
+    }
+
     // MARK: - scene break + escaping
 
     func testEmits_sceneBreak_asHR() {

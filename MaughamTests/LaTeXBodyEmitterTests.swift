@@ -142,6 +142,45 @@ final class LaTeXBodyEmitterTests: XCTestCase {
         XCTAssertTrue(body.contains("\\end{quote}"))
     }
 
+    // MARK: - lists + verbatim
+
+    func testEmits_unorderedList_itemizeEnvironment() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .prose(.list(ordered: false, items: [[.text("one")], [.text("two")]]))
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("\\begin{itemize}"))
+        XCTAssertTrue(body.contains("\\item one"))
+        XCTAssertTrue(body.contains("\\item two"))
+        XCTAssertTrue(body.contains("\\end{itemize}"))
+    }
+
+    func testEmits_orderedList_enumerateEnvironment() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .prose(.list(ordered: true, items: [[.text("a")], [.text("b")]]))
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("\\begin{enumerate}"))
+        XCTAssertTrue(body.contains("\\item a"))
+        XCTAssertTrue(body.contains("\\end{enumerate}"))
+    }
+
+    func testEmits_verbatim_escapedLinesJoinedByHardBreak_noMonospace() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .prose(.verbatim(["*not em*", "50% off"]))
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("*not em*\\\\50\\% off"))
+        XCTAssertFalse(body.contains("\\texttt"))
+        XCTAssertFalse(body.contains("\\emph"))
+    }
+
     // MARK: - scene break + escaping
 
     func testEmits_sceneBreak_command() {

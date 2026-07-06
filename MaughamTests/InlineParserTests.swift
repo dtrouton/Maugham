@@ -140,4 +140,14 @@ final class InlineParserTests: XCTestCase {
         // parser is responsible for soft-break handling, not InlineParser).
         XCTAssertEqual(parse("a\nb"), [.text("a\nb")])
     }
+
+    // Backslash-newline is a second hard-break spelling (alongside the
+    // two-space form above). Must be caught by protected-span pre-extraction
+    // BEFORE the scanner's own escape pre-pass runs, since that pre-pass only
+    // neutralizes a backslash before `* ~ _ \``/`\` — newline isn't in that
+    // escapable set, so left alone the backslash would survive as literal text.
+    func testBackslashHardBreak() {
+        XCTAssertEqual(parse("a\\\nb"),
+                       [.text("a"), .lineBreak, .text("b")])
+    }
 }

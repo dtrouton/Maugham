@@ -179,6 +179,44 @@ snake\_case stays flat.
 \end{prose}
 ```
 
+### List
+
+```
+- one
+- two
+```
+
+emits:
+
+```latex
+\providecommand{\st}[1]{#1}
+\begin{prose}{Example}
+\begin{itemize}
+\item one
+\item two
+\end{itemize}
+\end{prose}
+```
+
+### Fenced code block (mangle guard, not code support)
+
+```
+```
+*not em*
+`nor code`
+```
+```
+
+emits:
+
+```latex
+\providecommand{\st}[1]{#1}
+\begin{prose}{Example}
+*not em*\\`nor code`
+
+\end{prose}
+```
+
 ## Fountain positive space — recognized patterns
 
 ### Scene heading with number (extraction lands in Task 11)

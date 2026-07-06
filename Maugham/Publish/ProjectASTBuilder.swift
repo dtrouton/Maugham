@@ -87,6 +87,45 @@ public enum ProjectASTBuilder {
                 continue
             }
 
+            // Fenced verbatim: a mangle guard, not code support — raw lines,
+            // NO trimming, NO inline parsing, until the closing fence or
+            // end-of-input. The fence lines themselves are dropped.
+            if trimmed.hasPrefix("```") {
+                var rawLines: [String] = []
+                i += 1
+                while i < lines.count {
+                    if lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                        i += 1
+                        break
+                    }
+                    rawLines.append(lines[i])
+                    i += 1
+                }
+                nodes.append(.verbatim(rawLines))
+                continue
+            }
+
+            // List: consecutive marker lines collect items; a non-marker,
+            // non-blank line stays inside the CURRENT item's text (flat/tight
+            // nesting — YAGNI per spec ledger). A blank line ends the block.
+            // Ordered-vs-unordered is decided by the first item's marker.
+            if let (ordered, firstContent) = parseListMarker(lines[i]) {
+                var itemTexts: [String] = [firstContent]
+                i += 1
+                while i < lines.count {
+                    if let (_, content) = parseListMarker(lines[i]) {
+                        itemTexts.append(content)
+                    } else {
+                        let t = lines[i].trimmingCharacters(in: .whitespaces)
+                        if t.isEmpty { break }
+                        itemTexts[itemTexts.count - 1] += " " + t
+                    }
+                    i += 1
+                }
+                nodes.append(.list(ordered: ordered, items: itemTexts.map(InlineParser.parse)))
+                continue
+            }
+
             // Paragraph: gather consecutive lines until a blank line or the
             // start of another block kind.
             var paraLines: [String] = []
@@ -145,6 +184,41 @@ public enum ProjectASTBuilder {
         var rest = String(trimmedLeading.dropFirst())
         if rest.hasPrefix(" ") { rest.removeFirst() }
         return rest
+    }
+
+    /// Match `^\s*([-*+]|\d{1,9}[.)])\s+` and return whether the marker is
+    /// ordered plus the content that follows the marker's whitespace run.
+    /// Called on the SCENE-BREAK/HEADING/BLOCKQUOTE-checked remainder, so
+    /// `* * *` never reaches here (scene-break claims it first).
+    private static func parseListMarker(_ line: String) -> (ordered: Bool, content: String)? {
+        var idx = line.startIndex
+        while idx < line.endIndex, line[idx] == " " || line[idx] == "\t" {
+            idx = line.index(after: idx)
+        }
+        guard idx < line.endIndex else { return nil }
+
+        let ordered: Bool
+        if line[idx] == "-" || line[idx] == "*" || line[idx] == "+" {
+            ordered = false
+            idx = line.index(after: idx)
+        } else if line[idx].isNumber {
+            var digits = 0
+            while idx < line.endIndex, line[idx].isNumber, digits < 9 {
+                idx = line.index(after: idx)
+                digits += 1
+            }
+            guard idx < line.endIndex, line[idx] == "." || line[idx] == ")" else { return nil }
+            ordered = true
+            idx = line.index(after: idx)
+        } else {
+            return nil
+        }
+
+        guard idx < line.endIndex, line[idx] == " " || line[idx] == "\t" else { return nil }
+        while idx < line.endIndex, line[idx] == " " || line[idx] == "\t" {
+            idx = line.index(after: idx)
+        }
+        return (ordered, String(line[idx...]))
     }
 
     private static func isSceneBreakLine(_ s: String) -> Bool {

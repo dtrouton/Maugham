@@ -23,6 +23,7 @@ public enum InlineParser {
     private static let closeBracket: unichar = 93 // ]
     private static let space: unichar      = 32
     private static let newline: unichar    = 10
+    private static let backslash: unichar  = 92
 
     /// Left-to-right scan collecting inline code, wiki links, and hard breaks.
     /// Order at any index is unambiguous (each starts with a distinct char);
@@ -66,6 +67,18 @@ public enum InlineParser {
                ns.character(at: i + 1) == space, ns.character(at: i + 2) == newline {
                 spans.append(ProtectedSpan(range: NSRange(location: i, length: 3), node: .lineBreak))
                 i += 3
+                continue
+            }
+
+            // Hard line break, second spelling: a backslash immediately before
+            // a newline. Must be claimed HERE, before `EmphasisRunConverter`
+            // masks this span and hands the rest to `InlineEmphasisScanner`'s
+            // own escape pre-pass — that pre-pass only neutralizes a backslash
+            // before `* ~ _ \``/`\`, so newline (not in that set) would leave
+            // the backslash to survive as literal text otherwise.
+            if ch == backslash, i + 1 < n, ns.character(at: i + 1) == newline {
+                spans.append(ProtectedSpan(range: NSRange(location: i, length: 2), node: .lineBreak))
+                i += 2
                 continue
             }
 

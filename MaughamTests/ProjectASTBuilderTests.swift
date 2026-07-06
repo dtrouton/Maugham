@@ -363,6 +363,46 @@ final class ProjectASTBuilderTests: XCTestCase {
         ])
     }
 
+    // MARK: - lists + fenced verbatim
+
+    /// Mirrors `SinglePieceSource` (EmissionContract.swift) — a tiny one-piece
+    /// prose builder for tests that only care about the resulting nodes.
+    private func buildProse(_ text: String) -> [ProjectAST.Node] {
+        let src = FixtureSource(pieces: [(id: "p1", title: "T", mode: .prose, text: text)])
+        return ProjectASTBuilder.build(from: src).sections[0].nodes
+    }
+
+    func test_unorderedList_parses() {
+        let nodes = buildProse("- one\n- two *em*\n")
+        XCTAssertEqual(nodes, [.prose(.list(ordered: false,
+            items: [[.text("one")], [.text("two "), .emphasis([.text("em")])]]))])
+    }
+
+    func test_orderedList_bothDelimiters() {
+        XCTAssertEqual(buildProse("1. a\n2) b\n"),
+            [.prose(.list(ordered: true, items: [[.text("a")], [.text("b")]]))])
+    }
+
+    func test_list_indentedContinuation_joinsCurrentItem() {
+        XCTAssertEqual(buildProse("- one\n  still one\n- two\n"),
+            [.prose(.list(ordered: false, items: [[.text("one still one")], [.text("two")]]))])
+    }
+
+    func test_list_blankLineEndsBlock() {
+        XCTAssertEqual(buildProse("- one\n\nAfter."),
+            [.prose(.list(ordered: false, items: [[.text("one")]])), .prose(.paragraph([.text("After.")]))])
+    }
+
+    func test_fence_verbatim_noInlineMangle() {
+        let nodes = buildProse("```\n*not em*\n`nor code`\n```\n")
+        XCTAssertEqual(nodes, [.prose(.verbatim(["*not em*", "`nor code`"]))])
+    }
+
+    func test_fence_unterminated_collectsToEndOfInput() {
+        XCTAssertEqual(buildProse("```\nline one\nline two"),
+            [.prose(.verbatim(["line one", "line two"]))])
+    }
+
     func testMixedPieces_preserveOrder() {
         let src = FixtureSource(pieces: [
             (id: "p1", title: "First", mode: .prose, text: "Hello."),
