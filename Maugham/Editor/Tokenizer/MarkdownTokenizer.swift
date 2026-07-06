@@ -15,6 +15,22 @@ public struct MarkdownTokenizer: Sendable {
 
         var tokens: [Token] = []
 
+        // Horizontal rule / scene break: ^ {0,3}(-{3,}|\*{3}|#{3})\s*$
+        // Runs FIRST so a lone `***` or `###` line is claimed as a rule
+        // before the heading pass (which would otherwise read `### ` as an
+        // empty level-3 heading) or the paragraph-scoped emphasis scan
+        // (which would otherwise see `***` as an open/close delimiter run
+        // spanning into surrounding prose). The overlap-skip in addMatches
+        // and in the emphasis loop then keeps those passes off this range.
+        // Kept in exact parity with publish's `isSceneBreakLine`: exactly
+        // three `*`/`#` (space-stripped equality) or three-or-more `-`.
+        addMatches(
+            in: nsText, fullRange: fullRange,
+            pattern: #"(?m)^ {0,3}(-{3,}|\*{3}|#{3})\s*$"#,
+            into: &tokens) { match in
+                return [Token(range: match.range(at: 1), kind: .horizontalRule)]
+            }
+
         // Headings: ^(#{1,6})\s+
         addMatches(
             in: nsText, fullRange: fullRange,
@@ -211,14 +227,6 @@ public struct MarkdownTokenizer: Sendable {
             pattern: #"(?m)^(>)\s"#,
             into: &tokens) { match in
                 return [Token(range: match.range(at: 1), kind: .blockquote)]
-            }
-
-        // Horizontal rule: ^---+\s*$
-        addMatches(
-            in: nsText, fullRange: fullRange,
-            pattern: #"(?m)^(---+)\s*$"#,
-            into: &tokens) { match in
-                return [Token(range: match.range(at: 1), kind: .horizontalRule)]
             }
 
         // Sort by location and fill gaps with .plain tokens

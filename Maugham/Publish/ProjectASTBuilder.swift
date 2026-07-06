@@ -233,7 +233,10 @@ public enum ProjectASTBuilder {
 
     private static func isSceneBreakLine(_ s: String) -> Bool {
         let stripped = s.replacingOccurrences(of: " ", with: "")
-        return stripped == "***" || stripped == "###" || stripped == "---"
+        if stripped == "***" || stripped == "###" { return true }
+        // Editor parity: the tokenizer's rule accepts any run of 3+ dashes,
+        // not just exactly `---`.
+        return stripped.count >= 3 && stripped.allSatisfy { $0 == "-" }
     }
 
     // MARK: - fountain

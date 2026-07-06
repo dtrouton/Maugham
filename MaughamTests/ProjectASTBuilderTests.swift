@@ -47,6 +47,18 @@ final class ProjectASTBuilderTests: XCTestCase {
         ])
     }
 
+    func testProseSceneBreak_fourOrMoreDashes_becomesSceneBreak() {
+        // Editor parity: the tokenizer's horizontal-rule rule accepts
+        // `-{3,}` (any run of 3+ dashes), not just exactly `---`.
+        let src = FixtureSource(pieces: [
+            (id: "p1", title: "C", mode: .prose, text: "Before.\n\n----\n\nAfter.")
+        ])
+        let ast = ProjectASTBuilder.build(from: src)
+        XCTAssertEqual(ast.sections[0].nodes, [
+            .paragraph("Before."), .sceneBreak, .paragraph("After.")
+        ])
+    }
+
     func testProseStripsAnchors_fromBody() {
         // Manuscript paragraphs carry <!-- ¶XXXX --> anchors on their own line
         // (the Materializer format: anchor-line + blank + text). The AST is

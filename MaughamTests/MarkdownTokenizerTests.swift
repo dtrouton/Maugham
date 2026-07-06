@@ -91,6 +91,45 @@ final class MarkdownTokenizerTests: XCTestCase {
         XCTAssertTrue(tokens.contains { $0.kind == .horizontalRule })
     }
 
+    func test_tripleAsterisk_alone_producesHR() {
+        let tokens = tokenizer.tokenize("***")
+        XCTAssertTrue(tokens.contains { $0.kind == .horizontalRule })
+    }
+
+    func test_tripleHash_alone_producesHR() {
+        let tokens = tokenizer.tokenize("###")
+        XCTAssertTrue(tokens.contains { $0.kind == .horizontalRule })
+    }
+
+    func test_headingStillWorks_withTripleHashPrefix() {
+        let tokens = tokenizer.tokenize("# H")
+        XCTAssertTrue(tokens.contains { $0.kind == .heading(level: 1) })
+    }
+
+    func test_tripleAsteriskEmphasis_stillEmphasis_notHR() {
+        let tokens = tokenizer.tokenize("***x***")
+        let emph = tokens.first { if case .emphasis = $0.kind { return true }; return false }
+        XCTAssertNotNil(emph)
+        XCTAssertFalse(tokens.contains { $0.kind == .horizontalRule })
+    }
+
+    func test_quadHash_alone_notHR() {
+        let tokens = tokenizer.tokenize("####")
+        XCTAssertFalse(tokens.contains { $0.kind == .horizontalRule })
+    }
+
+    func test_tripleAsteriskLine_insideProse_isHR_noEmphasisSpanningIt() {
+        let text = "text\n***\ntext"
+        let tokens = MarkdownTokenizer().tokenize(text)
+        XCTAssertTrue(tokens.contains { $0.kind == .horizontalRule })
+        let nsText = text as NSString
+        let hrRange = nsText.range(of: "***")
+        XCTAssertFalse(tokens.contains {
+            guard case .emphasis = $0.kind else { return false }
+            return $0.range.intersection(hrRange) != nil
+        }, "emphasis run must not span the scene-break line")
+    }
+
     func test_multilineDocument_tokenizesEachLine() {
         let md = """
         # Title
