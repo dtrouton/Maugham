@@ -93,7 +93,7 @@ Append a scene number in hash-delimited form at the end of a scene heading:
 INT. KITCHEN - DAY #4A#
 ```
 
-Maugham parses the `#...#` off the slugline and carries it as metadata (`FountainLine.sceneNumber`) rather than styling it as part of the heading text. On Mac, the marker fades dim like other forced-syntax punctuation, same treatment as the `#...#` brackets themselves. On the phone Read tab, the marker also fades (not omitted) — same dim treatment as the Mac editor. In published PDF/EPUB, the number is right-aligned on the slugline line.
+Maugham parses the `#...#` off the slugline and carries it as metadata (`FountainLine.sceneNumber`) rather than styling it as part of the heading text. On Mac, the marker fades dim like other forced-syntax punctuation, same treatment as the `#...#` brackets themselves. On the phone Read tab, the number is not displayed — the reading view renders the cleaned slugline, and the number lives in metadata. In published PDF/EPUB, the number is right-aligned on the slugline line.
 
 Scene numbers are recognized on parse only — Maugham has no UI affordance for auto-numbering or renumbering scenes; you type them yourself.
 
