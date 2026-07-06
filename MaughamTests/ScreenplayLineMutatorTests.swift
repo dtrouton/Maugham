@@ -46,6 +46,20 @@ final class ScreenplayLineMutatorTests: XCTestCase {
         XCTAssertEqual(result.text, ".INT. ROOM - DAY")
     }
 
+    func test_mutateToSceneHeading_dotlessStemWithBlankAbove_unchanged() {
+        // Task 12: recognition widened to dot-less stems, so an existing
+        // dot-less heading cycles intact (no forced `.` prepended).
+        let result = ScreenplayLineMutator.mutate(
+            line: "INT ROOM - DAY", to: .sceneHeading, neighborhood: blankAbove)
+        XCTAssertEqual(result.text, "INT ROOM - DAY")
+    }
+
+    func test_mutateToSceneHeading_ieDotlessStemWithBlankAbove_unchanged() {
+        let result = ScreenplayLineMutator.mutate(
+            line: "I/E CAR - NIGHT", to: .sceneHeading, neighborhood: blankAbove)
+        XCTAssertEqual(result.text, "I/E CAR - NIGHT")
+    }
+
     func test_mutateToSceneHeading_unprefixedAddsForcedDot() {
         let result = ScreenplayLineMutator.mutate(
             line: "barbershop", to: .sceneHeading, neighborhood: blankAbove)

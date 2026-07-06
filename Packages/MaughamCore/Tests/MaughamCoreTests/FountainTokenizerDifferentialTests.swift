@@ -133,6 +133,29 @@ final class FountainTokenizerDifferentialTests: XCTestCase {
         for (label, text) in cases { assertParity(text, label) }
     }
 
+    // -- Dot-less scene stems (Task 12): stem + `.`-or-space delimiter --
+
+    func test_dotlessSceneStems() {
+        let cases: [(String, String)] = [
+            ("space form INT", "INT ROOM - DAY\n\nAction.\n"),
+            ("space form I/E", "I/E CAR - NIGHT\n\nAction.\n"),
+            ("dotted EXT/INT", "EXT/INT. HOUSE\n\nAction.\n"),
+            ("space form INT/EXT", "INT/EXT WAREHOUSE - DAWN\n"),
+            ("dot alone", "INT.\n\nAction.\n"),
+            ("bare stem (not heading)", "INT\n\nAction.\n"),
+            ("space nothing after", "INT \n\nAction.\n"),
+            ("longer word INTERIOR", "INTERIOR SHOT\n\nAction.\n"),
+            ("mixed case Int room", "Int room\n\nAction.\n"),
+            ("lowercase int room", "int room\n\nAction.\n"),
+            ("lowercase interesting prose", "Interesting things happened.\n"),
+            ("mid-paragraph not heading", "He yelled.\nINT ROOM - DAY\n"),
+            ("non-ascii dotless stem", "INT CAFÉ - DAY\n\nÉmile sips.\n"),
+            ("EST space form", "EST MEADOW - DAWN\n"),
+            ("tab after dot not heading", "INT.\tROOM\n"),
+        ]
+        for (label, text) in cases { assertParity(text, label) }
+    }
+
     // -- Randomized generative corpus (seeded; catches what we didn't think of) --
 
     func test_randomizedScripts() {
@@ -145,7 +168,11 @@ final class FountainTokenizerDifferentialTests: XCTestCase {
                 case 0:
                     // Sometimes a trailing scene-number bracket (Task 11),
                     // occasionally malformed so the non-match paths get exercised.
-                    let stem = "INT. LOC\(rng.next() % 50) - DAY"
+                    // Vary the slugline opener across dotted and dot-less stem
+                    // forms (Task 12) so both delimiter paths are stressed.
+                    let opener = ["INT.", "EXT.", "INT", "EXT", "I/E", "INT/EXT",
+                                  "EXT/INT.", "EST", "INTERIOR"][Int(rng.next() % 9)]
+                    let stem = "\(opener) LOC\(rng.next() % 50) - DAY"
                     switch rng.next() % 5 {
                     case 0: lines.append(stem + " #\(rng.next() % 200)#")
                     case 1: lines.append(stem + " #\(rng.next() % 20)A-\(rng.next() % 9)#")

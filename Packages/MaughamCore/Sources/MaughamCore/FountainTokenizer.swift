@@ -576,8 +576,10 @@ public struct FountainTokenizer: Sendable {
         prevBlank: Bool,
         prevElement: ScreenplayElement
     ) -> Classified {
-        // Context-sensitive scene heading: starts with INT./EXT./EST./I/E./
-        // INT/EXT., case-insensitive, and has a blank line above.
+        // Context-sensitive scene heading: starts with a dot-less stem —
+        // INT/EXT/EST/INT/EXT/EXT/INT/I/E, case-insensitive — followed by `.`
+        // or a space, and has a blank line above. (See isSceneHeadingPrefix
+        // for the exact delimiter rule.)
         if prevBlank && Self.isSceneHeadingPrefix(line) {
             return Classified(
                 element: .sceneHeading,
@@ -674,58 +676,91 @@ public struct FountainTokenizer: Sendable {
         return Self.isAllCapsCueCandidate(line)
     }
 
-    private static let sceneHeadingPrefixes = [
-        "INT.", "EXT.", "EST.", "I/E.", "INT/EXT."
+    /// Dot-less scene-heading stems (Fountain spec). A slugline starts with one
+    /// of these followed by `.` (as before) OR a space. `INT/EXT` and `EXT/INT`
+    /// are listed as their own stems so the `/`-joined forms match directly.
+    private static let sceneHeadingStems = [
+        "INT/EXT", "EXT/INT", "INT", "EXT", "EST", "I/E"
     ]
 
     private static func isSceneHeadingPrefix(_ line: String) -> Bool {
-        // FACET: case-insensitive prefix match without allocating `uppercased()`
+        // FACET: case-insensitive stem match without allocating `uppercased()`
         // of the whole line — but ONLY for pure-ASCII lines. Non-ASCII lines
-        // fall back to the exact original comparison.
+        // fall back to an `uppercased()`-then-plain-prefix comparison.
         if Self.isPureASCII(line) {
-            for prefix in sceneHeadingPrefixes {
-                if Self.hasCaseInsensitiveASCIIPrefix(line, prefix, requireFollowingSpaceOrEnd: true) {
+            let scalars = line.unicodeScalars
+            for stem in sceneHeadingStems {
+                if let end = Self.caseInsensitiveASCIIPrefixEnd(line, stem),
+                   Self.sceneStemDelimiterOK(scalars, after: end) {
                     return true
                 }
             }
             return false
         }
         let upper = line.uppercased()
-        for prefix in sceneHeadingPrefixes {
-            if upper.hasPrefix(prefix + " ") || upper == prefix {
-                return true
-            }
+        let scalars = upper.unicodeScalars
+        for stem in sceneHeadingStems {
+            let su = stem.unicodeScalars
+            guard scalars.starts(with: su) else { continue }
+            let end = scalars.index(scalars.startIndex, offsetBy: su.count)
+            if Self.sceneStemDelimiterOK(scalars, after: end) { return true }
         }
         return false
     }
 
-    /// True if `line` begins with `prefix` compared case-insensitively over
-    /// ASCII, AND (when required) the next scalar is a space or the prefix is
-    /// the entire line. `prefix` MUST be pure ASCII (the scene-heading
-    /// prefixes are). Matches the original `uppercased().hasPrefix(prefix+" ")
-    /// || uppercased() == prefix`.
-    private static func hasCaseInsensitiveASCIIPrefix(
-        _ line: String, _ prefix: String, requireFollowingSpaceOrEnd: Bool
+    /// Given `scalars` and the index just past a matched scene-heading stem,
+    /// decide whether the delimiter makes this a scene heading:
+    /// - Nothing after the stem (bare `INT`) → not a heading.
+    /// - `.` → heading, provided the dot is itself followed by a space or the
+    ///   end of the line (preserves the historical `INT.`-heading /
+    ///   `INT.HOUSE`-action behavior).
+    /// - space → heading, provided at least one more non-whitespace character
+    ///   follows somewhere on the line (`INT ` alone is not a heading).
+    /// - anything else (a longer word like `INTERIOR`) → not a heading.
+    private static func sceneStemDelimiterOK(
+        _ scalars: String.UnicodeScalarView,
+        after stemEnd: String.UnicodeScalarView.Index
     ) -> Bool {
+        guard stemEnd != scalars.endIndex else { return false }
+        let delim = scalars[stemEnd]
+        if delim == "." {
+            let afterDot = scalars.index(after: stemEnd)
+            return afterDot == scalars.endIndex || scalars[afterDot] == " "
+        }
+        if delim == " " {
+            var i = scalars.index(after: stemEnd)
+            while i != scalars.endIndex {
+                let c = scalars[i]
+                if c != " " && c != "\t" { return true }
+                i = scalars.index(after: i)
+            }
+            return false
+        }
+        return false
+    }
+
+    /// If `line` begins with `prefix` compared case-insensitively over ASCII,
+    /// returns the scalar index just past the matched prefix; otherwise nil.
+    /// `prefix` MUST be pure ASCII (the scene-heading stems are).
+    private static func caseInsensitiveASCIIPrefixEnd(
+        _ line: String, _ prefix: String
+    ) -> String.UnicodeScalarView.Index? {
         let lu = line.unicodeScalars
         let pu = prefix.unicodeScalars
         var li = lu.startIndex
         var pi = pu.startIndex
         while pi != pu.endIndex {
-            guard li != lu.endIndex else { return false }
+            guard li != lu.endIndex else { return nil }
             let a = lu[li].value
             let b = pu[pi].value
             // ASCII-fold both to upper.
             let af = (a >= 0x61 && a <= 0x7A) ? a - 0x20 : a
             let bf = (b >= 0x61 && b <= 0x7A) ? b - 0x20 : b
-            if af != bf { return false }
+            if af != bf { return nil }
             li = lu.index(after: li)
             pi = pu.index(after: pi)
         }
-        if !requireFollowingSpaceOrEnd { return true }
-        // prefix matched; require a following space or end-of-line.
-        if li == lu.endIndex { return true }
-        return lu[li] == " "
+        return li
     }
 
     /// True if `line` ends with `suffix` compared case-insensitively over

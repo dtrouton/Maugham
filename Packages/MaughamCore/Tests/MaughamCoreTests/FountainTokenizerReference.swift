@@ -342,8 +342,9 @@ struct FountainTokenizerReference: Sendable {
                 isForced: true)
         }
 
-        // Context-sensitive scene heading: starts with INT./EXT./EST./I/E./
-        // INT/EXT., case-insensitive, and has a blank line above.
+        // Context-sensitive scene heading: starts with a dot-less stem —
+        // INT/EXT/EST/INT/EXT/EXT/INT/I/E, case-insensitive — followed by `.`
+        // or a space, and has a blank line above.
         if prevBlank && Self.isSceneHeadingPrefix(line) {
             return Classified(
                 element: .sceneHeading,
@@ -422,16 +423,42 @@ struct FountainTokenizerReference: Sendable {
         return Self.isAllCapsCueCandidate(line)
     }
 
-    private static let sceneHeadingPrefixes = [
-        "INT.", "EXT.", "EST.", "I/E.", "INT/EXT."
+    private static let sceneHeadingStems = [
+        "INT/EXT", "EXT/INT", "INT", "EXT", "EST", "I/E"
     ]
 
     private static func isSceneHeadingPrefix(_ line: String) -> Bool {
+        // Independent frozen-copy computation of the dot-less stem rule: match a
+        // stem (case-insensitive), then require a `.`/space delimiter with the
+        // guards below. No shared helpers with the production tokenizer.
         let upper = line.uppercased()
-        for prefix in sceneHeadingPrefixes {
-            if upper.hasPrefix(prefix + " ") || upper == prefix {
-                return true
+        let scalars = Array(upper.unicodeScalars)
+        for stem in sceneHeadingStems {
+            let su = Array(stem.unicodeScalars)
+            guard scalars.count >= su.count else { continue }
+            var matched = true
+            for i in 0..<su.count where scalars[i] != su[i] { matched = false; break }
+            guard matched else { continue }
+            let end = su.count
+            // Nothing after the stem → bare "INT" is not a heading.
+            guard end < scalars.count else { continue }
+            let delim = scalars[end]
+            if delim == "." {
+                // Dot form: require a space or end after the dot.
+                if end + 1 == scalars.count || scalars[end + 1] == " " { return true }
+                continue
             }
+            if delim == " " {
+                // Space form: require at least one more non-whitespace char.
+                var j = end + 1
+                while j < scalars.count {
+                    let c = scalars[j]
+                    if c != " " && c != "\t" { return true }
+                    j += 1
+                }
+                continue
+            }
+            // Any other char after the stem (a longer word) → not a heading.
         }
         return false
     }
