@@ -9,9 +9,10 @@ public enum ListAllLinksTool: MCPTool {
     public static let method = "list_all_links"
     public static let description =
         "Return the full reference graph as edges: every manuscript document's " +
-        "linked-research and [[wiki-link]] targets. Each edge has from_id/from_title, " +
+        "linked-research and [[wiki-link]] targets, plus collection pieces' " +
+        "own (folder-scoped) research. Each edge has from_id/from_title, " +
         "to_id (null for unresolved wiki targets) / to_title, and kind " +
-        "('linked_research' / 'wiki' / 'wiki_unresolved')."
+        "('linked_research' / 'piece_research' / 'wiki' / 'wiki_unresolved')."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"}},"required":["project_id"]}"#
 
@@ -23,7 +24,7 @@ public enum ListAllLinksTool: MCPTool {
         public let from_title: String
         public let to_id: String?       // nil when target is wiki_unresolved
         public let to_title: String     // for resolved: target's title; for unresolved: literal [[X]] content
-        public let kind: String         // "linked_research" | "wiki" | "wiki_unresolved"
+        public let kind: String         // "linked_research" | "piece_research" | "wiki" | "wiki_unresolved"
     }
 
     @MainActor
@@ -61,6 +62,20 @@ public enum ListAllLinksTool: MCPTool {
                     to_id: rid,
                     to_title: title,
                     kind: "linked_research"))
+            }
+        }
+
+        // Containment edges — a collection loose piece owns research by path
+        // prefix (the strongest association; spec 2026-07-07 ends MCP's
+        // blindness to it). Uses the same derivation as the panes.
+        for piece in store.manifest.structure where piece.pieceKind == .loose {
+            for r in store.derivedResearchItems(forDocumentId: piece.id) {
+                edges.append(Edge(
+                    from_id: piece.id,
+                    from_title: piece.title,
+                    to_id: r.id,
+                    to_title: r.title,
+                    kind: "piece_research"))
             }
         }
 

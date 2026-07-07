@@ -164,4 +164,30 @@ final class ListAllLinksToolTests: XCTestCase {
             "group link should resolve to group title, not raw id")
         XCTAssertEqual(groupEdge.kind, "linked_research")
     }
+
+    func test_listAllLinks_emitsPieceResearchEdges_forCollections() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LAL-PR-\(UUID())")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        let url = try await ProjectFactory.createCollectionProject(named: "C", in: tmp)
+        let store = try await ProjectStore.load(from: url)
+        let piece = try await store.addLoosePiece(title: "Story A", mode: .prose)
+        let owned = try await store.addPieceResearchNote(
+            pieceId: piece.id, title: "Owned Note")
+        _ = try await store.addResearchTextNote(parentId: nil, title: "Shared Note")
+        let reg = ProjectRegistry()
+        reg.register(url: url, store: store)
+        let projectId = ProjectIdentifier.id(for: url)
+
+        let json = try await ListAllLinksTool.handle(
+            paramsJSON: Data("{\"project_id\":\"\(projectId)\"}".utf8), registry: reg)
+        let edges = try JSONDecoder().decode([ListAllLinksTool.Edge].self, from: json)
+
+        XCTAssertTrue(edges.contains {
+            $0.kind == "piece_research" && $0.from_id == piece.id && $0.to_id == owned.id
+        }, "containment must surface as a piece_research edge; edges: \(edges)")
+        XCTAssertFalse(edges.contains {
+            $0.kind == "piece_research" && $0.to_title == "Shared Note"
+        }, "shared research must not appear as piece_research")
+    }
 }
