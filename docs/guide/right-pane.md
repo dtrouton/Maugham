@@ -8,11 +8,16 @@ Default. Shows metadata for whatever's selected in the binder.
 
 ### Research mode (⌘⌥2)
 
-Shows research items linked to the current manuscript document. Click a linked item → the pane swaps to a read-only Markdown preview of that research note, side-by-side with your editor. Back chevron returns to the list.
+Shows research for the current manuscript document in up to two sections:
 
-Link new research either by **dragging** from the binder's Research segment onto this pane, or via the **+** button (opens a picker sheet).
+- **Piece Research** (in a Collection) / **Project Research** (in a single-document project) — research that already belongs to this piece or project. It appears automatically; there's no linking step. Promote a piece to its own project and this carried research comes with it.
+- **Linked** — research explicitly linked to this document from elsewhere in the project.
 
-Unlink: × on the row.
+Click an item in either section → the pane swaps to a read-only Markdown preview, side-by-side with your editor. Back chevron returns to the list.
+
+The **+** button creates research scoped to the open document — **New Note…**, **Add File…**, **Add Link…** — or opens **Link Research…**, a picker sheet offering everything not already shown above. Dragging an item from the binder's Research segment onto this pane links it the same way.
+
+Unlink: × on a row in **Linked**. Items in the automatic section have no × — untangle those by editing the piece/project structure itself, not the link.
 
 ### Outline mode (⌘⌥3)
 

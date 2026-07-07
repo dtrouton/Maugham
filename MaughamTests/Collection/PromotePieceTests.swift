@@ -67,4 +67,30 @@ final class PromotePieceTests: XCTestCase {
             // ok
         }
     }
+
+    func test_promotedProject_carriedResearch_isDerivedForItsDocument() async throws {
+        // Collection with a piece that owns one research note.
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("promote-derive-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        let url = try await ProjectFactory.createCollectionProject(named: "C", in: parent)
+        let store = try await ProjectStore.load(from: url)
+        let piece = try await store.addLoosePiece(title: "Story A", mode: .prose)
+        let note = try await store.addPieceResearchNote(pieceId: piece.id, title: "Carried")
+
+        let dest = parent.appendingPathComponent("StoryA")
+        _ = try await store.promotePieceToProject(pieceId: piece.id, destination: dest)
+
+        // The promoted single-doc project derives the carried research for its
+        // document with no re-linking (spec §6: promotion follow-through).
+        let promoted = try await ProjectStore.load(from: dest)
+        let docId = try XCTUnwrap(
+            TreeWalk.collect(in: promoted.manifest.structure,
+                             where: { $0.type == .document }).first?.id)
+        let derived = promoted.derivedResearchItems(forDocumentId: docId)
+        XCTAssertTrue(derived.contains { $0.title == note.title },
+                      "carried research must appear derived; got: \(derived.map(\.title))")
+        XCTAssertTrue(derived.allSatisfy { $0.path?.hasPrefix("research/") == true },
+                      "carried paths must be rewritten to research/…")
+    }
 }

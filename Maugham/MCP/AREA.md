@@ -30,7 +30,7 @@ The in-app MCP server: tool registration, JSON-RPC handling, the read/search/dis
 - `list_research` — enumerate research items in a project
 - `link_research` — create a research ↔ manuscript link
 - `unlink_research` — remove a research ↔ manuscript link
-- `list_all_links` — all research–manuscript links for a project
+- `list_all_links` — all research–manuscript links for a project, incl. `piece_research` edges (a collection piece's own research, no explicit link needed)
 
 **Annotations (parallel comment layer)**
 - `add_comment` — paragraph-anchored general comment
@@ -68,7 +68,7 @@ The in-app MCP server: tool registration, JSON-RPC handling, the read/search/dis
 **Inbox / capture**
 - `list_inbox` — enumerate capture inbox entries (voice/text/photo)
 - `read_inbox_entry` — read the content of a single inbox entry
-- `promote_inbox_entry` — promote an inbox entry to a manuscript document
+- `promote_inbox_entry` — promote an inbox entry to research; optional `target_document_id` scopes it to a piece's own research folder or a chapter's shared-research link
 
 ## Dev-only Test MCP (`Maugham/MCP/Test/`)
 
