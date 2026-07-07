@@ -15,6 +15,9 @@ import MaughamCore
 struct InboxPane: View {
     @Bindable var store: InboxStore
     let projectStore: ProjectStore
+    /// Active manuscript document — target of the fast "Promote to Research
+    /// for [title]" path. Nil (or an invalid target) hides that menu item.
+    let activeDocumentId: String?
     /// True when local transcription is available (Apple Silicon). Gates the
     /// "Transcribe Again" affordance — there's no transcriber on Intel.
     let canTranscribe: Bool
@@ -25,6 +28,7 @@ struct InboxPane: View {
     @State private var audio = InboxAudioPlayer()
     @State private var promoteError: String?
     @State private var showingTrash = false
+    @State private var promotePicking: InboxEntry?
 
     private static let relativeFormatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
@@ -70,6 +74,11 @@ struct InboxPane: View {
             Button("OK", role: .cancel) { promoteError = nil }
         } message: {
             Text(promoteError ?? "")
+        }
+        .sheet(item: $promotePicking) { entry in
+            PromoteTargetPickerSheet(store: projectStore) { docId in
+                promote(entry, scope: .document(docId))
+            }
         }
     }
 
@@ -174,7 +183,13 @@ struct InboxPane: View {
         }
         .padding(.vertical, 2)
         .contextMenu {
-            Button("Promote to Research") { promote(entry) }
+            Button("Promote to Research") { promote(entry, scope: .shared) }
+            if let target = activePromoteTarget {
+                Button("Promote to Research for “\(target.title)”") {
+                    promote(entry, scope: .document(target.id))
+                }
+            }
+            Button("Promote to Research for…") { promotePicking = entry }
             if entry.kind == .audio {
                 Button("Edit Transcript…") { editing = entry }
                 // Offer manual (re)transcription for any audio capture except one
@@ -199,12 +214,21 @@ struct InboxPane: View {
 
     // MARK: - Actions
 
-    private func promote(_ entry: InboxEntry) {
+    private func promote(_ entry: InboxEntry, scope: ResearchScope) {
         audio.stop()
         Task {
-            do { try await store.promoteToResearch(entry, projectStore: projectStore) }
-            catch { promoteError = error.localizedDescription }
+            do {
+                try await store.promoteToResearch(
+                    entry, projectStore: projectStore, scope: scope)
+            } catch { promoteError = error.localizedDescription }
         }
+    }
+
+    private var activePromoteTarget: StructureItem? {
+        guard let id = activeDocumentId,
+              projectStore.isResearchScopeTarget(id) else { return nil }
+        return TreeWalk.collect(
+            in: projectStore.manifest.structure, where: { $0.id == id }).first
     }
 
     // MARK: - Row presentation

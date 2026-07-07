@@ -180,6 +180,7 @@ struct DetailPaneToggle<Inspector: View>: View {
     private var inboxPane: some View {
         if let ds = documentStore {
             InboxPane(store: ds.inboxStore, projectStore: store,
+                      activeDocumentId: activeManuscriptItemId,
                       canTranscribe: Self.localTranscriptionAvailable,
                       retranscribe: { entry in Task { await ds.retranscribe(entry) } })
         } else {
