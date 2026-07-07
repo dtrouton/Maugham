@@ -140,10 +140,15 @@ extension ProjectStore {
     }
 
     /// Items the link picker offers: everything except what is already
-    /// structurally associated (linking those would be redundant).
+    /// structurally associated (linking those would be redundant). Leads
+    /// with shared items (path not under `pieces/`), then piece-scoped
+    /// items, preserving relative order within each group (spec §3).
     public func linkableResearchItems(forDocumentId docId: String) -> [ResearchItem] {
         let derivedIds = Set(derivedResearchItems(forDocumentId: docId).map(\.id))
-        return TreeWalk.collect(in: manifest.research, where: { _ in true })
+        let candidates = TreeWalk.collect(in: manifest.research, where: { _ in true })
             .filter { !derivedIds.contains($0.id) }
+        let shared = candidates.filter { $0.path?.hasPrefix("pieces/") != true }
+        let pieceScoped = candidates.filter { $0.path?.hasPrefix("pieces/") == true }
+        return shared + pieceScoped
     }
 }

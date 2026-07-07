@@ -127,7 +127,9 @@ public enum FindReferencesTool: MCPTool {
         "can be an id (returned by get_outline / list_research) or a title " +
         "(case-insensitive match). Returns [[wiki link]] matches in manuscript " +
         "text + research-link backrefs. Piece-owned research returns its " +
-        "owning piece as a piece_research backref."
+        "owning piece as a piece_research backref. When a piece both links " +
+        "to and owns the same research item, the explicit link masks the " +
+        "containment backref (deduplicated by from_id)."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"},"target":{"type":"string"}},"required":["project_id","target"]}"#
 

@@ -149,6 +149,7 @@ final class InboxPromoteTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(
             atPath: url.appendingPathComponent(created.path!).path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: assetURL.path))
+        XCTAssertFalse(inbox.entries.contains { $0.id == "pa1" })
         withExtendedLifetime(ds) {}
     }
 
@@ -182,7 +183,7 @@ final class InboxPromoteTests: XCTestCase {
             _ = try await inbox.promoteToResearch(
                 entry, projectStore: store, scope: .document("doc-nope"))
             XCTFail("expected throw")
-        } catch { /* expected — fail loudly, no shared fallback */ }
+        } catch is ProjectStoreError { /* expected — fail loudly, no shared fallback */ }
         XCTAssertTrue(inbox.entries.contains { $0.id == "tx1" },
                       "failed promote must leave the entry in the inbox")
         withExtendedLifetime(ds) {}

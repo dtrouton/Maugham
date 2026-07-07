@@ -120,6 +120,45 @@ final class ResearchScopeTests: XCTestCase {
         XCTAssertFalse(store.isResearchScopeTarget("ref-1"))
     }
 
+    func test_note_structureGroupId_throws() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ScopeGrp-\(UUID())")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("manuscript"), withIntermediateDirectories: true)
+        try "Chapter 1 content\n".write(
+            to: tmp.appendingPathComponent("manuscript/c1.md"),
+            atomically: true, encoding: .utf8)
+        let chapter = StructureItem(
+            id: "ch-1", title: "Chapter 1", type: .document,
+            path: "manuscript/c1.md")
+        let group = StructureItem(
+            id: "grp-1", title: "Part 1", type: .group, path: nil,
+            children: [chapter])
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A",
+            created: Date(), modified: Date(),
+            structure: [group], research: [])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(
+            to: tmp.appendingPathComponent("project.maugham.json"))
+        let store = try await ProjectStore.load(from: tmp)
+        do {
+            _ = try await store.createResearchNote(scope: .document("grp-1"), title: "x")
+            XCTFail("expected throw for a structure GROUP id")
+        } catch { /* expected — routing must reject non-document targets */ }
+        XCTAssertFalse(store.isResearchScopeTarget("grp-1"))
+    }
+
+    func test_note_unknownProjectType_throws() async throws {
+        let (_, store) = try await makeProject(type: .unknown)
+        do {
+            _ = try await store.createResearchNote(scope: .document("ch-1"), title: "x")
+            XCTFail("expected throw for unknown project type")
+        } catch { /* expected — never falls back to shared */ }
+    }
+
     // MARK: - createResearchLink routing
 
     func test_link_collectionPiece_syntheticPathUnderPieceFolder() async throws {
@@ -162,6 +201,23 @@ final class ResearchScopeTests: XCTestCase {
         XCTAssertFalse(linkable.contains { $0.id == owned.id },
                        "derived items must not be offered for linking")
         XCTAssertTrue(linkable.contains { $0.id == shared.id })
+    }
+
+    func test_linkable_leadsWithSharedItems() async throws {
+        let (_, store, pieceA) = try await makeCollection()
+        let pieceB = try await store.addLoosePiece(title: "Story B", mode: .prose)
+        let aNote = try await store.addPieceResearchNote(pieceId: pieceA.id, title: "A's Note")
+        let bNote = try await store.addPieceResearchNote(pieceId: pieceB.id, title: "B's Note")
+        let shared = try await store.addResearchTextNote(parentId: nil, title: "Shared Note")
+
+        let linkable = store.linkableResearchItems(forDocumentId: pieceA.id)
+
+        XCTAssertFalse(linkable.contains { $0.id == aNote.id },
+                       "A's own note must still be excluded")
+        let sharedIdx = try XCTUnwrap(linkable.firstIndex { $0.id == shared.id })
+        let bIdx = try XCTUnwrap(linkable.firstIndex { $0.id == bNote.id })
+        XCTAssertLessThan(sharedIdx, bIdx,
+                          "shared items must lead; piece-scoped items (like B's) follow")
     }
 
     // MARK: - researchScopeTargets
