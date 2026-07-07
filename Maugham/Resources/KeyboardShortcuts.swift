@@ -32,7 +32,7 @@ public enum KeyboardShortcuts {
             Entry(label: "Toggle Full-Screen Focus", shortcut: "⌘⇧F"),
             Entry(label: "Toggle Inspector",        shortcut: "⌘⌥I"),
             Entry(label: "Inspector mode",          shortcut: "⌘⌥1"),
-            Entry(label: "Linked Research mode",    shortcut: "⌘⌥2"),
+            Entry(label: "Research mode",           shortcut: "⌘⌥2"),
             Entry(label: "Outline mode",            shortcut: "⌘⌥3"),
             Entry(label: "Toggle Research Preview", shortcut: "⌘⇧P"),
         ]),

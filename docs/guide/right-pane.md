@@ -15,7 +15,7 @@ Shows research for the current manuscript document in up to two sections:
 
 Click an item in either section → the pane swaps to a read-only Markdown preview, side-by-side with your editor. Back chevron returns to the list.
 
-The **+** button creates research scoped to the open document — **New Note…**, **Add File…**, **Add Link…** — or opens **Link Research…**, a picker sheet offering everything not already shown above. Dragging an item from the binder's Research segment onto this pane links it the same way.
+The **+** button offers **Link Research…**, a picker sheet offering everything not already shown above, plus **New Note…**, **Add File…**, **Add Link…** to create research scoped to the open document. Dragging an item from the binder's Research segment onto this pane links it the same way.
 
 Unlink: × on a row in **Linked**. Items in the automatic section have no × — untangle those by editing the piece/project structure itself, not the link.
 

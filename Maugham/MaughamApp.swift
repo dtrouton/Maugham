@@ -187,7 +187,7 @@ struct MaughamApp: App {
                     MaughamEvent.post(.maughamSetDetailSegment, to: .keyWindow, payload: ["segment": "inspector"])
                 }
                 .keyboardShortcut("1", modifiers: [.command, .option])
-                Button("Linked Research") {
+                Button("Research") {
                     MaughamEvent.post(.maughamSetDetailSegment, to: .keyWindow, payload: ["segment": "research"])
                 }
                 .keyboardShortcut("2", modifiers: [.command, .option])
