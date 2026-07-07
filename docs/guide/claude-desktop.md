@@ -14,6 +14,7 @@ That's it. You can test by asking Claude: *"What Maugham projects are open?"*
 ### What Claude can do
 
 Read:
+
 - List open projects, outlines, and chapters
 - Read documents (live in-memory — Claude sees text you haven't saved yet)
 - Search across manuscript
@@ -23,6 +24,7 @@ Read:
 - Filter chapters by tag
 
 Write:
+
 - Create research notes ("Claude, write me a character sheet for Sarah based on what you see in Chapter 1")
 - Link research notes to chapters
 - Unlink as needed

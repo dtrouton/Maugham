@@ -439,6 +439,53 @@ final class ProjectASTBuilderTests: XCTestCase {
             [.prose(.list(ordered: false, items: [[.text("a")], [.text("b")]]))])
     }
 
+    // MARK: - degrade pins (Task 5: table + solo image → literal paragraph)
+
+    // A GFM pipe table is display-only grammar the publish path does not
+    // render; today it falls through the block loop as literal paragraph text
+    // (no block rule claims a `|` line). This pin captures that exact
+    // literal-paragraph AST so the shared-parser cutover — which recognizes the
+    // table as its own block, then DEGRADES it back through the same paragraph
+    // helper — stays byte-identical.
+    func test_pipeTable_degradesToLiteralParagraph() {
+        let nodes = buildProse("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        XCTAssertEqual(nodes, [.prose(.paragraph([
+            .text("| a | b | | --- | --- | | 1 | 2 |")]))])
+    }
+
+    // A whole-line `./`-relative image reference is likewise display-only;
+    // today it is swallowed as literal paragraph text. The cutover recognizes
+    // it as a solo-image block and degrades it back through the same paragraph
+    // helper — this pin locks the byte-identical result.
+    func test_soloImageLine_degradesToParagraph() {
+        let nodes = buildProse("![Alt](./img/pic.png)")
+        XCTAssertEqual(nodes, [.prose(.paragraph([
+            .text("![Alt](./img/pic.png)")]))])
+    }
+
+    // A LEADING table/image block followed by prose with no blank line splits
+    // into TWO nodes post-cutover, where the pre-cutover glue produced ONE
+    // accumulated paragraph. This is an INTENTIONAL, ledger-sanctioned
+    // deviation (Task 5 review, resolved option (a): the shared parser's
+    // uniform block grammar is the accepted behavior; re-gluing table/image
+    // lines back into a trailing paragraph would reintroduce the divergence the
+    // shared parser exists to remove). These pins lock the accepted shape.
+    func test_leadingTable_thenProse_splitsIntoTwoNodes() {
+        let nodes = buildProse("| a |\n|---|\ntrailing prose")
+        XCTAssertEqual(nodes, [
+            .prose(.paragraph([.text("| a | |---|")])),
+            .prose(.paragraph([.text("trailing prose")])),
+        ])
+    }
+
+    func test_leadingSoloImage_thenCaption_splitsIntoTwoNodes() {
+        let nodes = buildProse("![Alt](./img.png)\nCaption line")
+        XCTAssertEqual(nodes, [
+            .prose(.paragraph([.text("![Alt](./img.png)")])),
+            .prose(.paragraph([.text("Caption line")])),
+        ])
+    }
+
     // MARK: - E1 (MCP smoke): held blank survives the op-log round trip
 
     /// The full E1 fixture through the real publish path: a Fountain piece whose

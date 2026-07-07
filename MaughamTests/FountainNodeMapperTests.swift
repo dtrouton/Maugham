@@ -114,6 +114,19 @@ final class FountainNodeMapperTests: XCTestCase {
         ])
     }
 
+    func test_dialogueHeldBlank_immediatelyAfterCue_leadingLineBreak() {
+        // A held blank as the FIRST line of a dialogue block (right after the
+        // cue, before any dialogue text) still stays open per the tokenizer,
+        // but there's no preceding text to attach the lineBreak after — it
+        // becomes a LEADING lineBreak in the coalesced dialogue node.
+        let src = "DAN\n  \nHello.\n"
+        let nodes = map(src)
+        XCTAssertEqual(nodes, [
+            .character("DAN"),
+            .dialogue([.lineBreak, .text("Hello.")]),
+        ])
+    }
+
     func test_emptyLine_stillEndsDialogueBlock_atMapperLevel() {
         // A truly empty line (not a held blank) still ends the block: the
         // following action text is NOT folded into the dialogue node.

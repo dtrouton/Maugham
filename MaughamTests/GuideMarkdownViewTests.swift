@@ -2,12 +2,21 @@ import XCTest
 @testable import Maugham
 
 final class GuideMarkdownViewTests: XCTestCase {
+    /// Blank lines separate the paragraph from the list and the list from
+    /// the fence: the shared `MarkdownBlockParser`'s paragraph loop only
+    /// breaks accumulation on a blank line / heading / thematic break /
+    /// quote, so (unlike the old per-line local parser) a bullet or fence
+    /// glued directly onto a preceding text line with no blank line would be
+    /// swallowed into that paragraph — the same class of bug fixed in
+    /// `docs/guide/claude-desktop.md`'s "Read:"/"Write:" sections.
     func test_parsesHeadingsParagraphsBulletsAndCode() {
         let md = """
         # Title
         Intro line.
+
         - first
         - second
+
         ```
         let x = 1
         ```
@@ -38,15 +47,18 @@ final class GuideMarkdownViewTests: XCTestCase {
         XCTAssertEqual(p2, "Second paragraph.")
     }
 
-    func test_blockquoteReflowsWithoutMarker() {
+    /// Grammar upgrade (audit section E row 6): a blockquote used to render as
+    /// unstyled paragraph text; it now gets its own `.quote` case (leading
+    /// accent bar in the renderer), matching the phone reader's treatment.
+    func test_blockquoteBecomesQuoteBlock() {
         let md = """
         > Quoted line one
         > quoted line two.
         """
         let blocks = GuideMarkdownView.parse(md)
         XCTAssertEqual(blocks.count, 1)
-        guard case .paragraph(let p) = blocks[0] else { return XCTFail("expected paragraph") }
-        XCTAssertEqual(p, "Quoted line one quoted line two.")
+        guard case .quote(let q) = blocks[0] else { return XCTFail("expected quote, got \(blocks)") }
+        XCTAssertEqual(q, "Quoted line one quoted line two.")
     }
 
     func test_orderedListItemsDoNotReflowIntoOneParagraph() {
@@ -59,11 +71,19 @@ final class GuideMarkdownViewTests: XCTestCase {
         XCTAssertEqual(n2, "2"); XCTAssertEqual(t2, "Open")
     }
 
+    /// The shared `MarkdownBlockParser` recognizes a multi-digit paren marker
+    /// as an ordered item but does not retain its source digits (`.list`
+    /// items carry no number). The adapter regenerates numbers sequentially
+    /// from list position, so a source marker that starts mid-sequence (as
+    /// this one deliberately does, to probe that case) no longer round-trips
+    /// — this is a known, reviewer-flagged fidelity loss (see task-7 report),
+    /// not a bug in this test.
     func test_orderedListAcceptsParenMarkerAndMultiDigit() {
         let md = "10) Tenth step"
         let blocks = GuideMarkdownView.parse(md)
         guard case .orderedItem(let n, let t) = blocks[0] else { return XCTFail("expected orderedItem") }
-        XCTAssertEqual(n, "10"); XCTAssertEqual(t, "Tenth step")
+        XCTAssertEqual(n, "1", "sequential renumbering, not source-number preservation — see task-7 report")
+        XCTAssertEqual(t, "Tenth step")
     }
 
     func test_literalPipeWithoutDelimiterRowStaysParagraph() {

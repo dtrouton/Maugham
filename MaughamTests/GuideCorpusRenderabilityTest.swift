@@ -23,6 +23,13 @@ final class GuideCorpusRenderabilityTest: XCTestCase {
     }
 
     private static let orderedMarker = try! NSRegularExpression(pattern: #"^\d+[.)]\s"#)
+    /// Unordered markers (`- `, `* `, `+ `) — the shared parser's paragraph
+    /// loop doesn't break on a list marker mid-accumulation (unlike heading/
+    /// thematic-break/quote), so a bullet glued directly to a preceding text
+    /// line with no blank line in between gets swallowed into that paragraph
+    /// (exactly how the `claude-desktop.md` "Read:"/"Write:" sections were
+    /// found and fixed — see task-7 report). Guarded here permanently.
+    private static let unorderedMarker = try! NSRegularExpression(pattern: #"^[-*+]\s"#)
 
     func test_noGuideConstructSilentlyDegradesToParagraph() throws {
         let guideDir = repoRoot.appendingPathComponent("docs/guide")
@@ -41,10 +48,21 @@ final class GuideCorpusRenderabilityTest: XCTestCase {
                     "\(file.lastPathComponent): a table delimiter row leaked into a paragraph block " +
                     "(pipe table not claimed by the table parser) — \(text)")
                 let range = NSRange(text.startIndex..., in: text)
-                let matched = Self.orderedMarker.firstMatch(in: text, range: range) != nil
-                XCTAssertFalse(matched,
+                let orderedLeaked = Self.orderedMarker.firstMatch(in: text, range: range) != nil
+                XCTAssertFalse(orderedLeaked,
                     "\(file.lastPathComponent): an ordered-list marker leaked into a paragraph block " +
                     "(not claimed by the ordered-list parser) — \(text)")
+                let unorderedLeaked = Self.unorderedMarker.firstMatch(in: text, range: range) != nil
+                XCTAssertFalse(unorderedLeaked,
+                    "\(file.lastPathComponent): an unordered-list marker leaked into a paragraph block " +
+                    "(not claimed by the list parser) — \(text)")
+                // An OPENING fence glued to preceding prose (no blank line)
+                // would be swallowed into the paragraph the same way — the
+                // paragraph loop doesn't break on a fence line. Guarded here
+                // per the final whole-branch review's latent-gap note.
+                XCTAssertFalse(text.contains("```"),
+                    "\(file.lastPathComponent): a fence marker leaked into a paragraph block " +
+                    "(opening fence glued to prose?) — \(text)")
             }
         }
     }

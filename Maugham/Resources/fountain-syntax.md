@@ -257,18 +257,23 @@ Wrap content in `/* ... */` to mark it as cut from the script. Renders dim itali
 
 Wrap content in `[[ ... ]]` to mark it as a note. Notes can be:
 
-- **Block notes** (full line or multi-line):
-  ```
-  [[ todo: rewrite this beat ]]
-  
-  [[ check with director:
-     should this be daytime or night? ]]
-  ```
+- **Block notes** — a full standalone line, or spanning multiple lines
+- **Inline notes** — embedded within an action or other line
 
-- **Inline notes** (within an action or other line):
-  ```
-  Action paragraph with a [[ side note ]] embedded inline.
-  ```
+A block note:
+
+```
+[[ todo: rewrite this beat ]]
+
+[[ check with director:
+   should this be daytime or night? ]]
+```
+
+An inline note:
+
+```
+Action paragraph with a [[ side note ]] embedded inline.
+```
 
 Notes render dim italic while editing. Inline notes get their `[[ ... ]]` range styled dim while the rest of the line keeps its parent element styling (action, dialogue, etc.). Notes don't count toward page count and are **omitted entirely from published PDF/EPUB** — they're author-only.
 

@@ -26,8 +26,9 @@ public struct MarkdownTokenizer: Sendable {
         // (which would otherwise see `***` as an open/close delimiter run
         // spanning into surrounding prose). The overlap-skip in addMatches
         // and in the emphasis loop then keeps those passes off this range.
-        // Kept in exact parity with publish's `isSceneBreakLine`: exactly
-        // three `*`/`#` (space-stripped equality) or three-or-more `-`.
+        // Kept in exact parity with the shared block grammar
+        // (`MarkdownBlockParser.isThematicBreakLine`): exactly three `*`/`#`
+        // (space-stripped equality) or three-or-more `-`.
         addMatches(
             in: nsText, fullRange: fullRange,
             pattern: #"(?m)^ {0,3}(-{3,}|\*{3}|#{3})\s*$"#,

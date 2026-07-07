@@ -1,7 +1,9 @@
 import Foundation
+import MaughamCore
 
-/// Splits anchor-stripped manuscript markdown into block elements so the reader
-/// can render real paragraph breaks + heading hierarchy.
+/// View-layer block currency for the reader, adapted from the shared
+/// `MarkdownBlockParser` (MaughamCore) so paragraph breaks, headings, lists,
+/// fences, tables, blockquotes, and thematic breaks all survive.
 ///
 /// `AttributedString(markdown:)` alone is unsuitable for a reader: with
 /// `.full` it concatenates every block (heading + paragraphs) into one run with
@@ -14,40 +16,38 @@ enum MarkdownBlocks {
         /// An ATX heading: `level` 1–6, `text` is the content after the `#`s.
         case heading(level: Int, text: String)
         /// A paragraph of markdown (inline emphasis like `*x*`/`**x**` intact;
-        /// the view applies it inline). May span multiple soft-wrapped lines.
+        /// the view applies it inline). Lines are joined with "\n" — manuscript
+        /// line breaks are preserved, not reflowed.
         case paragraph(String)
+        case list(ordered: Bool, items: [String])
+        /// Verbatim fence content — no inline emphasis interpretation.
+        case code(String)
+        case table(header: [String], rows: [[String]])
+        case quote([Block])
+        case divider
     }
 
     static func parse(_ markdown: String) -> [Block] {
-        var blocks: [Block] = []
-        var paragraph: [String] = []
+        MarkdownBlockParser.parse(markdown).compactMap(adapt)
+    }
 
-        func flushParagraph() {
-            let joined = paragraph.joined(separator: "\n")
+    private static func adapt(_ b: MarkdownBlock) -> Block? {
+        switch b {
+        case .heading(let l, let t): return .heading(level: l, text: t)
+        case .paragraph(let lines):
+            let joined = lines.joined(separator: "\n")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            paragraph.removeAll()
-            if !joined.isEmpty { blocks.append(.paragraph(joined)) }
+            return joined.isEmpty ? nil : .paragraph(joined)
+        case .list(let o, let items):
+            return .list(ordered: o, items: items.map { item in
+                item.enumerated().map { i, l in i == 0 ? l : l.trimmingCharacters(in: .whitespaces) }
+                    .joined(separator: " ")
+            })
+        case .fence(let lines, _): return .code(lines.joined(separator: "\n"))
+        case .table(let h, let r, _): return .table(header: h, rows: r)
+        case .blockquote(let inner): return .quote(inner.compactMap(adapt))
+        case .thematicBreak: return .divider
+        case .soloImage(_, _, let raw): return .paragraph(raw)   // phone renders no images (existing behavior)
         }
-
-        for rawLine in markdown.components(separatedBy: "\n") {
-            let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
-            if trimmed.isEmpty {
-                flushParagraph()
-                continue
-            }
-            // An ATX heading is its own block (even without a surrounding blank
-            // line) so it never glues onto adjacent prose.
-            if let range = trimmed.range(of: #"^#{1,6}\s+"#, options: .regularExpression) {
-                flushParagraph()
-                let level = trimmed[range].filter { $0 == "#" }.count
-                let text = String(trimmed[range.upperBound...])
-                    .trimmingCharacters(in: .whitespaces)
-                blocks.append(.heading(level: level, text: text))
-            } else {
-                paragraph.append(rawLine)
-            }
-        }
-        flushParagraph()
-        return blocks
     }
 }

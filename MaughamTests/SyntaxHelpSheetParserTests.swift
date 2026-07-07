@@ -49,4 +49,51 @@ final class SyntaxHelpSheetParserTests: XCTestCase {
     func testEmptyInputProducesEmpty() {
         XCTAssertTrue(SyntaxHelpSheet.parseMarkdownBlocks("").isEmpty)
     }
+
+    // MARK: - Shared-parser mapping (content-audit-found constructs)
+
+    /// Real snippet from `markdown-syntax.md`'s Smart typography section —
+    /// the one GFM table the curated content actually uses.
+    func testTableIsMappedToTableBlock() {
+        let md = """
+        | You type | You get |
+        |---|---|
+        | `--` | `—` (em dash) |
+        | `...` | `…` (ellipsis) |
+        """
+        let blocks = SyntaxHelpSheet.parseMarkdownBlocks(md)
+        XCTAssertEqual(blocks.count, 1)
+        guard case .table(let header, let rows) = blocks[0] else {
+            XCTFail("expected table"); return
+        }
+        XCTAssertEqual(header, ["You type", "You get"])
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows[0], ["`--`", "`—` (em dash)"])
+    }
+
+    /// Real snippet from `fountain-syntax.md`'s Notes section, post-fix —
+    /// heading + bullet list + prose + fence, none of the curated content's
+    /// real constructs. Pins that a bullet list still emits one `.bullet`
+    /// per item, unaffected by the table/heading/fence changes.
+    func testBulletListFromRealFountainDocSnippet() {
+        let md = """
+        - **Block notes** — a full standalone line, or spanning multiple lines
+        - **Inline notes** — embedded within an action or other line
+        """
+        let blocks = SyntaxHelpSheet.parseMarkdownBlocks(md)
+        XCTAssertEqual(blocks.count, 2)
+        for block in blocks {
+            if case .bullet = block { } else { XCTFail("expected bullet") }
+        }
+    }
+
+    /// The curated content has no ordered list, blockquote, thematic break,
+    /// or solo image — but the adapter must degrade those block kinds to
+    /// visible text rather than drop them silently.
+    func testUnmappedBlockKindsDegradeToVisibleTextRatherThanDrop() {
+        XCTAssertFalse(SyntaxHelpSheet.parseMarkdownBlocks("1. First\n2. Second").isEmpty)
+        XCTAssertFalse(SyntaxHelpSheet.parseMarkdownBlocks("> Quoted line").isEmpty)
+        XCTAssertFalse(SyntaxHelpSheet.parseMarkdownBlocks("---\n\nAfter the break.").count == 0)
+        XCTAssertFalse(SyntaxHelpSheet.parseMarkdownBlocks("![alt](./local.png)").isEmpty)
+    }
 }

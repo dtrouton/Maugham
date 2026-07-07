@@ -106,4 +106,82 @@ final class ResearchNotePreviewParseTests: XCTestCase {
         XCTAssertEqual(blocks.count, 1)
         XCTAssertEqual(plainText(blocks[0]), "only one wrapped line")
     }
+
+    // MARK: - Shared block parser cutover: new block kinds
+
+    private func codeText(_ block: Block) -> String? {
+        guard case .code(let text) = block else { return nil }
+        return text
+    }
+
+    func test_fenceRendersAsMonospaceVerbatim() throws {
+        let project = try makeProject()
+        let text = "```swift\nlet x = 1\n  indented\n```"
+        let blocks = ResearchNotePreviewPane.parse(
+            text: text, notePath: "research/sarah.md", projectURL: project)
+
+        XCTAssertEqual(blocks.count, 1, "got \(blocks)")
+        XCTAssertEqual(codeText(blocks[0]), "let x = 1\n  indented")
+    }
+
+    func test_listRendersBulletAndOrderedItems() throws {
+        let project = try makeProject()
+        let text = "- one\n- two\n\n1. first\n2. second"
+        let blocks = ResearchNotePreviewPane.parse(
+            text: text, notePath: "research/sarah.md", projectURL: project)
+
+        XCTAssertEqual(blocks.count, 4, "got \(blocks)")
+        guard case .listItem(let ordered0, let index0, let text0) = blocks[0] else {
+            return XCTFail("expected listItem, got \(blocks[0])")
+        }
+        XCTAssertFalse(ordered0)
+        XCTAssertNil(index0)
+        XCTAssertEqual(String(text0.characters), "one")
+
+        guard case .listItem(let ordered2, let index2, let text2) = blocks[2] else {
+            return XCTFail("expected listItem, got \(blocks[2])")
+        }
+        XCTAssertTrue(ordered2)
+        XCTAssertEqual(index2, 1)
+        XCTAssertEqual(String(text2.characters), "first")
+    }
+
+    func test_tableRendersHeaderAndRows() throws {
+        let project = try makeProject()
+        let text = "| a | b |\n|---|---|\n| 1 | 2 |"
+        let blocks = ResearchNotePreviewPane.parse(
+            text: text, notePath: "research/sarah.md", projectURL: project)
+
+        XCTAssertEqual(blocks.count, 1, "got \(blocks)")
+        guard case .table(let header, let rows) = blocks[0] else {
+            return XCTFail("expected table, got \(blocks[0])")
+        }
+        XCTAssertEqual(header, ["a", "b"])
+        XCTAssertEqual(rows, [["1", "2"]])
+    }
+
+    func test_blockquoteFlattensToAccentQuote() throws {
+        let project = try makeProject()
+        let text = "> quoted line"
+        let blocks = ResearchNotePreviewPane.parse(
+            text: text, notePath: "research/sarah.md", projectURL: project)
+
+        XCTAssertEqual(blocks.count, 1, "got \(blocks)")
+        guard case .quote(let attr) = blocks[0] else {
+            return XCTFail("expected quote, got \(blocks[0])")
+        }
+        XCTAssertEqual(String(attr.characters), "quoted line")
+    }
+
+    func test_thematicBreakRendersAsDivider() throws {
+        let project = try makeProject()
+        let text = "para one\n\n---\n\npara two"
+        let blocks = ResearchNotePreviewPane.parse(
+            text: text, notePath: "research/sarah.md", projectURL: project)
+
+        XCTAssertEqual(blocks.count, 3, "got \(blocks)")
+        XCTAssertEqual(plainText(blocks[0]), "para one")
+        guard case .divider = blocks[1] else { return XCTFail("expected divider, got \(blocks[1])") }
+        XCTAssertEqual(plainText(blocks[2]), "para two")
+    }
 }

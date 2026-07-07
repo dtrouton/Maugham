@@ -1,14 +1,10 @@
 import SwiftUI
+import MaughamCore
 
-/// Read-only markdown renderer for bundled help topics. Block parser mirrors
-/// `ResearchNotePreviewPane` (headings + inline-markdown paragraphs) plus
-/// bullets, ordered lists, pipe tables, and fenced code; no project-relative
-/// image resolution.
-///
-/// The `orderedItem`/`table` parsing and rendering added here are deliberately
-/// thin patches against the shipped `docs/guide/*.md` corpus (audit A3) — a
-/// future shared block parser may replace this file; keep new parsing logic
-/// testable as pure functions on `Block`.
+/// Read-only markdown renderer for bundled help topics. Block parsing comes
+/// from the shared `MarkdownBlockParser` (MaughamCore); this file only adapts
+/// `MarkdownBlock` into a view-layer `Block` and renders it. No project-
+/// relative image resolution — a solo image degrades to its raw source line.
 struct GuideMarkdownView: View {
     let markdown: String
 
@@ -19,142 +15,77 @@ struct GuideMarkdownView: View {
         case orderedItem(number: String, text: String)
         case table(header: [String], rows: [[String]])
         case code(String)
+        /// Grammar upgrade over the old local parser, which rendered a
+        /// blockquote as unstyled paragraph text (audit section E row 6).
+        /// Matches the phone reader's quote treatment.
+        case quote(String)
+        case divider
     }
 
     static func parse(_ text: String) -> [Block] {
-        var blocks: [Block] = []
-        var inCode = false
-        var codeLines: [String] = []
-        // Consecutive plain lines reflow into one paragraph (Markdown semantics:
-        // a hard-wrapped source paragraph is a single paragraph; line breaks
-        // collapse to spaces). Flushed on a blank line, heading, bullet, code
-        // fence, or end of input — otherwise every wrapped source line would
-        // render as its own line.
-        var para: [String] = []
-        func flushParagraph() {
-            if !para.isEmpty {
-                blocks.append(.paragraph(para.joined(separator: " ")))
-                para.removeAll()
-            }
-        }
+        MarkdownBlockParser.parse(text).flatMap(expand)
+    }
 
-        let lines = text.components(separatedBy: "\n")
-        var i = 0
-        while i < lines.count {
-            let raw = lines[i]
-
-            if raw.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-                if inCode {
-                    blocks.append(.code(codeLines.joined(separator: "\n")))
-                    codeLines = []
-                } else {
-                    flushParagraph()
-                }
-                inCode.toggle()
-                i += 1
-                continue
-            }
-            if inCode { codeLines.append(raw); i += 1; continue }
-
-            var trimmed = raw.trimmingCharacters(in: .whitespaces)
-            if trimmed.isEmpty { flushParagraph(); i += 1; continue }
-
-            // Blockquote: render the quote as ordinary paragraph text (no
-            // dedicated quote styling on this read-only surface).
-            if trimmed.hasPrefix(">") {
-                trimmed = String(trimmed.dropFirst()).trimmingCharacters(in: .whitespaces)
-                if trimmed.isEmpty { i += 1; continue }
-            }
-
-            if trimmed.hasPrefix("#") {
-                flushParagraph()
-                let hashes = trimmed.prefix { $0 == "#" }.count
-                let body = trimmed.drop { $0 == "#" }.trimmingCharacters(in: .whitespaces)
-                blocks.append(.heading(level: min(hashes, 6), text: body))
-            } else if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") {
-                flushParagraph()
-                blocks.append(.bullet(String(trimmed.dropFirst(2))))
-            } else if let item = matchOrderedItem(trimmed) {
-                flushParagraph()
-                blocks.append(.orderedItem(number: item.number, text: item.text))
-            } else if trimmed.contains("|"), i + 1 < lines.count,
-                      isTableDelimiterRow(lines[i + 1]) {
-                flushParagraph()
-                let header = splitTableRow(trimmed)
-                var rows: [[String]] = []
-                i += 2 // header line + delimiter line
-                while i < lines.count {
-                    let rowTrimmed = lines[i].trimmingCharacters(in: .whitespaces)
-                    if rowTrimmed.isEmpty || !rowTrimmed.contains("|") { break }
-                    rows.append(splitTableRow(rowTrimmed))
-                    i += 1
-                }
-                blocks.append(.table(header: header, rows: rows))
-                continue // `i` already advanced past the consumed rows
+    /// Maps one `MarkdownBlock` to zero or more `Block`s. `.list` is the one
+    /// case that expands to N blocks (one per item); every other case maps
+    /// to at most one.
+    private static func expand(_ block: MarkdownBlock) -> [Block] {
+        switch block {
+        case .heading(let level, let text):
+            return [.heading(level: level, text: text)]
+        case .paragraph(let lines):
+            // Reflow: a hard-wrapped source paragraph collapses to one line
+            // (today's rule, unchanged from the pre-shared-parser adapter).
+            let joined = lines.joined(separator: " ").trimmingCharacters(in: .whitespaces)
+            return joined.isEmpty ? [] : [.paragraph(joined)]
+        case .list(let ordered, let items):
+            let texts = items.map(reflowListItem)
+            if ordered {
+                // The shared parser's `.list` doesn't retain source marker
+                // digits, so numbers regenerate sequentially from position
+                // rather than round-tripping the source (e.g. a list resuming
+                // at "10)" renders as "1." — see task-7 report).
+                return texts.enumerated().map { .orderedItem(number: "\($0.offset + 1)", text: $0.element) }
             } else {
-                para.append(trimmed)
+                return texts.map { .bullet($0) }
             }
-            i += 1
-        }
-        if inCode, !codeLines.isEmpty { blocks.append(.code(codeLines.joined(separator: "\n"))) }
-        flushParagraph()
-        return blocks
-    }
-
-    /// Matches a trimmed line starting with `1.` / `1)` (1-9 digits, then `.`
-    /// or `)`, then whitespace), returning the marker digits and remaining text.
-    private static func matchOrderedItem(_ trimmed: String) -> (number: String, text: String)? {
-        guard let match = trimmed.range(of: #"^\d{1,9}[.)]\s+"#, options: .regularExpression) else { return nil }
-        let marker = trimmed[match]
-        let number = String(marker.prefix { $0.isNumber })
-        let text = String(trimmed[match.upperBound...])
-        return (number, text)
-    }
-
-    /// A GFM-style delimiter row: pipe-separated cells each matching `:?-+:?`.
-    private static func isTableDelimiterRow(_ line: String) -> Bool {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        guard trimmed.contains("|") else { return false }
-        let cells = splitTableRow(trimmed)
-        guard !cells.isEmpty else { return false }
-        return cells.allSatisfy { cell in
-            var s = Substring(cell)
-            if s.first == ":" { s.removeFirst() }
-            if s.last == ":" { s.removeLast() }
-            return !s.isEmpty && s.allSatisfy { $0 == "-" }
+        case .fence(let lines, _):
+            return [.code(lines.joined(separator: "\n"))]
+        case .table(let header, let rows, _):
+            return [.table(header: header, rows: rows)]
+        case .thematicBreak:
+            return [.divider]
+        case .soloImage(_, _, let rawLine):
+            return [.paragraph(rawLine)]
+        case .blockquote(let inner):
+            let text = flattenQuote(inner)
+            return text.isEmpty ? [] : [.quote(text)]
         }
     }
 
-    /// Splits a table row on unescaped `|`, trims each cell, and drops a
-    /// leading/trailing empty cell produced by enclosing pipes (`| a | b |`).
-    private static func splitTableRow(_ line: String) -> [String] {
-        var cells: [String] = []
-        var current = ""
-        let chars = Array(line)
-        var idx = 0
-        while idx < chars.count {
-            if chars[idx] == "\\", idx + 1 < chars.count, chars[idx + 1] == "|" {
-                current.append("|")
-                idx += 2
-                continue
+    private static func reflowListItem(_ lines: [String]) -> String {
+        lines.enumerated()
+            .map { index, line in index == 0 ? line : line.trimmingCharacters(in: .whitespaces) }
+            .joined(separator: " ")
+    }
+
+    /// Nested blocks beyond a plain paragraph are flattened to their text and
+    /// space-joined — this is a glance surface (Help window), not a full
+    /// nested-quote renderer (YAGNI).
+    private static func flattenQuote(_ blocks: [MarkdownBlock]) -> String {
+        blocks.flatMap { inner -> [String] in
+            switch inner {
+            case .paragraph(let lines):
+                let joined = lines.joined(separator: " ").trimmingCharacters(in: .whitespaces)
+                return joined.isEmpty ? [] : [joined]
+            case .heading(_, let text): return [text]
+            case .list(_, let items): return items.map(reflowListItem)
+            case .fence(let lines, _): return [lines.joined(separator: " ")]
+            case .blockquote(let nested): return [flattenQuote(nested)]
+            case .table, .thematicBreak: return []
+            case .soloImage(_, _, let rawLine): return [rawLine]
             }
-            if chars[idx] == "|" {
-                cells.append(current)
-                current = ""
-                idx += 1
-                continue
-            }
-            current.append(chars[idx])
-            idx += 1
-        }
-        cells.append(current)
-        if let first = cells.first, first.trimmingCharacters(in: .whitespaces).isEmpty {
-            cells.removeFirst()
-        }
-        if let last = cells.last, last.trimmingCharacters(in: .whitespaces).isEmpty {
-            cells.removeLast()
-        }
-        return cells.map { $0.trimmingCharacters(in: .whitespaces) }
+        }.joined(separator: " ")
     }
 
     var body: some View {
@@ -202,6 +133,17 @@ struct GuideMarkdownView: View {
                 .background(Color(NSColor.windowBackgroundColor))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
                 .textSelection(.enabled)
+        case .quote(let text):
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Rectangle()
+                    .fill(Color.secondary.opacity(0.4))
+                    .frame(width: 3)
+                Text((try? AttributedString(markdown: text)) ?? AttributedString(text))
+                    .foregroundStyle(.secondary)
+            }
+            .textSelection(.enabled)
+        case .divider:
+            Divider()
         }
     }
 

@@ -2,7 +2,7 @@
 
 Maugham's prose mode renders a focused subset of Markdown — the constructs writers actually reach for in fiction, with a few additions (wiki links, task checkboxes) borrowed from notes-app conventions. The renderer keeps the source visible (iA Writer style): syntax markers like `**` stay in the text but render quietly while the surrounding word renders bold, so you can always see exactly what's on disk.
 
-This page documents what Maugham recognizes. The underlying parser is `MarkdownTokenizer.swift` for editor styling; publish (PDF/EPUB) uses the shared `InlineEmphasisScanner` via a thin adapter (`InlineParser.swift`), so editor and published output agree on inline markup.
+This page documents what Maugham recognizes. The underlying parser is `MarkdownTokenizer.swift` for editor styling; inline markup (bold/italic/strikethrough/etc.) is shared via `InlineEmphasisScanner`, consumed directly by the editor and through a thin adapter (`InlineParser.swift`) by publish, so editor and published output agree there. Block-level segmentation — where a list, fence, table, blockquote, or divider starts and ends — is shared too, via `MarkdownBlockParser` (MaughamCore): the phone Read tab, the in-app Guide (⌘?), research note previews, this syntax-help sheet, and publish all parse blocks through it, so those surfaces agree with each other on block boundaries even though the editor's live-typing styling pass and each surface's renderer remain separate.
 
 ## Block elements
 
@@ -29,7 +29,7 @@ One to six leading `#` characters followed by a space and the heading text. Six 
 2. The next one
 ```
 
-Recognized markers: `-`, `*`, `+`, or `<digits>.` followed by a space. The marker renders in the syntax-punctuation color; the item text renders normally. Indented (nested) lists are not styled differently — they render with their leading whitespace preserved. `1)`-style ordered markers are **not** styled in the editor (see the omission list) — an asymmetry worth knowing: publish's list support (below) does accept the `)` delimiter.
+Recognized markers: `-`, `*`, `+`, or `<digits>.` followed by a space. The marker renders in the syntax-punctuation color; the item text renders normally. Indented (nested) lists are not styled differently — they render with their leading whitespace preserved. `1)`-style ordered markers are **not** styled in the editor (see the omission list) — an asymmetry worth knowing: every read surface (phone Read tab, research preview, Guide, this syntax-help sheet, and publish — see "Read surfaces" below) accepts both the `.` and `)` delimiters.
 
 ### Task checkboxes
 
@@ -132,31 +132,34 @@ When typed in prose mode, certain ASCII sequences auto-transform as you type —
 
 These transforms are configurable per-project under **Project Settings → Typography**. They're enabled by default for prose; disabled by default for screenplay (Fountain stays ASCII).
 
-## Publish-only: lists and fenced code
+## Read surfaces: lists, fenced code, tables, and quotes
 
-Manuscript editing doesn't style lists or fences beyond the marker coloring above, but **published PDF/EPUB** does more:
+Manuscript *editing* doesn't style lists, fences, tables, or blockquotes beyond the marker coloring above — the editor is a live-typing surface, not a renderer. But everywhere Maugham *displays* rendered content instead of raw source — the phone Read tab, research note previews, the in-app Guide (⌘?), this syntax-help sheet, and published PDF/EPUB — renders more, sharing one block-level grammar (`MarkdownBlockParser`, MaughamCore):
 
-- **Ordered and unordered lists** render as real lists (flat, tight — no nested-list layout). Both `.`- and `)`-delimited ordered markers are accepted in publish, even though the editor only styles the `.` form — a deliberate asymmetry (the editor is a styling surface for the source you typed; publish renders the intended structure).
-- **Fenced code** (` ``` `) becomes a verbatim block in published output — no inline markup parsing inside it, no monospace styling pretension. This guards against a fence's contents being mangled by the inline-emphasis pass; it is not full syntax-highlighted code-block support.
+- **Ordered and unordered lists** render as real lists (flat, tight — no nested-list layout). Both `.`- and `)`-delimited ordered markers are accepted, even though the editor only styles the `.` form. **List numbers are always sequential from position, never the digits you typed**: none of these surfaces retain the source's written ordinal, so a list that resumes at `10.` after an interruption renders as `1.` on every read surface and in publish.
+- **Fenced code** (` ``` `) renders as a monospaced block on the phone Read tab, research preview, Guide, and this sheet, and becomes a verbatim block in published output — no inline markup parsing inside it, no syntax highlighting. This guards against a fence's contents being mangled by the inline-emphasis pass; it is not full syntax-highlighted code-block support.
+- **Tables** (GFM pipe syntax — a header row, a `---`/`:--`/`--:` delimiter row, then data rows) render as a real grid on the phone Read tab, research preview, Guide, and this sheet. **Publish is the exception**: a table degrades to literal pipe-and-dash text in PDF/EPUB output — table rendering wasn't extended to the publish path, and this is an intentional, pinned behavior, not a gap to fix.
+- **Blockquotes** (`>`) render as a styled quote (indent + rule) everywhere. Nesting a blockquote inside another blockquote is handled differently by surface: the **phone Read tab** and **publish** (LaTeX/XHTML quote environment) recurse, so nested quotes render as nested quotes; **research preview, Guide, and this syntax-help sheet flatten** a nested blockquote to one level of plain quoted text rather than rendering it nested.
 - A hard line break can be written as two trailing spaces (works everywhere) or a trailing backslash (publish only).
 
 ## Not supported (deliberately)
 
 The following CommonMark constructs render as plain text, or are not recognized as their CommonMark meaning, in Maugham:
 
-- Tables
+- Tables get no editor styling — pipe syntax renders as plain text while typing (every read surface parses and grids them — see above — except publish, which prints tables as literal text)
 - Setext headings (`Title\n=====` / `Title\n-----`) — `---` is claimed by the scene-break/horizontal-rule idiom instead; the precedence conflict is permanent.
 - Indented (4-space) code blocks — a footgun for writers who indent for other reasons.
-- Fenced code blocks get no editor syntax highlighting (inline backticks work; publish gets the verbatim-guard above, not highlighting)
+- Fenced code blocks get no editor syntax highlighting (inline backticks work; every read surface gets the monospace/verbatim treatment above, not syntax highlighting)
 - Reference-style links (`[text][id]` with `[id]: url` definitions elsewhere), autolinks (`<url>`), and link titles
 - HTML pass-through
 - Entities (`&amp;` etc.) — never decoded
 - Footnotes
 - Strikethrough is prose-only, not implemented for Fountain (see above)
-- Image embeds (`![alt](url)`) — these render as plain text; images live in the Research browser, not inline
-- `1)`-style ordered-list markers in the editor's styling (publish accepts them — see above)
+- Image embeds (`![alt](url)`) in the manuscript editor and in publish — these render as plain text; research note previews are the one surface that renders a note's own `./`-relative solo-image line as an actual image (the phone Read tab recognizes the same line but renders nothing for it — no image support there)
+- `1)`-style ordered-list markers in the editor's styling (every read surface accepts them — see above)
 - `>` blockquotes without a following space
 - Multi-backtick code spans (`` ``code with a ` backtick`` ``)
+- List numbers don't round-trip anywhere: every read surface and publish renumber sequentially from position, discarding the digits you actually typed (see "Read surfaces" above)
 - CommonMark's punctuation-class emphasis flanking and "rule of 3" — Maugham's scanner uses whitespace-only flanking; an unbalanced or ambiguous run degrades to literal text rather than guessing
 - Emphasis spanning a blank line — paragraph-scoped emphasis (above) still stops at the first blank line
 
