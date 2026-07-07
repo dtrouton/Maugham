@@ -103,7 +103,7 @@ struct DetailPaneToggle<Inspector: View>: View {
                 .help("Annotations — review Claude's comments and suggested edits (⌘⌥A)")
             Image(systemName: "doc.text.magnifyingglass")
                 .tag(DetailSegment.research)
-                .help("Linked Research — research notes attached to this document (⌘⌥2)")
+                .help("Research — this document's own and linked research (⌘⌥2)")
             if !hideOutline {
                 Image(systemName: "list.bullet.indent")
                     .tag(DetailSegment.outline)
@@ -180,6 +180,7 @@ struct DetailPaneToggle<Inspector: View>: View {
     private var inboxPane: some View {
         if let ds = documentStore {
             InboxPane(store: ds.inboxStore, projectStore: store,
+                      activeDocumentId: activeManuscriptItemId,
                       canTranscribe: Self.localTranscriptionAvailable,
                       retranscribe: { entry in Task { await ds.retranscribe(entry) } })
         } else {

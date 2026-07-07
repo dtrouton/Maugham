@@ -475,4 +475,28 @@ extension ReferenceToolsTests {
         XCTAssertFalse(scenes[0].id.hasPrefix("scene-scene-"),
             "composite id must not double-prefix; got: \(scenes[0].id)")
     }
+
+    func test_findReferences_pieceOwnedResearch_returnsOwningPiece() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FR-PR-\(UUID())")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        let url = try await ProjectFactory.createCollectionProject(named: "C", in: tmp)
+        let store = try await ProjectStore.load(from: url)
+        let piece = try await store.addLoosePiece(title: "Story A", mode: .prose)
+        let owned = try await store.addPieceResearchNote(
+            pieceId: piece.id, title: "Owned Note")
+        let reg = ProjectRegistry()
+        reg.register(url: url, store: store)
+        let projectId = ProjectIdentifier.id(for: url)
+
+        let params = #"{"project_id":"\#(projectId)","target":"\#(owned.id)"}"#
+        let json = try await FindReferencesTool.handle(
+            paramsJSON: Data(params.utf8), registry: reg)
+        let refs = try JSONDecoder().decode(
+            [FindReferencesTool.Reference].self, from: json)
+
+        XCTAssertTrue(refs.contains {
+            $0.kind == "piece_research" && $0.from_id == piece.id
+        }, "owning piece must back-reference its research; refs: \(refs)")
+    }
 }

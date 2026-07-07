@@ -119,14 +119,17 @@ public enum FindReferencesTool: MCPTool {
     public struct Reference: Codable, Equatable {
         public let from_id: String
         public let from_title: String
-        public let kind: String   // "wiki" or "linked_research"
+        public let kind: String   // "wiki", "linked_research", or "piece_research"
     }
     public static let method = "find_references"
     public static let description =
         "Find back-references to a document or research item. The `target` " +
         "can be an id (returned by get_outline / list_research) or a title " +
         "(case-insensitive match). Returns [[wiki link]] matches in manuscript " +
-        "text + research-link backrefs."
+        "text + research-link backrefs. Piece-owned research returns its " +
+        "owning piece as a piece_research backref. When a piece both links " +
+        "to and owns the same research item, the explicit link masks the " +
+        "containment backref (deduplicated by from_id)."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"},"target":{"type":"string"}},"required":["project_id","target"]}"#
 
@@ -153,6 +156,21 @@ public enum FindReferencesTool: MCPTool {
                             from_title: chapter.title,
                             kind: "linked_research"))
                     }
+                }
+            }
+        }
+
+        // Containment backref — a collection loose piece owning the target
+        // research item by path prefix is a reference too (spec 2026-07-07).
+        if let rid = resolvedId {
+            for piece in store.manifest.structure where piece.pieceKind == .loose {
+                if store.derivedResearchItems(forDocumentId: piece.id)
+                    .contains(where: { $0.id == rid }),
+                   seenFromIds.insert(piece.id).inserted {
+                    refs.append(Reference(
+                        from_id: piece.id,
+                        from_title: piece.title,
+                        kind: "piece_research"))
                 }
             }
         }

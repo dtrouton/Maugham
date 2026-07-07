@@ -72,7 +72,7 @@ struct ResearchLinkPickerSheet: View {
     }
 
     private func filteredItems() -> [ResearchItem] {
-        let all = TreeWalk.collect(in: store.manifest.research, where: { _ in true })
+        let all = store.linkableResearchItems(forDocumentId: documentId)
         if query.isEmpty { return all }
         let lower = query.lowercased()
         return all.filter { $0.title.lowercased().contains(lower) }

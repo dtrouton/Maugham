@@ -192,13 +192,18 @@ final class InboxStore {
     /// `addResearchAsset` flow) and the inbox original is removed to complete
     /// the move. Non-destructive in the failure sense: if the original removal
     /// fails, a duplicate asset is left (harmless) rather than data lost.
+    /// A `scope` routes the created item — shared research, a collection
+    /// piece's folder, or a chapter link (spec 2026-07-07).
     @discardableResult
-    func promoteToResearch(_ entry: InboxEntry, projectStore: ProjectStore) async throws -> ResearchItem {
+    func promoteToResearch(
+        _ entry: InboxEntry, projectStore: ProjectStore,
+        scope: ResearchScope = .shared
+    ) async throws -> ResearchItem {
         let created: ResearchItem
         switch entry.kind {
         case .text:
-            created = try await projectStore.addResearchTextNote(
-                parentId: nil, title: promotionTitle(for: entry))
+            created = try await projectStore.createResearchNote(
+                scope: scope, title: promotionTitle(for: entry))
             if let path = created.path {
                 let dest = projectStore.url.appendingPathComponent(path)
                 try? (entry.inlineText ?? "").write(
@@ -209,10 +214,11 @@ final class InboxStore {
                   FileManager.default.fileExists(atPath: asset.path) else {
                 throw InboxError.assetMissing(entry.sourceFilename ?? entry.id)
             }
-            // addResearchAsset copies; remove the inbox original to finish the
-            // move. The asset lives under .maugham/inbox/ and is never an open
-            // Document, so no close-before-FS guard (tripwire 14) is needed.
-            created = try await projectStore.addResearchAsset(parentId: nil, fromURL: asset)
+            // createResearchAsset copies; remove the inbox original to finish
+            // the move. The asset lives under .maugham/inbox/ and is never an
+            // open Document, so no close-before-FS guard (tripwire 14) needed.
+            created = try await projectStore.createResearchAsset(
+                scope: scope, fromURL: asset)
             try? FileManager.default.removeItem(at: asset)
         }
         await updateStatus(id: entry.id, to: .promoted)

@@ -20,7 +20,7 @@ The ones you'll use most:
 | `⌘\\` | Toggle focus mode |
 | `⌘⇧F` | Toggle full-screen focus |
 | `⌘⌥I` | Toggle Inspector pane |
-| `⌘⌥1` / `⌘⌥2` / `⌘⌥3` | Right pane: Inspector / Linked Research / Outline |
+| `⌘⌥1` / `⌘⌥2` / `⌘⌥3` | Right pane: Inspector / Research / Outline |
 | `⌘⇧P` | Toggle Research preview |
 | `⌘/` | Syntax + keyboard reference |
 

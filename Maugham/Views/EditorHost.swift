@@ -60,8 +60,15 @@ struct EditorHost: View {
 
     var body: some View {
         Group {
+            // `priorLoadedPath == path` gates out the husk window: a rename of
+            // the OPEN document keeps its item id but moves its file, and the
+            // typed mover (DocumentStore.relocate/relocateUserContent) closes
+            // the open Document before the move (tripwire 14). Until
+            // loadDocumentIfNeeded re-loads from the new path, `document` is a
+            // closed husk whose setFullText rejects mutations — binding it
+            // would silently eat keystrokes. Show "Loading…" instead.
             if let item = currentItem, item.type == .document, let path = item.path,
-               let doc = document, loadedItemId == item.id {
+               let doc = document, loadedItemId == item.id, priorLoadedPath == path {
                 EditorSurface(
                     // The setter writes via Document.setFullText, then routes the
                     // project-level side-effects through DocumentStore. See
@@ -245,6 +252,17 @@ struct EditorHost: View {
         .onChange(of: selectedItemId) { _, _ in
             Task { await loadDocumentIfNeeded() }
         }
+        // Re-load when the SELECTED item's file moves under us (rename of the
+        // open doc — near-inevitable for a brand-new chapter, whose creation
+        // drops the binder row straight into rename mode — or a sibling
+        // reorder renumbering paths). The typed mover closed the open
+        // Document at the old path; without this trigger the editor stayed
+        // bound to that closed husk and every keystroke was silently dropped
+        // ("can't type until I switch away and back"). Reads only manifest
+        // state — no editor observable state (tripwire 6 stays closed).
+        .onChange(of: currentItem?.path) { _, _ in
+            Task { await loadDocumentIfNeeded() }
+        }
         .onDisappear {
             // EditorHost's `.onDisappear` fires only on document-abandonment
             // paths: leaving the manuscript/scenes/find segment (a fresh
@@ -290,11 +308,29 @@ struct EditorHost: View {
         return TreeWalk.find(id: id, in: store.manifest.structure)
     }
 
+    /// Whether the bound document must be (re)loaded for the given item.
+    /// True when nothing (or a different item) is loaded — the original
+    /// selection-change case — AND when the SAME item's on-disk path changed
+    /// (rename/tidy moved the file; the typed mover closed the open Document,
+    /// so the husk must be replaced by a fresh load from the new path). Also
+    /// true when a prior load failed (`loadedPath` nil), so the next trigger
+    /// retries instead of sticking on "Loading…". Static + pure for
+    /// `EditorHostReloadPredicateTests`.
+    static func needsReload(
+        itemId: String, path: String,
+        loadedItemId: String?, loadedPath: String?
+    ) -> Bool {
+        loadedItemId != itemId || loadedPath != path
+    }
+
     private func loadDocumentIfNeeded() async {
         guard let item = currentItem,
               item.type == .document,
               let path = item.path,
-              loadedItemId != item.id else { return }
+              Self.needsReload(
+                  itemId: item.id, path: path,
+                  loadedItemId: loadedItemId, loadedPath: priorLoadedPath)
+        else { return }
         // The outgoing doc's pending metrics mirror is cancelled inside the
         // coordinator's own teardown/attach now (a doc switch makes a fresh
         // EditorSurface via `.id(path)`, whose coordinator's `attach` cancels

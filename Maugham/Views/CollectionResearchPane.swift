@@ -186,12 +186,7 @@ struct CollectionResearchPane: View {
     }
 
     private func pieceItems(piece: StructureItem) -> [ResearchItem] {
-        guard let piecePath = piece.path else { return [] }
-        let pieceFolder = (piecePath as NSString).deletingLastPathComponent
-        let prefix = "\(pieceFolder)/research/"
-        return store.manifest.research.filter { item in
-            item.path?.hasPrefix(prefix) == true
-        }
+        store.derivedResearchItems(forDocumentId: piece.id)
     }
 
     // MARK: - Actions
@@ -208,10 +203,9 @@ struct CollectionResearchPane: View {
             let item: ResearchItem
             switch scope {
             case .shared:
-                item = try await store.addResearchTextNote(parentId: nil)
+                item = try await store.createResearchNote(scope: .shared)
             case .piece(let pieceId):
-                item = try await store.addPieceResearchNote(
-                    pieceId: pieceId, title: "Untitled Note")
+                item = try await store.createResearchNote(scope: .document(pieceId))
             }
             selectedResearchId = item.id
             pendingRenameId = item.id
@@ -236,11 +230,11 @@ struct CollectionResearchPane: View {
             let link: ResearchItem
             switch addLinkScope {
             case .shared:
-                link = try await store.addResearchLink(
-                    parentId: nil, title: title, url: url)
+                link = try await store.createResearchLink(
+                    scope: .shared, title: title, url: url)
             case .piece(let pieceId):
-                link = try await store.addPieceResearchLink(
-                    pieceId: pieceId, title: title, url: url)
+                link = try await store.createResearchLink(
+                    scope: .document(pieceId), title: title, url: url)
             }
             selectedResearchId = link.id
         } catch {
@@ -337,9 +331,8 @@ struct CollectionResearchPane: View {
             return .shared
         }
         for piece in store.manifest.structure where piece.pieceKind == .loose {
-            guard let piecePath = piece.path else { continue }
-            let pieceFolder = (piecePath as NSString).deletingLastPathComponent
-            if path.hasPrefix("\(pieceFolder)/research/") {
+            if let prefix = ProjectStore.pieceResearchPrefix(for: piece),
+               path.hasPrefix(prefix) {
                 return .piece(piece.id)
             }
         }

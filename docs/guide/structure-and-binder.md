@@ -23,8 +23,10 @@ Click an item to see its metadata:
 - **Status** — Draft / Revising / Final, surfaced as a colored dot in the binder.
 - **Tags** — comma-separated. Search by tag via Claude Desktop's `list_documents_by_tag` tool.
 - **Word target** — per-document goal. Drives the bottom-right goal capsule.
-- **Linked research** — research items linked to this document (see Research below).
+- **Links** — other documents you've explicitly linked to this one; add or remove from the **+** button.
 - **Linked from** — backlinks: documents that wiki-link to this one.
+
+Research association isn't shown here — see the Research mode (⌘⌥2) in [Inspector, Research & Outline](right-pane.md) for the research linked to (or automatically owned by) this document.
 
 ### Wiki links
 

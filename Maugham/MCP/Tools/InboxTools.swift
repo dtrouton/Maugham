@@ -84,13 +84,16 @@ public enum ReadInboxEntryTool: MCPTool {
     }
 }
 
-/// `promote_inbox_entry(project_id, entry_id, title?)` — move a capture into
-/// research/ and mark it promoted. Non-destructive; mirrors the InboxPane action.
+/// `promote_inbox_entry(project_id, entry_id, title?, target_document_id?)` —
+/// move a capture into research and mark it promoted. Non-destructive; mirrors
+/// the InboxPane action. `target_document_id` scopes the created item to a
+/// chapter or collection piece (spec 2026-07-07); omitted → shared research.
 public enum PromoteInboxEntryTool: MCPTool {
     public struct Params: Codable {
         public let project_id: String
         public let entry_id: String
         public let title: String?
+        public let target_document_id: String?
     }
     public struct Result: Codable, Equatable {
         public let research_id: String
@@ -100,10 +103,13 @@ public enum PromoteInboxEntryTool: MCPTool {
 
     public static let method = "promote_inbox_entry"
     public static let description =
-        "Move an inbox capture into the project's research folder and mark it " +
-        "promoted. Non-destructive (the capture becomes a research item)."
+        "Move an inbox capture into the project's research and mark it " +
+        "promoted. Non-destructive (the capture becomes a research item). " +
+        "Optional target_document_id scopes it to a chapter or collection " +
+        "piece: piece → its research folder; novel chapter → shared research " +
+        "plus a research link. Unknown ids fail."
     public static let inputSchemaJSON =
-        #"{"type":"object","properties":{"project_id":{"type":"string"},"entry_id":{"type":"string"},"title":{"type":"string"}},"required":["project_id","entry_id"]}"#
+        #"{"type":"object","properties":{"project_id":{"type":"string"},"entry_id":{"type":"string"},"title":{"type":"string"},"target_document_id":{"type":"string"}},"required":["project_id","entry_id"]}"#
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
@@ -115,7 +121,10 @@ public enum PromoteInboxEntryTool: MCPTool {
                 "inbox entry not found or already resolved: \(params.entry_id)")
         }
         if let title = params.title, !title.isEmpty { entry.title = title }
-        let created = try await inbox.promoteToResearch(entry, projectStore: store)
+        let scope: ResearchScope =
+            params.target_document_id.map { .document($0) } ?? .shared
+        let created = try await inbox.promoteToResearch(
+            entry, projectStore: store, scope: scope)
         return try JSONEncoder().encode(Result(
             research_id: created.id, title: created.title, path: created.path ?? ""))
     }

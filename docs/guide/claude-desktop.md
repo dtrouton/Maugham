@@ -19,7 +19,7 @@ Read:
 - Read documents (live in-memory — Claude sees text you haven't saved yet)
 - Search across manuscript
 - Discover research items by enumeration or title
-- List the reference graph (wiki links + linked research backrefs)
+- List the reference graph (wiki links + linked research backrefs, including a collection piece's own research)
 - Read your session stats ("how much have I written this week?")
 - Filter chapters by tag
 
@@ -28,6 +28,7 @@ Write:
 - Create research notes ("Claude, write me a character sheet for Sarah based on what you see in Chapter 1")
 - Link research notes to chapters
 - Unlink as needed
+- Promote a capture-inbox entry into research — unscoped, or scoped to a chapter/piece
 
 Claude can't write to your manuscript directly. That's intentional — the manuscript surface stays uncontested. A future milestone will design the manuscript-edit proposal flow ("Claude, draft a fix for this scene" → a non-destructive proposal you review).
 

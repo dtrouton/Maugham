@@ -3,7 +3,7 @@ import MaughamCore
 
 struct LinkedResearchRow: View {
     let item: ResearchItem
-    let onUnlink: () -> Void
+    let onUnlink: (() -> Void)?
 
     var body: some View {
         HStack {
@@ -14,12 +14,14 @@ struct LinkedResearchRow: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer()
-            Button(action: onUnlink) {
-                Image(systemName: "xmark.circle")
-                    .foregroundStyle(.secondary)
+            if let onUnlink {
+                Button(action: onUnlink) {
+                    Image(systemName: "xmark.circle")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Unlink")
             }
-            .buttonStyle(.plain)
-            .help("Unlink")
         }
         .contentShape(Rectangle())
     }
