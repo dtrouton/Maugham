@@ -279,10 +279,17 @@ struct EditorSurface: NSViewRepresentable {
         if targetWidth > 0, abs(textView.frame.width - targetWidth) > 0.5 {
             textView.frame.size.width = targetWidth
         }
+        // Consume the Document's one-shot undo-coherent flag on EVERY pass, not
+        // only when a replace occurs: the setter (accept/revert) changes
+        // displayText in the same MainActor turn, so the consuming pass IS the
+        // replacing pass in the legitimate flow — but a mutation that happens to
+        // leave displayText byte-identical (no-op accept) must still discharge
+        // the flag, or it would wrongly mark the NEXT unrelated replace as
+        // undo-coherent and skip the stale-undo-stack clear (the ⌘Z crash class).
+        let undoCoherentApply = consumeUndoCoherentApplyFlag?() ?? false
         if textView.string != text {
             context.coordinator.applyExternalText(
-                text,
-                preserveUndoStack: consumeUndoCoherentApplyFlag?() ?? false)
+                text, preserveUndoStack: undoCoherentApply)
         }
         // Appearance itself flows via EditorControl (ADR 0017); only the
         // text-container width remains a layout concern handled here.

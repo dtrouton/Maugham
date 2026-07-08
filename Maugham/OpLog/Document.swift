@@ -167,6 +167,10 @@ public final class Document {
     /// NOT clear the undo stack for that one apply or it wipes the fresh
     /// registration. NOT observable (tripwire 6): consumed via
     /// `consumeUndoCoherentApplyFlag()` from EditorSurface.updateNSView.
+    /// Discharged by the bound editor's next update pass whether or not a
+    /// replace occurs; a Document with no attached editor keeps it armed only
+    /// until first load (makeNSView seeds the buffer, so the first update
+    /// pass discharges it without preserving).
     internal var _undoCoherentApplyPending = false
 
     /// One-shot read+clear. See `_undoCoherentApplyPending`.
