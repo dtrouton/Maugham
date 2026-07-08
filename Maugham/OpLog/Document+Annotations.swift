@@ -330,9 +330,15 @@ extension Document {
                         // `[weak d2]`: the async hop must not keep a closed
                         // document alive past its window. `d2` is the live target;
                         // the handle lets tests await the re-accept's completion.
+                        // Forward the ORIGINAL accept's userResponse: the redo
+                        // re-accept appends a fresh claudeAccept op, and the
+                        // deriver reads userResponse off the latest lifecycle op
+                        // — dropping it here would erase the writer's recorded
+                        // reply after ⌘Z + ⇧⌘Z.
                         d2._lastUndoWorkTask = Task.detached { [weak d2] in
                             guard let d2 else { return }
-                            try? await d2.acceptAnnotation(id: id, undoManager: um)
+                            try? await d2.acceptAnnotation(
+                                id: id, userResponse: userResponse, undoManager: um)
                         }
                     }
                     doc._lastUndoWorkTask = Task.detached { [weak doc] in

@@ -158,7 +158,7 @@ final class AnnotationAcceptUndoTests: XCTestCase {
                 span: SpanAnchor(quote: "very dark", prefix: "was ", suffix: " and", posHint: 14))
         }
         let um = UndoManager()
-        try bridge { try await doc.acceptAnnotation(id: annId, undoManager: um) }
+        try bridge { try await doc.acceptAnnotation(id: annId, userResponse: "looks right", undoManager: um) }
         pump(0.25)
 
         um.undo()
@@ -170,6 +170,9 @@ final class AnnotationAcceptUndoTests: XCTestCase {
         waitUntil { doc.paragraph(id: pid) == "The night was pitch-black and stormy." }
         XCTAssertEqual(doc.paragraph(id: pid), "The night was pitch-black and stormy.")
         XCTAssertEqual(annotation(doc, annId)?.status, .accepted)
+        XCTAssertEqual(annotation(doc, annId)?.userResponse, "looks right",
+            "redo's re-accept must forward the original accept's userResponse — "
+            + "dropping it loses the writer's reply after ⌘Z + ⇧⌘Z")
 
         um.removeAllActions()
         try bridge { await h.documentStore.close() }
