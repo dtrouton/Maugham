@@ -72,15 +72,24 @@ final class AcceptRevertOpTests: XCTestCase {
 
     func test_acceptThenRevert_derivesOpen() {
         var ops = annotationOps()
-        ops.append(op("01C", kind: .claudeAccept,
+        // The accept carries a userResponse so the revert's fall-back to the
+        // creation-side value (nil here) is observable below.
+        ops.append(Op(opId: "01C", docId: "doc-1", at: Date(timeIntervalSince1970: 1_002),
+                      device: "test", session: "s1", kind: .claudeAccept,
                       changes: [.init(paragraphId: "abcd", prior: "original", next: "better")],
-                      sourceAnnotationId: "01B"))
+                      sequence: nil,
+                      provenance: Op.Provenance(sourceAnnotationId: "01B",
+                                                userResponse: "looks good")))
         ops.append(op("01D", kind: .claudeAcceptRevert,
                       changes: [.init(paragraphId: "abcd", prior: "better", next: "original")],
                       sourceAnnotationId: "01B"))
         let anns = AnnotationDeriver.derive(ops: ops, paragraphs: ["abcd": "original"])
         XCTAssertEqual(anns.count, 1)
         XCTAssertEqual(anns[0].status, .open)
+        // A reopened annotation is not "resolved": no resolution timestamp,
+        // and the accept's userResponse must not survive the revert.
+        XCTAssertNil(anns[0].resolvedAt)
+        XCTAssertNil(anns[0].userResponse)
     }
 
     func test_revertThenReAccept_derivesAccepted() {
@@ -96,5 +105,7 @@ final class AcceptRevertOpTests: XCTestCase {
                       sourceAnnotationId: "01B"))
         let anns = AnnotationDeriver.derive(ops: ops, paragraphs: ["abcd": "better"])
         XCTAssertEqual(anns[0].status, .accepted)
+        // Re-accepting after a revert resolves the annotation again.
+        XCTAssertNotNil(anns[0].resolvedAt)
     }
 }
