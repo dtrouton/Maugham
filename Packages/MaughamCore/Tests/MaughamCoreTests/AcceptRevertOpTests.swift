@@ -56,4 +56,45 @@ final class AcceptRevertOpTests: XCTestCase {
         // (OpKind.swift ADR 0015 comment). claudeAcceptRevert is new in v2.
         XCTAssertGreaterThanOrEqual(ProjectManifest.currentSchemaVersion, 2)
     }
+
+    private func annotationOps() -> [Op] {
+        [
+            op("01A", kind: .bootstrap,
+               changes: [.init(paragraphId: "abcd", prior: nil, next: "original")],
+               sequence: ["abcd"]),
+            Op(opId: "01B", docId: "doc-1", at: Date(timeIntervalSince1970: 1_001),
+               device: "test", session: "s1", kind: .claudeSuggestion,
+               changes: [.init(paragraphId: "abcd", prior: "original", next: "better")],
+               sequence: nil,
+               provenance: Op.Provenance(annotationBody: "tighten this")),
+        ]
+    }
+
+    func test_acceptThenRevert_derivesOpen() {
+        var ops = annotationOps()
+        ops.append(op("01C", kind: .claudeAccept,
+                      changes: [.init(paragraphId: "abcd", prior: "original", next: "better")],
+                      sourceAnnotationId: "01B"))
+        ops.append(op("01D", kind: .claudeAcceptRevert,
+                      changes: [.init(paragraphId: "abcd", prior: "better", next: "original")],
+                      sourceAnnotationId: "01B"))
+        let anns = AnnotationDeriver.derive(ops: ops, paragraphs: ["abcd": "original"])
+        XCTAssertEqual(anns.count, 1)
+        XCTAssertEqual(anns[0].status, .open)
+    }
+
+    func test_revertThenReAccept_derivesAccepted() {
+        var ops = annotationOps()
+        ops.append(op("01C", kind: .claudeAccept,
+                      changes: [.init(paragraphId: "abcd", prior: "original", next: "better")],
+                      sourceAnnotationId: "01B"))
+        ops.append(op("01D", kind: .claudeAcceptRevert,
+                      changes: [.init(paragraphId: "abcd", prior: "better", next: "original")],
+                      sourceAnnotationId: "01B"))
+        ops.append(op("01E", kind: .claudeAccept,
+                      changes: [.init(paragraphId: "abcd", prior: "original", next: "better")],
+                      sourceAnnotationId: "01B"))
+        let anns = AnnotationDeriver.derive(ops: ops, paragraphs: ["abcd": "better"])
+        XCTAssertEqual(anns[0].status, .accepted)
+    }
 }
