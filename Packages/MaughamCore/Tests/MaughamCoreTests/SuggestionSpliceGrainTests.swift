@@ -45,6 +45,31 @@ final class SuggestionSpliceGrainTests: XCTestCase {
         XCTAssertEqual(out, "Hello world. Farewell..")
     }
 
+    func test_shortBothSidesCoincidence_doesNotTriggerSalvage() {
+        // BOTH sides match but the combined trimmed context is tiny: a
+        // span-grain replacement that coincidentally starts with "She" and
+        // ends with "." must NOT be misread as whole-paragraph grain (that
+        // would silently DELETE the paragraph's surrounding text).
+        let p = "She said hello to the stranger."
+        let s = SpanAnchor(quote: "said hello to the stranger",
+                           prefix: "She ", suffix: ".", posHint: 4)
+        let out = SuggestionSplice.apply(suggestion: "She waved.", span: s, to: p)
+        XCTAssertEqual(out, "She She waved..")
+    }
+
+    func test_wholeGrain_longCombinedContext_bothShortSides() {
+        // Each side individually under the 12-char one-sided floor (trimmed
+        // prefix "Meanwhile," = 10, trimmed suffix "tonight." = 8) but the
+        // combined length is >= 12: a genuinely whole-grain bare embedding
+        // both contexts must still be salvaged.
+        let p = "Meanwhile, the dogs barked at shadows tonight."
+        let s = SpanAnchor(quote: "the dogs barked at shadows",
+                           prefix: "Meanwhile, ", suffix: " tonight.", posHint: 11)
+        let bare = "Meanwhile, the cats hissed at nothing tonight."
+        let out = SuggestionSplice.apply(suggestion: bare, span: s, to: p)
+        XCTAssertEqual(out, bare)
+    }
+
     func test_noSpan_bareIsWholeParagraph_unchangedBehavior() {
         XCTAssertEqual(SuggestionSplice.apply(suggestion: "New.", span: nil, to: paragraph), "New.")
     }

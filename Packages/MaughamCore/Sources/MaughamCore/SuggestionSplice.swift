@@ -21,6 +21,9 @@ public enum SuggestionSplice {
     /// - No span / empty quote / span no longer resolvable: the bare text IS the
     ///   whole paragraph (the Claude/MCP `add_suggested_change` contract, and the
     ///   safe fallback for a lost anchor).
+    /// - Span resolvable but `bare` detected as whole-paragraph grain (it embeds
+    ///   the span's surrounding context): `bare` is used verbatim instead of
+    ///   spliced — see `isWholeParagraphGrain`.
     public static func apply(
         suggestion bare: String, span: SpanAnchor?, to paragraph: String
     ) -> String {
@@ -40,16 +43,25 @@ public enum SuggestionSplice {
         return prefix + bare + suffix
     }
 
-    /// Minimum context length (in characters, whitespace-trimmed) for a
-    /// ONE-SIDED match to count as whole-paragraph evidence. Guards against
-    /// coincidences like a suffix of "." matching a replacement that ends in
-    /// a period — which would silently delete the rest of the paragraph.
-    /// A match on BOTH sides is strong evidence at any length.
+    /// Minimum context length (in characters, whitespace-trimmed) for a match
+    /// to count as whole-paragraph evidence: required of the single side of a
+    /// ONE-SIDED match, and of the COMBINED length of a BOTH-SIDES match.
+    /// Guards against coincidences like a suffix of "." matching a
+    /// replacement that ends in a period — which would silently delete the
+    /// rest of the paragraph.
     static let grainContextMinLength = 12
 
     /// True when `bare` was authored at whole-paragraph grain: it embeds the
     /// text surrounding the span. Trimmed comparison so a trailing newline or
     /// space difference doesn't defeat detection.
+    ///
+    /// The both-sides branch ALSO requires the combined trimmed context to
+    /// reach `grainContextMinLength`: a false positive deletes the
+    /// paragraph's surrounding text (worse than the duplication bug this
+    /// salvage fixes), and short both-sides coincidences — prefix "She",
+    /// suffix "." on a sentence-shaped span replacement — are common in real
+    /// prose. When the floor blocks salvage on a genuinely whole-grain short
+    /// paragraph, the damage is bounded small duplication — the safer failure.
     static func isWholeParagraphGrain(
         bare: String, prefix: String, suffix: String
     ) -> Bool {
@@ -58,7 +70,8 @@ public enum SuggestionSplice {
         let s = suffix.trimmingCharacters(in: .whitespacesAndNewlines)
         let prefixMatches = !p.isEmpty && b.hasPrefix(p)
         let suffixMatches = !s.isEmpty && b.hasSuffix(s)
-        if prefixMatches && suffixMatches { return true }
+        if prefixMatches && suffixMatches,
+           p.count + s.count >= grainContextMinLength { return true }
         if prefixMatches && p.count >= grainContextMinLength { return true }
         if suffixMatches && s.count >= grainContextMinLength { return true }
         return false
