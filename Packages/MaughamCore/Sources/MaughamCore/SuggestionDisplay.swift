@@ -18,6 +18,20 @@ public enum SuggestionDisplay {
     public static func before(for annotation: Annotation) -> String? {
         guard annotation.kind == .suggestedChange else { return nil }
         if let span = annotation.span, !span.quote.isEmpty {
+            // Mirror SuggestionSplice.apply's grain decision so the previewed
+            // diff is exactly what accept will do. Resolve against priorText —
+            // the paragraph as it was when the suggestion was authored.
+            if let prior = annotation.priorText,
+               let bare = annotation.suggestedText,
+               let range = SpanAnchorResolver.resolve(anchor: span, in: prior) {
+                let chars = Array(prior)
+                if SuggestionSplice.isWholeParagraphGrain(
+                    bare: bare,
+                    prefix: String(chars[..<range.lowerBound]),
+                    suffix: String(chars[range.upperBound...])) {
+                    return prior
+                }
+            }
             return span.quote
         }
         return annotation.priorText

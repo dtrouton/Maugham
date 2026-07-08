@@ -28,9 +28,40 @@ public enum SuggestionSplice {
               let range = SpanAnchorResolver.resolve(anchor: span, in: paragraph)
         else { return bare }
         let chars = Array(paragraph)
-        return String(chars[..<range.lowerBound])
-            + bare
-            + String(chars[range.upperBound...])
+        let prefix = String(chars[..<range.lowerBound])
+        let suffix = String(chars[range.upperBound...])
+        // Grain salvage: a bare text that already carries the paragraph's
+        // surrounding context was authored at whole-paragraph grain (the
+        // pre-v2 add_suggested_change contract read that way). Splicing it
+        // into the span would duplicate the surroundings — use it verbatim.
+        if isWholeParagraphGrain(bare: bare, prefix: prefix, suffix: suffix) {
+            return bare
+        }
+        return prefix + bare + suffix
+    }
+
+    /// Minimum context length (in characters, whitespace-trimmed) for a
+    /// ONE-SIDED match to count as whole-paragraph evidence. Guards against
+    /// coincidences like a suffix of "." matching a replacement that ends in
+    /// a period — which would silently delete the rest of the paragraph.
+    /// A match on BOTH sides is strong evidence at any length.
+    static let grainContextMinLength = 12
+
+    /// True when `bare` was authored at whole-paragraph grain: it embeds the
+    /// text surrounding the span. Trimmed comparison so a trailing newline or
+    /// space difference doesn't defeat detection.
+    static func isWholeParagraphGrain(
+        bare: String, prefix: String, suffix: String
+    ) -> Bool {
+        let b = bare.trimmingCharacters(in: .whitespacesAndNewlines)
+        let p = prefix.trimmingCharacters(in: .whitespacesAndNewlines)
+        let s = suffix.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefixMatches = !p.isEmpty && b.hasPrefix(p)
+        let suffixMatches = !s.isEmpty && b.hasSuffix(s)
+        if prefixMatches && suffixMatches { return true }
+        if prefixMatches && p.count >= grainContextMinLength { return true }
+        if suffixMatches && s.count >= grainContextMinLength { return true }
+        return false
     }
 
     /// Reconstruct the `SpanAnchor` an annotation op was created with from its
