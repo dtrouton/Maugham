@@ -18,6 +18,15 @@ public enum OpKind: String, Codable, Equatable, Sendable {
     // Annotation lifecycle (claudeAccept/claudeReject already exist above)
     case claudeArchive = "claude_archive"
 
+    // Inverse of claudeAccept's "two effects, one op": restores the pre-accept
+    // paragraph text (when `changes` is populated — the Mac ⌘Z path) and
+    // returns the annotation's derived status to `.open`. The rewind path
+    // appends it with EMPTY changes (status-only reopen: the checkpointRestore
+    // already reverted the text; a second text-apply would fight it). The
+    // derive loop only folds `op.changes`, so the empty-changes variant is
+    // inherently a manuscript no-op despite the `appliesToManuscript` yes.
+    case claudeAcceptRevert = "claude_accept_revert"
+
     // Author self-service lifecycle: a reviewer editing or withdrawing THEIR
     // OWN annotation. Both reference `provenance.sourceAnnotationId` = the
     // creation op id. `annotationEdit` carries the new `annotationBody` (and,

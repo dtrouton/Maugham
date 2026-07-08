@@ -40,7 +40,7 @@ final class ProjectFactoryTests: XCTestCase {
         decoder.dateDecodingStrategy = .iso8601
         let manifest = try decoder.decode(ProjectManifest.self, from: data)
 
-        XCTAssertEqual(manifest.schemaVersion, 1)
+        XCTAssertEqual(manifest.schemaVersion, ProjectManifest.currentSchemaVersion)
         XCTAssertEqual(manifest.type, .shortStory)
         XCTAssertEqual(manifest.title, "My Story")
         XCTAssertEqual(manifest.structure.count, 1)

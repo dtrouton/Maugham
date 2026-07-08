@@ -26,7 +26,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// this, so the lossy `.unknown` path is only ever reached for a *same-version*
     /// file carrying an unexpected value — which only stays safe as long as every
     /// genuinely-new case is accompanied by a bump here.
-    public static let currentSchemaVersion = 1
+    public static let currentSchemaVersion = 2
 
     /// The filename used by every Maugham project for its manifest.
     /// Both the Mac app and the iOS companion look for this name in a
