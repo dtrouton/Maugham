@@ -5,6 +5,10 @@ import MaughamCore
 struct AnnotationsPane: View {
     @Bindable var document: Document
     @Environment(UserPreferences.self) private var userPreferences
+    /// The window's undo manager — passed into every accept so the Document
+    /// registers its undo action against the manager ⌘Z reaches (and clears
+    /// the stale native typing-undo stack; the ⌘Z EXC_BAD_ACCESS class).
+    @Environment(\.undoManager) private var undoManager
 
     @State private var kindFilter: KindOption = .all
     @State private var authorFilter: String = AnnotationAuthorFilter.all
@@ -147,7 +151,7 @@ struct AnnotationsPane: View {
         .sheet(item: $querySheet) { ann in
             QueryReplySheet(annotation: ann) { reply in
                 Task { try? await document.acceptAnnotation(
-                    id: ann.id, userResponse: reply) }
+                    id: ann.id, userResponse: reply, undoManager: undoManager) }
                 querySheet = nil
             } onCancel: { querySheet = nil }
         }
@@ -159,7 +163,7 @@ struct AnnotationsPane: View {
         ) {
             Button("Apply anyway") {
                 if let ann = staleConfirm {
-                    Task { try? await document.acceptAnnotation(id: ann.id) }
+                    Task { try? await document.acceptAnnotation(id: ann.id, undoManager: undoManager) }
                 }
                 staleConfirm = nil
             }
@@ -244,7 +248,7 @@ struct AnnotationsPane: View {
             staleConfirm = ann
             return
         }
-        Task { try? await document.acceptAnnotation(id: ann.id) }
+        Task { try? await document.acceptAnnotation(id: ann.id, undoManager: undoManager) }
     }
 
     private func reject(_ ann: Annotation, reason: String) {

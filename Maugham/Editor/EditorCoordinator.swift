@@ -337,6 +337,11 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// never reads this.
     internal private(set) var applyExternalTextCallCount: Int = 0
 
+    /// Test seam: NSTextView.undoManager is nil without a window; harness
+    /// tests inject a manager here. Production always resolves through the
+    /// text view (the window's undo manager — the one ⌘Z reaches).
+    var undoManagerOverrideForTesting: UndoManager?
+
     /// Number of times `applyControl` has run. Internal so @testable importers
     /// can assert the control-plane observation is narrowed to `EditorControl`
     /// properties (ADR 0017 D1) — a mutation of a value `applyControl` merely
@@ -607,7 +612,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     }
 
     /// External (binding-side) update — replace text without disturbing user.
-    func applyExternalText(_ text: String) {
+    func applyExternalText(_ text: String, preserveUndoStack: Bool = false) {
         applyExternalTextCallCount += 1
         // Cloud-conflict resolution replaces the whole buffer — drop any
         // debounced typing-path script post so it can't land after the
@@ -623,6 +628,17 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         deferredRestyleTask = nil
         burstBaselineText = nil
         guard let textView, textView.string != text else { return }
+        // Replacing the buffer out from under NSTextView invalidates every
+        // native typing-undo action (they capture text-storage state; popping
+        // one afterwards is the ⌘Z EXC_BAD_ACCESS in _NSUndoStack
+        // popAndInvoke — crash 2026-07-08). Drop them — unless this apply was
+        // flagged undo-coherent by the Document (accept/revert registered its
+        // own action and already cleared the stale ones; wiping here would
+        // kill that registration).
+        if !preserveUndoStack {
+            (undoManagerOverrideForTesting ?? textView.undoManager)?
+                .removeAllActions()
+        }
         isApplyingExternalUpdate = true
         defer { isApplyingExternalUpdate = false }
 

@@ -101,6 +101,12 @@ struct EditorSurface: NSViewRepresentable {
     var reviewEditHandler: ((String, String, String?) async -> Void)? = nil
     var reviewWithdrawHandler: ((String) async -> Void)? = nil
 
+    /// One-shot pull from the Document: was the pending displayText change
+    /// produced by an undo-registered mutation (accept/revert)? Consumed ONLY
+    /// when a buffer replace actually happens. See tripwire discussion in
+    /// EditorCoordinator.applyExternalText.
+    var consumeUndoCoherentApplyFlag: (() -> Bool)? = nil
+
     func makeCoordinator() -> EditorCoordinator {
         let coordinator = EditorCoordinator(
             text: $text, mode: mode,
@@ -274,7 +280,9 @@ struct EditorSurface: NSViewRepresentable {
             textView.frame.size.width = targetWidth
         }
         if textView.string != text {
-            context.coordinator.applyExternalText(text)
+            context.coordinator.applyExternalText(
+                text,
+                preserveUndoStack: consumeUndoCoherentApplyFlag?() ?? false)
         }
         // Appearance itself flows via EditorControl (ADR 0017); only the
         // text-container width remains a layout concern handled here.
