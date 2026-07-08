@@ -64,11 +64,14 @@ public enum AddSuggestedChangeTool: MCPTool {
     }
     public static let method = "add_suggested_change"
     public static let description =
-        "Propose a specific replacement for a paragraph. `body` is the editorial " +
-        "justification; `suggested_text` is the proposed new paragraph. The user " +
-        "accepts (applies the change) or rejects (with reasoning). Optionally pass " +
-        "`quote` (an exact phrase from the paragraph) to anchor the suggestion to " +
-        "a sub-paragraph span; omit it to anchor the whole paragraph."
+        "Propose a specific replacement. `body` is the editorial justification. " +
+        "Two grains — match `suggested_text` to the grain you use: " +
+        "(1) omit `quote` → `suggested_text` is the COMPLETE replacement " +
+        "paragraph; (2) pass `quote` (an exact phrase from the paragraph) → " +
+        "`suggested_text` replaces ONLY that quoted span, so it must contain " +
+        "just the span's replacement — never the whole paragraph and never the " +
+        "text surrounding the quote. The user accepts (applies the change) or " +
+        "rejects (with reasoning)."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"},"document_id":{"type":"string"},"paragraph_id":{"type":"string"},"body":{"type":"string"},"suggested_text":{"type":"string"},"quote":{"type":"string"}},"required":["project_id","document_id","paragraph_id","body","suggested_text"]}"#
 

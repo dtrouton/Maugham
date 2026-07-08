@@ -47,6 +47,7 @@ During `Document.restoreToOp`, after computing the target prefix: for every `cla
    - Let `prefix` = paragraph text before the resolved span, `suffix` = text after it.
    - If (`prefix` is non-empty and `suggested_text.hasPrefix(prefix)`) **or** (`suffix` is non-empty and `suggested_text.hasSuffix(suffix)`), the replacement already contains the surrounding context → treat as whole-paragraph replacement (skip the splice, use `suggested_text` verbatim).
    - Whitespace-trimmed comparison; grapheme-safe.
+   - **Length floors (deletion-safety):** a one-sided match counts only when that side is ≥ 12 trimmed chars; a both-sides match counts only when the combined trimmed context is ≥ 12 chars. Rationale (review finding, 2026-07-08): a false positive *deletes* the paragraph's surrounding text — strictly worse than the duplication bug being fixed — and short both-sides coincidences (prefix "She", suffix ".") are common in real prose. When the floor blocks salvage on a genuinely whole-grain short paragraph, the damage is bounded small duplication, the safer failure.
    - Otherwise splice into the span as today.
 3. The `SuggestionDisplay` diff preview must use the same decision so what the user previews is exactly what accept applies (one shared function, two call sites — no drift).
 4. Add-time behavior unchanged (existing `spanNotFound` validation stays); we do not reject on suspected mismatch at add time because the accept-time salvage makes the suggestion still usable.
