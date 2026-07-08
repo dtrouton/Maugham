@@ -6,7 +6,7 @@ extension Document {
     internal static func isAnnotationOpKind(_ kind: OpKind) -> Bool {
         switch kind {
         case .claudeComment, .claudeSuggestion, .claudeQuery, .claudeCraftNote,
-             .claudeAccept, .claudeReject, .claudeArchive,
+             .claudeAccept, .claudeReject, .claudeArchive, .claudeAcceptRevert,
              .annotationEdit, .annotationWithdraw:
             return true
         default:
@@ -242,11 +242,24 @@ extension Document {
 
     public func acceptAnnotation(
         id: String,
-        userResponse: String? = nil
+        userResponse: String? = nil,
+        undoManager: UndoManager? = nil
     ) async throws {
         guard let creation = _opLogMirror.first(where: { $0.opId == id }),
               let kind = AnnotationKind.fromOpKind(creation.kind) else {
             return  // unknown id or non-annotation op — no-op
+        }
+
+        // ⌘Z contract: the buffer replace that follows this accept invalidates
+        // every native typing-undo action (they reference the pre-replace text
+        // storage — the ⌘Z segfault class). Clear them NOW, then register the
+        // revert action, then flag the editor's next external apply as
+        // undo-coherent so it doesn't wipe the fresh registration. Skipped
+        // mid-undo/redo: NSUndoManager forbids removeAllActions during
+        // undo/redo, and the stacks are coherent in that flow anyway.
+        if kind == .suggestedChange, let um = undoManager,
+           !um.isUndoing, !um.isRedoing {
+            um.removeAllActions()
         }
 
         // Determine the changes payload. Only suggestedChange mutates the
@@ -300,11 +313,113 @@ extension Document {
                 prior: change.prior, next: change.next)
             burstScheduler.recordActivity()
             autosaveScheduler.schedule(())
+
+            if let um = undoManager {
+                um.registerUndo(withTarget: self) { [weak um] doc in
+                    // Nested registration runs SYNCHRONOUSLY inside undo, so
+                    // NSUndoManager routes it to the REDO stack. The actual
+                    // re-accept / revert hops to a task (op append is async).
+                    // `[weak um]`: NSUndoManager retains the registered handler,
+                    // and the handler re-registers onto `um`, so a strong capture
+                    // is a retain cycle that leaks the manager (and, transitively,
+                    // the Document) — XCTMemoryChecker aborts on it, and in
+                    // production it strands both across the window's lifetime.
+                    guard let um else { return }
+                    um.registerUndo(withTarget: doc) { [weak um] d2 in
+                        guard let um else { return }
+                        // `[weak d2]`: the async hop must not keep a closed
+                        // document alive past its window. `d2` is the live target;
+                        // the handle lets tests await the re-accept's completion.
+                        d2._lastUndoWorkTask = Task.detached { [weak d2] in
+                            guard let d2 else { return }
+                            try? await d2.acceptAnnotation(id: id, undoManager: um)
+                        }
+                    }
+                    doc._lastUndoWorkTask = Task.detached { [weak doc] in
+                        guard let doc else { return }
+                        try? await doc.revertAcceptedAnnotation(id: id, undoManager: nil)
+                    }
+                }
+                um.setActionName("Accept Suggestion")
+                _undoCoherentApplyPending = true
+            }
+
             recomputeDisplayText()
         }
 
         invalidateAnnotationsCache()
         invalidateTasksCache()   // accept may have changed paragraph text → inline tasks
+    }
+
+    /// Inverse of an accepted suggestion — the ⌘Z path. Appends a
+    /// `claudeAcceptRevert` op carrying the restore (prior = post-accept text,
+    /// next = pre-accept text) and returns the annotation to `.open`
+    /// (AnnotationDeriver). Append-only: the accept op is never touched.
+    ///
+    /// Loud no-op (log, no throw) when the annotation isn't currently
+    /// `.accepted` or its paragraph no longer exists — an undo action can
+    /// outlive the state it captured (e.g. a rewind in between); never crash.
+    public func revertAcceptedAnnotation(
+        id: String, undoManager: UndoManager? = nil
+    ) async throws {
+        _ = undoManager  // redo is registered by the undo closure, not here
+        guard let creation = _opLogMirror.first(where: { $0.opId == id }),
+              AnnotationKind.fromOpKind(creation.kind) == .suggestedChange else {
+            documentLog.error("revertAcceptedAnnotation: \(id, privacy: .public) is not a suggestion creation op — ignoring")
+            return
+        }
+        // Query with an explicit status filter: `annotations()` defaults to
+        // `statuses: [.open]` (AnnotationFilter), which would EXCLUDE the very
+        // `.accepted` annotation we're reverting and make this a silent no-op.
+        let current = annotations(filter: AnnotationFilter(statuses: nil))
+            .first { $0.id == id }
+        guard current?.status == .accepted else {
+            documentLog.error("revertAcceptedAnnotation: \(id, privacy: .public) is not accepted (\(String(describing: current?.status), privacy: .public)) — ignoring")
+            return
+        }
+        // Latest accept op for this annotation carries the definitive
+        // prior (pre-accept) / next (post-accept) pair.
+        guard let acceptOp = _opLogMirror.last(where: {
+                  $0.kind == .claudeAccept
+                      && $0.provenance?.sourceAnnotationId == id
+              }),
+              let acceptChange = acceptOp.changes.first else {
+            documentLog.error("revertAcceptedAnnotation: no claudeAccept op with changes for \(id, privacy: .public) — ignoring")
+            return
+        }
+        let pid = acceptChange.paragraphId
+        guard sequence.contains(pid) else {
+            documentLog.error("revertAcceptedAnnotation: paragraph \(pid, privacy: .public) no longer exists — ignoring")
+            return
+        }
+        let currentText = paragraphs[pid] ?? ""
+        let restored = acceptChange.prior ?? ""
+        let change = Op.ParagraphChange(
+            paragraphId: pid, prior: currentText, next: restored)
+
+        let op = Op(
+            opId: ULID.generate(),
+            docId: docId, at: Date(),
+            device: device, session: session,
+            kind: .claudeAcceptRevert,
+            changes: [change],
+            sequence: nil,
+            provenance: Op.Provenance(
+                sessionId: session,
+                sourceAnnotationId: id))
+        try await opStore.append(op)
+        _opLogMirror.append(op)
+        _hasAnyAnnotationOps = true
+
+        paragraphs[pid] = restored
+        pending.recordChange(paragraphId: pid, prior: currentText, next: restored)
+        burstScheduler.recordActivity()
+        autosaveScheduler.schedule(())
+        _undoCoherentApplyPending = true
+        recomputeDisplayText()
+
+        invalidateAnnotationsCache()
+        invalidateTasksCache()
     }
 
     public func rejectAnnotation(
