@@ -75,8 +75,8 @@ public enum HistoryFilter: String, CaseIterable, Identifiable, FilterRowItem {
             if case .op(let op) = entry {
                 switch op.kind {
                 case .claudeComment, .claudeSuggestion, .claudeAccept,
-                     .claudeReject, .claudeArchive, .claudeQuery,
-                     .claudeCraftNote:
+                     .claudeAcceptRevert, .claudeReject, .claudeArchive,
+                     .claudeQuery, .claudeCraftNote:
                     return true
                 default: return false
                 }
@@ -370,7 +370,8 @@ private struct HistoryRow: View {
 
     private func mutatesManuscript(_ kind: OpKind) -> Bool {
         switch kind {
-        case .typingBurst, .externalEdit, .claudeAccept, .checkpointRestore:
+        case .typingBurst, .externalEdit, .claudeAccept, .claudeAcceptRevert,
+             .checkpointRestore:
             return true
         case .bootstrap, .checkpoint, .claudeComment, .claudeSuggestion,
              .claudeQuery, .claudeCraftNote, .claudeReject, .claudeArchive,
@@ -424,6 +425,17 @@ private struct HistoryRow: View {
                         .lineLimit(1)
                 } else {
                     Text("Accepted").font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            case .claudeAcceptRevert:
+                // Inverse of claudeAccept: reverts a previously accepted
+                // suggestion, restoring the prior paragraph text.
+                // `provenance.sourceAnnotationId` points at the creation op.
+                if let body = resolvedBody(for: op) {
+                    Text(body).font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(1)
+                } else {
+                    Text("Accepted suggestion reverted").font(.caption)
                         .foregroundStyle(.secondary)
                 }
             case .claudeReject:
@@ -550,6 +562,7 @@ private struct HistoryRow: View {
             case .claudeComment: return "Comment"
             case .claudeSuggestion: return "Suggestion"
             case .claudeAccept: return "Accepted"
+            case .claudeAcceptRevert: return "Accept reverted"
             case .claudeReject: return "Rejected"
             case .claudeArchive: return "Archived"
             case .claudeQuery: return "Query"
@@ -582,6 +595,7 @@ private struct HistoryRow: View {
             case .claudeComment: return "bubble.left"
             case .claudeSuggestion: return "wand.and.stars"
             case .claudeAccept: return "checkmark.circle"
+            case .claudeAcceptRevert: return "arrow.uturn.backward.circle"
             case .claudeReject: return "xmark.circle"
             case .claudeArchive: return "archivebox"
             case .claudeQuery: return "questionmark.circle"
@@ -607,6 +621,7 @@ private struct HistoryRow: View {
             case .claudeComment: return .blue
             case .claudeSuggestion: return .orange
             case .claudeAccept: return .green
+            case .claudeAcceptRevert: return .teal
             case .claudeReject: return .red
             case .claudeArchive: return .gray
             case .claudeQuery: return .purple
