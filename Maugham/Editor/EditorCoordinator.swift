@@ -589,6 +589,15 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         }
         navigateObserver = nil; findMatchObserver = nil; paragraphNavigateObserver = nil
         annotationNavigateObserver = nil; reviewToggleObserver = nil
+        // Clear the native undo stack before the text-view reference is
+        // dropped: a doc switch recreates the EditorSurface via `.id(path)`,
+        // and the NEW text view is seeded in `makeNSView` — no
+        // `applyExternalText` fires, so nothing else clears the WINDOW's undo
+        // manager. Stale typing actions referencing the dismantled text view
+        // would stay poppable (the ⌘Z crash family's residual). Cross-doc
+        // undo is not a thing: text edits are per-doc, and op-log-level
+        // accept actions target the by-then-husked Document anyway.
+        (undoManagerOverrideForTesting ?? textView?.undoManager)?.removeAllActions()
         if let tv = textView, tv.delegate === self {
             tv.delegate = nil
         }
