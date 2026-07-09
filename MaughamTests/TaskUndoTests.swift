@@ -194,6 +194,18 @@ final class TaskUndoTests: XCTestCase {
 
         um.redo(); await doc.awaitPendingUndoWork()
         XCTAssertEqual(currentStatus(doc, task.id), .done)
+
+        // Re-arm: redo forwards the LIVE undo manager into the forward
+        // re-mutation, which registers a FRESH undo pair — ⌘Z/⇧⌘Z cycles
+        // indefinitely, not a dead action after one redo (a nil-forwarded
+        // manager — the T3 regression — would fail right here). The awaited
+        // work task above IS the redo hop that re-registered (async mirror
+        // of AnnotationLifecycleUndoTests' pump-then-assert idiom).
+        XCTAssertTrue(um.canUndo,
+            "redo's forward re-mutation must re-register undo — the cycle re-arms")
+        um.undo(); await doc.awaitPendingUndoWork()
+        XCTAssertEqual(currentStatus(doc, task.id), .open,
+            "a second ⌘Z after ⇧⌘Z must restore the prior status again")
     }
 
     func test_setTaskPriority_undo_restoresPriorPriority() async throws {
@@ -248,6 +260,22 @@ final class TaskUndoTests: XCTestCase {
             scope: .document(docId: doc.docId), statuses: [.open]))
         XCTAssertEqual(openTasks.count, 1)
         XCTAssertEqual(openTasks.first?.body, "ephemeral")
+        let newId = try XCTUnwrap(openTasks.first?.id)
+        XCTAssertNotEqual(newId, task.id,
+            "redo of create mints a NEW task id (create/destroy semantics)")
+
+        // Re-arm: the redo hop's forward re-create forwarded the LIVE undo
+        // manager, registering a fresh undo pair for the NEW id (a nil-
+        // forwarded manager — the T3 regression — would fail right here).
+        // The second ⌘Z therefore archives the NEW task.
+        XCTAssertTrue(um.canUndo,
+            "redo's forward re-create must re-register undo — the cycle re-arms")
+        um.undo(); await doc.awaitPendingUndoWork()
+        XCTAssertEqual(currentStatus(doc, newId), .archived,
+            "a second ⌘Z after ⇧⌘Z archives the redo-minted task")
+        let openAfter = doc.tasks(filter: .init(
+            scope: .document(docId: doc.docId), statuses: [.open]))
+        XCTAssertTrue(openAfter.isEmpty)
     }
 
     func test_archiveTask_undo_restoresPriorStatus() async throws {

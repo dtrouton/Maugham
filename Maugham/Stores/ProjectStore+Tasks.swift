@@ -75,7 +75,10 @@ extension ProjectStore {
                 undoManager, actionName: "New Task", target: self,
                 workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
                 undo: { store in
-                    // Fire-time guard: only archive if still present + open.
+                    // Fire-time guard: only archive if still present and not
+                    // already archived. Deliberately looser than an exact-status
+                    // compare: create's "forward-written value" is the task's
+                    // EXISTENCE, so later field edits don't invalidate the undo.
                     let now = store.listTasksAcrossProject(filter: TaskFilter(
                         scope: .project, statuses: Set(TaskStatus.allCases)))
                         .first { $0.id == opId }

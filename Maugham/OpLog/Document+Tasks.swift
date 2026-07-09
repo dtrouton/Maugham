@@ -262,6 +262,10 @@ extension Document {
                 undo: { doc in
                     // Fire-time guard: only archive if the task still exists and
                     // hasn't already been archived out from under this action.
+                    // Deliberately looser than the other mutators' exact-value
+                    // compare: create's "forward-written value" is the task's
+                    // EXISTENCE, not any one field — later status/body edits
+                    // don't invalidate undoing the creation itself.
                     guard let now = doc.freshTaskSnapshot(id: opId),
                           now.status != .archived else {
                         documentLog.error("createPaneTask undo: \(opId, privacy: .public) already gone/archived — ignoring")
