@@ -202,10 +202,10 @@ struct EditorHost: View {
                         // The card has no reasoning field; the reason-capture sheet
                         // stays in the AnnotationsPane. A card-reject records no
                         // reason (a follow-up could surface the sheet from here).
-                        try? await doc.rejectAnnotation(id: id)
+                        try? await doc.rejectAnnotation(id: id, undoManager: um)
                     },
                     reviewArchiveHandler: { id in
-                        try? await doc.archiveAnnotation(id: id)
+                        try? await doc.archiveAnnotation(id: id, undoManager: um)
                     },
                     reviewReplyHandler: { id, reply in
                         try? await doc.acceptAnnotation(id: id, userResponse: reply, undoManager: um)
@@ -215,12 +215,14 @@ struct EditorHost: View {
                             id: id,
                             newBody: newBody,
                             newSuggestedText: newSuggested,
-                            authorName: userPreferences.collaboratorDisplayName)
+                            authorName: userPreferences.collaboratorDisplayName,
+                            undoManager: um)
                     },
                     reviewWithdrawHandler: { id in
                         try? await doc.withdrawReviewerAnnotation(
                             id: id,
-                            authorName: userPreferences.collaboratorDisplayName)
+                            authorName: userPreferences.collaboratorDisplayName,
+                            undoManager: um)
                     },
                     consumeUndoCoherentApplyFlag: { doc.consumeUndoCoherentApplyFlag() }
                 )
