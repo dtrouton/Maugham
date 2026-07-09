@@ -62,6 +62,10 @@ Each runs the **close-before-FS-surgery** discipline INTERNALLY before any FS ca
 
 **The boundary (intentionally NOT routed):** internal, non-user-edited moves stay raw and are excluded from the grep via an explicit `// internal-move:` marker — the `promotePieceToProject` staging moves (into a temp `staging/` tree, which already closes+flushes upstream), and the no-`DocumentStore` fallback branches (load-only contexts like unit tests have no registry/scheduler, so the discipline is a provable no-op). Empty-file scaffolding (`Data().write`), `.maugham-link.json`/manifest writes, scratch tmp writes, and `executeCopy` (Duplicate) are derived/internal and out of scope. When you add a NEW mover of user-editable content, route it through one of the three entry points above — do not add a raw move with an `// internal-move:` marker unless it's genuinely one of these internal classes.
 
+## Palette + craft-intent seams (2026-07-09)
+
+Two new research-adjacent conventions, both plain-edited (no op log, no `¶id` anchors — same precedent as research notes) and both absence-is-valid: **palette cards** (`ProjectStore+Palette.swift`) are markdown research assets under a `research/palette/` group (kind/swatches/senses/images convention), parsed on load via `PaletteCard` (`Maugham/Models/PaletteCard.swift`); the typed user-content mover already covers them for free since they're ordinary research items. **Craft intent** (`ProjectStore+CraftIntent.swift`) is a single conventional `craft-intent.md` per scope — project-level for novel/screenplay/short-story, per-loose-piece (in that piece's own research folder) for collections — with no doc existing being a first-class, deliberate state, not a missing file to backfill.
+
 ## Derived-manuscript cache + async word counts (F5, 2026-07-01)
 
 - **`ProjectStore.derivedCache` (`DerivedManuscriptCache`, MaughamCore)** fronts
