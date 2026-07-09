@@ -47,6 +47,8 @@ struct PieceInspector: View {
     let kind: PieceInspectorKind
     let onOpenCraftIntent: (String) -> Void
 
+    @State private var isCreatingIntent = false
+
     var body: some View {
         if let piece = store.manifest.structure.first(where: { $0.id == pieceId }) {
             ScrollView {
@@ -109,12 +111,16 @@ struct PieceInspector: View {
                 Button("Open Craft Intent") { onOpenCraftIntent(intent.id) }
             } else {
                 Button("Add craft intent…") {
+                    guard !isCreatingIntent else { return }
+                    isCreatingIntent = true
                     Task {
+                        defer { isCreatingIntent = false }
                         if let item = try? await store.createCraftIntent(forPieceId: piece.id) {
                             onOpenCraftIntent(item.id)
                         }
                     }
                 }
+                .disabled(isCreatingIntent)
             }
         }
     }
