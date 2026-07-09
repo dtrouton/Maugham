@@ -5,6 +5,7 @@ import MaughamCore
 public enum BinderSegment: String, Codable, Equatable, Sendable {
     case manuscript
     case research
+    case palette
     case scenes
     case trash
     case find

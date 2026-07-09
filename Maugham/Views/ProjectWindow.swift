@@ -35,6 +35,11 @@ struct ProjectWindow: View {
     @State private var showingSaveFlash: Bool = false
     @State private var selectedItemId: String?
     @State private var selectedResearchId: String?
+    @State private var selectedPaletteCardId: String?
+    /// The inspector's visibility captured on entry to the palette segment, so
+    /// leaving restores it exactly (spec: no stuck-hidden inspector). `nil` when
+    /// not in palette. Owned by `PaletteSegmentModifier`.
+    @State private var inspectorWasVisibleBeforePalette: Bool?
     @State private var binderSegment: BinderSegment = .manuscript
     @State private var activeSheet: ProjectActiveSheet?
     @State private var showInspector: Bool = true
@@ -294,6 +299,11 @@ struct ProjectWindow: View {
             effectivePosture: effectivePosture,
             effectiveTypography: effectiveTypography,
             editorControl: $editorControl))
+        .modifier(PaletteSegmentModifier(
+            binderSegment: binderSegment,
+            showInspector: $showInspector,
+            inspectorWasVisibleBeforePalette: $inspectorWasVisibleBeforePalette,
+            selectedPaletteCardId: $selectedPaletteCardId))
         .preferredColorScheme(preferredColorScheme)
     }
 
@@ -361,6 +371,31 @@ struct ProjectWindow: View {
                     }
                 }
                 .focusedSceneValue(\.projectURL, projectURL)
+        }
+    }
+
+    /// Entering the palette segment hides the right pane so the wall gets width;
+    /// leaving restores the pane's prior visibility exactly (spec: no stuck-hidden
+    /// inspector). Kept out of ProjectWindow.body for the type-checker budget.
+    /// A ⌘⌥N that sets `showInspector = true` while in palette wins — the user
+    /// explicitly asked for the pane; we don't fight it.
+    private struct PaletteSegmentModifier: ViewModifier {
+        let binderSegment: BinderSegment
+        @Binding var showInspector: Bool
+        @Binding var inspectorWasVisibleBeforePalette: Bool?
+        @Binding var selectedPaletteCardId: String?
+
+        func body(content: Content) -> some View {
+            content.onChange(of: binderSegment) { old, new in
+                if new == .palette && old != .palette {
+                    inspectorWasVisibleBeforePalette = showInspector
+                    showInspector = false
+                } else if old == .palette && new != .palette {
+                    if let prior = inspectorWasVisibleBeforePalette { showInspector = prior }
+                    inspectorWasVisibleBeforePalette = nil
+                    selectedPaletteCardId = nil
+                }
+            }
         }
     }
 
@@ -597,6 +632,7 @@ struct ProjectWindow: View {
                 segment: $binderSegment,
                 selectedItemId: $selectedItemId,
                 selectedResearchId: $selectedResearchId,
+                selectedPaletteCardId: $selectedPaletteCardId,
                 findActive: $findActive,
                 renamingItemId: $pendingPieceRenameId,
                 activePiece: activePiece(in: store),
@@ -612,6 +648,7 @@ struct ProjectWindow: View {
                 segment: $binderSegment,
                 selectedItemId: $selectedItemId,
                 selectedResearchId: $selectedResearchId,
+                selectedPaletteCardId: $selectedPaletteCardId,
                 projectType: store.manifest.type,
                 lastParsedScript: lastParsedScript,
                 findActive: $findActive)
@@ -794,6 +831,30 @@ struct ProjectWindow: View {
                     systemImage: "doc.text.magnifyingglass")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        case .palette:
+            if let cardId = selectedPaletteCardId,
+               let item = store.paletteCardItems().first(where: { $0.id == cardId }),
+               let path = item.path {
+                VStack(spacing: 0) {
+                    HStack {
+                        Button { selectedPaletteCardId = nil } label: {
+                            Label("Wall", systemImage: "chevron.left")
+                        }
+                        .buttonStyle(.plain)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    Divider()
+                    ResearchNoteEditor(
+                        store: store,
+                        documentStore: documentStore,
+                        path: path,
+                        itemId: item.id,
+                        previewVisible: researchPreviewVisible)
+                }
+            } else {
+                PaletteWallView(store: store, selectedCardId: $selectedPaletteCardId)
+            }
         case .trash:
             ContentUnavailableView(
                 "Trash",
@@ -901,6 +962,9 @@ struct ProjectWindow: View {
                     systemImage: "info.circle")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        case .palette:
+            ContentUnavailableView("Palette", systemImage: "paintpalette")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .trash:
             ContentUnavailableView(
                 "No selection",

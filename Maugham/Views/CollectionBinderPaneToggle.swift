@@ -9,6 +9,7 @@ struct CollectionBinderPaneToggle: View {
     @Binding var segment: BinderSegment
     @Binding var selectedItemId: String?
     @Binding var selectedResearchId: String?
+    @Binding var selectedPaletteCardId: String?
     @Binding var findActive: Bool
     @Binding var renamingItemId: String?
     let activePiece: StructureItem?
@@ -21,6 +22,7 @@ struct CollectionBinderPaneToggle: View {
             Picker("Segment", selection: $segment) {
                 Text("Pieces").tag(BinderSegment.manuscript)
                 Text("Research").tag(BinderSegment.research)
+                Image(systemName: "paintpalette").tag(BinderSegment.palette).help("Palette")
                 if !store.trashEntries.isEmpty {
                     Text("Trash").tag(BinderSegment.trash)
                 }
@@ -48,6 +50,8 @@ struct CollectionBinderPaneToggle: View {
                         activePiece: activePiece,
                         onAddSharedNote: onAddSharedNote,
                         onAddPieceNote: onAddPieceNote)
+                case .palette:
+                    PaletteBinderList(store: store, selectedCardId: $selectedPaletteCardId)
                 case .trash:
                     TrashView(store: store)
                 case .find:
