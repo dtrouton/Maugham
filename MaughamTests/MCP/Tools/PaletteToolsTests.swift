@@ -105,6 +105,81 @@ final class PaletteToolsTests: XCTestCase {
         await ds.close()
     }
 
+    func test_readPaletteCard_moreThanSixImages_omittedNoteListsExtras() async throws {
+        let (url, _, ds, reg, item) = try await makeProjectWithCard()
+        // Seven small images → count cap (6) trims the seventh into the note.
+        var lines = ["", "## Images", ""]
+        for n in 0..<7 {
+            try makePNG(width: 200, height: 200)
+                .write(to: url.appendingPathComponent("research/img\(n).png"))
+            lines.append("- ../img\(n).png")
+        }
+        let base = try String(contentsOf: url.appendingPathComponent(item.path!), encoding: .utf8)
+        try (base + "\n" + lines.joined(separator: "\n") + "\n").data(using: .utf8)!
+            .write(to: url.appendingPathComponent(item.path!))
+        let id = ProjectIdentifier.id(for: url)
+        let req = "{\"project_id\":\"\(id)\",\"card_id\":\"\(item.id)\"}"
+        let json = try await ReadPaletteCardTool.handle(paramsJSON: Data(req.utf8), registry: reg)
+        let obj = try XCTUnwrap(try JSONSerialization.jsonObject(with: json) as? [String: Any])
+        let content = try XCTUnwrap(obj["content"] as? [[String: Any]])
+        let imageBlocks = content.filter { $0["type"] as? String == "image" }
+        XCTAssertEqual(imageBlocks.count, 6, "count cap should thumbnail exactly six")
+        let text = try XCTUnwrap((content.first { $0["type"] as? String == "text" })?["text"] as? String)
+        XCTAssertTrue(text.contains("not thumbnailed"), "trimmed image must be in the omitted note")
+        XCTAssertTrue(text.contains("research/img6.png"), "omitted note must list the trimmed path")
+        await ds.close()
+    }
+
+    func test_readPaletteCard_largeImages_respectCombinedByteBudget() async throws {
+        let (url, _, ds, reg, item) = try await makeProjectWithCard()
+        // Six high-entropy images: each 512px thumbnail is ~130–160 KB, so the
+        // unbudgeted six would blow past the 1 MB transport cap. The running
+        // byte budget must trim them and stay under the cap.
+        var lines = ["", "## Images", ""]
+        for n in 0..<6 {
+            try makeNoisePNG(width: 700, height: 700)
+                .write(to: url.appendingPathComponent("research/noise\(n).png"))
+            lines.append("- ../noise\(n).png")
+        }
+        let base = try String(contentsOf: url.appendingPathComponent(item.path!), encoding: .utf8)
+        try (base + "\n" + lines.joined(separator: "\n") + "\n").data(using: .utf8)!
+            .write(to: url.appendingPathComponent(item.path!))
+        let id = ProjectIdentifier.id(for: url)
+        let req = "{\"project_id\":\"\(id)\",\"card_id\":\"\(item.id)\"}"
+        let json = try await ReadPaletteCardTool.handle(paramsJSON: Data(req.utf8), registry: reg)
+        XCTAssertLessThan(json.count, 1_048_576,
+            "combined envelope must stay under the 1 MB transport cap")
+        let obj = try XCTUnwrap(try JSONSerialization.jsonObject(with: json) as? [String: Any])
+        let content = try XCTUnwrap(obj["content"] as? [[String: Any]])
+        let rawThumbBytes = content
+            .compactMap { $0["data"] as? String }
+            .compactMap { Data(base64Encoded: $0) }
+            .reduce(0) { $0 + $1.count }
+        XCTAssertLessThanOrEqual(rawThumbBytes, 720_000,
+            "combined raw thumbnail bytes must respect the running budget")
+        await ds.close()
+    }
+
+    func test_readPaletteCard_imageNotOnCard_throwsInvalidArgumentListingImages() async throws {
+        let (url, _, ds, reg, item) = try await makeProjectWithCard()
+        try makePNG(width: 400, height: 400)
+            .write(to: url.appendingPathComponent("research/flat.png"))
+        let md = try String(contentsOf: url.appendingPathComponent(item.path!), encoding: .utf8)
+            + "\n## Images\n\n- ../flat.png\n"
+        try md.data(using: .utf8)!.write(to: url.appendingPathComponent(item.path!))
+        let id = ProjectIdentifier.id(for: url)
+        // A path that exists nowhere on the card — distinct from an unknown card_id.
+        let req = "{\"project_id\":\"\(id)\",\"card_id\":\"\(item.id)\",\"image\":\"research/missing.png\"}"
+        do {
+            _ = try await ReadPaletteCardTool.handle(paramsJSON: Data(req.utf8), registry: reg)
+            XCTFail("expected throw for image not on card")
+        } catch let MCPError.invalidArgument(message) {
+            XCTAssertTrue(message.contains("research/missing.png"), "message should name the bad path")
+            XCTAssertTrue(message.contains("research/flat.png"), "message should list the card's images")
+        }
+        await ds.close()
+    }
+
     func test_readPaletteCard_unknownCard_throwsInvalidArgument() async throws {
         let (url, _, ds, reg, _) = try await makeProjectWithCard()
         let id = ProjectIdentifier.id(for: url)
@@ -134,6 +209,21 @@ final class PaletteToolsTests: XCTestCase {
         NSColor.systemTeal.setFill()
         NSRect(x: 0, y: 0, width: width, height: height).fill()
         NSGraphicsContext.restoreGraphicsState()
+        return try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+    }
+
+    /// High-entropy PNG (random RGB, opaque). JPEG-compresses poorly, so its
+    /// 512px thumbnail lands ~130–160 KB — used to exercise the running byte
+    /// budget across overview thumbnails.
+    private func makeNoisePNG(width: Int, height: Int) throws -> Data {
+        let rep = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        if let data = rep.bitmapData {
+            let count = rep.bytesPerRow * height
+            for i in 0..<count { data[i] = (i % 4 == 3) ? 255 : UInt8.random(in: 0...255) }
+        }
         return try XCTUnwrap(rep.representation(using: .png, properties: [:]))
     }
 

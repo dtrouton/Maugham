@@ -69,6 +69,10 @@ public enum ReadPaletteCardTool: MCPTool {
 
     private static let thumbnailMax = 512
     private static let maxThumbnails = 6
+    /// Combined raw-JPEG byte ceiling across all overview thumbnails. Mirrors
+    /// `ImageResponseBuilder`'s per-image 720 KB budget; base64 inflates ~33%
+    /// (≈960 KB) which, with the text block, stays under MCP's 1 MB cap.
+    private static let combinedThumbnailByteBudget = 720_000
 
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
@@ -102,27 +106,53 @@ public enum ReadPaletteCardTool: MCPTool {
         let markdown = (try? String(
             contentsOf: entry.url.appendingPathComponent(rel),
             encoding: .utf8)) ?? "" // adr-0018-ok: palette card read, not manuscript
+
+        // Thumbnails are budgeted TWICE: by count (`maxThumbnails`) and by a
+        // running RAW-JPEG byte total. The per-image budget inside
+        // `ImageResponseBuilder` never fires at 512px (a 512px JPEG tops out
+        // ~262 KB, under its 720 KB floor), so six detailed photos would
+        // otherwise combine past the 1 MB transport cap (tripwire 10 / ADR
+        // 0004) once base64-inflated. The combined ceiling mirrors that
+        // per-image budget and leaves base64 + text headroom under 1 MB.
+        var imageBlocks: [AnyJSON] = []
+        var omitted: [String] = []
+        var runningBytes = 0
+        for (index, path) in card.imagePaths.enumerated() {
+            if imageBlocks.count >= maxThumbnails {
+                omitted.append(path)
+                continue
+            }
+            let url = entry.url.appendingPathComponent(path)
+            // A thumbnail render failure skips that image; it never fails the
+            // call and (unlike a budget omission) isn't listed — the caller can
+            // still reach it by path via the `image` parameter.
+            guard let rendered = try? ImageResponseBuilder.render(
+                at: url, region: nil, requestedMax: thumbnailMax,
+                quality: ImageResponseBuilder.defaultJPEGQuality) else { continue }
+            // Always allow the first thumbnail (a lone 512px JPEG can't breach
+            // the cap); stop once the next would push the combined raw total
+            // over the ceiling, and list it plus every remaining image.
+            if !imageBlocks.isEmpty,
+               runningBytes + rendered.jpeg.count > combinedThumbnailByteBudget {
+                omitted.append(contentsOf: card.imagePaths[index...])
+                break
+            }
+            runningBytes += rendered.jpeg.count
+            imageBlocks.append(.object([
+                "type": .string("image"),
+                "data": .string(rendered.jpeg.base64EncodedString()),
+                "mimeType": .string("image/jpeg")
+            ]))
+        }
+
         var text = markdown
-        let shown = card.imagePaths.prefix(maxThumbnails)
-        let omitted = card.imagePaths.dropFirst(maxThumbnails)
         if !omitted.isEmpty {
             text += "\n\n[\(omitted.count) more image(s) not thumbnailed: "
                 + omitted.joined(separator: ", ")
                 + " — fetch each via the image parameter.]"
         }
         var blocks: [AnyJSON] = [.object(["type": .string("text"), "text": .string(text)])]
-        for path in shown {
-            let url = entry.url.appendingPathComponent(path)
-            // A thumbnail render failure skips that image; it never fails the call.
-            guard let rendered = try? ImageResponseBuilder.render(
-                at: url, region: nil, requestedMax: thumbnailMax,
-                quality: ImageResponseBuilder.defaultJPEGQuality) else { continue }
-            blocks.append(.object([
-                "type": .string("image"),
-                "data": .string(rendered.jpeg.base64EncodedString()),
-                "mimeType": .string("image/jpeg")
-            ]))
-        }
+        blocks.append(contentsOf: imageBlocks)
         return try JSONEncoder().encode(AnyJSON.object(["content": .array(blocks)]))
     }
 }
