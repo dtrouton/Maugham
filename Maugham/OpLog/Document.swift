@@ -161,6 +161,39 @@ public final class Document {
     /// sweeps (gate on pending and never run sweep on legitimate deletions).
     internal var _pendingSweep: SweepReason? = nil
 
+    /// One-shot: the next external buffer apply (`applyExternalText`) was
+    /// produced by a document-local mutation that registered its own
+    /// UndoManager action (accept/revert of a suggestion) — the editor must
+    /// NOT clear the undo stack for that one apply or it wipes the fresh
+    /// registration. NOT observable (tripwire 6): consumed via
+    /// `consumeUndoCoherentApplyFlag()` from EditorSurface.updateNSView.
+    /// Discharged by the bound editor's next update pass whether or not a
+    /// replace occurs; a Document with no attached editor keeps it armed only
+    /// until first load (makeNSView seeds the buffer, so the first update
+    /// pass discharges it without preserving).
+    internal var _undoCoherentApplyPending = false
+
+    /// One-shot read+clear. See `_undoCoherentApplyPending`.
+    public func consumeUndoCoherentApplyFlag() -> Bool {
+        let v = _undoCoherentApplyPending
+        _undoCoherentApplyPending = false
+        return v
+    }
+
+    /// Handle to the async work-hop spawned by the last undo/redo of an accepted
+    /// suggestion. `NSUndoManager.undo()` invokes its handler synchronously, but
+    /// the revert / re-accept it triggers is async (op-log append), so it hops to
+    /// a detached task. This handle lets a caller `await` that hop's completion —
+    /// used only by tests, which must know the op has landed (and the task has
+    /// torn down) before they assert / close. Not observable.
+    internal var _lastUndoWorkTask: Task<Void, Never>?
+
+    /// Test seam: await the async revert/re-accept triggered by the last
+    /// undo/redo, if any. No-op when nothing is pending.
+    public func awaitPendingUndoWork() async {
+        await _lastUndoWorkTask?.value
+    }
+
     /// Keyframe floor (ADR 0016 / growth spec §4.1 rule 2): emit an explicit
     /// `sequence` at least every Nth burst even when ordering is unchanged —
     /// a robustness anchor bounding how far back a reader reconstructs

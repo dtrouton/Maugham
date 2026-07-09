@@ -34,6 +34,11 @@ struct EditorHost: View {
     /// EditorSurface/coordinator (ADR 0017).
     var control: EditorControl
     @Environment(UserPreferences.self) private var userPreferences
+    /// The window's undo manager — the one ⌘Z reaches. Passed into every
+    /// accept/revert so the Document registers its undo action against it
+    /// (and clears the stale native typing-undo stack that a buffer replace
+    /// would otherwise leave dangling — the ⌘Z EXC_BAD_ACCESS class).
+    @Environment(\.undoManager) private var undoManager
 
     /// The currently-bound Document. Owns the editor's text state and the
     /// op-log machinery for the open manuscript.
@@ -59,7 +64,11 @@ struct EditorHost: View {
     private static let deviceId: String = MacDeviceID.current
 
     var body: some View {
-        Group {
+        // Snapshot the environment undo manager before the EditorSurface init
+        // list — @Environment values can't be captured directly by the
+        // escaping accept closures built there.
+        let um = undoManager
+        return Group {
             // `priorLoadedPath == path` gates out the husk window: a rename of
             // the OPEN document keeps its item id but moves its file, and the
             // typed mover (DocumentStore.relocate/relocateUserContent) closes
@@ -187,7 +196,7 @@ struct EditorHost: View {
                     // the applyExternalText tripwires (6/7) don't apply. The
                     // coordinator refreshes its marks from the provider after each.
                     reviewAcceptHandler: { id in
-                        try? await doc.acceptAnnotation(id: id)
+                        try? await doc.acceptAnnotation(id: id, undoManager: um)
                     },
                     reviewRejectHandler: { id in
                         // The card has no reasoning field; the reason-capture sheet
@@ -199,7 +208,7 @@ struct EditorHost: View {
                         try? await doc.archiveAnnotation(id: id)
                     },
                     reviewReplyHandler: { id, reply in
-                        try? await doc.acceptAnnotation(id: id, userResponse: reply)
+                        try? await doc.acceptAnnotation(id: id, userResponse: reply, undoManager: um)
                     },
                     reviewEditHandler: { id, newBody, newSuggested in
                         try? await doc.editReviewerAnnotation(
@@ -212,7 +221,8 @@ struct EditorHost: View {
                         try? await doc.withdrawReviewerAnnotation(
                             id: id,
                             authorName: userPreferences.collaboratorDisplayName)
-                    }
+                    },
+                    consumeUndoCoherentApplyFlag: { doc.consumeUndoCoherentApplyFlag() }
                 )
                 .id(path)
                 // Crafted review render (Component F): the open-annotation set now

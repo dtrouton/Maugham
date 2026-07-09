@@ -101,7 +101,8 @@ extension Document {
                     archivedAnnotationOpIds: [],
                     removedParagraphIds: [],
                     priorSequenceCount: priorCount,
-                    newSequenceCount: newCount)
+                    newSequenceCount: newCount,
+                    reopenedAnnotationOpIds: [])
             }
 
             // Emit a task-rewind marker checkpoint_restore with empty changes
@@ -175,18 +176,78 @@ extension Document {
         let beforeFlushCount = _opLogMirror.count
         try await flushBurstNow()
         let newlyAppended = _opLogMirror.dropFirst(beforeFlushCount)
-        let archivedIds = newlyAppended
+        var archivedIds = newlyAppended
             .filter { op in
                 op.kind == .claudeArchive
                     && op.provenance?.synthesisSource == .rewind
             }
             .map(\.opId)
 
+        // 8. Resolve accepts stranded past the rewind target. The restore
+        //    derived from the log PREFIX, so text applied by any claudeAccept
+        //    AFTER `targetOpId` is already reverted — but the accept op itself
+        //    survives (append-only), so the annotation would still derive
+        //    `.accepted` while its change no longer exists. For each
+        //    annotation whose LATEST lifecycle op is such a post-target,
+        //    changes-carrying accept:
+        //
+        //    - paragraph SURVIVES the rewind → append a changes-free
+        //      claudeAcceptRevert (status-only reopen: the restore op already
+        //      carries the text) so the suggestion is actionable again.
+        //    - paragraph was REMOVED by the rewind → append a claudeArchive
+        //      instead (the removed-paragraph convention the step-7 sweep
+        //      establishes — reopening would leave an open annotation on a
+        //      nonexistent paragraph that the next sweep would archive
+        //      anyway). The sweep itself can't cover this: it only archives
+        //      OPEN annotations, and this one derives `.accepted`.
+        var reopenedIds: [String] = []
+        var strandedAcceptResolved = false
+        var latestLifecycleBySource: [String: Op] = [:]
+        for op in currentOps
+        where [.claudeAccept, .claudeReject, .claudeArchive,
+               .claudeAcceptRevert].contains(op.kind) {
+            guard let src = op.provenance?.sourceAnnotationId else { continue }
+            if let prior = latestLifecycleBySource[src], prior.opId > op.opId { continue }
+            latestLifecycleBySource[src] = op
+        }
+        for (src, lifecycleOp) in latestLifecycleBySource.sorted(by: { $0.key < $1.key }) {
+            guard lifecycleOp.kind == .claudeAccept,
+                  lifecycleOp.opId > targetOpId,         // accept lies past the target (ULID order)
+                  !lifecycleOp.changes.isEmpty,          // suggestion accepts only
+                  let pid = lifecycleOp.changes.first?.paragraphId
+            else { continue }
+            let paragraphSurvives = newIds.contains(pid)
+            let resolutionOp = Op(
+                opId: ULID.generate(),
+                docId: docId, at: Date(),
+                device: device, session: session,
+                kind: paragraphSurvives ? .claudeAcceptRevert : .claudeArchive,
+                changes: [],
+                sequence: nil,
+                provenance: Op.Provenance(
+                    sessionId: session,
+                    synthesisSource: .rewind,
+                    sourceAnnotationId: src))
+            try await opStore.append(resolutionOp)
+            _opLogMirror.append(resolutionOp)
+            strandedAcceptResolved = true
+            if paragraphSurvives {
+                reopenedIds.append(src)
+            } else {
+                archivedIds.append(resolutionOp.opId)
+            }
+        }
+        if strandedAcceptResolved {
+            _hasAnyAnnotationOps = true
+            invalidateAnnotationsCache()
+        }
+
         return RewindRestoreResult(
             restoreOp: stampedOp,
             archivedAnnotationOpIds: archivedIds,
             removedParagraphIds: removedIds,
             priorSequenceCount: priorCount,
-            newSequenceCount: newCount)
+            newSequenceCount: newCount,
+            reopenedAnnotationOpIds: reopenedIds)
     }
 }

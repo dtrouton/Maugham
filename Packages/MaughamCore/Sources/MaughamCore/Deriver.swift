@@ -185,7 +185,7 @@ public enum Deriver {
     static func appliesToManuscript(_ kind: OpKind) -> Bool {
         switch kind {
         case .typingBurst, .bootstrap, .externalEdit,
-             .checkpointRestore, .claudeAccept:
+             .checkpointRestore, .claudeAccept, .claudeAcceptRevert:
             return true
         case .checkpoint, .claudeSuggestion, .claudeComment,
              .claudeQuery, .claudeCraftNote, .claudeReject, .claudeArchive,

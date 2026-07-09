@@ -14,8 +14,9 @@ public struct RewindRestoreResult: Equatable, Sendable {
     /// `Op(opId: "")` would silently propagate through any caller that
     /// inspected `restoreOp.opId`).
     public let restoreOp: Op?
-    /// Op ids of the `.claudeArchive` ops emitted by the sweep for
-    /// annotations whose paragraph_id no longer exists post-restore.
+    /// Op ids of the `.claudeArchive` ops — both emitted by the sweep for
+    /// annotations whose paragraph_id no longer exists post-restore, and appended
+    /// by the stranded-accept resolution pass for accepted suggestions whose change was reverted.
     public let archivedAnnotationOpIds: [String]
     /// Paragraph ids that existed in the pre-restore sequence but not
     /// the post-restore sequence. Drives the impact summary.
@@ -24,18 +25,26 @@ public struct RewindRestoreResult: Equatable, Sendable {
     public let priorSequenceCount: Int
     /// Paragraph count after the restore.
     public let newSequenceCount: Int
+    /// Creation-op ids of accepted suggestions whose `claudeAccept` lay past
+    /// the rewind target: the restore reverted their applied text, so the
+    /// restore also appended a changes-free `claudeAcceptRevert` per id to
+    /// return them to `.open` (a stranded "accepted" row whose change no
+    /// longer exists would otherwise hide in the resolved filter).
+    public let reopenedAnnotationOpIds: [String]
 
     public init(
         restoreOp: Op?,
         archivedAnnotationOpIds: [String],
         removedParagraphIds: [String],
         priorSequenceCount: Int,
-        newSequenceCount: Int
+        newSequenceCount: Int,
+        reopenedAnnotationOpIds: [String]
     ) {
         self.restoreOp = restoreOp
         self.archivedAnnotationOpIds = archivedAnnotationOpIds
         self.removedParagraphIds = removedParagraphIds
         self.priorSequenceCount = priorSequenceCount
         self.newSequenceCount = newSequenceCount
+        self.reopenedAnnotationOpIds = reopenedAnnotationOpIds
     }
 }

@@ -5,6 +5,10 @@ import MaughamCore
 struct AnnotationsPane: View {
     @Bindable var document: Document
     @Environment(UserPreferences.self) private var userPreferences
+    /// The window's undo manager — passed into every accept so the Document
+    /// registers its undo action against the manager ⌘Z reaches (and clears
+    /// the stale native typing-undo stack; the ⌘Z EXC_BAD_ACCESS class).
+    @Environment(\.undoManager) private var undoManager
 
     @State private var kindFilter: KindOption = .all
     @State private var authorFilter: String = AnnotationAuthorFilter.all
@@ -12,6 +16,10 @@ struct AnnotationsPane: View {
     @State private var rejectSheet: Annotation?
     @State private var querySheet: Annotation?
     @State private var staleConfirm: Annotation?
+    /// The accepted suggestion pending a revert confirmation — set when the
+    /// paragraph's text drifted since the accept, so reverting would clobber
+    /// the intervening edits (mirror of `staleConfirm` on the accept path).
+    @State private var revertConfirm: Annotation?
     /// The annotation currently being edited in the inline edit sheet (author
     /// self-service). Only ever the reviewer's own annotation (gated by the
     /// Edit affordance's `isOwn` check).
@@ -130,6 +138,7 @@ struct AnnotationsPane: View {
                                 onReply: { querySheet = ann },
                                 onEdit: { editSheet = ann },
                                 onWithdraw: { withdrawConfirm = ann },
+                                onRevert: { revert(ann) },
                                 onJumpToParagraph: { jump(ann) })
                             Divider()
                         }
@@ -147,7 +156,7 @@ struct AnnotationsPane: View {
         .sheet(item: $querySheet) { ann in
             QueryReplySheet(annotation: ann) { reply in
                 Task { try? await document.acceptAnnotation(
-                    id: ann.id, userResponse: reply) }
+                    id: ann.id, userResponse: reply, undoManager: undoManager) }
                 querySheet = nil
             } onCancel: { querySheet = nil }
         }
@@ -159,13 +168,27 @@ struct AnnotationsPane: View {
         ) {
             Button("Apply anyway") {
                 if let ann = staleConfirm {
-                    Task { try? await document.acceptAnnotation(id: ann.id) }
+                    Task { try? await document.acceptAnnotation(id: ann.id, undoManager: undoManager) }
                 }
                 staleConfirm = nil
             }
             Button("Cancel", role: .cancel) { staleConfirm = nil }
         } message: {
             Text("Applying this suggestion will replace the current paragraph text with the originally-proposed replacement.")
+        }
+        .alert(
+            "Paragraph has changed since this suggestion was accepted",
+            isPresented: Binding(
+                get: { revertConfirm != nil },
+                set: { if !$0 { revertConfirm = nil } })
+        ) {
+            Button("Revert anyway") {
+                if let ann = revertConfirm { performRevert(ann) }
+                revertConfirm = nil
+            }
+            Button("Cancel", role: .cancel) { revertConfirm = nil }
+        } message: {
+            Text("Reverting will replace the current paragraph text with what it was before the accept. Edits made since the accept will be lost.")
         }
         .sheet(item: $editSheet) { ann in
             EditAnnotationSheet(annotation: ann) { newBody, newSuggested in
@@ -244,7 +267,7 @@ struct AnnotationsPane: View {
             staleConfirm = ann
             return
         }
-        Task { try? await document.acceptAnnotation(id: ann.id) }
+        Task { try? await document.acceptAnnotation(id: ann.id, undoManager: undoManager) }
     }
 
     private func reject(_ ann: Annotation, reason: String) {
@@ -269,6 +292,29 @@ struct AnnotationsPane: View {
 
     private func archive(_ ann: Annotation) {
         Task { try? await document.archiveAnnotation(id: ann.id) }
+    }
+
+    /// Revert an accepted suggestion from the pane (visible under the
+    /// resolved/All filter). Reaches accepts ⌘Z can't — ⌘Z only undoes the
+    /// most recent one. Gated behind a confirm when the paragraph drifted
+    /// since the accept (revert restores the PRE-accept text, clobbering the
+    /// intervening edits) — mirror of the accept path's `staleConfirm` gate.
+    /// Only THIS pane button gates: the ⌘Z undo closure calls
+    /// `revertAcceptedAnnotation` directly (undo of an immediately-prior
+    /// action needs no confirm).
+    private func revert(_ ann: Annotation) {
+        if document.acceptedTextDrifted(annotationId: ann.id) {
+            revertConfirm = ann
+            return
+        }
+        performRevert(ann)
+    }
+
+    /// Passing the window's undo manager makes the revert itself ⌘Z-undoable
+    /// (re-accept, original reply preserved).
+    private func performRevert(_ ann: Annotation) {
+        Task { try? await document.revertAcceptedAnnotation(
+            id: ann.id, undoManager: undoManager) }
     }
 
     /// Author self-service edit of one's own annotation. The pane updates via
@@ -329,6 +375,7 @@ struct AnnotationRow: View {
     let onReply: () -> Void
     var onEdit: () -> Void = {}
     var onWithdraw: () -> Void = {}
+    var onRevert: () -> Void = {}
     let onJumpToParagraph: () -> Void
 
     var body: some View {
@@ -478,9 +525,18 @@ struct AnnotationRow: View {
                 Button("Got it", action: onAccept).buttonStyle(.borderedProminent)
                 Button("Archive", action: onArchive).buttonStyle(.bordered)
             case .suggestedChange:
-                Button("Accept", action: onAccept).buttonStyle(.borderedProminent)
-                Button("Reject\u{2026}", action: onReject).buttonStyle(.bordered)
-                Button("Archive", action: onArchive).buttonStyle(.bordered)
+                if annotation.status == .accepted {
+                    // Accepted rows (visible under the resolved/All filter):
+                    // the one meaningful action is putting the text back.
+                    // ⌘Z only reaches the MOST RECENT accept; this reaches
+                    // any accepted suggestion at any time.
+                    Button("Revert", action: onRevert).buttonStyle(.bordered)
+                        .help("Restore the pre-accept text and reopen this suggestion")
+                } else {
+                    Button("Accept", action: onAccept).buttonStyle(.borderedProminent)
+                    Button("Reject\u{2026}", action: onReject).buttonStyle(.bordered)
+                    Button("Archive", action: onArchive).buttonStyle(.bordered)
+                }
             case .query:
                 Button("Reply\u{2026}", action: onReply).buttonStyle(.borderedProminent)
                 Button("Archive", action: onArchive).buttonStyle(.bordered)

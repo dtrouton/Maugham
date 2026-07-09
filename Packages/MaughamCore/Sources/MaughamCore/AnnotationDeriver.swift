@@ -131,7 +131,7 @@ public enum AnnotationDeriver {
 
     private static func isLifecycleKind(_ kind: OpKind) -> Bool {
         switch kind {
-        case .claudeAccept, .claudeReject, .claudeArchive: return true
+        case .claudeAccept, .claudeReject, .claudeArchive, .claudeAcceptRevert: return true
         default: return false
         }
     }
@@ -140,6 +140,9 @@ public enum AnnotationDeriver {
         creation: Op, lifecycle: Op?
     ) -> (AnnotationStatus, String?, Date?) {
         guard let lifecycle else {
+            return (.open, creation.provenance?.userResponse, nil)
+        }
+        if lifecycle.kind == .claudeAcceptRevert {
             return (.open, creation.provenance?.userResponse, nil)
         }
         let status: AnnotationStatus = {

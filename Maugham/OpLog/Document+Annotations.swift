@@ -6,7 +6,7 @@ extension Document {
     internal static func isAnnotationOpKind(_ kind: OpKind) -> Bool {
         switch kind {
         case .claudeComment, .claudeSuggestion, .claudeQuery, .claudeCraftNote,
-             .claudeAccept, .claudeReject, .claudeArchive,
+             .claudeAccept, .claudeReject, .claudeArchive, .claudeAcceptRevert,
              .annotationEdit, .annotationWithdraw:
             return true
         default:
@@ -242,7 +242,8 @@ extension Document {
 
     public func acceptAnnotation(
         id: String,
-        userResponse: String? = nil
+        userResponse: String? = nil,
+        undoManager: UndoManager? = nil
     ) async throws {
         guard let creation = _opLogMirror.first(where: { $0.opId == id }),
               let kind = AnnotationKind.fromOpKind(creation.kind) else {
@@ -288,6 +289,22 @@ extension Document {
         _opLogMirror.append(acceptOp)
         _hasAnyAnnotationOps = true
 
+        // ⌘Z contract: the buffer replace that follows this accept invalidates
+        // every native typing-undo action (they reference the pre-replace text
+        // storage — the ⌘Z segfault class). Clear them, then register the
+        // revert action, then flag the editor's next external apply as
+        // undo-coherent so it doesn't wipe the fresh registration. The clear
+        // sits AFTER the async op append so clear→mutate→register is
+        // contiguous — a keystroke landing during the append would otherwise
+        // register a typing action the flag-preserved replace then leaves
+        // stale on the stack. Skipped mid-undo/redo: NSUndoManager forbids
+        // removeAllActions during undo/redo, and the stacks are coherent in
+        // that flow anyway.
+        if kind == .suggestedChange, let um = undoManager,
+           !um.isUndoing, !um.isRedoing {
+            um.removeAllActions()
+        }
+
         // Apply manuscript mutation for suggestedChange. This is the
         // "two effects, one op" case: the same op resolves the annotation
         // AND mutates `paragraphs` + writes `_displayText`. The single-
@@ -300,11 +317,186 @@ extension Document {
                 prior: change.prior, next: change.next)
             burstScheduler.recordActivity()
             autosaveScheduler.schedule(())
+
+            if let um = undoManager {
+                um.registerUndo(withTarget: self) { [weak um] doc in
+                    // Nested registration runs SYNCHRONOUSLY inside undo, so
+                    // NSUndoManager routes it to the REDO stack. The actual
+                    // re-accept / revert hops to a task (op append is async).
+                    // `[weak um]`: NSUndoManager retains the registered handler,
+                    // and the handler re-registers onto `um`, so a strong capture
+                    // is a retain cycle that leaks the manager (and, transitively,
+                    // the Document) — XCTMemoryChecker aborts on it, and in
+                    // production it strands both across the window's lifetime.
+                    //
+                    // Known dead-redo edge: the nested redo registers here,
+                    // BEFORE the async revert's guards run — if the revert
+                    // no-ops (annotation no longer .accepted, paragraph gone),
+                    // the redo action would re-accept something that was never
+                    // reverted. Bounded: any intervening external buffer
+                    // replace clears the stack, and the re-accept itself is a
+                    // legal op-log append, never a crash.
+                    guard let um else { return }
+                    um.registerUndo(withTarget: doc) { [weak um] d2 in
+                        guard let um else { return }
+                        // `[weak d2]`: the async hop must not keep a closed
+                        // document alive past its window. `d2` is the live target;
+                        // the handle lets tests await the re-accept's completion.
+                        // Forward the ORIGINAL accept's userResponse: the redo
+                        // re-accept appends a fresh claudeAccept op, and the
+                        // deriver reads userResponse off the latest lifecycle op
+                        // — dropping it here would erase the writer's recorded
+                        // reply after ⌘Z + ⇧⌘Z.
+                        d2._lastUndoWorkTask = Task.detached { [weak d2] in
+                            guard let d2 else { return }
+                            try? await d2.acceptAnnotation(
+                                id: id, userResponse: userResponse, undoManager: um)
+                        }
+                    }
+                    doc._lastUndoWorkTask = Task.detached { [weak doc] in
+                        guard let doc else { return }
+                        try? await doc.revertAcceptedAnnotation(id: id, undoManager: nil)
+                    }
+                }
+                um.setActionName("Accept Suggestion")
+                _undoCoherentApplyPending = true
+            }
+
             recomputeDisplayText()
         }
 
         invalidateAnnotationsCache()
         invalidateTasksCache()   // accept may have changed paragraph text → inline tasks
+    }
+
+    /// True iff the paragraph's live text has DRIFTED since this annotation's
+    /// accept — i.e. it no longer matches the latest changes-carrying
+    /// `claudeAccept` op's `next` (whitespace-exact, same as the data). The
+    /// Annotations pane gates its Revert button behind a confirm when true:
+    /// `revertAcceptedAnnotation` restores the PRE-accept text over whatever
+    /// the paragraph now holds, so a drifted revert clobbers the intervening
+    /// edits (mirror of the accept path's `isStale` → staleConfirm gate).
+    /// False when there's no accept op / no change / no live paragraph — the
+    /// revert itself loud-no-ops those, so there's nothing to confirm.
+    public func acceptedTextDrifted(annotationId: String) -> Bool {
+        guard let acceptOp = _opLogMirror.last(where: {
+                  $0.kind == .claudeAccept
+                      && $0.provenance?.sourceAnnotationId == annotationId
+              }),
+              let acceptChange = acceptOp.changes.first,
+              let liveText = paragraphs[acceptChange.paragraphId] else {
+            return false
+        }
+        return liveText != (acceptChange.next ?? "")
+    }
+
+    /// Inverse of an accepted suggestion — the ⌘Z path. Appends a
+    /// `claudeAcceptRevert` op carrying the restore (prior = post-accept text,
+    /// next = pre-accept text) and returns the annotation to `.open`
+    /// (AnnotationDeriver). Append-only: the accept op is never touched.
+    ///
+    /// Loud no-op (log, no throw) when the annotation isn't currently
+    /// `.accepted` or its paragraph no longer exists — an undo action can
+    /// outlive the state it captured (e.g. a rewind in between); never crash.
+    ///
+    /// `undoManager` semantics mirror `acceptAnnotation`'s: a DIRECT revert
+    /// (Annotations-pane "Revert" button) passes the window's manager and gets
+    /// a ⌘Z re-accept registered; the ⌘Z undo closure passes nil (its nested
+    /// redo registration already covers re-accept — registering here too would
+    /// double up).
+    public func revertAcceptedAnnotation(
+        id: String, undoManager: UndoManager? = nil
+    ) async throws {
+        guard let creation = _opLogMirror.first(where: { $0.opId == id }),
+              AnnotationKind.fromOpKind(creation.kind) == .suggestedChange else {
+            documentLog.error("revertAcceptedAnnotation: \(id, privacy: .public) is not a suggestion creation op — ignoring")
+            return
+        }
+        // Query with an explicit status filter: `annotations()` defaults to
+        // `statuses: [.open]` (AnnotationFilter), which would EXCLUDE the very
+        // `.accepted` annotation we're reverting and make this a silent no-op.
+        let current = annotations(filter: AnnotationFilter(statuses: nil))
+            .first { $0.id == id }
+        guard current?.status == .accepted else {
+            documentLog.error("revertAcceptedAnnotation: \(id, privacy: .public) is not accepted (\(String(describing: current?.status), privacy: .public)) — ignoring")
+            return
+        }
+        // Latest accept op for this annotation carries the definitive
+        // prior (pre-accept) / next (post-accept) pair.
+        guard let acceptOp = _opLogMirror.last(where: {
+                  $0.kind == .claudeAccept
+                      && $0.provenance?.sourceAnnotationId == id
+              }),
+              let acceptChange = acceptOp.changes.first else {
+            documentLog.error("revertAcceptedAnnotation: no claudeAccept op with changes for \(id, privacy: .public) — ignoring")
+            return
+        }
+        let pid = acceptChange.paragraphId
+        guard sequence.contains(pid) else {
+            documentLog.error("revertAcceptedAnnotation: paragraph \(pid, privacy: .public) no longer exists — ignoring")
+            return
+        }
+        let currentText = paragraphs[pid] ?? ""
+        let restored = acceptChange.prior ?? ""
+        let change = Op.ParagraphChange(
+            paragraphId: pid, prior: currentText, next: restored)
+
+        let op = Op(
+            opId: ULID.generate(),
+            docId: docId, at: Date(),
+            device: device, session: session,
+            kind: .claudeAcceptRevert,
+            changes: [change],
+            sequence: nil,
+            provenance: Op.Provenance(
+                sessionId: session,
+                sourceAnnotationId: id))
+        try await opStore.append(op)
+        _opLogMirror.append(op)
+        _hasAnyAnnotationOps = true
+
+        // Direct pane-revert: same ⌘Z contract as accept — the buffer replace
+        // that follows invalidates every native typing-undo action, so clear
+        // them AFTER the async append (contiguous clear→mutate→register, same
+        // await-gap rationale as acceptAnnotation) and register a re-accept.
+        // Skipped when called FROM the ⌘Z undo closure: that path passes
+        // undoManager == nil (redo is its nested registration), and the
+        // isUndoing/isRedoing guard covers a direct call landing mid-undo.
+        let registerUndo = undoManager.map {
+            !$0.isUndoing && !$0.isRedoing } ?? false
+        if registerUndo, let um = undoManager {
+            um.removeAllActions()
+        }
+
+        paragraphs[pid] = restored
+        pending.recordChange(paragraphId: pid, prior: currentText, next: restored)
+        burstScheduler.recordActivity()
+        autosaveScheduler.schedule(())
+
+        if registerUndo, let um = undoManager {
+            // Undo of a pane-revert = re-accept, carrying the reverted accept
+            // op's ORIGINAL userResponse so the writer's recorded reply
+            // survives the round trip (same provenance rule as redo's
+            // re-accept in acceptAnnotation). Weak-capture pattern identical
+            // to accept's registration.
+            let originalUserResponse = acceptOp.provenance?.userResponse
+            um.registerUndo(withTarget: self) { [weak um] doc in
+                guard let um else { return }
+                doc._lastUndoWorkTask = Task.detached { [weak doc] in
+                    guard let doc else { return }
+                    try? await doc.acceptAnnotation(
+                        id: id, userResponse: originalUserResponse,
+                        undoManager: um)
+                }
+            }
+            um.setActionName("Revert Suggestion")
+        }
+
+        _undoCoherentApplyPending = true
+        recomputeDisplayText()
+
+        invalidateAnnotationsCache()
+        invalidateTasksCache()
     }
 
     public func rejectAnnotation(

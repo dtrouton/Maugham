@@ -29,8 +29,9 @@ Write:
 - Link research notes to chapters
 - Unlink as needed
 - Promote a capture-inbox entry into research — unscoped, or scoped to a chapter/piece
+- Add text notes and suggested changes to the Annotations pane (non-destructive proposals you review, accept, reject, or undo with ⌘Z)
 
-Claude can't write to your manuscript directly. That's intentional — the manuscript surface stays uncontested. A future milestone will design the manuscript-edit proposal flow ("Claude, draft a fix for this scene" → a non-destructive proposal you review).
+Claude doesn't modify your manuscript text directly — proposals appear as annotations you control. See [Annotations & Suggestions](annotations-and-suggestions.md) for how to accept, reject, or undo changes.
 
 ### When Claude adds a research note
 

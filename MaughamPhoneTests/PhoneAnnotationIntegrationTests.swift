@@ -68,6 +68,124 @@ final class PhoneAnnotationIntegrationTests: XCTestCase {
                 "\(docId).\(DeviceSlug.make(from: "phone:TEST")).jsonl").path))
     }
 
+    /// Task 8 (annotation-undo-suggestion-grain, schema v2): `claudeAcceptRevert`
+    /// is authored ONLY by the Mac (⌘Z / rewind) — the phone never writes it, so
+    /// the load-bearing direction is "Mac writes revert op → phone reads it."
+    /// This seeds a Mac-authored bootstrap + suggestion + accept + accept-revert
+    /// into the per-device `.jsonl` file as real encoded bytes (the cross-device
+    /// path, not in-memory structs), reloads through the SAME
+    /// `OpLogStore`/`Deriver`/`AnnotationDeriver` chain
+    /// `AnnotationLoading.allAnnotations` (and `AnnotationsListView`) use, and
+    /// asserts the pre-accept paragraph text is restored and the annotation
+    /// reopens. Mirrors `AcceptRevertOpTests.test_acceptThenRevert_derivesOpen`
+    /// (MaughamCoreTests) but through the JSONL-encode/decode boundary.
+    @MainActor
+    func test_macAcceptRevertWithChanges_phoneReadsBack_restoresTextAndReopens() async throws {
+        let opsDir = tmp.appendingPathComponent(".maugham/ops")
+        try FileManager.default.createDirectory(at: opsDir, withIntermediateDirectories: true)
+        let macStore = JSONLAppendStore<Op>(
+            fileURL: opsDir.appendingPathComponent("\(docId).mac.jsonl"))
+
+        let bootstrap = Op(
+            opId: "01AAAAAAAAAAAAAAAAAAAAAAAAA", docId: docId,
+            at: Date(timeIntervalSince1970: 900), device: "mac", session: "s0",
+            kind: .bootstrap,
+            changes: [Op.ParagraphChange(paragraphId: "k7m3", prior: nil, next: "The sun set.")],
+            sequence: ["k7m3"])
+        let suggestion = Op(
+            opId: "01BBBBBBBBBBBBBBBBBBBBBBBBB", docId: docId,
+            at: Date(timeIntervalSince1970: 1_000), device: "mac", session: "s1",
+            kind: .claudeSuggestion,
+            changes: [Op.ParagraphChange(paragraphId: "k7m3", prior: "The sun set.", next: "The sun bled out.")],
+            provenance: Op.Provenance(sessionId: "s1", annotationBody: "stronger image"))
+        let accept = Op(
+            opId: "01CCCCCCCCCCCCCCCCCCCCCCCCC", docId: docId,
+            at: Date(timeIntervalSince1970: 1_100), device: "mac", session: "s1",
+            kind: .claudeAccept,
+            changes: [Op.ParagraphChange(paragraphId: "k7m3", prior: "The sun set.", next: "The sun bled out.")],
+            provenance: Op.Provenance(
+                sessionId: "s1", sourceAnnotationId: suggestion.opId, userResponse: "looks good"))
+        // The Mac ⌘Z path: the revert carries the inverse ParagraphChange.
+        let revert = Op(
+            opId: "01DDDDDDDDDDDDDDDDDDDDDDDDD", docId: docId,
+            at: Date(timeIntervalSince1970: 1_200), device: "mac", session: "s1",
+            kind: .claudeAcceptRevert,
+            changes: [Op.ParagraphChange(paragraphId: "k7m3", prior: "The sun bled out.", next: "The sun set.")],
+            provenance: Op.Provenance(sessionId: "s1", sourceAnnotationId: suggestion.opId))
+
+        for op in [bootstrap, suggestion, accept, revert] {
+            try await macStore.append(op)
+        }
+
+        // Reload through the phone's real read path (OpLogStore → Deriver →
+        // AnnotationDeriver, exactly as AnnotationLoading.allAnnotations does).
+        let ops = try await OpLogStore(projectURL: tmp).load(docId: docId)
+        let paragraphs = Deriver.derive(ops: ops).paragraphs
+        XCTAssertEqual(paragraphs["k7m3"], "The sun set.",
+                       "the revert's changes must restore the pre-accept paragraph text")
+
+        let annotations = AnnotationLoading.allAnnotations(ops: ops)
+        let reopened = try XCTUnwrap(annotations.first { $0.id == suggestion.opId })
+        XCTAssertEqual(reopened.status, .open, "accept-revert reopens the annotation")
+        XCTAssertNil(reopened.resolvedAt)
+        XCTAssertNil(reopened.userResponse, "revert clears the prior accept's user response")
+    }
+
+    /// The rewind-path variant of `claudeAcceptRevert`: EMPTY `changes` (the
+    /// checkpoint restore already reverted the text; a second text-apply would
+    /// fight it — see `OpKind.claudeAcceptRevert`'s doc comment). Still a
+    /// manuscript no-op on the phone read path too, but still reopens the
+    /// annotation — the phone must not mistake "no changes" for "no-op lifecycle
+    /// event."
+    @MainActor
+    func test_macAcceptRevertChangesFree_phoneReadsBack_reopensAsManuscriptNoOp() async throws {
+        let opsDir = tmp.appendingPathComponent(".maugham/ops")
+        try FileManager.default.createDirectory(at: opsDir, withIntermediateDirectories: true)
+        let macStore = JSONLAppendStore<Op>(
+            fileURL: opsDir.appendingPathComponent("\(docId).mac.jsonl"))
+
+        let bootstrap = Op(
+            opId: "01AAAAAAAAAAAAAAAAAAAAAAAAA", docId: docId,
+            at: Date(timeIntervalSince1970: 900), device: "mac", session: "s0",
+            kind: .bootstrap,
+            changes: [Op.ParagraphChange(paragraphId: "k7m3", prior: nil, next: "The sun set.")],
+            sequence: ["k7m3"])
+        let suggestion = Op(
+            opId: "01BBBBBBBBBBBBBBBBBBBBBBBBB", docId: docId,
+            at: Date(timeIntervalSince1970: 1_000), device: "mac", session: "s1",
+            kind: .claudeSuggestion,
+            changes: [Op.ParagraphChange(paragraphId: "k7m3", prior: "The sun set.", next: "The sun bled out.")],
+            provenance: Op.Provenance(sessionId: "s1", annotationBody: "stronger image"))
+        let accept = Op(
+            opId: "01CCCCCCCCCCCCCCCCCCCCCCCCC", docId: docId,
+            at: Date(timeIntervalSince1970: 1_100), device: "mac", session: "s1",
+            kind: .claudeAccept,
+            changes: [Op.ParagraphChange(paragraphId: "k7m3", prior: "The sun set.", next: "The sun bled out.")],
+            provenance: Op.Provenance(sessionId: "s1", sourceAnnotationId: suggestion.opId))
+        // Rewind already restored the manuscript via a separate checkpoint_restore
+        // op (not modeled here — only the revert op's OWN contribution matters for
+        // this assertion); the revert itself carries no changes.
+        let revert = Op(
+            opId: "01DDDDDDDDDDDDDDDDDDDDDDDDD", docId: docId,
+            at: Date(timeIntervalSince1970: 1_200), device: "mac", session: "s1",
+            kind: .claudeAcceptRevert, changes: [],
+            provenance: Op.Provenance(sessionId: "s1", sourceAnnotationId: suggestion.opId))
+
+        for op in [bootstrap, suggestion, accept, revert] {
+            try await macStore.append(op)
+        }
+
+        let ops = try await OpLogStore(projectURL: tmp).load(docId: docId)
+        let paragraphs = Deriver.derive(ops: ops).paragraphs
+        XCTAssertEqual(paragraphs["k7m3"], "The sun bled out.",
+                       "a changes-free revert does not itself touch manuscript text — the rewind's own checkpoint_restore is what does that")
+
+        let annotations = AnnotationLoading.allAnnotations(ops: ops)
+        let reopened = try XCTUnwrap(annotations.first { $0.id == suggestion.opId })
+        XCTAssertEqual(reopened.status, .open, "accept-revert reopens the annotation even changes-free")
+        XCTAssertNil(reopened.resolvedAt)
+    }
+
     /// AnnotationDetailRaceTests (core): an annotation archived on another device
     /// is excluded from the open set — so the detail view's `.onAppear` re-derive
     /// finds it not-open and shows "Already resolved on another device."

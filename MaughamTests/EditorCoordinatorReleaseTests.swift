@@ -88,4 +88,31 @@ final class EditorCoordinatorReleaseTests: XCTestCase {
             + "still freed when SwiftUI releases its scene storage.")
         _ = tv
     }
+
+    /// `detach()` clears the native undo stack. A doc switch recreates the
+    /// EditorSurface via `.id(path)` and seeds the NEW text view in
+    /// `makeNSView` — no `applyExternalText` fires, so without this clear the
+    /// WINDOW's undo manager keeps typing actions referencing the dismantled
+    /// text view poppable (the ⌘Z crash family's residual). Cross-doc undo is
+    /// not a thing, so dropping the stack on teardown loses nothing.
+    func test_detach_clearsNativeUndoStack() {
+        let tv = makeTextView(text: "Body text.")
+        let coord = makeCoordinator(textView: tv)
+        let um = UndoManager()
+        coord.undoManagerOverrideForTesting = um
+
+        final class Dummy: NSObject {}
+        let target = Dummy()
+        um.groupsByEvent = false
+        um.beginUndoGrouping()
+        um.registerUndo(withTarget: target) { _ in }
+        um.endUndoGrouping()
+        XCTAssertTrue(um.canUndo)
+
+        coord.detach()
+        XCTAssertFalse(
+            um.canUndo,
+            "detach() must clear the native undo stack — stale typing actions "
+            + "referencing the dismantled text view must not stay poppable")
+    }
 }

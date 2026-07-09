@@ -11,16 +11,20 @@ The ones you'll use most:
 | `⌘N` | New project |
 | `⌘O` | Open project |
 | `⌘S` | Save flash (autosave is automatic) |
+| `⌘Z` | Undo (text or accepted suggestion) |
+| `⌘⇧Z` | Redo |
 | `⌘,` | Settings |
 | `⌘⇧,` | Project Settings |
 | `⌘F` | Find in editor |
 | `⌘G` / `⌘⇧G` | Find next / previous |
 | `⌘⌥F` | Find in project |
+| `⌘⌥A` | Show Annotations pane |
 | `⌘⌥Z` | Restore last deleted item |
 | `⌘\\` | Toggle focus mode |
 | `⌘⇧F` | Toggle full-screen focus |
 | `⌘⌥I` | Toggle Inspector pane |
 | `⌘⌥1` / `⌘⌥2` / `⌘⌥3` | Right pane: Inspector / Research / Outline |
+| `⌘⌥5` | Tasks pane |
 | `⌘⇧P` | Toggle Research preview |
 | `⌘/` | Syntax + keyboard reference |
 
