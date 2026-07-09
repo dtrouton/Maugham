@@ -454,7 +454,7 @@ struct TasksPane: View {
             // Project pane-created task: emit .taskArchive op directly
             // via the project op log (no Document actor involved) and
             // register the status-restore inverse.
-            archiveProjectTaskWithUndo(task, undoManager: undoManager)
+            Self.archiveProjectTask(task, store: store, undoManager: undoManager)
         }
         for (task, doc) in docTasks {
             doc.archiveTask(id: task.id, undoManager: undoManager,
@@ -467,8 +467,13 @@ struct TasksPane: View {
     /// re-archives, forwarding the LIVE undo manager so the cycle re-arms
     /// (mirrors `Document.archiveTask`). Carried body + kind keep the deriver's
     /// Archived-filter entry intact (archiveTask convention).
-    private func archiveProjectTaskWithUndo(
-        _ task: WriterTask, undoManager: UndoManager?
+    ///
+    /// Static, `store` explicit: the undo/redo closures must route through the
+    /// registered TARGET (`s`), never a captured view struct — every sibling
+    /// registration site does the same, and a captured `self` here would pin a
+    /// stale view value (and its store) inside NSUndoManager.
+    private static func archiveProjectTask(
+        _ task: WriterTask, store: ProjectStore, undoManager: UndoManager?
     ) {
         let op = Op(
             opId: ULID.generate(),
@@ -500,13 +505,13 @@ struct TasksPane: View {
                     scope: .project, statuses: Set(TaskStatus.allCases)))
                     .first { $0.id == task.id }
                 guard let now, now.status == .archived else {
-                    projectStoreLog.error("archiveProjectTaskWithUndo undo: \(task.id, privacy: .public) no longer archived — ignoring")
+                    projectStoreLog.error("archiveProjectTask undo: \(task.id, privacy: .public) no longer archived — ignoring")
                     return
                 }
                 s.appendProjectTaskOp(inverse)
             },
-            redo: { [weak undoManager] _ in
-                archiveProjectTaskWithUndo(task, undoManager: undoManager)
+            redo: { [weak undoManager] s in
+                Self.archiveProjectTask(task, store: s, undoManager: undoManager)
             })
     }
 

@@ -573,8 +573,11 @@ private struct HistoryRow: View {
             case .externalEdit: return "External edit"
             case .checkpoint: return "Checkpoint"
             case .checkpointRestore:
-                return op.provenance?.synthesisSource == .rewind
-                    ? "Rewound" : "Reverted"
+                switch op.provenance?.synthesisSource {
+                case .rewind: return "Rewound"
+                case .undoRewind: return "Rewind undone"
+                default: return "Reverted"
+                }
             case .bootstrap: return "Initial"
             case .taskCreate: return "Task created"
             case .taskStatusChange: return "Task status"

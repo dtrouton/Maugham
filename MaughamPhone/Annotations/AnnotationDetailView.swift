@@ -469,6 +469,15 @@ struct AnnotationDetailView: View {
                 errorMessage = "Couldn't find the accepted change to revert."
                 throw CancelledWrite()
             }
+            // Gone-paragraph guard: the paragraph this accept applied to no
+            // longer exists (deleted on the Mac, say). The drift-confirm
+            // silently skips on nil, and a revert here would write a phantom
+            // `claudeAcceptRevert` against a nonexistent paragraph — decline
+            // with the existing alert instead.
+            guard currentParagraphText != nil else {
+                errorMessage = "The paragraph this change applied to no longer exists in the manuscript, so it can't be reverted."
+                throw CancelledWrite()
+            }
             do {
                 try await writer.revertAccept(
                     current, acceptOp: acceptOp, currentParagraph: currentParagraphText)

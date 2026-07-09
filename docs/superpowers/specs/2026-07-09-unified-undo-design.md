@@ -74,14 +74,16 @@ Undo fires as **one grouped NSUndoManager action**:
 - append a status-only re-accept per D3-reopened accept (`claudeAccept` with empty `changes` — exact mirror of D3's empty-changes revert; the derive loop folds only `op.changes`, so no conditional classification, same argument as v0.17.0 D3);
 - append `annotationReopen` per sweep-archived annotation (their paragraphs are back).
 
-Redo = re-perform `restoreToOp(original target)` from scratch, sweeps and all — never replay captured ops, so redo cannot disagree with a fresh rewind.
+**Task dimension (2026-07-09 final-review fix):** `TaskDeriver` keys its rewind window on the latest `.rewind`-stamped restore; the compensating `.undoRewind` restore deliberately opens no new window, so when the original rewind's range contained task ops the undo additionally appends a `.rewind`-flavored, text-inert task marker whose `sourceCheckpoint` is the ORIGINAL rewind op's id — the deriver's window moves past the previously-excluded task ops and they fold back in (append-only; the marker-only rewind gets a real undo this way too).
+
+Redo = re-perform `restoreToOp(original target)` from scratch, sweeps and all — never replay captured ops, so redo cannot disagree with a fresh rewind (its fresh `.rewind` marker re-excludes the task ops).
 
 Fire-time guard, stricter than D3 because blast radius is whole-doc: decline (loud no-op) if manuscript-applying ops from **other sources** (cross-device merge, external edit) landed after the restore's own appended ops. Plain local typing after the rewind is fine — it stacks its own undo actions on top and ⌘Z unwinds through them first. Rewind's Snapshot action is read-only and registers nothing.
 
 ## D5 — Phone Reopen
 
 In the Annotations drill-down's Resolved section (phone-v0.2.0), resolved annotations gain a **Reopen** action:
-- Rejected / archived / withdrawn → append `annotationReopen`, built by the shared `AnnotationInverse` factory.
+- Rejected / archived → append `annotationReopen`, built by the shared `AnnotationInverse` factory. Withdrawn annotations are absent from the phone's projection, so the phone Reopen covers rejected/archived only — withdraw-undo is Mac ⌘Z only.
 - Accepted suggestion → **full revert**: `claudeAcceptRevert` with changes, identical to Mac's pane Revert, including the drift-confirm behavior (9c063c0): paragraph drifted since accept → confirm sheet before reverting.
 - No undo stack on the phone; Reopen is a deliberate button. A reopened note is simply re-dispositioned — that is the phone's redo.
 - Ships paired with the Mac release under schema v3.
@@ -100,7 +102,7 @@ In the Annotations drill-down's Resolved section (phone-v0.2.0), resolved annota
 - **Per-inverse round-trips** in the owning target: do → undo → derived state equals pre-state; do → undo → redo → equals post-state with metadata preserved. One case per table row.
 - **Interleaving harness** (extend `EditorIntegrationHarnessTests`): type → pane action → type → ⌘Z×3 walks back in order, no crash, no stale-stack fault (B3 class stays pinned).
 - **Rewind-undo integration:** create → accept → type → restore-to-before-accept → ⌘Z → doc and annotation statuses identical to the pre-restore derive; plus the other-source drift-guard decline case.
-- **Cross-surface round-trips:** Mac writes `annotationReopen` → phone derives `.open`; phone writes reopen and revert → Mac derives correctly. Both schemes green; `TripwireGrepTests` / `TripwirePhoneGrepTest` extended for the new kind.
+- **Cross-surface round-trips:** Mac writes `annotationReopen` → phone derives `.open`; phone writes reopen and revert → Mac derives correctly. Both schemes green. (The originally-planned `TripwireGrepTests` / `TripwirePhoneGrepTest` extension for the new kind was consciously dropped: there is no greppable string to pin — the compile-time exhaustive switches plus the shared `AnnotationInverse` factory are the guard.)
 - **User smoke:** accept, reject, archive, toggle an inline checkbox, reorder tasks, rewind-restore — then ⌘Z all the way back and ⇧⌘Z all the way forward.
 - Tripwire 8 (4-char alphabet-restricted paragraph ids) in every test crossing the `.md` ↔ op-log boundary.
 
