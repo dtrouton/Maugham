@@ -16,6 +16,6 @@ final class MCPToolsListSmokeTest: XCTestCase {
         // production catalog here (see TestMCPCatalogConsistencyTests for the
         // dev-tool discovery coverage).
         let productionCount = names.filter { !$0.hasPrefix("test_") }.count
-        XCTAssertEqual(productionCount, 44)
+        XCTAssertEqual(productionCount, 47)
     }
 }
