@@ -21,7 +21,20 @@ extension Document {
     /// op ids the sweep produced, and the prior/new sequence counts so
     /// callers (the rewind modal) can render an impact summary without
     /// rummaging through the op log post-hoc.
-    public func restoreToOp(opId targetOpId: String) async throws -> RewindRestoreResult {
+    ///
+    /// `synthesisSource` stamps the restore op's provenance. It defaults to
+    /// `.rewind` — the value every existing caller (the History-Rewind modal,
+    /// `TaskRewindTests`) relies on and the value `TaskDeriver` keys its
+    /// rewind-window matcher on. The undo of a rewind (`restoreToOpUndoable`'s
+    /// compensating restore) passes `.undoRewind` so that its restore op is
+    /// deliberately INVISIBLE to `TaskDeriver` — an undo must not open a fresh
+    /// task-rewind window. This parameter threads onto the restore op ONLY (the
+    /// `applyRestore` call and the task-marker fallback); the orphan sweep and
+    /// the stranded-accept resolution keep their fixed `.rewind` semantics.
+    public func restoreToOp(
+        opId targetOpId: String,
+        synthesisSource: SynthesisSource = .rewind
+    ) async throws -> RewindRestoreResult {
         // 1. Flush any pending burst so the rewind boundary is clean.
         try await flushBurstNow()
 
@@ -48,7 +61,7 @@ extension Document {
         if let applied = try await applyRestore(
             target: targetState,
             sourceCheckpoint: targetOpId,
-            synthesisSource: .rewind) {
+            synthesisSource: synthesisSource) {
             stampedOp = applied
         } else {
             // `target == current` manuscript-wise. Check whether any task-
@@ -93,7 +106,7 @@ extension Document {
                 sequence: targetState.sequence,
                 provenance: .init(
                     sourceCheckpoint: targetOpId,
-                    synthesisSource: .rewind))
+                    synthesisSource: synthesisSource))
             try await opStore.append(markerOp)
             _opLogMirror.append(markerOp)
             self.paragraphs = targetState.paragraphs

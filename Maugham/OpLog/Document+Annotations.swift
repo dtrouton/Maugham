@@ -663,7 +663,13 @@ extension Document {
 
     /// Shared helper for reject/archive (and the paragraph-deletion sweep in
     /// T12, which uses `synthesisSource = "paragraph_deleted"`).
-    private func appendLifecycleOp(
+    ///
+    /// `internal` (not `private`) so `restoreToOpUndoable`'s undo closure can
+    /// append a status-only re-accept (`.claudeAccept` with empty `changes`) —
+    /// the deriver folds only `changes` for text, so an empty-changes accept is
+    /// a pure status transition back to `.accepted`, the exact mirror of D3's
+    /// empty-changes `claudeAcceptRevert` reopen.
+    internal func appendLifecycleOp(
         kind: OpKind,
         sourceAnnotationId: String,
         userResponse: String?,
