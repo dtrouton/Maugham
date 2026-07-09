@@ -101,7 +101,8 @@ extension Document {
                     archivedAnnotationOpIds: [],
                     removedParagraphIds: [],
                     priorSequenceCount: priorCount,
-                    newSequenceCount: newCount)
+                    newSequenceCount: newCount,
+                    reopenedAnnotationOpIds: [])
             }
 
             // Emit a task-rewind marker checkpoint_restore with empty changes
@@ -182,11 +183,60 @@ extension Document {
             }
             .map(\.opId)
 
+        // 8. Reopen accepts stranded past the rewind target. The restore
+        //    derived from the log PREFIX, so text applied by any claudeAccept
+        //    AFTER `targetOpId` is already reverted — but the accept op itself
+        //    survives (append-only), so the annotation would still derive
+        //    `.accepted` while its change no longer exists. Append a
+        //    changes-free claudeAcceptRevert (status-only: the restore op
+        //    already carries the text) for each annotation whose LATEST
+        //    lifecycle op is a post-target accept whose paragraph SURVIVES
+        //    the rewind. The removed-paragraph sweep (step 7) handles
+        //    annotations on paragraphs that vanished — those are OPEN
+        //    annotations, disjoint from the ACCEPTED ones scanned here — so
+        //    an accept whose paragraph was removed is left for that path.
+        var reopenedIds: [String] = []
+        var latestLifecycleBySource: [String: Op] = [:]
+        for op in currentOps
+        where [.claudeAccept, .claudeReject, .claudeArchive,
+               .claudeAcceptRevert].contains(op.kind) {
+            guard let src = op.provenance?.sourceAnnotationId else { continue }
+            if let prior = latestLifecycleBySource[src], prior.opId > op.opId { continue }
+            latestLifecycleBySource[src] = op
+        }
+        for (src, lifecycleOp) in latestLifecycleBySource.sorted(by: { $0.key < $1.key }) {
+            guard lifecycleOp.kind == .claudeAccept,
+                  lifecycleOp.opId > targetOpId,         // accept lies past the target (ULID order)
+                  !lifecycleOp.changes.isEmpty,          // suggestion accepts only
+                  let pid = lifecycleOp.changes.first?.paragraphId,
+                  newIds.contains(pid)                   // the annotation's paragraph survives
+            else { continue }                            // (removed-paragraph accepts are the sweep's job)
+            let reopenOp = Op(
+                opId: ULID.generate(),
+                docId: docId, at: Date(),
+                device: device, session: session,
+                kind: .claudeAcceptRevert,
+                changes: [],
+                sequence: nil,
+                provenance: Op.Provenance(
+                    sessionId: session,
+                    synthesisSource: .rewind,
+                    sourceAnnotationId: src))
+            try await opStore.append(reopenOp)
+            _opLogMirror.append(reopenOp)
+            reopenedIds.append(src)
+        }
+        if !reopenedIds.isEmpty {
+            _hasAnyAnnotationOps = true
+            invalidateAnnotationsCache()
+        }
+
         return RewindRestoreResult(
             restoreOp: stampedOp,
             archivedAnnotationOpIds: archivedIds,
             removedParagraphIds: removedIds,
             priorSequenceCount: priorCount,
-            newSequenceCount: newCount)
+            newSequenceCount: newCount,
+            reopenedAnnotationOpIds: reopenedIds)
     }
 }

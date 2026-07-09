@@ -24,18 +24,26 @@ public struct RewindRestoreResult: Equatable, Sendable {
     public let priorSequenceCount: Int
     /// Paragraph count after the restore.
     public let newSequenceCount: Int
+    /// Creation-op ids of accepted suggestions whose `claudeAccept` lay past
+    /// the rewind target: the restore reverted their applied text, so the
+    /// restore also appended a changes-free `claudeAcceptRevert` per id to
+    /// return them to `.open` (a stranded "accepted" row whose change no
+    /// longer exists would otherwise hide in the resolved filter).
+    public let reopenedAnnotationOpIds: [String]
 
     public init(
         restoreOp: Op?,
         archivedAnnotationOpIds: [String],
         removedParagraphIds: [String],
         priorSequenceCount: Int,
-        newSequenceCount: Int
+        newSequenceCount: Int,
+        reopenedAnnotationOpIds: [String]
     ) {
         self.restoreOp = restoreOp
         self.archivedAnnotationOpIds = archivedAnnotationOpIds
         self.removedParagraphIds = removedParagraphIds
         self.priorSequenceCount = priorSequenceCount
         self.newSequenceCount = newSequenceCount
+        self.reopenedAnnotationOpIds = reopenedAnnotationOpIds
     }
 }
