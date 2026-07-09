@@ -369,6 +369,27 @@ extension Document {
         invalidateTasksCache()   // accept may have changed paragraph text → inline tasks
     }
 
+    /// True iff the paragraph's live text has DRIFTED since this annotation's
+    /// accept — i.e. it no longer matches the latest changes-carrying
+    /// `claudeAccept` op's `next` (whitespace-exact, same as the data). The
+    /// Annotations pane gates its Revert button behind a confirm when true:
+    /// `revertAcceptedAnnotation` restores the PRE-accept text over whatever
+    /// the paragraph now holds, so a drifted revert clobbers the intervening
+    /// edits (mirror of the accept path's `isStale` → staleConfirm gate).
+    /// False when there's no accept op / no change / no live paragraph — the
+    /// revert itself loud-no-ops those, so there's nothing to confirm.
+    public func acceptedTextDrifted(annotationId: String) -> Bool {
+        guard let acceptOp = _opLogMirror.last(where: {
+                  $0.kind == .claudeAccept
+                      && $0.provenance?.sourceAnnotationId == annotationId
+              }),
+              let acceptChange = acceptOp.changes.first,
+              let liveText = paragraphs[acceptChange.paragraphId] else {
+            return false
+        }
+        return liveText != (acceptChange.next ?? "")
+    }
+
     /// Inverse of an accepted suggestion — the ⌘Z path. Appends a
     /// `claudeAcceptRevert` op carrying the restore (prior = post-accept text,
     /// next = pre-accept text) and returns the annotation to `.open`

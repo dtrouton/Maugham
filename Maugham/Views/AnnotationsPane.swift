@@ -16,6 +16,10 @@ struct AnnotationsPane: View {
     @State private var rejectSheet: Annotation?
     @State private var querySheet: Annotation?
     @State private var staleConfirm: Annotation?
+    /// The accepted suggestion pending a revert confirmation — set when the
+    /// paragraph's text drifted since the accept, so reverting would clobber
+    /// the intervening edits (mirror of `staleConfirm` on the accept path).
+    @State private var revertConfirm: Annotation?
     /// The annotation currently being edited in the inline edit sheet (author
     /// self-service). Only ever the reviewer's own annotation (gated by the
     /// Edit affordance's `isOwn` check).
@@ -172,6 +176,20 @@ struct AnnotationsPane: View {
         } message: {
             Text("Applying this suggestion will replace the current paragraph text with the originally-proposed replacement.")
         }
+        .alert(
+            "Paragraph has changed since this suggestion was accepted",
+            isPresented: Binding(
+                get: { revertConfirm != nil },
+                set: { if !$0 { revertConfirm = nil } })
+        ) {
+            Button("Revert anyway") {
+                if let ann = revertConfirm { performRevert(ann) }
+                revertConfirm = nil
+            }
+            Button("Cancel", role: .cancel) { revertConfirm = nil }
+        } message: {
+            Text("Reverting will replace the current paragraph text with what it was before the accept. Edits made since the accept will be lost.")
+        }
         .sheet(item: $editSheet) { ann in
             EditAnnotationSheet(annotation: ann) { newBody, newSuggested in
                 editOwn(ann, newBody: newBody, newSuggested: newSuggested)
@@ -278,9 +296,23 @@ struct AnnotationsPane: View {
 
     /// Revert an accepted suggestion from the pane (visible under the
     /// resolved/All filter). Reaches accepts ⌘Z can't — ⌘Z only undoes the
-    /// most recent one. Passing the window's undo manager makes the revert
-    /// itself ⌘Z-undoable (re-accept, original reply preserved).
+    /// most recent one. Gated behind a confirm when the paragraph drifted
+    /// since the accept (revert restores the PRE-accept text, clobbering the
+    /// intervening edits) — mirror of the accept path's `staleConfirm` gate.
+    /// Only THIS pane button gates: the ⌘Z undo closure calls
+    /// `revertAcceptedAnnotation` directly (undo of an immediately-prior
+    /// action needs no confirm).
     private func revert(_ ann: Annotation) {
+        if document.acceptedTextDrifted(annotationId: ann.id) {
+            revertConfirm = ann
+            return
+        }
+        performRevert(ann)
+    }
+
+    /// Passing the window's undo manager makes the revert itself ⌘Z-undoable
+    /// (re-accept, original reply preserved).
+    private func performRevert(_ ann: Annotation) {
         Task { try? await document.revertAcceptedAnnotation(
             id: ann.id, undoManager: undoManager) }
     }

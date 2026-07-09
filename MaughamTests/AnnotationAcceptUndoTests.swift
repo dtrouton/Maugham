@@ -254,6 +254,31 @@ final class AnnotationAcceptUndoTests: XCTestCase {
         try bridge { await h.documentStore.close() }
     }
 
+    /// Drift detector behind the pane's Revert confirm: true iff the paragraph
+    /// text changed since the accept (revert would clobber those edits).
+    /// Whitespace-exact comparison, same as the underlying data.
+    func test_acceptedTextDrifted_falseAfterAccept_trueAfterEdit() throws {
+        let h = try bridge { try await self.makeHarness(initialMd: "Alpha text stands.") }
+        let doc = h.doc, pid = h.pid
+        let annId = try bridge {
+            try await doc.addAnnotation(
+                kind: .suggestedChange, paragraphId: pid,
+                body: "b", suggestedText: "Beta text stands.")
+        }
+        XCTAssertFalse(doc.acceptedTextDrifted(annotationId: annId),
+            "not yet accepted → no drift (revert itself no-ops that case)")
+
+        try bridge { try await doc.acceptAnnotation(id: annId) }
+        XCTAssertFalse(doc.acceptedTextDrifted(annotationId: annId),
+            "accepted, no subsequent edit → no drift")
+
+        doc.setParagraph(id: pid, text: "Beta text stands, but edited since.")
+        XCTAssertTrue(doc.acceptedTextDrifted(annotationId: annId),
+            "post-accept edit → drift; the pane must confirm before reverting over it")
+
+        try bridge { await h.documentStore.close() }
+    }
+
     /// A DIRECT pane-revert (Revert button — not via ⌘Z) must itself be
     /// ⌘Z-undoable: undo re-accepts, and the re-accept carries the reverted
     /// accept op's original userResponse.
