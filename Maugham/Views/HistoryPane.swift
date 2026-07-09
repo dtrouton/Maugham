@@ -375,7 +375,7 @@ private struct HistoryRow: View {
             return true
         case .bootstrap, .checkpoint, .claudeComment, .claudeSuggestion,
              .claudeQuery, .claudeCraftNote, .claudeReject, .claudeArchive,
-             .annotationEdit, .annotationWithdraw,
+             .annotationEdit, .annotationWithdraw, .annotationReopen,
              .taskCreate, .taskStatusChange, .taskPriorityChange,
              .taskParentChange, .taskBodyEdit, .taskArchive:
             return false
@@ -481,6 +481,9 @@ private struct HistoryRow: View {
             case .annotationWithdraw:
                 Text("Annotation withdrawn")
                     .font(.caption).foregroundStyle(.secondary)
+            case .annotationReopen:
+                Text("Annotation reopened")
+                    .font(.caption).foregroundStyle(.secondary)
             case .externalEdit:
                 Text("\(op.changes.count) paragraph\(op.changes.count == 1 ? "" : "s") changed externally")
                     .font(.caption).foregroundStyle(.secondary)
@@ -581,6 +584,7 @@ private struct HistoryRow: View {
             case .taskArchive: return "Task archived"
             case .annotationEdit: return "Annotation edited"
             case .annotationWithdraw: return "Annotation withdrawn"
+            case .annotationReopen: return "Annotation reopened"
             case .unknown: return "Newer version"
             }
         case .checkpoint:
@@ -608,6 +612,7 @@ private struct HistoryRow: View {
                 return "checklist"
             case .annotationEdit: return "pencil"
             case .annotationWithdraw: return "trash"
+            case .annotationReopen: return "arrow.uturn.up"
             case .unknown: return "questionmark.square.dashed"
             }
         case .checkpoint: return "flag"
@@ -631,7 +636,7 @@ private struct HistoryRow: View {
             case .taskCreate, .taskStatusChange, .taskPriorityChange,
                  .taskParentChange, .taskBodyEdit, .taskArchive:
                 return Color(red: 0.38, green: 0.76, blue: 0.45)
-            case .annotationEdit, .annotationWithdraw: return .orange
+            case .annotationEdit, .annotationWithdraw, .annotationReopen: return .orange
             case .unknown: return .gray
             }
         case .checkpoint: return .green

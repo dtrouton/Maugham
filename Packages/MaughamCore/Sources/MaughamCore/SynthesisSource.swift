@@ -11,6 +11,12 @@ public enum SynthesisSource: String, Codable, Equatable, Hashable, Sendable {
     case useCloudResolution = "use_cloud_resolution"
     case rewind
 
+    /// Ops synthesized by ⌘Z-undoing a History Rewind restore (or another
+    /// compound undo that rebuilds document state): the restore-back plus its
+    /// lifecycle compensations. Distinct from `.rewind` so HistoryPane can
+    /// tell "the writer rewound" from "the writer undid a rewind".
+    case undoRewind = "undo_rewind"
+
     /// Cross-version forward-tolerance (ADR 0015): a synthesis source written
     /// by a newer build decodes to `.unknown` rather than throwing — which
     /// would quarantine the whole `Op` and silently drop the edits it carries.

@@ -37,6 +37,14 @@ public enum OpKind: String, Codable, Equatable, Sendable {
     case annotationEdit     = "annotation_edit"
     case annotationWithdraw = "annotation_withdraw"
 
+    /// Reopens a resolved annotation: the compensating inverse of
+    /// `claudeReject` / `claudeArchive` / `annotationWithdraw`. References the
+    /// creation op via `provenance.sourceAnnotationId`. Carries NO `changes`
+    /// (never applies to the manuscript — an accepted suggestion's text
+    /// reversal always goes through `claudeAcceptRevert` instead). The log
+    /// stays append-only; earlier resolutions are never mutated.
+    case annotationReopen = "annotation_reopen"
+
     // Task lifecycle (pane-created tasks; inline status changes use .typingBurst)
     case taskCreate         = "task_create"
     case taskStatusChange   = "task_status_change"

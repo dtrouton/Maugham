@@ -24,22 +24,32 @@ public enum AnnotationDeriver {
         //     creation op via `sourceAnnotationId`. The creation op is never
         //     mutated — these are separate append-only ops.
         var latestEdit: [String: Op] = [:]
-        var withdrawn: Set<String> = []
         for op in ops {
-            guard let src = op.provenance?.sourceAnnotationId else { continue }
-            switch op.kind {
-            case .annotationEdit:
-                if let prior = latestEdit[src] {
-                    if op.opId > prior.opId { latestEdit[src] = op }
-                } else {
-                    latestEdit[src] = op
-                }
-            case .annotationWithdraw:
-                withdrawn.insert(src)
-            default:
-                break
+            guard op.kind == .annotationEdit,
+                  let src = op.provenance?.sourceAnnotationId else { continue }
+            if let prior = latestEdit[src] {
+                if op.opId > prior.opId { latestEdit[src] = op }
+            } else {
+                latestEdit[src] = op
             }
         }
+
+        // 1b. Withdraw / reopen: latest-by-opId wins between the two per
+        // target (a reopen newer than a withdraw cancels the withdrawal; a
+        // later withdraw re-drops it). `annotationReopen` here is the
+        // withdraw-compensation path — the reject/archive-compensation path
+        // is handled by `isLifecycleKind` + `resolution` below.
+        var withdrawState: [String: Op] = [:]
+        for op in ops {
+            guard op.kind == .annotationWithdraw || op.kind == .annotationReopen,
+                  let src = op.provenance?.sourceAnnotationId else { continue }
+            if let prior = withdrawState[src] {
+                if op.opId > prior.opId { withdrawState[src] = op }
+            } else {
+                withdrawState[src] = op
+            }
+        }
+        let withdrawn = Set(withdrawState.filter { $0.value.kind == .annotationWithdraw }.keys)
 
         // 2. Walk creation ops; build annotations.
         var result: [Annotation] = []
@@ -131,7 +141,9 @@ public enum AnnotationDeriver {
 
     private static func isLifecycleKind(_ kind: OpKind) -> Bool {
         switch kind {
-        case .claudeAccept, .claudeReject, .claudeArchive, .claudeAcceptRevert: return true
+        case .claudeAccept, .claudeReject, .claudeArchive, .claudeAcceptRevert,
+             .annotationReopen:
+            return true
         default: return false
         }
     }
@@ -142,7 +154,7 @@ public enum AnnotationDeriver {
         guard let lifecycle else {
             return (.open, creation.provenance?.userResponse, nil)
         }
-        if lifecycle.kind == .claudeAcceptRevert {
+        if lifecycle.kind == .claudeAcceptRevert || lifecycle.kind == .annotationReopen {
             return (.open, creation.provenance?.userResponse, nil)
         }
         let status: AnnotationStatus = {
