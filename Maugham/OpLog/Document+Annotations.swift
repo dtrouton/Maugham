@@ -250,18 +250,6 @@ extension Document {
             return  // unknown id or non-annotation op — no-op
         }
 
-        // ⌘Z contract: the buffer replace that follows this accept invalidates
-        // every native typing-undo action (they reference the pre-replace text
-        // storage — the ⌘Z segfault class). Clear them NOW, then register the
-        // revert action, then flag the editor's next external apply as
-        // undo-coherent so it doesn't wipe the fresh registration. Skipped
-        // mid-undo/redo: NSUndoManager forbids removeAllActions during
-        // undo/redo, and the stacks are coherent in that flow anyway.
-        if kind == .suggestedChange, let um = undoManager,
-           !um.isUndoing, !um.isRedoing {
-            um.removeAllActions()
-        }
-
         // Determine the changes payload. Only suggestedChange mutates the
         // manuscript on accept. The creation op stores the BARE suggested text;
         // the full paragraph is produced HERE by splicing the bare text into the
@@ -301,6 +289,22 @@ extension Document {
         _opLogMirror.append(acceptOp)
         _hasAnyAnnotationOps = true
 
+        // ⌘Z contract: the buffer replace that follows this accept invalidates
+        // every native typing-undo action (they reference the pre-replace text
+        // storage — the ⌘Z segfault class). Clear them, then register the
+        // revert action, then flag the editor's next external apply as
+        // undo-coherent so it doesn't wipe the fresh registration. The clear
+        // sits AFTER the async op append so clear→mutate→register is
+        // contiguous — a keystroke landing during the append would otherwise
+        // register a typing action the flag-preserved replace then leaves
+        // stale on the stack. Skipped mid-undo/redo: NSUndoManager forbids
+        // removeAllActions during undo/redo, and the stacks are coherent in
+        // that flow anyway.
+        if kind == .suggestedChange, let um = undoManager,
+           !um.isUndoing, !um.isRedoing {
+            um.removeAllActions()
+        }
+
         // Apply manuscript mutation for suggestedChange. This is the
         // "two effects, one op" case: the same op resolves the annotation
         // AND mutates `paragraphs` + writes `_displayText`. The single-
@@ -324,6 +328,14 @@ extension Document {
                     // is a retain cycle that leaks the manager (and, transitively,
                     // the Document) — XCTMemoryChecker aborts on it, and in
                     // production it strands both across the window's lifetime.
+                    //
+                    // Known dead-redo edge: the nested redo registers here,
+                    // BEFORE the async revert's guards run — if the revert
+                    // no-ops (annotation no longer .accepted, paragraph gone),
+                    // the redo action would re-accept something that was never
+                    // reverted. Bounded: any intervening external buffer
+                    // replace clears the stack, and the re-accept itself is a
+                    // legal op-log append, never a crash.
                     guard let um else { return }
                     um.registerUndo(withTarget: doc) { [weak um] d2 in
                         guard let um else { return }
