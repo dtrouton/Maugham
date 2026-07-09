@@ -6,6 +6,7 @@ struct InspectorView: View {
     let selectedItemId: String?
     let metrics: EditorMetrics
     let onOpenProjectSettings: () -> Void
+    let onOpenCraftIntent: (String) -> Void
 
     @State private var draftSynopsis: String = ""
     @State private var draftStatus: String = "draft"
@@ -101,6 +102,20 @@ struct InspectorView: View {
                     Text("Select a document inside this group to view document fields.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+            }
+
+            Section("Craft Intent") {
+                if let intent = store.craftIntentItem(forPieceId: nil) {
+                    Button("Open Craft Intent") { onOpenCraftIntent(intent.id) }
+                } else {
+                    Button("Add craft intent…") {
+                        Task {
+                            if let item = try? await store.createCraftIntent(forPieceId: nil) {
+                                onOpenCraftIntent(item.id)
+                            }
+                        }
+                    }
                 }
             }
 

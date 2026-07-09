@@ -71,4 +71,15 @@ final class ProjectStoreCraftIntentTests: XCTestCase {
         }
         await ds.close()
     }
+
+    func test_addThenOpen_sequence_returnsResearchItemIdForNavigation() async throws {
+        let url = try await ProjectFactory.createNovelProject(named: "IntentNav", in: temp.url)
+        let store = try await ProjectStore.load(from: url)
+        let ds = try await DocumentStore.open(url: url)
+        store.documentStore = ds
+        // The affordance's behavior: create-if-absent, then navigate by item id.
+        let item = try await store.createCraftIntent(forPieceId: nil)
+        XCTAssertNotNil(TreeWalk.find(id: item.id, in: store.manifest.research))
+        await ds.close()
+    }
 }

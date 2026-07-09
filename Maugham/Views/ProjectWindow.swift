@@ -930,9 +930,13 @@ struct ProjectWindow: View {
                 ReferencePieceInspector(store: store, pieceId: id)
             case .loose, .none:
                 if let path = piece.path, path.hasSuffix(".fountain") {
-                    PieceInspector(store: store, pieceId: id, kind: .screenplay)
+                    PieceInspector(
+                        store: store, pieceId: id, kind: .screenplay,
+                        onOpenCraftIntent: openCraftIntent)
                 } else {
-                    PieceInspector(store: store, pieceId: id, kind: .prose)
+                    PieceInspector(
+                        store: store, pieceId: id, kind: .prose,
+                        onOpenCraftIntent: openCraftIntent)
                 }
             }
         } else {
@@ -949,7 +953,8 @@ struct ProjectWindow: View {
                 store: store,
                 selectedItemId: selectedItemId,
                 metrics: metrics,
-                onOpenProjectSettings: { activeSheet = .projectSettings }
+                onOpenProjectSettings: { activeSheet = .projectSettings },
+                onOpenCraftIntent: openCraftIntent
             )
         case .research:
             if let id = selectedResearchId,
@@ -971,6 +976,14 @@ struct ProjectWindow: View {
                 systemImage: "trash")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    /// Navigate to a craft-intent research doc surfaced from an inspector's
+    /// quiet Add/Open affordance — switches the right pane to Research and
+    /// selects the item, which the existing research click-to-edit flow opens.
+    private func openCraftIntent(_ itemId: String) {
+        binderSegment = .research
+        selectedResearchId = itemId
     }
 
     // MARK: - Helpers
