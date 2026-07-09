@@ -184,7 +184,7 @@ struct TasksPane: View {
 
             Menu {
                 Button("Archive all done") {
-                    archiveAllDone(in: scope)
+                    archiveAllDone(in: scope, undoManager: undoManager)
                 }
             } label: {
                 Image(systemName: "ellipsis.circle")
@@ -383,7 +383,12 @@ struct TasksPane: View {
     /// on each `archiveTask` call don't mutate the iteration set.
     /// Project-scope: tasks in closed (unregistered) documents are skipped
     /// with a console log — open the document to archive them individually.
-    internal func archiveAllDone(in scopeChoice: ScopeChoice) {
+    ///
+    /// `undoManager` is threaded explicitly (the toolbar passes the window's
+    /// environment manager) so tests can drive the real batch path.
+    internal func archiveAllDone(
+        in scopeChoice: ScopeChoice, undoManager: UndoManager?
+    ) {
         // Snapshot now; archiveTask invalidates the cache on each call.
         let allVisible: [WriterTask]
         switch scopeChoice {
@@ -398,6 +403,44 @@ struct TasksPane: View {
                 statuses: [.done]))
         }
 
+        // Partition BEFORE opening the undo group: the empty batch must not
+        // open a group at all (an empty manual group leaves a do-nothing
+        // "Archive Done Tasks" ⌘Z entry), and the batch-aware D1 clear below
+        // needs to know up front whether any inline task will splice text.
+        var projectTasks: [WriterTask] = []
+        var docTasks: [(task: WriterTask, doc: Document)] = []
+        var skippedCount = 0
+        for task in allVisible {
+            guard let anchor = task.anchor else { continue }
+            if anchor.docId == ProjectStore.projectTasksDocId {
+                projectTasks.append(task)
+            } else if let doc = documentStore.document(forDocId: anchor.docId) {
+                docTasks.append((task, doc))
+            } else {
+                // Closed document — skip for V1.
+                skippedCount += 1
+            }
+        }
+        if skippedCount > 0 {
+            print("[TasksPane] Skipping \(skippedCount) Done task(s) in closed documents — open them to archive individually.")
+        }
+        guard !projectTasks.isEmpty || !docTasks.isEmpty else { return }
+
+        // Batch-aware D1 clear: an inline-task archive replaces the editor
+        // buffer, which makes stale native typing actions unsound — but the
+        // per-call `removeAllActions` inside `archiveTask` would fire INSIDE
+        // the open group below, which corrupts NSUndoManager (the T5 crash
+        // class: unbalanced group, earlier inverses erased). So when the batch
+        // contains ≥1 inline task, perform ONE clear here, BEFORE the group
+        // opens, and suppress every per-call clear inside the batch.
+        let batchHasInlineTask = docTasks.contains {
+            Document.extractAnchorId(fromTaskId: $0.task.id) != nil
+        }
+        if batchHasInlineTask,
+           let um = undoManager, !um.isUndoing, !um.isRedoing {
+            um.removeAllActions()
+        }
+
         // One undo group so a single ⌘Z reverses the whole batch (Task 5).
         // Each per-task archive registers its own inverse INSIDE the group;
         // NSUndoManager coalesces the group into one action.
@@ -407,23 +450,15 @@ struct TasksPane: View {
             undoManager?.endUndoGrouping()
         }
 
-        var skippedCount = 0
-        for task in allVisible {
-            guard let anchor = task.anchor else { continue }
-            if anchor.docId == ProjectStore.projectTasksDocId {
-                // Project pane-created task: emit .taskArchive op directly
-                // via the project op log (no Document actor involved) and
-                // register the status-restore inverse.
-                archiveProjectTaskWithUndo(task, undoManager: undoManager)
-            } else if let doc = documentStore.document(forDocId: anchor.docId) {
-                doc.archiveTask(id: task.id, undoManager: undoManager)
-            } else {
-                // Closed document — skip for V1.
-                skippedCount += 1
-            }
+        for task in projectTasks {
+            // Project pane-created task: emit .taskArchive op directly
+            // via the project op log (no Document actor involved) and
+            // register the status-restore inverse.
+            archiveProjectTaskWithUndo(task, undoManager: undoManager)
         }
-        if skippedCount > 0 {
-            print("[TasksPane] Skipping \(skippedCount) Done task(s) in closed documents — open them to archive individually.")
+        for (task, doc) in docTasks {
+            doc.archiveTask(id: task.id, undoManager: undoManager,
+                            suppressUndoStackClear: true)
         }
     }
 

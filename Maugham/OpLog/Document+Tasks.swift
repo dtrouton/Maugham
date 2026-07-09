@@ -443,7 +443,18 @@ extension Document {
             })
     }
 
-    public func archiveTask(id: String, undoManager: UndoManager? = nil) {
+    /// - Parameter suppressUndoStackClear: ONLY for batch callers that have
+    ///   already performed the D1 `removeAllActions` themselves, BEFORE opening
+    ///   their undo group (`TasksPane.archiveAllDone`). The per-call clear below
+    ///   would otherwise fire INSIDE the caller's open `beginUndoGrouping` —
+    ///   `removeAllActions` inside a manual group corrupts NSUndoManager (the
+    ///   T5 crash class: unbalanced group, earlier inverses erased). A batch
+    ///   caller passing `true` asserts "I cleared already, contiguously before
+    ///   my group opened." Single-action callers must leave the default.
+    public func archiveTask(
+        id: String, undoManager: UndoManager? = nil,
+        suppressUndoStackClear: Bool = false
+    ) {
         // Capture body + kind BEFORE archiving so the .taskArchive op
         // carries enough info for the deriver to synthesize an entry in
         // the Archived filter. Inline tasks become derive-invisible after
@@ -498,8 +509,12 @@ extension Document {
             // D1: clear stale native typing actions BEFORE mutating so
             // clear→mutate→register is contiguous (a keystroke landing between
             // would otherwise leave a stale action the flag-preserved replace
-            // never clears). Skipped mid-undo/redo (NSUndoManager forbids it).
-            if let um = undoManager, !um.isUndoing, !um.isRedoing {
+            // never clears). Skipped mid-undo/redo (NSUndoManager forbids it),
+            // and skipped for batch callers that cleared before opening their
+            // undo group (see the `suppressUndoStackClear` doc comment — a
+            // clear inside an open manual group corrupts NSUndoManager).
+            if !suppressUndoStackClear,
+               let um = undoManager, !um.isUndoing, !um.isRedoing {
                 um.removeAllActions()
             }
             // D2: flag the splice's editor push undo-coherent so it preserves

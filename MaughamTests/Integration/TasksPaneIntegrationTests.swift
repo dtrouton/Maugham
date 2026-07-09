@@ -402,7 +402,7 @@ final class TasksPaneIntegrationTests: XCTestCase {
         - [ ] still open
         """)
         let pane = try await makePane(for: doc, registering: doc)
-        pane.archiveAllDone(in: .document)
+        pane.archiveAllDone(in: .document, undoManager: nil)
         let remaining = doc.tasks(filter: TaskFilter(
             scope: .document(docId: doc.docId),
             statuses: [.open, .done]))
@@ -414,7 +414,7 @@ final class TasksPaneIntegrationTests: XCTestCase {
         let doc = try await makeDocument()
         let pane = try await makePane(for: doc, registering: doc)
         let countBefore = doc.opLogMirrorCount
-        pane.archiveAllDone(in: .document)
+        pane.archiveAllDone(in: .document, undoManager: nil)
         XCTAssertEqual(doc.opLogMirrorCount, countBefore,
             "no done tasks → no ops")
     }
@@ -424,7 +424,7 @@ final class TasksPaneIntegrationTests: XCTestCase {
         let task = doc.createPaneTask(body: "pane thing", parentTaskId: nil)
         doc.setTaskStatus(id: task.id, status: .done)
         let pane = try await makePane(for: doc, registering: doc)
-        pane.archiveAllDone(in: .document)
+        pane.archiveAllDone(in: .document, undoManager: nil)
         let archived = doc.tasks(filter: TaskFilter(
             scope: .document(docId: doc.docId),
             statuses: [.archived]))
