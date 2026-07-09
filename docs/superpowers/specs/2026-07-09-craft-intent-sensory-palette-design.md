@@ -24,7 +24,7 @@ Absence of an intent doc is a first-class valid state: "this story doesn't need 
 - **Format:** freeform markdown. No dials, no schema. The forcing function is served by writing the reflection, not filling a form. (Optional light structure for a future mechanical layer is explicitly deferred.)
 - **Location on disk:** reference material, not manuscript — lives with notes/research content, so it is automatically outside compile/publish. Plain text, portable.
 - **Creation/entry:** an explicit, quiet affordance ("Add craft intent…") from the binder/inspector for the relevant scope. **Never a nag, badge, or gate.** The only surfacing of absence is the affordance itself.
-- **Editing:** in the normal editor. Load path routes through `Document.load` → `Bootstrap.run` like all editor-edited content (hard invariant).
+- **Editing:** plain-file editing on the research-note pattern (`ResearchNoteEditor` + `DocumentStore.scheduleFileSave`, 750ms debounce) — **not** op-logged, no ¶id anchors. The `Document.load`/Bootstrap invariant is for manuscripts; intent docs and palette cards are reference material, exactly like research notes (which established this precedent). *(Amended 2026-07-09 after codebase exploration; the original draft wrongly routed this through Bootstrap.)*
 - **Living doc:** revised as the story teaches the writer what it is; nothing pins it to project creation.
 
 ## Component 2 — Sensory palette
@@ -40,7 +40,7 @@ Absence of an intent doc is a first-class valid state: "this story doesn't need 
 ### On disk (plain-text invariant)
 
 - Each card is a markdown file under `research/palette/<subject>.md`; images live as normal research files and are referenced by relative path; swatches are hex strings in the markdown. Human-readable, portable, git-diffable.
-- Only wall layout/ordering state goes under `.maugham/` (UI state, deletable).
+- Cards are ordinary research assets under a `research/palette/` **group** in the manifest research tree — so rename/move/trash/reorder ride the existing typed-mover machinery and ResearchView affordances for free, and wall ordering is manifest order. No new `.maugham/` layout state needed. *(Amended 2026-07-09: the manifest tree supersedes the earlier "layout under `.maugham/`" idea.)*
 - All moves/deletes of card files go through the typed `DocumentStore` mover (tripwire 14).
 
 ### Presentation A — the wall (main content surface)
@@ -78,7 +78,7 @@ Absence of an intent doc is a first-class valid state: "this story doesn't need 
 - Card markdown round-trip: parse ↔ render stability for images/swatches/sensory-note tags.
 - Palette store CRUD through the typed mover; grep tripwire coverage extends automatically.
 - MCP tools against fixture projects (including a collection with per-piece intent docs; including the no-intent-doc case).
-- Intent-doc load path covered by `BootstrapWiringTests`-style enforcement (routes through `Document.load`).
+- Intent-doc save path covered by the research-note plain-edit pattern (raw reads carry `// adr-0018-ok:` annotations per the ADR 0018 addendum).
 - Wall view: card-derivation caching pinned (no per-card re-parse per layout pass).
 - Right-pane mode: mode-swap registration + empty-state layout (tripwire 15 pattern tests where practical).
 
