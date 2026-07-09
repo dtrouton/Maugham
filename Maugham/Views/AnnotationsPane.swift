@@ -134,6 +134,7 @@ struct AnnotationsPane: View {
                                 onReply: { querySheet = ann },
                                 onEdit: { editSheet = ann },
                                 onWithdraw: { withdrawConfirm = ann },
+                                onRevert: { revert(ann) },
                                 onJumpToParagraph: { jump(ann) })
                             Divider()
                         }
@@ -275,6 +276,15 @@ struct AnnotationsPane: View {
         Task { try? await document.archiveAnnotation(id: ann.id) }
     }
 
+    /// Revert an accepted suggestion from the pane (visible under the
+    /// resolved/All filter). Reaches accepts ⌘Z can't — ⌘Z only undoes the
+    /// most recent one. Passing the window's undo manager makes the revert
+    /// itself ⌘Z-undoable (re-accept, original reply preserved).
+    private func revert(_ ann: Annotation) {
+        Task { try? await document.revertAcceptedAnnotation(
+            id: ann.id, undoManager: undoManager) }
+    }
+
     /// Author self-service edit of one's own annotation. The pane updates via
     /// `annotationsVersion`; the notification refreshes the key-window editor's
     /// crafted marks immediately (mirrors the create-case refresh).
@@ -333,6 +343,7 @@ struct AnnotationRow: View {
     let onReply: () -> Void
     var onEdit: () -> Void = {}
     var onWithdraw: () -> Void = {}
+    var onRevert: () -> Void = {}
     let onJumpToParagraph: () -> Void
 
     var body: some View {
@@ -482,9 +493,18 @@ struct AnnotationRow: View {
                 Button("Got it", action: onAccept).buttonStyle(.borderedProminent)
                 Button("Archive", action: onArchive).buttonStyle(.bordered)
             case .suggestedChange:
-                Button("Accept", action: onAccept).buttonStyle(.borderedProminent)
-                Button("Reject\u{2026}", action: onReject).buttonStyle(.bordered)
-                Button("Archive", action: onArchive).buttonStyle(.bordered)
+                if annotation.status == .accepted {
+                    // Accepted rows (visible under the resolved/All filter):
+                    // the one meaningful action is putting the text back.
+                    // ⌘Z only reaches the MOST RECENT accept; this reaches
+                    // any accepted suggestion at any time.
+                    Button("Revert", action: onRevert).buttonStyle(.bordered)
+                        .help("Restore the pre-accept text and reopen this suggestion")
+                } else {
+                    Button("Accept", action: onAccept).buttonStyle(.borderedProminent)
+                    Button("Reject\u{2026}", action: onReject).buttonStyle(.bordered)
+                    Button("Archive", action: onArchive).buttonStyle(.bordered)
+                }
             case .query:
                 Button("Reply\u{2026}", action: onReply).buttonStyle(.borderedProminent)
                 Button("Archive", action: onArchive).buttonStyle(.bordered)

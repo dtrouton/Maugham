@@ -12,6 +12,8 @@ A suggestion is Claude's proposal to change a span of text or an entire paragrap
 
 **Undo an accepted suggestion** — Press **⌘Z** (or use **Edit → Undo Accept Suggestion**). The suggestion returns to **Open** status and the text reverts. Redo with **⌘⇧Z** to re-apply it.
 
+Accepted suggestions can also be reverted from the **Annotations pane** at any time — turn on the show-resolved filter (the tray icon) and click **Revert** on the accepted suggestion. ⌘Z undoes only the *most recent* accept, so the pane is the way to reach older ones.
+
 ### Rewinding with suggestions
 
 If you open the **History pane** and rewind to a point *before* you accepted a suggestion, that suggestion reopens in the **Open** status. The manuscript reverts to what it was before the accept.

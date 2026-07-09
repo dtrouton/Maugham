@@ -207,4 +207,88 @@ final class AnnotationAcceptUndoTests: XCTestCase {
 
         try bridge { await h.documentStore.close() }
     }
+
+    /// ⌘Z depth-1 is a PINNED CONTRACT: each accept clears stale typing
+    /// actions up front (the ⌘Z-crash fix), and with them any PRIOR accept's
+    /// registration — so ⌘Z reaches only the MOST RECENT accept. Reaching an
+    /// older accepted suggestion is the Annotations pane's Revert button
+    /// (see `test_paneRevert_isUndoable_reacceptPreservesUserResponse`).
+    func test_undoDepthIsOne_secondAcceptClearsFirstRegistration() throws {
+        let h = try bridge { try await self.makeHarness(
+            initialMd: "Para one stands.\n\nPara two stands.") }
+        let doc = h.doc
+        let pids = doc.sequence
+        XCTAssertEqual(pids.count, 2)
+        let (pid1, pid2) = (pids[0], pids[1])
+
+        let ann1 = try bridge {
+            try await doc.addAnnotation(
+                kind: .suggestedChange, paragraphId: pid1,
+                body: "b1", suggestedText: "Para one changed.")
+        }
+        let ann2 = try bridge {
+            try await doc.addAnnotation(
+                kind: .suggestedChange, paragraphId: pid2,
+                body: "b2", suggestedText: "Para two changed.")
+        }
+        let um = UndoManager()
+        try bridge { try await doc.acceptAnnotation(id: ann1, undoManager: um) }
+        pump(0.25)
+        try bridge { try await doc.acceptAnnotation(id: ann2, undoManager: um) }
+        pump(0.25)
+        XCTAssertEqual(doc.paragraph(id: pid1), "Para one changed.")
+        XCTAssertEqual(doc.paragraph(id: pid2), "Para two changed.")
+
+        um.undo()
+        waitUntil { self.annotation(doc, ann2)?.status == .open }
+        XCTAssertEqual(doc.paragraph(id: pid2), "Para two stands.",
+            "⌘Z must revert the most recent accept")
+        XCTAssertEqual(annotation(doc, ann2)?.status, .open)
+        XCTAssertEqual(annotation(doc, ann1)?.status, .accepted,
+            "the older accept is out of ⌘Z's reach (depth-1 contract)")
+        XCTAssertEqual(doc.paragraph(id: pid1), "Para one changed.")
+        XCTAssertFalse(um.canUndo,
+            "accept 2's up-front clear removed accept 1's registration — depth-1 is pinned")
+
+        um.removeAllActions()
+        try bridge { await h.documentStore.close() }
+    }
+
+    /// A DIRECT pane-revert (Revert button — not via ⌘Z) must itself be
+    /// ⌘Z-undoable: undo re-accepts, and the re-accept carries the reverted
+    /// accept op's original userResponse.
+    func test_paneRevert_isUndoable_reacceptPreservesUserResponse() throws {
+        let h = try bridge { try await self.makeHarness(initialMd: "Original text here.") }
+        let doc = h.doc, pid = h.pid
+        let annId = try bridge {
+            try await doc.addAnnotation(
+                kind: .suggestedChange, paragraphId: pid,
+                body: "b", suggestedText: "Replacement text here.")
+        }
+        let um = UndoManager()
+        try bridge { try await doc.acceptAnnotation(
+            id: annId, userResponse: "keep it", undoManager: um) }
+        pump(0.25)
+        XCTAssertEqual(doc.paragraph(id: pid), "Replacement text here.")
+
+        // Direct revert with the window's manager — the pane path.
+        try bridge { try await doc.revertAcceptedAnnotation(
+            id: annId, undoManager: um) }
+        pump(0.25)
+        XCTAssertEqual(doc.paragraph(id: pid), "Original text here.")
+        XCTAssertEqual(annotation(doc, annId)?.status, .open)
+        XCTAssertTrue(doc.consumeUndoCoherentApplyFlag(),
+            "pane-revert must flag the next external apply as undo-coherent")
+        XCTAssertTrue(um.canUndo, "pane-revert must register a re-accept undo action")
+
+        um.undo()
+        waitUntil { self.annotation(doc, annId)?.status == .accepted }
+        XCTAssertEqual(doc.paragraph(id: pid), "Replacement text here.")
+        XCTAssertEqual(annotation(doc, annId)?.status, .accepted)
+        XCTAssertEqual(annotation(doc, annId)?.userResponse, "keep it",
+            "undo of a pane-revert must restore the original accept's userResponse")
+
+        um.removeAllActions()
+        try bridge { await h.documentStore.close() }
+    }
 }

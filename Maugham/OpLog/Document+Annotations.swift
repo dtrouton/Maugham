@@ -377,10 +377,15 @@ extension Document {
     /// Loud no-op (log, no throw) when the annotation isn't currently
     /// `.accepted` or its paragraph no longer exists — an undo action can
     /// outlive the state it captured (e.g. a rewind in between); never crash.
+    ///
+    /// `undoManager` semantics mirror `acceptAnnotation`'s: a DIRECT revert
+    /// (Annotations-pane "Revert" button) passes the window's manager and gets
+    /// a ⌘Z re-accept registered; the ⌘Z undo closure passes nil (its nested
+    /// redo registration already covers re-accept — registering here too would
+    /// double up).
     public func revertAcceptedAnnotation(
         id: String, undoManager: UndoManager? = nil
     ) async throws {
-        _ = undoManager  // redo is registered by the undo closure, not here
         guard let creation = _opLogMirror.first(where: { $0.opId == id }),
               AnnotationKind.fromOpKind(creation.kind) == .suggestedChange else {
             documentLog.error("revertAcceptedAnnotation: \(id, privacy: .public) is not a suggestion creation op — ignoring")
@@ -429,10 +434,43 @@ extension Document {
         _opLogMirror.append(op)
         _hasAnyAnnotationOps = true
 
+        // Direct pane-revert: same ⌘Z contract as accept — the buffer replace
+        // that follows invalidates every native typing-undo action, so clear
+        // them AFTER the async append (contiguous clear→mutate→register, same
+        // await-gap rationale as acceptAnnotation) and register a re-accept.
+        // Skipped when called FROM the ⌘Z undo closure: that path passes
+        // undoManager == nil (redo is its nested registration), and the
+        // isUndoing/isRedoing guard covers a direct call landing mid-undo.
+        let registerUndo = undoManager.map {
+            !$0.isUndoing && !$0.isRedoing } ?? false
+        if registerUndo, let um = undoManager {
+            um.removeAllActions()
+        }
+
         paragraphs[pid] = restored
         pending.recordChange(paragraphId: pid, prior: currentText, next: restored)
         burstScheduler.recordActivity()
         autosaveScheduler.schedule(())
+
+        if registerUndo, let um = undoManager {
+            // Undo of a pane-revert = re-accept, carrying the reverted accept
+            // op's ORIGINAL userResponse so the writer's recorded reply
+            // survives the round trip (same provenance rule as redo's
+            // re-accept in acceptAnnotation). Weak-capture pattern identical
+            // to accept's registration.
+            let originalUserResponse = acceptOp.provenance?.userResponse
+            um.registerUndo(withTarget: self) { [weak um] doc in
+                guard let um else { return }
+                doc._lastUndoWorkTask = Task.detached { [weak doc] in
+                    guard let doc else { return }
+                    try? await doc.acceptAnnotation(
+                        id: id, userResponse: originalUserResponse,
+                        undoManager: um)
+                }
+            }
+            um.setActionName("Revert Suggestion")
+        }
+
         _undoCoherentApplyPending = true
         recomputeDisplayText()
 
