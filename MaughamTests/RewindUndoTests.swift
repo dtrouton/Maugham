@@ -219,6 +219,87 @@ final class RewindUndoTests: XCTestCase {
             "a manual second restore to the same target reopens the accept again")
     }
 
+    // MARK: - Task dimension: undo closes the task-rewind window
+
+    /// Sorted task-state fingerprint for pre/post comparison.
+    private func taskFingerprint(_ doc: Document) -> [String] {
+        doc.tasks(filter: TaskFilter(
+            scope: .document(docId: doc.docId),
+            statuses: Set(TaskStatus.allCases)))
+            .map { "\($0.id)|\($0.status.rawValue)|\($0.body)" }
+            .sorted()
+    }
+
+    func test_restore_undo_restoresTaskDimension() async throws {
+        // Rewind past BOTH a typing burst and pane-task ops. ⌘Z must bring
+        // back text AND the pane tasks: the compensating `.undoRewind` restore
+        // correctly opens no new task window, and the appended `.rewind`
+        // closer marker folds the excluded task ops back into the derive.
+        let h = try await makeHarness("Original sentence here.")
+        let doc = h.doc, pid = h.pid
+        let targetOpId = try await doc.opLog().last!.opId
+
+        let task = doc.createPaneTask(body: "pane thing", parentTaskId: nil)
+        doc.setTaskStatus(id: task.id, status: .done)
+        doc.setParagraph(id: pid, text: "Original sentence here. And more.")
+        try await doc.flushBurstNow()
+        let preRewindTasks = taskFingerprint(doc)
+        XCTAssertTrue(preRewindTasks.contains { $0.hasPrefix("\(task.id)|done") })
+
+        let um = UndoManager()
+        let result = try await doc.restoreToOpUndoable(opId: targetOpId, undoManager: um)
+        XCTAssertTrue(result.rewoundTaskOps, "the rewound range contained task ops")
+        XCTAssertEqual(doc.paragraph(id: pid), "Original sentence here.")
+        XCTAssertFalse(taskFingerprint(doc).contains { $0.hasPrefix(task.id) },
+            "the rewind excluded the pane task")
+
+        um.undo(); await doc.awaitPendingUndoWork()
+        XCTAssertEqual(doc.paragraph(id: pid), "Original sentence here. And more.",
+            "text back to the pre-restore tip")
+        XCTAssertEqual(taskFingerprint(doc), preRewindTasks,
+            "pane tasks match the pre-rewind derive — the task window closed")
+    }
+
+    func test_markerOnlyRestore_undo_restoresTaskState_andRedoReExcludes() async throws {
+        // Task ops only, no text change: the restore takes the marker branch
+        // (text-inert `.checkpointRestore` so TaskDeriver can slice). Before
+        // this fix its registered undo did nothing; now it must reverse the
+        // task window — and redo must re-run the restore and re-exclude.
+        let h = try await makeHarness("Prose that never changes.")
+        let doc = h.doc
+        try await doc.flushBurstNow()
+        let targetOpId = try await doc.opLog().last!.opId
+
+        let task = doc.createPaneTask(body: "created after target", parentTaskId: nil)
+        let preRewindTasks = taskFingerprint(doc)
+        XCTAssertTrue(preRewindTasks.contains { $0.hasPrefix(task.id) })
+        let preParagraphs = doc.paragraphs
+
+        let um = UndoManager()
+        let result = try await doc.restoreToOpUndoable(opId: targetOpId, undoManager: um)
+        XCTAssertNotNil(result.restoreOp, "marker-only rewind still appends a task marker")
+        XCTAssertTrue(result.rewoundTaskOps)
+        XCTAssertEqual(doc.paragraphs, preParagraphs, "no text changed")
+        XCTAssertFalse(taskFingerprint(doc).contains { $0.hasPrefix(task.id) },
+            "the marker excluded the task")
+
+        um.undo(); await doc.awaitPendingUndoWork()
+        XCTAssertEqual(taskFingerprint(doc), preRewindTasks,
+            "undo of a marker-only rewind restores the task state")
+        XCTAssertEqual(doc.paragraphs, preParagraphs, "text untouched throughout")
+        XCTAssertTrue(um.canRedo, "the undo nested a redo registration")
+
+        um.redo(); await doc.awaitPendingUndoWork()
+        XCTAssertFalse(taskFingerprint(doc).contains { $0.hasPrefix(task.id) },
+            "redo re-ran the restore from scratch and re-excluded the task")
+
+        // Re-arm: a second ⌘Z after ⇧⌘Z restores again (live-manager forward).
+        XCTAssertTrue(um.canUndo)
+        um.undo(); await doc.awaitPendingUndoWork()
+        XCTAssertEqual(taskFingerprint(doc), preRewindTasks,
+            "the ⌘Z/⇧⌘Z cycle re-arms")
+    }
+
     // MARK: - Foreign op advanced the doc → loud no-op
 
     func test_restore_undo_afterForeignOps_isLoudNoOp() async throws {

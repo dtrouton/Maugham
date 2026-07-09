@@ -19,6 +19,12 @@ extension Document {
     /// The compensating restore is stamped `.undoRewind`, NOT `.rewind`, so it
     /// is invisible to `TaskDeriver`'s rewind-window matcher — an undo must not
     /// open a fresh task-rewind window (that distinction is load-bearing).
+    /// When the ORIGINAL rewind opened a task window (`result.rewoundTaskOps`),
+    /// the undo instead CLOSES it: it appends a `.rewind`-flavored task marker
+    /// keyed on the original rewind op (`appendTaskRewindCloser`) so the
+    /// deriver's window moves past the previously-excluded task ops and they
+    /// fold back in. This also gives the marker-only rewind (text unchanged,
+    /// task ops rewound) a real undo instead of a do-nothing registration.
     @discardableResult
     public func restoreToOpUndoable(
         opId targetOpId: String, undoManager: UndoManager?
@@ -60,8 +66,27 @@ extension Document {
 
         let result = try await restoreToOp(opId: targetOpId)
         // Nothing was appended (genuine no-op) — no state changed, so there is
-        // nothing to reverse. `preTip` nil only on an empty log (never here).
-        guard result.restoreOp != nil, let preTip else { return result }
+        // nothing to reverse; skip the registration entirely. Note this is
+        // NOT the marker-only rewind: a text-unchanged rewind past task ops
+        // returns a non-nil marker restoreOp, and its undo has real work (it
+        // reverses the task window below). `preTip` nil only on an empty log
+        // (never here).
+        guard let originalRestoreOp = result.restoreOp, let preTip else { return result }
+
+        // The task dimension: a `.rewind`-stamped restore whose rewound range
+        // contained task ops opened a `TaskDeriver` rewind window that
+        // excludes them. The compensating `.undoRewind` restore is invisible
+        // to TaskDeriver (correct — an undo must not open a NEW window), but
+        // nothing would close the ORIGINAL one — so after ⌘Z, text and
+        // annotations returned while pane-task ops rewound past the target
+        // stayed excluded. The undo therefore ALSO appends a `.rewind`-
+        // flavored task marker whose `sourceCheckpoint` is THIS restore op's
+        // id: the deriver keys its window on that newer marker, whose target
+        // position (the original rewind op) lies AFTER the previously-excluded
+        // task ops, so they fold back in. Redo re-runs `restoreToOp` from
+        // scratch, whose fresh `.rewind` marker re-excludes them.
+        let hadTaskWindow = result.rewoundTaskOps
+        let originalRewindOpId = originalRestoreOp.opId
 
         // — capture AFTER the restore (for the fire-time guard + the undo work) —
         let postParagraphs = paragraphs
@@ -114,6 +139,19 @@ extension Document {
                     documentLog.error("restoreToOpUndoable undo: compensating restore appended nothing despite an expected text delta — declining before any lifecycle re-accept")
                     return
                 }
+                // Close the original task-rewind window (see the capture-site
+                // comment): the previously-excluded task ops fold back into
+                // the derive. Gated on restore success like the re-accepts —
+                // a task window closed over un-restored text would be its own
+                // partial compound.
+                if hadTaskWindow {
+                    do {
+                        try await doc.appendTaskRewindCloser(
+                            originalRewindOpId: originalRewindOpId)
+                    } catch {
+                        documentLog.error("restoreToOpUndoable undo: task-window closer append failed (\(error.localizedDescription, privacy: .public)) — pane tasks stay rewound")
+                    }
+                }
                 // Re-accept each reopened suggestion status-only (empty changes;
                 // the restore above already carries the text), preserving the
                 // original userResponse. Append failures are loud (never silent
@@ -146,5 +184,32 @@ extension Document {
                     opId: targetOpId, undoManager: undoManager)
             })
         return result
+    }
+
+    /// Append the `.rewind`-flavored task marker that CLOSES the task-rewind
+    /// window an earlier restore opened. `TaskDeriver` keys its window on the
+    /// LAST `.rewind`-stamped `.checkpointRestore`; this marker's
+    /// `sourceCheckpoint` is the ORIGINAL rewind op's id, so the new window is
+    /// (original rewind op, this marker) — which contains no task ops, while
+    /// everything up to and including the original rewind op (the previously-
+    /// excluded task ops among it) folds back into the derive's prefix.
+    ///
+    /// Text-inert by construction: empty `changes`, nil `sequence` — the text
+    /// `Deriver` folds nothing from it, on this device or after a cross-Mac
+    /// merge. Append-only (nothing is truncated; the excluded ops were always
+    /// in the log — this only moves the deriver's window).
+    internal func appendTaskRewindCloser(originalRewindOpId: String) async throws {
+        let marker = Op(
+            opId: ULID.generate(),
+            docId: docId, at: Date(),
+            device: device, session: session,
+            kind: .checkpointRestore,
+            changes: [], sequence: nil,
+            provenance: .init(
+                sourceCheckpoint: originalRewindOpId,
+                synthesisSource: .rewind))
+        try await opStore.append(marker)
+        _opLogMirror.append(marker)
+        invalidateTasksCache()
     }
 }

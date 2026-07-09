@@ -51,6 +51,21 @@ extension Document {
         let newIds = Set(targetState.sequence)
         let removedIds = Array(priorIds.subtracting(newIds))
 
+        // Whether the range being rewound past contains task-lifecycle ops —
+        // i.e. whether a `.rewind`-stamped restore will open a `TaskDeriver`
+        // rewind window. Computed up front (not just in the marker branch)
+        // because the RESULT reports it either way: `restoreToOpUndoable`
+        // needs it to know its undo must close the window again (fix: the
+        // rewind-undo task dimension).
+        let taskKinds: Set<OpKind> = [
+            .taskCreate, .taskStatusChange, .taskPriorityChange,
+            .taskParentChange, .taskBodyEdit, .taskArchive
+        ]
+        let targetIdx = currentOps.firstIndex(where: { $0.opId == targetOpId })
+        let hasTaskOpsAfterTarget = targetIdx.map { idx in
+            currentOps.dropFirst(idx + 1).contains { taskKinds.contains($0.kind) }
+        } ?? false
+
         // 3. Apply the restore via the shared helper. `applyRestore` handles
         //    the text-change case (paragraphs whose content differs and
         //    paragraphs present in target but not current) AND the pure-
@@ -73,15 +88,6 @@ extension Document {
             // This marker branch is rewind-specific (it hinges on op position,
             // which `applyRestore` doesn't know about), so it mirrors the
             // helper's stamp→append→fold tail inline rather than extending it.
-            let taskKinds: Set<OpKind> = [
-                .taskCreate, .taskStatusChange, .taskPriorityChange,
-                .taskParentChange, .taskBodyEdit, .taskArchive
-            ]
-            let targetIdx = currentOps.firstIndex(where: { $0.opId == targetOpId })
-            let hasTaskOpsAfterTarget = targetIdx.map { idx in
-                currentOps.dropFirst(idx + 1).contains { taskKinds.contains($0.kind) }
-            } ?? false
-
             guard hasTaskOpsAfterTarget else {
                 // Genuine no-op: no manuscript change, no task ops to rewind.
                 // `restoreOp == nil` signals "log was not extended."
@@ -91,7 +97,8 @@ extension Document {
                     removedParagraphIds: [],
                     priorSequenceCount: priorCount,
                     newSequenceCount: newCount,
-                    reopenedAnnotationOpIds: [])
+                    reopenedAnnotationOpIds: [],
+                    rewoundTaskOps: false)
             }
 
             // Emit a task-rewind marker checkpoint_restore with empty changes,
@@ -233,7 +240,8 @@ extension Document {
             removedParagraphIds: removedIds,
             priorSequenceCount: priorCount,
             newSequenceCount: newCount,
-            reopenedAnnotationOpIds: reopenedIds)
+            reopenedAnnotationOpIds: reopenedIds,
+            rewoundTaskOps: hasTaskOpsAfterTarget)
     }
 
     /// Fold the document to `target` by appending a `.checkpointRestore` op
