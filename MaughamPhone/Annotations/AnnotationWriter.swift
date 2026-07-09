@@ -55,6 +55,19 @@ struct AnnotationWriter {
         /// emit an empty-changes accept — which would mark the annotation accepted
         /// while materializing nothing (silent manuscript data loss).
         case malformedSuggestion(annotationId: String)
+        /// `makeReopen` was asked to reopen an annotation whose status has no
+        /// reopen inverse — either the local status isn't rejected/archived, or
+        /// `AnnotationInverse.reopenOp` declined (state drifted since this view
+        /// last re-derived, e.g. another device already reopened it). Either way,
+        /// no op is appended — the caller shows an alert rather than a phantom
+        /// reopen.
+        case notReopenable(annotationId: String)
+        /// `makeAcceptRevert` was given an `acceptOp` with no `changes` — upstream
+        /// corruption (a real `claudeAccept` for a `.suggestedChange` always
+        /// carries the full-paragraph change; see `makeAccept`'s load-bearing
+        /// rule). Fail loud rather than fabricate a revert with no paragraph to
+        /// restore.
+        case malformedAcceptRevert(annotationId: String)
     }
 
     // MARK: - Paths
@@ -162,6 +175,73 @@ struct AnnotationWriter {
         )
     }
 
+    /// Build the compensating `annotation_reopen` op for a rejected/archived
+    /// annotation. The inverse DECISION — which resolution kinds have a reopen
+    /// inverse, and the state-drift guard — lives entirely in
+    /// `AnnotationInverse.reopenOp` (MaughamCore, cross-surface contract,
+    /// tripwire 19); this only maps the annotation's local status to the
+    /// resolution kind it undoes and adds the phone's write-path stamping
+    /// (`docId`/`deviceId`/`session`, forensic `appVersion`/`osVersion`) —
+    /// exactly the fields `makeLifecycleOp` stamps above.
+    ///
+    /// An accepted suggestion has NO reopen inverse — use `makeAcceptRevert`
+    /// instead, which also restores the pre-accept text (Mac Revert parity).
+    func makeReopen(for annotation: Annotation) throws -> Op {
+        let undone: OpKind
+        switch annotation.status {
+        case .rejected: undone = .claudeReject
+        case .archived: undone = .claudeArchive
+        case .open, .accepted:
+            throw WriteError.notReopenable(annotationId: annotation.id)
+        }
+        guard case .op(let op) = AnnotationInverse.reopenOp(
+            undoing: undone,
+            annotationId: annotation.id,
+            currentStatus: annotation.status,
+            docId: docId, device: deviceId, session: session,
+            appVersion: appVersion, osVersion: osVersion
+        ) else {
+            // State drifted since this view last re-derived (e.g. another
+            // device already reopened it) — no op to append.
+            throw WriteError.notReopenable(annotationId: annotation.id)
+        }
+        return op
+    }
+
+    /// Full revert of an accepted suggestion — same behavior as the Mac
+    /// Annotations pane's Revert: restores the pre-accept text over whatever
+    /// the paragraph currently holds AND reopens the annotation (user decision
+    /// 2026-07-09; `claudeAcceptRevert` WITH changes, mirroring the Mac's
+    /// `Document.revertAcceptedAnnotation`: `ParagraphChange(paragraphId: pid,
+    /// prior: currentText, next: acceptChange.prior ?? "")`).
+    ///
+    /// `acceptOp` is the latest `claudeAccept` op for this annotation — the
+    /// caller (the detail view's re-derive) locates it from the ops it already
+    /// loaded. `currentParagraph` is the live paragraph text at revert time
+    /// (may have drifted since the accept; the caller is responsible for the
+    /// drift confirm, mirroring the Mac's `acceptedTextDrifted` gate).
+    func makeAcceptRevert(
+        for annotation: Annotation, acceptOp: Op, currentParagraph: String?
+    ) throws -> Op {
+        guard let change = acceptOp.changes.first else {
+            throw WriteError.malformedAcceptRevert(annotationId: annotation.id)
+        }
+        let restored = change.prior ?? ""
+        return Op(
+            opId: ULID.generate(),
+            docId: docId, at: now(),
+            device: deviceId, session: session,
+            kind: .claudeAcceptRevert,
+            changes: [Op.ParagraphChange(
+                paragraphId: change.paragraphId, prior: currentParagraph, next: restored)],
+            sequence: nil,
+            provenance: Op.Provenance(
+                sessionId: session,
+                sourceAnnotationId: annotation.id,
+                appVersion: appVersion,
+                osVersion: osVersion))
+    }
+
     // MARK: - Build + coordinated append
 
     @discardableResult
@@ -177,6 +257,21 @@ struct AnnotationWriter {
     @discardableResult
     func archive(_ annotation: Annotation) async throws -> Op {
         try await append(makeArchive(for: annotation))
+    }
+
+    /// Reopen a rejected/archived annotation. See `makeReopen`.
+    @discardableResult
+    func reopen(_ annotation: Annotation) async throws -> Op {
+        try await append(makeReopen(for: annotation))
+    }
+
+    /// Full revert of an accepted suggestion. See `makeAcceptRevert`.
+    @discardableResult
+    func revertAccept(
+        _ annotation: Annotation, acceptOp: Op, currentParagraph: String?
+    ) async throws -> Op {
+        try await append(makeAcceptRevert(
+            for: annotation, acceptOp: acceptOp, currentParagraph: currentParagraph))
     }
 
     /// Encode + coordinated-append one op to this device's op-log stream.
