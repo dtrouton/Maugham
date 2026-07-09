@@ -174,17 +174,49 @@ final class RewindUndoTests: XCTestCase {
 
         um.redo(); await doc.awaitPendingUndoWork()
         // The redo re-runs restoreToOp from scratch (a fresh rewind, not a
-        // replay): the manuscript text returns to the post-restore state.
+        // replay): the manuscript text returns to the post-restore state AND
+        // the annotation derives `.open` again — a redo can never disagree
+        // with a fresh rewind. The status half pins the stranded-accept
+        // detector's status-only clause: the intervening undo re-accepted via
+        // an EMPTY-changes `claudeAccept`, and the detector must judge
+        // strandedness against the changes-carrying accept it stands in for.
         XCTAssertEqual(doc.paragraphs, postRestoreParagraphs,
             "redo re-runs restoreToOp → post-restore text again")
         XCTAssertEqual(doc.paragraph(id: pid), "Original sentence here.",
             "redo rewound the paragraph past the accept again")
-        // NOTE: the annotation status does NOT return to `.open` on this redo.
-        // The intervening undo appended a status-only re-accept (empty-changes
-        // `claudeAccept`), and `restoreToOp`'s stranded-accept detector keys on
-        // `!changes.isEmpty` (it reopens only text-applying accepts), so it
-        // cannot re-detect the empty-changes re-accept. The text contract holds;
-        // this status edge is a known step-8 detection limitation (see report).
+        XCTAssertEqual(annotation(doc, annId)?.status, .open,
+            "redo reopened the stranded accept again — never disagrees with a fresh rewind")
+    }
+
+    // MARK: - Manual second restore after undo — same fresh-rewind agreement
+
+    func test_restore_undo_thenManualSecondRestore_reopensAccept() async throws {
+        // Same defect class as redo, reached WITHOUT ⇧⌘Z: restore → ⌘Z → the
+        // user runs History Rewind again to the same target. The second
+        // restoreToOp must re-detect the (status-only re-accepted) stranded
+        // accept and reopen it, just like the first restore did.
+        let h = try await makeHarness("Original sentence here.")
+        let doc = h.doc, pid = h.pid
+
+        let annId = try await doc.addAnnotation(
+            kind: .suggestedChange, paragraphId: pid,
+            body: "b", suggestedText: "Improved sentence here.")
+        let beforeAcceptOpId = try await doc.opLog().last!.opId
+        try await doc.acceptAnnotation(id: annId)
+
+        let um = UndoManager()
+        _ = try await doc.restoreToOpUndoable(opId: beforeAcceptOpId, undoManager: um)
+        XCTAssertEqual(annotation(doc, annId)?.status, .open)
+
+        um.undo(); await doc.awaitPendingUndoWork()
+        XCTAssertEqual(doc.paragraph(id: pid), "Improved sentence here.")
+        XCTAssertEqual(annotation(doc, annId)?.status, .accepted,
+            "undo re-accepted (status-only)")
+
+        _ = try await doc.restoreToOp(opId: beforeAcceptOpId)
+        XCTAssertEqual(doc.paragraph(id: pid), "Original sentence here.")
+        XCTAssertEqual(annotation(doc, annId)?.status, .open,
+            "a manual second restore to the same target reopens the accept again")
     }
 
     // MARK: - Foreign op advanced the doc → loud no-op

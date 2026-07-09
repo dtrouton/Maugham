@@ -178,10 +178,28 @@ extension Document {
             latestLifecycleBySource[src] = op
         }
         for (src, lifecycleOp) in latestLifecycleBySource.sorted(by: { $0.key < $1.key }) {
-            guard lifecycleOp.kind == .claudeAccept,
-                  lifecycleOp.opId > targetOpId,         // accept lies past the target (ULID order)
-                  !lifecycleOp.changes.isEmpty,          // suggestion accepts only
-                  let pid = lifecycleOp.changes.first?.paragraphId
+            // Strandedness = the latest lifecycle op is ANY `.claudeAccept` —
+            // changes-carrying or STATUS-ONLY (empty changes). A status-only
+            // accept exists as the undo-of-rewind's re-accept
+            // (`restoreToOpUndoable`, `.undoRewind`); it stands in for the
+            // text-applying accept it re-instated, so strandedness is judged
+            // against the latest CHANGES-CARRYING accept for the same
+            // annotation. Without this, a rewind that FOLLOWS an undo (⇧⌘Z
+            // redo, or a second manual Restore to the same target) would leave
+            // the annotation `.accepted` while its applied text was rewound
+            // away — disagreeing with what a fresh rewind produces. For a
+            // plain accept the two clauses collapse to one op (the old
+            // condition exactly); accept→revert chains skip at the first
+            // guard (latest isn't an accept); the removed-paragraph archive
+            // branch below is untouched.
+            guard lifecycleOp.kind == .claudeAccept else { continue }
+            guard let textAccept = currentOps
+                      .filter({ $0.kind == .claudeAccept
+                                    && $0.provenance?.sourceAnnotationId == src
+                                    && !$0.changes.isEmpty })
+                      .max(by: { $0.opId < $1.opId }),
+                  textAccept.opId > targetOpId,          // accept lies past the target (ULID order)
+                  let pid = textAccept.changes.first?.paragraphId
             else { continue }
             let paragraphSurvives = newIds.contains(pid)
             let resolutionOp = Op(

@@ -39,6 +39,13 @@ extension Document {
         // D1: drop stale native typing actions BEFORE the buffer-replacing
         // restore (clear → mutate → register, contiguous — accept's ordering).
         // Skipped mid-undo/redo (NSUndoManager forbids removeAllActions there).
+        //
+        // Known-minor D1 artifact: if the restore turns out to be a genuine
+        // no-op (restoreOp == nil below), this clear already discarded typing
+        // history for zero benefit. Accepted — deferring the clear past the
+        // await would break the contiguous clear→mutate→register ordering (a
+        // keystroke could land in the gap), which is the regression-scarred
+        // invariant; a no-op restore (rewinding to the current state) is rare.
         if let um = undoManager, !um.isUndoing, !um.isRedoing {
             um.removeAllActions()
         }
