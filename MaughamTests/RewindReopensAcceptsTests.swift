@@ -79,6 +79,48 @@ final class RewindReopensAcceptsTests: XCTestCase {
         XCTAssertEqual(result.reopenedAnnotationOpIds, [annId])
     }
 
+    func test_rewindRemovingParagraph_archivesStrandedAccept() async throws {
+        let (doc, _) = try await makeDocWithParagraph("First paragraph.")
+        // Target BEFORE the second paragraph exists — the rewind will remove
+        // the paragraph AND strand the accept on it.
+        let targetOpId = try await doc.opLog().last!.opId
+
+        doc.setFullText("First paragraph.\n\nSecond paragraph.\n")
+        try await doc.flushBurstNow()
+        let burst = try await doc.opLog().last(where: { $0.kind == .typingBurst })
+        let p2Id = try XCTUnwrap(
+            burst?.changes.first(where: { $0.next.contains("Second") })?.paragraphId,
+            "couldn't find the second paragraph's id in the burst op")
+
+        let annId = try await doc.addAnnotation(
+            kind: .suggestedChange, paragraphId: p2Id,
+            body: "b", suggestedText: "Better second paragraph.")
+        try await doc.acceptAnnotation(id: annId)
+        XCTAssertEqual(annotation(doc, annId)?.status, .accepted)
+
+        let result = try await doc.restoreToOp(opId: targetOpId)
+
+        // The accept's paragraph is gone; reopening would leave an open
+        // annotation on a nonexistent paragraph, so it is ARCHIVED instead —
+        // the removed-paragraph convention the sweep already establishes.
+        XCTAssertEqual(annotation(doc, annId)?.status, .archived,
+            "an accept stranded on a rewind-removed paragraph must not stay 'accepted'")
+        XCTAssertFalse(result.reopenedAnnotationOpIds.contains(annId),
+            "a removed-paragraph accept is archived, never reopened")
+
+        // The archive is reported through the existing archivedAnnotationOpIds
+        // contract (archive-op ids, same as the sweep's).
+        let archiveOp = try await doc.opLog().last(where: {
+            $0.kind == .claudeArchive
+                && $0.provenance?.sourceAnnotationId == annId
+        })
+        let archiveOpId = try XCTUnwrap(archiveOp?.opId,
+            "restore must append a claudeArchive for the stranded accept")
+        XCTAssertEqual(archiveOp?.provenance?.synthesisSource, .rewind)
+        XCTAssertTrue(result.archivedAnnotationOpIds.contains(archiveOpId),
+            "the stranded-accept archive must be reported in archivedAnnotationOpIds")
+    }
+
     func test_rewindAfterAccept_leavesAcceptAlone() async throws {
         let (doc, pid) = try await makeDocWithParagraph("Original sentence here.")
         let annId = try await doc.addAnnotation(

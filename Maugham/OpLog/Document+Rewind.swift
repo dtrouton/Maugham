@@ -176,26 +176,32 @@ extension Document {
         let beforeFlushCount = _opLogMirror.count
         try await flushBurstNow()
         let newlyAppended = _opLogMirror.dropFirst(beforeFlushCount)
-        let archivedIds = newlyAppended
+        var archivedIds = newlyAppended
             .filter { op in
                 op.kind == .claudeArchive
                     && op.provenance?.synthesisSource == .rewind
             }
             .map(\.opId)
 
-        // 8. Reopen accepts stranded past the rewind target. The restore
+        // 8. Resolve accepts stranded past the rewind target. The restore
         //    derived from the log PREFIX, so text applied by any claudeAccept
         //    AFTER `targetOpId` is already reverted — but the accept op itself
         //    survives (append-only), so the annotation would still derive
-        //    `.accepted` while its change no longer exists. Append a
-        //    changes-free claudeAcceptRevert (status-only: the restore op
-        //    already carries the text) for each annotation whose LATEST
-        //    lifecycle op is a post-target accept whose paragraph SURVIVES
-        //    the rewind. The removed-paragraph sweep (step 7) handles
-        //    annotations on paragraphs that vanished — those are OPEN
-        //    annotations, disjoint from the ACCEPTED ones scanned here — so
-        //    an accept whose paragraph was removed is left for that path.
+        //    `.accepted` while its change no longer exists. For each
+        //    annotation whose LATEST lifecycle op is such a post-target,
+        //    changes-carrying accept:
+        //
+        //    - paragraph SURVIVES the rewind → append a changes-free
+        //      claudeAcceptRevert (status-only reopen: the restore op already
+        //      carries the text) so the suggestion is actionable again.
+        //    - paragraph was REMOVED by the rewind → append a claudeArchive
+        //      instead (the removed-paragraph convention the step-7 sweep
+        //      establishes — reopening would leave an open annotation on a
+        //      nonexistent paragraph that the next sweep would archive
+        //      anyway). The sweep itself can't cover this: it only archives
+        //      OPEN annotations, and this one derives `.accepted`.
         var reopenedIds: [String] = []
+        var strandedAcceptResolved = false
         var latestLifecycleBySource: [String: Op] = [:]
         for op in currentOps
         where [.claudeAccept, .claudeReject, .claudeArchive,
@@ -208,25 +214,30 @@ extension Document {
             guard lifecycleOp.kind == .claudeAccept,
                   lifecycleOp.opId > targetOpId,         // accept lies past the target (ULID order)
                   !lifecycleOp.changes.isEmpty,          // suggestion accepts only
-                  let pid = lifecycleOp.changes.first?.paragraphId,
-                  newIds.contains(pid)                   // the annotation's paragraph survives
-            else { continue }                            // (removed-paragraph accepts are the sweep's job)
-            let reopenOp = Op(
+                  let pid = lifecycleOp.changes.first?.paragraphId
+            else { continue }
+            let paragraphSurvives = newIds.contains(pid)
+            let resolutionOp = Op(
                 opId: ULID.generate(),
                 docId: docId, at: Date(),
                 device: device, session: session,
-                kind: .claudeAcceptRevert,
+                kind: paragraphSurvives ? .claudeAcceptRevert : .claudeArchive,
                 changes: [],
                 sequence: nil,
                 provenance: Op.Provenance(
                     sessionId: session,
                     synthesisSource: .rewind,
                     sourceAnnotationId: src))
-            try await opStore.append(reopenOp)
-            _opLogMirror.append(reopenOp)
-            reopenedIds.append(src)
+            try await opStore.append(resolutionOp)
+            _opLogMirror.append(resolutionOp)
+            strandedAcceptResolved = true
+            if paragraphSurvives {
+                reopenedIds.append(src)
+            } else {
+                archivedIds.append(resolutionOp.opId)
+            }
         }
-        if !reopenedIds.isEmpty {
+        if strandedAcceptResolved {
             _hasAnyAnnotationOps = true
             invalidateAnnotationsCache()
         }
