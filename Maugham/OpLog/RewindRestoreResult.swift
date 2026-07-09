@@ -14,8 +14,9 @@ public struct RewindRestoreResult: Equatable, Sendable {
     /// `Op(opId: "")` would silently propagate through any caller that
     /// inspected `restoreOp.opId`).
     public let restoreOp: Op?
-    /// Op ids of the `.claudeArchive` ops emitted by the sweep for
-    /// annotations whose paragraph_id no longer exists post-restore.
+    /// Op ids of the `.claudeArchive` ops — both emitted by the sweep for
+    /// annotations whose paragraph_id no longer exists post-restore, and appended
+    /// by the stranded-accept resolution pass for accepted suggestions whose change was reverted.
     public let archivedAnnotationOpIds: [String]
     /// Paragraph ids that existed in the pre-restore sequence but not
     /// the post-restore sequence. Drives the impact summary.
