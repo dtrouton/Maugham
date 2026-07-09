@@ -27,4 +27,4 @@ Layout choice persists per project.
 
 ⌘⌥I toggles the whole right pane visibility.
 
-The right pane also has a **Tasks** mode (⌘⌥5) — see [Tasks & To-Dos](tasks.md).
+The right pane also has a **Tasks** mode (⌘⌥5) — see [Tasks & To-Dos](tasks.md) — and an **Annotations** mode (⌘⌥A) — see [Annotations & Suggestions](annotations-and-suggestions.md).

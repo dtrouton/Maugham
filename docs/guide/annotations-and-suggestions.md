@@ -10,11 +10,13 @@ A suggestion is Claude's proposal to change a span of text or an entire paragrap
 
 **Reject** — Dismisses the suggestion without changing your text. Status changes to **Rejected** and it moves to the resolved filter.
 
-**Undo an accepted suggestion** — Press **⌘Z** (or use **Edit → Undo Accept Suggestion**). The suggestion returns to **Open** status and the text reverts. Redo with **⌘Y** to re-apply it.
+**Undo an accepted suggestion** — Press **⌘Z** (or use **Edit → Undo Accept Suggestion**). The suggestion returns to **Open** status and the text reverts. Redo with **⌘⇧Z** to re-apply it.
 
 ### Rewinding with suggestions
 
 If you open the **History pane** and rewind to a point *before* you accepted a suggestion, that suggestion reopens in the **Open** status. The manuscript reverts to what it was before the accept.
+
+If the rewind also removed the paragraph the suggestion was attached to, the suggestion is archived instead — there's nothing left for it to apply to.
 
 If you rewind to before a suggestion was added, it disappears from the annotations list entirely.
 
