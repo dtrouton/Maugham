@@ -60,20 +60,35 @@ enum OpUndoRegistrar {
 /// is a plain `setParagraph` → `.typingBurst`, NO task op — so undo is a
 /// guarded flip-back of the paragraph text, not an op inverse.
 ///
-/// The undo-coherent flag keeps the editor's next external buffer apply from
-/// wiping the just-registered action (v0.17.0 D2 rule), mirroring
-/// `acceptAnnotation`'s use of `_undoCoherentApplyPending`. Unlike accept,
-/// this path deliberately does NOT `removeAllActions`: a checkbox flip is
-/// length-preserving (`[ ]`↔`[x]`, `[[todo:`↔`[[done:`), so the whole-buffer
-/// replace `applyExternalText` performs keeps every native typing-undo range
-/// in bounds — interleaved typing undo survives the toggle and pops without
-/// the ⌘Z fault (`InlineTaskToggleUndoTests`).
+/// Choreography matches `acceptAnnotation`'s exactly, because both mutate
+/// manuscript text that reaches the editor as an external buffer replace:
+///  - **D1 — clear first, unconditionally.** ANY external replace makes
+///    native typing-undo history unsound (the actions reference pre-replace
+///    text storage — the ⌘Z SIGSEGV class); dropping it is the only safe
+///    option on every `applyExternalText` path. Clear → mutate → register,
+///    contiguous. Skipped mid-undo/redo (NSUndoManager forbids
+///    `removeAllActions` there, and the stacks are coherent in that flow).
+///  - **D2 — flag the apply undo-coherent.** `_undoCoherentApplyPending`
+///    keeps the editor's flag-preserved apply from wiping the fresh toggle
+///    registration below.
+///
+/// The undo closure's buffer swap runs mid-undo, where the clear is both
+/// forbidden and unnecessary (accept's revert-from-⌘Z precedent). The redo
+/// closure re-enters `perform` from the async hop AFTER the redo pass
+/// completes, so its clear fires again — same as accept's redo re-accept.
 @MainActor
 enum InlineToggleUndo {
     static func perform(on doc: Document, paragraphId: String,
                         prior: String, flipped: String,
                         undoManager: UndoManager?) {
-        // Set BEFORE the mutation: `setParagraph` writes `displayText`, which
+        // D1: drop stale native typing actions BEFORE the mutation so
+        // clear→mutate→register is contiguous (accept's exact ordering — a
+        // keystroke landing between clear and register would otherwise leave
+        // a stale action the flag-preserved replace never clears).
+        if let um = undoManager, !um.isUndoing, !um.isRedoing {
+            um.removeAllActions()
+        }
+        // Flag BEFORE the mutation: `setParagraph` writes `displayText`, which
         // drives the editor's next update pass — the pass that consumes this
         // flag and preserves the fresh registration below. (Same ordering
         // intent as accept: flag armed before the observable write.)

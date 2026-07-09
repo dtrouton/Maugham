@@ -1,5 +1,6 @@
 import SwiftUI
 import MaughamCore
+import os
 
 // MARK: - Pure drop classifier
 //
@@ -458,11 +459,13 @@ struct TasksPane: View {
             undoManager, actionName: "Archive Done Tasks", target: store,
             workTaskSink: { [weak store] in store?._lastUndoWorkTask = $0 },
             undo: { s in
-                // Fire-time guard: only restore if still archived.
+                // Fire-time guard: only restore if still archived — decline as
+                // a LOUD no-op (sibling-guard convention).
                 let now = s.listTasksAcrossProject(filter: TaskFilter(
                     scope: .project, statuses: Set(TaskStatus.allCases)))
                     .first { $0.id == task.id }
                 guard let now, now.status == .archived else {
+                    projectStoreLog.error("archiveProjectTaskWithUndo undo: \(task.id, privacy: .public) no longer archived — ignoring")
                     return
                 }
                 s.appendProjectTaskOp(inverse)
@@ -586,12 +589,8 @@ struct TasksPane: View {
             } else {
                 newPriority = target.priority - 1.0
             }
-            if dragged.parentTaskId != parentTaskId {
-                doc.setTaskParent(id: dragged.id, parentTaskId: parentTaskId,
-                                  undoManager: undoManager)
-            }
-            doc.setTaskPriority(id: dragged.id, priority: newPriority,
-                                undoManager: undoManager)
+            moveTask(dragged, toParent: parentTaskId,
+                     priority: newPriority, in: doc)
 
         case .reorderBelow(let targetId, let parentTaskId):
             guard let target = allTasks.first(where: { $0.id == targetId }) else { return }
@@ -608,12 +607,8 @@ struct TasksPane: View {
             } else {
                 newPriority = target.priority + 1.0
             }
-            if dragged.parentTaskId != parentTaskId {
-                doc.setTaskParent(id: dragged.id, parentTaskId: parentTaskId,
-                                  undoManager: undoManager)
-            }
-            doc.setTaskPriority(id: dragged.id, priority: newPriority,
-                                undoManager: undoManager)
+            moveTask(dragged, toParent: parentTaskId,
+                     priority: newPriority, in: doc)
 
         case .nestUnder(let parentId):
             // The classifier guarantees parentId names a top-level task.
@@ -624,6 +619,29 @@ struct TasksPane: View {
                                   undoManager: undoManager)
             }
         }
+    }
+
+    /// Emit the parent + priority ops a reorder drop implies. A reparenting
+    /// drag emits BOTH — group them under one "Move Task" action so a single
+    /// ⌘Z reverts the whole drag, not half of it.
+    private func moveTask(
+        _ dragged: WriterTask, toParent parentTaskId: String?,
+        priority newPriority: Double, in doc: Document
+    ) {
+        let reparents = dragged.parentTaskId != parentTaskId
+        if reparents { undoManager?.beginUndoGrouping() }
+        defer {
+            if reparents {
+                undoManager?.setActionName("Move Task")
+                undoManager?.endUndoGrouping()
+            }
+        }
+        if reparents {
+            doc.setTaskParent(id: dragged.id, parentTaskId: parentTaskId,
+                              undoManager: undoManager)
+        }
+        doc.setTaskPriority(id: dragged.id, priority: newPriority,
+                            undoManager: undoManager)
     }
 
     // MARK: - New task sheet

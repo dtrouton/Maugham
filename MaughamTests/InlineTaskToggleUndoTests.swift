@@ -9,10 +9,11 @@ import MaughamCore
 /// the undo-coherent apply flag so the editor's external buffer replace
 /// doesn't wipe the just-registered action (v0.17.0 D2 rule).
 ///
-/// The interleaving harness test pins the ⌘Z-crash class (B3): a
-/// length-preserving toggle replaces the whole NSTextView buffer while
-/// interleaved native typing-undo actions remain on the stack, and popping
-/// them afterwards must not fault.
+/// The interleaving harness test pins the ⌘Z-crash class (B3) via the D1
+/// rule: a toggle replaces the whole NSTextView buffer, which makes any
+/// pre-toggle native typing-undo action unsound — so `InlineToggleUndo`
+/// clears them (clear→mutate→register, accept's choreography) and the
+/// walk-back is: post-toggle typing → toggle → nothing.
 @MainActor
 final class InlineTaskToggleUndoTests: XCTestCase {
 
@@ -137,19 +138,62 @@ final class InlineTaskToggleUndoTests: XCTestCase {
 
     // MARK: - Interleaving harness test (B3 crash class)
 
-    func test_type_toggle_type_undoWalksBackInOrder_noCrash() async throws {
-        let rd = try await EditorIntegrationHarness.withRealDocument(
-            mode: ProseMode(), initialText: "- [ ] buy milk")
+    // Sync ⟷ async bridges (AnnotationAcceptUndoTests' canonical shape: a
+    // SYNCHRONOUS test, default `groupsByEvent`, NO manual undo group —
+    // `removeAllActions()` inside a manual `beginUndoGrouping` corrupts
+    // NSUndoManager's grouping state, and production never opens one; each
+    // user action's event group closes on a run-loop turn instead).
+
+    private final class ResultBox<T>: @unchecked Sendable {
+        var result: Result<T, Error>?
+    }
+
+    /// Run an async body to completion from a synchronous test, pumping the
+    /// main run loop via `wait(for:)` so MainActor-hopped continuations progress.
+    @discardableResult
+    private func bridge<T>(
+        timeout: TimeInterval = 15, _ body: @escaping @MainActor () async throws -> T
+    ) throws -> T {
+        let box = ResultBox<T>()
+        let exp = expectation(description: "async-bridge")
+        Task { @MainActor in
+            do { box.result = .success(try await body()) }
+            catch { box.result = .failure(error) }
+            exp.fulfill()
+        }
+        wait(for: [exp], timeout: timeout)
+        return try box.result!.get()
+    }
+
+    /// Spin the main run loop for a fixed interval (services the MainActor
+    /// executor + the groupsByEvent group-close observer).
+    private func pump(_ seconds: TimeInterval) {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
+        }
+    }
+
+    /// Pump the main run loop until `predicate` holds (or `timeout` elapses).
+    private func waitUntil(
+        _ predicate: @MainActor () -> Bool, timeout: TimeInterval = 3
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !predicate() && Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
+        }
+    }
+
+    func test_type_toggle_type_undoWalksBackInOrder_noCrash() throws {
+        let rd = try bridge {
+            try await EditorIntegrationHarness.withRealDocument(
+                mode: ProseMode(), initialText: "- [ ] buy milk")
+        }
         let doc = rd.document
         let h = rd.harness
         let um = try XCTUnwrap(h.textView.undoManager)
         um.removeAllActions()
-        // Each user action (keystroke burst / mouse-click toggle) is a distinct
-        // run-loop EVENT in production, so NSUndoManager files each as its own
-        // group. A synchronous test collapses them all into one event; opt out
-        // of `groupsByEvent` and bracket each action explicitly to reproduce
-        // the real per-action grouping.
-        um.groupsByEvent = false
+        pump(0.05)
 
         // Mirror EditorSurface.updateNSView: consume the flag every pass;
         // apply only when the buffer differs.
@@ -160,50 +204,56 @@ final class InlineTaskToggleUndoTests: XCTestCase {
                     doc.displayText, preserveUndoStack: coherent)
             }
         }
-        func asAction(_ body: () -> Void) {
-            um.beginUndoGrouping(); body(); um.endUndoGrouping()
-        }
 
-        // 1. Native typing burst #1 — append "X".
-        asAction {
-            h.setCursor(to: (h.textView.string as NSString).length)
-            h.typeCharacter("X")
-        }
+        // 1. Native typing burst #1 — append "X"; run-loop turn closes the
+        //    event group, as between real user actions.
+        h.setCursor(to: (h.textView.string as NSString).length)
+        h.typeCharacter("X")
         XCTAssertEqual(h.textView.string, "- [ ] buy milkX")
+        pump(0.05)
 
-        // 2. Inline toggle (length-preserving) via the helper, then the editor
-        //    apply pass the SwiftUI update would drive.
+        // 2. Inline toggle via the helper, then the editor apply pass the
+        //    SwiftUI update would drive. D1: the toggle's buffer replace makes
+        //    the pre-toggle native typing history unsound, so perform CLEARS
+        //    it before registering (accept's clear→mutate→register).
         let pid = try XCTUnwrap(doc.paragraphId(at: 0))
         let prior = try XCTUnwrap(doc.paragraph(id: pid))     // "- [ ] buy milkX"
         let flipped = flipInlineCheckbox(prior)               // "- [x] buy milkX"
-        asAction {
-            InlineToggleUndo.perform(on: doc, paragraphId: pid,
-                                     prior: prior, flipped: flipped, undoManager: um)
-            pumpEditorApply()
-        }
+        InlineToggleUndo.perform(on: doc, paragraphId: pid,
+                                 prior: prior, flipped: flipped, undoManager: um)
+        pumpEditorApply()
         XCTAssertEqual(h.textView.string, "- [x] buy milkX",
-            "toggle replaced the buffer, preserving length")
+            "toggle replaced the buffer")
+        pump(0.05)
 
-        // 3. Native typing burst #2 — append "Y".
-        asAction {
-            h.setCursor(to: (h.textView.string as NSString).length)
-            h.typeCharacter("Y")
-        }
+        // 3. Native typing burst #2 — append "Y". Registered AFTER the
+        //    toggle's clear, so it is sound and survives.
+        h.setCursor(to: (h.textView.string as NSString).length)
+        h.typeCharacter("Y")
         XCTAssertEqual(h.textView.string, "- [x] buy milkXY")
+        pump(0.05)
 
-        // 4. ⌘Z ×3 — native Y, then the toggle (op), then native X. The pop of
-        //    the native actions AFTER the toggle's whole-buffer replace is the
-        //    B3 fault site; it stays safe because the toggle is length-
-        //    preserving, so the native undo ranges remain in bounds.
+        // 4. ⌘Z walk-back per D1: post-toggle typing (native, sound), then the
+        //    toggle (registered action), then NOTHING — the pre-toggle typing
+        //    history was cleared at toggle time, so the third ⌘Z is a no-op,
+        //    never a pop of a stale action against replaced storage (the B3
+        //    SIGSEGV class).
         um.undo()   // undo "Y" (native, synchronous)
         XCTAssertEqual(h.textView.string, "- [x] buy milkX")
+        pump(0.05)
 
-        um.undo(); await doc.awaitPendingUndoWork(); pumpEditorApply()  // undo toggle
+        um.undo()   // undo toggle: handler hops async → wait for the flip-back
+        waitUntil { doc.paragraph(id: pid) == prior }
+        pumpEditorApply()
         XCTAssertEqual(h.textView.string, "- [ ] buy milkX",
             "second ⌘Z undoes the toggle across the interleaved native actions")
+        pump(0.05)
 
-        um.undo()   // undo "X" (native) — the pop that used to segfault (B3)
-        XCTAssertEqual(h.textView.string, "- [ ] buy milk",
-            "third ⌘Z pops the native typing action after the buffer replace without a fault")
+        XCTAssertFalse(um.canUndo,
+            "pre-toggle typing history was cleared per D1 — nothing left to undo")
+        um.undo()   // third ⌘Z: no-op, must not fault (B3)
+        pump(0.05)
+        XCTAssertEqual(h.textView.string, "- [ ] buy milkX",
+            "third ⌘Z is a no-op — pre-toggle typing is not recoverable (D1's accepted cost)")
     }
 }
