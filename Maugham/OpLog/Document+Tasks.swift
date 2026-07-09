@@ -556,6 +556,16 @@ extension Document {
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { doc in
                 guard let preState, let preTip else { return }
+                // Fire-time state guard (same as the op-only branch): only
+                // proceed if the task still derives `.archived`. If it was
+                // reopened out from under this action between the archive and
+                // ⌘Z, restoring the captured snapshot would clobber that newer
+                // state — decline as a loud no-op.
+                guard let now = doc.freshTaskSnapshot(id: id),
+                      now.status == .archived else {
+                    documentLog.error("archiveTask compound undo: \(id, privacy: .public) no longer archived — ignoring")
+                    return
+                }
                 // Drain the splice burst so `applyRestore` derives the current
                 // (post-splice) paragraph text — setParagraph/deleteParagraph
                 // record into the pending buffer, not `_opLogMirror`, until a
@@ -565,14 +575,21 @@ extension Document {
                 // must be locally ours. A cross-device merge landing in the
                 // window means the doc advanced past our capture, so the
                 // paragraph-rebuild would restore a stale snapshot — decline as
-                // a loud no-op. Rebalance ops (TaskDeriver's local self-emitted
-                // priority normalization) carry the rebalance sentinel device
-                // and are local, not foreign — exempt them.
+                // a loud no-op. The rebalance exemption is KIND-shaped, not
+                // origin-shaped: a changes-free `.taskPriorityChange` stamped
+                // with the rebalance sentinel is safe because a text restore
+                // CANNOT clobber it (priority-only payload, no paragraph
+                // changes) — not because it's known to be local (a peer's
+                // synced-in rebalance is indistinguishable, and equally
+                // unclobberable). Anything else — including a rebalance-
+                // flavored op that somehow carries changes — declines loudly.
                 let appended = doc._opLogMirror
                     .drop(while: { $0.opId != preTip }).dropFirst()
                 guard appended.allSatisfy({
                     ($0.device == doc.device && $0.session == doc.session)
-                        || $0.device == TaskDeriver.rebalanceSentinel
+                        || ($0.kind == .taskPriorityChange
+                            && $0.device == TaskDeriver.rebalanceSentinel
+                            && $0.changes.isEmpty)
                 }) else {
                     documentLog.error("archiveTask compound undo: \(id, privacy: .public) — foreign op advanced doc past capture, ignoring")
                     return
@@ -582,11 +599,27 @@ extension Document {
                 //    this off TaskDeriver's rewind window so the taskArchive op
                 //    below stays live for the status counter. D2 flag preserves
                 //    the nested redo registration through the editor push.
+                //    The status counter is gated on the restore SUCCEEDING —
+                //    flipping status over un-restored text would leave a
+                //    partial compound (open task, spliced text).
                 doc._undoCoherentApplyPending = true
-                _ = try? await doc.applyRestore(
-                    target: preState,
-                    sourceCheckpoint: preTip,
-                    synthesisSource: .undoRewind)
+                let restoreOp: Op?
+                do {
+                    restoreOp = try await doc.applyRestore(
+                        target: preState,
+                        sourceCheckpoint: preTip,
+                        synthesisSource: .undoRewind)
+                } catch {
+                    documentLog.error("archiveTask compound undo: \(id, privacy: .public) — text restore failed (\(error.localizedDescription, privacy: .public)); declining before status flip")
+                    return
+                }
+                guard restoreOp != nil else {
+                    // The splice changed text, so nil (target == current,
+                    // nothing appended) means the capture no longer describes
+                    // a real delta — decline rather than half-apply.
+                    documentLog.error("archiveTask compound undo: \(id, privacy: .public) — restore produced no op despite the splice; declining before status flip")
+                    return
+                }
                 // 2. Counter the archive's status override. The deriver folds
                 //    later ops over earlier, so a fresh statusChange (the
                 //    archive inverse) after the taskArchive op wins → the

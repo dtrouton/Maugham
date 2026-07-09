@@ -208,6 +208,41 @@ final class InlineArchiveUndoTests: XCTestCase {
             "the status is NOT restored either — the whole compound undo declines")
     }
 
+    // MARK: - Task reopened out-of-band → loud no-op (fire-time state guard)
+
+    func test_inlineArchive_undo_afterOutOfBandReopen_isLoudNoOp() async throws {
+        let stored = "Anna walked [[todo: tighten this]]<!--t-9k2x6a--> home."
+        let doc = try await makeDocument(initialMd: stored)
+        let pids = try await paragraphIds(of: doc)
+        let pid = pids[0]
+        let originalText = try XCTUnwrap(doc.paragraph(id: pid))
+        let inlineId = synthId(for: doc, anchor: "9k2x6a")
+
+        let um = UndoManager()
+        doc.archiveTask(id: inlineId, undoManager: um)
+        XCTAssertEqual(doc.paragraph(id: pid), "Anna walked home.")
+        XCTAssertEqual(status(doc, inlineId), .archived)
+
+        // Reopen the task out from under the pending undo: the anchor text
+        // comes back (re-typed / pasted) and a status change reopens it —
+        // the task no longer derives `.archived`.
+        doc.setParagraph(id: pid, text: originalText)
+        doc.setTaskStatus(id: inlineId, status: .open)
+        XCTAssertEqual(status(doc, inlineId), .open)
+        let textBefore = doc.paragraph(id: pid)
+
+        let countBefore = doc.opLogMirrorCount
+        um.undo(); await doc.awaitPendingUndoWork()
+        // Fire-time state guard declined BEFORE the flush/restore: no restore
+        // op, no status inverse — the mirror holds only what the reopen wrote.
+        XCTAssertEqual(doc.opLogMirrorCount, countBefore,
+            "declined undo appends nothing — mirror shows only the reopen")
+        XCTAssertEqual(doc.paragraph(id: pid), textBefore,
+            "the reopened paragraph text is not clobbered by the stale capture")
+        XCTAssertEqual(status(doc, inlineId), .open,
+            "the reopened status stands")
+    }
+
     // MARK: - Pane-created archive stays simple (op-only undo)
 
     func test_paneArchive_stillSimple() async throws {
