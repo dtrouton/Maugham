@@ -34,7 +34,7 @@ extension ProjectStore {
     /// re-derive and produce a matching task.
     @discardableResult
     public func createProjectPaneTask(
-        body: String, parentTaskId: String? = nil
+        body: String, parentTaskId: String? = nil, undoManager: UndoManager? = nil
     ) -> WriterTask {
         ensureProjectOpLogLoaded()
         let opId = ULID.generate()
@@ -56,13 +56,41 @@ extension ProjectStore {
                 taskParentId: parentTaskId,
                 taskKind: TaskKind.paneCreated.rawValue))
         appendProjectTaskOp(op)
-        return WriterTask(
+        let preview = WriterTask(
             id: opId, kind: .paneCreated,
             anchor: TaskAnchor(
                 docId: Self.projectTasksDocId, paragraphId: nil),
             body: body, status: .open, priority: priority,
             parentTaskId: parentTaskId, createdAt: op.at,
             createdBySession: projectOpSession)
+
+        // ⌘Z: undo archives the just-created project pane task; redo re-creates
+        // (a fresh id, per the create-undo convention). The `preview` IS the
+        // pre-mutation snapshot — the task didn't exist before this call.
+        if let inverse = TaskInverse.inverse(
+            undoing: .taskCreate, prior: preview,
+            docId: Self.projectTasksDocId, device: projectOpDevice,
+            session: projectOpSession, sessionId: projectOpSession) {
+            OpUndoRegistrar.register(
+                undoManager, actionName: "New Task", target: self,
+                workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
+                undo: { store in
+                    // Fire-time guard: only archive if still present + open.
+                    let now = store.listTasksAcrossProject(filter: TaskFilter(
+                        scope: .project, statuses: Set(TaskStatus.allCases)))
+                        .first { $0.id == opId }
+                    guard let now, now.status != .archived else {
+                        projectStoreLog.error("createProjectPaneTask undo: \(opId, privacy: .public) already gone/archived — ignoring")
+                        return
+                    }
+                    store.appendProjectTaskOp(inverse)
+                },
+                redo: { [weak undoManager] store in
+                    store.createProjectPaneTask(
+                        body: body, parentTaskId: parentTaskId, undoManager: undoManager)
+                })
+        }
+        return preview
     }
 
     /// Append an op to the project-scope op log. Updates the sync mirror

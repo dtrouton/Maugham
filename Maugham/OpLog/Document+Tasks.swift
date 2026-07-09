@@ -218,7 +218,9 @@ extension Document {
     /// the next `tasks(filter:)` call (and matches this preview field-for-
     /// field by construction).
     @discardableResult
-    public func createPaneTask(body: String, parentTaskId: String?) -> WriterTask {
+    public func createPaneTask(
+        body: String, parentTaskId: String?, undoManager: UndoManager? = nil
+    ) -> WriterTask {
         let opId = ULID.generate()
         let priority = lowestPriorityForDoc() + 1.0
         let parentField: String? = parentTaskId
@@ -236,16 +238,60 @@ extension Document {
                 taskParentId: parentField,
                 taskKind: TaskKind.paneCreated.rawValue))
         appendTaskOpInternal(op)
-        return WriterTask(
+        let preview = WriterTask(
             id: opId, kind: .paneCreated,
             anchor: TaskAnchor(docId: docId, paragraphId: nil),
             body: body, status: .open, priority: priority,
             parentTaskId: parentTaskId,
             createdAt: op.at,
             createdBySession: session)
+
+        // ⌘Z: undo archives the just-created task (the create-inverse is a
+        // taskArchive carrying body + kind). The `preview` IS the pre-mutation
+        // snapshot — the task didn't exist before, so its post-create derived
+        // form matches this by construction. Redo re-creates via the forward
+        // path, which mints a NEW task id (a fresh .taskCreate op); the original
+        // id stays archived. That's acceptable per the spec — undo/redo of a
+        // create is create/destroy, not identity-preserving resurrection.
+        if let inverse = TaskInverse.inverse(
+            undoing: .taskCreate, prior: preview,
+            docId: docId, device: device, session: session, sessionId: session) {
+            OpUndoRegistrar.register(
+                undoManager, actionName: "New Task", target: self,
+                workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
+                undo: { doc in
+                    // Fire-time guard: only archive if the task still exists and
+                    // hasn't already been archived out from under this action.
+                    guard let now = doc.freshTaskSnapshot(id: opId),
+                          now.status != .archived else {
+                        documentLog.error("createPaneTask undo: \(opId, privacy: .public) already gone/archived — ignoring")
+                        return
+                    }
+                    doc.appendTaskOpInternal(inverse)
+                },
+                redo: { [weak undoManager] doc in
+                    doc.createPaneTask(
+                        body: body, parentTaskId: parentTaskId, undoManager: undoManager)
+                })
+        }
+        return preview
     }
 
-    public func setTaskStatus(id: String, status: TaskStatus) {
+    /// Fresh, cache-rebuilt snapshot of a task on this doc by id. Task ops carry
+    /// only NEW values, so undo registration must capture the PRE-mutation task
+    /// from derived state — reading `_tasksCache` raw can be stale after an
+    /// earlier mutation invalidated it, so we go through `tasks(filter:)` which
+    /// rebuilds on demand. Also the fire-time drift check both undo and redo use.
+    private func freshTaskSnapshot(id: String) -> WriterTask? {
+        tasks(filter: TaskFilter(
+            scope: .document(docId: docId),
+            statuses: Set(TaskStatus.allCases))).first { $0.id == id }
+    }
+
+    public func setTaskStatus(
+        id: String, status: TaskStatus, undoManager: UndoManager? = nil
+    ) {
+        let prior = freshTaskSnapshot(id: id)
         let op = Op(
             opId: ULID.generate(),
             docId: docId, at: Date(),
@@ -257,9 +303,33 @@ extension Document {
                 taskId: id,
                 taskStatus: status.rawValue))
         appendTaskOpInternal(op)
+
+        guard let prior,
+              let inverse = TaskInverse.inverse(
+                undoing: .taskStatusChange, prior: prior,
+                docId: docId, device: device, session: session, sessionId: session)
+        else { return }
+        OpUndoRegistrar.register(
+            undoManager, actionName: "Change Task Status", target: self,
+            workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
+            undo: { doc in
+                // Fire-time guard: only revert if the task still holds the value
+                // THIS action wrote; else a concurrent change would be clobbered.
+                guard let now = doc.freshTaskSnapshot(id: id), now.status == status else {
+                    documentLog.error("setTaskStatus undo: \(id, privacy: .public) drifted since change — ignoring")
+                    return
+                }
+                doc.appendTaskOpInternal(inverse)
+            },
+            redo: { [weak undoManager] doc in
+                doc.setTaskStatus(id: id, status: status, undoManager: undoManager)
+            })
     }
 
-    public func setTaskPriority(id: String, priority: Double) {
+    public func setTaskPriority(
+        id: String, priority: Double, undoManager: UndoManager? = nil
+    ) {
+        let prior = freshTaskSnapshot(id: id)
         let op = Op(
             opId: ULID.generate(),
             docId: docId, at: Date(),
@@ -271,12 +341,34 @@ extension Document {
                 taskId: id,
                 taskPriority: priority))
         appendTaskOpInternal(op)
+
+        guard let prior,
+              let inverse = TaskInverse.inverse(
+                undoing: .taskPriorityChange, prior: prior,
+                docId: docId, device: device, session: session, sessionId: session)
+        else { return }
+        OpUndoRegistrar.register(
+            undoManager, actionName: "Reorder Task", target: self,
+            workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
+            undo: { doc in
+                guard let now = doc.freshTaskSnapshot(id: id), now.priority == priority else {
+                    documentLog.error("setTaskPriority undo: \(id, privacy: .public) drifted since change — ignoring")
+                    return
+                }
+                doc.appendTaskOpInternal(inverse)
+            },
+            redo: { [weak undoManager] doc in
+                doc.setTaskPriority(id: id, priority: priority, undoManager: undoManager)
+            })
     }
 
-    public func setTaskParent(id: String, parentTaskId: String?) {
+    public func setTaskParent(
+        id: String, parentTaskId: String?, undoManager: UndoManager? = nil
+    ) {
         // "" sentinel clears parent (matches TaskDeriver convention); any
         // non-empty value sets it. The deriver maps "" → nil on read.
         let parentField = parentTaskId ?? ""
+        let prior = freshTaskSnapshot(id: id)
         let op = Op(
             opId: ULID.generate(),
             docId: docId, at: Date(),
@@ -288,9 +380,33 @@ extension Document {
                 taskId: id,
                 taskParentId: parentField))
         appendTaskOpInternal(op)
+
+        guard let prior,
+              let inverse = TaskInverse.inverse(
+                undoing: .taskParentChange, prior: prior,
+                docId: docId, device: device, session: session, sessionId: session)
+        else { return }
+        OpUndoRegistrar.register(
+            undoManager, actionName: "Nest Task", target: self,
+            workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
+            undo: { doc in
+                // Compare against the sentinel-normalized new value.
+                guard let now = doc.freshTaskSnapshot(id: id),
+                      (now.parentTaskId ?? "") == parentField else {
+                    documentLog.error("setTaskParent undo: \(id, privacy: .public) drifted since change — ignoring")
+                    return
+                }
+                doc.appendTaskOpInternal(inverse)
+            },
+            redo: { [weak undoManager] doc in
+                doc.setTaskParent(id: id, parentTaskId: parentTaskId, undoManager: undoManager)
+            })
     }
 
-    public func editPaneTaskBody(id: String, body: String) {
+    public func editPaneTaskBody(
+        id: String, body: String, undoManager: UndoManager? = nil
+    ) {
+        let prior = freshTaskSnapshot(id: id)
         let op = Op(
             opId: ULID.generate(),
             docId: docId, at: Date(),
@@ -302,16 +418,44 @@ extension Document {
                 taskId: id,
                 taskBody: body))
         appendTaskOpInternal(op)
+
+        guard let prior,
+              let inverse = TaskInverse.inverse(
+                undoing: .taskBodyEdit, prior: prior,
+                docId: docId, device: device, session: session, sessionId: session)
+        else { return }
+        OpUndoRegistrar.register(
+            undoManager, actionName: "Edit Task", target: self,
+            workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
+            undo: { doc in
+                guard let now = doc.freshTaskSnapshot(id: id), now.body == body else {
+                    documentLog.error("editPaneTaskBody undo: \(id, privacy: .public) drifted since edit — ignoring")
+                    return
+                }
+                doc.appendTaskOpInternal(inverse)
+            },
+            redo: { [weak undoManager] doc in
+                doc.editPaneTaskBody(id: id, body: body, undoManager: undoManager)
+            })
     }
 
-    public func archiveTask(id: String) {
+    public func archiveTask(id: String, undoManager: UndoManager? = nil) {
         // Capture body + kind BEFORE archiving so the .taskArchive op
         // carries enough info for the deriver to synthesize an entry in
         // the Archived filter. Inline tasks become derive-invisible after
         // archive (the anchor is spliced out of paragraph text); without
         // this metadata they'd vanish from the pane entirely, losing the
-        // audit trail.
-        let archived = _tasksCache.first(where: { $0.id == id })
+        // audit trail. Go through the cache-rebuilding snapshot (not raw
+        // `_tasksCache`) so the pre-archive status the undo-inverse needs
+        // is fresh even after an earlier mutation invalidated the cache.
+        let archived = freshTaskSnapshot(id: id)
+
+        // Branch computed BEFORE registering: pane-created archive is a pure
+        // op-lifecycle change (op-side inverse fully restores it), while inline
+        // archive ALSO splices anchor text out of the paragraph — Task 6 will
+        // replace THIS branch's registration with a compound (text + op) undo.
+        // Only the op-side inverse (status restore) is registered here.
+        let isPaneCreated = Self.extractAnchorId(fromTaskId: id) == nil
 
         // Emit the .taskArchive op first so the lifecycle event lands in the
         // op log even when no anchor can be located (pane-created tasks, or
@@ -328,6 +472,33 @@ extension Document {
                 taskBody: archived?.body,
                 taskKind: archived?.kind.rawValue))
         appendTaskOpInternal(op)
+
+        // ⌘Z: undo restores the pre-archive status (the archive-inverse is a
+        // taskStatusChange back to `archived.status`). For pane-created tasks
+        // this is a complete undo — no manuscript text was touched. For inline
+        // tasks the text splice below is NOT restored by this op-side inverse;
+        // Task 6 replaces the inline branch with a compound (text + op) undo.
+        if let archived,
+           let inverse = TaskInverse.inverse(
+            undoing: .taskArchive, prior: archived,
+            docId: docId, device: device, session: session, sessionId: session) {
+            _ = isPaneCreated  // branch precomputed for Task 6's inline-compound split.
+            OpUndoRegistrar.register(
+                undoManager, actionName: "Archive Task", target: self,
+                workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
+                undo: { doc in
+                    // Fire-time guard: only restore if the task is still archived.
+                    guard let now = doc.freshTaskSnapshot(id: id),
+                          now.status == .archived else {
+                        documentLog.error("archiveTask undo: \(id, privacy: .public) no longer archived — ignoring")
+                        return
+                    }
+                    doc.appendTaskOpInternal(inverse)
+                },
+                redo: { [weak undoManager] doc in
+                    doc.archiveTask(id: id, undoManager: undoManager)
+                })
+        }
 
         // Extract the anchor id from the synth-id. Pane-created tasks have
         // `id == opId` (no `inline:` prefix) and never carry inline text —

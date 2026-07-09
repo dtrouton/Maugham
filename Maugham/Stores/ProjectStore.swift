@@ -137,6 +137,11 @@ public final class ProjectStore {
     @ObservationIgnored internal var projectOpDevice: String = MacDeviceID.current
     @ObservationIgnored internal var projectOpSession: String = UUID().uuidString
 
+    /// Handle to the async op-log append triggered by the last project-task
+    /// undo/redo hop. Mirror of `Document._lastUndoWorkTask` — tests await it
+    /// to know the compensating op has landed before asserting. Not observable.
+    @ObservationIgnored internal var _lastUndoWorkTask: Task<Void, Never>?
+
     #if DEBUG
     /// Debug counter for cache-rebuild tests. Increments every time the
     /// cross-project derivation actually runs. A hit on the cache key leaves
