@@ -231,13 +231,28 @@ extension Document {
         try await appendAnnotationOpInternal(op)
 
         // ⌘Z: undo appends a compensating edit carrying the pre-edit body (and
-        // prior suggested replacement); redo re-applies the new values. These
-        // ops never touch manuscript text, so no removeAllActions / coherent-
-        // flag choreography (unlike accept).
+        // prior suggested replacement); redo re-invokes the forward edit with
+        // the LIVE undo manager so ⇧⌘Z re-arms a fresh undo pair (accept's
+        // precedent — indefinite ⌘Z/⇧⌘Z cycling). These ops never touch
+        // manuscript text, so no removeAllActions / coherent-flag choreography
+        // (unlike accept).
         OpUndoRegistrar.register(
             undoManager, actionName: "Edit Annotation", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { doc in
+                // Fire-time drift guard: only revert if the annotation still
+                // shows the values THIS action wrote. A concurrent edit
+                // (cross-device merge, second local edit) since registration
+                // would otherwise be silently clobbered by capture-time state.
+                let live = doc.annotations(filter: AnnotationFilter(statuses: nil))
+                    .first { $0.id == id }
+                guard let live,
+                      live.body == newBody,
+                      newSuggestedText == nil || live.suggestedText == newSuggestedText
+                else {
+                    documentLog.error("editReviewerAnnotation undo: \(id, privacy: .public) drifted since edit — ignoring")
+                    return
+                }
                 let revert = AnnotationInverse.editRevertOp(
                     annotationId: id,
                     priorBody: priorBody,
@@ -248,10 +263,11 @@ extension Document {
                     docId: doc.docId, device: doc.device, session: doc.session)
                 try? await doc.appendAnnotationOpInternal(revert)
             },
-            redo: { doc in
+            redo: { [weak undoManager] doc in
                 try? await doc.editReviewerAnnotation(
                     id: id, newBody: newBody, newSuggestedText: newSuggestedText,
-                    authorName: authorName, authorId: authorId, undoManager: nil)
+                    authorName: authorName, authorId: authorId,
+                    undoManager: undoManager)
             })
     }
 
@@ -279,15 +295,16 @@ extension Document {
         try await appendAnnotationOpInternal(op)
 
         // ⌘Z: undo reopens (annotationReopen restores it to the projection);
-        // redo re-withdraws.
+        // redo re-withdraws with the LIVE undo manager so ⇧⌘Z re-arms a fresh
+        // undo pair (accept's precedent).
         OpUndoRegistrar.register(
             undoManager, actionName: "Withdraw Annotation", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { doc in try? await doc.reopenAnnotation(id: id) },
-            redo: { doc in
+            redo: { [weak undoManager] doc in
                 try? await doc.withdrawReviewerAnnotation(
                     id: id, authorName: authorName, authorId: authorId,
-                    undoManager: nil)
+                    undoManager: undoManager)
             })
     }
 
@@ -560,15 +577,18 @@ extension Document {
             userResponse: userResponse)
 
         // ⌘Z: undo reopens (annotationReopen → .open); redo re-rejects,
-        // forwarding the original userResponse (fdbf12f precedent). Lifecycle
-        // ops never touch manuscript text, so no coherent-flag choreography.
+        // forwarding the original userResponse (fdbf12f precedent) AND the
+        // LIVE undo manager so ⇧⌘Z re-arms a fresh undo pair (accept's
+        // precedent — indefinite ⌘Z/⇧⌘Z cycling; `[weak undoManager]` because
+        // NSUndoManager retains the closure). Lifecycle ops never touch
+        // manuscript text, so no coherent-flag choreography.
         OpUndoRegistrar.register(
             undoManager, actionName: "Reject Annotation", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { doc in try? await doc.reopenAnnotation(id: id) },
-            redo: { doc in
+            redo: { [weak undoManager] doc in
                 try? await doc.rejectAnnotation(
-                    id: id, userResponse: userResponse, undoManager: nil)
+                    id: id, userResponse: userResponse, undoManager: undoManager)
             })
     }
 
@@ -580,12 +600,15 @@ extension Document {
             sourceAnnotationId: id,
             userResponse: nil)
 
-        // ⌘Z: undo reopens; redo re-archives.
+        // ⌘Z: undo reopens; redo re-archives with the LIVE undo manager so
+        // ⇧⌘Z re-arms a fresh undo pair (accept's precedent).
         OpUndoRegistrar.register(
             undoManager, actionName: "Archive Annotation", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { doc in try? await doc.reopenAnnotation(id: id) },
-            redo: { doc in try? await doc.archiveAnnotation(id: id, undoManager: nil) })
+            redo: { [weak undoManager] doc in
+                try? await doc.archiveAnnotation(id: id, undoManager: undoManager)
+            })
     }
 
     /// Appends the compensating reopen for a rejected / archived / withdrawn

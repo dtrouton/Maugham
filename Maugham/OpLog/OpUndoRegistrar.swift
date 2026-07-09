@@ -30,15 +30,26 @@ enum OpUndoRegistrar {
         // `[weak um]`: NSUndoManager retains the registered handler, and the
         // handler re-registers onto `um` — a strong capture is a retain cycle
         // that strands the manager (and, transitively, the Document).
+        //
+        // `[weak t]` / `[weak t2]` on the hop tasks (accept's precedent): the
+        // async hop must not keep a closed document alive past its window for
+        // a post-teardown append. Silent return when gone — nothing left to
+        // mutate.
         um.registerUndo(withTarget: target) { [weak um] t in
             if let um {
                 um.registerUndo(withTarget: t) { t2 in
-                    let task = Task { @MainActor in await redo(t2) }
+                    let task = Task { @MainActor [weak t2] in
+                        guard let t2 else { return }
+                        await redo(t2)
+                    }
                     workTaskSink?(task)
                 }
                 um.setActionName(actionName)
             }
-            let task = Task { @MainActor in await undo(t) }
+            let task = Task { @MainActor [weak t] in
+                guard let t else { return }
+                await undo(t)
+            }
             workTaskSink?(task)
         }
         um.setActionName(actionName)

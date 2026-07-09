@@ -156,6 +156,18 @@ final class AnnotationLifecycleUndoTests: XCTestCase {
         XCTAssertEqual(annotation(doc, cid)?.userResponse, "no",
             "redo's re-reject must forward the original userResponse")
 
+        // Re-arm: redo forwards the LIVE undo manager into the forward
+        // re-reject, which registers a FRESH undo pair — ⌘Z/⇧⌘Z cycles
+        // indefinitely (accept's precedent), not a dead action after one redo.
+        pump(0.25)  // let the re-registration's event group close
+        XCTAssertTrue(um.canUndo,
+            "redo's forward re-reject must re-register undo — the cycle re-arms")
+
+        um.undo()
+        waitUntil { self.annotation(doc, cid)?.status == .open }
+        XCTAssertEqual(annotation(doc, cid)?.status, .open,
+            "a second ⌘Z after ⇧⌘Z must reopen again")
+
         um.removeAllActions()
         try bridge { await h.documentStore.close() }
     }
