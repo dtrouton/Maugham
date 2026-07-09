@@ -233,7 +233,7 @@ struct AnnotationWriter {
             device: deviceId, session: session,
             kind: .claudeAcceptRevert,
             changes: [Op.ParagraphChange(
-                paragraphId: change.paragraphId, prior: currentParagraph, next: restored)],
+                paragraphId: change.paragraphId, prior: currentParagraph ?? "", next: restored)],
             sequence: nil,
             provenance: Op.Provenance(
                 sessionId: session,
