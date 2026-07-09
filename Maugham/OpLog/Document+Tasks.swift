@@ -479,6 +479,16 @@ extension Document {
         let preState: Deriver.DerivedState? =
             isPaneCreated ? nil : Deriver.derive(ops: _opLogMirror)
         let preTip: String? = isPaneCreated ? nil : _opLogMirror.last?.opId
+        // The full op-id SET at capture, not just the tip: the fire-time
+        // foreign-op guard computes "what landed since" by id-difference. A
+        // positional drop(while:)-suffix walk keyed on `preTip` was vacuously
+        // satisfied (empty suffix → allSatisfy true → fail OPEN) whenever the
+        // mirror had been wholesale-replaced by a cross-device sync that no
+        // longer contained `preTip` (Document+ExternalChange `_opLogMirror =
+        // ops`). The set makes the difference exact and lets the guard fail
+        // CLOSED when `preTip` itself is gone.
+        let preOpIds: Set<String>? =
+            isPaneCreated ? nil : Set(_opLogMirror.map(\.opId))
 
         // Emit the .taskArchive op first so the lifecycle event lands in the
         // op log even when no anchor can be located (pane-created tasks, or
@@ -570,7 +580,7 @@ extension Document {
             undoManager, actionName: "Archive Task", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { doc in
-                guard let preState, let preTip else { return }
+                guard let preState, let preTip, let preOpIds else { return }
                 // Fire-time state guard (same as the op-only branch): only
                 // proceed if the task still derives `.archived`. If it was
                 // reopened out from under this action between the archive and
@@ -586,11 +596,24 @@ extension Document {
                 // record into the pending buffer, not `_opLogMirror`, until a
                 // flush lands them.
                 try? await doc.flushBurstNow()
-                // Foreign-op guard: every op after the captured pre-archive tip
-                // must be locally ours. A cross-device merge landing in the
-                // window means the doc advanced past our capture, so the
-                // paragraph-rebuild would restore a stale snapshot — decline as
-                // a loud no-op. The rebalance exemption is KIND-shaped, not
+                // Foreign-op guard: every op that landed since the captured
+                // pre-archive state must be locally ours. A cross-device merge
+                // landing in the window means the doc advanced past our
+                // capture, so the paragraph-rebuild would restore a stale
+                // snapshot — decline as a loud no-op. FAIL CLOSED first: if
+                // the captured tip is no longer IN the mirror at all, the
+                // mirror was wholesale-replaced (cross-device sync,
+                // Document+ExternalChange) and the capture describes a log
+                // that no longer exists — decline. (The old positional
+                // suffix-walk was vacuously satisfied in exactly that case.)
+                guard doc._opLogMirror.contains(where: { $0.opId == preTip })
+                else {
+                    documentLog.error("archiveTask compound undo: \(id, privacy: .public) — pre-archive tip absent from the op-log mirror (replaced by sync?); declining")
+                    return
+                }
+                // The actual new-op set by id-difference, not positional
+                // suffix — exact even if the merge reordered ops around the
+                // tip. The rebalance exemption is KIND-shaped, not
                 // origin-shaped: a changes-free `.taskPriorityChange` stamped
                 // with the rebalance sentinel is safe because a text restore
                 // CANNOT clobber it (priority-only payload, no paragraph
@@ -599,7 +622,7 @@ extension Document {
                 // unclobberable). Anything else — including a rebalance-
                 // flavored op that somehow carries changes — declines loudly.
                 let appended = doc._opLogMirror
-                    .drop(while: { $0.opId != preTip }).dropFirst()
+                    .filter { !preOpIds.contains($0.opId) }
                 guard appended.allSatisfy({
                     ($0.device == doc.device && $0.session == doc.session)
                         || ($0.kind == .taskPriorityChange

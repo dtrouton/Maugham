@@ -208,6 +208,46 @@ final class InlineArchiveUndoTests: XCTestCase {
             "the status is NOT restored either — the whole compound undo declines")
     }
 
+    // MARK: - Pre-archive tip absent from mirror → fail CLOSED
+
+    func test_inlineArchive_undo_preTipAbsentFromMirror_failsClosed() async throws {
+        let stored = """
+        - [ ] foo <!--t-aaaaaa-->
+
+        Some other prose.
+        """
+        let doc = try await makeDocument(initialMd: stored)
+        let pids = try await paragraphIds(of: doc)
+        let taskPid = pids[0]
+        let inlineId = synthId(for: doc, anchor: "aaaaaa")
+
+        // A typing burst so the pre-archive tip the undo captures is a
+        // disposable op (not the bootstrap the whole doc derives from).
+        doc.setParagraph(id: pids[1], text: "Some other prose, expanded.")
+        try await doc.flushBurstNow()
+        let preTip = doc.opLogSnapshot.last!.opId
+
+        let um = UndoManager()
+        doc.archiveTask(id: inlineId, undoManager: um)
+        XCTAssertNil(doc.paragraph(id: taskPid))
+        XCTAssertEqual(status(doc, inlineId), .archived)
+
+        // Simulate a cross-device sync wholesale-replacing the mirror with a
+        // merged set that no longer contains the captured pre-archive tip
+        // (Document+ExternalChange assigns `_opLogMirror = ops`). The old
+        // positional `drop(while:).dropFirst()` suffix guard was VACUOUSLY
+        // satisfied here — preTip never matched, the suffix came back empty,
+        // `allSatisfy` on empty returned true — so the undo failed OPEN and
+        // restored a stale snapshot over the merged state.
+        doc._opLogMirror.removeAll { $0.opId == preTip }
+
+        um.undo(); await doc.awaitPendingUndoWork()
+        XCTAssertNil(doc.paragraph(id: taskPid),
+            "fail-closed guard declines: the deleted paragraph stays gone")
+        XCTAssertEqual(status(doc, inlineId), .archived,
+            "the status is NOT restored either — the whole compound undo declines")
+    }
+
     // MARK: - Task reopened out-of-band → loud no-op (fire-time state guard)
 
     func test_inlineArchive_undo_afterOutOfBandReopen_isLoudNoOp() async throws {

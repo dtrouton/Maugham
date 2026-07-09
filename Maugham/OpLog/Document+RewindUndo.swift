@@ -26,6 +26,11 @@ extension Document {
         // — capture BEFORE the restore —
         // The pre-restore tip: undoing the rewind restores forward to here.
         let preTip = currentFoldBasis
+        // Pre-restore paragraphs: tells the undo whether the original restore
+        // changed text at all, so it can demand a real compensating restore op
+        // when one is expected (and tolerate a nil one when it isn't — the
+        // marker-only task-window rewind).
+        let preParagraphs = paragraphs
         // The original userResponse per accepted suggestion, keyed by its
         // creation-op id — so the undo's status-only re-accept preserves the
         // writer's recorded reply across ⌘Z.
@@ -60,6 +65,7 @@ extension Document {
 
         // — capture AFTER the restore (for the fire-time guard + the undo work) —
         let postParagraphs = paragraphs
+        let restoreChangedText = preParagraphs != postParagraphs
         // Creation ids of accepts the restore reopened (status → .open) on
         // SURVIVING paragraphs: the undo re-accepts these status-only.
         let reopened = result.reopenedAnnotationOpIds
@@ -87,21 +93,49 @@ extension Document {
                 doc._undoCoherentApplyPending = true
                 // Compensating restore FORWARD to the pre-rewind tip, stamped
                 // `.undoRewind` so it never opens a task-rewind window.
-                _ = try? await doc.restoreToOp(
-                    opId: preTip, synthesisSource: .undoRewind)
+                //
+                // Gate the lifecycle compensations on this restore SUCCEEDING
+                // (inline-archive-sibling shape): a swallowed throw here used
+                // to fall through to the status-only re-accepts below, leaving
+                // the stranded-accept state (annotation derives `.accepted`
+                // while its applied text stays rewound) on a plain I/O failure.
+                let compensating: RewindRestoreResult
+                do {
+                    compensating = try await doc.restoreToOp(
+                        opId: preTip, synthesisSource: .undoRewind)
+                } catch {
+                    documentLog.error("restoreToOpUndoable undo: compensating restore failed (\(error.localizedDescription, privacy: .public)) — declining before any lifecycle re-accept")
+                    return
+                }
+                if restoreChangedText && compensating.restoreOp == nil {
+                    // The original rewind changed text, so its undo MUST have
+                    // appended a restore op; nil means the log/derive no longer
+                    // matches the capture — decline before half-applying.
+                    documentLog.error("restoreToOpUndoable undo: compensating restore appended nothing despite an expected text delta — declining before any lifecycle re-accept")
+                    return
+                }
                 // Re-accept each reopened suggestion status-only (empty changes;
                 // the restore above already carries the text), preserving the
-                // original userResponse.
+                // original userResponse. Append failures are loud (never silent
+                // `try?` — a dropped re-accept leaves a reopened row whose text
+                // is already re-applied).
                 for src in reopened {
-                    try? await doc.appendLifecycleOp(
-                        kind: .claudeAccept,
-                        sourceAnnotationId: src,
-                        userResponse: acceptResponses[src] ?? nil,
-                        synthesisSource: .undoRewind)
+                    do {
+                        try await doc.appendLifecycleOp(
+                            kind: .claudeAccept,
+                            sourceAnnotationId: src,
+                            userResponse: acceptResponses[src] ?? nil,
+                            synthesisSource: .undoRewind)
+                    } catch {
+                        documentLog.error("restoreToOpUndoable undo: status-only re-accept failed for \(src, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    }
                 }
                 // Reopen each sweep-archived annotation (its paragraph is back).
                 for src in sweepArchivedAnnotationIds {
-                    try? await doc.reopenAnnotation(id: src)
+                    do { try await doc.reopenAnnotation(id: src) }
+                    catch {
+                        documentLog.error("restoreToOpUndoable undo: reopen failed for sweep-archived \(src, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    }
                 }
             },
             redo: { [weak undoManager] doc in
