@@ -33,6 +33,10 @@ Drag a task row to reorder it. Drop onto the **middle** of another top-level tas
 
 Completed tasks can be archived via the row's context menu. The **⋯** menu in the toolbar offers **Archive all done** to sweep the current scope in one action.
 
+### Undo
+
+Every task and checkbox action — create, toggle, reprioritize, re-nest, edit, archive — is undoable with **⌘Z** and redoable with **⌘⇧Z**. See [Annotations & Suggestions → Undoing tasks and checkboxes](annotations-and-suggestions.md#undoing-tasks-and-checkboxes) for the full behavior.
+
 ### Claude reads your tasks
 
 If you use Claude Desktop with the Maugham integration, Claude can read your task list via the `list_tasks` and `get_task` tools — across the whole project or for a single document, filtered by status. Task management stays with you: Claude can read and reference your tasks, but only you can create, check off, or archive them.
