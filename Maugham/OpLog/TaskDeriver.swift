@@ -9,6 +9,12 @@ import MaughamCore
 /// `docs/superpowers/specs/2026-05-25-task-anchors-and-lifecycle.md` §2.3.
 public enum TaskDeriver {
 
+    /// Device + session sentinel stamped on rebalance ops. These are locally
+    /// self-emitted during derivation (not a writer edit and not a cross-device
+    /// merge), so callers reasoning about op provenance — e.g. the inline-archive
+    /// undo's foreign-op guard — treat this device as local, not foreign.
+    public static let rebalanceSentinel = "rebalance"
+
     // MARK: - MintedAnchor side-channel
 
     /// Side-channel record describing a freshly-minted task anchor that the
@@ -473,8 +479,8 @@ public enum TaskDeriver {
                         opId: "rebalance_\(t.id)",
                         docId: docId,
                         at: Date(),
-                        device: "rebalance",
-                        session: "rebalance",
+                        device: rebalanceSentinel,
+                        session: rebalanceSentinel,
                         kind: .taskPriorityChange,
                         changes: [],
                         sequence: nil,

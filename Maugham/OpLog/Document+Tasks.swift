@@ -454,12 +454,20 @@ extension Document {
         // is fresh even after an earlier mutation invalidated the cache.
         let archived = freshTaskSnapshot(id: id)
 
-        // Branch computed BEFORE registering: pane-created archive is a pure
-        // op-lifecycle change (op-side inverse fully restores it), while inline
-        // archive ALSO splices anchor text out of the paragraph — Task 6 will
-        // replace THIS branch's registration with a compound (text + op) undo.
-        // Only the op-side inverse (status restore) is registered here.
+        // Branch: pane-created archive is a pure op-lifecycle change (the
+        // op-side status inverse fully restores it). Inline archive ALSO
+        // splices anchor text out of the paragraph, so its undo is COMPOUND —
+        // it must restore both the paragraph text and the open status.
         let isPaneCreated = Self.extractAnchorId(fromTaskId: id) == nil
+
+        // Compound-undo capture (inline branch only): the pre-archive derived
+        // state (for `applyRestore` to rebuild the paragraph — cheap at
+        // user-action frequency, not keystroke frequency) and the op-log tip
+        // BEFORE any archive op, so the undo's foreign-op guard can confirm no
+        // cross-device merge advanced the doc past our own appended ops.
+        let preState: Deriver.DerivedState? =
+            isPaneCreated ? nil : Deriver.derive(ops: _opLogMirror)
+        let preTip: String? = isPaneCreated ? nil : _opLogMirror.last?.opId
 
         // Emit the .taskArchive op first so the lifecycle event lands in the
         // op log even when no anchor can be located (pane-created tasks, or
@@ -477,16 +485,52 @@ extension Document {
                 taskKind: archived?.kind.rawValue))
         appendTaskOpInternal(op)
 
-        // ⌘Z: undo restores the pre-archive status (the archive-inverse is a
-        // taskStatusChange back to `archived.status`). For pane-created tasks
-        // this is a complete undo — no manuscript text was touched. For inline
-        // tasks the text splice below is NOT restored by this op-side inverse;
-        // Task 6 replaces the inline branch with a compound (text + op) undo.
-        if let archived,
-           let inverse = TaskInverse.inverse(
-            undoing: .taskArchive, prior: archived,
-            docId: docId, device: device, session: session, sessionId: session) {
-            _ = isPaneCreated  // branch precomputed for Task 6's inline-compound split.
+        // --- Text splice (inline branch only) ---
+        // Locate + splice the anchor out of paragraph text. Follows accept's
+        // D1/D2 choreography (InlineToggleUndo is the canonical non-accept
+        // example) around the buffer-affecting mutation so the compound undo
+        // registration below survives the editor's next apply pass.
+        var didSplice = false
+        if !isPaneCreated,
+           let anchorId = Self.extractAnchorId(fromTaskId: id),
+           let location = locateTaskAnchor(anchorId: anchorId),
+           let para = paragraphs[location.paragraphId] {
+            // D1: clear stale native typing actions BEFORE mutating so
+            // clear→mutate→register is contiguous (a keystroke landing between
+            // would otherwise leave a stale action the flag-preserved replace
+            // never clears). Skipped mid-undo/redo (NSUndoManager forbids it).
+            if let um = undoManager, !um.isUndoing, !um.isRedoing {
+                um.removeAllActions()
+            }
+            // D2: flag the splice's editor push undo-coherent so it preserves
+            // the fresh registration below instead of wiping the stack.
+            _undoCoherentApplyPending = true
+            let mutated = Self.spliceArchivedTask(
+                from: para,
+                anchorRangeInLine: location.anchorRangeInLine,
+                lineIndex: location.lineIndex)
+            if mutated.isEmpty {
+                // Sole task in the paragraph → paragraph collapses. The sweep
+                // reason carries the removed id so annotations on it archive
+                // through the normal path.
+                deleteParagraph(id: location.paragraphId)
+            } else {
+                setParagraph(id: location.paragraphId, text: mutated)
+            }
+            didSplice = true
+        }
+
+        // --- Undo registration ---
+        guard let archived else { return }
+        if !didSplice {
+            // Op-only (Task 4) registration: pane-created archive, or an inline
+            // archive whose anchor couldn't be located (already spliced out /
+            // stale pane row — no manuscript text changed). ⌘Z restores the
+            // pre-archive status.
+            guard let inverse = TaskInverse.inverse(
+                undoing: .taskArchive, prior: archived,
+                docId: docId, device: device, session: session, sessionId: session)
+            else { return }
             OpUndoRegistrar.register(
                 undoManager, actionName: "Archive Task", target: self,
                 workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
@@ -502,31 +546,63 @@ extension Document {
                 redo: { [weak undoManager] doc in
                     doc.archiveTask(id: id, undoManager: undoManager)
                 })
-        }
-
-        // Extract the anchor id from the synth-id. Pane-created tasks have
-        // `id == opId` (no `inline:` prefix) and never carry inline text —
-        // op-only archive is sufficient.
-        guard let anchorId = Self.extractAnchorId(fromTaskId: id) else { return }
-        guard let location = locateTaskAnchor(anchorId: anchorId) else {
-            // Anchor isn't in any paragraph — already spliced out or never
-            // present (e.g. stale tasks pane row). Op-only archive.
             return
         }
 
-        guard let para = paragraphs[location.paragraphId] else { return }
-        let mutated = Self.spliceArchivedTask(
-            from: para,
-            anchorRangeInLine: location.anchorRangeInLine,
-            lineIndex: location.lineIndex)
-        if mutated.isEmpty {
-            // Sole task in the paragraph → paragraph collapses. The sweep
-            // reason carries the removed id so annotations on it archive
-            // through the normal path.
-            deleteParagraph(id: location.paragraphId)
-        } else {
-            setParagraph(id: location.paragraphId, text: mutated)
-        }
+        // Compound (text + op) registration: the inline archive spliced the
+        // paragraph, so ⌘Z must restore BOTH the text and the open status.
+        OpUndoRegistrar.register(
+            undoManager, actionName: "Archive Task", target: self,
+            workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
+            undo: { doc in
+                guard let preState, let preTip else { return }
+                // Drain the splice burst so `applyRestore` derives the current
+                // (post-splice) paragraph text — setParagraph/deleteParagraph
+                // record into the pending buffer, not `_opLogMirror`, until a
+                // flush lands them.
+                try? await doc.flushBurstNow()
+                // Foreign-op guard: every op after the captured pre-archive tip
+                // must be locally ours. A cross-device merge landing in the
+                // window means the doc advanced past our capture, so the
+                // paragraph-rebuild would restore a stale snapshot — decline as
+                // a loud no-op. Rebalance ops (TaskDeriver's local self-emitted
+                // priority normalization) carry the rebalance sentinel device
+                // and are local, not foreign — exempt them.
+                let appended = doc._opLogMirror
+                    .drop(while: { $0.opId != preTip }).dropFirst()
+                guard appended.allSatisfy({
+                    ($0.device == doc.device && $0.session == doc.session)
+                        || $0.device == TaskDeriver.rebalanceSentinel
+                }) else {
+                    documentLog.error("archiveTask compound undo: \(id, privacy: .public) — foreign op advanced doc past capture, ignoring")
+                    return
+                }
+                // 1. Restore the paragraph text (handles the deleted-paragraph
+                //    case via sequence-aware re-insertion). `.undoRewind` keeps
+                //    this off TaskDeriver's rewind window so the taskArchive op
+                //    below stays live for the status counter. D2 flag preserves
+                //    the nested redo registration through the editor push.
+                doc._undoCoherentApplyPending = true
+                _ = try? await doc.applyRestore(
+                    target: preState,
+                    sourceCheckpoint: preTip,
+                    synthesisSource: .undoRewind)
+                // 2. Counter the archive's status override. The deriver folds
+                //    later ops over earlier, so a fresh statusChange (the
+                //    archive inverse) after the taskArchive op wins → the
+                //    re-derived inline task reads its pre-archive status.
+                if let inverse = TaskInverse.inverse(
+                    undoing: .taskArchive, prior: archived,
+                    docId: doc.docId, device: doc.device,
+                    session: doc.session, sessionId: doc.session) {
+                    doc.appendTaskOpInternal(inverse)
+                }
+            },
+            redo: { [weak undoManager] doc in
+                // Re-enter the forward path with the LIVE manager so ⌘Z/⇧⌘Z
+                // cycles indefinitely (re-splices + re-registers a fresh pair).
+                doc.archiveTask(id: id, undoManager: undoManager)
+            })
     }
 
     /// Extract the 6-char anchor id from a task synth-id of the form
