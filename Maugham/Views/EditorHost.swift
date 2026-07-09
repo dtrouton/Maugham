@@ -146,7 +146,13 @@ struct EditorHost: View {
                                 in: para, atUTF16Offset: offset)
                         }
                         guard flipped != para else { return }
-                        doc.setParagraph(id: paragraphId, text: flipped)
+                        // ⌘Z: a checkbox flip is text-is-state (no task op), so
+                        // undo is a guarded flip-back. `InlineToggleUndo` sets the
+                        // undo-coherent flag so the buffer replace this
+                        // setParagraph drives doesn't wipe the fresh registration.
+                        InlineToggleUndo.perform(
+                            on: doc, paragraphId: paragraphId,
+                            prior: para, flipped: flipped, undoManager: um)
                     },
                     paragraphRangeAtLocation: { location in
                         doc.paragraphRange(at: location)

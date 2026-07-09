@@ -55,3 +55,55 @@ enum OpUndoRegistrar {
         um.setActionName(actionName)
     }
 }
+
+/// Undo for inline checkbox flips. Inline tasks are text-is-state — a toggle
+/// is a plain `setParagraph` → `.typingBurst`, NO task op — so undo is a
+/// guarded flip-back of the paragraph text, not an op inverse.
+///
+/// The undo-coherent flag keeps the editor's next external buffer apply from
+/// wiping the just-registered action (v0.17.0 D2 rule), mirroring
+/// `acceptAnnotation`'s use of `_undoCoherentApplyPending`. Unlike accept,
+/// this path deliberately does NOT `removeAllActions`: a checkbox flip is
+/// length-preserving (`[ ]`↔`[x]`, `[[todo:`↔`[[done:`), so the whole-buffer
+/// replace `applyExternalText` performs keeps every native typing-undo range
+/// in bounds — interleaved typing undo survives the toggle and pops without
+/// the ⌘Z fault (`InlineTaskToggleUndoTests`).
+@MainActor
+enum InlineToggleUndo {
+    static func perform(on doc: Document, paragraphId: String,
+                        prior: String, flipped: String,
+                        undoManager: UndoManager?) {
+        // Set BEFORE the mutation: `setParagraph` writes `displayText`, which
+        // drives the editor's next update pass — the pass that consumes this
+        // flag and preserves the fresh registration below. (Same ordering
+        // intent as accept: flag armed before the observable write.)
+        doc._undoCoherentApplyPending = true
+        doc.setParagraph(id: paragraphId, text: flipped)
+        OpUndoRegistrar.register(
+            undoManager, actionName: "Toggle Checkbox", target: doc,
+            workTaskSink: { [weak doc] in doc?._lastUndoWorkTask = $0 },
+            undo: { d in
+                // Fire-time drift guard: only flip back if the paragraph still
+                // holds the value THIS toggle wrote; else decline as a loud
+                // no-op (an intervening edit would otherwise be clobbered).
+                guard d.paragraph(id: paragraphId) == flipped else {
+                    documentLog.error("InlineToggleUndo undo: \(paragraphId, privacy: .public) drifted since toggle — ignoring")
+                    return
+                }
+                d._undoCoherentApplyPending = true
+                d.setParagraph(id: paragraphId, text: prior)
+            },
+            redo: { [weak undoManager] d in
+                // Re-arm through the forward path, forwarding the LIVE manager
+                // so ⌘Z/⇧⌘Z cycles indefinitely (never nil — the T3 dead-cycle
+                // regression). Guarded so a drifted redo declines.
+                guard d.paragraph(id: paragraphId) == prior else {
+                    documentLog.error("InlineToggleUndo redo: \(paragraphId, privacy: .public) drifted since undo — ignoring")
+                    return
+                }
+                InlineToggleUndo.perform(on: d, paragraphId: paragraphId,
+                                         prior: prior, flipped: flipped,
+                                         undoManager: undoManager)
+            })
+    }
+}

@@ -111,6 +111,12 @@ struct TasksPane: View {
     let activeDocId: String?
     let projectURL: URL?
 
+    // The window's undo manager — threaded into every task mutation so ⌘Z
+    // reverses pane actions (Task 5). Inline toggles register a guarded
+    // text flip-back (text-is-state); pane-created mutations register op
+    // inverses via `OpUndoRegistrar` / `TaskInverse`.
+    @Environment(\.undoManager) private var undoManager
+
     enum ScopeChoice: Hashable {
         case document
         case project
@@ -311,7 +317,8 @@ struct TasksPane: View {
             // and there is no Document to mutate. For doc-scope pane-created
             // tasks, mutate the owning Document.
             if let doc = ownerDoc(of: task) {
-                doc.setTaskStatus(id: task.id, status: nextStatus)
+                doc.setTaskStatus(id: task.id, status: nextStatus,
+                                  undoManager: undoManager)
             }
             // Project-scope status change isn't shipped in this milestone.
             // (Spec §11: pane edits for inline tasks are out of scope; the
@@ -325,7 +332,9 @@ struct TasksPane: View {
                   let current = doc.paragraph(id: pid) else { return }
             let flipped = flipInlineCheckbox(current)
             guard flipped != current else { return }
-            doc.setParagraph(id: pid, text: flipped)
+            InlineToggleUndo.perform(
+                on: doc, paragraphId: pid,
+                prior: current, flipped: flipped, undoManager: undoManager)
         case .fountainBoneyard:
             // Fountain: flip the specific `[[todo:` / `[[done:` segment
             // whose closing anchor matches this task's id. Paragraphs
@@ -338,7 +347,9 @@ struct TasksPane: View {
             else { return }
             let flipped = flipFountainTodoDone(in: current, anchorId: anchorId)
             guard flipped != current else { return }
-            doc.setParagraph(id: pid, text: flipped)
+            InlineToggleUndo.perform(
+                on: doc, paragraphId: pid,
+                prior: current, flipped: flipped, undoManager: undoManager)
         }
     }
 
@@ -354,7 +365,7 @@ struct TasksPane: View {
 
     private func archive(_ task: WriterTask) {
         guard let doc = ownerDoc(of: task) else { return }
-        doc.archiveTask(id: task.id)
+        doc.archiveTask(id: task.id, undoManager: undoManager)
     }
 
     private func deleteIfPaneCreated(_ task: WriterTask) {
@@ -363,7 +374,7 @@ struct TasksPane: View {
         // delete op kind), per spec §11 simplification.
         guard task.kind == .paneCreated,
               let doc = ownerDoc(of: task) else { return }
-        doc.archiveTask(id: task.id)
+        doc.archiveTask(id: task.id, undoManager: undoManager)
     }
 
     /// Archive every Done task currently visible in the given scope.
@@ -386,26 +397,25 @@ struct TasksPane: View {
                 statuses: [.done]))
         }
 
+        // One undo group so a single ⌘Z reverses the whole batch (Task 5).
+        // Each per-task archive registers its own inverse INSIDE the group;
+        // NSUndoManager coalesces the group into one action.
+        undoManager?.beginUndoGrouping()
+        defer {
+            undoManager?.setActionName("Archive Done Tasks")
+            undoManager?.endUndoGrouping()
+        }
+
         var skippedCount = 0
         for task in allVisible {
             guard let anchor = task.anchor else { continue }
             if anchor.docId == ProjectStore.projectTasksDocId {
                 // Project pane-created task: emit .taskArchive op directly
-                // via the project op log (no Document actor involved).
-                let op = Op(
-                    opId: ULID.generate(),
-                    docId: ProjectStore.projectTasksDocId,
-                    at: Date(),
-                    device: store.projectOpDevice,
-                    session: store.projectOpSession,
-                    kind: .taskArchive,
-                    changes: [], sequence: nil,
-                    provenance: Op.Provenance(
-                        sessionId: store.projectOpSession,
-                        taskId: task.id))
-                store.appendProjectTaskOp(op)
+                // via the project op log (no Document actor involved) and
+                // register the status-restore inverse.
+                archiveProjectTaskWithUndo(task, undoManager: undoManager)
             } else if let doc = documentStore.document(forDocId: anchor.docId) {
-                doc.archiveTask(id: task.id)
+                doc.archiveTask(id: task.id, undoManager: undoManager)
             } else {
                 // Closed document — skip for V1.
                 skippedCount += 1
@@ -414,6 +424,52 @@ struct TasksPane: View {
         if skippedCount > 0 {
             print("[TasksPane] Skipping \(skippedCount) Done task(s) in closed documents — open them to archive individually.")
         }
+    }
+
+    /// Archive a single project-scope pane task and register its ⌘Z inverse
+    /// (target: `store`). The inverse restores the pre-archive status; redo
+    /// re-archives, forwarding the LIVE undo manager so the cycle re-arms
+    /// (mirrors `Document.archiveTask`). Carried body + kind keep the deriver's
+    /// Archived-filter entry intact (archiveTask convention).
+    private func archiveProjectTaskWithUndo(
+        _ task: WriterTask, undoManager: UndoManager?
+    ) {
+        let op = Op(
+            opId: ULID.generate(),
+            docId: ProjectStore.projectTasksDocId,
+            at: Date(),
+            device: store.projectOpDevice,
+            session: store.projectOpSession,
+            kind: .taskArchive,
+            changes: [], sequence: nil,
+            provenance: Op.Provenance(
+                sessionId: store.projectOpSession,
+                taskId: task.id,
+                taskBody: task.body,
+                taskKind: task.kind.rawValue))
+        store.appendProjectTaskOp(op)
+
+        guard let inverse = TaskInverse.inverse(
+            undoing: .taskArchive, prior: task,
+            docId: ProjectStore.projectTasksDocId,
+            device: store.projectOpDevice, session: store.projectOpSession,
+            sessionId: store.projectOpSession) else { return }
+        OpUndoRegistrar.register(
+            undoManager, actionName: "Archive Done Tasks", target: store,
+            workTaskSink: { [weak store] in store?._lastUndoWorkTask = $0 },
+            undo: { s in
+                // Fire-time guard: only restore if still archived.
+                let now = s.listTasksAcrossProject(filter: TaskFilter(
+                    scope: .project, statuses: Set(TaskStatus.allCases)))
+                    .first { $0.id == task.id }
+                guard let now, now.status == .archived else {
+                    return
+                }
+                s.appendProjectTaskOp(inverse)
+            },
+            redo: { [weak undoManager] _ in
+                archiveProjectTaskWithUndo(task, undoManager: undoManager)
+            })
     }
 
     // MARK: - Navigation
@@ -531,9 +587,11 @@ struct TasksPane: View {
                 newPriority = target.priority - 1.0
             }
             if dragged.parentTaskId != parentTaskId {
-                doc.setTaskParent(id: dragged.id, parentTaskId: parentTaskId)
+                doc.setTaskParent(id: dragged.id, parentTaskId: parentTaskId,
+                                  undoManager: undoManager)
             }
-            doc.setTaskPriority(id: dragged.id, priority: newPriority)
+            doc.setTaskPriority(id: dragged.id, priority: newPriority,
+                                undoManager: undoManager)
 
         case .reorderBelow(let targetId, let parentTaskId):
             guard let target = allTasks.first(where: { $0.id == targetId }) else { return }
@@ -551,16 +609,19 @@ struct TasksPane: View {
                 newPriority = target.priority + 1.0
             }
             if dragged.parentTaskId != parentTaskId {
-                doc.setTaskParent(id: dragged.id, parentTaskId: parentTaskId)
+                doc.setTaskParent(id: dragged.id, parentTaskId: parentTaskId,
+                                  undoManager: undoManager)
             }
-            doc.setTaskPriority(id: dragged.id, priority: newPriority)
+            doc.setTaskPriority(id: dragged.id, priority: newPriority,
+                                undoManager: undoManager)
 
         case .nestUnder(let parentId):
             // The classifier guarantees parentId names a top-level task.
             // If the dragged task already has this parent, no parent op
             // needed; just leave it where it is.
             if dragged.parentTaskId != parentId {
-                doc.setTaskParent(id: dragged.id, parentTaskId: parentId)
+                doc.setTaskParent(id: dragged.id, parentTaskId: parentId,
+                                  undoManager: undoManager)
             }
         }
     }
@@ -584,13 +645,16 @@ struct TasksPane: View {
         switch newTaskScope {
         case .document:
             if let doc = activeDoc() {
-                _ = doc.createPaneTask(body: trimmed, parentTaskId: nil)
+                _ = doc.createPaneTask(body: trimmed, parentTaskId: nil,
+                                       undoManager: undoManager)
             } else {
                 // Defensive fallback: doc-scope but no active doc → project.
-                _ = store.createProjectPaneTask(body: trimmed)
+                _ = store.createProjectPaneTask(body: trimmed,
+                                                undoManager: undoManager)
             }
         case .project:
-            _ = store.createProjectPaneTask(body: trimmed)
+            _ = store.createProjectPaneTask(body: trimmed,
+                                            undoManager: undoManager)
         }
         showCreateSheet = false
         newTaskBody = ""
