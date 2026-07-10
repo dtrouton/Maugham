@@ -45,6 +45,9 @@ struct PieceInspector: View {
     @Bindable var store: ProjectStore
     let pieceId: String
     let kind: PieceInspectorKind
+    let onOpenCraftIntent: (String) -> Void
+
+    @State private var isCreatingIntent = false
 
     var body: some View {
         if let piece = store.manifest.structure.first(where: { $0.id == pieceId }) {
@@ -55,6 +58,7 @@ struct PieceInspector: View {
                     synopsisSection(piece: piece)
                     statusSection(piece: piece)
                     targetSection(piece: piece)
+                    craftIntentSection(piece: piece)
                     InspectorPublishSection(
                         projectURL: store.url,
                         selectedPieceID: piece.id)
@@ -97,6 +101,27 @@ struct PieceInspector: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+        }
+    }
+
+    @ViewBuilder private func craftIntentSection(piece: StructureItem) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Craft Intent").font(.caption).foregroundStyle(.secondary)
+            if let intent = store.craftIntentItem(forPieceId: piece.id) {
+                Button("Open Craft Intent") { onOpenCraftIntent(intent.id) }
+            } else {
+                Button("Add craft intent…") {
+                    guard !isCreatingIntent else { return }
+                    isCreatingIntent = true
+                    Task {
+                        defer { isCreatingIntent = false }
+                        if let item = try? await store.createCraftIntent(forPieceId: piece.id) {
+                            onOpenCraftIntent(item.id)
+                        }
+                    }
+                }
+                .disabled(isCreatingIntent)
+            }
         }
     }
 

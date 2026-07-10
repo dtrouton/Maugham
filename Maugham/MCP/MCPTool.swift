@@ -77,6 +77,9 @@ public enum MCPToolCatalog {
         ReadInboxEntryTool.self,
         PromoteInboxEntryTool.self,
         ListMaughamToolsTool.self,
+        ReadCraftIntentTool.self,
+        ListPaletteCardsTool.self,
+        ReadPaletteCardTool.self,
         GetHelpTool.self
     ]
 

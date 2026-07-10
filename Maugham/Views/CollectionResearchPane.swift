@@ -1,6 +1,7 @@
 import SwiftUI
 import MaughamCore
 import AppKit
+import UniformTypeIdentifiers
 
 struct CollectionResearchPane: View {
     @Bindable var store: ProjectStore
@@ -73,8 +74,8 @@ struct CollectionResearchPane: View {
                 sharedHeaderMenu
             }
         }
-        .dropDestination(for: URL.self) { urls, _ in
-            Task { await runImport(urls: urls, scope: .shared) }
+        .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers in
+            Task { await importExternal(providers, scope: .shared) }
             return true
         }
     }
@@ -97,8 +98,8 @@ struct CollectionResearchPane: View {
                 pieceHeaderMenu(pieceId: piece.id)
             }
         }
-        .dropDestination(for: URL.self) { urls, _ in
-            Task { await runImport(urls: urls, scope: .piece(piece.id)) }
+        .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers in
+            Task { await importExternal(providers, scope: .piece(piece.id)) }
             return true
         }
     }
@@ -160,8 +161,8 @@ struct CollectionResearchPane: View {
                     position: position,
                     scope: scope) }
             },
-            onExternalDrop: { urls, _ in
-                Task { await runImport(urls: urls, scope: scope) }
+            onExternalDrop: { providers, _ in
+                Task { await importExternal(providers, scope: scope) }
             })
             .tag(item.id as String?)
             .contextMenu {
@@ -263,6 +264,16 @@ struct CollectionResearchPane: View {
         } catch {
             pendingError = error.localizedDescription
         }
+    }
+
+    /// Import a drop of raw providers (Finder files and/or browser image bitmaps)
+    /// into `scope`. Browser drags carry rendered image data rather than a file URL,
+    /// so `DropClassification` renders those to a temp PNG and everything imports
+    /// through the same scope-respecting path. See `DropClassification`.
+    private func importExternal(_ providers: [NSItemProvider], scope: Scope) async {
+        let urls = await DropClassification.fileURLs(from: providers)
+        guard !urls.isEmpty else { return }
+        await runImport(urls: urls, scope: scope)
     }
 
     private func rename(id: String, to newTitle: String) async {

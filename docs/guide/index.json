@@ -7,7 +7,8 @@
   { "slug": "tasks",               "title": "Tasks & To-Dos",         "order": 6 },
   { "slug": "screenplay",          "title": "Screenplays",            "order": 7 },
   { "slug": "claude-desktop",      "title": "Writing with Claude",    "order": 8 },
-  { "slug": "annotations-and-suggestions", "title": "Annotations & Suggestions", "order": 9 },
-  { "slug": "publishing",          "title": "Publishing to PDF & EPUB","order": 10 },
-  { "slug": "reference",           "title": "Reference",              "order": 11 }
+  { "slug": "sense-pass",          "title": "The Sense Pass",         "order": 9 },
+  { "slug": "annotations-and-suggestions", "title": "Annotations & Suggestions", "order": 10 },
+  { "slug": "publishing",          "title": "Publishing to PDF & EPUB","order": 11 },
+  { "slug": "reference",           "title": "Reference",              "order": 12 }
 ]

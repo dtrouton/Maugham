@@ -6,7 +6,7 @@ The local MCP server that lets Claude Desktop read and contribute to projects. R
 
 The in-app MCP server: tool registration, JSON-RPC handling, the read/search/discover surface for projects, the `add_note` write path (research-only), the annotation layer (paragraph-anchored comments from Claude), and the bridge between Claude Desktop's stdio and Maugham's Unix socket.
 
-## Tool catalogue (44)
+## Tool catalogue (47)
 
 **Discovery / identity**
 - `list_projects` — enumerate all open Maugham projects
@@ -31,6 +31,11 @@ The in-app MCP server: tool registration, JSON-RPC handling, the read/search/dis
 - `link_research` — create a research ↔ manuscript link
 - `unlink_research` — remove a research ↔ manuscript link
 - `list_all_links` — all research–manuscript links for a project, incl. `piece_research` edges (a collection piece's own research, no explicit link needed)
+
+**Palette / craft intent**
+- `read_craft_intent` — the writer's optional freeform statement of what a piece needs sensorially; absence returns `exists: false`, never an error
+- `list_palette_cards` — summaries of the project's sensory-palette cards (subject-keyed research assets: locations, characters, motifs)
+- `read_palette_card` — a card's full markdown plus image thumbnails (crop-on-demand for a single image via `image`)
 
 **Annotations (parallel comment layer)**
 - `add_comment` — paragraph-anchored general comment
@@ -76,8 +81,8 @@ A **separate** catalog, `TestMCPToolCatalog`, that mirrors `MCPToolCatalog`'s sh
 (`register(router:registry:)`) but is registered onto the **same dev-build Unix socket**
 only inside `#if MAUGHAM_DEV_BUILD` in `MaughamApp.registerTools` — absent from the stable
 binary entirely (enforced by `TripwireGrepTests.test_testMCPCatalog_registeredOnlyUnderDevFlag`).
-It exists for **Claude Code**, not Claude Desktop, and is not part of the production 44-tool
-count above — the "Tool catalogue (44)" heading is unaffected by these tools.
+It exists for **Claude Code**, not Claude Desktop, and is not part of the production 47-tool
+count above — the "Tool catalogue (47)" heading is unaffected by these tools.
 
 Purpose: let Claude Code drive the full create → edit → autosave → checkpoint → quit →
 relaunch → verify loop end to end without the owner acting as a human tester, so the

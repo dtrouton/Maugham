@@ -14,6 +14,37 @@ public enum ImagePasteHandler {
         forNoteAt notePath: String,
         in projectURL: URL
     ) throws -> String {
+        let dest = try destination(forNoteAt: notePath, in: projectURL, ext: "png")
+        guard let tiffData = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let pngData = bitmap.representation(using: .png, properties: [:]) else {
+            throw ImagePasteError.encodingFailed
+        }
+        try pngData.write(to: dest.fileURL, options: .atomic)
+        return "![](./\(dest.assetsDirName)/\(dest.filename))"
+    }
+
+    /// File-URL twin of `saveAndReference`: copy an existing image (dragged or
+    /// picked) into the note's `<slug>_assets/` folder, preserving its extension,
+    /// under the same timestamp-naming/dedupe scheme. Returns the Markdown ref.
+    @discardableResult
+    public static func saveAndReferenceFile(
+        from sourceURL: URL,
+        forNoteAt notePath: String,
+        in projectURL: URL
+    ) throws -> String {
+        let ext = sourceURL.pathExtension.isEmpty ? "png" : sourceURL.pathExtension.lowercased()
+        let dest = try destination(forNoteAt: notePath, in: projectURL, ext: ext)
+        try FileManager.default.copyItem(at: sourceURL, to: dest.fileURL)
+        return "![](./\(dest.assetsDirName)/\(dest.filename))"
+    }
+
+    /// Resolve the `<slug>_assets/` folder next to `notePath`, create it, and mint
+    /// a deduped timestamp filename with the given extension. Single home for the
+    /// naming/dedupe logic shared by the NSImage and file-URL entry points.
+    private static func destination(
+        forNoteAt notePath: String, in projectURL: URL, ext: String
+    ) throws -> (assetsDir: URL, assetsDirName: String, fileURL: URL, filename: String) {
         let noteURL = projectURL.appendingPathComponent(notePath)
         let noteSlug = noteURL.deletingPathExtension().lastPathComponent
         let assetsDirName = "\(noteSlug)_assets"
@@ -29,24 +60,15 @@ public enum ImagePasteHandler {
         formatter.timeZone = TimeZone.current
         let timestamp = formatter.string(from: Date())
 
-        // Dedupe on rare same-second paste
-        var filename = "image-\(timestamp).png"
+        // Dedupe on rare same-second write
+        var filename = "image-\(timestamp).\(ext)"
         var counter = 2
         while FileManager.default.fileExists(
             atPath: assetsDir.appendingPathComponent(filename).path) {
-            filename = "image-\(timestamp)-\(counter).png"
+            filename = "image-\(timestamp)-\(counter).\(ext)"
             counter += 1
         }
-        let fileURL = assetsDir.appendingPathComponent(filename)
-
-        guard let tiffData = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData),
-              let pngData = bitmap.representation(using: .png, properties: [:]) else {
-            throw ImagePasteError.encodingFailed
-        }
-        try pngData.write(to: fileURL, options: .atomic)
-
-        return "![](./\(assetsDirName)/\(filename))"
+        return (assetsDir, assetsDirName, assetsDir.appendingPathComponent(filename), filename)
     }
 
     public enum ImagePasteError: Error {

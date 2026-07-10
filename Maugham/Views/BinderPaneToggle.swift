@@ -6,6 +6,7 @@ struct BinderPaneToggle: View {
     @Binding var segment: BinderSegment
     @Binding var selectedItemId: String?
     @Binding var selectedResearchId: String?
+    @Binding var selectedPaletteCardId: String?
     let projectType: ProjectType
     let lastParsedScript: FountainScript?
     @Binding var findActive: Bool
@@ -20,6 +21,7 @@ struct BinderPaneToggle: View {
                     Text("Manuscript").tag(BinderSegment.manuscript)
                     Text("Research").tag(BinderSegment.research)
                 }
+                Image(systemName: "paintpalette").tag(BinderSegment.palette).help("Palette")
                 if !store.trashEntries.isEmpty {
                     Text("Trash").tag(BinderSegment.trash)
                 }
@@ -38,6 +40,8 @@ struct BinderPaneToggle: View {
                     BinderView(store: store, selectedItemId: $selectedItemId)
                 case .research:
                     ResearchView(store: store, selectedResearchId: $selectedResearchId)
+                case .palette:
+                    PaletteBinderList(store: store, selectedCardId: $selectedPaletteCardId)
                 case .scenes:
                     SceneNavigatorPane(
                         script: lastParsedScript,

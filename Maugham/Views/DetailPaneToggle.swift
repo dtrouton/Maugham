@@ -121,6 +121,10 @@ struct DetailPaneToggle<Inspector: View>: View {
                 .tag(DetailSegment.inbox)
                 .help("Inbox — triage captures from MaughamPhone (⌘⌥6)")
                 .keyboardShortcut("6", modifiers: [.command, .option])
+            Image(systemName: "paintpalette")
+                .tag(DetailSegment.palette)
+                .help("Palette Card (⌘⌥7)")
+                .keyboardShortcut("7", modifiers: [.command, .option])
         }
         .pickerStyle(.segmented)
         .labelsHidden()
@@ -173,6 +177,8 @@ struct DetailPaneToggle<Inspector: View>: View {
             tasksPane
         case .inbox:
             inboxPane
+        case .palette:
+            PalettePane(store: store)
         }
     }
 

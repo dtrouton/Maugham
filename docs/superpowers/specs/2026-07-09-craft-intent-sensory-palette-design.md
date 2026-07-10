@@ -1,7 +1,7 @@
 # Craft Intent + Sensory Palette — Design
 
 **Date:** 2026-07-09
-**Status:** Approved design, pre-plan
+**Status:** Implemented incl. card-editor revision (branch feat/craft-intent-sensory-palette, 2026-07-10)
 **Roadmap home:** Group 1 (mood board item, `docs/roadmap.md` "Visual reference") + first concrete instance of Group 2's prompt-templates item
 
 ## Problem
@@ -45,7 +45,7 @@ Absence of an intent doc is a first-class valid state: "this story doesn't need 
 
 ### Presentation A — the wall (main content surface)
 
-- A **visual wall** of cards in the main content area: image thumbnails, swatch strips, sensory-note snippets. Rhymes with the Corkboard pattern from the Writing Companion milestone. Click a card to open/edit it.
+- A **visual wall** of cards in the main content area: image thumbnails, swatch strips, sensory-note snippets. Rhymes with the Corkboard pattern from the Writing Companion milestone. Click a card to open it in the **visual card editor** (see §Card editor revision — NOT the raw markdown editor).
 - Reached as a **binder segment** (like Research).
 - **Room for the wall:** entering the Palette segment **auto-hides the right pane (inspector)** and restores its prior state on leaving. The binder remains collapsible via its existing toggle. The wall lays out adaptively to available width (no fixed-column assumption). Default = binder + full remaining width; one keystroke = whole window.
 - Freeform spatial canvas (drag-anywhere pinboard) is **deferred presentation polish** — the subject-keyed model does not preclude it.
@@ -63,6 +63,16 @@ Absence of an intent doc is a first-class valid state: "this story doesn't need 
 - **MCP never mutates** holds: intent doc and palette are writer-authored; Claude reads. (Claude *proposing* palette additions is deferred.)
 - **The sense pass is a curated prompt template** — the first concrete instance of the Group 2 "project-level Claude prompt templates" backlog item: "Do a sense pass on <doc>" pre-wired to read the craft-intent doc, relevant palette cards, and the manuscript, then leave **paragraph-anchored annotations via the existing tools** (`add_comment` / `add_craft_note`). No new `OpKind`; sense-pass output inherits the full Accept/Reject/Archive membrane and AnnotationsPane surface for free.
 - **No intent doc present:** the template instructs Claude to say so and either offer a generic pass or help the writer draft an intent doc — never to invent a standard silently.
+
+## Card editor revision (2026-07-10, pre-merge; supersedes the raw-markdown editing flow)
+
+User feedback on the first cut: the palette is used in **visual/exploratory mode**, not text-editing mode — typing hex codes and copying file paths into markdown is the storage format leaking into the interaction surface. Storage stays markdown; the editing surface becomes direct manipulation.
+
+- **The card model owns the file.** The visual editor is the only editing surface; Maugham regenerates the whole `.md` from the `PaletteCard` model on every edit (a new `PaletteCardRenderer` is the parser's exact inverse; round-trip is total by construction because the model captures everything the editor can create). The on-disk file remains human-readable plain text (invariant holds) but is derived output, like the manifest. External hand-edits are **not a supported workflow**: they may parse, but are normalized to canonical form on the next visual edit; unrecognized content is dropped. (Decided 2026-07-10: "I don't care about preserving any data that can't be seen in Maugham.")
+- **Model gains a freeform `body` field** — an "anything else about this subject" text area at the bottom of the editor, so freeform prose lives *inside* the visual surface.
+- **Editor fields:** title + kind picker; **swatch strip** (chips with delete, **+** → macOS colour picker, **eyedropper** via `NSColorSampler` to sample off reference images); **image well** (drag from Finder / paste from clipboard; thumbnails with remove — the file is copied into the card's sibling `<slug>_assets/` folder, the existing research-note assets convention the typed rename machinery already carries; no paths ever shown); **sensory notes** (list rows with delete; quick-entry field + five sense chips or untagged); **freeform text area**.
+- Click-card from the wall/sidebar opens this editor in the center pane (the previous `ResearchNoteEditor` arm for palette cards is removed). ⌘⌥7 right-pane stays read-only. Wall, MCP tools, sense-pass topic, storage location: unchanged.
+- **Deferred flourishes:** drop-an-image-on-the-wall to mint a card; extract-palette-from-image (dominant colours).
 
 ## Out of scope (deferred, not rejected)
 
