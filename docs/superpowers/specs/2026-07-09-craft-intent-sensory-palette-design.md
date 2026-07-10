@@ -1,7 +1,7 @@
 # Craft Intent + Sensory Palette — Design
 
 **Date:** 2026-07-09
-**Status:** Implemented (branch feat/craft-intent-sensory-palette, 2026-07-09); **card-editor revision in progress** (§Card editor revision, 2026-07-10)
+**Status:** Implemented incl. card-editor revision (branch feat/craft-intent-sensory-palette, 2026-07-10)
 **Roadmap home:** Group 1 (mood board item, `docs/roadmap.md` "Visual reference") + first concrete instance of Group 2's prompt-templates item
 
 ## Problem

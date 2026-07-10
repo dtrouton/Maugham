@@ -12,9 +12,12 @@ story is not "missing" sensory detail.
    one is a valid choice; it means you've decided this piece doesn't need the
    apparatus.
 2. **Gather** — build *palette cards* in the Palette segment: one card per
-   location, character, or motif, holding images, colour swatches, and sensory
-   notes (tagged sight / sound / smell / touch / taste). Keep a card open
-   beside the editor with ⌘⌥7 while you draft.
+   location, character, or motif. The card editor is visual, not markdown —
+   drag images in from Finder or paste them from the clipboard, pick colour
+   swatches with the colour picker or sample them straight off a reference
+   image with the eyedropper, and add sensory notes tagged sight / sound /
+   smell / touch / taste (or left untagged). Keep a card open beside the
+   editor with ⌘⌥7 while you draft.
 3. **Audit** — ask Claude (via Claude Desktop + the Maugham MCP connection) to
    run the sense pass below. Claude reads your intent, your palette, and the
    manuscript, and leaves paragraph-anchored annotations you triage in the

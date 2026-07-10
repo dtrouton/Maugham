@@ -88,6 +88,10 @@ struct PalettePane: View {
                                     }
                                 }
                             }
+                            if !card.body.isEmpty {
+                                Divider()
+                                Text(card.body).font(.callout)
+                            }
                         }
                         .padding(10)
                         .frame(maxWidth: .infinity, alignment: .leading)
