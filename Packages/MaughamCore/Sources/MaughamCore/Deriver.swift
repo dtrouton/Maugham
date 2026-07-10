@@ -189,11 +189,12 @@ public enum Deriver {
             return true
         case .checkpoint, .claudeSuggestion, .claudeComment,
              .claudeQuery, .claudeCraftNote, .claudeReject, .claudeArchive,
-             .annotationEdit, .annotationWithdraw,
+             .annotationEdit, .annotationWithdraw, .annotationReopen,
              .taskCreate, .taskStatusChange, .taskPriorityChange,
              .taskParentChange, .taskBodyEdit, .taskArchive:
-            // annotationEdit/annotationWithdraw live purely in the annotation
-            // projection (AnnotationDeriver) — they never touch derived .md.
+            // annotationEdit/annotationWithdraw/annotationReopen live purely
+            // in the annotation projection (AnnotationDeriver) — they never
+            // touch derived .md.
             return false
         case .unknown:
             // An op kind written by a newer build. We can't know whether it

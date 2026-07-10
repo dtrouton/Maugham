@@ -31,6 +31,13 @@ public struct RewindRestoreResult: Equatable, Sendable {
     /// return them to `.open` (a stranded "accepted" row whose change no
     /// longer exists would otherwise hide in the resolved filter).
     public let reopenedAnnotationOpIds: [String]
+    /// True when the rewound range (target op → restore op) contained
+    /// task-lifecycle ops, i.e. a `.rewind`-stamped restore opened a
+    /// `TaskDeriver` rewind window that excludes them. The undo of such a
+    /// restore must close that window again (append a `.rewind`-flavored task
+    /// marker keyed on THIS restore's op id) or the pane's task state stays
+    /// rewound after ⌘Z brings text + annotations back.
+    public let rewoundTaskOps: Bool
 
     public init(
         restoreOp: Op?,
@@ -38,7 +45,8 @@ public struct RewindRestoreResult: Equatable, Sendable {
         removedParagraphIds: [String],
         priorSequenceCount: Int,
         newSequenceCount: Int,
-        reopenedAnnotationOpIds: [String]
+        reopenedAnnotationOpIds: [String],
+        rewoundTaskOps: Bool = false
     ) {
         self.restoreOp = restoreOp
         self.archivedAnnotationOpIds = archivedAnnotationOpIds
@@ -46,5 +54,6 @@ public struct RewindRestoreResult: Equatable, Sendable {
         self.priorSequenceCount = priorSequenceCount
         self.newSequenceCount = newSequenceCount
         self.reopenedAnnotationOpIds = reopenedAnnotationOpIds
+        self.rewoundTaskOps = rewoundTaskOps
     }
 }

@@ -50,6 +50,14 @@ struct AnnotationDetailView: View {
     /// The reloaded paragraph map, for best-effort "current paragraph text" on
     /// non-suggestion kinds. Empty until the appear re-derive runs.
     @State private var paragraphs: [String: String] = [:]
+    /// The ops `rederive()` loaded, kept around so the Reopen-&-Revert action
+    /// can locate the latest `claudeAccept` op for `current` without a second
+    /// disk read (mirrors the Mac's `Document.revertAcceptedAnnotation`, which
+    /// scans its in-memory `_opLogMirror` the same way).
+    @State private var loadedOps: [Op] = []
+    /// Drives the drift-confirm sheet before a Reopen-&-Revert (Mac parity:
+    /// `AnnotationsPane.revert` gates behind `acceptedTextDrifted`).
+    @State private var showRevertDriftConfirm = false
 
     /// True once the appear re-derive establishes the annotation is no longer
     /// `.open` on disk (resolved on another device). Hides the action buttons.
@@ -115,6 +123,16 @@ struct AnnotationDetailView: View {
         }
         .sheet(isPresented: $showRejectSheet) {
             rejectSheet
+        }
+        .confirmationDialog(
+            "The paragraph has changed since this was accepted. Revert anyway?",
+            isPresented: $showRevertDriftConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Revert Anyway", role: .destructive) {
+                Task { await performRevert() }
+            }
+            Button("Cancel", role: .cancel) {}
         }
         .alert(
             "Couldn't apply",
@@ -279,18 +297,57 @@ struct AnnotationDetailView: View {
     /// this branch). Shows the writer's recorded response when present.
     @ViewBuilder
     private var reviewNotice: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: AnnotationStatusChip.symbol(current.status) ?? "checkmark.seal")
-                .foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(AnnotationStatusChip.label(current.status) ?? "Resolved")
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: AnnotationStatusChip.symbol(current.status) ?? "checkmark.seal")
                     .foregroundStyle(.secondary)
-                if let r = current.userResponse, !r.isEmpty {
-                    Text(r).font(.caption).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(AnnotationStatusChip.label(current.status) ?? "Resolved")
+                        .foregroundStyle(.secondary)
+                    if let r = current.userResponse, !r.isEmpty {
+                        Text(r).font(.caption).foregroundStyle(.secondary)
+                    }
                 }
+            }
+            reopenAffordance
+            if resolving {
+                ProgressView()
             }
         }
         .padding(.top, 8)
+    }
+
+    /// Reopen surface for a resolved note (Task 8, unified-undo): rejected/
+    /// archived get a plain Reopen; an accepted suggestion gets "Reopen &
+    /// Revert" (full text restore — Mac Revert parity, user decision
+    /// 2026-07-09) gated behind a drift confirm when the paragraph has moved
+    /// on since the accept. `AnnotationInverse` (MaughamCore) owns which
+    /// resolutions are reopenable at all (tripwire 19); this view only decides
+    /// which affordance to show for the status it already has in hand.
+    @ViewBuilder
+    private var reopenAffordance: some View {
+        switch current.status {
+        case .rejected, .archived:
+            Button {
+                Task { await performReopen() }
+            } label: {
+                Label("Reopen", systemImage: "arrow.uturn.backward.circle")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .disabled(resolving)
+        case .accepted:
+            Button {
+                requestRevert()
+            } label: {
+                Label("Reopen & Revert", systemImage: "arrow.uturn.backward.circle")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .disabled(resolving)
+        case .open:
+            EmptyView()
+        }
     }
 
     @ViewBuilder
@@ -382,6 +439,79 @@ struct AnnotationDetailView: View {
         }
     }
 
+    private func performReopen() async {
+        await runWrite { writer in
+            do {
+                try await writer.reopen(current)
+            } catch AnnotationWriter.WriteError.notReopenable {
+                errorMessage = "This note has already changed — go back and reopen the review to try again."
+                throw CancelledWrite()
+            }
+        }
+    }
+
+    /// Drift-confirm gate before reverting an accepted suggestion (Mac parity:
+    /// `AnnotationsPane.revert`/`Document.acceptedTextDrifted`). Only prompts
+    /// when the live paragraph no longer matches the accept's recorded `next`
+    /// — a revert restores the PRE-accept text over whatever is there now, so
+    /// a drifted revert would clobber intervening edits.
+    private func requestRevert() {
+        if acceptedTextDrifted {
+            showRevertDriftConfirm = true
+        } else {
+            Task { await performRevert() }
+        }
+    }
+
+    private func performRevert() async {
+        await runWrite { writer in
+            guard let acceptOp = latestAcceptOp else {
+                errorMessage = "Couldn't find the accepted change to revert."
+                throw CancelledWrite()
+            }
+            // Gone-paragraph guard: the paragraph this accept applied to no
+            // longer exists (deleted on the Mac, say). The drift-confirm
+            // silently skips on nil, and a revert here would write a phantom
+            // `claudeAcceptRevert` against a nonexistent paragraph — decline
+            // with the existing alert instead.
+            guard currentParagraphText != nil else {
+                errorMessage = "The paragraph this change applied to no longer exists in the manuscript, so it can't be reverted."
+                throw CancelledWrite()
+            }
+            do {
+                try await writer.revertAccept(
+                    current, acceptOp: acceptOp, currentParagraph: currentParagraphText)
+            } catch AnnotationWriter.WriteError.malformedAcceptRevert {
+                errorMessage = "This accepted change is malformed and can’t be reverted."
+                throw CancelledWrite()
+            }
+        }
+    }
+
+    /// The latest `claudeAccept` op for `current`, from the ops `rederive()`
+    /// already loaded — same lookup shape as the Mac's
+    /// `revertAcceptedAnnotation` (`_opLogMirror.last(where:)`).
+    private var latestAcceptOp: Op? {
+        loadedOps.last(where: {
+            $0.kind == .claudeAccept && $0.provenance?.sourceAnnotationId == current.id
+        })
+    }
+
+    /// Live paragraph text for `current`, from the reloaded paragraph map.
+    private var currentParagraphText: String? {
+        current.paragraphId.flatMap { paragraphs[$0] }
+    }
+
+    /// True iff the paragraph has drifted since the accept — mirrors the
+    /// Mac's `Document.acceptedTextDrifted`. False (no confirm) when there's
+    /// no accept op / no change / no live paragraph, since the revert itself
+    /// loud-no-ops those cases.
+    private var acceptedTextDrifted: Bool {
+        guard let acceptOp = latestAcceptOp, let change = acceptOp.changes.first,
+              let live = currentParagraphText else { return false }
+        return live != change.next
+    }
+
     /// Shared write driver: guards against re-entrancy, runs `body`, and on
     /// success marks the annotation resolved-here and dismisses back to the list.
     /// `CancelledWrite` is the internal "already surfaced an error, stop" signal;
@@ -416,6 +546,7 @@ struct AnnotationDetailView: View {
         guard let ops = try? await OpLogStore(projectURL: projectURL).load(docId: docId) else {
             return
         }
+        loadedOps = ops
         paragraphs = Deriver.derive(ops: ops).paragraphs
         let derived = AnnotationDeriver.derive(ops: ops, paragraphs: paragraphs)
         let fresh = derived.first(where: { $0.id == current.id })

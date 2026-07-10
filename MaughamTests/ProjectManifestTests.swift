@@ -88,9 +88,10 @@ final class ProjectManifestTests: XCTestCase {
         XCTAssertNoThrow(try makeISODecoder().decode(ProjectManifest.self, from: json))
     }
 
-    func test_schemaVersion2_isCurrent() {
-        // claudeAcceptRevert (2026-07-08) bumped the schema 1 -> 2 (ADR 0015 contract).
-        XCTAssertEqual(ProjectManifest.currentSchemaVersion, 2)
+    func test_schemaVersion3_isCurrent() {
+        // claudeAcceptRevert (2026-07-08) bumped the schema 1 -> 2; annotationReopen
+        // (2026-07-09, ADR 0015 contract) bumped 2 -> 3.
+        XCTAssertEqual(ProjectManifest.currentSchemaVersion, 3)
     }
 
     func test_codable_roundTrips_withTypographyOverride() throws {
