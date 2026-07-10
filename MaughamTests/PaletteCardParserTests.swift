@@ -69,6 +69,34 @@ final class PaletteCardParserTests: XCTestCase {
         XCTAssertEqual(card.kind, .location)
     }
 
+    func test_parse_capturesFreeformBodyBeforeSections() {
+        let md = """
+        # The Flat
+
+        kind: location
+
+        Third-floor walk-up.
+
+        The light goes green before rain.
+
+        ## Swatches
+
+        - #8A6F4D
+        """
+        let card = PaletteCardParser.parse(
+            markdown: md, itemId: "res-b", fallbackTitle: "x",
+            cardDirectory: "research/palette")
+        XCTAssertEqual(card.body, "Third-floor walk-up.\n\nThe light goes green before rain.")
+        XCTAssertEqual(card.swatches, ["#8A6F4D"])
+    }
+
+    func test_parse_noBody_isEmptyString() {
+        let md = PaletteCardParser.template(title: "T", kind: .other)
+        XCTAssertEqual(PaletteCardParser.parse(
+            markdown: md, itemId: "res-c", fallbackTitle: "x",
+            cardDirectory: "research/palette").body, "")
+    }
+
     func test_hexColor_parsing() {
         XCTAssertNotNil(PaletteCard.color(fromHex: "#8A6F4D"))
         XCTAssertNotNil(PaletteCard.color(fromHex: "#fff"))

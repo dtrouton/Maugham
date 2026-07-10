@@ -56,6 +56,21 @@ public struct PaletteCard: Equatable, Sendable, Identifiable {
     public let swatches: [String]      // validated "#RGB" / "#RRGGBB"
     public let notes: [SensoryNote]
     public let imagePaths: [String]    // project-relative
+    public let body: String            // freeform prose before the first `##`
+
+    public init(
+        researchItemId: String, title: String, kind: Kind,
+        swatches: [String], notes: [SensoryNote], imagePaths: [String],
+        body: String = ""
+    ) {
+        self.researchItemId = researchItemId
+        self.title = title
+        self.kind = kind
+        self.swatches = swatches
+        self.notes = notes
+        self.imagePaths = imagePaths
+        self.body = body
+    }
 
     public var id: String { researchItemId }
 
@@ -96,6 +111,7 @@ public enum PaletteCardParser {
         var swatches: [String] = []
         var notes: [PaletteCard.SensoryNote] = []
         var images: [String] = []
+        var bodyLines: [String] = []
 
         enum Section { case none, swatches, senses, images, unknown }
         var section: Section = .none
@@ -120,6 +136,12 @@ public enum PaletteCardParser {
             if !seenSectionHeading, line.lowercased().hasPrefix("kind:") {
                 let raw = line.dropFirst("kind:".count).trimmingCharacters(in: .whitespaces)
                 kind = PaletteCard.Kind(rawValue: raw.lowercased()) ?? .other
+                continue
+            }
+            // Freeform prose before the first `##` accumulates as body (blanks kept
+            // so paragraph breaks survive; collapsed after the walk).
+            if section == .none {
+                bodyLines.append(line)
                 continue
             }
             guard line.hasPrefix("- ") else { continue }
@@ -149,13 +171,32 @@ public enum PaletteCardParser {
             if !images.contains(resolved) { images.append(resolved) }
         }
 
+        // Collapse the captured body: runs of blank lines become paragraph
+        // breaks (`\n\n`), adjacent non-blank lines join with `\n`.
+        var body = ""
+        var pendingBreak = false
+        for line in bodyLines {
+            if line.isEmpty {
+                if !body.isEmpty { pendingBreak = true }
+            } else {
+                if body.isEmpty {
+                    body = line
+                } else {
+                    body += pendingBreak ? "\n\n" : "\n"
+                    body += line
+                }
+                pendingBreak = false
+            }
+        }
+
         return PaletteCard(
             researchItemId: itemId,
             title: title ?? fallbackTitle,
             kind: kind,
             swatches: swatches,
             notes: notes,
-            imagePaths: images)
+            imagePaths: images,
+            body: body)
     }
 
     /// Extract the `path` from every `![alt](path)` in document order. Uses
@@ -185,5 +226,39 @@ public enum PaletteCardParser {
             }
         }
         return components.joined(separator: "/")
+    }
+}
+
+/// The exact inverse of `PaletteCardParser`: renders a `PaletteCard` back to its
+/// canonical markdown. `parse(render(card)) == card` for editor-reachable models.
+/// The model owns the file, so rendering normalizes to canonical form (uppercase
+/// swatches, card-relative `./` image paths, the three sections always present).
+public enum PaletteCardRenderer {
+    public static func render(_ card: PaletteCard, cardDirectory: String) -> String {
+        var out = "# \(card.title)\n\nkind: \(card.kind.rawValue)\n"
+        if !card.body.isEmpty { out += "\n\(card.body)\n" }
+        out += "\n## Swatches\n\n"
+        for s in card.swatches { out += "- \(s.uppercased())\n" }
+        out += "\n## Senses\n\n"
+        for n in card.notes {
+            out += n.sense.map { "- \($0.rawValue): \(n.text)\n" } ?? "- \(n.text)\n"
+        }
+        out += "\n## Images\n\n"
+        for p in card.imagePaths { out += "- \(relativize(p, from: cardDirectory))\n" }
+        return out
+    }
+
+    /// Inverse of the parser's `resolve`: a project-relative path becomes
+    /// card-relative — `./x` for paths under `directory`, else `../`-climbing.
+    public static func relativize(_ path: String, from directory: String) -> String {
+        let dirParts = directory.split(separator: "/").map(String.init)
+        let pathParts = path.split(separator: "/").map(String.init)
+        var common = 0
+        while common < dirParts.count && common < pathParts.count - 1
+                && dirParts[common] == pathParts[common] { common += 1 }
+        let climbs = dirParts.count - common
+        let rest = pathParts[common...].joined(separator: "/")
+        return climbs == 0 ? "./\(rest)"
+            : String(repeating: "../", count: climbs) + rest
     }
 }
