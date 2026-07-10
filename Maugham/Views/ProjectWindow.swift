@@ -833,8 +833,7 @@ struct ProjectWindow: View {
             }
         case .palette:
             if let cardId = selectedPaletteCardId,
-               let item = store.paletteCardItems().first(where: { $0.id == cardId }),
-               let path = item.path {
+               store.paletteCardItems().contains(where: { $0.id == cardId }) {
                 VStack(spacing: 0) {
                     HStack {
                         Button { selectedPaletteCardId = nil } label: {
@@ -845,12 +844,7 @@ struct ProjectWindow: View {
                     }
                     .padding(.horizontal, 12).padding(.vertical, 6)
                     Divider()
-                    ResearchNoteEditor(
-                        store: store,
-                        documentStore: documentStore,
-                        path: path,
-                        itemId: item.id,
-                        previewVisible: researchPreviewVisible)
+                    PaletteCardEditor(store: store, cardId: cardId)
                 }
             } else {
                 PaletteWallView(store: store, selectedCardId: $selectedPaletteCardId)
