@@ -1,5 +1,5 @@
 import XCTest
-@testable import Maugham
+@testable import MaughamCore
 
 final class PaletteCardRendererTests: XCTestCase {
     private func roundTrip(_ card: PaletteCard, dir: String = "research/palette") -> PaletteCard {

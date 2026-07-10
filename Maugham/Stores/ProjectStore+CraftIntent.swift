@@ -8,8 +8,8 @@ import MaughamCore
 /// *reference* piece's intent belongs to its own project (project scope there).
 extension ProjectStore {
 
-    public static let craftIntentFileName = "craft-intent.md"
-    public static let craftIntentTitle = "Craft Intent"
+    public static let craftIntentFileName = PaletteConvention.craftIntentFileName
+    public static let craftIntentTitle = PaletteConvention.craftIntentTitle
 
     /// Locate the intent doc for a scope. nil pieceId = project scope.
     /// Unknown pieceIds return nil (nothing exists for them by definition).

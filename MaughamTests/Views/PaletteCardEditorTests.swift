@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 @testable import Maugham
+import MaughamCore
 
 final class PaletteCardEditorTests: XCTestCase {
     func test_hexString_fromComponents() {

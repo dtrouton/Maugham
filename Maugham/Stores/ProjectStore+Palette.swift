@@ -7,8 +7,8 @@ import MaughamCore
 /// existing typed-mover machinery (tripwire 14) and ResearchView affordances.
 extension ProjectStore {
 
-    public static let paletteFolderPath = "research/palette"
-    public static let paletteGroupTitle = "Palette"
+    public static let paletteFolderPath = PaletteConvention.folderPath
+    public static let paletteGroupTitle = PaletteConvention.groupTitle
 
     /// The palette group in the research tree, if it exists.
     public func paletteGroup() -> ResearchItem? {

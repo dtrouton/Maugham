@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 /// Palette-segment sidebar: card list + "+ New Card" kind menu. Cards load once
 /// per manifest change (tripwire 4); rows do no I/O.

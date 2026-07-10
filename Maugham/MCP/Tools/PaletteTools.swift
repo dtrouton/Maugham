@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// list_palette_cards — summaries of the project's sensory-palette cards.
 /// Full note text and images come from `read_palette_card` (a sibling tool

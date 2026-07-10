@@ -1,5 +1,6 @@
 import XCTest
 @testable import Maugham
+import MaughamCore
 
 final class PaletteCardTileTests: XCTestCase {
     func test_snippet_prefersTaggedNotes_andCapsAtLimit() {

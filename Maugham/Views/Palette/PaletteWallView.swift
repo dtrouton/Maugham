@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 /// The palette wall — center-pane surface for BinderSegment.palette.
 /// Cards + thumbnails load once per manifest change (tripwire 4); tiles do

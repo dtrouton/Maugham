@@ -1,5 +1,5 @@
 import XCTest
-@testable import Maugham
+@testable import MaughamCore
 
 final class PaletteCardParserTests: XCTestCase {
 
