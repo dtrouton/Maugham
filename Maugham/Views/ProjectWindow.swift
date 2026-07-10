@@ -815,7 +815,13 @@ struct ProjectWindow: View {
             if let id = selectedResearchId,
                let item = TreeWalk.find(
                     id: id, in: store.manifest.research) {
-                if item.kind == .document, let path = item.path {
+                if item.kind == .document,
+                   item.path?.hasPrefix(ProjectStore.paletteFolderPath + "/") == true {
+                    // A palette card selected in the research tree edits through the
+                    // visual editor — never ResearchNoteEditor, whose stale open text
+                    // would clobber the model on the next re-render (lost update).
+                    PaletteCardEditor(store: store, cardId: item.id)
+                } else if item.kind == .document, let path = item.path {
                     ResearchNoteEditor(
                         store: store,
                         documentStore: documentStore,
