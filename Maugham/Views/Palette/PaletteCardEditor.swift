@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 /// Visual editor for one palette card — replaces raw-markdown editing. Every
 /// control mutates a single local `draft: PaletteCard?`; a single debounced task
@@ -18,6 +19,7 @@ struct PaletteCardEditor: View {
     @State private var saveGeneration = 0
     @State private var newSwatchColor: Color = .gray
     @State private var newNoteText = ""
+    @State private var isDropTargeted = false
 
     // MARK: - Tested surface (pure hex helpers)
 
@@ -32,6 +34,20 @@ struct PaletteCardEditor: View {
         guard let c = nsColor.usingColorSpace(.sRGB) else { return nil }
         return hexString(
             r: Double(c.redComponent), g: Double(c.greenComponent), b: Double(c.blueComponent))
+    }
+
+    /// How to handle one dropped `NSItemProvider`. A file URL wins over rendered
+    /// image data — a Finder drag carries both, and the on-disk file preserves the
+    /// original name/extension. Browser drags carry no file URL but do carry a
+    /// rendered bitmap, so they fall to `.image`. Everything else (e.g. a
+    /// remote-URL-only drag with no image payload) is `.ignore` — we never fetch
+    /// over the network.
+    enum DropAction: Equatable { case fileURL, image, ignore }
+
+    nonisolated static func dropAction(hasFileURL: Bool, canLoadImage: Bool) -> DropAction {
+        if hasFileURL { return .fileURL }
+        if canLoadImage { return .image }
+        return .ignore
     }
 
     // MARK: - Body
@@ -141,7 +157,16 @@ struct PaletteCardEditor: View {
     @ViewBuilder
     private var imagesSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Images").font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Text("Images").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button { pasteFromClipboard() } label: {
+                    Label("Paste", systemImage: "doc.on.clipboard").font(.caption)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Paste an image from the clipboard")
+            }
             let paths = draft?.imagePaths ?? []
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 8)], spacing: 8) {
                 ForEach(Array(paths.enumerated()), id: \.offset) { _, path in
@@ -176,13 +201,18 @@ struct PaletteCardEditor: View {
     private var dropZone: some View {
         RoundedRectangle(cornerRadius: 8)
             .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4]))
-            .foregroundStyle(.separator)
+            .foregroundStyle(isDropTargeted ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.separator))
             .frame(height: 44)
             .overlay(
                 Label("Drop or paste images here", systemImage: "square.and.arrow.down")
                     .font(.caption).foregroundStyle(.secondary))
-            .dropDestination(for: URL.self) { urls, _ in
-                importDropped(urls)
+            // `.focusable()` lets a click on the well take key focus so `⌘V`
+            // routes here — without it `.onPasteCommand` never fires (the well
+            // otherwise never becomes first responder). The explicit Paste button
+            // above is the focus-independent path.
+            .focusable()
+            .onDrop(of: [.fileURL, .image], isTargeted: $isDropTargeted) { providers in
+                handleDrop(providers)
                 return true
             }
             .onPasteCommand(of: [.image]) { providers in
@@ -310,11 +340,54 @@ struct PaletteCardEditor: View {
 
     // MARK: - Image import (drop / paste)
 
-    private func importDropped(_ urls: [URL]) {
+    /// Handle a drop of one or more providers. Finder drags carry a file URL
+    /// (path/extension preserved); browser drags carry only rendered image data;
+    /// remote-URL-only drags carry neither and are ignored (we never download).
+    private func handleDrop(_ providers: [NSItemProvider]) {
         Task {
-            for u in urls {
-                if let updated = try? await store.addImage(toPaletteCard: cardId, fileURL: u) {
-                    mergeImagePaths(from: updated)
+            for provider in providers {
+                switch Self.dropAction(
+                    hasFileURL: provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier),
+                    canLoadImage: provider.canLoadObject(ofClass: NSImage.self)) {
+                case .fileURL:
+                    if let url = await loadFileURL(provider: provider),
+                       let updated = try? await store.addImage(toPaletteCard: cardId, fileURL: url) {
+                        mergeImagePaths(from: updated)
+                    }
+                case .image:
+                    if let image = await loadImage(provider: provider),
+                       let updated = try? await store.addImage(toPaletteCard: cardId, image: image) {
+                        mergeImagePaths(from: updated)
+                    }
+                case .ignore:
+                    continue
+                }
+            }
+        }
+    }
+
+    /// Paste an image directly off the general pasteboard — the focus-independent
+    /// path (a click never has to land in the well first).
+    private func pasteFromClipboard() {
+        guard let image = NSImage(pasteboard: .general) else { return }
+        Task {
+            if let updated = try? await store.addImage(toPaletteCard: cardId, image: image) {
+                mergeImagePaths(from: updated)
+            }
+        }
+    }
+
+    private func loadFileURL(provider: NSItemProvider) async -> URL? {
+        await withCheckedContinuation { (cont: CheckedContinuation<URL?, Never>) in
+            _ = provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { item, _ in
+                switch item {
+                case let url as URL where url.isFileURL:
+                    cont.resume(returning: url)
+                case let data as Data:
+                    let url = URL(dataRepresentation: data, relativeTo: nil)
+                    cont.resume(returning: url?.isFileURL == true ? url : nil)
+                default:
+                    cont.resume(returning: nil)
                 }
             }
         }

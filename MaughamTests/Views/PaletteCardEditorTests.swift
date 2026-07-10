@@ -19,4 +19,27 @@ final class PaletteCardEditorTests: XCTestCase {
         let hex = PaletteCardEditor.hexString(r: 0.2, g: 0.4, b: 0.6)
         XCTAssertNotNil(PaletteCard.color(fromHex: hex))
     }
+
+    // MARK: - Drop classification
+
+    func test_dropAction_fileURLWinsOverImage() {
+        // A Finder drag carries both a file URL and rendered image data; the file
+        // URL wins so the original name/extension is preserved.
+        XCTAssertEqual(
+            PaletteCardEditor.dropAction(hasFileURL: true, canLoadImage: true), .fileURL)
+        XCTAssertEqual(
+            PaletteCardEditor.dropAction(hasFileURL: true, canLoadImage: false), .fileURL)
+    }
+
+    func test_dropAction_browserDragFallsToImage() {
+        // A browser drag carries no file URL but does carry a rendered bitmap.
+        XCTAssertEqual(
+            PaletteCardEditor.dropAction(hasFileURL: false, canLoadImage: true), .image)
+    }
+
+    func test_dropAction_remoteURLOnlyIsIgnored() {
+        // No file URL, no loadable image (e.g. a bare remote URL) — never fetched.
+        XCTAssertEqual(
+            PaletteCardEditor.dropAction(hasFileURL: false, canLoadImage: false), .ignore)
+    }
 }
