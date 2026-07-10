@@ -186,6 +186,57 @@ final class PhoneAnnotationIntegrationTests: XCTestCase {
         XCTAssertNil(reopened.resolvedAt)
     }
 
+    /// Task 9 (unified-undo): the OTHER direction of the reopen round-trip —
+    /// `PhoneAnnotationReopenTests` proves the phone WRITES a readable reopen;
+    /// this proves the phone READS a Mac-authored one. A Mac-shaped
+    /// `annotation_reopen` op (⌘Z on the Annotations pane, written by
+    /// `Document.reopenAnnotation` via the SAME shared `AnnotationInverse`
+    /// factory the phone's `AnnotationWriter.makeReopen` calls — tripwire 19)
+    /// lands in the Mac's own per-device stream file, encoded as real JSONL
+    /// bytes. Reloading through the phone's read path (`OpLogStore.load` →
+    /// `Deriver.derive` → `AnnotationDeriver.derive`, exactly what
+    /// `AnnotationDetailView`'s `rederive()` and `AnnotationLoading` use) must
+    /// resolve the annotation back to `.open` — the Mac's reopen op carries no
+    /// forensic `appVersion`/`osVersion` (those fields are phone-only,
+    /// `Document.reopenAnnotation` never populates them), so this also proves
+    /// the phone's derive path tolerates a reopen op with nil forensic fields.
+    @MainActor
+    func test_macReopen_phoneReadsBack_derivesOpen() async throws {
+        let opsDir = tmp.appendingPathComponent(".maugham/ops")
+        try FileManager.default.createDirectory(at: opsDir, withIntermediateDirectories: true)
+        let macStore = JSONLAppendStore<Op>(
+            fileURL: opsDir.appendingPathComponent("\(docId).mac.jsonl"))
+
+        let creation = macComment()
+        let archive = Op(
+            opId: "01HQR9F8K2P7N3DJ8WMVQXY5T0", docId: docId,
+            at: Date(timeIntervalSince1970: 1_100), device: "mac", session: "s2",
+            kind: .claudeArchive, changes: [],
+            provenance: Op.Provenance(sessionId: "s2", sourceAnnotationId: creation.opId))
+        // Mac ⌘Z: Document.reopenAnnotation → AnnotationInverse.reopenOp,
+        // device "mac", no appVersion/osVersion (Mac writes leave them nil).
+        let reopen = Op(
+            opId: "01HQR9F8K2P7N3DJ8WMVQXY5T1", docId: docId,
+            at: Date(timeIntervalSince1970: 1_200), device: "mac", session: "s3",
+            kind: .annotationReopen, changes: [],
+            provenance: Op.Provenance(sessionId: "s3", sourceAnnotationId: creation.opId))
+
+        for op in [creation, archive, reopen] { try await macStore.append(op) }
+
+        let ops = try await OpLogStore(projectURL: tmp).load(docId: docId)
+        let paragraphs = Deriver.derive(ops: ops).paragraphs
+        let derived = AnnotationDeriver.derive(ops: ops, paragraphs: paragraphs)
+        let resolved = try XCTUnwrap(derived.first { $0.id == creation.opId })
+
+        XCTAssertEqual(resolved.status, .open,
+                       "a Mac-authored reopen op must derive .open on the phone's read path too")
+        XCTAssertNil(resolved.resolvedAt)
+        XCTAssertNil(resolved.userResponse, "reopen clears the prior archive's (absent) user response")
+        // Landed in the Mac's own per-device file, not a synthesized phone one.
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: opsDir.appendingPathComponent("\(docId).mac.jsonl").path))
+    }
+
     /// AnnotationDetailRaceTests (core): an annotation archived on another device
     /// is excluded from the open set — so the detail view's `.onAppear` re-derive
     /// finds it not-open and shows "Already resolved on another device."

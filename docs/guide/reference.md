@@ -11,7 +11,7 @@ The ones you'll use most:
 | `⌘N` | New project |
 | `⌘O` | Open project |
 | `⌘S` | Save flash (autosave is automatic) |
-| `⌘Z` | Undo (text or accepted suggestion) |
+| `⌘Z` | Undo (text, annotation action, task, checkbox, or History Rewind) |
 | `⌘⇧Z` | Redo |
 | `⌘,` | Settings |
 | `⌘⇧,` | Project Settings |

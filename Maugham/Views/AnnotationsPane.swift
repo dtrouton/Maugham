@@ -278,7 +278,7 @@ struct AnnotationsPane: View {
         if ann.kind == .suggestedChange {
             stetIds.insert(ann.id)
             Task {
-                try? await document.rejectAnnotation(id: ann.id, userResponse: reason)
+                try? await document.rejectAnnotation(id: ann.id, userResponse: reason, undoManager: undoManager)
                 // Hold ~2.5s so the strike-removed "prior" text + the STET badge
                 // read clearly before the row resolves out of the open list. The
                 // op above already landed; this only governs the visual dwell.
@@ -286,12 +286,12 @@ struct AnnotationsPane: View {
                 stetIds.remove(ann.id)
             }
         } else {
-            Task { try? await document.rejectAnnotation(id: ann.id, userResponse: reason) }
+            Task { try? await document.rejectAnnotation(id: ann.id, userResponse: reason, undoManager: undoManager) }
         }
     }
 
     private func archive(_ ann: Annotation) {
-        Task { try? await document.archiveAnnotation(id: ann.id) }
+        Task { try? await document.archiveAnnotation(id: ann.id, undoManager: undoManager) }
     }
 
     /// Revert an accepted suggestion from the pane (visible under the
@@ -326,7 +326,8 @@ struct AnnotationsPane: View {
                 id: ann.id,
                 newBody: newBody,
                 newSuggestedText: newSuggested,
-                authorName: userPreferences.collaboratorDisplayName)
+                authorName: userPreferences.collaboratorDisplayName,
+                undoManager: undoManager)
             // No explicit editor notify: the edit bumps `annotationsVersion` on
             // the shared Document, which EditorHost mirrors into the control model
             // → `applyControl` → `setReviewAnnotations`, recomputing crafted marks
@@ -339,7 +340,8 @@ struct AnnotationsPane: View {
         Task {
             try? await document.withdrawReviewerAnnotation(
                 id: ann.id,
-                authorName: userPreferences.collaboratorDisplayName)
+                authorName: userPreferences.collaboratorDisplayName,
+                undoManager: undoManager)
         }
     }
 

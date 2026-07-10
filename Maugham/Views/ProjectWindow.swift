@@ -1220,6 +1220,7 @@ private struct RewindModifier: ViewModifier {
     let selectedItemId: String?
     @State private var showingRewindModal: Bool = false
     @State private var rewindInitialCursor: RewindCursor = .now
+    @Environment(\.undoManager) private var undoManager
 
     func body(content: Content) -> some View {
         content
@@ -1247,6 +1248,9 @@ private struct RewindModifier: ViewModifier {
     @ViewBuilder
     private var rewindSheet: some View {
         if let store, let documentStore, let docId = selectedItemId {
+            // Snapshot the window's undo manager before the escaping onComplete
+            // closure so the restore registers a ⌘Z action (EditorHost's idiom).
+            let um = undoManager
             let allIds = ProjectWindow.documentIds(in: store.manifest.structure)
             let paths = ProjectWindow.documentPaths(in: store.manifest.structure)
             let title = paths[docId]?.components(separatedBy: "/").last ?? docId
@@ -1272,7 +1276,7 @@ private struct RewindModifier: ViewModifier {
                     case .restoreHere(let opId):
                         Task { @MainActor in
                             _ = try? await documentStore.document(forDocId: docId)?
-                                .restoreToOp(opId: opId)
+                                .restoreToOpUndoable(opId: opId, undoManager: um)
                         }
                     }
                 })

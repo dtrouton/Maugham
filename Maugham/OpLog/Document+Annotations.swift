@@ -7,7 +7,7 @@ extension Document {
         switch kind {
         case .claudeComment, .claudeSuggestion, .claudeQuery, .claudeCraftNote,
              .claudeAccept, .claudeReject, .claudeArchive, .claudeAcceptRevert,
-             .annotationEdit, .annotationWithdraw:
+             .annotationEdit, .annotationWithdraw, .annotationReopen:
             return true
         default:
             return false
@@ -179,8 +179,30 @@ extension Document {
         newBody: String,
         newSuggestedText: String?,
         authorName: String,
-        authorId: String? = nil
+        authorId: String? = nil,
+        undoManager: UndoManager? = nil
     ) async throws {
+        // Snapshot the pre-edit derived state BEFORE appending, so ⌘Z can
+        // append a compensating edit that restores it (append-only; the edit
+        // op is never mutated). Unfiltered query — the annotation may be in
+        // any status. A suggestion's prior replacement rides the same bare-text
+        // channel as the forward edit.
+        let priorAnnotation = annotations(filter: AnnotationFilter(statuses: nil))
+            .first { $0.id == id }
+        let priorBody = priorAnnotation?.body ?? ""
+        let priorSuggested: (paragraphId: String, prior: String?, next: String)? = {
+            // Only capture a suggested-text inverse when the forward edit
+            // actually changes it (newSuggestedText != nil) and the creation is
+            // a suggestion — otherwise the deriver leaves the suggestion intact.
+            guard newSuggestedText != nil,
+                  let creation = _opLogMirror.first(where: { $0.opId == id }),
+                  AnnotationKind.fromOpKind(creation.kind) == .suggestedChange,
+                  let pid = creation.changes.first?.paragraphId else { return nil }
+            return (paragraphId: pid,
+                    prior: creation.changes.first?.prior,
+                    next: priorAnnotation?.suggestedText ?? "")
+        }()
+
         // Carry the new suggested replacement through the same channel the
         // original suggestion uses: ParagraphChange.next holds the BARE text.
         // Only attach it when the caller supplied one (editing a suggestion);
@@ -206,11 +228,47 @@ extension Document {
                 authorSourceKind: AnnotationAuthor.SourceKind.human.rawValue,
                 authorDisplayName: authorName,
                 authorCollaboratorId: authorId))
-        try await opStore.append(op)
-        _opLogMirror.append(op)
-        _hasAnyAnnotationOps = true
-        invalidateAnnotationsCache()
-        invalidateTasksCache()
+        try await appendAnnotationOpInternal(op)
+
+        // ⌘Z: undo appends a compensating edit carrying the pre-edit body (and
+        // prior suggested replacement); redo re-invokes the forward edit with
+        // the LIVE undo manager so ⇧⌘Z re-arms a fresh undo pair (accept's
+        // precedent — indefinite ⌘Z/⇧⌘Z cycling). These ops never touch
+        // manuscript text, so no removeAllActions / coherent-flag choreography
+        // (unlike accept).
+        OpUndoRegistrar.register(
+            undoManager, actionName: "Edit Annotation", target: self,
+            workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
+            undo: { doc in
+                // Fire-time drift guard: only revert if the annotation still
+                // shows the values THIS action wrote. A concurrent edit
+                // (cross-device merge, second local edit) since registration
+                // would otherwise be silently clobbered by capture-time state.
+                let live = doc.annotations(filter: AnnotationFilter(statuses: nil))
+                    .first { $0.id == id }
+                guard let live,
+                      live.body == newBody,
+                      newSuggestedText == nil || live.suggestedText == newSuggestedText
+                else {
+                    documentLog.error("editReviewerAnnotation undo: \(id, privacy: .public) drifted since edit — ignoring")
+                    return
+                }
+                let revert = AnnotationInverse.editRevertOp(
+                    annotationId: id,
+                    priorBody: priorBody,
+                    priorSuggested: priorSuggested,
+                    authorSourceKind: AnnotationAuthor.SourceKind.human.rawValue,
+                    authorDisplayName: authorName,
+                    authorCollaboratorId: authorId,
+                    docId: doc.docId, device: doc.device, session: doc.session)
+                try? await doc.appendAnnotationOpInternal(revert)
+            },
+            redo: { [weak undoManager] doc in
+                try? await doc.editReviewerAnnotation(
+                    id: id, newBody: newBody, newSuggestedText: newSuggestedText,
+                    authorName: authorName, authorId: authorId,
+                    undoManager: undoManager)
+            })
     }
 
     /// Author self-service: withdraw (delete) YOUR OWN annotation. Appends an
@@ -220,7 +278,8 @@ extension Document {
     public func withdrawReviewerAnnotation(
         id: String,
         authorName: String,
-        authorId: String? = nil
+        authorId: String? = nil,
+        undoManager: UndoManager? = nil
     ) async throws {
         let op = Op(
             opId: ULID.generate(),
@@ -233,11 +292,20 @@ extension Document {
                 authorSourceKind: AnnotationAuthor.SourceKind.human.rawValue,
                 authorDisplayName: authorName,
                 authorCollaboratorId: authorId))
-        try await opStore.append(op)
-        _opLogMirror.append(op)
-        _hasAnyAnnotationOps = true
-        invalidateAnnotationsCache()
-        invalidateTasksCache()
+        try await appendAnnotationOpInternal(op)
+
+        // ⌘Z: undo reopens (annotationReopen restores it to the projection);
+        // redo re-withdraws with the LIVE undo manager so ⇧⌘Z re-arms a fresh
+        // undo pair (accept's precedent).
+        OpUndoRegistrar.register(
+            undoManager, actionName: "Withdraw Annotation", target: self,
+            workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
+            undo: { doc in try? await doc.reopenAnnotation(id: id) },
+            redo: { [weak undoManager] doc in
+                try? await doc.withdrawReviewerAnnotation(
+                    id: id, authorName: authorName, authorId: authorId,
+                    undoManager: undoManager)
+            })
     }
 
     public func acceptAnnotation(
@@ -500,24 +568,108 @@ extension Document {
     }
 
     public func rejectAnnotation(
-        id: String, userResponse: String? = nil
+        id: String, userResponse: String? = nil,
+        undoManager: UndoManager? = nil
     ) async throws {
         try await appendLifecycleOp(
             kind: .claudeReject,
             sourceAnnotationId: id,
             userResponse: userResponse)
+
+        // ⌘Z: undo reopens (annotationReopen → .open); redo re-rejects,
+        // forwarding the original userResponse (fdbf12f precedent) AND the
+        // LIVE undo manager so ⇧⌘Z re-arms a fresh undo pair (accept's
+        // precedent — indefinite ⌘Z/⇧⌘Z cycling; `[weak undoManager]` because
+        // NSUndoManager retains the closure). Lifecycle ops never touch
+        // manuscript text, so no coherent-flag choreography.
+        OpUndoRegistrar.register(
+            undoManager, actionName: "Reject Annotation", target: self,
+            workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
+            undo: { doc in try? await doc.reopenAnnotation(id: id) },
+            redo: { [weak undoManager] doc in
+                try? await doc.rejectAnnotation(
+                    id: id, userResponse: userResponse, undoManager: undoManager)
+            })
     }
 
-    public func archiveAnnotation(id: String) async throws {
+    public func archiveAnnotation(
+        id: String, undoManager: UndoManager? = nil
+    ) async throws {
         try await appendLifecycleOp(
             kind: .claudeArchive,
             sourceAnnotationId: id,
             userResponse: nil)
+
+        // ⌘Z: undo reopens; redo re-archives with the LIVE undo manager so
+        // ⇧⌘Z re-arms a fresh undo pair (accept's precedent).
+        OpUndoRegistrar.register(
+            undoManager, actionName: "Archive Annotation", target: self,
+            workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
+            undo: { doc in try? await doc.reopenAnnotation(id: id) },
+            redo: { [weak undoManager] doc in
+                try? await doc.archiveAnnotation(id: id, undoManager: undoManager)
+            })
+    }
+
+    /// Appends the compensating reopen for a rejected / archived / withdrawn
+    /// annotation. Loud no-op (log + return, never throw/crash) when the current
+    /// derived status no longer matches what's being undone — a stale ⌘Z after
+    /// another device already acted. The reopen decision lives in the shared
+    /// `AnnotationInverse` factory (cross-surface contract, tripwire 19); this
+    /// method owns only the current-status query the factory is fed.
+    public func reopenAnnotation(id: String) async throws {
+        let current = annotations(filter: AnnotationFilter(statuses: nil))
+            .first { $0.id == id }
+        let undoneKind: OpKind
+        switch current?.status {
+        case .rejected: undoneKind = .claudeReject
+        case .archived: undoneKind = .claudeArchive
+        case nil:
+            // Absent from the projection — withdrawn iff the latest
+            // withdraw/reopen op for this id is a withdraw; otherwise the id is
+            // unknown (never existed, or already reopened by another device).
+            let latest = _opLogMirror
+                .filter { ($0.kind == .annotationWithdraw || $0.kind == .annotationReopen)
+                          && $0.provenance?.sourceAnnotationId == id }
+                .max { $0.opId < $1.opId }
+            guard latest?.kind == .annotationWithdraw else {
+                documentLog.error("reopenAnnotation: \(id, privacy: .public) unknown or not withdrawn — ignoring")
+                return
+            }
+            undoneKind = .annotationWithdraw
+        default:
+            documentLog.error("reopenAnnotation: \(id, privacy: .public) status drifted (\(String(describing: current?.status), privacy: .public)) — ignoring")
+            return
+        }
+        guard case .op(let op) = AnnotationInverse.reopenOp(
+            undoing: undoneKind, annotationId: id, currentStatus: current?.status,
+            docId: docId, device: device, session: session) else {
+            documentLog.error("reopenAnnotation: factory declined for \(id, privacy: .public) — ignoring")
+            return
+        }
+        try await appendAnnotationOpInternal(op)
+    }
+
+    /// Shared tail for annotation-only ops (reopen, edit-revert): persist,
+    /// mirror, mark the sticky flag, invalidate caches. Never touches manuscript
+    /// text — the manuscript-mutating accept path keeps its own bespoke tail.
+    internal func appendAnnotationOpInternal(_ op: Op) async throws {
+        try await opStore.append(op)
+        _opLogMirror.append(op)
+        _hasAnyAnnotationOps = true
+        invalidateAnnotationsCache()
+        invalidateTasksCache()
     }
 
     /// Shared helper for reject/archive (and the paragraph-deletion sweep in
     /// T12, which uses `synthesisSource = "paragraph_deleted"`).
-    private func appendLifecycleOp(
+    ///
+    /// `internal` (not `private`) so `restoreToOpUndoable`'s undo closure can
+    /// append a status-only re-accept (`.claudeAccept` with empty `changes`) —
+    /// the deriver folds only `changes` for text, so an empty-changes accept is
+    /// a pure status transition back to `.accepted`, the exact mirror of D3's
+    /// empty-changes `claudeAcceptRevert` reopen.
+    internal func appendLifecycleOp(
         kind: OpKind,
         sourceAnnotationId: String,
         userResponse: String?,
