@@ -9,6 +9,17 @@ struct PaletteCardTile: View {
     let isSelected: Bool
     let onSelect: () -> Void
 
+    /// What fills the 110pt wall-tile header. A thumbnail wins; failing that, a
+    /// swatch-only card paints its swatches as colour bands rather than showing the
+    /// bare kind-symbol placeholder; only a card with neither falls to the placeholder.
+    enum HeaderMode: Equatable { case image, swatches, placeholder }
+
+    nonisolated static func headerMode(hasThumbnail: Bool, swatchCount: Int) -> HeaderMode {
+        if hasThumbnail { return .image }
+        if swatchCount > 0 { return .swatches }
+        return .placeholder
+    }
+
     nonisolated static func kindSymbol(for kind: PaletteCard.Kind) -> String {
         switch kind {
         case .location: "mappin.and.ellipse"
@@ -31,18 +42,7 @@ struct PaletteCardTile: View {
     var body: some View {
         Button(action: onSelect) {
             VStack(alignment: .leading, spacing: 6) {
-                if let thumbnail {
-                    Image(nsImage: thumbnail)
-                        .resizable().aspectRatio(contentMode: .fill)
-                        .frame(height: 110).clipped()
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                } else {
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(.quaternary)
-                        .frame(height: 110)
-                        .overlay(Image(systemName: Self.kindSymbol(for: card.kind))
-                            .font(.title).foregroundStyle(.secondary))
-                }
+                header
                 HStack(spacing: 4) {
                     Image(systemName: Self.kindSymbol(for: card.kind))
                         .font(.caption2).foregroundStyle(.secondary)
@@ -68,6 +68,34 @@ struct PaletteCardTile: View {
                 .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 2))
         }
         .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var header: some View {
+        switch Self.headerMode(hasThumbnail: thumbnail != nil, swatchCount: card.swatches.count) {
+        case .image:
+            if let thumbnail {
+                Image(nsImage: thumbnail)
+                    .resizable().aspectRatio(contentMode: .fill)
+                    .frame(height: 110).clipped()
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+        case .swatches:
+            HStack(spacing: 0) {
+                ForEach(Array(card.swatches.prefix(6).enumerated()), id: \.offset) { _, hex in
+                    Rectangle().fill(swatchColor(hex))
+                }
+            }
+            .frame(height: 110)
+            .frame(maxWidth: .infinity)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+        case .placeholder:
+            RoundedRectangle(cornerRadius: 6)
+                .fill(.quaternary)
+                .frame(height: 110)
+                .overlay(Image(systemName: Self.kindSymbol(for: card.kind))
+                    .font(.title).foregroundStyle(.secondary))
+        }
     }
 
     private func swatchColor(_ hex: String) -> Color {

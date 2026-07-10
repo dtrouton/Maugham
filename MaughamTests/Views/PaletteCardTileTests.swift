@@ -20,6 +20,22 @@ final class PaletteCardTileTests: XCTestCase {
         XCTAssertEqual(PaletteCardTile.snippet(for: [], limit: 2), "")
     }
 
+    func test_headerMode_thumbnailWins() {
+        // A thumbnail always fills the header, even when swatches exist.
+        XCTAssertEqual(PaletteCardTile.headerMode(hasThumbnail: true, swatchCount: 0), .image)
+        XCTAssertEqual(PaletteCardTile.headerMode(hasThumbnail: true, swatchCount: 3), .image)
+    }
+
+    func test_headerMode_swatchOnlyCardShowsBands() {
+        // No thumbnail but at least one swatch -> paint the swatch bands.
+        XCTAssertEqual(PaletteCardTile.headerMode(hasThumbnail: false, swatchCount: 1), .swatches)
+        XCTAssertEqual(PaletteCardTile.headerMode(hasThumbnail: false, swatchCount: 8), .swatches)
+    }
+
+    func test_headerMode_placeholderOnlyWhenNeitherImageNorSwatch() {
+        XCTAssertEqual(PaletteCardTile.headerMode(hasThumbnail: false, swatchCount: 0), .placeholder)
+    }
+
     func test_kindSymbol_mapping() {
         XCTAssertEqual(PaletteCardTile.kindSymbol(for: .location), "mappin.and.ellipse")
         XCTAssertEqual(PaletteCardTile.kindSymbol(for: .character), "person")
