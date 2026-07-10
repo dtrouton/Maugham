@@ -1,6 +1,7 @@
 import SwiftUI
 import MaughamCore
 import AppKit
+import UniformTypeIdentifiers
 
 struct ResearchView: View {
     @Bindable var store: ProjectStore
@@ -48,8 +49,8 @@ struct ResearchView: View {
                 set: { if !$0 { pendingError = nil } })) {
             Button("OK", role: .cancel) {}
         }
-        .dropDestination(for: URL.self) { urls, _ in
-            Task { await runImport(urls, toParentId: nil) }
+        .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers in
+            Task { await importExternal(providers, toParentId: nil) }
             return true
         }
         .onPasteCommand(of: ["public.image", "public.text", "public.url"]) { items in
@@ -100,11 +101,11 @@ struct ResearchView: View {
                 Task { await handleInternalDrop(
                     draggedId: draggedId, position: position, target: item) }
             },
-            onExternalDrop: { urls, position in
+            onExternalDrop: { providers, position in
                 let parent = position == .middle && item.type == .group
                     ? item.id
                     : findParentId(of: item.id)
-                Task { await runImport(urls, toParentId: parent) }
+                Task { await importExternal(providers, toParentId: parent) }
             }
         )
         .contextMenu {
@@ -211,6 +212,16 @@ struct ResearchView: View {
         } catch {
             pendingError = error.localizedDescription
         }
+    }
+
+    /// Import a drop of raw providers (Finder files and/or browser image bitmaps)
+    /// into `toParentId`. Browser drags carry rendered image data rather than a file
+    /// URL, so `DropClassification` renders those to a temp PNG and everything imports
+    /// through the same target-respecting path. See `DropClassification`.
+    private func importExternal(_ providers: [NSItemProvider], toParentId: String?) async {
+        let urls = await DropClassification.fileURLs(from: providers)
+        guard !urls.isEmpty else { return }
+        await runImport(urls, toParentId: toParentId)
     }
 
     private func rename(id: String, to newTitle: String) async {

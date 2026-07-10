@@ -36,20 +36,6 @@ struct PaletteCardEditor: View {
             r: Double(c.redComponent), g: Double(c.greenComponent), b: Double(c.blueComponent))
     }
 
-    /// How to handle one dropped `NSItemProvider`. A file URL wins over rendered
-    /// image data — a Finder drag carries both, and the on-disk file preserves the
-    /// original name/extension. Browser drags carry no file URL but do carry a
-    /// rendered bitmap, so they fall to `.image`. Everything else (e.g. a
-    /// remote-URL-only drag with no image payload) is `.ignore` — we never fetch
-    /// over the network.
-    enum DropAction: Equatable { case fileURL, image, ignore }
-
-    nonisolated static func dropAction(hasFileURL: Bool, canLoadImage: Bool) -> DropAction {
-        if hasFileURL { return .fileURL }
-        if canLoadImage { return .image }
-        return .ignore
-    }
-
     // MARK: - Body
 
     var body: some View {
@@ -346,7 +332,7 @@ struct PaletteCardEditor: View {
     private func handleDrop(_ providers: [NSItemProvider]) {
         Task {
             for provider in providers {
-                switch Self.dropAction(
+                switch DropClassification.action(
                     hasFileURL: provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier),
                     canLoadImage: provider.canLoadObject(ofClass: NSImage.self)) {
                 case .fileURL:

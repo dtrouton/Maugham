@@ -1,5 +1,6 @@
 import SwiftUI
 import MaughamCore
+import UniformTypeIdentifiers
 
 struct ResearchRow: View {
     let item: ResearchItem
@@ -10,10 +11,12 @@ struct ResearchRow: View {
     /// bottom). Caller (ResearchBrowser) translates that to a DropIntent and
     /// invokes the appropriate ProjectStore mutator.
     let onDrop: (_ draggedId: String, _ position: DropIntent.Position) -> Void
-    /// Called when external (Finder) URLs are dropped on this row. Caller
-    /// translates location to "drop into group" or "drop near sibling" and
-    /// invokes ProjectStore.importResearchFiles.
-    let onExternalDrop: (_ urls: [URL], _ position: DropIntent.Position) -> Void
+    /// Called when external items (Finder files or browser image drags) are dropped
+    /// on this row. The caller classifies the providers (file URL vs rendered image
+    /// vs remote-URL-only) via `DropClassification` and imports to the location the
+    /// position maps to. Passing raw providers — not pre-extracted URLs — is what lets
+    /// browser image drags land; `.dropDestination(for: URL.self)` silently rejects them.
+    let onExternalDrop: (_ providers: [NSItemProvider], _ position: DropIntent.Position) -> Void
 
     @State private var draftTitle: String = ""
     @FocusState private var isRenameFieldFocused: Bool
@@ -73,14 +76,14 @@ struct ResearchRow: View {
                 onDrop(droppedId, position)
                 return true
             }
-            .dropDestination(for: URL.self) { urls, location in
-                guard !urls.isEmpty else { return false }
+            .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers, location in
+                guard !providers.isEmpty else { return false }
                 let rowHeight: CGFloat = 22
                 let position: DropIntent.Position
                 if location.y < rowHeight / 3 { position = .top }
                 else if location.y > (rowHeight * 2 / 3) { position = .bottom }
                 else { position = .middle }
-                onExternalDrop(urls, position)
+                onExternalDrop(providers, position)
                 return true
             }
         }
