@@ -34,7 +34,7 @@ Two things, bundled because they share MaughamCore surface:
 
 ## Component 4 — Read the palette on the phone
 
-- The Read tab's project drill-down gains a **Palette** section: card list (title, kind icon, swatch strip) → read-only card detail (images, swatches, sense-grouped notes, freeform body). Plus a **Craft Intent** row rendering the intent doc (project scope; per-piece intent surfaces under the piece where the drill already has per-piece context, else defer per-piece display).
+- The Read tab's project drill-down gains a **Palette** section: card list (title, kind icon, swatch strip) → read-only card detail (images, swatches, sense-grouped notes, freeform body). Plus a **Craft Intent** row rendering the intent doc — **project scope only in this milestone**; per-piece intent display on the phone is deferred (the drill's per-piece context isn't uniform across project types yet).
 - **Strictly read-only.** No card editing on phone: cards are plain files, not op-logged; concurrent phone/Mac writes through iCloud are conflict-twin territory (tripwire 17's cousin). Phone card editing is a future op-logging bet, explicitly out of scope.
 - iOS tripwires honored (never assume non-evicted; `startAccessing == false` is not a denial; no `d_`-prefix double-prefixing) per `MaughamPhone/AREA.md`.
 
