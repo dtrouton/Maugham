@@ -378,26 +378,28 @@ struct PaletteCardEditor: View {
     }
 
     private func persist(_ card: PaletteCard, generation: Int) async {
-        // Prior on-disk title tells us whether this save triggers a rename (which
-        // moves the sibling `_assets/` folder and remaps imagePaths in the store).
-        let priorTitle = store.paletteCardItems().first { $0.id == cardId }?.title
         // Never rename to an empty title — a transiently-cleared field falls back
         // to the on-disk title so the slug stays valid.
         var card = card
-        if card.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let priorTitle {
-            card = card.with(title: priorTitle)
+        let onDiskTitle = store.paletteCardItems().first { $0.id == cardId }?.title
+        if card.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let onDiskTitle {
+            card = card.with(title: onDiskTitle)
         }
         do {
             try await store.updatePaletteCard(card)
         } catch {
             return
         }
-        // The ONE sanctioned re-seed: after a title change the assets folder moved,
-        // so pull the remapped imagePaths back — but only if no newer edit is queued
-        // (generation still current), to avoid clobbering in-flight typing.
+        // Re-pull imagePaths from the persisted store state on EVERY successful save,
+        // not just title-changing ones: a rename remaps the sibling `_assets/` folder
+        // and only the store knows the post-rename paths. Pulling them back each time
+        // stops a rename that raced a mid-await keystroke from leaving stale pre-rename
+        // paths in the draft that a later save would write back after the folder moved.
+        // The generation guard keeps this from clobbering text typed since this save was
+        // queued — we touch ONLY imagePaths, and only when this is still the latest save
+        // (a superseded save's successor re-pulls when it settles).
         guard generation == saveGeneration else { return }
-        if let priorTitle, priorTitle != card.title,
-           let fresh = store.loadPaletteCards().first(where: { $0.researchItemId == cardId }) {
+        if let fresh = store.loadPaletteCards().first(where: { $0.researchItemId == cardId }) {
             mutate { $0.with(imagePaths: fresh.imagePaths) }
         }
     }
