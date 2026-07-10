@@ -43,6 +43,36 @@ final class PaletteCardRendererTests: XCTestCase {
             .contains("- #8A6F4D"))
     }
 
+    // Regression: Task C's freeform body TextEditor makes these ordinary typed
+    // input. The parser must not truncate the body at a heading-like line, nor let
+    // a `kind:`-looking body line corrupt `kind`.
+
+    func test_roundTrip_bodyWithHeadingLikeLine() {
+        let card = PaletteCard(
+            researchItemId: "res-h", title: "The Flat", kind: .location,
+            swatches: [], notes: [], imagePaths: [],
+            body: "A first thought.\n\n## random thought about the room\n\nA last thought.")
+        XCTAssertEqual(roundTrip(card), card)
+    }
+
+    func test_roundTrip_bodyWithKindLikeLine_doesNotCorruptKind() {
+        let card = PaletteCard(
+            researchItemId: "res-k", title: "The Flat", kind: .location,
+            swatches: [], notes: [], imagePaths: [],
+            body: "kind: nostalgic and grey")
+        let out = roundTrip(card)
+        XCTAssertEqual(out, card)
+        XCTAssertEqual(out.kind, .location)
+    }
+
+    func test_roundTrip_bodyWithDashLine() {
+        let card = PaletteCard(
+            researchItemId: "res-d", title: "The Flat", kind: .location,
+            swatches: [], notes: [], imagePaths: [],
+            body: "- a lonely dash line that is prose, not a list")
+        XCTAssertEqual(roundTrip(card), card)
+    }
+
     func test_relativize() {
         XCTAssertEqual(PaletteCardRenderer.relativize(
             "research/palette/x_assets/a.png", from: "research/palette"), "./x_assets/a.png")

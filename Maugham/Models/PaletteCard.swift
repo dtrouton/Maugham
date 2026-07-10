@@ -1,15 +1,20 @@
 import Foundation
 
 /// A parsed sensory-palette card. Cards are plain markdown research assets under
-/// `research/palette/`; this type is the READ model — cards are edited as raw
-/// markdown, so there is no renderer (`template(title:kind:)` seeds new cards).
+/// `research/palette/`. The MODEL owns the file: `PaletteCardParser` reads it and
+/// `PaletteCardRenderer` writes the canonical form back, so `parse(render(card))
+/// == card` for any editor-reachable model. External hand-edits are unsupported;
+/// re-rendering normalizes them.
 ///
-/// Card markdown convention:
+/// Canonical card markdown:
 ///
 /// ```markdown
 /// # The Flat
 ///
 /// kind: location
+///
+/// Third-floor walk-up. Freeform body prose sits here — after `kind:`, before
+/// the first `##` — and may span multiple paragraphs.
 ///
 /// ## Swatches
 ///
@@ -24,16 +29,23 @@ import Foundation
 ///
 /// ## Images
 ///
-/// - ../paris-flat.jpg
+/// - ./the-flat_assets/image-1.png
 /// ```
 ///
-/// Title is the first `# ` heading (else the fallback); `kind:` appears anywhere
-/// before the first `##` (unknown/missing → `.other`); `## Swatches` items must
-/// be `#RGB`/`#RRGGBB` (others ignored); `## Senses` items with a leading
-/// `<sense>:` token are tagged, others untagged; `## Images` items are paths
-/// relative to the card's directory, resolved to project-relative; inline
-/// `![alt](path)` images anywhere in the body are ALSO collected (deduped).
-/// Unknown sections are ignored.
+/// Title is the first `# ` heading (else the fallback). `kind:` is captured once,
+/// from the first `kind:` line before any real section (unknown/missing →
+/// `.other`); a later `kind:`-looking line is ordinary body prose. Everything
+/// between `kind:` and the first real `##` section is `body` (blank-line runs →
+/// paragraph breaks). `## Swatches` items must be `#RGB`/`#RRGGBB` (others
+/// ignored); `## Senses` items with a leading `<sense>:` token are tagged, others
+/// untagged; `## Images` items are card-relative paths, resolved to
+/// project-relative; inline `![alt](path)` images anywhere are ALSO collected
+/// (deduped). An unknown `##` heading BEFORE any real section is treated as body
+/// text; after real structure has started it names a dropped section.
+///
+/// Residual we accept: a body line that exactly spells a KNOWN section name
+/// (`## Swatches`) still promotes to that section rather than staying prose —
+/// vanishingly unlikely typed input, and it simply converges to canonical form.
 public struct PaletteCard: Equatable, Sendable, Identifiable {
     public enum Kind: String, CaseIterable, Sendable {
         case location, character, motif, other
@@ -116,26 +128,32 @@ public enum PaletteCardParser {
         enum Section { case none, swatches, senses, images, unknown }
         var section: Section = .none
         var seenSectionHeading = false
+        var kindCaptured = false
 
         for rawLine in markdown.split(separator: "\n", omittingEmptySubsequences: false) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("## ") {
-                seenSectionHeading = true
                 switch line.dropFirst(3).trimmingCharacters(in: .whitespaces).lowercased() {
-                case "swatches": section = .swatches
-                case "senses": section = .senses
-                case "images": section = .images
-                default: section = .unknown
+                case "swatches": section = .swatches; seenSectionHeading = true; continue
+                case "senses": section = .senses; seenSectionHeading = true; continue
+                case "images": section = .images; seenSectionHeading = true; continue
+                default:
+                    // An unknown `##` heading after real structure names a dropped
+                    // section (model-owns-file). Before any real section it's just
+                    // body prose — fall through to the body accumulation below.
+                    if seenSectionHeading { section = .unknown; continue }
                 }
-                continue
             }
             if line.hasPrefix("# "), title == nil {
                 title = String(line.dropFirst(2)).trimmingCharacters(in: .whitespaces)
                 continue
             }
-            if !seenSectionHeading, line.lowercased().hasPrefix("kind:") {
+            // Capture `kind:` once, before any real section. A later `kind:`-looking
+            // line is ordinary body prose and must never overwrite `kind`.
+            if !kindCaptured, !seenSectionHeading, line.lowercased().hasPrefix("kind:") {
                 let raw = line.dropFirst("kind:".count).trimmingCharacters(in: .whitespaces)
                 kind = PaletteCard.Kind(rawValue: raw.lowercased()) ?? .other
+                kindCaptured = true
                 continue
             }
             // Freeform prose before the first `##` accumulates as body (blanks kept
@@ -160,8 +178,9 @@ public enum PaletteCardParser {
                 }
             case .images:
                 images.append(resolve(path: item, relativeTo: cardDirectory))
-            case .none, .unknown:
-                break
+            default:
+                break  // .unknown dropped; .none is unreachable (pre-section prose
+                       // is captured into `bodyLines` above and never reaches here).
             }
         }
 
