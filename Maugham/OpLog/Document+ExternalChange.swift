@@ -111,9 +111,6 @@ extension Document {
         let state = Document.reconcile(
             derived: Deriver.deriveWithSequenceFallback(ops: ops))
         let priorSequence = self.sequence
-        // Capture the pre-merge paragraph map BEFORE overwriting it — the
-        // pure-append test below compares derive-before vs derive-after.
-        let priorParagraphs = self.paragraphs
         self.paragraphs = state.paragraphs
         self.sequence = state.sequence
         // External op-log changes (cross-Mac sync) can shrink sequence —
@@ -123,26 +120,6 @@ extension Document {
         if let reason = SweepReason.externalLog(removed: removedFromLog) {
             flagSweep(reason)
         }
-        // E3(b) — preserve the writer's ⌘Z stack across a PURE-APPEND merge.
-        // Publishing this state below flows through `applyExternalText`, which
-        // clears the native typing-undo stack on every buffer replace (ADR 0023
-        // D1, the v0.16.0 ⌘Z-crash class) unless the apply is flagged
-        // undo-coherent. Today a remote peer's op — even one that only appends a
-        // new paragraph on an unrelated part of the doc — wipes the entire stack.
-        // Arm the coherent-apply flag for the CONSERVATIVE case only: no
-        // paragraph was removed AND no still-present paragraph's text changed
-        // (derive-before vs derive-after agree on the intersection of their
-        // keys). Any merge that removes or rewrites an existing paragraph keeps
-        // the unconditional D1 clear — a preserved typing-undo entry could then
-        // pop against text that moved out from under it. The caret-aware variant
-        // (gate on whether the merge touched the caret's paragraph) was declined
-        // by design: it re-opens the v0.16 ⌘Z-crash class.
-        let sharedKeys = Set(priorParagraphs.keys)
-            .intersection(state.paragraphs.keys)
-        let noExistingParagraphChanged = sharedKeys.allSatisfy {
-            priorParagraphs[$0] == state.paragraphs[$0]
-        }
-        let pureAppend = removedFromLog.isEmpty && noExistingParagraphChanged
         self._opLogMirror = ops
         // Re-derive the sticky flag from the merged log: cross-Mac sync
         // could deliver annotation ops on a doc that previously had none.
@@ -162,15 +139,38 @@ extension Document {
             _pendingSweep = nil
         }
 
-        // No conflict UI for log merge. Just publish the new state. Arm the
-        // undo-coherent apply flag (E3(b)) so the bound editor's next update
-        // pass preserves the ⌘Z stack for a pure-append merge; it is a one-shot
-        // consumed by `EditorSurface.updateNSView` (any non-pure-append merge
-        // left it false → the D1-consistent clear).
+        // No conflict UI for log merge. Just publish the new state.
+        //
+        // E3(b) — preserve the writer's ⌘Z stack across a PURE-APPEND merge.
+        // Publishing flows through `applyExternalText`, which does a wholesale
+        // `textView.string = …` and clears the native typing-undo stack on every
+        // buffer replace (ADR 0023 D1, the v0.16.0 ⌘Z-crash class) unless the
+        // apply is flagged undo-coherent. Without this, a remote peer's op — even
+        // one only appending a new paragraph elsewhere in the doc — wipes the
+        // entire stack.
+        //
+        // The safe-to-preserve condition is a range-safety invariant, not a
+        // paragraph-set one: a preserved native typing-undo action holds absolute
+        // character ranges, so it only stays valid if every character offset it
+        // could reference is unmoved — i.e. the NEW display text has the OLD
+        // display text as a literal prefix. That admits an end-of-document append
+        // and nothing else: a reorder or a MID-SEQUENCE insert shifts offsets
+        // after the change point and would let a preserved action pop against text
+        // that moved (the exact stale-range crash). `hasPrefix` is
+        // necessary-and-sufficient; `removedFromLog.isEmpty` is kept as cheap
+        // defense-in-depth (a removal can't grow a prefix, but the guard documents
+        // intent and short-circuits). Compare the pre-recompute displayText to the
+        // freshly recomputed one, then arm — the flag is a one-shot consumed by
+        // the bound editor's LATER `EditorSurface.updateNSView` pass; any
+        // non-pure-append merge leaves it false → the D1-consistent clear. The
+        // caret-aware variant was declined by design (re-opens the v0.16 class).
+        let oldDisplayText = self.displayText
+        recomputeDisplayText()
+        let pureAppend = removedFromLog.isEmpty
+            && self.displayText.hasPrefix(oldDisplayText)
         if pureAppend {
             _undoCoherentApplyPending = true
         }
-        recomputeDisplayText()
     }
 
     // MARK: - Conflict backups (forensic snapshots of discarded / diverged bytes)
