@@ -140,17 +140,26 @@ Memory hygiene: no memory contradicts current code except via the stale-claims f
 
 ---
 
-## 5. Proposed hardening-milestone shortlist (prioritized)
+## 5. Hardening-milestone shortlist (revised after user adjudication 2026-07-11)
 
-1. **Sync-and-durability correctness** (the two Highs + merge door): E1 task-op durability; E3(a/b/c) external-merge folds pending, preserves undo, reconciles like load. Highest user-harm density, one subsystem.
-2. **Palette hardening** (bundles 5 findings in the newest area): E2 rename-revert; A1 coordinated writes; A6 inline-image harvest + body normalization; unify the inline-image regex on `MarkdownBlockParser`'s; pane tests. Plus the A6-Medium task-archive-undo annotation reopen (same undo family).
-3. **Doc-truth batch** (all S-effort, near-zero risk): phone AREA.md undo line; CLAUDE.md stale bullet + TW5 wording + TW14 rung wording; roadmap carry-forward; reference.md/right-pane.md modes; Editor/AREA.md side-effect tripwire line; adr-0018-ok annotation relocation + AREA note. Then the **generation tests** so this class can't silently recur: tool-count assertion, keybinding-table assertion, AREA-vs-roadmap contradiction heuristic.
-4. **Enforcement-ladder batch**: ParagraphID.mint guard; DeviceSlug wrapper; TW7 call-site census; TW15 grep; OpKind↔undo exhaustiveness test; whole-branch-review line in CLAUDE.md; husk-reload tripwire row; inbox-subdir choke-point + registry row; shared TaskMarkup predicate.
-5. **MCP robustness**: text byte-budget (E4); main-actor offload (E6); docId-keyed resolver unification; top-level method registration fix.
-6. **Security lows batch**: trash meta path validation; shared resolve-inside-root helper; mzseg inflate bound; socket perms + buffer cap; release toolchain pinning; terminate-path update fallback.
-7. **Structural (schedule when touching anyway)**: EditorCoordinator MARK-cluster split; EditorSurface.init config struct; test `makeProject` helper; MCP-restart regression test.
+Principle applied (user decision): no "defer until touching the area anyway" bucket — an item is either worth doing (scheduled as a real task) or not (dropped, with the reason recorded in §5.1). Churn-avoidance is not a reason to skip a good change; regression risk is managed by method (mechanical steps, tests, smoke, sequencing), not deferral.
 
-Items 1–3 are the recommended first milestone; 4 is cheap and high-leverage; 5–7 can bundle opportunistically.
+1. **Sync-and-durability correctness** — opens with the two structural tasks so the behavior work lands on the improved shape and exercises it: (a) EditorCoordinator MARK-cluster split + `EditorSurface.init` config struct (mechanical-only, tests green + smoke before anything stacks on top); then (b) E1 task-op durability (await or tracked-drain); (c) E3(a) fold pending into the external merge; (d) E3(c) live-merge derives+reconciles like load; (e) E3(b) **conservative slice only**: arm coherent-apply for pure-append merges, keep the D1-consistent clear otherwise — the caret-aware gating variant is a design decision declined (re-opens the v0.16 ⌘Z-crash class), not a descope.
+2. **Palette hardening**: E2 rename-revert; A1 coordinated writes; A6 inline-image harvest + body normalization; unify the inline-image regex on `MarkdownBlockParser`'s; pane tests. Plus the A6-Medium task-archive-undo annotation reopen (same undo family).
+3. **Doc-truth batch**: phone AREA.md undo line; CLAUDE.md stale bullet + TW5 wording + TW14 rung wording; roadmap carry-forward; reference.md/right-pane.md modes; Editor/AREA.md side-effect tripwire line; adr-0018-ok annotation relocation + AREA note; MCP/AREA.md trust-boundary paragraph (socket = same-user, filesystem-enforced); delete hand-maintained counts from roadmap prose. Then the **crisp generation tests**: tool-count ↔ `MCPToolCatalog.all.count`; keybinding-table ↔ `DetailPaneToggle` enumeration; right-pane mode list. Plus a workflow line: roadmap •→✓ flip triggers a sibling-doc sweep (checklist, not a fuzzy test).
+4. **Enforcement-ladder batch**: ParagraphID.mint guard; DeviceSlug wrapper; TW7 call-site census; TW15 grep; TW8 test-literal lint; OpKind↔undo exhaustiveness test; whole-branch-review line in CLAUDE.md Default Workflow; husk-reload tripwire row; inbox-subdir choke-point + registry row; shared TaskMarkup predicate.
+5. **MCP robustness**: text byte-budget (E4); E6 **narrow version**: closed-doc `read_document` routed through `DerivedManuscriptCache` / background-derived (full async Document access declined — re-opens the binding-race class); docId-keyed resolver unification.
+6. **Robustness + release batch**: trash meta path validation; shared resolve-inside-root helper; mzseg inflate bound (small robustness fix, no security ceremony); terminate-path update fallback; release toolchain pinning **+ CFBundleVersion → `rev-list --count` in the same task** (one dry-run validates both); pinned-SHA↔tag verification as a `cut-release.sh` preflight (deterministic moment — deliberately NOT a per-CI-run lint).
+7. **Test hygiene**: shared `makeTestProject` helper (kills the ×13 duplication); craft-intent slug-collision fix; dead-param removal.
+8. **Decision item for scoping (user call)**: first-MCP-call-after-restart — either fix the bug AND pin it with a regression test in this milestone, or explicitly re-defer the bug. A test alone against the unfixed nondeterministic behavior is declined (flaky by construction).
+
+### 5.1 Dropped on merit (recorded so the next audit doesn't re-litigate)
+- **MCP socket auth / chmod**: threat model is same-user processes, which can already read the files directly; defends nothing the filesystem doesn't. Documented instead (item 3).
+- **Top-level tool-method registration fix**: closes a path no real client can reach; M effort for a code-comment's worth of value.
+- **TW2 / TW4 promotions + AREA↔roadmap contradiction heuristic**: the proposed checks are fuzzy; false-positiving tripwires teach sessions to ignore tripwires — negative value on the enforcement ladder. Rules stay as prose.
+- **Roadmap prose-count assertions**: deleting the counts beats testing them.
+- **Inbound socket buffer cap**: same-user threat model; fold in only if `MCPServer.swift` is open for another reason.
+- **E3(b) caret-aware undo gating / E6 full async re-architecture**: declined as designs, not descoped — each re-opens a historically-bitten bug class for marginal benefit over the narrow version shipped in items 1/5.
 
 ---
 
