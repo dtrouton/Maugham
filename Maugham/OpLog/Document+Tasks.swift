@@ -514,6 +514,16 @@ extension Document {
         // CLOSED when `preTip` itself is gone.
         let preOpIds: Set<String>? =
             isPaneCreated ? nil : Set(_opLogMirror.map(\.opId))
+        // Open annotations anchored to a paragraph the archive COLLAPSES: the
+        // orphan sweep the collapse flags (fired as a side effect of the undo's
+        // `flushBurstNow` below) archives them, and — unlike the rewind path —
+        // nothing here would reopen them, so ⌘Z brought back text + task but
+        // left the note archived (A6). Captured at the collapse site below (the
+        // sweep's exact predicate) so the undo can reopen them once the
+        // paragraph is restored. Mirrors `Document+RewindUndo`'s
+        // `sweepArchivedAnnotationIds` reopen — the shared reopen mechanism,
+        // not a parallel one.
+        var sweepArchivedAnnotationIds: [String] = []
 
         // Emit the .taskArchive op first so the lifecycle event lands in the
         // op log even when no anchor can be located (pane-created tasks, or
@@ -562,7 +572,15 @@ extension Document {
             if mutated.isEmpty {
                 // Sole task in the paragraph → paragraph collapses. The sweep
                 // reason carries the removed id so annotations on it archive
-                // through the normal path.
+                // through the normal path. Snapshot those about-to-be-swept
+                // annotations BEFORE the delete (the sweep's exact predicate:
+                // open, non-craftNote, anchored to this paragraph) so the
+                // compound undo can reopen them once the paragraph is restored.
+                sweepArchivedAnnotationIds = annotations(
+                    filter: AnnotationFilter(statuses: nil))
+                    .filter { $0.status == .open && $0.kind != .craftNote
+                              && $0.paragraphId == location.paragraphId }
+                    .map(\.id)
                 deleteParagraph(id: location.paragraphId)
             } else {
                 setParagraph(id: location.paragraphId, text: mutated)
@@ -692,6 +710,19 @@ extension Document {
                     docId: doc.docId, device: doc.device,
                     session: doc.session, sessionId: doc.session) {
                     doc.appendTaskOpInternal(inverse)
+                }
+                // 3. Reopen each annotation the collapse's orphan sweep
+                //    archived — the paragraph is back (step 1), so its notes
+                //    should be too. The sweep fired as a side effect of the
+                //    `flushBurstNow` above; nothing else reopens them. Same
+                //    mechanism as the rewind-undo path (`Document+RewindUndo`);
+                //    `reopenAnnotation` is a loud no-op if the status drifted.
+                //    Empty for the rewrite branch (no paragraph was removed).
+                for src in sweepArchivedAnnotationIds {
+                    do { try await doc.reopenAnnotation(id: src) }
+                    catch {
+                        documentLog.error("archiveTask compound undo: reopen failed for sweep-archived \(src, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    }
                 }
             },
             redo: { [weak undoManager] doc in
