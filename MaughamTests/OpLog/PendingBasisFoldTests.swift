@@ -21,7 +21,7 @@ final class PendingBasisFoldTests: XCTestCase {
         project
             .appendingPathComponent(".maugham/pending")
             .appendingPathComponent(
-                "\(docId).\(DeviceSlug.make(from: device)).pending.jsonl")
+                "\(docId).\(DeviceSlug.make(from: device).raw).pending.jsonl")
     }
 
     // MARK: - (a) clean quit → no pending file

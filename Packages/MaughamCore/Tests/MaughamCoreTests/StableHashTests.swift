@@ -62,7 +62,7 @@ final class StableHashTests: XCTestCase {
     func test_deviceSlug_delegatesToStableHash_stableOutput() {
         // The suffix is StableHash.fnv1a32Hex("Denvers-Mac.local") = "4ae99f35"
         let slug = DeviceSlug.make(from: "Denvers-Mac.local")
-        XCTAssertTrue(slug.hasSuffix("-4ae99f35"),
-            "DeviceSlug.make must produce a stable suffix via StableHash.fnv1a32Hex; got: \(slug)")
+        XCTAssertTrue(slug.raw.hasSuffix("-4ae99f35"),
+            "DeviceSlug.make must produce a stable suffix via StableHash.fnv1a32Hex; got: \(slug.raw)")
     }
 }

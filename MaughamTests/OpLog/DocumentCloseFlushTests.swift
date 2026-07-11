@@ -48,7 +48,7 @@ final class DocumentCloseFlushTests: XCTestCase {
         let slug = DeviceSlug.make(from: "m")
         let pendingURL = project
             .appendingPathComponent(".maugham/pending")
-            .appendingPathComponent("\(doc.docId).\(slug).pending.jsonl")
+            .appendingPathComponent("\(doc.docId).\(slug.raw).pending.jsonl")
         XCTAssertTrue(
             FileManager.default.fileExists(atPath: pendingURL.path),
             "close() must durably flush the still-intact pending buffer to "

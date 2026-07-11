@@ -44,7 +44,7 @@ final class OpLogStorePartitioningTests: XCTestCase {
         try await store.append(op("op-a", device: "Denvers-Mac.local", next: "x"))
 
         let macSlug = DeviceSlug.make(from: "Denvers-Mac.local")
-        let perDevice = opsDir(root).appendingPathComponent("\(docId).\(macSlug).jsonl")
+        let perDevice = opsDir(root).appendingPathComponent("\(docId).\(macSlug.raw).jsonl")
         let shared = opsDir(root).appendingPathComponent("\(docId).jsonl")
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: perDevice.path),
@@ -57,7 +57,7 @@ final class OpLogStorePartitioningTests: XCTestCase {
         let phoneSlug = DeviceSlug.make(from: "phone:D2A1F8B0")
         XCTAssertNotEqual(macSlug, phoneSlug)
         XCTAssertTrue(FileManager.default.fileExists(
-            atPath: opsDir(root).appendingPathComponent("\(docId).\(phoneSlug).jsonl").path))
+            atPath: opsDir(root).appendingPathComponent("\(docId).\(phoneSlug.raw).jsonl").path))
     }
 
     // RED until M1/M2 — asserts post-fix load-order-independent merge on a

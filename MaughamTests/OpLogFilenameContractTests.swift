@@ -12,7 +12,7 @@ final class OpLogFilenameContractTests: XCTestCase {
             let docId = ProjectStore.newId(prefix: prefix)
             let slug = DeviceSlug.make(from: "MacTest:host")
             XCTAssertEqual(OpLogStore.docId(fromOpLogFilename: "\(docId).jsonl"), docId)
-            XCTAssertEqual(OpLogStore.docId(fromOpLogFilename: "\(docId).\(slug).jsonl"), docId)
+            XCTAssertEqual(OpLogStore.docId(fromOpLogFilename: "\(docId).\(slug.raw).jsonl"), docId)
         }
     }
 }

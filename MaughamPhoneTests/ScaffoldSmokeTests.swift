@@ -10,6 +10,6 @@ final class ScaffoldSmokeTests: XCTestCase {
         // DeviceSlug is a Foundation-only MaughamCore type the phone will use
         // for per-device op-log partitioning; reaching it proves the package
         // dependency is wired into the iOS target.
-        XCTAssertFalse(DeviceSlug.make(from: "phone:test").isEmpty)
+        XCTAssertFalse(DeviceSlug.make(from: "phone:test").raw.isEmpty)
     }
 }

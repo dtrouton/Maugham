@@ -15,10 +15,10 @@ public enum InboxManifest {
     /// `InboxCaptureWriter` writes, Mac `InboxStore` reads/writes). Don't
     /// hand-roll the `"inbox.\(slug).jsonl"` template.
     public nonisolated static func inboxManifestURL(
-        forDeviceSlug deviceSlug: String, in projectURL: URL
+        forDeviceSlug deviceSlug: DeviceSlug, in projectURL: URL
     ) -> URL {
         projectURL
             .appendingPathComponent(".maugham/inbox", isDirectory: true)
-            .appendingPathComponent("inbox.\(deviceSlug).jsonl")
+            .appendingPathComponent("inbox.\(deviceSlug.raw).jsonl")
     }
 }

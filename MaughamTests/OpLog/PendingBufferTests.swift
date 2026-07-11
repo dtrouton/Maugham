@@ -21,7 +21,7 @@ final class PendingBufferTests: XCTestCase {
     /// The device-partitioned, relocated pending-buffer path for a given doc.
     private func pendingURL(docId: String) -> URL {
         let slug = DeviceSlug.make(from: device)
-        return tmp.appendingPathComponent(".maugham/pending/\(docId).\(slug).pending.jsonl")
+        return tmp.appendingPathComponent(".maugham/pending/\(docId).\(slug.raw).pending.jsonl")
     }
 
     func test_recordChange_thenSnapshot_returnsRecorded() {

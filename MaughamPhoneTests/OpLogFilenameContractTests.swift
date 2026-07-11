@@ -10,6 +10,6 @@ final class OpLogFilenameContractTests: XCTestCase {
         let docId = "doc-" + UUID().uuidString.prefix(8).lowercased()
         let slug = DeviceSlug.make(from: "phone:host")
         XCTAssertEqual(OpLogStore.docId(fromOpLogFilename: "\(docId).jsonl"), String(docId))
-        XCTAssertEqual(OpLogStore.docId(fromOpLogFilename: "\(docId).\(slug).jsonl"), String(docId))
+        XCTAssertEqual(OpLogStore.docId(fromOpLogFilename: "\(docId).\(slug.raw).jsonl"), String(docId))
     }
 }

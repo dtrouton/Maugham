@@ -51,7 +51,7 @@ final class PendingBufferSequenceTests: XCTestCase {
             Op.ParagraphChange(paragraphId: "aaaa", prior: nil, next: "legacy")),
             encoding: .utf8)!
         let url = root.appendingPathComponent(
-            ".maugham/pending/doc-1.\(DeviceSlug.make(from: "d")).pending.jsonl")
+            ".maugham/pending/doc-1.\(DeviceSlug.make(from: "d").raw).pending.jsonl")
         try Data((line + "\n").utf8).write(to: url, options: .atomic)
 
         let b = PendingBuffer(projectURL: root, docId: "doc-1", device: "d")

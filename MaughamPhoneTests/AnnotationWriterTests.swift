@@ -250,7 +250,7 @@ final class AnnotationWriterTests: XCTestCase {
         // carries the d_ prefix; OpLogStore does NOT add another).
         let expectedURL = projectRoot
             .appendingPathComponent(".maugham/ops", isDirectory: true)
-            .appendingPathComponent("\(docId).\(DeviceSlug.make(from: deviceId)).jsonl")
+            .appendingPathComponent("\(docId).\(DeviceSlug.make(from: deviceId).raw).jsonl")
         XCTAssertTrue(FileManager.default.fileExists(atPath: expectedURL.path),
                       "op-log file should exist at the per-device path")
 

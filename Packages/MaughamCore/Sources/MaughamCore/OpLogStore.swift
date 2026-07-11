@@ -127,7 +127,7 @@ public final class OpLogStore {
             .append(op)
     }
 
-    private func store(forDocId docId: String, deviceSlug: String) -> JSONLAppendStore<Op> {
+    private func store(forDocId docId: String, deviceSlug: DeviceSlug) -> JSONLAppendStore<Op> {
         JSONLAppendStore<Op>(
             fileURL: Self.opLogFileURL(forDocId: docId, deviceSlug: deviceSlug, in: projectURL),
             presenter: presenter,
@@ -175,7 +175,7 @@ public final class OpLogStore {
     /// needs a single coordinated read+rewrite instead.
     @discardableResult
     public func sealTailIfNeeded(
-        docId: String, deviceSlug: String,
+        docId: String, deviceSlug: DeviceSlug,
         threshold: Int = OpLogStore.segmentSealThreshold
     ) async throws -> URL? {
         guard docId != "__project__" else { return nil }
@@ -239,11 +239,11 @@ public final class OpLogStore {
     /// `OpLogStore.store`) MUST call this, never hand-roll the `"\(docId).\(slug).jsonl"`
     /// template. See docs/superpowers/notes/cross-surface-contracts.md.
     public nonisolated static func opLogFileURL(
-        forDocId docId: String, deviceSlug: String, in projectURL: URL
+        forDocId docId: String, deviceSlug: DeviceSlug, in projectURL: URL
     ) -> URL {
         projectURL
             .appendingPathComponent(".maugham/ops", isDirectory: true)
-            .appendingPathComponent("\(docId).\(deviceSlug).jsonl")
+            .appendingPathComponent("\(docId).\(deviceSlug.raw).jsonl")
     }
 
     /// The doc id encoded in an op-log filename, or nil if `name` is not a
@@ -303,20 +303,20 @@ public final class OpLogStore {
     /// filename construction — never hand-roll the template (grep tripwires
     /// on both targets enforce; see cross-surface-contracts.md).
     public nonisolated static func segmentFileURL(
-        forDocId docId: String, deviceSlug: String, index: Int, in projectURL: URL
+        forDocId docId: String, deviceSlug: DeviceSlug, index: Int, in projectURL: URL
     ) -> URL {
         projectURL
             .appendingPathComponent(".maugham/ops", isDirectory: true)
             .appendingPathComponent(
-                "\(docId).\(deviceSlug).seg\(String(format: "%04d", index)).\(OpLogSegment.fileExtension)")
+                "\(docId).\(deviceSlug.raw).seg\(String(format: "%04d", index)).\(OpLogSegment.fileExtension)")
     }
 
     /// Parse `<docId>.<deviceSlug>.seg<NNNN>.mzseg` → NNNN, or nil if `name`
     /// is not a segment of this (docId, deviceSlug) pair.
     nonisolated static func segmentIndex(
-        fromFilename name: String, docId: String, deviceSlug: String
+        fromFilename name: String, docId: String, deviceSlug: DeviceSlug
     ) -> Int? {
-        let prefix = "\(docId).\(deviceSlug).seg"
+        let prefix = "\(docId).\(deviceSlug.raw).seg"
         let suffix = ".\(OpLogSegment.fileExtension)"
         guard name.hasPrefix(prefix), name.hasSuffix(suffix) else { return nil }
         let digits = name.dropFirst(prefix.count).dropLast(suffix.count)

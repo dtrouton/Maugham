@@ -25,7 +25,8 @@ final class OpLogFilenameTests: XCTestCase {
     func test_opLogFileURL_roundTripsThroughParser() {
         let url = URL(fileURLWithPath: "/tmp/Proj")
         for docId in ["doc-0f677d7e", "scene-f8c9644e"] {
-            let built = OpLogStore.opLogFileURL(forDocId: docId, deviceSlug: "macA-1234", in: url)
+            let built = OpLogStore.opLogFileURL(
+                forDocId: docId, deviceSlug: .unsafeForTesting("macA-1234"), in: url)
             XCTAssertEqual(built.lastPathComponent, "\(docId).macA-1234.jsonl")
             XCTAssertEqual(OpLogStore.docId(fromOpLogFilename: built.lastPathComponent), docId)
         }

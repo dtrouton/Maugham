@@ -38,7 +38,7 @@ final class OpLogStoreSegmentTests: XCTestCase {
         return out
     }
 
-    private func writeSegment(_ ops: [Op], slug: String = "maca", index: Int = 1) throws -> URL {
+    private func writeSegment(_ ops: [Op], slug: DeviceSlug = .unsafeForTesting("maca"), index: Int = 1) throws -> URL {
         let url = OpLogStore.segmentFileURL(
             forDocId: docId, deviceSlug: slug, index: index, in: projectURL)
         try OpLogSegment.encode(jsonl: jsonlBytes(ops)).write(to: url)
@@ -48,22 +48,22 @@ final class OpLogStoreSegmentTests: XCTestCase {
     // Recognition: filename helpers are the ONLY places that know the shape.
     func test_filenameHelpers_recognizeSegments() {
         let url = OpLogStore.segmentFileURL(
-            forDocId: docId, deviceSlug: "maca", index: 3, in: projectURL)
+            forDocId: docId, deviceSlug: .unsafeForTesting("maca"), index: 3, in: projectURL)
         XCTAssertEqual(url.lastPathComponent, "doc-seg1.maca.seg0003.mzseg")
         XCTAssertEqual(OpLogStore.docId(fromOpLogFilename: url.lastPathComponent), docId)
         XCTAssertEqual(OpLogStore.segmentIndex(
-            fromFilename: url.lastPathComponent, docId: docId, deviceSlug: "maca"), 3)
+            fromFilename: url.lastPathComponent, docId: docId, deviceSlug: .unsafeForTesting("maca")), 3)
         XCTAssertNil(OpLogStore.docId(fromOpLogFilename: "__project__.maca.seg0001.mzseg"),
                      "__project__ stays excluded")
         XCTAssertNil(OpLogStore.segmentIndex(
-            fromFilename: "doc-seg1.OTHER.seg0001.mzseg", docId: docId, deviceSlug: "maca"),
+            fromFilename: "doc-seg1.OTHER.seg0001.mzseg", docId: docId, deviceSlug: .unsafeForTesting("maca")),
             "another device's segment is not ours")
     }
 
     func test_opLogFileURLs_includeSegments() throws {
         let segURL = try writeSegment([op("01A", next: "x")])
         let tailURL = OpLogStore.opLogFileURL(
-            forDocId: docId, deviceSlug: "maca", in: projectURL)
+            forDocId: docId, deviceSlug: .unsafeForTesting("maca"), in: projectURL)
         try Data("".utf8).write(to: tailURL)
         let urls = Set(OpLogStore.opLogFileURLs(forDocId: docId, in: projectURL)
             .map(\.lastPathComponent))
@@ -158,7 +158,7 @@ final class OpLogStoreSegmentTests: XCTestCase {
     // resistance, ADR 0012). So the live tail / seal slug is the DERIVED slug,
     // not the bare "maca" — the seal must operate on the exact file the writer
     // created. `sealSlug` is that derived value; expected filenames build from it.
-    private var sealSlug: String { DeviceSlug.make(from: "maca") }
+    private var sealSlug: DeviceSlug { DeviceSlug.make(from: "maca") }
 
     private func fillTail(_ store: OpLogStore, opCount: Int) async throws {
         for i in 0..<opCount {
@@ -208,8 +208,8 @@ final class OpLogStoreSegmentTests: XCTestCase {
         try await store.append(op("04aaaa", next: "second wave"))
         let second = try await store.sealTailIfNeeded(
             docId: docId, deviceSlug: sealSlug, threshold: 1)
-        XCTAssertEqual(first?.lastPathComponent, "doc-seg1.\(sealSlug).seg0001.mzseg")
-        XCTAssertEqual(second?.lastPathComponent, "doc-seg1.\(sealSlug).seg0002.mzseg")
+        XCTAssertEqual(first?.lastPathComponent, "doc-seg1.\(sealSlug.raw).seg0001.mzseg")
+        XCTAssertEqual(second?.lastPathComponent, "doc-seg1.\(sealSlug.raw).seg0002.mzseg")
         let loaded = try await store.load(docId: docId)
         XCTAssertEqual(loaded.map(\.opId).count, 6)
     }
@@ -248,7 +248,7 @@ final class OpLogStoreSegmentTests: XCTestCase {
         // Sealing for any slug must not touch the legacy file: there is no
         // per-device tail, so this is a no-op even at threshold 0.
         let sealed = try await OpLogStore(projectURL: projectURL)
-            .sealTailIfNeeded(docId: docId, deviceSlug: "maca", threshold: 0)
+            .sealTailIfNeeded(docId: docId, deviceSlug: .unsafeForTesting("maca"), threshold: 0)
         XCTAssertNil(sealed)
         XCTAssertTrue(FileManager.default.fileExists(atPath: legacyURL.path),
                       "legacy file must survive untouched")
@@ -274,7 +274,7 @@ final class OpLogStoreSegmentTests: XCTestCase {
         // the tail's ops land in seg0002; the log is unchanged.
         let segURL = try await store.sealTailIfNeeded(
             docId: docId, deviceSlug: sealSlug, threshold: 1)
-        XCTAssertEqual(segURL?.lastPathComponent, "doc-seg1.\(sealSlug).seg0002.mzseg")
+        XCTAssertEqual(segURL?.lastPathComponent, "doc-seg1.\(sealSlug.raw).seg0002.mzseg")
         let converged = try await store.load(docId: docId)
         XCTAssertEqual(converged, before)
         XCTAssertFalse(FileManager.default.fileExists(atPath: tailURL.path))

@@ -49,7 +49,7 @@ public final class PendingBuffer {
     public let projectURL: URL
     public let docId: String
     /// Filename-safe, stable-per-device slug for partitioning (ADR 0012).
-    private let deviceSlug: String
+    private let deviceSlug: DeviceSlug
 
     private var buffer: [String: Op.ParagraphChange] = [:]
 
@@ -154,6 +154,6 @@ public final class PendingBuffer {
     private func file() -> URL {
         projectURL
             .appendingPathComponent(".maugham/pending")
-            .appendingPathComponent("\(docId).\(deviceSlug).pending.jsonl")
+            .appendingPathComponent("\(docId).\(deviceSlug.raw).pending.jsonl")
     }
 }
