@@ -35,8 +35,11 @@ import Foundation
 /// Title is the first `# ` heading (else the fallback). `kind:` is captured once,
 /// from the first `kind:` line before any real section (unknown/missing →
 /// `.other`); a later `kind:`-looking line is ordinary body prose. Everything
-/// between `kind:` and the first real `##` section is `body` (blank-line runs →
-/// paragraph breaks). `## Swatches` items must be `#RGB`/`#RRGGBB` (others
+/// between `kind:` and the first real `##` section is `body`, preserved
+/// byte-for-byte (indentation, trailing whitespace, interior blank-line runs)
+/// except the single structural blank line the renderer pads around a
+/// non-empty body, which is stripped on the way in and re-added on the way
+/// out. `## Swatches` items must be `#RGB`/`#RRGGBB` (others
 /// ignored); `## Senses` items with a leading `<sense>:` token are tagged, others
 /// untagged; `## Images` items are card-relative paths, resolved to
 /// project-relative; inline `![alt](path)` images anywhere are ALSO collected
@@ -132,7 +135,12 @@ public enum PaletteCardParser {
         var imagesSectionLines: [String] = []
 
         for rawLine in markdown.split(separator: "\n", omittingEmptySubsequences: false) {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            let raw = String(rawLine)
+            // `line` is a trimmed PROBE used only for structure detection
+            // (heading/title/kind matching, `- ` item prefixes) — never for
+            // body storage, so indentation and trailing whitespace typed
+            // into body prose survive verbatim below.
+            let line = raw.trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("## ") {
                 switch line.dropFirst(3).trimmingCharacters(in: .whitespaces).lowercased() {
                 case "swatches": section = .swatches; seenSectionHeading = true; continue
@@ -157,10 +165,19 @@ public enum PaletteCardParser {
                 kindCaptured = true
                 continue
             }
-            // Freeform prose before the first `##` accumulates as body (blanks kept
-            // so paragraph breaks survive; collapsed after the walk).
+            // Freeform prose before the first `##` accumulates as body verbatim
+            // (raw, untrimmed) — body bytes are storage, not presentation; the
+            // one structural blank line the renderer pads around a non-empty
+            // body is peeled off below, after the walk. The blank line the
+            // renderer emits between the title and `kind:` is a SECOND piece
+            // of structural framing that lands here too (it's still
+            // `section == .none` and `kind:` hasn't been captured yet) — drop
+            // it rather than let it masquerade as a leading body blank. Only
+            // an empty (not just blank-probe) line is treated as that framing,
+            // so a real pre-`kind:` prose line still falls through to body.
             if section == .none {
-                bodyLines.append(line)
+                if !kindCaptured, raw.isEmpty { continue }
+                bodyLines.append(raw)
                 continue
             }
             if section == .images {
@@ -201,23 +218,16 @@ public enum PaletteCardParser {
             if !images.contains(resolved) { images.append(resolved) }
         }
 
-        // Collapse the captured body: runs of blank lines become paragraph
-        // breaks (`\n\n`), adjacent non-blank lines join with `\n`.
-        var body = ""
-        var pendingBreak = false
-        for line in bodyLines {
-            if line.isEmpty {
-                if !body.isEmpty { pendingBreak = true }
-            } else {
-                if body.isEmpty {
-                    body = line
-                } else {
-                    body += pendingBreak ? "\n\n" : "\n"
-                    body += line
-                }
-                pendingBreak = false
-            }
-        }
+        // Body bytes are storage: preserved verbatim. The renderer always pads
+        // a non-empty body with exactly one blank-line separator before it
+        // (after `kind:`) and one after (before the next `##`) — that single
+        // pair is structural framing, not body content, so it's the only
+        // thing peeled off here. Any further leading/trailing blank lines the
+        // writer actually typed, plus every interior blank-line run, survive
+        // untouched.
+        if bodyLines.first == "" { bodyLines.removeFirst() }
+        if bodyLines.last == "" { bodyLines.removeLast() }
+        let body = bodyLines.joined(separator: "\n")
 
         return PaletteCard(
             researchItemId: itemId,
