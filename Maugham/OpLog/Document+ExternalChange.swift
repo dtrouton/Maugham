@@ -111,6 +111,9 @@ extension Document {
         let state = Document.reconcile(
             derived: Deriver.deriveWithSequenceFallback(ops: ops))
         let priorSequence = self.sequence
+        // Capture the pre-merge paragraph map BEFORE overwriting it — the
+        // pure-append test below compares derive-before vs derive-after.
+        let priorParagraphs = self.paragraphs
         self.paragraphs = state.paragraphs
         self.sequence = state.sequence
         // External op-log changes (cross-Mac sync) can shrink sequence —
@@ -120,6 +123,26 @@ extension Document {
         if let reason = SweepReason.externalLog(removed: removedFromLog) {
             flagSweep(reason)
         }
+        // E3(b) — preserve the writer's ⌘Z stack across a PURE-APPEND merge.
+        // Publishing this state below flows through `applyExternalText`, which
+        // clears the native typing-undo stack on every buffer replace (ADR 0023
+        // D1, the v0.16.0 ⌘Z-crash class) unless the apply is flagged
+        // undo-coherent. Today a remote peer's op — even one that only appends a
+        // new paragraph on an unrelated part of the doc — wipes the entire stack.
+        // Arm the coherent-apply flag for the CONSERVATIVE case only: no
+        // paragraph was removed AND no still-present paragraph's text changed
+        // (derive-before vs derive-after agree on the intersection of their
+        // keys). Any merge that removes or rewrites an existing paragraph keeps
+        // the unconditional D1 clear — a preserved typing-undo entry could then
+        // pop against text that moved out from under it. The caret-aware variant
+        // (gate on whether the merge touched the caret's paragraph) was declined
+        // by design: it re-opens the v0.16 ⌘Z-crash class.
+        let sharedKeys = Set(priorParagraphs.keys)
+            .intersection(state.paragraphs.keys)
+        let noExistingParagraphChanged = sharedKeys.allSatisfy {
+            priorParagraphs[$0] == state.paragraphs[$0]
+        }
+        let pureAppend = removedFromLog.isEmpty && noExistingParagraphChanged
         self._opLogMirror = ops
         // Re-derive the sticky flag from the merged log: cross-Mac sync
         // could deliver annotation ops on a doc that previously had none.
@@ -139,7 +162,14 @@ extension Document {
             _pendingSweep = nil
         }
 
-        // No conflict UI for log merge. Just publish the new state.
+        // No conflict UI for log merge. Just publish the new state. Arm the
+        // undo-coherent apply flag (E3(b)) so the bound editor's next update
+        // pass preserves the ⌘Z stack for a pure-append merge; it is a one-shot
+        // consumed by `EditorSurface.updateNSView` (any non-pure-append merge
+        // left it false → the D1-consistent clear).
+        if pureAppend {
+            _undoCoherentApplyPending = true
+        }
         recomputeDisplayText()
     }
 
