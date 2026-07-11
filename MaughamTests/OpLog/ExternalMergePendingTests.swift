@@ -82,4 +82,61 @@ final class ExternalMergePendingTests: XCTestCase {
         XCTAssertTrue(
             mirrorHasForeign, "the foreign op merged into the mirror")
     }
+
+    /// Sibling of E3a: a pure `reorder()` sets `_orderingChangedSinceLoad` but
+    /// records NOTHING in the pending buffer (the ordering-only burst carries
+    /// its sequence as the payload). A guard that flushes only on
+    /// `!pending.isEmpty()` would skip it, so a peer op syncing in mid-reorder
+    /// would re-derive sequence from disk and discard the un-bursted reorder.
+    func test_externalLogChange_foldsUnburstedReorder_whileMergingPeerOp() async throws {
+        let (dir, docURL) = try makeTestProject(
+            prefix: "ExternalMergeReorder",
+            initialMd: "One.\n\nTwo.\n\nThree.\n")
+        let doc = try await Document.load(
+            url: docURL, device: "test", session: "s", presenter: nil)
+
+        let pids = doc.sequence
+        XCTAssertEqual(pids.count, 3, "fixture seeds three paragraphs")
+        let p1 = pids[0], p2 = pids[1], p3 = pids[2]
+
+        // Live ordering-only edit: move the third paragraph to the front. Pure
+        // reorder — no `pending.recordChange`, so the buffer stays empty.
+        doc.reorder(sequence: [p3, p1, p2])
+        XCTAssertTrue(
+            doc.pending.isEmpty(),
+            "precondition: a pure reorder records nothing in the pending buffer")
+
+        // A peer edits the middle paragraph; its op syncs to disk under a
+        // different device slug.
+        let foreign = Op(
+            opId: ULID.generate(),
+            docId: doc.docId, at: Date(),
+            device: "peer-mac", session: "peer-session",
+            kind: .typingBurst,
+            changes: [.init(paragraphId: p2,
+                            prior: "Two.",
+                            next: "Two FROMPEER.")],
+            sequence: nil, provenance: nil)
+        try await OpLogStore(projectURL: dir).append(foreign)
+
+        try await doc.handleExternalLogChange()
+
+        // BOTH survive: the un-bursted reorder AND the peer's edit.
+        XCTAssertEqual(
+            doc.sequence, [p3, p1, p2],
+            "the un-bursted reorder must survive the merge (E3a sibling)")
+        XCTAssertTrue(
+            doc.displayText.contains("Two FROMPEER."),
+            "the peer's op must be merged in")
+
+        // The reorder became a real ordering-only burst (empty changes, explicit
+        // sequence) and cleared the ordering-changed flag.
+        let mirrorHasReorderBurst = doc._opLogMirror.contains { op in
+            op.device == "test" && op.kind == .typingBurst
+                && op.changes.isEmpty && op.sequence == [p3, p1, p2]
+        }
+        XCTAssertTrue(
+            mirrorHasReorderBurst,
+            "the reorder was flushed as an ordering-only burst into the merged mirror")
+    }
 }
