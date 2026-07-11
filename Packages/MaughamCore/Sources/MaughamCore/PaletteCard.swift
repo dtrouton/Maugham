@@ -239,18 +239,10 @@ public enum PaletteCardParser {
             body: body)
     }
 
-    /// Extract the `path` from every `![alt](path)` in document order. Uses
-    /// `NSRegularExpression` because bare-slash regex literals are off in the
-    /// Mac target's Swift 5.10 language mode.
-    private static let inlineImageRegex = try! NSRegularExpression(
-        pattern: "!\\[[^\\]]*\\]\\(([^)]+)\\)")
-
+    /// Extract the `path` from every `![alt](path)` in document order, via
+    /// `MarkdownBlockParser`'s shared unanchored image scanner.
     private static func inlineImagePaths(in markdown: String) -> [String] {
-        let range = NSRange(markdown.startIndex..., in: markdown)
-        return inlineImageRegex.matches(in: markdown, range: range).compactMap { match in
-            guard let captured = Range(match.range(at: 1), in: markdown) else { return nil }
-            return String(markdown[captured])
-        }
+        MarkdownBlockParser.findInlineImages(in: markdown).map(\.path)
     }
 
     /// Resolve a card-relative path ("../x.jpg", "y.jpg") to project-relative,
