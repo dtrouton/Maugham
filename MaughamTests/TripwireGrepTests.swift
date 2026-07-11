@@ -802,4 +802,75 @@ final class TripwireGrepTests: XCTestCase {
             "Self-check: annotated split calls must pass via the match-start-line "
             + "exemption, not fire. Got:\n" + offenders.joined(separator: "\n"))
     }
+
+    // MARK: - ParagraphID.mint() guard (oplog-growth birthday-collision lesson)
+
+    /// Recurrence-tripper: `ParagraphID.mint()` is 4 random chars over a
+    /// ~1.05M space — at manuscript scale collisions are LIKELY, not rare
+    /// (the 2026-06-10 paste crash: minting ~650 ids into a ~1,300-paragraph
+    /// doc had ≈60% odds of a birthday collision, silently merging two
+    /// paragraphs under one identity in the op log). Every production site
+    /// that introduces an id into an existing population MUST call
+    /// `ParagraphID.mintUnique(excluding:)` instead. Substring match on
+    /// `ParagraphID.mint(` does NOT match `ParagraphID.mintUnique(` — the
+    /// character after `mint` differs (`(` vs `U`) — so the safe call is
+    /// never flagged. `ParagraphID.swift` itself is allowlisted since its
+    /// internal `mint()` calls (from `mintUnique`, and the definition of
+    /// `mint()` itself) are bare, unqualified, and legitimate.
+    static let paragraphIDMintPattern = "ParagraphID.mint("
+
+    func test_noBareParagraphIDMintInProduction() throws {
+        let coreDir = repoRoot
+            .appendingPathComponent("Packages/MaughamCore/Sources", isDirectory: true)
+        var offenders = try grepSwift(
+            in: sourceDir,
+            patterns: [Self.paragraphIDMintPattern])
+        offenders += try grepSwift(
+            in: coreDir,
+            patterns: [Self.paragraphIDMintPattern],
+            allowed: ["ParagraphID.swift"])
+        XCTAssertTrue(offenders.isEmpty,
+            "Bare ParagraphID.mint() call in production. At manuscript scale this is a "
+            + "likely birthday collision (oplog-growth milestone, 2026-06-10 paste crash) "
+            + "that silently merges two paragraphs under one identity. Use "
+            + "ParagraphID.mintUnique(excluding:) instead, seeding `excluding` with the "
+            + "existing id population. Offenders:\n" + offenders.joined(separator: "\n"))
+    }
+
+    /// Self-check: prove the guard FIRES on a planted bare `ParagraphID.mint()`
+    /// call and does NOT fire on the safe `ParagraphID.mintUnique(excluding:)`
+    /// sibling.
+    func test_paragraphIDMintTripwireFiresOnPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-mint-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        func badPaste(count: Int) -> [String] {
+            return (0..<count).map { _ in ParagraphID.mint() }
+        }
+        func goodPaste(count: Int, existing: Set<String>) -> [String] {
+            var used = existing
+            return (0..<count).map { _ in
+                let id = ParagraphID.mintUnique(excluding: used)
+                used.insert(id)
+                return id
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("PlantedMintOffender.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let offenders = try grepSwift(
+            in: tmp,
+            patterns: [Self.paragraphIDMintPattern])
+        XCTAssertEqual(offenders.count, 1,
+            "Self-check expected exactly the bare ParagraphID.mint() call to fire. Got:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.contains { $0.contains("ParagraphID.mint()") },
+            "Self-check: the planted bare ParagraphID.mint() should be caught.")
+        XCTAssertFalse(offenders.contains { $0.contains("mintUnique") },
+            "Self-check: ParagraphID.mintUnique(excluding:) must NOT fire.")
+    }
 }
