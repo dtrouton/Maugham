@@ -261,7 +261,11 @@ public final class DocumentStore {
         await fileSaveScheduler.flush()
     }
 
-    private func performFileSave(path: String, text: String) async throws {
+    /// `internal` (not `private`) so `ProjectStore+Palette.swift`'s
+    /// `paletteCoordinatedWrite(_:to:)` funnel can call it directly for
+    /// immediate (non-debounced) coordinated writes — palette card saves
+    /// are await-and-done, unlike `scheduleFileSave`'s 750ms debounce.
+    func performFileSave(path: String, text: String) async throws {
         let url = projectURL.appendingPathComponent(path)
         let coordinator = NSFileCoordinator(filePresenter: presenter)
         var coordError: NSError?

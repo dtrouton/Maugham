@@ -255,6 +255,45 @@ final class TripwireGrepTests: XCTestCase {
             + offenders.joined(separator: "\n"))
     }
 
+    // MARK: - Palette write coordination tripwire (A1-High)
+
+    /// The forbidden raw-write call shape for palette card writes. Matches
+    /// both `.write(to: x)` on one line and a split `.write(\n    to: x)` —
+    /// review finding A1-High caught two raw `rendered.write(to:atomically:)`
+    /// calls that bypass NSFileCoordinator, which can conflict-twin a palette
+    /// card under iCloud (tripwire 7). The one allowed spelling is the funnel
+    /// `paletteCoordinatedWrite(_:to:)`.
+    private let paletteWritePatterns = [".write("]
+
+    /// The funnel's own fallback write (used when `documentStore == nil`,
+    /// i.e. unit-test contexts) is marked so the grep can distinguish it from
+    /// a reach-around raw write. See `Maugham/Stores/AREA.md`.
+    private func isPaletteFunnelLine(_ line: String) -> Bool {
+        line.contains("palette-coordinated-write:")
+    }
+
+    /// Recurrence-tripper: a raw `.write(to:)` on a palette card's rendered
+    /// markdown in `ProjectStore+Palette.swift` skips NSFileCoordinator on a
+    /// cloud-synced project file (tripwire 7 / A1-High). Route it through
+    /// `paletteCoordinatedWrite(_:to:)`, which coordinates via
+    /// `DocumentStore.performFileSave` when a `documentStore` back-ref is
+    /// wired, matching the research-note save path.
+    func test_noRawWriteInPaletteStore() throws {
+        let offenders = try grepSwift(
+            in: sourceDir,
+            files: ["ProjectStore+Palette.swift"],
+            patterns: paletteWritePatterns,
+            excludeLine: { [self] in isPaletteFunnelLine($0) }
+        )
+        XCTAssertTrue(offenders.isEmpty,
+            "Raw `.write(to:` in ProjectStore+Palette.swift bypasses NSFileCoordinator "
+            + "(A1-High). Route palette card writes through paletteCoordinatedWrite(_:to:), "
+            + "which coordinates via DocumentStore.performFileSave when available. If this "
+            + "is genuinely the funnel's own unit-test fallback, mark the line with "
+            + "`// palette-coordinated-write: ...`. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
     // MARK: - Meta-tests: tripwires fire on planted offenders (task 4.8 / test gap #14)
 
     /// Self-check: prove the op-log filename tripwire FIRES on a planted
@@ -354,6 +393,38 @@ final class TripwireGrepTests: XCTestCase {
             + offenders.joined(separator: "\n"))
         XCTAssertTrue(offenders.first?.contains("oldURL") == true,
             "Self-check: the planted oldURL→newURL offender should be the one caught.")
+    }
+
+    /// Self-check: prove the palette-write tripwire FIRES on a planted raw
+    /// write, and that the funnel's own marked fallback write is excluded.
+    func test_paletteWriteTripwireFiresOnPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-palette-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        let planted = tmp.appendingPathComponent("ProjectStore+Palette.swift")
+        try """
+        func bad() throws {
+            try rendered.write(to: fileURL, atomically: true, encoding: .utf8)
+            try text.write(  // palette-coordinated-write: fallback direct write for unit-test contexts
+                to: url.appendingPathComponent(path), atomically: true, encoding: .utf8)
+        }
+        """.write(to: planted, atomically: true, encoding: .utf8)
+
+        let offenders = try grepSwift(
+            in: tmp,
+            files: ["ProjectStore+Palette.swift"],
+            patterns: paletteWritePatterns,
+            excludeLine: { [self] in isPaletteFunnelLine($0) }
+        )
+        // The bare rendered.write fires; the marked funnel fallback is excluded.
+        XCTAssertEqual(offenders.count, 1,
+            "Self-check expected exactly the unmarked raw write to fire. Got:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.first?.contains("rendered.write") == true,
+            "Self-check: the planted rendered.write offender should be the one caught.")
     }
 
     // MARK: - Sealed-segment name tripwire (ADR 0016)
