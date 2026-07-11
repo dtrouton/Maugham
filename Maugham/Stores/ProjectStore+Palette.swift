@@ -10,18 +10,40 @@ extension ProjectStore {
     public static let paletteFolderPath = PaletteConvention.folderPath
     public static let paletteGroupTitle = PaletteConvention.groupTitle
 
-    /// The palette group in the research tree, if it exists.
+    /// The palette group in the research tree, if it exists. Role-first
+    /// (survives rename/move); falls back to the legacy `research/palette` path.
+    /// A fallback hit lazily heals the manifest — see `stampRole`.
     public func paletteGroup() -> ResearchItem? {
-        manifest.research.first { $0.type == .group && $0.path == Self.paletteFolderPath }
+        guard let group = PaletteLookup.paletteGroup(in: manifest.research) else { return nil }
+        healRole(of: group, to: .paletteGroup)
+        return group
     }
 
-    /// Find-or-create the `research/palette/` group (idempotent).
+    /// The palette group's live title, falling back to the default when no
+    /// group exists yet. Pure read (no lazy stamp) so SwiftUI headers can call
+    /// it every body pass without firing heal Tasks.
+    public var paletteGroupDisplayTitle: String {
+        PaletteLookup.paletteGroup(in: manifest.research)?.title ?? Self.paletteGroupTitle
+    }
+
+    /// Find-or-create the `research/palette/` group (idempotent). Stamps
+    /// `role = .paletteGroup` on create, and heals a legacy path-identified
+    /// group on find.
     @discardableResult
     public func ensurePaletteGroup() async throws -> ResearchItem {
-        if let existing = paletteGroup() { return existing }
+        if let existing = paletteGroup() {
+            if existing.role != .paletteGroup {
+                try await stampRole(itemId: existing.id, role: .paletteGroup)
+                return findResearchItem(id: existing.id, in: manifest.research) ?? existing
+            }
+            return existing
+        }
         // addResearchItem(kind: nil) creates a group folder from the slugified
         // title — "Palette" → research/palette.
-        return try await addResearchItem(parentId: nil, title: Self.paletteGroupTitle, kind: nil)
+        let created = try await addResearchItem(
+            parentId: nil, title: Self.paletteGroupTitle, kind: nil)
+        try await stampRole(itemId: created.id, role: .paletteGroup)
+        return findResearchItem(id: created.id, in: manifest.research) ?? created
     }
 
     /// Create a new palette card seeded from the template, under the palette group.
@@ -162,5 +184,28 @@ extension ProjectStore {
     /// The file slug (basename without extension) of a card's project-relative path.
     static func paletteSlug(ofPath path: String) -> String {
         ((path as NSString).lastPathComponent as NSString).deletingPathExtension
+    }
+
+    // MARK: - Role healing (shared by palette + craft-intent lookups)
+
+    /// Fire-and-forget lazy heal: when a role-first lookup fell back to
+    /// path/filename identity (the found item's role isn't the durable marker
+    /// yet), stamp it so the next lookup is role-first. Keeps the synchronous
+    /// read-shaped lookup signature; the guard in `stampRole` makes repeated
+    /// calls before the stamp lands idempotent. Mac only — the phone never
+    /// writes the manifest.
+    func healRole(of item: ResearchItem, to role: ResearchRole) {
+        guard item.role != role else { return }
+        Task { [weak self] in try? await self?.stampRole(itemId: item.id, role: role) }
+    }
+
+    /// Persist a durable `role` onto a research item. Idempotent: a no-op when
+    /// the item is gone or already carries `role`. Deliberately does NOT bump
+    /// `manifest.modified` — healing is invisible and must not churn the wall.
+    func stampRole(itemId: String, role: ResearchRole) async throws {
+        guard let item = findResearchItem(id: itemId, in: manifest.research),
+              item.role != role else { return }
+        mutateResearchItem(id: itemId) { $0.role = role }
+        try await saveManifest()
     }
 }
