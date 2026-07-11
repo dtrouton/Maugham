@@ -69,6 +69,7 @@ S3. Extract shared `makeTestProject(prefix:initialMd:)` test helper; migrate the
 6e. Release pinning: explicit Xcode version + pinned xcodegen, **and** `CFBundleVersion` → `git rev-list --count HEAD` in the same task; validated by one dry-run tag (patch ≥90 band).
 6f. `cut-release.sh` preflight: resolve every workflow action SHA against its commented tag (deliberately not a per-CI-run lint).
 6g. Dead-param removal (`CollectionPiecesPane.onAddPiece`, `HelpClaudeDesktopSheet` v2 leftovers); RELEASING.md documents the `.dmg` path as Gatekeeper-verified-on-launch.
+6h. **User-reported bug**: update sheet's download progress bar never moves — `state = .downloading(progress: 0)` is set once (`UpdateChecker.swift:67`) and `defaultDownload` uses one-shot `URLSession.shared.download(from:)` with no progress callbacks (`:96`), so `UpdateSheet.swift:54`'s bar stays at zero until the state jumps to `readyToInstall`. Fix-shape: stream via `URLSession.bytes(from:)` writing to the staging file, updating `state`'s progress from `expectedContentLength` (indeterminate bar when length is unknown); the injected `downloadAsset` seam gains a progress callback so the harness can test state transitions — effort S/M.
 
 ## Testing policy
 
