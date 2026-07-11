@@ -6,15 +6,28 @@ import MaughamCore
 /// Visual editor for one palette card — replaces raw-markdown editing. Every
 /// control mutates a single local `draft: PaletteCard?`; a single debounced task
 /// persists it through `store.updatePaletteCard` (the model owns the file). We do
-/// NOT re-seed from `store.manifest.modified` while mounted — our own save bumps
-/// it and a re-seed would clobber in-flight typing (tripwires 3/6). The draft is
-/// re-seeded only when `cardId` changes, or once after a title-changing save (the
-/// assets folder moved, so remapped `imagePaths` must flow back in).
+/// NOT wholesale re-seed from `store.manifest.modified` while mounted — our own
+/// save bumps it and a full re-seed would clobber in-flight typing (tripwires
+/// 3/6). The draft is re-seeded only when `cardId` changes; after each save the
+/// fresh `imagePaths` flow back (the assets folder may have moved).
+///
+/// The one exception is the title. Because we seed once per `cardId`, an external
+/// rename (via the research tree — same id, new title/path) leaves the draft's
+/// title stale, and a naive save would treat that stale title as a rename intent
+/// and revert the file to the old slug (finding E2). Two guards prevent this: the
+/// persist path treats the draft title as intent only when it diverged from a
+/// `baselineTitle` captured at seed (`reconciledTitle`), so the store's current
+/// title wins otherwise; and a narrow title-only `.onChange` on the store item's
+/// title re-syncs the field when the user has no in-editor title edit pending.
 struct PaletteCardEditor: View {
     let store: ProjectStore
     let cardId: String
 
     @State private var draft: PaletteCard?
+    /// The title the draft was last in sync with the store at (seed / last
+    /// persist). `persist` treats the draft title as a *rename intent* only when
+    /// it has diverged from this baseline — see `reconciledTitle` (finding E2).
+    @State private var baselineTitle: String?
     @State private var thumbnails: [String: NSImage] = [:]
     @State private var saveTask: Task<Void, Never>?
     @State private var saveGeneration = 0
@@ -65,6 +78,17 @@ struct PaletteCardEditor: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .task(id: cardId) { seed() }
         .task(id: draft?.imagePaths) { loadThumbnails() }
+        .onChange(of: store.paletteCardItems().first(where: { $0.id == cardId })?.title) {
+            _, newTitle in
+            // An external rename (research tree) changed the card's title beneath
+            // the mounted editor. Adopt it into the field ONLY when the user has no
+            // in-editor title edit pending (draft title still equals the last
+            // synced baseline) — this narrow title-only sync can't clobber body
+            // typing (we touch only the title) or a rename the user is typing.
+            guard let newTitle, draft != nil, draft?.title == baselineTitle else { return }
+            mutate { $0.with(title: newTitle) }
+            baselineTitle = newTitle
+        }
     }
 
     // MARK: - Sections
@@ -410,7 +434,9 @@ struct PaletteCardEditor: View {
     // MARK: - Seed / persist / thumbnails
 
     private func seed() {
-        draft = store.loadPaletteCards().first { $0.researchItemId == cardId }
+        let card = store.loadPaletteCards().first { $0.researchItemId == cardId }
+        draft = card
+        baselineTitle = card?.title
     }
 
     private func loadThumbnails() {
@@ -438,18 +464,9 @@ struct PaletteCardEditor: View {
     }
 
     private func persist(_ card: PaletteCard, generation: Int) async {
-        // Never rename to an empty title — a transiently-cleared field falls back
-        // to the on-disk title so the slug stays valid.
-        var card = card
-        let onDiskTitle = store.paletteCardItems().first { $0.id == cardId }?.title
-        if card.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let onDiskTitle {
-            card = card.with(title: onDiskTitle)
-        }
-        do {
-            try await store.updatePaletteCard(card)
-        } catch {
-            return
-        }
+        guard let newBaseline = await Self.persistDraft(
+            card, baselineTitle: baselineTitle, in: store) else { return }
+        baselineTitle = newBaseline
         // Re-pull imagePaths from the persisted store state on EVERY successful save,
         // not just title-changing ones: a rename remaps the sibling `_assets/` folder
         // and only the store knows the post-rename paths. Pulling them back each time
@@ -460,8 +477,52 @@ struct PaletteCardEditor: View {
         // (a superseded save's successor re-pulls when it settles).
         guard generation == saveGeneration else { return }
         if let fresh = store.loadPaletteCards().first(where: { $0.researchItemId == cardId }) {
-            mutate { $0.with(imagePaths: fresh.imagePaths) }
+            // Pull the fresh title too: when this save adopted an external rename
+            // (draft title stale), the field must show the store's title, not the
+            // seed. Guarded by the generation check above so we never overwrite a
+            // title the user is actively typing (each keystroke advances it).
+            mutate { $0.with(title: fresh.title, imagePaths: fresh.imagePaths) }
         }
+    }
+
+    // MARK: - Persist core (testable — no @State, no UI)
+
+    /// The title the outgoing card should carry on persist. The draft title is an
+    /// *intent*, not a value (finding E2): the editor seeds once on `cardId` and
+    /// never re-seeds while mounted, so an external rename (via the research tree)
+    /// leaves the draft's title stale. Honour the draft title only when the user
+    /// actually changed it in-editor (`draftTitle != baselineTitle`), falling back
+    /// to the on-disk title when the field was cleared (keep the slug valid);
+    /// otherwise the store's CURRENT title wins, so an external rename survives a
+    /// body/swatch/note save instead of being silently reverted to the stale seed.
+    nonisolated static func reconciledTitle(
+        draftTitle: String, baselineTitle: String?, onDiskTitle: String?
+    ) -> String {
+        let userRenamedInEditor = draftTitle != baselineTitle
+        if userRenamedInEditor {
+            if draftTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               let onDiskTitle {
+                return onDiskTitle
+            }
+            return draftTitle
+        }
+        return onDiskTitle ?? draftTitle
+    }
+
+    /// Reconcile `draft`'s title against the store's current title and persist.
+    /// Returns the title now in sync with the store (the caller's new baseline),
+    /// or nil if the write failed. The testable core of the debounced save.
+    @MainActor
+    static func persistDraft(
+        _ draft: PaletteCard, baselineTitle: String?, in store: ProjectStore
+    ) async -> String? {
+        let onDiskTitle = store.paletteCardItems()
+            .first { $0.id == draft.researchItemId }?.title
+        let title = reconciledTitle(
+            draftTitle: draft.title, baselineTitle: baselineTitle, onDiskTitle: onDiskTitle)
+        do { try await store.updatePaletteCard(draft.with(title: title)) }
+        catch { return nil }
+        return title
     }
 }
 
