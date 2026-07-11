@@ -466,16 +466,22 @@ struct PaletteCardEditor: View {
     private func persist(_ card: PaletteCard, generation: Int) async {
         guard let newBaseline = await Self.persistDraft(
             card, baselineTitle: baselineTitle, in: store) else { return }
+        // Only the LATEST save reconciles local @State. Two persists can overlap:
+        // a superseded one, already past its cancellation checkpoint, can resume
+        // after `store.updatePaletteCard`'s await and land AFTER a newer save. Gate
+        // the baseline write on generation too (not just the re-pull below) — else
+        // a stale `newBaseline` overwrites a fresher one. Bounded (a stale baseline
+        // falls toward the safe draft-wins branch → redundant write, not a revert),
+        // but it must obey the same generation discipline as the re-pull.
+        guard generation == saveGeneration else { return }
         baselineTitle = newBaseline
         // Re-pull imagePaths from the persisted store state on EVERY successful save,
         // not just title-changing ones: a rename remaps the sibling `_assets/` folder
         // and only the store knows the post-rename paths. Pulling them back each time
         // stops a rename that raced a mid-await keystroke from leaving stale pre-rename
         // paths in the draft that a later save would write back after the folder moved.
-        // The generation guard keeps this from clobbering text typed since this save was
-        // queued — we touch ONLY imagePaths, and only when this is still the latest save
+        // We touch ONLY title/imagePaths, and only while this is still the latest save
         // (a superseded save's successor re-pulls when it settles).
-        guard generation == saveGeneration else { return }
         if let fresh = store.loadPaletteCards().first(where: { $0.researchItemId == cardId }) {
             // Pull the fresh title too: when this save adopted an external rename
             // (draft title stale), the field must show the store's title, not the
