@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 /// Right-pane mode (⌘⌥7): pick a palette card and write against it — read-only
 /// images, swatches, and sensory notes beside the editor. Cards load once per

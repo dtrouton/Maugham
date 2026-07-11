@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 /// Palette-segment sidebar: card list + "+ New Card" kind menu. Cards load once
 /// per manifest change (tripwire 4); rows do no I/O.
@@ -11,9 +12,11 @@ struct PaletteBinderList: View {
     var body: some View {
         VStack(spacing: 0) {
             List(selection: $selectedCardId) {
-                ForEach(cards) { card in
-                    Label(card.title, systemImage: PaletteCardTile.kindSymbol(for: card.kind))
-                        .tag(card.id)
+                Section(store.paletteGroupDisplayTitle) {
+                    ForEach(cards) { card in
+                        Label(card.title, systemImage: PaletteCardTile.kindSymbol(for: card.kind))
+                            .tag(card.id)
+                    }
                 }
             }
             .listStyle(.sidebar)

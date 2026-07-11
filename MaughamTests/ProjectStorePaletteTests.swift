@@ -142,4 +142,42 @@ final class ProjectStorePaletteTests: XCTestCase {
         do { try await store.updatePaletteCard(ghost); XCTFail("expected throw") } catch {}
         await ds.close()
     }
+
+    // MARK: - Role-first identity (rename survival + lazy healing)
+
+    func test_paletteGroup_survivesRename_andStampsLegacy() async throws {
+        let (_, store, ds) = try await makeNovel()
+        let group = try await store.ensurePaletteGroup()
+        XCTAssertEqual(group.role, .paletteGroup)          // stamped at creation
+        _ = try await store.addPaletteCard(title: "The Flat", kind: .location)
+        try await store.updateResearchItem(id: group.id, title: "Moods")
+        XCTAssertEqual(store.paletteGroup()?.id, group.id) // role survives rename
+        XCTAssertEqual(store.loadPaletteCards().count, 1)  // wall still finds cards
+        let again = try await store.ensurePaletteGroup()
+        XCTAssertEqual(again.id, group.id)                 // no duplicate group minted
+        await ds.close()
+    }
+
+    func test_legacyPaletteGroup_getsLazilyStamped() async throws {
+        let (_, store, ds) = try await makeNovel()
+        // Simulate a v0.19.0 project: group exists with path identity, no role.
+        let legacy = try await store.addResearchItem(parentId: nil, title: "Palette", kind: nil)
+        XCTAssertNil(legacy.role)
+        let found = store.paletteGroup()
+        XCTAssertEqual(found?.id, legacy.id)
+        // Allow the deferred stamp to land, then verify persisted.
+        try await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertEqual(TreeWalk.find(id: legacy.id, in: store.manifest.research)?.role, .paletteGroup)
+        await ds.close()
+    }
+
+    func test_paletteGroupDisplayTitle_reflectsLiveTitle() async throws {
+        let (_, store, ds) = try await makeNovel()
+        XCTAssertEqual(store.paletteGroupDisplayTitle, ProjectStore.paletteGroupTitle)
+        let group = try await store.ensurePaletteGroup()
+        XCTAssertEqual(store.paletteGroupDisplayTitle, "Palette")
+        try await store.updateResearchItem(id: group.id, title: "Moods")
+        XCTAssertEqual(store.paletteGroupDisplayTitle, "Moods")
+        await ds.close()
+    }
 }

@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 /// The palette wall — center-pane surface for BinderSegment.palette.
 /// Cards + thumbnails load once per manifest change (tripwire 4); tiles do
@@ -15,27 +16,34 @@ struct PaletteWallView: View {
     private static let thumbnailMaxEdge: CGFloat = 320
 
     var body: some View {
-        Group {
-            if cards.isEmpty {
-                ContentUnavailableView(
-                    "No palette cards",
-                    systemImage: "paintpalette",
-                    description: Text("Gather images, swatches, and sensory notes per location, character, or motif. Add a card from the sidebar."))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollView {
-                    LazyVGrid(columns: columns, spacing: 12) {
-                        ForEach(cards) { card in
-                            PaletteCardTile(
-                                card: card,
-                                thumbnail: thumbnails[card.id],
-                                isSelected: selectedCardId == card.id,
-                                onSelect: { selectedCardId = card.id })
+        VStack(alignment: .leading, spacing: 0) {
+            Text(store.paletteGroupDisplayTitle)
+                .font(.headline)
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
+            Group {
+                if cards.isEmpty {
+                    ContentUnavailableView(
+                        "No palette cards",
+                        systemImage: "paintpalette",
+                        description: Text("Gather images, swatches, and sensory notes per location, character, or motif. Add a card from the sidebar."))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView {
+                        LazyVGrid(columns: columns, spacing: 12) {
+                            ForEach(cards) { card in
+                                PaletteCardTile(
+                                    card: card,
+                                    thumbnail: thumbnails[card.id],
+                                    isSelected: selectedCardId == card.id,
+                                    onSelect: { selectedCardId = card.id })
+                            }
                         }
+                        .padding(12)
                     }
-                    .padding(12)
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .task(id: store.manifest.modified) { await reload() }

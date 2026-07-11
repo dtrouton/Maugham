@@ -15,7 +15,13 @@ struct CaptureView: View {
     @AppStorage("currentProjectId") private var currentProjectId: String = ""
 
     @State private var showPicker = false
+    @State private var showAimPicker = false
     @State private var activeSheet: CaptureKind?
+
+    /// The in-session palette aim (nil = plain inbox, the default — aiming is
+    /// never required). Persists across captures within the session so a run of
+    /// notes for one subject doesn't re-prompt; resets on project change.
+    @State private var paletteAim: PaletteAim?
 
     private enum CaptureKind: String, Identifiable {
         case text, photo, voice
@@ -45,6 +51,8 @@ struct CaptureView: View {
                     Text("Tap above to choose a project")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                } else {
+                    aimRow
                 }
 
                 VStack(spacing: 16) {
@@ -61,8 +69,17 @@ struct CaptureView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .navigationTitle("Capture")
         }
+        // Aiming targets a specific project's cards; a project switch invalidates
+        // the aim, so reset to plain inbox.
+        .onChange(of: currentProjectId) { paletteAim = nil }
         .sheet(isPresented: $showPicker) {
             ProjectPickerSheet(projectsBrowser: projectsBrowser, recents: recents)
+        }
+        .sheet(isPresented: $showAimPicker) {
+            PaletteAimPicker(
+                research: selectedProject?.manifest.research ?? [],
+                current: paletteAim,
+                onCommit: { paletteAim = $0 })
         }
         .sheet(item: $activeSheet) { kind in
             // Guard: `writer` is non-nil whenever a sheet can be opened (the
@@ -70,11 +87,11 @@ struct CaptureView: View {
             if let writer {
                 switch kind {
                 case .text:
-                    TextCaptureSheet(writer: writer, onCommit: recordCapture)
+                    TextCaptureSheet(writer: writer, aim: paletteAim, onCommit: recordCapture)
                 case .photo:
-                    PhotoCaptureSheet(writer: writer, onCommit: recordCapture)
+                    PhotoCaptureSheet(writer: writer, aim: paletteAim, onCommit: recordCapture)
                 case .voice:
-                    VoiceCaptureSheet(writer: writer, onCommit: recordCapture)
+                    VoiceCaptureSheet(writer: writer, aim: paletteAim, onCommit: recordCapture)
                 }
             }
         }
@@ -100,6 +117,38 @@ struct CaptureView: View {
             .background(Color(.secondarySystemBackground), in: Capsule())
         }
         .buttonStyle(.plain)
+    }
+
+    /// A compact row under the project pill showing the current aim ("Aim: Inbox"
+    /// by default, "Aim: <subject> · <sense>" once set), tapping to open the
+    /// `PaletteAimPicker`.
+    private var aimRow: some View {
+        Button {
+            showAimPicker = true
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "paintpalette")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Text("Aim: ").foregroundStyle(.secondary)
+                    + Text(aimLabel).foregroundStyle(.primary)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .font(.footnote)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// The aim's display text: "Inbox" for a plain (unaimed) capture, else the
+    /// subject with a trailing " · <sense>" when a sense is set.
+    private var aimLabel: String {
+        guard let aim = paletteAim else { return "Inbox" }
+        if let sense = aim.sense, !sense.isEmpty {
+            return "\(aim.subject) · \(sense)"
+        }
+        return aim.subject
     }
 
     private func actionButton(_ kind: CaptureKind, title: String, systemImage: String) -> some View {

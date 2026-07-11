@@ -45,6 +45,35 @@ enum ReadIcons {
         }
     }
 
+    /// Generic icon for a Palette section row. Kept generic ON PURPOSE: a card's
+    /// `kind` lives inside the file, not the manifest, so keying the row icon on
+    /// kind would force a per-row file parse (tripwire 4). The kind-specific icon
+    /// appears in the card detail view instead, where the file is already parsed.
+    static let paletteRowSymbol = "paintpalette"
+
+    /// Kind-specific icon for the palette CARD DETAIL (the file is parsed there).
+    /// Mirrors the Mac's palette kind vocabulary.
+    static func paletteKindSymbol(_ kind: PaletteCard.Kind) -> String {
+        switch kind {
+        case .location: return "mappin.and.ellipse"
+        case .character: return "person"
+        case .motif: return "sparkles"
+        case .other: return "square.grid.2x2"
+        }
+    }
+
+    /// Sense-group icon for the card detail. Phone-local twin of the Mac's
+    /// `PalettePane.senseSymbol` (app-target static, not reusable across modules).
+    static func senseSymbol(_ sense: PaletteCard.Sense) -> String {
+        switch sense {
+        case .sight: return "eye"
+        case .sound: return "ear"
+        case .smell: return "nose"
+        case .touch: return "hand.raised"
+        case .taste: return "mouth"
+        }
+    }
+
     /// Whether a research asset is openable in the reader: only text-like
     /// documents (`.document`/nil kind with a real path). Images, PDFs, audio
     /// and links are listed but disabled — the reader renders text, not media.

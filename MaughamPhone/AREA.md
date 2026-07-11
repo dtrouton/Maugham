@@ -36,11 +36,13 @@ xcodebuild -project Maugham.xcodeproj -scheme MaughamPhone \
   lifecycle), `ProjectsBrowser` (id→manifest), `RecentsTracker`, `PhoneDeviceID`,
   `ColdLaunchDownloader`.
 - **`Capture/`** — `InboxCaptureWriter` (text/photo/voice → `.maugham/inbox/`) +
-  the capture UI + project pill/picker.
+  the capture UI + project pill/picker + `PaletteAimPicker` (optional palette
+  aim row, see below).
 - **`Read/`** — `DocumentReaderView` (download-gated), `MarkdownBlocks` (block split
   so paragraphs/headings survive), `FountainStyler`/`FountainSemanticRenderer`,
-  `BinderRouting`. (The anchor-strip itself is shared: `MarkdownDisplayFilter` in
-  MaughamCore.)
+  `BinderRouting`, `PaletteCardView`/`PaletteLoading` (read-only palette section,
+  see below), `PhoneImageLoader` (eviction-safe image seam). (The anchor-strip
+  itself is shared: `MarkdownDisplayFilter` in MaughamCore.)
 - **`Annotations/`** — a project → chapter → notes **drill-down** (phone-v0.2.0):
   `AnnotationsStore` (`@Observable` load + grouped tree, the one source of truth) →
   `AnnotationsListView` (Projects root + Open/All toggle + single-doc skip) →
@@ -78,6 +80,15 @@ seams and the views are build-verified:
   `LaunchAuthGate` are plain `@Observable` classes with an injected `UserDefaults`
   (+ a `now: () -> Date` clock where time matters, + a `BookmarkResolving` /
   `BiometricEvaluating` seam). Copy this shape for any new store.
+
+## Palette: capture aim + read (2026-07-11)
+
+The phone can now feed and read the Mac's sensory-palette wall (`docs/superpowers/specs/2026-07-10-palette-phone-and-role-identity-design.md`), built entirely on the already-decoded manifest plus one new eviction-safe image seam — no new download infrastructure.
+
+- **Capture aim row (`Capture/PaletteAimPicker.swift`).** An optional target on any capture: a palette subject (an existing card's title, or free text naming a new one) plus an optional sense chip (`sight`/`sound`/`smell`/`touch`/`taste`, plain strings — the phone carries them raw, the Mac maps to `PaletteCard.Sense` at promote time). **Aiming is never required** — the default is exactly today's plain inbox capture. `PaletteAimPicker.cardTitles(in:)` reads card titles straight off `manifest.research` via `PaletteLookup.paletteGroup` — **no file I/O**, since titles are already in the decoded tree. The aim threads through `InboxCaptureWriter` into `InboxEntry.paletteSubject`/`sense`.
+- **Read-tab Palette section (`Read/PaletteCardView.swift`, `Read/PaletteLoading.swift`).** `BinderView` gains a `Section("Palette")` (only shown when non-empty) listing the palette group's cards plus a project-scope Craft Intent row (per-piece intent display is deferred — the drill's per-piece context isn't uniform across project types yet). `PaletteLoading` is the pure logic half: `paletteCards(in:)` mirrors the Mac's `ProjectStore.paletteCardItems()`; `excludingPalette(_:research:)` strips palette-group descendants and the craft-intent asset out of the ordinary Research section so they don't show twice (the bug this task fixed — palette cards used to flatten into Research); `groupedNotes(_:)` is the phone-local twin of the Mac's `PalettePane.groupedNotes` (can't share across the module boundary, so it's mirrored + parity-tested instead — tripwire 19 discipline: shared shape, separately-owned code). Card detail renders swatches, sense-grouped notes, freeform body, and images. Row icons stay generic (`ReadIcons.paletteRowSymbol`) because a card's `kind` lives inside the file, not the manifest — a per-row kind icon would force a per-row parse (tripwire 4); kind-specific icons only appear in card detail, where the file is already parsed.
+- **`PhoneImageLoader` (`Read/PhoneImageLoader.swift`).** The phone's first image-rendering path — the Read tab rendered zero images before this. `PhoneImageLoader.load(_:downloads:io:)` is `downloads.ensureDownloaded(url)` then `io.coordinatedRead(at:)` then `UIImage(data:)`: the same two-step iOS tripwire-6 sequence every phone read follows, just with a decode step on the end. Eviction-tolerant by contract — a thrown error or nil image means the caller shows a placeholder, never an error screen, because a card's text must render even when an image can't.
+- **Strictly read-only.** No card editing on the phone: cards are plain files, not op-logged, and concurrent phone/Mac writes through iCloud would be conflict-twin territory (tripwire 17's cousin). Phone card editing is a future op-logging bet.
 
 ## iOS tripwires / gotchas (most from the 2026-05-30 smoke; each broke something)
 

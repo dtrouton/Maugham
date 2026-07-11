@@ -70,7 +70,9 @@ struct InboxCaptureWriter {
         inlineText: String? = nil,
         transcript: String? = nil,
         transcriptionState: InboxEntry.TranscriptionState = .none,
-        title: String? = nil
+        title: String? = nil,
+        paletteSubject: String? = nil,
+        sense: String? = nil
     ) -> InboxEntry {
         let createdAt = now()
         let writtenAt = max(createdAt, createdAt.addingTimeInterval(0.001))
@@ -86,7 +88,9 @@ struct InboxCaptureWriter {
             transcriptionState: transcriptionState,
             title: title,
             status: .new,
-            resolvedAt: nil
+            resolvedAt: nil,
+            paletteSubject: paletteSubject,
+            sense: sense
         )
     }
 
@@ -94,8 +98,13 @@ struct InboxCaptureWriter {
 
     /// Text capture: inline only, no asset file. Appends one manifest row.
     @discardableResult
-    func writeText(_ text: String, title: String? = nil) async throws -> InboxEntry {
-        let entry = buildEntry(kind: .text, inlineText: text, title: title)
+    func writeText(
+        _ text: String,
+        title: String? = nil,
+        paletteSubject: String? = nil,
+        sense: String? = nil
+    ) async throws -> InboxEntry {
+        let entry = buildEntry(kind: .text, inlineText: text, title: title, paletteSubject: paletteSubject, sense: sense)
         try appendManifest(entry)
         return entry
     }
@@ -104,8 +113,14 @@ struct InboxCaptureWriter {
     /// a manifest row whose `sourceFilename` is exactly `<id>.<ext>` — the asset
     /// filename and `entry.id` share the one ULID so the Mac can locate the asset.
     @discardableResult
-    func writeImage(_ data: Data, ext: String, title: String? = nil) async throws -> InboxEntry {
-        let entry = buildEntry(kind: .image, title: title)
+    func writeImage(
+        _ data: Data,
+        ext: String,
+        title: String? = nil,
+        paletteSubject: String? = nil,
+        sense: String? = nil
+    ) async throws -> InboxEntry {
+        let entry = buildEntry(kind: .image, title: title, paletteSubject: paletteSubject, sense: sense)
         let assetName = "\(entry.id).\(ext)"
         try io.ensureDirectory(at: imagesDir)
         let assetURL = imagesDir.appendingPathComponent(assetName)
@@ -129,12 +144,20 @@ struct InboxCaptureWriter {
     /// scratch. The caller is responsible for cleaning up the temp recording
     /// after a successful (or discarded) capture.
     @discardableResult
-    func writeAudio(from tempURL: URL, transcriptDraft: String?, title: String? = nil) async throws -> InboxEntry {
+    func writeAudio(
+        from tempURL: URL,
+        transcriptDraft: String?,
+        title: String? = nil,
+        paletteSubject: String? = nil,
+        sense: String? = nil
+    ) async throws -> InboxEntry {
         let entry = buildEntry(
             kind: .audio,
             transcript: transcriptDraft,
             transcriptionState: transcriptDraft == nil ? .none : .onDeviceDraft,
-            title: title
+            title: title,
+            paletteSubject: paletteSubject,
+            sense: sense
         )
         let assetName = "\(entry.id).m4a"
         try io.ensureDirectory(at: audioDir)

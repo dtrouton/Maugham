@@ -1,5 +1,6 @@
 import XCTest
 @testable import Maugham
+import MaughamCore
 
 final class PalettePaneTests: XCTestCase {
     func test_senseSymbol_coversAllSenses() {
