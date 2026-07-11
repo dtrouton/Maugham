@@ -43,6 +43,10 @@ xcodebuild -project Maugham.xcodeproj -scheme MaughamPhone \
   `BinderRouting`, `PaletteCardView`/`PaletteLoading` (read-only palette section,
   see below), `PhoneImageLoader` (eviction-safe image seam). (The anchor-strip
   itself is shared: `MarkdownDisplayFilter` in MaughamCore.)
+  Read tab displays the on-disk clean `.md` — a contracted Tier-2 divergence from
+  ADR 0018 (registry row: cross-surface-contracts.md); annotations derive from the
+  op log, so the two can briefly disagree while iCloud syncs. This is designed
+  behavior.
 - **`Annotations/`** — a project → chapter → notes **drill-down** (phone-v0.2.0):
   `AnnotationsStore` (`@Observable` load + grouped tree, the one source of truth) →
   `AnnotationsListView` (Projects root + Open/All toggle + single-doc skip) →
@@ -60,7 +64,9 @@ xcodebuild -project Maugham.xcodeproj -scheme MaughamPhone \
   its recorded outcome and calls neither the Race-2 collapse nor `onResolved()`;
   only a note that was OPEN at load and became resolved triggers the cross-device
   race guard (`ResolvedEntryDecision`, spec §5.3). Don't collapse those two cases
-  back together. Undo/reopen is a deferred cross-surface milestone (see roadmap).
+  back together. Reopen / Reopen & Revert shipped phone-v0.5.0 (ADR 0023, schema
+  v3): rejected/archived → `annotationReopen`; accepted → full `claudeAcceptRevert`
+  with drift-confirm.
 - **`Auth/`** — `LaunchAuthGate` (opt-in Face ID).
 - `MaughamPhoneApp.swift` owns the shared stores (`ProjectsRoot`/`RecentsTracker`/
   one `DownloadCoordinator`/`ProjectsBrowser`/`LaunchAuthGate`) and runs the §3.13

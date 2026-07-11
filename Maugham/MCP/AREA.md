@@ -142,6 +142,7 @@ built `Maugham Dev.app`, surfacing the tools to Claude Code as `mcp__maugham_tes
 
 ## Hard rules
 
+- **Trust boundary: same-user only, filesystem-enforced.** The socket carries no auth of its own — anything that can connect to it can call every tool. That's an explicit assumption of ADR 0003, not an oversight: the socket file lives under `~/Library/…` with standard user-only permissions, so the only processes that can reach it are already running as the same user, who could read/write the project files directly anyway. Don't add socket-level auth on the theory that it "defends" anything — it doesn't, under this threat model.
 - **Transport is live-only Unix socket.** No stdio inside the app. The standalone `maugham-mcp` CLI is the stdio adapter for Claude Desktop. (ADR 0003)
 - **The server only runs while Maugham is running.** No background daemon, no LaunchAgent. Settings → General → "Allow Claude to connect (MCP)" toggles it; default on.
 - **Foundation scope: read tools + `add_note`.** `add_note` only writes under `research/`. **Manuscript text is never mutated via MCP** — that's the annotation layer's job (or no-op, in foundation scope). The user's framing: *"the manuscript is yours, full stop. Claude operates in a parallel annotation layer."* (ADR 0004)

@@ -60,6 +60,8 @@ Each runs the **close-before-FS-surgery** discipline INTERNALLY before any FS ca
 
 **Enforcement:** `MaughamTests/TripwireGrepTests.test_noRawMoveOfUserContentOutsideTypedMover` forbids raw `.moveItem(` / `.moveToTrash(` in the `ProjectStore+{Structure,CollectionPieces,Research,WikiLink}` seams. A sibling self-check (`…FiresOnPlantedOffender`) proves the grep catches a planted offender.
 
+**Palette writes are grep-enforced too, same shape.** `ProjectStore+Palette.swift` must route card writes through `paletteCoordinatedWrite(_:to:)`, never a raw `.write(to:)` — enforced by `TripwireGrepTests.test_noRawWriteInPaletteStore`. The funnel's own unit-test fallback (used when `documentStore == nil`) is the one allowed raw write; mark that line `// palette-coordinated-write: <reason>` so the grep can tell it apart from a reach-around.
+
 **The boundary (intentionally NOT routed):** internal, non-user-edited moves stay raw and are excluded from the grep via an explicit `// internal-move:` marker — the `promotePieceToProject` staging moves (into a temp `staging/` tree, which already closes+flushes upstream), and the no-`DocumentStore` fallback branches (load-only contexts like unit tests have no registry/scheduler, so the discipline is a provable no-op). Empty-file scaffolding (`Data().write`), `.maugham-link.json`/manifest writes, scratch tmp writes, and `executeCopy` (Duplicate) are derived/internal and out of scope. When you add a NEW mover of user-editable content, route it through one of the three entry points above — do not add a raw move with an `// internal-move:` marker unless it's genuinely one of these internal classes.
 
 ## Palette + craft-intent seams (2026-07-09)

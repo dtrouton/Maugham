@@ -32,13 +32,16 @@ launch Gatekeeper-clean (no right-click → Open). Dev builds stay ad-hoc
 entitlements file is `Maugham/Maugham.entitlements` (minimal — add WhisperKit keys
 only if a notarization dry-run proves them needed).
 
-**Auto-update is in-place.** The updater downloads the notarized `.zip`, verifies it
-(codesign + our Team ID via `UpdateInstaller.runningAppTeamID` + notarization), and
-swaps the running app via a detached helper — "Restart & Update" relaunches; dismissing
-applies the staged update on next ordinary quit (`UpdateChecker.pendingQuitInstall`).
-Falls back to revealing the `.dmg` in Finder if `/Applications` (the running app's
-location) is unwritable. The verify/stage Process work runs off the main actor. See
-`docs/superpowers/specs/2026-06-01-mac-auto-update-design.md`.
+**Auto-update is in-place — for the `.zip` path only.** The updater downloads the
+notarized `.zip`, verifies it in-app (codesign + our Team ID via
+`UpdateInstaller.runningAppTeamID` + notarization), and swaps the running app via a
+detached helper — "Restart & Update" relaunches; dismissing applies the staged
+update on next ordinary quit (`UpdateChecker.pendingQuitInstall`). If
+`/Applications` (the running app's location) is unwritable, it falls back to
+revealing the `.dmg` in Finder instead — that fallback path is **not** in-app
+verified; the `.dmg` is Gatekeeper-verified on launch, the same as any downloaded
+app, not by `UpdateInstaller`. The verify/stage Process work runs off the main
+actor. See `docs/superpowers/specs/2026-06-01-mac-auto-update-design.md`.
 
 **Release configuration — After any change to `ProjectWindow.body` (or any large SwiftUI `body`),
 run a local Release build before tagging:**

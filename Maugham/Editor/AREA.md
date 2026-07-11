@@ -54,6 +54,7 @@ Invariants:
 - **`displayText` is written exactly once per `setFullText` call.** That's what closes the binding-loop race (see harness test `test_endOfFileTyping_doesNotFireApplyExternalText`).
 - **`EditorSurface.applyExternalText` is for cloud-conflict resolution only** — not for normal typing, not for op-log re-renders. Adding a caller is a tripwire (see below).
 - **Echo guard for our own writes** lives on `Document` as `lastDiskEcho: EchoState`; the editor doesn't see it. Don't introduce parallel "last text" state in the editor layer.
+- The binding setter's side effects (`recordEditorTextWrite` → `recordWordCount`/`recordSessionActivity`) are part of the contract — pinned by `EditorBindingSideEffectsTests` (regression b37609a). Preserve them in any binding change.
 
 **If you change the shape here, every cursor race you've heard about returns.**
 
