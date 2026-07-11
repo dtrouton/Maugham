@@ -90,18 +90,20 @@ extension Document {
 
         // Re-derive from the merged log through the SAME path as
         // `Document.load` (E3c): `deriveWithSequenceFallback` + `reconcile`.
-        // Two reasons they must match — a live merge and a reload of the same
-        // ops have to produce identical state:
+        // The durable guarantee is identity with load — whatever `Document.load`
+        // would produce for these ops, the live merge produces. The old
+        // hand-rolled empty-sequence-PRESERVE branch made the two diverge.
+        // Two behaviors ride on that identity:
         //   1. `deriveWithSequenceFallback` synthesizes a sequence from
-        //      first-appearance order for a legacy sequence-less peer log,
-        //      where the bare `Deriver.derive` returns an empty sequence.
-        //      This subsumes the old empty-sequence-PRESERVE branch: that
-        //      branch existed only to keep a `.md`-recovered sequence from
-        //      being clobbered by that empty derive, and ADR 0019 replaced the
-        //      `.md`-recovery-at-load with this same fallback — so preserving is
-        //      no longer needed (the fallback never yields empty when paragraphs
-        //      are non-empty, because every manuscript paragraph also seeds the
-        //      synthesized order).
+        //      first-appearance order for a legacy sequence-less log, where the
+        //      bare `Deriver.derive` returns an empty sequence. This subsumes
+        //      the old PRESERVE branch: it existed only to stop that empty derive
+        //      from clobbering the sequence `Document.load` used to recover from
+        //      the parsed `.md`, and ADR 0019 replaced that `.md`-recovery with
+        //      this same fallback — so preserving is dead. (An explicit
+        //      `sequence: []` op — writer deleted every paragraph — still derives
+        //      to [] here exactly as in load; `reconcile` leaves paragraphs alone
+        //      when the sequence is empty, matching load.)
         //   2. `reconcile` drops orphan paragraphs (ids the merged `sequence`
         //      no longer references but the deriver's accumulator still carries).
         //      Without it a live merge left orphans the load path trims, so the

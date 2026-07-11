@@ -214,4 +214,85 @@ final class ExternalMergePendingTests: XCTestCase {
         XCTAssertFalse(inlineTasks.contains { $0.body == "item B" },
             "the orphan paragraph's inline task must not surface")
     }
+
+    /// E3(c), fallback HALF — the Tank Park mass-archive regression (23a3ac6),
+    /// now guarded through the MERGE door. `Document.load` uses
+    /// `deriveWithSequenceFallback`, which SYNTHESIZES a sequence from
+    /// first-appearance order for a legacy sequence-less log. The live-merge
+    /// path must do the same. A naive revert to the bare `Deriver.derive` in the
+    /// merge (even keeping `reconcile`) re-derives an EMPTY sequence for such a
+    /// log — which (a) wipes the synthesized order and (b) makes the sweep see
+    /// every paragraph-anchored annotation as orphaned and mass-archive it
+    /// (`synthesisSource: .paragraphDeleted`). That is exactly the cascade
+    /// 23a3ac6 fixed. `DocumentLoadSequenceRecoveryTests` only covers the LOAD
+    /// path, so without this a `fallback → derive` regression in the merge would
+    /// pass the whole suite. Proven RED against a temporary
+    /// `derive`-instead-of-`deriveWithSequenceFallback` revert (report Step 5).
+    func test_externalLogChange_legacySequenceless_synthesizesSequence_noMassArchive() async throws {
+        let (dir, docURL) = try makeTestProject(
+            prefix: "ExternalMergeLegacySeqless",
+            initialMd: "Alpha.\n\nBeta.\n")
+
+        // A LEGACY sequence-less log: a bootstrap op carrying both paragraphs'
+        // text but NO `sequence` field (predates the always-capture-sequence
+        // fix). 4-char alphabet ids (they cross the .md/op-log boundary).
+        let p1 = "a3f9", p2 = "b21c"
+        let legacyBootstrap = Op(
+            opId: ULID.generate(),
+            docId: "doc-test", at: Date(),
+            device: "legacy", session: "legacy",
+            kind: .bootstrap,
+            changes: [.init(paragraphId: p1, prior: nil, next: "Alpha."),
+                      .init(paragraphId: p2, prior: nil, next: "Beta.")],
+            sequence: nil, provenance: nil)
+        try await OpLogStore(projectURL: dir).append(legacyBootstrap)
+
+        let doc = try await Document.load(
+            url: docURL, device: "test", session: "s", presenter: nil)
+
+        // Load synthesized the order from first-appearance (the fallback).
+        XCTAssertEqual(doc.sequence, [p1, p2],
+            "load's deriveWithSequenceFallback synthesizes order for a legacy log")
+
+        // A paragraph-anchored annotation on p1. `addAnnotation` itself emits a
+        // sequence-less op, so the whole local log stays legacy sequence-less.
+        _ = try await doc.addAnnotation(
+            kind: .comment, paragraphId: p1, body: "note on Alpha")
+        XCTAssertEqual(doc.annotations().count, 1, "one open annotation on p1")
+
+        // A peer op syncs in (the foreign op that triggers the merge). It is
+        // itself sequence-less (a legacy peer), so NO op in the merged log
+        // carries an explicit sequence — the bare `derive` would return [].
+        let foreign = Op(
+            opId: ULID.generate(),
+            docId: doc.docId, at: Date(),
+            device: "peer-mac", session: "peer-session",
+            kind: .typingBurst,
+            changes: [.init(paragraphId: p1,
+                            prior: "Alpha.", next: "Alpha (peer).")],
+            sequence: nil, provenance: nil)
+        try await OpLogStore(projectURL: dir).append(foreign)
+
+        try await doc.handleExternalLogChange()
+
+        // (a) The synthesized sequence survives the merge — NOT wiped to [].
+        XCTAssertEqual(doc.sequence, [p1, p2],
+            "the merge must re-synthesize the sequence (deriveWithSequenceFallback), not wipe it to [] like the bare derive")
+        XCTAssertTrue(
+            doc.paragraphs.keys.contains(p1) && doc.paragraphs.keys.contains(p2),
+            "both paragraphs remain")
+        // The peer's edit merged in.
+        XCTAssertTrue(doc.displayText.contains("Alpha (peer)."),
+            "the peer's op must be merged in")
+
+        // (b) The paragraph-anchored annotation is NOT mass-archived.
+        XCTAssertEqual(doc.annotations().count, 1,
+            "the annotation on p1 must stay open — a wiped sequence would make the sweep archive it (Tank Park)")
+        let massArchive = doc.opLogSnapshot.filter {
+            $0.kind == .claudeArchive
+                && $0.provenance?.synthesisSource == .paragraphDeleted
+        }
+        XCTAssertTrue(massArchive.isEmpty,
+            "no claude_archive(paragraph_deleted) op may be synthesized by the merge — that is the Tank Park mass-archive cascade")
+    }
 }
