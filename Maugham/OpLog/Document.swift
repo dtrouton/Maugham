@@ -293,6 +293,20 @@ public final class Document {
     /// maintenance. Production reads `OpLogStore.segmentSealThreshold`.
     internal static var segmentSealThresholdForTesting: Int? = nil
 
+    /// Test-only artificial delay injected inside the detached task-op disk
+    /// append (`appendTaskOpInternal`). Makes the close-time drain race
+    /// deterministically reproducible: with a delay set, an undrained
+    /// `close()` returns before the append lands. Production leaves it nil.
+    internal static var _testDelayTaskAppends: Duration? = nil
+
+    /// In-flight detached task-op disk appends, keyed by a monotonic token so
+    /// each self-prunes on completion (the set stays near-empty in steady
+    /// state). `close()` drains these before husking so a prompt quit can't
+    /// drop a task op or its ⌘Z compensating op (E1). See
+    /// `appendTaskOpInternal` / `drainTaskAppends`.
+    internal var inFlightTaskAppends: [UInt64: Task<Void, Never>] = [:]
+    internal var _nextTaskAppendToken: UInt64 = 0
+
     internal init(
         url: URL, docId: String, device: String, session: String,
         presenter: NSFilePresenter?, opStore: OpLogStore,
@@ -921,6 +935,14 @@ public final class Document {
         // appWillTerminate racing onDisappear) returns immediately rather than
         // re-running the flush machinery over husked state.
         guard !isClosed else { return }
+        // Drain the detached task-op disk appends BEFORE anything else (E1).
+        // `appendTaskOpInternal` updates the in-memory mirror synchronously
+        // then disk-appends in a fire-and-forget Task; without this drain a
+        // prompt quit returns from close() before those appends land and the
+        // task op (or its ⌘Z compensating op) is silently lost on relaunch.
+        // Drained ahead of flushBurstNow, which only invalidates the tasks
+        // cache and so spawns no further task appends.
+        await drainTaskAppends()
         // Flush any pending burst so editorial classification survives the
         // close (matches EditorHost's onDocChange behaviour).
         //

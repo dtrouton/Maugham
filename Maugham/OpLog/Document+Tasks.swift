@@ -196,19 +196,44 @@ extension Document {
         // don't change annotation derivation, so skip the bump.
         let store = opStore
         let docId = self.docId
-        Task { @MainActor in
-            // LOG (can't propagate): the enclosing `appendTaskOpInternal` is a
-            // sync fire-and-forget; the Task outlives it so there's no throwing
-            // surface to bubble to. A swallowed `try?` would let a task op vanish
-            // from `.maugham/ops/` with no signal while the in-memory mirror
-            // claims success. Surface it; the mirror keeps the UI correct and a
-            // re-derive on reload reconciles, but the drop must leave a trace.
+        // Track the detached append so `close()` can drain it before husking
+        // (E1). Without the drain, a prompt quit returns from `close()` before
+        // this append lands, silently reverting the task op (and any ⌘Z
+        // compensating op) on relaunch, since reload derives from disk — which
+        // never got the op. The in-memory mirror keeps the live UI correct; the
+        // mirror-first-then-durably-appended contract is what `drainTaskAppends`
+        // makes good at close.
+        let token = _nextTaskAppendToken
+        _nextTaskAppendToken &+= 1
+        inFlightTaskAppends[token] = Task { @MainActor [weak self] in
+            if let delay = Document._testDelayTaskAppends {
+                try? await Task.sleep(for: delay)
+            }
+            // LOG (can't propagate): this detached Task outlives the sync
+            // `appendTaskOpInternal`, so there's no throwing surface to bubble
+            // to. A swallowed `try?` would let a task op vanish from
+            // `.maugham/ops/` with no signal while the in-memory mirror claims
+            // success. Surface it so the drop leaves a trace.
             do { try await store.append(op) }
             catch {
                 documentLog.error(
                     "task op append failed for doc \(docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
+            // Self-prune so the tracking set stays near-empty in steady state
+            // (touching only this dict is husk-safe).
+            self?.inFlightTaskAppends[token] = nil
         }
+    }
+
+    /// Await and clear every in-flight detached task-op disk append. Called
+    /// from `Document.close()` BEFORE the burst flush so each append is durable
+    /// once `close()` returns (E1). Idempotent — a second call finds an empty
+    /// set. `flushBurstNow` only invalidates the tasks cache (lazy rebuild), so
+    /// it spawns no new task appends after this drain.
+    internal func drainTaskAppends() async {
+        let inflight = Array(inFlightTaskAppends.values)
+        inFlightTaskAppends.removeAll()
+        for task in inflight { await task.value }
     }
 
     // MARK: - Task mutation API
