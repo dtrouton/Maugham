@@ -16,37 +16,12 @@ import XCTest
 @MainActor
 final class DocumentLoadQuarantineTests: XCTestCase {
 
-    private func makeProject(initialMd: String) throws -> (project: URL, docPath: String) {
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("DOCQUAR-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(
-            at: tmp, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(
-            at: tmp.appendingPathComponent("manuscript"),
-            withIntermediateDirectories: true)
-        let docPath = "manuscript/c1.md"
-        try initialMd.data(using: .utf8)!.write(
-            to: tmp.appendingPathComponent(docPath))
-        let manifest = ProjectManifest(
-            type: .novel, title: "T", author: "A",
-            created: Date(), modified: Date(),
-            structure: [StructureItem(
-                id: "doc-test", title: "C1", type: .document, path: docPath)],
-            research: [])
-        let enc = JSONEncoder()
-        enc.dateEncodingStrategy = .iso8601
-        try enc.encode(manifest).write(
-            to: tmp.appendingPathComponent("project.maugham.json"))
-        return (tmp, docPath)
-    }
-
     /// Plant a torn final line in the doc's per-device op-log file (no trailing
     /// newline, JSON truncated mid-object), reopen the Document, and assert:
     ///   (a) the document still loads its valid ops (manuscript intact), and
     ///   (b) a quarantine file is written under .maugham/conflicts/quarantine/.
     func test_load_tornOpLogLine_writesQuarantineRecord_andStillLoads() async throws {
-        let (project, path) = try makeProject(initialMd: "Hello.\n")
-        let docURL = project.appendingPathComponent(path)
+        let (project, docURL) = try makeTestProject(prefix: "DOCQUAR", initialMd: "Hello.\n")
 
         // First open: bootstraps anchors and creates the per-device op-log file.
         let doc1 = try await Document.load(
@@ -112,8 +87,7 @@ final class DocumentLoadQuarantineTests: XCTestCase {
 
     /// A clean op-log must NOT produce any quarantine file on load.
     func test_load_cleanOpLog_writesNoQuarantine() async throws {
-        let (project, path) = try makeProject(initialMd: "Clean.\n")
-        let docURL = project.appendingPathComponent(path)
+        let (project, docURL) = try makeTestProject(prefix: "DOCQUAR", initialMd: "Clean.\n")
 
         let doc = try await Document.load(
             url: docURL, device: "m", session: "s", presenter: nil)

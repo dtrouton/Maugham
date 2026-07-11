@@ -21,42 +21,15 @@ import MaughamCore
 @MainActor
 final class OrderingOnlyPersistenceTests: XCTestCase {
 
-    // MARK: - Fixture (mirrors CleanMdWriteTests / CrashRecoveryUsesPendingSequenceTests)
-
-    private func makeProject(initialMd: String) throws -> (URL, String) {
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("OOP-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(
-            at: tmp, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(
-            at: tmp.appendingPathComponent("manuscript"),
-            withIntermediateDirectories: true)
-        let docPath = "manuscript/c1.md"
-        try initialMd.data(using: .utf8)!.write(
-            to: tmp.appendingPathComponent(docPath))
-        let manifest = ProjectManifest(
-            type: .novel, title: "T", author: "A",
-            created: Date(), modified: Date(),
-            structure: [StructureItem(
-                id: "doc-test", title: "C1", type: .document,
-                path: docPath)],
-            research: [])
-        let enc = JSONEncoder()
-        enc.dateEncodingStrategy = .iso8601
-        try enc.encode(manifest).write(
-            to: tmp.appendingPathComponent("project.maugham.json"))
-        return (tmp, docPath)
-    }
-
     // MARK: - (a) live path: delete → close → reload stays deleted
 
     /// Deleting a paragraph (an ordering-only edit that records nothing in the
     /// pending buffer) then closing must land a sequence-only op in the log, so
     /// a reload derives the post-delete order — the paragraph does NOT resurrect.
     func test_deleteParagraph_thenCloseAndReload_staysDeleted() async throws {
-        let (project, path) = try makeProject(
+        let (project, url) = try makeTestProject(
+            prefix: "OOP",
             initialMd: "Alpha.\n\nBravo.\n\nCharlie.")
-        let url = project.appendingPathComponent(path)
 
         let docId: String
         let ids: [String]
@@ -100,9 +73,9 @@ final class OrderingOnlyPersistenceTests: XCTestCase {
     /// its sequence (differs from the op-log-derived order) and append exactly
     /// one recovery op.
     func test_deleteParagraph_crashBeforeBurst_recoversFromPendingSequence() async throws {
-        let (project, path) = try makeProject(
+        let (project, url) = try makeTestProject(
+            prefix: "OOP",
             initialMd: "Alpha.\n\nBravo.\n\nCharlie.")
-        let url = project.appendingPathComponent(path)
 
         // Session 1: establish a bootstrapped op log with all three paragraphs.
         let docId: String
@@ -155,8 +128,7 @@ final class OrderingOnlyPersistenceTests: XCTestCase {
     /// carries `{sequence, changes: []}` whose sequence EQUALS the derived order.
     /// A reload must NOT append a junk recovery op.
     func test_cleanQuit_pendingSequenceMatchesDerived_noJunkRecoveryOp() async throws {
-        let (project, path) = try makeProject(initialMd: "Alpha.\n\nBravo.")
-        let url = project.appendingPathComponent(path)
+        let (project, url) = try makeTestProject(prefix: "OOP", initialMd: "Alpha.\n\nBravo.")
 
         let docId: String
         do {
@@ -190,8 +162,7 @@ final class OrderingOnlyPersistenceTests: XCTestCase {
     /// `{changes: [], sequence}` op whose newest-ULID sequence could revert a
     /// peer's not-yet-synced delete.
     func test_openThenCloseZeroEdits_appendsNoOp() async throws {
-        let (project, path) = try makeProject(initialMd: "Alpha.\n\nBravo.")
-        let url = project.appendingPathComponent(path)
+        let (project, url) = try makeTestProject(prefix: "OOP", initialMd: "Alpha.\n\nBravo.")
 
         let docId: String
         let afterBootstrap: Int
@@ -212,8 +183,7 @@ final class OrderingOnlyPersistenceTests: XCTestCase {
     /// The MCP read-annotation shape: a transient load → (read-only body) → close
     /// against an already-bootstrapped doc must append nothing.
     func test_transientReadOnlyReload_appendsNothing() async throws {
-        let (project, path) = try makeProject(initialMd: "Alpha.\n\nBravo.")
-        let url = project.appendingPathComponent(path)
+        let (project, url) = try makeTestProject(prefix: "OOP", initialMd: "Alpha.\n\nBravo.")
 
         let docId: String
         do {

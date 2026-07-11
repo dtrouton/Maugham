@@ -15,33 +15,8 @@ final class CleanMdWriteTests: XCTestCase {
 
     // MARK: - Fixture (mirrors DocumentTests / DocumentTasksTests)
 
-    private func makeProject(initialMd: String = "Hello.") throws -> (URL, String) {
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CLEANMD-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(
-            at: tmp, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(
-            at: tmp.appendingPathComponent("manuscript"),
-            withIntermediateDirectories: true)
-        let docPath = "manuscript/c1.md"
-        try initialMd.data(using: .utf8)!.write(
-            to: tmp.appendingPathComponent(docPath))
-        let manifest = ProjectManifest(
-            type: .novel, title: "T", author: "A",
-            created: Date(), modified: Date(),
-            structure: [StructureItem(
-                id: "doc-test", title: "C1", type: .document,
-                path: docPath)],
-            research: [])
-        let enc = JSONEncoder()
-        enc.dateEncodingStrategy = .iso8601
-        try enc.encode(manifest).write(
-            to: tmp.appendingPathComponent("project.maugham.json"))
-        return (tmp, docPath)
-    }
-
-    private func diskBytes(_ project: URL, _ path: String) throws -> String {
-        try String(contentsOf: project.appendingPathComponent(path), encoding: .utf8)
+    private func diskBytes(_ docURL: URL) throws -> String {
+        try String(contentsOf: docURL, encoding: .utf8)
     }
 
     // MARK: - Test 1 — clean file round-trips through a reload
@@ -50,10 +25,11 @@ final class CleanMdWriteTests: XCTestCase {
     /// `.md` (no `¶`/`t-` anchors), yet reloading restores identical content +
     /// ordering — because the op log, not the `.md`, carries the anchored truth.
     func test_autosave_writesCleanFile_roundTrips() async throws {
-        let (project, path) = try makeProject(
+        let (project, docURL) = try makeTestProject(
+            prefix: "CLEANMD",
             initialMd: "First paragraph.\n\n- [ ] do it\n\nThird paragraph.")
         let doc = try await Document.load(
-            url: project.appendingPathComponent(path),
+            url: docURL,
             device: "m", session: "s", presenter: nil)
 
         // Reading tasks mints the inline `<!--t-…-->` anchor into the task
@@ -72,7 +48,7 @@ final class CleanMdWriteTests: XCTestCase {
         await doc.close()
 
         // The ON-DISK file is clean: neither anchor kind survives to disk.
-        let disk = try diskBytes(project, path)
+        let disk = try diskBytes(docURL)
         XCTAssertFalse(disk.contains("<!-- ¶"),
             "ADR 0019: the on-disk .md must not carry paragraph anchors; got:\n\(disk)")
         XCTAssertFalse(disk.contains("<!--t-"),
@@ -85,7 +61,7 @@ final class CleanMdWriteTests: XCTestCase {
         // Reload: content + paragraph ORDER must match, and the op log must
         // restore the anchors in-memory (materialize() carries them again).
         let reopened = try await Document.load(
-            url: project.appendingPathComponent(path),
+            url: docURL,
             device: "m", session: "s", presenter: nil)
         let afterIds = ParagraphParser.parse(reopened.materialize()).compactMap(\.id)
         XCTAssertEqual(afterIds, beforeIds,
@@ -107,9 +83,9 @@ final class CleanMdWriteTests: XCTestCase {
     /// that proves the op log specifically *persists* the anchor — here the
     /// checkbox text alone could re-mint it, which is also a valid outcome.)
     func test_inlineTask_roundTrips_throughCleanFile() async throws {
-        let (project, path) = try makeProject(initialMd: "Hello.")
+        let (project, docURL) = try makeTestProject(prefix: "CLEANMD", initialMd: "Hello.")
         let doc = try await Document.load(
-            url: project.appendingPathComponent(path),
+            url: docURL,
             device: "m", session: "s", presenter: nil)
 
         // Turn the first paragraph into an inline checkbox, then derive (mints
@@ -131,7 +107,7 @@ final class CleanMdWriteTests: XCTestCase {
         await doc.close()
 
         // The on-disk file lacks the inline-task anchor (clean display form).
-        let disk = try diskBytes(project, path)
+        let disk = try diskBytes(docURL)
         XCTAssertFalse(disk.contains("<!--t-"),
             "the inline-task anchor must not survive to disk; got:\n\(disk)")
         XCTAssertTrue(disk.contains("- [ ] do it"),
@@ -139,7 +115,7 @@ final class CleanMdWriteTests: XCTestCase {
 
         // Reload: the op log kept the anchor, so the inline task still derives.
         let reopened = try await Document.load(
-            url: project.appendingPathComponent(path),
+            url: docURL,
             device: "m", session: "s", presenter: nil)
         let reopenedTasks = reopened.tasks(filter: .init(
             scope: .document(docId: reopened.docId),
@@ -158,9 +134,9 @@ final class CleanMdWriteTests: XCTestCase {
     /// forensic copy of the discarded bytes lands under `.maugham/conflicts/`.
     /// Proves invariant A holds with clean bytes (ADR 0019).
     func test_externalCleanEdit_isDiscarded_opLogUnchanged() async throws {
-        let (project, path) = try makeProject(initialMd: "Canonical sentence.\n")
+        let (project, docURL) = try makeTestProject(prefix: "CLEANMD", initialMd: "Canonical sentence.\n")
         let doc = try await Document.load(
-            url: project.appendingPathComponent(path),
+            url: docURL,
             device: "m", session: "s", presenter: nil)
         // Write the clean .md to disk while keeping the doc LIVE. (This used to
         // call `close()`, but close() now husks the instance — abandoned by
@@ -176,7 +152,7 @@ final class CleanMdWriteTests: XCTestCase {
         // (no anchors — exactly what ADR 0019 leaves on disk).
         let external = "Completely different external text.\n"
         try external.data(using: .utf8)!.write(
-            to: project.appendingPathComponent(path))
+            to: docURL)
 
         // A single external-change call discards the edit: backs up the bytes,
         // then re-materializes the op-log truth over them (its own autosave
@@ -194,7 +170,7 @@ final class CleanMdWriteTests: XCTestCase {
 
         // The on-disk file is ALREADY re-materialized to the op-log truth — the
         // discard handler wrote it, no extra autosave required.
-        let disk = try diskBytes(project, path)
+        let disk = try diskBytes(docURL)
         XCTAssertTrue(disk.contains("Canonical sentence."),
             "the discard handler must re-materialize the op-log truth back over the external edit")
         XCTAssertFalse(disk.contains("Completely different external text"),

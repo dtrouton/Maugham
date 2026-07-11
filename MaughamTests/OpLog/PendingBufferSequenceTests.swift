@@ -68,29 +68,9 @@ final class PendingBufferSequenceTests: XCTestCase {
 /// the pending order.
 @MainActor
 final class CrashRecoveryUsesPendingSequenceTests: XCTestCase {
-    private func makeProject(initialMd: String) throws -> (URL, String) {
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CRPS-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(
-            at: tmp.appendingPathComponent("manuscript"), withIntermediateDirectories: true)
-        let docPath = "manuscript/c1.md"
-        try initialMd.data(using: .utf8)!.write(to: tmp.appendingPathComponent(docPath))
-        let manifest = ProjectManifest(
-            type: .novel, title: "T", author: "A",
-            created: Date(), modified: Date(),
-            structure: [StructureItem(
-                id: "doc-test", title: "C1", type: .document, path: docPath)],
-            research: [])
-        let enc = JSONEncoder(); enc.dateEncodingStrategy = .iso8601
-        try enc.encode(manifest).write(to: tmp.appendingPathComponent("project.maugham.json"))
-        return (tmp, docPath)
-    }
-
     func test_recovery_usesPendingSequence_notMdAnchorOrder() async throws {
         let device = "m"
-        let (project, path) = try makeProject(initialMd: "Alpha.\n\nBravo.\n")
-        let url = project.appendingPathComponent(path)
+        let (project, url) = try makeTestProject(prefix: "CRPS", initialMd: "Alpha.\n\nBravo.\n")
 
         // Session 1: open (mints anchors), establish a bursted op-log sequence,
         // and close. `mdOrder` is the in-memory op-log order (doc.sequence),

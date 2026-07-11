@@ -16,40 +16,15 @@ import XCTest
 @MainActor
 final class DocumentCloseFlushTests: XCTestCase {
 
-    private func makeProject(initialMd: String = "") throws -> (URL, String) {
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("DOCCLOSE-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(
-            at: tmp, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(
-            at: tmp.appendingPathComponent("manuscript"),
-            withIntermediateDirectories: true)
-        let docPath = "manuscript/c1.md"
-        try initialMd.data(using: .utf8)!.write(
-            to: tmp.appendingPathComponent(docPath))
-        let manifest = ProjectManifest(
-            type: .novel, title: "T", author: "A",
-            created: Date(), modified: Date(),
-            structure: [StructureItem(
-                id: "doc-test", title: "C1", type: .document,
-                path: docPath)],
-            research: [])
-        let enc = JSONEncoder()
-        enc.dateEncodingStrategy = .iso8601
-        try enc.encode(manifest).write(
-            to: tmp.appendingPathComponent("project.maugham.json"))
-        return (tmp, docPath)
-    }
-
     private struct InjectedDiskError: Error {}
 
     /// The core regression: a failing burst-append on `close()` must persist
     /// the pending changes durably (to the `.pending.jsonl` recovery file)
     /// rather than silently dropping them.
     func test_close_failingBurstAppend_persistsPendingForRecovery() async throws {
-        let (project, path) = try makeProject(initialMd: "Hello.\n")
+        let (project, docURL) = try makeTestProject(prefix: "DOCCLOSE", initialMd: "Hello.\n")
         let doc = try await Document.load(
-            url: project.appendingPathComponent(path),
+            url: docURL,
             device: "m", session: "s", presenter: nil)
 
         // Type the burst we most want to survive.
@@ -92,8 +67,7 @@ final class DocumentCloseFlushTests: XCTestCase {
     /// Reopening the project after the failed-close recovers the burst into the
     /// op log via the normal crash-recovery path — proving end-to-end durability.
     func test_close_failingBurstAppend_isRecoveredOnReload() async throws {
-        let (project, path) = try makeProject(initialMd: "Hello.\n")
-        let url = project.appendingPathComponent(path)
+        let (project, url) = try makeTestProject(prefix: "DOCCLOSE", initialMd: "Hello.\n")
 
         do {
             let doc = try await Document.load(
