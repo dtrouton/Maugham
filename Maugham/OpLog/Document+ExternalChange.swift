@@ -49,6 +49,20 @@ extension Document {
         // callback can't re-derive state from disk and RESURRECT the husk
         // (rebuilding paragraphs/sequence into a doc no reader observes).
         guard !isClosed else { return }
+        // Flush any un-bursted typing BEFORE the merge (E3a). This re-derives
+        // purely from the on-disk ops, so a pending buffer that hasn't reached a
+        // burst boundary would otherwise be silently discarded the instant a
+        // peer op syncs in mid-draft (a second Mac, a phone Accept) — losing up
+        // to a burst window of live keystrokes and autosaving the wrong text.
+        // Flushing turns those edits into real ops so they participate in the
+        // opId-ordered merge like any peer's. Reuses the tested flush path (the
+        // same one `close()` runs) rather than inventing a fold. The flushed op
+        // lands in `_opLogMirror` here, BEFORE `opStore.load` below, so the
+        // `newOps` echo-filter still sees only the foreign op — our own op is
+        // never re-processed as foreign.
+        if !pending.isEmpty() {
+            try await flushBurstNow()
+        }
         // Reload the log file (OpLogStore.load dedupes by op_id and sorts).
         let ops = try await opStore.load(docId: docId)
 

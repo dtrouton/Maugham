@@ -1,0 +1,85 @@
+import XCTest
+import MaughamCore
+@testable import Maugham
+
+/// Task 5 — E3(a): a peer op-log sync arriving mid-draft must NOT discard the
+/// writer's un-bursted typing.
+///
+/// `Document.handleExternalLogChange` re-derives manuscript state purely from
+/// the on-disk ops. Before this fix it never consulted the pending buffer, so a
+/// peer op syncing in mid-burst (a second Mac, a phone Accept) silently threw
+/// away up to a burst window of live keystrokes — and autosaved the wrong text
+/// (recoverable only on reload).
+///
+/// The fix flushes the pending burst FIRST (the existing, tested `flushBurstNow`
+/// path): the local edits become real ops and participate in the opId-ordered
+/// merge like any peer's.
+@MainActor
+final class ExternalMergePendingTests: XCTestCase {
+
+    func test_externalLogChange_foldsUnburstedTyping_whileMergingPeerOp() async throws {
+        let (dir, docURL) = try makeTestProject(
+            prefix: "ExternalMergePending",
+            initialMd: "Alpha original.\n\nBeta original.\n")
+        let doc = try await Document.load(
+            url: docURL, device: "test", session: "s", presenter: nil)
+
+        let pids = doc.sequence
+        XCTAssertEqual(pids.count, 2, "fixture seeds two paragraphs")
+        let p2 = pids[1]
+
+        // Live typing: edit the FIRST paragraph in place. `setFullText` records
+        // the change in the pending buffer and schedules a burst, but does NOT
+        // append an op yet — the edit is un-bursted.
+        doc.setFullText("Alpha EDITED.\n\nBeta original.\n")
+        XCTAssertFalse(
+            doc.pending.isEmpty(),
+            "precondition: the local edit is un-bursted (still in the pending buffer)")
+
+        // A peer (second Mac) edits the SECOND paragraph; its op syncs to disk
+        // under a DIFFERENT device slug (mirrors the cross-device foreign-op
+        // idiom — the write target is derived from `op.device`).
+        let foreign = Op(
+            opId: ULID.generate(),
+            docId: doc.docId, at: Date(),
+            device: "peer-mac", session: "peer-session",
+            kind: .typingBurst,
+            changes: [.init(paragraphId: p2,
+                            prior: "Beta original.",
+                            next: "Beta FROMPEER.")],
+            sequence: nil, provenance: nil)
+        try await OpLogStore(projectURL: dir).append(foreign)
+
+        // The NSFilePresenter callback fires: a foreign op has landed on disk.
+        try await doc.handleExternalLogChange()
+
+        // BOTH survive the merge: the un-bursted local edit AND the peer's edit.
+        XCTAssertTrue(
+            doc.displayText.contains("Alpha EDITED."),
+            "the un-bursted local edit must survive the merge (E3a)")
+        XCTAssertTrue(
+            doc.displayText.contains("Beta FROMPEER."),
+            "the peer's op must be merged in")
+
+        // Echo-guard reasoning (brief Step 2): the flush appended our local burst
+        // to `_opLogMirror` BEFORE `opStore.load`, so the `newOps` filter (which
+        // subtracts `_opLogMirror`'s opIds from the reloaded set) saw ONLY the
+        // foreign op — our own just-flushed op is never re-processed as foreign
+        // (which would risk a spurious sweep). Observable consequences:
+        //   1. the pending buffer was cleared (the edit is now a real op), and
+        //   2. both the local burst and the foreign op are in the merged mirror.
+        XCTAssertTrue(
+            doc.pending.isEmpty(),
+            "flushBurstNow turned the pending edit into a real op and cleared pending")
+        let mirrorHasLocalBurst = doc._opLogMirror.contains { op in
+            op.device == "test" && op.kind == .typingBurst
+                && op.changes.contains { $0.next == "Alpha EDITED." }
+        }
+        XCTAssertTrue(
+            mirrorHasLocalBurst,
+            "the local edit was flushed into the op log and merged into the mirror")
+        let mirrorHasForeign = doc._opLogMirror.contains { $0.opId == foreign.opId }
+        XCTAssertTrue(
+            mirrorHasForeign, "the foreign op merged into the mirror")
+    }
+}
