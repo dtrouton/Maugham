@@ -193,6 +193,46 @@ final class SchemaEvolutionToleranceTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(Checkpoint.LabelSource.self, from: Data(#""ai_suggested""#.utf8)), .auto)
     }
 
+    // MARK: - InboxEntry palette aim fields: additive, legacy-tolerant
+
+    func testLegacyInboxEntryLineWithoutPaletteFieldsDecodesToNils() throws {
+        // A row written before palette_subject/sense existed.
+        let json = Data("""
+        {"id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","created_at":"2026-01-01T00:00:00.000Z","device_id":"phone:ABC","kind":"text","inline_text":"hi","transcription_state":"none","status":"new"}
+        """.utf8)
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = JSONLAppendStore<InboxEntry>.dateDecoding
+        let entry = try dec.decode(InboxEntry.self, from: json)
+        XCTAssertNil(entry.paletteSubject)
+        XCTAssertNil(entry.sense)
+    }
+
+    @MainActor
+    func testStampedInboxEntryPaletteFieldsRoundTripThroughJSONLAppendStore() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("inbox-palette-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fileURL = root.appendingPathComponent("inbox.test.jsonl")
+        let store = JSONLAppendStore<InboxEntry>(fileURL: fileURL)
+
+        let entry = InboxEntry(
+            id: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+            deviceId: "phone:ABC",
+            kind: .text,
+            inlineText: "smells like rain",
+            paletteSubject: "The Flat",
+            sense: "smell"
+        )
+        try await store.append(entry)
+
+        let loaded = try await store.load()
+        XCTAssertEqual(loaded.count, 1)
+        let decoded = try XCTUnwrap(loaded.first)
+        XCTAssertEqual(decoded.paletteSubject, "The Flat")
+        XCTAssertEqual(decoded.sense, "smell")
+    }
+
     // MARK: - Lossy `.unknown` re-encode is a DOCUMENTED choice (audit N4)
     //
     // The three tolerant enums with a literal `.unknown` case re-encode it as the

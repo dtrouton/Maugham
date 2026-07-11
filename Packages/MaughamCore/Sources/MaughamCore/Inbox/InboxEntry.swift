@@ -88,6 +88,14 @@ public struct InboxEntry: Codable, Equatable, Sendable, Identifiable {
     /// Optional so older readers and the phone (which never writes it) decode
     /// it as nil — tripwire 19.
     public var transcriptionError: String?
+    /// Palette aim: which palette-group subject (e.g. "The Flat") the capturer
+    /// pointed this entry at. nil unless the capturer aimed it — tripwire 19
+    /// (phone writer optional param, Mac promote reads it if present).
+    public var paletteSubject: String?
+    /// Palette aim: which sense (e.g. "smell") the capturer tagged this
+    /// entry with. nil unless the capturer aimed it. Free-form string, not a
+    /// `Sense` enum, so an older Core doesn't need to know the sense list.
+    public var sense: String?
 
     public init(
         id: String,
@@ -102,7 +110,9 @@ public struct InboxEntry: Codable, Equatable, Sendable, Identifiable {
         title: String? = nil,
         status: Status = .new,
         resolvedAt: Date? = nil,
-        transcriptionError: String? = nil
+        transcriptionError: String? = nil,
+        paletteSubject: String? = nil,
+        sense: String? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -117,6 +127,8 @@ public struct InboxEntry: Codable, Equatable, Sendable, Identifiable {
         self.status = status
         self.resolvedAt = resolvedAt
         self.transcriptionError = transcriptionError
+        self.paletteSubject = paletteSubject
+        self.sense = sense
     }
 
     enum CodingKeys: String, CodingKey {
@@ -133,5 +145,7 @@ public struct InboxEntry: Codable, Equatable, Sendable, Identifiable {
         case status
         case resolvedAt = "resolved_at"
         case transcriptionError = "transcription_error"
+        case paletteSubject = "palette_subject"
+        case sense
     }
 }

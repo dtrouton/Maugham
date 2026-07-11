@@ -101,6 +101,30 @@ final class InboxCaptureWriterTests: XCTestCase {
         XCTAssertEqual(writtenAt.timeIntervalSince(fixed), 0.001, accuracy: 0.0001)
     }
 
+    func test_writeText_withPaletteAim_roundTripsThroughMacReader() async throws {
+        let written = try await makeWriter().writeText(
+            "damp plaster and old smoke",
+            title: "A note",
+            paletteSubject: "The Flat",
+            sense: "smell")
+
+        let entries = try await loadEntries()
+        let e = try XCTUnwrap(entries.first)
+        XCTAssertEqual(e.id, written.id)
+        XCTAssertEqual(e.paletteSubject, "The Flat")
+        XCTAssertEqual(e.sense, "smell")
+    }
+
+    func test_writeText_withoutPaletteAim_roundTripsWithNils() async throws {
+        let written = try await makeWriter().writeText("no aim here")
+
+        let entries = try await loadEntries()
+        let e = try XCTUnwrap(entries.first)
+        XCTAssertEqual(e.id, written.id)
+        XCTAssertNil(e.paletteSubject)
+        XCTAssertNil(e.sense)
+    }
+
     func test_multipleCaptures_appendToSamePerDeviceFile() async throws {
         let writer = makeWriter()
         let a = try await writer.writeText("one")
