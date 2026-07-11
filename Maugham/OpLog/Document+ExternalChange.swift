@@ -88,23 +88,29 @@ extension Document {
             return
         }
 
-        // Re-derive from the merged log, but PRESERVE the recovered sequence
-        // when the new derivation produces an empty one. The recovery code
-        // in Document.load seeded sequence from the parsed .md file for the
-        // legacy case where typing_burst ops didn't capture sequence; that
-        // recovery happens once at load and would be lost on every external
-        // change otherwise.
-        let state = Deriver.derive(ops: ops)
+        // Re-derive from the merged log through the SAME path as
+        // `Document.load` (E3c): `deriveWithSequenceFallback` + `reconcile`.
+        // Two reasons they must match — a live merge and a reload of the same
+        // ops have to produce identical state:
+        //   1. `deriveWithSequenceFallback` synthesizes a sequence from
+        //      first-appearance order for a legacy sequence-less peer log,
+        //      where the bare `Deriver.derive` returns an empty sequence.
+        //      This subsumes the old empty-sequence-PRESERVE branch: that
+        //      branch existed only to keep a `.md`-recovered sequence from
+        //      being clobbered by that empty derive, and ADR 0019 replaced the
+        //      `.md`-recovery-at-load with this same fallback — so preserving is
+        //      no longer needed (the fallback never yields empty when paragraphs
+        //      are non-empty, because every manuscript paragraph also seeds the
+        //      synthesized order).
+        //   2. `reconcile` drops orphan paragraphs (ids the merged `sequence`
+        //      no longer references but the deriver's accumulator still carries).
+        //      Without it a live merge left orphans the load path trims, so the
+        //      inline-task deriver surfaced phantom task rows until reopen.
+        let state = Document.reconcile(
+            derived: Deriver.deriveWithSequenceFallback(ops: ops))
         let priorSequence = self.sequence
         self.paragraphs = state.paragraphs
-        if state.sequence.isEmpty && !state.paragraphs.isEmpty
-           && !self.sequence.isEmpty {
-            // Keep the previously-recovered sequence. The new ops added
-            // paragraphs that aren't in `self.sequence` will appear at the
-            // tail (handled by mutation paths going forward).
-        } else {
-            self.sequence = state.sequence
-        }
+        self.sequence = state.sequence
         // External op-log changes (cross-Mac sync) can shrink sequence —
         // flag a sweep so any annotations on now-removed paragraphs get
         // auto-archived on the next burst.

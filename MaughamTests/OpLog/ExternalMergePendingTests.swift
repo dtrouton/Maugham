@@ -139,4 +139,79 @@ final class ExternalMergePendingTests: XCTestCase {
             mirrorHasReorderBurst,
             "the reorder was flushed as an ordering-only burst into the merged mirror")
     }
+
+    /// E3(c): the live-merge path must derive+reconcile exactly like
+    /// `Document.load`. Before the fix, `handleExternalLogChange` used a bare
+    /// `Deriver.derive(ops:)` and skipped `Document.reconcile`, so an orphan
+    /// paragraph (an id the merged `sequence` no longer references but the
+    /// deriver's accumulator still carries) survived a live merge. The
+    /// inline-task deriver walks every `paragraphs` entry, not just `sequence`,
+    /// so the orphan surfaced a PHANTOM task row that only disappeared on
+    /// reopen (where load's orphan-drop runs).
+    ///
+    /// Deterministic construction (no ULID race): the writer makes a live text
+    /// edit, so `pending` is genuinely dirty and the merge's flush-first step
+    /// (Task 5) is guaranteed to fire, appending an ordering burst generated
+    /// LAST — the newest sequence-bearing op. Its sequence is `[p1]` (the local
+    /// order). A peer then syncs in a brand-new paragraph `p2`. Because the
+    /// local flush's `[p1]` wins the merged order (newest), the peer's `p2`
+    /// lands in the deriver's `paragraphs` accumulator but NOT in `sequence` —
+    /// an orphan. `Document.load` would trim it (`reconcile`); the live-merge
+    /// path did not, so the orphan surfaced a phantom task row until reopen.
+    func test_externalLogChange_dropsOrphanParagraph_matchingLoad() async throws {
+        let (dir, docURL) = try makeTestProject(
+            prefix: "ExternalMergeOrphan",
+            initialMd: "- [ ] item A\n")
+        let doc = try await Document.load(
+            url: docURL, device: "test", session: "s", presenter: nil)
+
+        XCTAssertEqual(doc.sequence.count, 1, "fixture seeds one paragraph")
+        let p1 = doc.sequence[0]
+
+        // Live text edit: a genuine pending change so the merge's flush-first
+        // step fires deterministically and re-asserts the local sequence `[p1]`.
+        doc.setFullText("- [ ] item A local\n")
+        XCTAssertFalse(doc.pending.isEmpty(),
+            "precondition: the local edit is un-bursted (pending is dirty)")
+        XCTAssertEqual(doc.sequence, [p1], "the edit stays within the one paragraph")
+
+        // A peer (second Mac) ADDS a new paragraph and syncs its op to disk
+        // under a different device slug. Its `sequence` includes the new
+        // paragraph, but the local flush (generated later, at merge time) is the
+        // newest sequence-bearing op, so `[p1]` wins — the peer's `p2` becomes
+        // an orphan (present in `paragraphs`, absent from the merged `sequence`).
+        let p2 = ParagraphID.mint()
+        let foreign = Op(
+            opId: ULID.generate(),
+            docId: doc.docId, at: Date(),
+            device: "peer-mac", session: "peer-session",
+            kind: .typingBurst,
+            changes: [.init(paragraphId: p2,
+                            prior: nil,
+                            next: "- [ ] item B")],
+            sequence: [p1, p2], provenance: nil)
+        try await OpLogStore(projectURL: dir).append(foreign)
+
+        try await doc.handleExternalLogChange()
+
+        // The local ordering flush wins: sequence is just p1.
+        XCTAssertEqual(doc.sequence, [p1],
+            "the local flush is the newest sequence-bearing op")
+        // Orphan trim: the peer's `p2` was accumulated into `paragraphs` but is
+        // absent from `sequence` — it must be dropped, exactly as
+        // `Document.load`'s reconcile does. Today it survives (no reconcile).
+        XCTAssertFalse(
+            doc.paragraphs.keys.contains(p2),
+            "the orphan peer paragraph must be trimmed from `paragraphs` on a live merge (E3c) — today it survives because the merge skips reconcile")
+        // Observable symptom: the inline-task deriver walks `paragraphs`, so an
+        // un-trimmed orphan surfaces a phantom second task ("item B").
+        let inlineTasks = doc.tasks(filter: TaskFilter(
+            scope: .document(docId: doc.docId),
+            statuses: Set(TaskStatus.allCases)))
+            .filter { $0.kind == .inlineMarkdown }
+        XCTAssertEqual(inlineTasks.count, 1,
+            "exactly one inline task after the merge; a phantom 2nd ('item B') indicates the orphan paragraph survived (no reconcile)")
+        XCTAssertFalse(inlineTasks.contains { $0.body == "item B" },
+            "the orphan paragraph's inline task must not surface")
+    }
 }
