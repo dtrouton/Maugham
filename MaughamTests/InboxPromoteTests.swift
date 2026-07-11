@@ -188,4 +188,144 @@ final class InboxPromoteTests: XCTestCase {
                       "failed promote must leave the entry in the inbox")
         withExtendedLifetime(ds) {}
     }
+
+    // MARK: - Promote into a palette card (Task 7)
+
+    /// Seed an inbox image asset under `.maugham/inbox/images/`.
+    private func seedImageAsset(_ url: URL, name: String) throws -> URL {
+        let dir = url.appendingPathComponent(".maugham/inbox/images")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let asset = dir.appendingPathComponent(name)
+        try Data("fake-image".utf8).write(to: asset)
+        return asset
+    }
+
+    func test_promoteText_toPaletteCard_appendsTaggedNote_andHidesEntry() async throws {
+        let (url, store, inbox, ds) = try await openProject()
+        let card = try await store.addPaletteCard(title: "The Flat", kind: .location)
+        try await seed(url, [InboxEntry(
+            id: "pt1", createdAt: Date(timeIntervalSince1970: 100),
+            deviceId: "phone", kind: .text, inlineText: "turpentine and cold ash",
+            paletteSubject: "The Flat", sense: "smell")])
+        await inbox.refresh()
+        let entry = try XCTUnwrap(inbox.entries.first { $0.id == "pt1" })
+
+        let result = try await inbox.promoteToPaletteCard(
+            entry, projectStore: store, cardId: card.id)
+
+        let note = try XCTUnwrap(result.notes.last)
+        XCTAssertEqual(note.sense, .smell)
+        XCTAssertEqual(note.text, "turpentine and cold ash")
+        // Persisted, not just returned.
+        let reloaded = try XCTUnwrap(
+            store.loadPaletteCards().first { $0.researchItemId == card.id })
+        XCTAssertEqual(reloaded.notes.last?.sense, .smell)
+        XCTAssertEqual(reloaded.notes.last?.text, "turpentine and cold ash")
+        XCTAssertFalse(inbox.entries.contains { $0.id == "pt1" })
+        withExtendedLifetime(ds) {}
+    }
+
+    func test_promoteText_toPaletteCard_noSense_appendsUntaggedNote() async throws {
+        let (url, store, inbox, ds) = try await openProject()
+        let card = try await store.addPaletteCard(title: "The Flat", kind: .location)
+        try await seed(url, [InboxEntry(
+            id: "pt2", createdAt: Date(timeIntervalSince1970: 100),
+            deviceId: "phone", kind: .text, inlineText: "just a plain observation",
+            paletteSubject: "The Flat")])
+        await inbox.refresh()
+        let entry = try XCTUnwrap(inbox.entries.first { $0.id == "pt2" })
+
+        let result = try await inbox.promoteToPaletteCard(
+            entry, projectStore: store, cardId: card.id)
+
+        XCTAssertNil(result.notes.last?.sense, "no/absent sense → untagged")
+        XCTAssertEqual(result.notes.last?.text, "just a plain observation")
+        withExtendedLifetime(ds) {}
+    }
+
+    func test_promoteImage_toPaletteCard_landsInAssets_removesInboxOriginal() async throws {
+        let (url, store, inbox, ds) = try await openProject()
+        let card = try await store.addPaletteCard(title: "Marlowe", kind: .character)
+        let asset = try seedImageAsset(url, name: "img1.png")
+        try await seed(url, [InboxEntry(
+            id: "pi1", createdAt: Date(timeIntervalSince1970: 100),
+            deviceId: "phone", kind: .image, sourceFilename: "img1.png",
+            paletteSubject: "Marlowe")])
+        await inbox.refresh()
+        let entry = try XCTUnwrap(inbox.entries.first { $0.id == "pi1" })
+
+        let result = try await inbox.promoteToPaletteCard(
+            entry, projectStore: store, cardId: card.id)
+
+        let addedPath = try XCTUnwrap(result.imagePaths.last)
+        XCTAssertTrue(addedPath.contains("_assets/"), "got: \(addedPath)")
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: url.appendingPathComponent(addedPath).path),
+            "image copied into the card's asset well")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: asset.path),
+                       "inbox original removed to complete the move")
+        XCTAssertFalse(inbox.entries.contains { $0.id == "pi1" })
+        withExtendedLifetime(ds) {}
+    }
+
+    func test_promoteAudio_toPaletteCard_withTranscript_appendsNote() async throws {
+        let (url, store, inbox, ds) = try await openProject()
+        let card = try await store.addPaletteCard(title: "The Flat", kind: .location)
+        try await seed(url, [InboxEntry(
+            id: "pa1", createdAt: Date(timeIntervalSince1970: 100),
+            deviceId: "phone", kind: .audio, sourceFilename: "pa1.m4a",
+            transcript: "tram-rattle through the shutters",
+            transcriptionState: .whisperFinal,
+            paletteSubject: "The Flat", sense: "sound")])
+        await inbox.refresh()
+        let entry = try XCTUnwrap(inbox.entries.first { $0.id == "pa1" })
+
+        let result = try await inbox.promoteToPaletteCard(
+            entry, projectStore: store, cardId: card.id)
+
+        XCTAssertEqual(result.notes.last?.sense, .sound)
+        XCTAssertEqual(result.notes.last?.text, "tram-rattle through the shutters")
+        XCTAssertFalse(inbox.entries.contains { $0.id == "pa1" })
+        withExtendedLifetime(ds) {}
+    }
+
+    func test_promoteAudio_toPaletteCard_emptyTranscript_throws_andEntryStaysNew() async throws {
+        let (url, store, inbox, ds) = try await openProject()
+        let card = try await store.addPaletteCard(title: "The Flat", kind: .location)
+        try await seed(url, [InboxEntry(
+            id: "pa2", createdAt: Date(timeIntervalSince1970: 100),
+            deviceId: "phone", kind: .audio, sourceFilename: "pa2.m4a",
+            transcript: "   ", transcriptionState: .none,
+            paletteSubject: "The Flat")])
+        await inbox.refresh()
+        let entry = try XCTUnwrap(inbox.entries.first { $0.id == "pa2" })
+        do {
+            _ = try await inbox.promoteToPaletteCard(
+                entry, projectStore: store, cardId: card.id)
+            XCTFail("expected nothingToPromote")
+        } catch InboxStore.InboxError.nothingToPromote { /* expected */ }
+        XCTAssertTrue(inbox.entries.contains { $0.id == "pa2" },
+                      "empty-transcript promote must leave the entry .new")
+        // The card gained no note from the failed attempt.
+        let reloaded = try XCTUnwrap(
+            store.loadPaletteCards().first { $0.researchItemId == card.id })
+        XCTAssertTrue(reloaded.notes.isEmpty)
+        withExtendedLifetime(ds) {}
+    }
+
+    func test_promote_toPaletteCard_unknownCardId_throws_andEntryStaysNew() async throws {
+        let (url, store, inbox, ds) = try await openProject()
+        try await seed(url, [InboxEntry(
+            id: "px1", createdAt: Date(timeIntervalSince1970: 100),
+            deviceId: "phone", kind: .text, inlineText: "orphan")])
+        await inbox.refresh()
+        let entry = try XCTUnwrap(inbox.entries.first { $0.id == "px1" })
+        do {
+            _ = try await inbox.promoteToPaletteCard(
+                entry, projectStore: store, cardId: "card-nope")
+            XCTFail("expected throw")
+        } catch is ProjectStoreError { /* expected — fail loudly */ }
+        XCTAssertTrue(inbox.entries.contains { $0.id == "px1" })
+        withExtendedLifetime(ds) {}
+    }
 }
