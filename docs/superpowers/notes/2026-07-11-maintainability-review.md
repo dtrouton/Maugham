@@ -177,3 +177,14 @@ Principle applied (user decision): no "defer until touching the area anyway" buc
 - Every High/Critical (7 items) was coordinator-re-verified against source; **zero were dropped or downgraded** — agent precision was high this pass.
 - Independent double-confirmation occurred naturally three times (CLAUDE.md stale bullet: A3+A4; merge-wipes-undo: TA+A6; 1MB gap: A2+A4+TB) — worth keeping overlapping briefs.
 - Background agents consistently went idle without delivering; every report required one SendMessage nudge. Next time: include "send your report to main via SendMessage before finishing" in the brief.
+
+---
+
+## 8. Post-merge addendum (v0.20.0 / phone-v0.6.0 "palette everywhere", merged 2026-07-11)
+
+Re-verified the affected findings against the merged milestone:
+- **Craft-intent slug collision (A1-Low): FIXED upstream** — role-first identity + lazy healing (`ProjectStore+CraftIntent.swift`, `ResearchRole`/`PaletteLookup` in MaughamCore). Removed from shortlist item 7.
+- **E2 rename-revert + A1-High uncoordinated write: still live** — editor changed by an import only; `updatePaletteCard` unchanged in behavior (raw write now ~`ProjectStore+Palette.swift:120`, template write `:57`).
+- **A6 parse/render bugs: still live, now cross-surface** — `PaletteCard.swift` moved verbatim to `Packages/MaughamCore/`; the phone Read tab (`MaughamPhone/Read/PaletteCardView.swift` + `PaletteLoading.swift`) parses through the same code, so the inline-image harvest and body-normalization defects now surface on both platforms. Shortlist item 2 file refs updated accordingly; fixes land once, benefit both.
+- **E5 inbox subdir literals: still live** — `PaletteConvention` proves the choke-point pattern but inbox `"images"`/`"audio"` remain duplicated (`InboxCaptureWriter.swift:50,54` vs `InboxStore.swift:324-325`). Shortlist item 4's fix should mirror `PaletteConvention` (an `InboxConvention` in MaughamCore + registry row).
+- Tool count remains 47 (promote_inbox_entry gained palette params, no new tool). The milestone's ~2.5k new lines postdate this audit's agent pass — covered by the next scheduled sweep.
