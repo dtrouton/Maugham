@@ -81,4 +81,155 @@ final class InboxToolsTests: XCTestCase {
         } catch { /* expected */ }
         withExtendedLifetime(ds) {}
     }
+
+    // MARK: - Palette destination (Task 8)
+
+    func test_promote_withPaletteCardId_landsNoteOnCard() async throws {
+        let (url, store, ds, reg, projectId) = try await openNovelWithRegistry()
+        let item = try await store.addPaletteCard(title: "The Flat", kind: .location)
+        try await seed(url, [InboxEntry(
+            id: "e4", createdAt: Date(timeIntervalSince1970: 100),
+            deviceId: "phone", kind: .text, inlineText: "Damp plaster smell.")])
+
+        let params = #"{"project_id":"\#(projectId)","entry_id":"e4","palette_card_id":"\#(item.id)"}"#
+        let data = try await PromoteInboxEntryTool.handle(
+            paramsJSON: Data(params.utf8), registry: reg)
+        let result = try JSONDecoder().decode(PromoteInboxEntryTool.Result.self, from: data)
+
+        XCTAssertEqual(result.research_id, item.id)
+        XCTAssertEqual(result.title, "The Flat")
+        XCTAssertTrue(result.path.hasPrefix("research/"))
+        let card = store.loadPaletteCards().first(where: { $0.researchItemId == item.id })
+        XCTAssertEqual(card?.notes.map(\.text), ["Damp plaster smell."])
+        withExtendedLifetime(ds) {}
+    }
+
+    func test_promote_withPaletteSubject_caseInsensitiveMatch() async throws {
+        let (url, store, ds, reg, projectId) = try await openNovelWithRegistry()
+        let item = try await store.addPaletteCard(title: "The Flat", kind: .location)
+        try await seed(url, [InboxEntry(
+            id: "e5", createdAt: Date(timeIntervalSince1970: 100),
+            deviceId: "phone", kind: .text, inlineText: "Creaky floorboard.")])
+
+        let params = #"{"project_id":"\#(projectId)","entry_id":"e5","palette_subject":"the flat"}"#
+        let data = try await PromoteInboxEntryTool.handle(
+            paramsJSON: Data(params.utf8), registry: reg)
+        let result = try JSONDecoder().decode(PromoteInboxEntryTool.Result.self, from: data)
+
+        XCTAssertEqual(result.research_id, item.id)
+        let card = store.loadPaletteCards().first(where: { $0.researchItemId == item.id })
+        XCTAssertEqual(card?.notes.map(\.text), ["Creaky floorboard."])
+        withExtendedLifetime(ds) {}
+    }
+
+    func test_promote_paletteSubjectNoMatch_failsWithExistingTitlesListed() async throws {
+        let (url, store, ds, reg, projectId) = try await openNovelWithRegistry()
+        _ = try await store.addPaletteCard(title: "The Flat", kind: .location)
+        _ = try await store.addPaletteCard(title: "Marlowe", kind: .character)
+        try await seed(url, [InboxEntry(
+            id: "e6", createdAt: Date(timeIntervalSince1970: 100),
+            deviceId: "phone", kind: .text, inlineText: "Orphan note.")])
+
+        let params = #"{"project_id":"\#(projectId)","entry_id":"e6","palette_subject":"Nonexistent"}"#
+        do {
+            _ = try await PromoteInboxEntryTool.handle(
+                paramsJSON: Data(params.utf8), registry: reg)
+            XCTFail("expected throw for unmatched palette_subject")
+        } catch let MCPError.invalidArgument(message) {
+            XCTAssertTrue(message.contains("The Flat"))
+            XCTAssertTrue(message.contains("Marlowe"))
+        } catch {
+            XCTFail("expected MCPError.invalidArgument, got \(error)")
+        }
+        // The tool must not have minted a new card for the unmatched subject.
+        XCTAssertEqual(store.paletteCardItems().count, 2)
+        withExtendedLifetime(ds) {}
+    }
+
+    func test_promote_targetDocumentIdAndPaletteCardId_areMutuallyExclusive() async throws {
+        let (url, store, ds, reg, projectId) = try await openNovelWithRegistry()
+        let item = try await store.addPaletteCard(title: "The Flat", kind: .location)
+        let chapterId = try XCTUnwrap(
+            TreeWalk.collect(in: store.manifest.structure,
+                             where: { $0.type == .document }).first?.id)
+        try await seed(url, [InboxEntry(
+            id: "e7", createdAt: Date(timeIntervalSince1970: 100),
+            deviceId: "phone", kind: .text, inlineText: "Ambiguous capture.")])
+
+        let params = #"{"project_id":"\#(projectId)","entry_id":"e7","target_document_id":"\#(chapterId)","palette_card_id":"\#(item.id)"}"#
+        do {
+            _ = try await PromoteInboxEntryTool.handle(
+                paramsJSON: Data(params.utf8), registry: reg)
+            XCTFail("expected throw for conflicting destinations")
+        } catch let MCPError.invalidArgument(message) {
+            XCTAssertTrue(message.contains("target_document_id"))
+            XCTAssertTrue(message.contains("palette_card_id"))
+        } catch {
+            XCTFail("expected MCPError.invalidArgument, got \(error)")
+        }
+        withExtendedLifetime(ds) {}
+    }
+
+    func test_promote_targetDocumentIdAndPaletteSubject_areMutuallyExclusive() async throws {
+        let (url, store, ds, reg, projectId) = try await openNovelWithRegistry()
+        _ = try await store.addPaletteCard(title: "The Flat", kind: .location)
+        let chapterId = try XCTUnwrap(
+            TreeWalk.collect(in: store.manifest.structure,
+                             where: { $0.type == .document }).first?.id)
+        try await seed(url, [InboxEntry(
+            id: "e8", createdAt: Date(timeIntervalSince1970: 100),
+            deviceId: "phone", kind: .text, inlineText: "Ambiguous capture.")])
+
+        let params = #"{"project_id":"\#(projectId)","entry_id":"e8","target_document_id":"\#(chapterId)","palette_subject":"The Flat"}"#
+        do {
+            _ = try await PromoteInboxEntryTool.handle(
+                paramsJSON: Data(params.utf8), registry: reg)
+            XCTFail("expected throw for conflicting destinations")
+        } catch let MCPError.invalidArgument(message) {
+            XCTAssertTrue(message.contains("target_document_id"))
+            XCTAssertTrue(message.contains("palette_subject"))
+        } catch {
+            XCTFail("expected MCPError.invalidArgument, got \(error)")
+        }
+        withExtendedLifetime(ds) {}
+    }
+
+    func test_promote_paletteCardIdAndPaletteSubject_areMutuallyExclusive() async throws {
+        let (url, store, ds, reg, projectId) = try await openNovelWithRegistry()
+        let item = try await store.addPaletteCard(title: "The Flat", kind: .location)
+        try await seed(url, [InboxEntry(
+            id: "e9", createdAt: Date(timeIntervalSince1970: 100),
+            deviceId: "phone", kind: .text, inlineText: "Ambiguous capture.")])
+
+        let params = #"{"project_id":"\#(projectId)","entry_id":"e9","palette_card_id":"\#(item.id)","palette_subject":"The Flat"}"#
+        do {
+            _ = try await PromoteInboxEntryTool.handle(
+                paramsJSON: Data(params.utf8), registry: reg)
+            XCTFail("expected throw for conflicting destinations")
+        } catch let MCPError.invalidArgument(message) {
+            XCTAssertTrue(message.contains("palette_card_id"))
+            XCTAssertTrue(message.contains("palette_subject"))
+        } catch {
+            XCTFail("expected MCPError.invalidArgument, got \(error)")
+        }
+        withExtendedLifetime(ds) {}
+    }
+
+    func test_listInbox_passesThroughPaletteSubjectAndSense() async throws {
+        let (url, _, ds, reg, projectId) = try await openNovelWithRegistry()
+        try await seed(url, [InboxEntry(
+            id: "e10", createdAt: Date(timeIntervalSince1970: 100),
+            deviceId: "phone", kind: .text, inlineText: "Aimed capture.",
+            paletteSubject: "The Flat", sense: "smell")])
+
+        let params = #"{"project_id":"\#(projectId)"}"#
+        let data = try await ListInboxTool.handle(
+            paramsJSON: Data(params.utf8), registry: reg)
+        let result = try JSONDecoder().decode(ListInboxTool.Result.self, from: data)
+
+        let summary = try XCTUnwrap(result.entries.first(where: { $0.id == "e10" }))
+        XCTAssertEqual(summary.palette_subject, "The Flat")
+        XCTAssertEqual(summary.sense, "smell")
+        withExtendedLifetime(ds) {}
+    }
 }
