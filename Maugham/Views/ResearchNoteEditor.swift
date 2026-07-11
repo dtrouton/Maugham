@@ -78,19 +78,23 @@ struct ResearchNoteEditor: View {
                             documentStore.scheduleFileSave(for: path, text: newValue)
                         }
                     ),
-                    theme: userPreferences.theme,
-                    typography: effectiveTypography,
-                    mode: WritingModeFactory.mode(for: path),
-                    typewriterScroll: userPreferences.typewriterScroll,
-                    sentenceFocus: userPreferences.sentenceFocus,
-                    paragraphFocus: userPreferences.paragraphFocus,
-                    control: editorControl,
-                    initialCursorLocation: researchCursor,
-                    onCursorChanged: { position in
-                        researchCursor = position
-                    },
-                    showElementGutter: false,
-                    imagePasteHandler: makeImagePasteHandler()
+                    configuration: EditorSurfaceConfiguration(
+                        presentation: .init(
+                            theme: userPreferences.theme,
+                            typography: effectiveTypography,
+                            mode: WritingModeFactory.mode(for: path),
+                            typewriterScroll: userPreferences.typewriterScroll,
+                            sentenceFocus: userPreferences.sentenceFocus,
+                            paragraphFocus: userPreferences.paragraphFocus,
+                            showElementGutter: false),
+                        control: editorControl,
+                        callbacks: .init(
+                            initialCursorLocation: researchCursor,
+                            onCursorChanged: { position in
+                                researchCursor = position
+                            }),
+                        paragraphProviders: .init(
+                            imagePasteHandler: makeImagePasteHandler()))
                 )
                 .id(path)
             } else {

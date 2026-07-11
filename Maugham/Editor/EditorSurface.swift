@@ -4,133 +4,176 @@ import AppKit
 
 /// SwiftUI host for an NSTextView-backed editor surface, driven by a
 /// WritingMode (ProseMode in 1b).
-struct EditorSurface: NSViewRepresentable {
-    @Binding var text: String
-    /// Retained to seed `makeCoordinator`'s initial state only (the model can't
-    /// seed the coordinator before it exists); runtime appearance changes flow
-    /// via `control` (ADR 0017).
-    let theme: Theme
-    let typography: TypographySettings
-    let mode: any WritingMode
-    let typewriterScroll: Bool
-    let sentenceFocus: Bool
-    let paragraphFocus: Bool
+/// Concern-grouped packaging of every `EditorSurface` input EXCEPT the `text`
+/// Binding. This is pure parameter packaging (hardening Task 2): each field keeps
+/// its original name, type, and wiring — nothing about the binding contract or the
+/// applyExternalText / undo-coherent machinery changes shape. The fragile data-plane
+/// seam (`@Binding var text`, tripwires 2/3/6/7) stays a direct member of
+/// `EditorSurface`; this struct carries the ~40 closures/values that used to be a
+/// call-site init wall, so the host builds it in one dedicated function.
+struct EditorSurfaceConfiguration {
+    /// How the surface first renders — seeds `makeCoordinator` and drives the
+    /// column-width / gutter reconciliation in make/updateNSView. Runtime
+    /// appearance changes flow via `control` (ADR 0017); these are seed values.
+    struct Presentation {
+        var theme: Theme
+        var typography: TypographySettings
+        var mode: any WritingMode
+        var typewriterScroll: Bool
+        var sentenceFocus: Bool
+        var paragraphFocus: Bool
+        var showElementGutter: Bool = true
+    }
+
+    /// Coordinator → host callbacks plus the first-attach cursor seed.
+    struct EditingCallbacks {
+        /// Cursor location to restore on first attach (nil = leave at 0).
+        var initialCursorLocation: Int? = nil
+        /// Fired on every selection change with the new caret location.
+        var onCursorChanged: ((Int) -> Void)? = nil
+        /// Fired inside `textDidChange` just before the binding setter writes
+        /// new text. Delivers the post-edit caret position so the host can
+        /// thread it into Document's V2 task-anchor alignment.
+        var onPostEditCursor: ((Int) -> Void)? = nil
+        /// Fired when the cursor's screenplay element changes (or after retokenize).
+        /// Delivers a gutter abbreviation ("CHAR", "SCENE", "DLG", etc.) or nil
+        /// in prose mode. Omit at call sites that don't need element tracking.
+        var onElementChanged: ((String?) -> Void)? = nil
+        /// Fired with precomputed `EditorMetrics` on the coordinator's debounced
+        /// trailing edge (typing) and immediately on attach / external replace.
+        /// The consumer (ProjectWindow) does zero parsing — the page count comes
+        /// from the keystroke's own parse. Omit at call sites without metrics.
+        var onMetricsChanged: ((EditorMetrics) -> Void)? = nil
+    }
+
+    /// Resolvers that map paragraphs / locations / links for click routing,
+    /// image paste, checkbox toggling, and script-scope stamping.
+    struct ParagraphProviders {
+        /// Optional resolver for wiki-link titles. When set, ProseMode underlines
+        /// `[[Title]]` tokens whose title matches a manuscript document.
+        var wikiLinkResolver: ((String) -> Bool)? = nil
+        /// Optional id-returning resolver used by mouseDown click routing.
+        /// Returns the doc id if the title resolves, nil otherwise.
+        var wikiLinkClickResolver: ((String) -> String?)? = nil
+        /// Origin project id (`ProjectIdentifier.id(for:)`) stamped onto the
+        /// coordinator's `.maughamScriptDidUpdate` posts so receivers scope them
+        /// to their own window (Channel A). Passed by manuscript hosts
+        /// (EditorHost); nil for research notes, which never post scripts.
+        var scriptOriginProjectId: String? = nil
+        /// When set, the text view's paste(_:) routes pasteboard images to this
+        /// handler instead of pasting them as text. Used for research notes to
+        /// save images to a sibling _assets/ folder and insert a Markdown ref.
+        /// The handler returns the Markdown ref string; the text view inserts it
+        /// at the current cursor position.
+        var imagePasteHandler: ((NSImage) -> String?)? = nil
+        /// Resolves a paragraph_id to its NSRange in the current displayText.
+        /// Wired through to the coordinator's paragraphRangeProvider so that
+        /// `.maughamNavigateToParagraph` notifications (fired by clicking an
+        /// annotation row) scroll the textView to the right paragraph.
+        var paragraphRangeProvider: ((String) -> NSRange?)? = nil
+        /// Resolves a doc-wide UTF-16 location to (paragraphId, offset) within
+        /// that paragraph. Used by the markdown-checkbox click path.
+        var paragraphLocator: ((Int) -> (paragraphId: String, offsetWithinParagraph: Int)?)? = nil
+        /// Invoked when the user clicks a checkbox bracket — markdown `- [ ]`
+        /// or Fountain `[[todo:]]`. The host wires this to
+        /// `Document.setParagraph(id:text:)` with the flipped bracket text,
+        /// dispatching by `MaughamCheckboxKind` to `MarkdownCheckboxScanner.flipBracket`
+        /// or `FountainBoneyardScanner.flipTodoDone`.
+        var checkboxToggleHandler: ((String, Int, MaughamCheckboxKind) -> Void)? = nil
+        /// Maps a doc-wide UTF-16 location to the containing paragraph's id + range.
+        /// Wired to `Document.paragraphRange(at:)`. Used by the review toolbar to
+        /// capture a paragraph-relative span anchor for the selection.
+        var paragraphRangeAtLocation: ((Int) -> (id: String, range: NSRange)?)? = nil
+    }
+
+    /// Review-mode annotation authoring plus the resolvers the crafted render
+    /// uses to place marks. (Interactive card *actions* live in `annotationActions`.)
+    struct ReviewProviders {
+        /// Invoked when the reviewer commits a Comment/Query/Suggest annotation
+        /// from the selection toolbar. The trailing `String?` is the replacement
+        /// text (Suggest only; nil for Comment/Query). Wired to
+        /// `Document.addReviewerAnnotation(...)`.
+        var createAnnotationHandler: ((AnnotationKind, String, SpanAnchor, String, String?) async -> Void)? = nil
+        /// Resolves a paragraphId → its display text (for grapheme→UTF-16 of spans).
+        var reviewParagraphTextProvider: ((String) -> String?)? = nil
+        /// Resolves a paragraphId → its UTF-16 NSRange in the full display string.
+        var reviewParagraphRangeProvider: ((String) -> NSRange?)? = nil
+        /// Pulls the CURRENT open-annotation set on demand — used by the coordinator
+        /// to resolve marks synchronously on review entry (first-toggle marks fix).
+        var reviewAnnotationsProvider: (() -> [Annotation])? = nil
+        /// The local reviewer's display name — gates Edit/Delete on the interactive
+        /// margin card (`AnnotationOwnership.isOwn`). Pulled on demand.
+        var reviewLocalAuthorName: (() -> String)? = nil
+    }
+
+    /// Interactive margin-card action handlers (Part 1). Each maps an annotation
+    /// id (+ payload for reply/edit) to the matching `Document` mutation. Threaded
+    /// ONE-WAY; wired in make/update like `createAnnotationHandler`.
+    struct AnnotationActions {
+        var reviewAcceptHandler: ((String) async -> Void)? = nil
+        var reviewRejectHandler: ((String) async -> Void)? = nil
+        var reviewArchiveHandler: ((String) async -> Void)? = nil
+        var reviewReplyHandler: ((String, String) async -> Void)? = nil
+        var reviewEditHandler: ((String, String, String?) async -> Void)? = nil
+        var reviewWithdrawHandler: ((String) async -> Void)? = nil
+    }
+
+    var presentation: Presentation
     /// Control-plane model (ADR 0017). The coordinator observes this directly;
     /// it is the channel for posture/appearance/annotation changes, replacing
     /// the per-prop pushes in updateNSView. Threaded ONE-WAY from the owning
     /// view (ProjectWindow via EditorHost for manuscripts; ResearchNoteEditor
     /// for research notes). Required — all production call sites must pass a
-    /// real, populated model; the compiler enforces this (no default).
+    /// real, populated model.
     var control: EditorControl
-    /// Cursor location to restore on first attach (nil = leave at 0).
-    var initialCursorLocation: Int? = nil
-    /// Fired on every selection change with the new caret location.
-    var onCursorChanged: ((Int) -> Void)? = nil
-    /// Fired inside `textDidChange` just before the binding setter writes
-    /// new text. Delivers the post-edit caret position so the host can
-    /// thread it into Document's V2 task-anchor alignment.
-    var onPostEditCursor: ((Int) -> Void)? = nil
-    /// Fired when the cursor's screenplay element changes (or after retokenize).
-    /// Delivers a gutter abbreviation ("CHAR", "SCENE", "DLG", etc.) or nil
-    /// in prose mode. Omit at call sites that don't need element tracking.
-    var onElementChanged: ((String?) -> Void)? = nil
-    /// Fired with precomputed `EditorMetrics` on the coordinator's debounced
-    /// trailing edge (typing) and immediately on attach / external replace.
-    /// Replaces the old `onTextChange` text mirror: the consumer (ProjectWindow)
-    /// now does zero parsing — the page count comes from the keystroke's own
-    /// parse. Omit at call sites that don't surface metrics.
-    var onMetricsChanged: ((EditorMetrics) -> Void)? = nil
-    /// Optional resolver for wiki-link titles. When set, ProseMode underlines
-    /// `[[Title]]` tokens whose title matches a manuscript document.
-    var wikiLinkResolver: ((String) -> Bool)? = nil
-    /// Optional id-returning resolver used by mouseDown click routing.
-    /// Returns the doc id if the title resolves, nil otherwise.
-    var wikiLinkClickResolver: ((String) -> String?)? = nil
-    var showElementGutter: Bool = true
-    /// Origin project id (`ProjectIdentifier.id(for:)`) stamped onto the
-    /// coordinator's `.maughamScriptDidUpdate` posts so receivers scope them to
-    /// their own window (Channel A). Passed by manuscript hosts (EditorHost);
-    /// nil for research notes, which never post scripts.
-    var scriptOriginProjectId: String? = nil
-    /// When set, the text view's paste(_:) routes pasteboard images to this
-    /// handler instead of pasting them as text. Used for research notes to
-    /// save images to a sibling _assets/ folder and insert a Markdown ref.
-    /// The handler returns the Markdown ref string; the text view inserts it
-    /// at the current cursor position.
-    var imagePasteHandler: ((NSImage) -> String?)? = nil
-    /// Resolves a paragraph_id to its NSRange in the current displayText.
-    /// Wired through to the coordinator's paragraphRangeProvider so that
-    /// `.maughamNavigateToParagraph` notifications (fired by clicking an
-    /// annotation row) scroll the textView to the right paragraph.
-    var paragraphRangeProvider: ((String) -> NSRange?)? = nil
-    /// Resolves a doc-wide UTF-16 location to (paragraphId, offset) within
-    /// that paragraph. Used by the markdown-checkbox click path.
-    var paragraphLocator: ((Int) -> (paragraphId: String, offsetWithinParagraph: Int)?)? = nil
-    /// Invoked when the user clicks a checkbox bracket — markdown `- [ ]`
-    /// or Fountain `[[todo:]]`. The host wires this to
-    /// `Document.setParagraph(id:text:)` with the flipped bracket text,
-    /// dispatching by `MaughamCheckboxKind` to `MarkdownCheckboxScanner.flipBracket`
-    /// or `FountainBoneyardScanner.flipTodoDone`.
-    var checkboxToggleHandler: ((String, Int, MaughamCheckboxKind) -> Void)? = nil
-    /// Maps a doc-wide UTF-16 location to the containing paragraph's id + range.
-    /// Wired to `Document.paragraphRange(at:)`. Used by the review toolbar to
-    /// capture a paragraph-relative span anchor for the selection.
-    var paragraphRangeAtLocation: ((Int) -> (id: String, range: NSRange)?)? = nil
-    /// Invoked when the reviewer commits a Comment/Query/Suggest annotation from
-    /// the selection toolbar. The trailing `String?` is the replacement text
-    /// (Suggest only; nil for Comment/Query). Wired to
-    /// `Document.addReviewerAnnotation(...)`.
-    var createAnnotationHandler: ((AnnotationKind, String, SpanAnchor, String, String?) async -> Void)? = nil
-    /// Resolves a paragraphId → its display text (for grapheme→UTF-16 of spans).
-    var reviewParagraphTextProvider: ((String) -> String?)? = nil
-    /// Resolves a paragraphId → its UTF-16 NSRange in the full display string.
-    var reviewParagraphRangeProvider: ((String) -> NSRange?)? = nil
-    /// Pulls the CURRENT open-annotation set on demand — used by the coordinator
-    /// to resolve marks synchronously on review entry (first-toggle marks fix).
-    var reviewAnnotationsProvider: (() -> [Annotation])? = nil
-    /// The local reviewer's display name — gates Edit/Delete on the interactive
-    /// margin card (`AnnotationOwnership.isOwn`). Pulled on demand.
-    var reviewLocalAuthorName: (() -> String)? = nil
-    /// Interactive margin-card action handlers (Part 1). Each maps an annotation
-    /// id (+ payload for reply/edit) to the matching `Document` mutation. Threaded
-    /// ONE-WAY; wired in make/update like `createAnnotationHandler`.
-    var reviewAcceptHandler: ((String) async -> Void)? = nil
-    var reviewRejectHandler: ((String) async -> Void)? = nil
-    var reviewArchiveHandler: ((String) async -> Void)? = nil
-    var reviewReplyHandler: ((String, String) async -> Void)? = nil
-    var reviewEditHandler: ((String, String, String?) async -> Void)? = nil
-    var reviewWithdrawHandler: ((String) async -> Void)? = nil
-
+    var callbacks: EditingCallbacks = .init()
+    var paragraphProviders: ParagraphProviders = .init()
+    var reviewProviders: ReviewProviders = .init()
+    var annotationActions: AnnotationActions = .init()
     /// One-shot pull from the Document: was the pending displayText change
     /// produced by an undo-registered mutation (accept/revert)? Consumed ONLY
-    /// when a buffer replace actually happens. See tripwire discussion in
-    /// EditorCoordinator.applyExternalText.
+    /// when a buffer replace actually happens. TRIPWIRE-SENSITIVE (applyExternalText /
+    /// _undoCoherentApplyPending) — packaged here 1:1; its shape and its
+    /// consume-on-every-pass semantics in `updateNSView` are unchanged. See the
+    /// tripwire discussion in EditorCoordinator.applyExternalText.
     var consumeUndoCoherentApplyFlag: (() -> Bool)? = nil
+}
+
+struct EditorSurface: NSViewRepresentable {
+    @Binding var text: String
+    /// Everything else that used to be an init parameter, grouped by concern so
+    /// the host call site is a handful of labelled groups instead of a ~40-line
+    /// wall (built in a dedicated `makeSurfaceConfiguration`, ProjectWindow pattern).
+    var configuration: EditorSurfaceConfiguration
 
     func makeCoordinator() -> EditorCoordinator {
+        let p = configuration.presentation
+        let cb = configuration.callbacks
+        let pp = configuration.paragraphProviders
+        let rp = configuration.reviewProviders
         let coordinator = EditorCoordinator(
-            text: $text, mode: mode,
-            theme: theme, typography: typography,
-            typewriterScroll: typewriterScroll,
-            sentenceFocus: sentenceFocus,
-            paragraphFocus: paragraphFocus,
-            wikiLinkResolver: wikiLinkResolver)
-        coordinator.initialCursorLocation = initialCursorLocation
-        coordinator.onCursorChanged = onCursorChanged
-        coordinator.onPostEditCursor = onPostEditCursor
-        coordinator.onElementChanged = onElementChanged
-        coordinator.onMetricsChanged = onMetricsChanged
-        coordinator.wikiLinkResolverForClick = wikiLinkClickResolver
-        coordinator.imagePasteHandler = imagePasteHandler
-        coordinator.paragraphRangeProvider = paragraphRangeProvider
-        coordinator.paragraphLocator = paragraphLocator
-        coordinator.checkboxToggleHandler = checkboxToggleHandler
-        coordinator.paragraphRangeAtLocation = paragraphRangeAtLocation
-        coordinator.createAnnotationHandler = createAnnotationHandler
-        coordinator.reviewParagraphTextProvider = reviewParagraphTextProvider
-        coordinator.reviewParagraphRangeProvider = reviewParagraphRangeProvider
-        coordinator.reviewAnnotationsProvider = reviewAnnotationsProvider
-        coordinator.scriptOriginProjectId = scriptOriginProjectId
+            text: $text, mode: p.mode,
+            theme: p.theme, typography: p.typography,
+            typewriterScroll: p.typewriterScroll,
+            sentenceFocus: p.sentenceFocus,
+            paragraphFocus: p.paragraphFocus,
+            wikiLinkResolver: pp.wikiLinkResolver)
+        coordinator.initialCursorLocation = cb.initialCursorLocation
+        coordinator.onCursorChanged = cb.onCursorChanged
+        coordinator.onPostEditCursor = cb.onPostEditCursor
+        coordinator.onElementChanged = cb.onElementChanged
+        coordinator.onMetricsChanged = cb.onMetricsChanged
+        coordinator.wikiLinkResolverForClick = pp.wikiLinkClickResolver
+        coordinator.imagePasteHandler = pp.imagePasteHandler
+        coordinator.paragraphRangeProvider = pp.paragraphRangeProvider
+        coordinator.paragraphLocator = pp.paragraphLocator
+        coordinator.checkboxToggleHandler = pp.checkboxToggleHandler
+        coordinator.paragraphRangeAtLocation = pp.paragraphRangeAtLocation
+        coordinator.createAnnotationHandler = rp.createAnnotationHandler
+        coordinator.reviewParagraphTextProvider = rp.reviewParagraphTextProvider
+        coordinator.reviewParagraphRangeProvider = rp.reviewParagraphRangeProvider
+        coordinator.reviewAnnotationsProvider = rp.reviewAnnotationsProvider
+        coordinator.scriptOriginProjectId = pp.scriptOriginProjectId
         assignReviewCardHandlers(to: coordinator)
         return coordinator
     }
@@ -138,17 +181,21 @@ struct EditorSurface: NSViewRepresentable {
     /// Thread the interactive-card handlers + local-author provider onto the
     /// coordinator. Shared by make/update so the wiring can't drift between them.
     private func assignReviewCardHandlers(to coordinator: EditorCoordinator) {
-        coordinator.reviewLocalAuthorName = reviewLocalAuthorName
-        coordinator.reviewAcceptHandler = reviewAcceptHandler
-        coordinator.reviewRejectHandler = reviewRejectHandler
-        coordinator.reviewArchiveHandler = reviewArchiveHandler
-        coordinator.reviewReplyHandler = reviewReplyHandler
-        coordinator.reviewEditHandler = reviewEditHandler
-        coordinator.reviewWithdrawHandler = reviewWithdrawHandler
+        let rp = configuration.reviewProviders
+        let aa = configuration.annotationActions
+        coordinator.reviewLocalAuthorName = rp.reviewLocalAuthorName
+        coordinator.reviewAcceptHandler = aa.reviewAcceptHandler
+        coordinator.reviewRejectHandler = aa.reviewRejectHandler
+        coordinator.reviewArchiveHandler = aa.reviewArchiveHandler
+        coordinator.reviewReplyHandler = aa.reviewReplyHandler
+        coordinator.reviewEditHandler = aa.reviewEditHandler
+        coordinator.reviewWithdrawHandler = aa.reviewWithdrawHandler
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let columnWidth = mode.textColumnWidth(typography: typography)
+        let mode = configuration.presentation.mode
+        let columnWidth = mode.textColumnWidth(
+            typography: configuration.presentation.typography)
 
         let textView = MaughamTextView()
         // Pin the editor to TextKit 1. On recent macOS a fresh NSTextView is
@@ -229,9 +276,9 @@ struct EditorSurface: NSViewRepresentable {
         // Hand the control-plane model to the coordinator. It observes the model
         // from here on; the per-prop pushes below remain during the parallel
         // migration (ADR 0017) and are removed in later tasks.
-        context.coordinator.observeControl(control)
+        context.coordinator.observeControl(configuration.control)
         textView.coordinator = context.coordinator
-        if mode is ScreenplayMode && showElementGutter {
+        if mode is ScreenplayMode && configuration.presentation.showElementGutter {
             textView.installGutter(coordinator: context.coordinator)
         }
 
@@ -286,42 +333,45 @@ struct EditorSurface: NSViewRepresentable {
         // leave displayText byte-identical (no-op accept) must still discharge
         // the flag, or it would wrongly mark the NEXT unrelated replace as
         // undo-coherent and skip the stale-undo-stack clear (the ⌘Z crash class).
-        let undoCoherentApply = consumeUndoCoherentApplyFlag?() ?? false
+        let undoCoherentApply = configuration.consumeUndoCoherentApplyFlag?() ?? false
         if textView.string != text {
             context.coordinator.applyExternalText(
                 text, preserveUndoStack: undoCoherentApply)
         }
+        let p = configuration.presentation
+        let pp = configuration.paragraphProviders
+        let rp = configuration.reviewProviders
         // Appearance itself flows via EditorControl (ADR 0017); only the
         // text-container width remains a layout concern handled here.
-        let columnWidth = mode.textColumnWidth(typography: typography)
+        let columnWidth = p.mode.textColumnWidth(typography: p.typography)
         if abs(textView.columnWidth - columnWidth) > 0.5 {
             textView.columnWidth = columnWidth
             textView.textContainer?.size = NSSize(
                 width: columnWidth, height: .greatestFiniteMagnitude)
         }
         // Mode-change reconciliation for gutter.
-        let needsGutter = (mode is ScreenplayMode) && showElementGutter
+        let needsGutter = (p.mode is ScreenplayMode) && p.showElementGutter
         if needsGutter && textView.gutterView == nil {
             textView.installGutter(coordinator: context.coordinator)
         } else if !needsGutter && textView.gutterView != nil {
             textView.removeGutter()
         }
-        context.coordinator.imagePasteHandler = imagePasteHandler
-        context.coordinator.paragraphRangeProvider = paragraphRangeProvider
-        context.coordinator.paragraphLocator = paragraphLocator
-        context.coordinator.checkboxToggleHandler = checkboxToggleHandler
-        context.coordinator.paragraphRangeAtLocation = paragraphRangeAtLocation
-        context.coordinator.createAnnotationHandler = createAnnotationHandler
+        context.coordinator.imagePasteHandler = pp.imagePasteHandler
+        context.coordinator.paragraphRangeProvider = pp.paragraphRangeProvider
+        context.coordinator.paragraphLocator = pp.paragraphLocator
+        context.coordinator.checkboxToggleHandler = pp.checkboxToggleHandler
+        context.coordinator.paragraphRangeAtLocation = pp.paragraphRangeAtLocation
+        context.coordinator.createAnnotationHandler = rp.createAnnotationHandler
         // Crafted-render providers — kept current so the model-driven recompute
         // (via `applyControl` → `setReviewAnnotations`) and the on-entry provider
         // pull both read fresh resolvers. The open annotation set itself no longer
         // pushes from here; it flows through the control model (ADR 0017).
-        context.coordinator.reviewParagraphTextProvider = reviewParagraphTextProvider
-        context.coordinator.reviewParagraphRangeProvider = reviewParagraphRangeProvider
+        context.coordinator.reviewParagraphTextProvider = rp.reviewParagraphTextProvider
+        context.coordinator.reviewParagraphRangeProvider = rp.reviewParagraphRangeProvider
         // Pull-on-entry provider: the coordinator invokes it on review entry to
         // resolve the real annotation set synchronously (first-toggle marks fix).
-        context.coordinator.reviewAnnotationsProvider = reviewAnnotationsProvider
-        context.coordinator.scriptOriginProjectId = scriptOriginProjectId
+        context.coordinator.reviewAnnotationsProvider = rp.reviewAnnotationsProvider
+        context.coordinator.scriptOriginProjectId = pp.scriptOriginProjectId
         // Interactive-card handlers + local-author provider must be current before
         // the recompute path reads ownership.
         assignReviewCardHandlers(to: context.coordinator)
