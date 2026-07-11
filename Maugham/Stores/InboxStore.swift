@@ -177,10 +177,13 @@ final class InboxStore {
     enum InboxError: Error, LocalizedError {
         case assetMissing(String)
         case entryNotFound(String)
+        case nothingToPromote(String)
         var errorDescription: String? {
             switch self {
             case .assetMissing(let n): return "Inbox asset file is missing: \(n)"
             case .entryNotFound(let id): return "Inbox entry not found or already resolved: \(id)"
+            case .nothingToPromote:
+                return "This capture has nothing to promote yet — record or add a transcript first."
             }
         }
     }
@@ -223,6 +226,80 @@ final class InboxStore {
         }
         await updateStatus(id: entry.id, to: .promoted)
         return created
+    }
+
+    /// Promote a capture INTO an existing palette card (sibling of
+    /// `promoteToResearch`, same status handling). `.text`/`.audio` append a
+    /// `SensoryNote` — tagged with `entry.sense` when it maps to a known `Sense`,
+    /// untagged otherwise — carrying the inline text / transcript. `.image` copies
+    /// the asset into the card's image well and removes the inbox original to
+    /// complete the move (mirroring `promoteToResearch`'s copy-then-delete).
+    ///
+    /// The manifest row flips `.promoted` only after every mutating step
+    /// succeeds, so a failure never leaves a half-promoted entry: an audio
+    /// capture with no transcript throws and stays `.new` (the writer can
+    /// transcribe and retry); an unknown `cardId` propagates the palette seam's
+    /// throw. An asset removal that fails post-copy is non-fatal (a harmless
+    /// duplicate is left rather than the note/image lost).
+    @discardableResult
+    func promoteToPaletteCard(
+        _ entry: InboxEntry, projectStore: ProjectStore, cardId: String
+    ) async throws -> PaletteCard {
+        let sense = entry.sense.flatMap { PaletteCard.Sense(rawValue: $0) }
+        let result: PaletteCard
+        switch entry.kind {
+        case .text:
+            let text = Self.flattenToNote(entry.inlineText ?? "")
+            result = try await appendSensoryNote(
+                .init(sense: sense, text: text), toCard: cardId, projectStore: projectStore)
+        case .audio:
+            let text = Self.flattenToNote(entry.transcript ?? "")
+            guard !text.isEmpty else { throw InboxError.nothingToPromote(entry.id) }
+            result = try await appendSensoryNote(
+                .init(sense: sense, text: text), toCard: cardId, projectStore: projectStore)
+        case .image:
+            guard let asset = assetURL(for: entry),
+                  FileManager.default.fileExists(atPath: asset.path) else {
+                throw InboxError.assetMissing(entry.sourceFilename ?? entry.id)
+            }
+            // addImage copies into the card's `<slug>_assets/` folder; remove the
+            // inbox original to finish the move. Same non-destructive contract as
+            // promoteToResearch: a failed removal leaves a duplicate, never data loss.
+            result = try await projectStore.addImage(toPaletteCard: cardId, fileURL: asset)
+            try? FileManager.default.removeItem(at: asset)
+        }
+        await updateStatus(id: entry.id, to: .promoted)
+        return result
+    }
+
+    /// Load the card, append `note`, and persist via the palette seam. Throws
+    /// `ProjectStoreError.structureMissing` for an unknown `cardId` (the same
+    /// failure the seam's `updatePaletteCard` raises), so a bad target can't
+    /// silently drop a promoted note.
+    private func appendSensoryNote(
+        _ note: PaletteCard.SensoryNote, toCard cardId: String, projectStore: ProjectStore
+    ) async throws -> PaletteCard {
+        guard let card = projectStore.loadPaletteCards()
+            .first(where: { $0.researchItemId == cardId }) else {
+            throw ProjectStoreError.structureMissing
+        }
+        let updated = PaletteCard(
+            researchItemId: card.researchItemId, title: card.title, kind: card.kind,
+            swatches: card.swatches, notes: card.notes + [note],
+            imagePaths: card.imagePaths, body: card.body)
+        try await projectStore.updatePaletteCard(updated)
+        return updated
+    }
+
+    /// Collapse a capture's multi-line text into a single sensory-note line:
+    /// trim each line, drop blanks, join with a space. A `SensoryNote` is one
+    /// line of prose, so paragraph structure doesn't survive — the writer edits
+    /// the card afterward if they want more.
+    private static func flattenToNote(_ text: String) -> String {
+        text.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
     }
 
     private func promotionTitle(for entry: InboxEntry) -> String {

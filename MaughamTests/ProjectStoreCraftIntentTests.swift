@@ -82,4 +82,40 @@ final class ProjectStoreCraftIntentTests: XCTestCase {
         XCTAssertNotNil(TreeWalk.find(id: item.id, in: store.manifest.research))
         await ds.close()
     }
+
+    // MARK: - Role-first identity (rename survival + lazy healing)
+
+    func test_craftIntent_survivesRename_andStampsOnCreate() async throws {
+        let url = try await ProjectFactory.createNovelProject(named: "IntentRename", in: temp.url)
+        let store = try await ProjectStore.load(from: url)
+        let ds = try await DocumentStore.open(url: url)
+        store.documentStore = ds
+
+        let item = try await store.createCraftIntent(forPieceId: nil)
+        XCTAssertEqual(item.role, .craftIntent)            // stamped at creation
+        // Rename the doc away from craft-intent.md — the filename fallback
+        // no longer matches, so only the role can find it.
+        try await store.updateResearchItem(id: item.id, title: "What this story needs")
+        XCTAssertEqual(store.craftIntentItem(forPieceId: nil)?.id, item.id)
+        await ds.close()
+    }
+
+    func test_legacyCraftIntent_getsLazilyStamped() async throws {
+        let url = try await ProjectFactory.createNovelProject(named: "IntentLegacy", in: temp.url)
+        let store = try await ProjectStore.load(from: url)
+        let ds = try await DocumentStore.open(url: url)
+        store.documentStore = ds
+
+        // Simulate a v0.19.0 project: doc exists at the legacy path, no role.
+        let legacy = try await store.addResearchTextNote(
+            parentId: nil, title: ProjectStore.craftIntentTitle)
+        XCTAssertNil(legacy.role)
+        XCTAssertEqual(legacy.path, "research/craft-intent.md")
+        let found = store.craftIntentItem(forPieceId: nil)
+        XCTAssertEqual(found?.id, legacy.id)
+        try await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertEqual(
+            TreeWalk.find(id: legacy.id, in: store.manifest.research)?.role, .craftIntent)
+        await ds.close()
+    }
 }

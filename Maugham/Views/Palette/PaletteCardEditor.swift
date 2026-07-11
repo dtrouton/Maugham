@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
+import MaughamCore
 
 /// Visual editor for one palette card — replaces raw-markdown editing. Every
 /// control mutates a single local `draft: PaletteCard?`; a single debounced task

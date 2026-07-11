@@ -10,10 +10,27 @@ struct BinderView: View {
     let recents: RecentsTracker
 
     /// Research items that the reader can actually open (text documents with a
-    /// path). Computed once — not in a row body (tripwire 4).
+    /// path), with palette-group descendants and the craft-intent doc removed —
+    /// those get their own Palette section, so leaving them here would duplicate
+    /// them. Computed once — not in a row body (tripwire 4).
     private var readableResearch: [ResearchItem] {
-        TreeWalk.leaves(in: project.manifest.research).filter(ReadIcons.isReadableResearch)
+        let leaves = TreeWalk.leaves(in: project.manifest.research).filter(ReadIcons.isReadableResearch)
+        return PaletteLoading.excludingPalette(leaves, research: project.manifest.research)
     }
+
+    /// The palette group's cards, in wall order. Empty when there's no palette.
+    private var paletteCards: [ResearchItem] {
+        PaletteLoading.paletteCards(in: project.manifest.research)
+    }
+
+    /// The project-scope craft-intent doc, if present (per spec: project scope only).
+    private var craftIntent: ResearchItem? {
+        PaletteLookup.craftIntentItem(in: project.manifest.research, researchPrefix: "research")
+    }
+
+    /// The Palette section shows only when there's something in it — an empty
+    /// palette stays quiet (no section).
+    private var hasPalette: Bool { !paletteCards.isEmpty || craftIntent != nil }
 
     var body: some View {
         Group {
@@ -63,6 +80,39 @@ struct BinderView: View {
                             downloads: downloads,
                             recents: recents,
                             projectId: project.id)
+                    }
+                }
+            }
+            if hasPalette {
+                Section("Palette") {
+                    // Each row uses a generic palette icon — a card's kind lives
+                    // inside the file, not the manifest, so a per-row kind icon
+                    // would force a per-row parse (tripwire 4). Kind shows in the
+                    // card detail, where the file is already parsed.
+                    ForEach(paletteCards) { card in
+                        NavigationLink {
+                            PaletteCardView(
+                                project: project,
+                                item: card,
+                                downloads: downloads,
+                                recents: recents)
+                        } label: {
+                            Label(card.title, systemImage: ReadIcons.paletteRowSymbol)
+                        }
+                    }
+                    if let intent = craftIntent {
+                        // Craft Intent is a plain-markdown doc — the existing
+                        // document reader renders it directly.
+                        NavigationLink {
+                            DocumentReaderView(
+                                docURL: project.url.appendingPathComponent(intent.path ?? ""),
+                                title: intent.title,
+                                projectId: project.id,
+                                downloads: downloads,
+                                recents: recents)
+                        } label: {
+                            Label(intent.title, systemImage: "scope")
+                        }
                     }
                 }
             }

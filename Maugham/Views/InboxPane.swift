@@ -29,6 +29,7 @@ struct InboxPane: View {
     @State private var promoteError: String?
     @State private var showingTrash = false
     @State private var promotePicking: InboxEntry?
+    @State private var palettePicking: InboxEntry?
 
     private static let relativeFormatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
@@ -78,6 +79,13 @@ struct InboxPane: View {
         .sheet(item: $promotePicking) { entry in
             PromoteTargetPickerSheet(store: projectStore) { docId in
                 promote(entry, scope: .document(docId))
+            }
+        }
+        .sheet(item: $palettePicking) { entry in
+            PalettePickerSheet(store: projectStore, subject: entry.paletteSubject) { cardId in
+                promoteToPalette(entry, cardId: cardId)
+            } onCreateCard: { title in
+                promoteToPaletteNewCard(entry, title: title)
             }
         }
     }
@@ -190,6 +198,13 @@ struct InboxPane: View {
                 }
             }
             Button("Promote to Research for…") { promotePicking = entry }
+            Divider()
+            if let card = matchingPaletteCard(for: entry) {
+                Button("Promote to Palette: “\(card.title)”") {
+                    promoteToPalette(entry, cardId: card.id)
+                }
+            }
+            Button("Promote to Palette Card…") { palettePicking = entry }
             if entry.kind == .audio {
                 Button("Edit Transcript…") { editing = entry }
                 // Offer manual (re)transcription for any audio capture except one
@@ -221,6 +236,37 @@ struct InboxPane: View {
                 try await store.promoteToResearch(
                     entry, projectStore: projectStore, scope: scope)
             } catch { promoteError = error.localizedDescription }
+        }
+    }
+
+    private func promoteToPalette(_ entry: InboxEntry, cardId: String) {
+        audio.stop()
+        Task {
+            do {
+                try await store.promoteToPaletteCard(
+                    entry, projectStore: projectStore, cardId: cardId)
+            } catch { promoteError = error.localizedDescription }
+        }
+    }
+
+    private func promoteToPaletteNewCard(_ entry: InboxEntry, title: String) {
+        audio.stop()
+        Task {
+            do {
+                let card = try await projectStore.addPaletteCard(title: title, kind: .other)
+                try await store.promoteToPaletteCard(
+                    entry, projectStore: projectStore, cardId: card.id)
+            } catch { promoteError = error.localizedDescription }
+        }
+    }
+
+    /// The palette card whose title case-insensitively equals the entry's aimed
+    /// `paletteSubject`, if one exists — backs the direct "Promote to Palette:
+    /// <title>" menu item.
+    private func matchingPaletteCard(for entry: InboxEntry) -> ResearchItem? {
+        guard let subject = entry.paletteSubject, !subject.isEmpty else { return nil }
+        return projectStore.paletteCardItems().first {
+            $0.title.caseInsensitiveCompare(subject) == .orderedSame
         }
     }
 

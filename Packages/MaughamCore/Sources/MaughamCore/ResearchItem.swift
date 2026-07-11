@@ -1,5 +1,19 @@
 import Foundation
 
+/// Marks items with app-level meaning that must survive rename/move
+/// (ADR-0015-tolerant: unknown raw values decode to `.unknown`, which no
+/// lookup matches — semantically equivalent to nil for old readers).
+public enum ResearchRole: String, Codable, Sendable {
+    case paletteGroup = "palette_group"
+    case craftIntent = "craft_intent"
+    case unknown
+
+    public init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = ResearchRole(rawValue: raw) ?? .unknown
+    }
+}
+
 /// A node in a project's research tree.
 /// Either a `group` (with `children`) or an `asset` (image, document, pdf, audio, link).
 public struct ResearchItem: Codable, Equatable, Identifiable, Sendable, TreeNode {
@@ -44,6 +58,10 @@ public struct ResearchItem: Codable, Equatable, Identifiable, Sendable, TreeNode
     public var links: [String]?
     public var addedAt: Date?
     public var children: [ResearchItem]?
+    /// App-level identity that survives rename/move (see `ResearchRole`).
+    /// Optional so legacy manifests decode with `nil`; a nil or `.unknown`
+    /// role means "no durable marker" and falls back to path/filename.
+    public var role: ResearchRole?
 
     public init(
         id: String,
@@ -56,7 +74,8 @@ public struct ResearchItem: Codable, Equatable, Identifiable, Sendable, TreeNode
         tags: [String]? = nil,
         links: [String]? = nil,
         addedAt: Date? = nil,
-        children: [ResearchItem]? = nil
+        children: [ResearchItem]? = nil,
+        role: ResearchRole? = nil
     ) {
         self.id = id
         self.title = title
@@ -69,5 +88,6 @@ public struct ResearchItem: Codable, Equatable, Identifiable, Sendable, TreeNode
         self.links = links
         self.addedAt = addedAt
         self.children = children
+        self.role = role
     }
 }

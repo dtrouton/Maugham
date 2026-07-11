@@ -1,7 +1,7 @@
 # Palette Everywhere — Role Identity + Phone Capture/Read — Design
 
 **Date:** 2026-07-10
-**Status:** Approved design, pre-plan
+**Status:** Implemented (branch `feat/palette-phone-role-identity`, 2026-07-11)
 **Builds on:** `2026-07-09-craft-intent-sensory-palette-design.md` (shipped v0.19.0)
 **Roadmap home:** Group 1 follow-on (palette-group rename identity) + Group 5 (iPhone companion)
 

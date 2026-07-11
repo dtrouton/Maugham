@@ -12,6 +12,8 @@ import MaughamCore
 /// Only a denied *microphone* permission blocks recording.
 struct VoiceCaptureSheet: View {
     let writer: InboxCaptureWriter
+    /// The current palette aim (nil = plain inbox), threaded into the write.
+    var aim: PaletteAim?
     let onCommit: () -> Void
 
     @State private var recorder = VoiceRecorder()
@@ -171,7 +173,9 @@ struct VoiceCaptureSheet: View {
                 let trimmed = recorder.draft.trimmingCharacters(in: .whitespacesAndNewlines)
                 try await writer.writeAudio(
                     from: tempURL,
-                    transcriptDraft: trimmed.isEmpty ? nil : trimmed)
+                    transcriptDraft: trimmed.isEmpty ? nil : trimmed,
+                    paletteSubject: aim?.subject,
+                    sense: aim?.sense)
                 recorder.cleanupAfterCommit()
                 onCommit()
                 dismiss()

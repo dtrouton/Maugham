@@ -71,9 +71,9 @@ The in-app MCP server: tool registration, JSON-RPC handling, the read/search/dis
 - `clear_piece_style` — remove per-piece style overrides
 
 **Inbox / capture**
-- `list_inbox` — enumerate capture inbox entries (voice/text/photo)
+- `list_inbox` — enumerate capture inbox entries (voice/text/photo); summaries include the phone's optional `palette_subject`/`sense` aim fields when present
 - `read_inbox_entry` — read the content of a single inbox entry
-- `promote_inbox_entry` — promote an inbox entry to research; optional `target_document_id` scopes it to a piece's own research folder or a chapter's shared-research link
+- `promote_inbox_entry` — promote an inbox entry to research, or into an existing sensory-palette card via `palette_card_id` (by id) or `palette_subject` (by case-insensitive card-title match; no match fails rather than minting a card). `target_document_id`, `palette_card_id`, and `palette_subject` are mutually exclusive destinations — at most one. `title` is honored for research promotes only; palette-card promotes ignore it (the card's own title is unaffected by a promoted capture).
 
 ## Dev-only Test MCP (`Maugham/MCP/Test/`)
 

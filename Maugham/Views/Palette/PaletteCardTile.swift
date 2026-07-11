@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 /// One card on the palette wall. The pure helpers (`kindSymbol`, `snippet`) are
 /// the tested surface; the body does NO I/O (thumbnails are pre-loaded by the
