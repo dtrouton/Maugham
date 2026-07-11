@@ -97,6 +97,82 @@ final class PaletteCardParserTests: XCTestCase {
             cardDirectory: "research/palette").body, "")
     }
 
+    func test_parse_bodyLocalImage_notHarvested_bodyRoundTripsVerbatim() {
+        let md = """
+        # The Flat
+
+        kind: location
+
+        Body prose with an inline image ![alt](./x_assets/a.png) inline.
+
+        ## Swatches
+
+        ## Senses
+
+        ## Images
+
+        """
+        let card = PaletteCardParser.parse(
+            markdown: md, itemId: "res-body-1", fallbackTitle: "x",
+            cardDirectory: "research/palette")
+        XCTAssertEqual(card.body, "Body prose with an inline image ![alt](./x_assets/a.png) inline.")
+        XCTAssertTrue(card.imagePaths.isEmpty)
+
+        let rendered = PaletteCardRenderer.render(card, cardDirectory: "research/palette")
+        let reparsed = PaletteCardParser.parse(
+            markdown: rendered, itemId: "res-body-1", fallbackTitle: "x",
+            cardDirectory: "research/palette")
+        XCTAssertEqual(reparsed, card)
+    }
+
+    func test_parse_bodyRemoteImage_notHarvested_bodyRoundTripsVerbatim() {
+        let md = """
+        # The Flat
+
+        kind: location
+
+        Body prose with a remote image ![alt](https://example.com/y.png) inline.
+
+        ## Swatches
+
+        ## Senses
+
+        ## Images
+
+        """
+        let card = PaletteCardParser.parse(
+            markdown: md, itemId: "res-body-2", fallbackTitle: "x",
+            cardDirectory: "research/palette")
+        XCTAssertEqual(card.body, "Body prose with a remote image ![alt](https://example.com/y.png) inline.")
+        XCTAssertTrue(card.imagePaths.isEmpty)
+
+        let rendered = PaletteCardRenderer.render(card, cardDirectory: "research/palette")
+        let reparsed = PaletteCardParser.parse(
+            markdown: rendered, itemId: "res-body-2", fallbackTitle: "x",
+            cardDirectory: "research/palette")
+        XCTAssertEqual(reparsed, card)
+    }
+
+    func test_parse_imagesSectionInlineImage_stillHarvested() {
+        let md = """
+        # The Flat
+
+        kind: location
+
+        ## Swatches
+
+        ## Senses
+
+        ## Images
+
+        Inline in images section ![alt](./b_assets/b.png).
+        """
+        let card = PaletteCardParser.parse(
+            markdown: md, itemId: "res-img-1", fallbackTitle: "x",
+            cardDirectory: "research/palette")
+        XCTAssertEqual(card.imagePaths, ["research/palette/b_assets/b.png"])
+    }
+
     func test_hexColor_parsing() {
         XCTAssertNotNil(PaletteCard.color(fromHex: "#8A6F4D"))
         XCTAssertNotNil(PaletteCard.color(fromHex: "#fff"))

@@ -129,6 +129,7 @@ public enum PaletteCardParser {
         var section: Section = .none
         var seenSectionHeading = false
         var kindCaptured = false
+        var imagesSectionLines: [String] = []
 
         for rawLine in markdown.split(separator: "\n", omittingEmptySubsequences: false) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
@@ -162,6 +163,12 @@ public enum PaletteCardParser {
                 bodyLines.append(line)
                 continue
             }
+            if section == .images {
+                // Captured verbatim (dash items and prose alike) so the inline-image
+                // scan below can find `![alt](path)` written as loose text in this
+                // section, without also sweeping body prose (that's prose, not data).
+                imagesSectionLines.append(line)
+            }
             guard line.hasPrefix("- ") else { continue }
             let item = String(line.dropFirst(2)).trimmingCharacters(in: .whitespaces)
             switch section {
@@ -177,15 +184,19 @@ public enum PaletteCardParser {
                     notes.append(.init(sense: nil, text: item))
                 }
             case .images:
-                images.append(resolve(path: item, relativeTo: cardDirectory))
+                if !item.contains("://") { images.append(resolve(path: item, relativeTo: cardDirectory)) }
             default:
                 break  // .unknown dropped; .none is unreachable (pre-section prose
                        // is captured into `bodyLines` above and never reaches here).
             }
         }
 
-        // Inline ![alt](path) images anywhere in the body, deduped against section images.
-        for path in inlineImagePaths(in: markdown) {
+        // Inline ![alt](path) images, but ONLY within the `## Images` section —
+        // body prose keeps its `![]()` text verbatim rather than being harvested
+        // (a body-typed image must stay editable/removable as prose, not become a
+        // thumbnail the model can never drop). Remote URLs never enter imagePaths.
+        let imagesSectionText = imagesSectionLines.joined(separator: "\n")
+        for path in inlineImagePaths(in: imagesSectionText) where !path.contains("://") {
             let resolved = resolve(path: path, relativeTo: cardDirectory)
             if !images.contains(resolved) { images.append(resolved) }
         }
