@@ -122,8 +122,11 @@ public enum PromoteInboxEntryTool: MCPTool {
         "same by case-insensitive card title match (no match fails, listing " +
         "existing titles — this tool never mints a new card; create one in " +
         "the Palette pane first). Omitting all three promotes to shared " +
-        "research. Palette promotes reuse the research Result shape " +
-        "(research_id is the card id, path its markdown file). Unknown ids fail."
+        "research. title is honored for research promotes only (the default " +
+        "and target_document_id paths); palette-card promotes ignore it — " +
+        "the card keeps its own title. Palette promotes reuse the research " +
+        "Result shape (research_id is the card id, path its markdown file). " +
+        "Unknown ids fail."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"},"entry_id":{"type":"string"},"title":{"type":"string"},"target_document_id":{"type":"string"},"palette_card_id":{"type":"string"},"palette_subject":{"type":"string"}},"required":["project_id","entry_id"]}"#
 
