@@ -26,6 +26,7 @@ The ones you'll use most:
 | `⌘⌥1` / `⌘⌥2` / `⌘⌥3` | Right pane: Inspector / Research / Outline |
 | `⌘⌥4` | History pane |
 | `⌘⌥5` | Tasks pane |
+| `⌘⌥6` | Inbox pane |
 | `⌘⌥7` | Palette pane |
 | `⌘⇧P` | Toggle Research preview |
 | `⌘/` | Syntax + keyboard reference |
