@@ -21,11 +21,9 @@ import Foundation
 /// (checked state, body, anchor id, ranges for click-routing) use
 /// `MarkdownCheckboxScanner` / `FountainBoneyardScanner` instead; those
 /// return match data this boolean can't express, so they keep their own
-/// regexes rather than being force-fit onto this predicate. Note
-/// `MarkdownCheckboxScanner`'s regex is lowercase-`x`-only today (a
-/// narrower, pre-existing gap in a different layer — task *derivation*,
-/// not detection — left alone here since it's outside this predicate's
-/// scope).
+/// regexes rather than being force-fit onto this predicate.
+/// `MarkdownCheckboxScanner`'s regex accepts `- [x]` and `- [X]` alike, so
+/// detection here and derivation there agree on the uppercase form (Task 22b).
 public enum TaskMarkup {
     public static func lineContainsTaskMarker(_ line: String) -> Bool {
         return line.contains("- [ ]") || line.contains("- [x]") || line.contains("- [X]")

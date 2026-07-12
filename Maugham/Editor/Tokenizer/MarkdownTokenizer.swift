@@ -144,7 +144,7 @@ public struct MarkdownTokenizer: Sendable {
                 return [Token(range: outer, kind: .wikiLink(title: title))]
             }
 
-        // Checkbox: ^(\s*)- \[( |x)\] (.+?)(?:(\s+<!--t-[alphabet]{6}-->))?$
+        // Checkbox: ^(\s*)- \[( |x|X)\] (.+?)(?:(\s+<!--t-[alphabet]{6}-->))?$
         // Emits: listMarker for `-`, .checkbox for `[ ]`/`[x]`, .taskBody for
         // the body text, and .invisibleAnchor for the trailing anchor span (if
         // present, including its leading space). Must run before the generic
@@ -157,7 +157,7 @@ public struct MarkdownTokenizer: Sendable {
         var taskBodyTokens: [Token] = []
         addMatches(
             in: nsText, fullRange: fullRange,
-            pattern: #"(?m)^(\s*)- \[( |x)\] (.+?)(\s+<!--t-[0123456789abcdefghjkmnpqrstvwxyz]{6}-->)?$"#,
+            pattern: #"(?m)^(\s*)- \[( |x|X)\] (.+?)(\s+<!--t-[0123456789abcdefghjkmnpqrstvwxyz]{6}-->)?$"#,
             into: &tokens) { match in
                 let indent = match.range(at: 1)
                 let dashRange = NSRange(
@@ -167,7 +167,8 @@ public struct MarkdownTokenizer: Sendable {
                 let bracketRange = NSRange(
                     location: bracketChar.location - 1,
                     length: 3)  // covers "[ ]" or "[x]"
-                let checked = nsText.substring(with: bracketChar) == "x"
+                // bracketChar is one of " ", "x", "X"; anything but space is checked.
+                let checked = nsText.substring(with: bracketChar) != " "
                 let bodyRange = match.range(at: 3)
                 let anchorCapture = match.range(at: 4)
                 if bodyRange.location != NSNotFound && bodyRange.length > 0 {

@@ -23,9 +23,11 @@ public extension MarkdownCheckboxScanner {
         let glyph = ns.substring(with: NSRange(location: utf16Offset, length: 3))
         let replacement: String
         switch glyph {
-        case "[ ]": replacement = "[x]"
-        case "[x]": replacement = "[ ]"
-        default:    return paragraph
+        case "[ ]":        replacement = "[x]"
+        // Both `[x]` and `[X]` clear on click (GFM treats them as equivalent);
+        // toggling normalizes to the unchecked glyph.
+        case "[x]", "[X]": replacement = "[ ]"
+        default:           return paragraph
         }
         return ns.replacingCharacters(
             in: NSRange(location: utf16Offset, length: 3),

@@ -82,6 +82,28 @@ final class TaskDeriverTests: XCTestCase {
         XCTAssertEqual(tasks[0].body, "done thing")
     }
 
+    // MARK: - 3b. Inline uppercase-checked box: done (Task 22b)
+
+    func test_derive_inlineUppercaseCheckedBox_returnsDoneTask() {
+        let pid = "bcdf"
+        let (tasks, _, mints) = TaskDeriver.derive(
+            ops: [],
+            paragraphs: [pid: "- [X] shout"],
+            docId: "doc_test")
+        XCTAssertEqual(tasks.count, 1,
+            "uppercase `- [X]` must derive as a task, matching detection")
+        XCTAssertEqual(tasks[0].kind, .inlineMarkdown)
+        XCTAssertEqual(tasks[0].status, .done,
+            "capital X reads as checked, per GFM equivalence")
+        XCTAssertEqual(tasks[0].body, "shout")
+        XCTAssertTrue(isMintedInlineId(tasks[0].id, docId: "doc_test"))
+        XCTAssertEqual(mints.count, 1,
+            "unanchored uppercase line mints an anchor through the normal path")
+        XCTAssertEqual(mints[0].body, "shout")
+        XCTAssertEqual(mints[0].kind, .inlineMarkdown)
+        XCTAssertNil(mints[0].intraLineOffset, "markdown line-style is whole-line")
+    }
+
     // MARK: - 4. Pane-created task
 
     func test_derive_paneCreatedTaskOp_returnsPaneTask() {
