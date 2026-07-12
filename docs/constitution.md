@@ -2,7 +2,7 @@
 
 *This is the opinions document: the value thesis, who Maugham is for and isn't, and the musts and must-nots that every future feature is tested against. The facts — what's built, what's half-built — live in [`product.md`](product.md).*
 
-*Each principle carries a rationale and a falsification condition ("we'd know this rule was wrong if…"). Some principles are marked **identity**: they define what Maugham is, and no evidence would revise them — abandoning one means building a different product. Others are marked **position**: held with conviction, but honest about what would change our mind. A proposal that collides with an identity principle is dead on arrival; one that collides with a position must clear the stated bar.*
+*Each principle carries a rationale and a falsification condition ("we'd know this rule was wrong if…"). Some principles are marked **identity**: they define what Maugham is, and no evidence would revise them — abandoning one means building a different product. Others are marked **position**: held with conviction, but honest about what would change our mind. A proposal that collides with an identity principle is dead on arrival; one that collides with a position must clear the stated bar. That test applies to *solutions*. A problem or job that lives in territory these principles exclude is not dead on arrival — flag it against the principle and preserve it; a flagged job that keeps resurfacing is evidence about the rule.*
 
 *ADRs may cite these principles by name. When a decision genuinely conflicts with a position stated here, the resolution is an edit to this document, not a silent exception.*
 
@@ -87,6 +87,16 @@ No AI system may originate manuscript text autonomously. The precise line: Claud
 
 **We'd know this was wrong if:** nothing would. Identity. A Maugham where AI writes is a different product with the same name.
 
+#### Corollary: reproduction is not a license to author — *identity*
+
+Some AI tasks claim to *reproduce* the writer's own words rather than propose new ones — transcribing a photographed manuscript page, OCR, importing handwriting. This is the disguised case of the rule above, and the most dangerous one: a confident fabrication in a reproduction channel wears the writer's own voice and invites acceptance instead of scrutiny. A suggestion announces itself as the AI's and asks to be judged; a transcription claims to be *yours already* and asks only to be pasted. (This is not hypothetical — a transcription pass once fabricated a continuation of the story in place of the page's actual words; the only safeguard was the writer's suspicious read. See [`problem-map.md`](problem-map.md), "Know the transcription says what the page says," and the evidence behind it.)
+
+So: AI-reproduced content is unverified manuscript-candidate text until the writer confirms it against the source. The reproduction and its source must be checkable side by side; reproduced text must never auto-place into the manuscript; and it must never silently shed its unconfirmed status.
+
+**Violated if:** transcribed, OCR'd, or imported text flows into the manuscript without a per-instance writer confirmation; the source (photo, scan, original) isn't available beside the reproduction for checking; reproduced text is presented as indistinguishable from words the writer confirmed.
+
+**We'd know this was wrong if:** the identity core wouldn't move — reproduction must stay verifiable and never auto-authored; it is must-not #1 seen in a mirror. The *friction* is a position: if transcription grew reliable enough that side-by-side confirmation became pure ceremony, the mechanism could lighten — but never below "the writer can always see the source, and nothing reproduced enters the manuscript unbidden." Reliability rising does not make a hidden fabrication less catastrophic; it makes it rarer and therefore less expected, which cuts the other way.
+
 ### 2. No AI inside the editor — *identity*
 
 Claude lives in another window. No chat panel, no inline copilot, no ghost-text completions from a language model, no AI margin whispering in the writing surface. The friction of switching windows is a feature: writing-mode and feedback-mode are different mental states, and the boundary between them deserves physical form.
@@ -95,7 +105,7 @@ Claude lives in another window. No chat panel, no inline copilot, no ghost-text 
 
 **Violated if:** any AI-generated content renders inside the editor surface or its immediate chrome; any editor affordance invokes AI in-place. (Boundary note: mechanical intelligence — Fountain autocomplete from the writer's own sluglines, wiki-link completion from the writer's own names — is not AI in this sense. The line is generative-model output, not code being clever with the writer's own material.)
 
-**We'd know this was wrong if:** nothing would move the editor-surface rule. The nearest revisable neighbor is already accommodated: a read-only companion *pane* for Claude responses (roadmap, Group 2) keeps feedback out of the editor while shortening the walk — that's the permitted form of this pressure, not an erosion of the rule.
+**We'd know this was wrong if:** nothing would move the editor-surface rule. The nearest revisable neighbor is already accommodated: a read-only companion *pane* for Claude responses keeps feedback out of the editor while shortening the walk — that's the permitted form of this pressure, not an erosion of the rule.
 
 ### 3. Nothing AI-made reaches readers unreviewed — *identity*
 
