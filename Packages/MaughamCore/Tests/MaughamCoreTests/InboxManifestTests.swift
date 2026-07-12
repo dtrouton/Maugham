@@ -8,13 +8,13 @@ import XCTest
 final class InboxManifestTests: XCTestCase {
     func test_inboxManifestURL_lastPathComponentMatchesTemplate() {
         let tmp = URL(fileURLWithPath: "/tmp/TestProject")
-        let url = InboxManifest.inboxManifestURL(forDeviceSlug: "phoneA-1234", in: tmp)
+        let url = InboxManifest.inboxManifestURL(forDeviceSlug: .unsafeForTesting("phoneA-1234"), in: tmp)
         XCTAssertEqual(url.lastPathComponent, "inbox.phoneA-1234.jsonl")
     }
 
     func test_inboxManifestURL_parentDirEndsInMaughamInbox() {
         let tmp = URL(fileURLWithPath: "/tmp/TestProject")
-        let url = InboxManifest.inboxManifestURL(forDeviceSlug: "phoneA-1234", in: tmp)
+        let url = InboxManifest.inboxManifestURL(forDeviceSlug: .unsafeForTesting("phoneA-1234"), in: tmp)
         let parent = url.deletingLastPathComponent().path
         XCTAssertTrue(parent.hasSuffix("/.maugham/inbox"),
                       "Expected parent to end in '/.maugham/inbox', got: \(parent)")
@@ -22,14 +22,14 @@ final class InboxManifestTests: XCTestCase {
 
     func test_inboxManifestURL_fullPathMatchesExpected() {
         let tmp = URL(fileURLWithPath: "/tmp/TestProject")
-        let url = InboxManifest.inboxManifestURL(forDeviceSlug: "macA-5678", in: tmp)
+        let url = InboxManifest.inboxManifestURL(forDeviceSlug: .unsafeForTesting("macA-5678"), in: tmp)
         XCTAssertEqual(url.path, "/tmp/TestProject/.maugham/inbox/inbox.macA-5678.jsonl")
     }
 
     func test_inboxManifestURL_differentSlugsProduceDifferentFiles() {
         let tmp = URL(fileURLWithPath: "/tmp/Proj")
-        let phone = InboxManifest.inboxManifestURL(forDeviceSlug: "phone-abc", in: tmp)
-        let mac   = InboxManifest.inboxManifestURL(forDeviceSlug: "mac-xyz",   in: tmp)
+        let phone = InboxManifest.inboxManifestURL(forDeviceSlug: .unsafeForTesting("phone-abc"), in: tmp)
+        let mac   = InboxManifest.inboxManifestURL(forDeviceSlug: .unsafeForTesting("mac-xyz"),   in: tmp)
         XCTAssertNotEqual(phone.lastPathComponent, mac.lastPathComponent)
         // Both share the same parent directory
         XCTAssertEqual(phone.deletingLastPathComponent(), mac.deletingLastPathComponent())

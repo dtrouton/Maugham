@@ -20,14 +20,16 @@ public enum MarkdownCheckboxScanner {
     }
 
     private static let regex: NSRegularExpression = {
-        // `^\s*- \[( |x)\] (.+?)(?:\s+<!--t-([alphabet]{6})-->)?$`
+        // `^\s*- \[( |x|X)\] (.+?)(?:\s+<!--t-([alphabet]{6})-->)?$`
         // Non-greedy body capture so the optional trailing anchor group can
         // bite. If the line ends with a well-formed anchor preceded by a
         // single whitespace gap, group 3 captures the id; otherwise group 3's
         // range is NSNotFound and the entire body string is whatever follows
-        // the bracket.
+        // the bracket. Both `x` and `X` mark checked (GFM treats them as
+        // equivalent) — the derivation must match the detection predicate
+        // `TaskMarkup.lineContainsTaskMarker`, which accepts `- [X]`.
         return try! NSRegularExpression(
-            pattern: #"^\s*- \[( |x)\] (.+?)(?:\s+<!--t-([0123456789abcdefghjkmnpqrstvwxyz]{6})-->)?$"#)
+            pattern: #"^\s*- \[( |x|X)\] (.+?)(?:\s+<!--t-([0123456789abcdefghjkmnpqrstvwxyz]{6})-->)?$"#)
     }()
 
     public static func match(_ line: String) -> Match? {
@@ -35,7 +37,8 @@ public enum MarkdownCheckboxScanner {
         let range = NSRange(location: 0, length: ns.length)
         guard let m = regex.firstMatch(in: line, range: range),
               m.numberOfRanges == 4 else { return nil }
-        let checked = ns.substring(with: m.range(at: 1)) == "x"
+        // Group 1 is one of " ", "x", "X"; anything but a space is checked.
+        let checked = ns.substring(with: m.range(at: 1)) != " "
         let body = ns.substring(with: m.range(at: 2))
         let anchorRange = m.range(at: 3)
         let anchorId: String? = anchorRange.location == NSNotFound

@@ -51,7 +51,7 @@ final class CrashRecoveryTests: XCTestCase {
         // carries the bytes.
         let slug = DeviceSlug.make(from: device)
         let pendingURL = tmp.appendingPathComponent(
-            ".maugham/pending/d.\(slug).pending.jsonl")
+            ".maugham/pending/d.\(slug.raw).pending.jsonl")
         XCTAssertFalse(FileManager.default.fileExists(atPath: pendingURL.path))
         let loaded = try await OpLogStore(projectURL: tmp).load(docId: "d")
         XCTAssertEqual(loaded.count, 1)

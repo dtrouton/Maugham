@@ -293,6 +293,20 @@ public final class Document {
     /// maintenance. Production reads `OpLogStore.segmentSealThreshold`.
     internal static var segmentSealThresholdForTesting: Int? = nil
 
+    /// Test-only artificial delay injected inside the detached task-op disk
+    /// append (`appendTaskOpInternal`). Makes the close-time drain race
+    /// deterministically reproducible: with a delay set, an undrained
+    /// `close()` returns before the append lands. Production leaves it nil.
+    internal static var _testDelayTaskAppends: Duration? = nil
+
+    /// In-flight detached task-op disk appends, keyed by a monotonic token so
+    /// each self-prunes on completion (the set stays near-empty in steady
+    /// state). `close()` drains these before husking so a prompt quit can't
+    /// drop a task op or its ⌘Z compensating op (E1). See
+    /// `appendTaskOpInternal` / `drainTaskAppends`.
+    internal var inFlightTaskAppends: [UInt64: Task<Void, Never>] = [:]
+    internal var _nextTaskAppendToken: UInt64 = 0
+
     internal init(
         url: URL, docId: String, device: String, session: String,
         presenter: NSFilePresenter?, opStore: OpLogStore,
@@ -921,6 +935,28 @@ public final class Document {
         // appWillTerminate racing onDisappear) returns immediately rather than
         // re-running the flush machinery over husked state.
         guard !isClosed else { return }
+        // Let any in-flight ⌘Z undo/redo hop finish on the LIVE (non-husked) doc
+        // before husking (whole-branch review, 2026-07-11). An op-log undo runs
+        // its mutation in `_lastUndoWorkTask`'s async hop (OpUndoRegistrar); a
+        // COMPOUND undo (inline-task archive) restores paragraph text (guarded
+        // `applyRestore`/`setFullText`) AND appends a status inverse
+        // (`appendTaskOpInternal`) and reopens swept annotations. If close() husked
+        // mid-hop, the text side would no-op (isClosed guard) while the op side
+        // still appended — a TORN op log on reload. Awaiting the hop first makes
+        // the undo apply atomically on a live doc; the isClosed guards on the op
+        // funnels (fix 1b) are the belt for any hop that still resumes post-husk.
+        // `nil?.value` is a no-op when no undo is pending. Drained AFTER, because
+        // the hop's `appendTaskOpInternal` spawns a fresh detached append this
+        // must then catch.
+        await _lastUndoWorkTask?.value
+        // Drain the detached task-op disk appends BEFORE anything else (E1).
+        // `appendTaskOpInternal` updates the in-memory mirror synchronously
+        // then disk-appends in a fire-and-forget Task; without this drain a
+        // prompt quit returns from close() before those appends land and the
+        // task op (or its ⌘Z compensating op) is silently lost on relaunch.
+        // Drained ahead of flushBurstNow, which only invalidates the tasks
+        // cache and so spawns no further task appends.
+        await drainTaskAppends()
         // Flush any pending burst so editorial classification survives the
         // close (matches EditorHost's onDocChange behaviour).
         //
@@ -1021,7 +1057,7 @@ public final class Document {
     /// late mutation (a still-referenced zombie, an MCP misuse, a scheduler tail)
     /// must no-op rather than operate on husked state or resurrect it. Data
     /// safety is unaffected: the disk truth was written before husking.
-    private func rejectMutationIfClosed(_ site: StaticString) -> Bool {
+    internal func rejectMutationIfClosed(_ site: StaticString) -> Bool {
         guard isClosed else { return false }
         documentLog.error(
             "\(site, privacy: .public) called on a closed Document \(self.docId, privacy: .public); no-op (the instance is abandoned by contract)")

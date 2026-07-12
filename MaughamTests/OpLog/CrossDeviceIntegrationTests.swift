@@ -87,8 +87,8 @@ final class CrossDeviceIntegrationTests: XCTestCase {
 
         let slugA = DeviceSlug.make(from: "mac-A")
         let slugB = DeviceSlug.make(from: "mac-B")
-        let fileA = opsDir().appendingPathComponent("\(docId).\(slugA).jsonl")
-        let fileB = opsDir().appendingPathComponent("\(docId).\(slugB).jsonl")
+        let fileA = opsDir().appendingPathComponent("\(docId).\(slugA.raw).jsonl")
+        let fileB = opsDir().appendingPathComponent("\(docId).\(slugB.raw).jsonl")
 
         // --- Physical layout 1: device A's file written first. ---
         try await seed(fileA, [collisionFromA])

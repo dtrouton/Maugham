@@ -8,24 +8,19 @@ extension Document {
     /// stays off the observable-write hot loop (annotation cache + sweep
     /// pay the same observation cost and are intentionally deferred to
     /// burst flush — see setFullText note for the AttributeGraph cycle /
-    /// reentrant-layout history). Two markup syntaxes count:
-    ///
-    /// - Markdown `- [ ]` / `- [x]` (3-char bracket glyph)
-    /// - Fountain `[[todo: …]]` / `[[done: …]]`
+    /// reentrant-layout history).
     ///
     /// True when either prior or next text contains a checkbox/todo
-    /// marker — covers add, remove, and toggle equally. Cheap substring
-    /// scan; no regex needed because the body-hash deriver re-runs on
-    /// the cache rebuild anyway.
+    /// marker — covers add, remove, and toggle equally. Detection is
+    /// sourced from the shared `TaskMarkup.lineContainsTaskMarker`
+    /// predicate (MaughamCore) — the single source of truth for what
+    /// counts as task markup, so this site can't independently drift
+    /// from `TaskAnchorAlignment` or `TasksPane` again.
     internal static func changeTouchesTaskMarkup(
         prior: String?, next: String?
     ) -> Bool {
-        func hasMarkup(_ s: String) -> Bool {
-            return s.contains("- [ ]") || s.contains("- [x]")
-                || s.contains("[[todo:") || s.contains("[[done:")
-        }
-        if let p = prior, hasMarkup(p) { return true }
-        if let n = next, hasMarkup(n) { return true }
+        if let p = prior, TaskMarkup.lineContainsTaskMarker(p) { return true }
+        if let n = next, TaskMarkup.lineContainsTaskMarker(n) { return true }
         return false
     }
 
@@ -190,25 +185,56 @@ extension Document {
     /// `.maugham/ops/<docId>.jsonl`. JSONLAppendStore dedupes by opId, so
     /// even pathological re-entry is safe on disk.
     internal func appendTaskOpInternal(_ op: Op) {
+        // Decline atomically on a husked doc (whole-branch review, 2026-07-11):
+        // a compound-undo hop resuming after `close()` husked would otherwise
+        // append this op-side change to a cleared mirror / disk while its text
+        // side no-ops (setParagraph/applyRestore are already isClosed-guarded) —
+        // a torn op log. Matches the text-side guards so both sides no-op together.
+        if rejectMutationIfClosed("appendTaskOpInternal") { return }
         _opLogMirror.append(op)
         invalidateTasksCache()
         // Annotation cache only invalidates for annotation ops — task ops
         // don't change annotation derivation, so skip the bump.
         let store = opStore
         let docId = self.docId
-        Task { @MainActor in
-            // LOG (can't propagate): the enclosing `appendTaskOpInternal` is a
-            // sync fire-and-forget; the Task outlives it so there's no throwing
-            // surface to bubble to. A swallowed `try?` would let a task op vanish
-            // from `.maugham/ops/` with no signal while the in-memory mirror
-            // claims success. Surface it; the mirror keeps the UI correct and a
-            // re-derive on reload reconciles, but the drop must leave a trace.
+        // Track the detached append so `close()` can drain it before husking
+        // (E1). Without the drain, a prompt quit returns from `close()` before
+        // this append lands, silently reverting the task op (and any ⌘Z
+        // compensating op) on relaunch, since reload derives from disk — which
+        // never got the op. The in-memory mirror keeps the live UI correct; the
+        // mirror-first-then-durably-appended contract is what `drainTaskAppends`
+        // makes good at close.
+        let token = _nextTaskAppendToken
+        _nextTaskAppendToken &+= 1
+        inFlightTaskAppends[token] = Task { @MainActor [weak self] in
+            if let delay = Document._testDelayTaskAppends {
+                try? await Task.sleep(for: delay)
+            }
+            // LOG (can't propagate): this detached Task outlives the sync
+            // `appendTaskOpInternal`, so there's no throwing surface to bubble
+            // to. A swallowed `try?` would let a task op vanish from
+            // `.maugham/ops/` with no signal while the in-memory mirror claims
+            // success. Surface it so the drop leaves a trace.
             do { try await store.append(op) }
             catch {
                 documentLog.error(
                     "task op append failed for doc \(docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
+            // Self-prune so the tracking set stays near-empty in steady state
+            // (touching only this dict is husk-safe).
+            self?.inFlightTaskAppends[token] = nil
         }
+    }
+
+    /// Await and clear every in-flight detached task-op disk append. Called
+    /// from `Document.close()` BEFORE the burst flush so each append is durable
+    /// once `close()` returns (E1). Idempotent — a second call finds an empty
+    /// set. `flushBurstNow` only invalidates the tasks cache (lazy rebuild), so
+    /// it spawns no new task appends after this drain.
+    internal func drainTaskAppends() async {
+        let inflight = Array(inFlightTaskAppends.values)
+        inFlightTaskAppends.removeAll()
+        for task in inflight { await task.value }
     }
 
     // MARK: - Task mutation API
@@ -489,6 +515,16 @@ extension Document {
         // CLOSED when `preTip` itself is gone.
         let preOpIds: Set<String>? =
             isPaneCreated ? nil : Set(_opLogMirror.map(\.opId))
+        // Open annotations anchored to a paragraph the archive COLLAPSES: the
+        // orphan sweep the collapse flags (fired as a side effect of the undo's
+        // `flushBurstNow` below) archives them, and — unlike the rewind path —
+        // nothing here would reopen them, so ⌘Z brought back text + task but
+        // left the note archived (A6). Captured at the collapse site below (the
+        // sweep's exact predicate) so the undo can reopen them once the
+        // paragraph is restored. Mirrors `Document+RewindUndo`'s
+        // `sweepArchivedAnnotationIds` reopen — the shared reopen mechanism,
+        // not a parallel one.
+        var sweepArchivedAnnotationIds: [String] = []
 
         // Emit the .taskArchive op first so the lifecycle event lands in the
         // op log even when no anchor can be located (pane-created tasks, or
@@ -537,7 +573,15 @@ extension Document {
             if mutated.isEmpty {
                 // Sole task in the paragraph → paragraph collapses. The sweep
                 // reason carries the removed id so annotations on it archive
-                // through the normal path.
+                // through the normal path. Snapshot those about-to-be-swept
+                // annotations BEFORE the delete (the sweep's exact predicate:
+                // open, non-craftNote, anchored to this paragraph) so the
+                // compound undo can reopen them once the paragraph is restored.
+                sweepArchivedAnnotationIds = annotations(
+                    filter: AnnotationFilter(statuses: nil))
+                    .filter { $0.status == .open && $0.kind != .craftNote
+                              && $0.paragraphId == location.paragraphId }
+                    .map(\.id)
                 deleteParagraph(id: location.paragraphId)
             } else {
                 setParagraph(id: location.paragraphId, text: mutated)
@@ -667,6 +711,19 @@ extension Document {
                     docId: doc.docId, device: doc.device,
                     session: doc.session, sessionId: doc.session) {
                     doc.appendTaskOpInternal(inverse)
+                }
+                // 3. Reopen each annotation the collapse's orphan sweep
+                //    archived — the paragraph is back (step 1), so its notes
+                //    should be too. The sweep fired as a side effect of the
+                //    `flushBurstNow` above; nothing else reopens them. Same
+                //    mechanism as the rewind-undo path (`Document+RewindUndo`);
+                //    `reopenAnnotation` is a loud no-op if the status drifted.
+                //    Empty for the rewrite branch (no paragraph was removed).
+                for src in sweepArchivedAnnotationIds {
+                    do { try await doc.reopenAnnotation(id: src) }
+                    catch {
+                        documentLog.error("archiveTask compound undo: reopen failed for sweep-archived \(src, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    }
                 }
             },
             redo: { [weak undoManager] doc in

@@ -82,7 +82,9 @@ struct EditorHost: View {
                     // The setter writes via Document.setFullText, then routes the
                     // project-level side-effects through DocumentStore. See
                     // recordEditorTextWrite's doc-comment for why both steps are
-                    // load-bearing.
+                    // load-bearing. This Binding is the fragile data-plane seam
+                    // (tripwires 2/3/6/7) — it stays inline here, NOT packaged into
+                    // the configuration.
                     text: Binding(
                         get: { doc.displayText },
                         set: { newText in
@@ -94,143 +96,7 @@ struct EditorHost: View {
                                 store: store)
                         }
                     ),
-                    theme: userPreferences.theme,
-                    typography: ProjectStore.effectiveTypography(
-                        override: store.manifest.typography,
-                        userDefault: userPreferences.typography),
-                    mode: WritingModeFactory.mode(for: path),
-                    typewriterScroll: userPreferences.typewriterScroll,
-                    sentenceFocus: userPreferences.sentenceFocus,
-                    paragraphFocus: userPreferences.paragraphFocus,
-                    control: control,
-                    initialCursorLocation: doc.cursorLocation,
-                    onCursorChanged: { offset in
-                        doc.cursorLocation = offset
-                        // Stash the latest cursor position so Document's V2
-                        // task-anchor alignment in setFullText can read it
-                        // as the pre-edit cursor input.
-                        doc.recordCursorAt(offset)
-                    },
-                    onPostEditCursor: { doc.recordPostEditCursor($0) },
-                    onElementChanged: onElementChanged,
-                    onMetricsChanged: onMetricsChanged,
-                    wikiLinkResolver: wikiLinkResolver,
-                    wikiLinkClickResolver: wikiLinkClickResolver,
-                    showElementGutter: store.manifest.showElementGutter ?? true,
-                    // Scope this window's script posts to its project so another
-                    // window's screenplay re-parse can't relayout this editor or
-                    // clobber its scene navigator (Channel A, ADR 0017 addendum).
-                    scriptOriginProjectId: ProjectIdentifier.id(for: store.url),
-                    paragraphRangeProvider: { paragraphId in
-                        doc.displayRange(forParagraphId: paragraphId)
-                    },
-                    paragraphLocator: { location in
-                        guard let pid = doc.paragraphId(at: location),
-                              let range = doc.displayRange(forParagraphId: pid)
-                        else { return nil }
-                        return (paragraphId: pid,
-                                offsetWithinParagraph: location - range.location)
-                    },
-                    checkboxToggleHandler: { paragraphId, offset, kind in
-                        // Mirror wiki-link click wiring: the flip goes through
-                        // Document.setParagraph, the standard mutation path.
-                        // Tripwire #7: this is NOT applyExternalText.
-                        guard let para = doc.paragraph(id: paragraphId) else { return }
-                        let flipped: String
-                        switch kind {
-                        case .markdown:
-                            flipped = MarkdownCheckboxScanner.flipBracket(
-                                in: para, atUTF16Offset: offset)
-                        case .fountain:
-                            flipped = FountainBoneyardScanner.flipTodoDone(
-                                in: para, atUTF16Offset: offset)
-                        }
-                        guard flipped != para else { return }
-                        // ⌘Z: a checkbox flip is text-is-state (no task op), so
-                        // undo is a guarded flip-back. `InlineToggleUndo` sets the
-                        // undo-coherent flag so the buffer replace this
-                        // setParagraph drives doesn't wipe the fresh registration.
-                        InlineToggleUndo.perform(
-                            on: doc, paragraphId: paragraphId,
-                            prior: para, flipped: flipped, undoManager: um)
-                    },
-                    paragraphRangeAtLocation: { location in
-                        doc.paragraphRange(at: location)
-                    },
-                    createAnnotationHandler: { kind, paragraphId, span, body, suggestedText in
-                        // Annotation creation is an op-log append, not a text
-                        // mutation — it doesn't write the editor binding, so the
-                        // applyExternalText tripwires (6/7) don't apply. The
-                        // AnnotationsPane re-renders automatically off the
-                        // Document's `annotationsVersion` bump (invalidated
-                        // inside addAnnotation). The handler is async so the
-                        // coordinator can await this append, then re-pull the
-                        // annotation set and refresh the crafted marks — so a
-                        // just-created annotation renders immediately in review
-                        // mode without a toggle.
-                        try? await doc.addReviewerAnnotation(
-                            kind: kind,
-                            paragraphId: paragraphId,
-                            span: span,
-                            body: body,
-                            suggestedText: suggestedText,
-                            authorName: userPreferences.collaboratorDisplayName)
-                    },
-                    reviewParagraphTextProvider: { pid in
-                        doc.paragraph(id: pid).map {
-                            RenderFilter.stripTaskAnchorsInline($0)
-                        }
-                    },
-                    reviewParagraphRangeProvider: { pid in
-                        doc.displayRange(forParagraphId: pid)
-                    },
-                    // Pull-on-entry: the coordinator invokes this ONLY when
-                    // entering review (membrane toggle OR fresh launch), so it
-                    // derives the current open annotations on demand without the
-                    // lagged `reviewAnnotations` push. NOT gated on isReviewMode —
-                    // gating would defeat the purpose (the first toggle's entry
-                    // happens while isReviewMode is still flipping). It's never
-                    // called during authoring, so no per-keystroke derivation.
-                    reviewAnnotationsProvider: {
-                        doc.annotations(
-                            filter: AnnotationFilter(statuses: [.open]))
-                    },
-                    // Local reviewer name — gates Edit/Delete on margin cards.
-                    reviewLocalAuthorName: { userPreferences.collaboratorDisplayName },
-                    // Interactive margin-card actions (Part 1). Each is an op-log
-                    // append routed through Document — NOT a text-binding write, so
-                    // the applyExternalText tripwires (6/7) don't apply. The
-                    // coordinator refreshes its marks from the provider after each.
-                    reviewAcceptHandler: { id in
-                        try? await doc.acceptAnnotation(id: id, undoManager: um)
-                    },
-                    reviewRejectHandler: { id in
-                        // The card has no reasoning field; the reason-capture sheet
-                        // stays in the AnnotationsPane. A card-reject records no
-                        // reason (a follow-up could surface the sheet from here).
-                        try? await doc.rejectAnnotation(id: id, undoManager: um)
-                    },
-                    reviewArchiveHandler: { id in
-                        try? await doc.archiveAnnotation(id: id, undoManager: um)
-                    },
-                    reviewReplyHandler: { id, reply in
-                        try? await doc.acceptAnnotation(id: id, userResponse: reply, undoManager: um)
-                    },
-                    reviewEditHandler: { id, newBody, newSuggested in
-                        try? await doc.editReviewerAnnotation(
-                            id: id,
-                            newBody: newBody,
-                            newSuggestedText: newSuggested,
-                            authorName: userPreferences.collaboratorDisplayName,
-                            undoManager: um)
-                    },
-                    reviewWithdrawHandler: { id in
-                        try? await doc.withdrawReviewerAnnotation(
-                            id: id,
-                            authorName: userPreferences.collaboratorDisplayName,
-                            undoManager: um)
-                    },
-                    consumeUndoCoherentApplyFlag: { doc.consumeUndoCoherentApplyFlag() }
+                    configuration: makeSurfaceConfiguration(doc: doc, path: path, um: um)
                 )
                 .id(path)
                 // Crafted review render (Component F): the open-annotation set now
@@ -319,6 +185,162 @@ struct EditorHost: View {
         // read of `document.displayText` into this view's body would reopen the
         // parallel-observable-state cursor races (tripwires 6 and 7).
         .task { await loadDocumentIfNeeded() }
+    }
+
+    /// Build the EditorSurface configuration wall in a dedicated function so the
+    /// `body` type-checker load drops (the extracted-ViewModifier / ProjectWindow
+    /// pattern). Pure packaging (hardening Task 2): every closure below is the
+    /// same one that used to sit inline in the ~40-param init — same captures
+    /// (`doc`/`path`/`um` threaded in, the rest via `self`), same types, same
+    /// wiring. The text Binding and its undo-coherent flag are the only
+    /// tripwire-sensitive pieces; the Binding stays inline at the call site and
+    /// the flag is packaged 1:1 as `consumeUndoCoherentApplyFlag`.
+    private func makeSurfaceConfiguration(
+        doc: Document, path: String, um: UndoManager?
+    ) -> EditorSurfaceConfiguration {
+        EditorSurfaceConfiguration(
+            presentation: .init(
+                theme: userPreferences.theme,
+                typography: ProjectStore.effectiveTypography(
+                    override: store.manifest.typography,
+                    userDefault: userPreferences.typography),
+                mode: WritingModeFactory.mode(for: path),
+                typewriterScroll: userPreferences.typewriterScroll,
+                sentenceFocus: userPreferences.sentenceFocus,
+                paragraphFocus: userPreferences.paragraphFocus,
+                showElementGutter: store.manifest.showElementGutter ?? true),
+            control: control,
+            callbacks: .init(
+                initialCursorLocation: doc.cursorLocation,
+                onCursorChanged: { offset in
+                    doc.cursorLocation = offset
+                    // Stash the latest cursor position so Document's V2
+                    // task-anchor alignment in setFullText can read it
+                    // as the pre-edit cursor input.
+                    doc.recordCursorAt(offset)
+                },
+                onPostEditCursor: { doc.recordPostEditCursor($0) },
+                onElementChanged: onElementChanged,
+                onMetricsChanged: onMetricsChanged),
+            paragraphProviders: .init(
+                wikiLinkResolver: wikiLinkResolver,
+                wikiLinkClickResolver: wikiLinkClickResolver,
+                // Scope this window's script posts to its project so another
+                // window's screenplay re-parse can't relayout this editor or
+                // clobber its scene navigator (Channel A, ADR 0017 addendum).
+                scriptOriginProjectId: ProjectIdentifier.id(for: store.url),
+                paragraphRangeProvider: { paragraphId in
+                    doc.displayRange(forParagraphId: paragraphId)
+                },
+                paragraphLocator: { location in
+                    guard let pid = doc.paragraphId(at: location),
+                          let range = doc.displayRange(forParagraphId: pid)
+                    else { return nil }
+                    return (paragraphId: pid,
+                            offsetWithinParagraph: location - range.location)
+                },
+                checkboxToggleHandler: { paragraphId, offset, kind in
+                    // Mirror wiki-link click wiring: the flip goes through
+                    // Document.setParagraph, the standard mutation path.
+                    // Tripwire #7: this is NOT applyExternalText.
+                    guard let para = doc.paragraph(id: paragraphId) else { return }
+                    let flipped: String
+                    switch kind {
+                    case .markdown:
+                        flipped = MarkdownCheckboxScanner.flipBracket(
+                            in: para, atUTF16Offset: offset)
+                    case .fountain:
+                        flipped = FountainBoneyardScanner.flipTodoDone(
+                            in: para, atUTF16Offset: offset)
+                    }
+                    guard flipped != para else { return }
+                    // ⌘Z: a checkbox flip is text-is-state (no task op), so
+                    // undo is a guarded flip-back. `InlineToggleUndo` sets the
+                    // undo-coherent flag so the buffer replace this
+                    // setParagraph drives doesn't wipe the fresh registration.
+                    InlineToggleUndo.perform(
+                        on: doc, paragraphId: paragraphId,
+                        prior: para, flipped: flipped, undoManager: um)
+                },
+                paragraphRangeAtLocation: { location in
+                    doc.paragraphRange(at: location)
+                }),
+            reviewProviders: .init(
+                createAnnotationHandler: { kind, paragraphId, span, body, suggestedText in
+                    // Annotation creation is an op-log append, not a text
+                    // mutation — it doesn't write the editor binding, so the
+                    // applyExternalText tripwires (6/7) don't apply. The
+                    // AnnotationsPane re-renders automatically off the
+                    // Document's `annotationsVersion` bump (invalidated
+                    // inside addAnnotation). The handler is async so the
+                    // coordinator can await this append, then re-pull the
+                    // annotation set and refresh the crafted marks — so a
+                    // just-created annotation renders immediately in review
+                    // mode without a toggle.
+                    try? await doc.addReviewerAnnotation(
+                        kind: kind,
+                        paragraphId: paragraphId,
+                        span: span,
+                        body: body,
+                        suggestedText: suggestedText,
+                        authorName: userPreferences.collaboratorDisplayName)
+                },
+                reviewParagraphTextProvider: { pid in
+                    doc.paragraph(id: pid).map {
+                        RenderFilter.stripTaskAnchorsInline($0)
+                    }
+                },
+                reviewParagraphRangeProvider: { pid in
+                    doc.displayRange(forParagraphId: pid)
+                },
+                // Pull-on-entry: the coordinator invokes this ONLY when
+                // entering review (membrane toggle OR fresh launch), so it
+                // derives the current open annotations on demand without the
+                // lagged `reviewAnnotations` push. NOT gated on isReviewMode —
+                // gating would defeat the purpose (the first toggle's entry
+                // happens while isReviewMode is still flipping). It's never
+                // called during authoring, so no per-keystroke derivation.
+                reviewAnnotationsProvider: {
+                    doc.annotations(
+                        filter: AnnotationFilter(statuses: [.open]))
+                },
+                // Local reviewer name — gates Edit/Delete on margin cards.
+                reviewLocalAuthorName: { userPreferences.collaboratorDisplayName }),
+            // Interactive margin-card actions (Part 1). Each is an op-log
+            // append routed through Document — NOT a text-binding write, so
+            // the applyExternalText tripwires (6/7) don't apply. The
+            // coordinator refreshes its marks from the provider after each.
+            annotationActions: .init(
+                reviewAcceptHandler: { id in
+                    try? await doc.acceptAnnotation(id: id, undoManager: um)
+                },
+                reviewRejectHandler: { id in
+                    // The card has no reasoning field; the reason-capture sheet
+                    // stays in the AnnotationsPane. A card-reject records no
+                    // reason (a follow-up could surface the sheet from here).
+                    try? await doc.rejectAnnotation(id: id, undoManager: um)
+                },
+                reviewArchiveHandler: { id in
+                    try? await doc.archiveAnnotation(id: id, undoManager: um)
+                },
+                reviewReplyHandler: { id, reply in
+                    try? await doc.acceptAnnotation(id: id, userResponse: reply, undoManager: um)
+                },
+                reviewEditHandler: { id, newBody, newSuggested in
+                    try? await doc.editReviewerAnnotation(
+                        id: id,
+                        newBody: newBody,
+                        newSuggestedText: newSuggested,
+                        authorName: userPreferences.collaboratorDisplayName,
+                        undoManager: um)
+                },
+                reviewWithdrawHandler: { id in
+                    try? await doc.withdrawReviewerAnnotation(
+                        id: id,
+                        authorName: userPreferences.collaboratorDisplayName,
+                        undoManager: um)
+                }),
+            consumeUndoCoherentApplyFlag: { doc.consumeUndoCoherentApplyFlag() })
     }
 
     private var currentItem: StructureItem? {

@@ -65,7 +65,7 @@ final class PhoneAnnotationIntegrationTests: XCTestCase {
         // The phone's reject op landed in its OWN per-device file.
         XCTAssertTrue(FileManager.default.fileExists(
             atPath: opsDir.appendingPathComponent(
-                "\(docId).\(DeviceSlug.make(from: "phone:TEST")).jsonl").path))
+                "\(docId).\(DeviceSlug.make(from: "phone:TEST").raw).jsonl").path))
     }
 
     /// Task 8 (annotation-undo-suggestion-grain, schema v2): `claudeAcceptRevert`

@@ -157,9 +157,14 @@ public enum ReadPublishFileTool: MCPTool {
             throw MCPError.invalidArgument("file not found: \(params.path)")
         }
         let text = try String(contentsOf: url, encoding: .utf8)  // adr-0018-ok: publish-source file read (validated publish path), not manuscript
-        return try JSONSerialization.data(
+        let data = try JSONSerialization.data(
             withJSONObject: ["path": params.path, "content": text],
             options: [.sortedKeys])
+        return try MCPResponseBudget.enforce(
+            data,
+            hint: "This publish file is too large to return in one MCP response "
+                + "(likely a compile log or generated body). Open it directly on "
+                + "disk under .maugham/publish/\(params.path).")
     }
 }
 

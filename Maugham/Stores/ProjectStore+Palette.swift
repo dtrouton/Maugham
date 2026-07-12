@@ -52,9 +52,8 @@ extension ProjectStore {
         let group = try await ensurePaletteGroup()
         let item = try await addResearchTextNote(parentId: group.id, title: title)
         if let rel = item.path {
-            let fileURL = url.appendingPathComponent(rel)
-            try PaletteCardParser.template(title: title, kind: kind)
-                .write(to: fileURL, atomically: true, encoding: .utf8)
+            try await paletteCoordinatedWrite(
+                PaletteCardParser.template(title: title, kind: kind), to: rel)
         }
         return item
     }
@@ -117,8 +116,7 @@ extension ProjectStore {
 
         let cardDirectory = (writePath as NSString).deletingLastPathComponent
         let rendered = PaletteCardRenderer.render(remapped, cardDirectory: cardDirectory)
-        try rendered.write(
-            to: url.appendingPathComponent(writePath), atomically: true, encoding: .utf8)
+        try await paletteCoordinatedWrite(rendered, to: writePath)
 
         manifest.modified = Date()   // drives `.task(id:)` reloads
         try await saveManifest()
@@ -145,6 +143,24 @@ extension ProjectStore {
     }
 
     // MARK: - Helpers
+
+    /// Write `text` to the project-relative `path` through the same
+    /// NSFileCoordinator path research-note saves use
+    /// (`DocumentStore.performFileSave`), so palette card writes don't race
+    /// iCloud sync on a cloud-synced project (tripwire 7 / A1-High). Falls
+    /// back to a direct write when `documentStore` is nil (unit-test
+    /// contexts with no store wiring) — mirrors `saveManifest`'s
+    /// documentStore-present/absent split. This is the ONE allowed write
+    /// spelling in this file; `TripwireGrepTests.test_noRawWriteInPaletteStore`
+    /// enforces it.
+    private func paletteCoordinatedWrite(_ text: String, to path: String) async throws {
+        if let documentStore {
+            try await documentStore.performFileSave(path: path, text: text)
+            return
+        }
+        try text.write(  // palette-coordinated-write: fallback direct write for unit-test contexts (documentStore == nil)
+            to: url.appendingPathComponent(path), atomically: true, encoding: .utf8)
+    }
 
     /// Locate a palette card item and its parsed model, or throw `structureMissing`.
     private func paletteCard(for cardId: String) throws -> (ResearchItem, PaletteCard) {

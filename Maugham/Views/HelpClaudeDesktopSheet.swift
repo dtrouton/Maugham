@@ -3,8 +3,6 @@ import MaughamCore
 import AppKit
 
 struct HelpClaudeDesktopSheet: View {
-    let projectURL: URL?       // unused in v2; kept for call-site compatibility
-    let projectTitle: String?  // unused in v2; kept for call-site compatibility
     @Environment(\.dismiss) private var dismiss
 
     @State private var state: ClaudeDesktopConfig.State = .missing

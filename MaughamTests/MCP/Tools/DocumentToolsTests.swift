@@ -65,6 +65,215 @@ final class DocumentToolsTests: XCTestCase {
         XCTAssertEqual(doc.mode, "prose")
     }
 
+    /// E6: the closed-doc branch derives through the per-project
+    /// `DerivedManuscriptCache`, not a bare `DerivedManuscript.materialize`.
+    /// The two must return byte-identical anchored text for the same closed
+    /// doc — the cache only memoizes the intermediate `DerivedState`.
+    func test_readDocument_closedDoc_equivalentToDirectMaterialize() async throws {
+        let (url, _, reg) = try await makeProject()
+        _ = try await Document.load(
+            url: url.appendingPathComponent("manuscript/c1.md"),
+            device: "test", session: "s", presenter: nil)
+        let id = ProjectIdentifier.id(for: url)
+        let req = "{\"project_id\":\"\(id)\",\"document_id\":\"ch-1\"}"
+        let json = try await ReadDocumentTool.handle(
+            paramsJSON: Data(req.utf8), registry: reg)
+        let doc = try JSONDecoder().decode(
+            ReadDocumentTool.DocumentContent.self, from: json)
+        // Direct derive bypasses the cache entirely; the tool's cache-backed
+        // read must match it exactly (anchored form).
+        let direct = DerivedManuscript.materialize(forDocId: "ch-1", in: url)
+        XCTAssertFalse(direct.isEmpty, "op log should have bootstrap ops")
+        XCTAssertEqual(doc.text, direct,
+            "cache-backed closed-doc read must equal a direct materialize")
+    }
+
+    /// A second identical closed-doc read hits the cache — `deriveCount` (the
+    /// number of actual JSONL decodes) stays at 1 across two reads, proving the
+    /// tool now shares the per-project cache instead of decoding every call.
+    func test_readDocument_closedDoc_secondReadHitsCache() async throws {
+        let (url, store, reg) = try await makeProject()
+        _ = try await Document.load(
+            url: url.appendingPathComponent("manuscript/c1.md"),
+            device: "test", session: "s", presenter: nil)
+        let id = ProjectIdentifier.id(for: url)
+        let req = "{\"project_id\":\"\(id)\",\"document_id\":\"ch-1\"}"
+        _ = try await ReadDocumentTool.handle(
+            paramsJSON: Data(req.utf8), registry: reg)
+        XCTAssertEqual(store.derivedCache.deriveCount, 1,
+            "first read should derive exactly once")
+        _ = try await ReadDocumentTool.handle(
+            paramsJSON: Data(req.utf8), registry: reg)
+        XCTAssertEqual(store.derivedCache.deriveCount, 1,
+            "second read of an unchanged closed doc should hit the cache")
+    }
+
+    /// Freshness: an op appended to a CLOSED doc's log after the cache is
+    /// filled must be reflected on the next read. The validity token is the
+    /// op-log file set's (path, mtime, size); the append grows the file, so the
+    /// token invalidates and the tool re-derives (deriveCount 1 → 2) rather
+    /// than serving stale text. This is the test that pins the invalidation
+    /// contract — read_document via the cache can never lag the op log.
+    func test_readDocument_closedDoc_reflectsOpAppendedAfterCacheFill() async throws {
+        let (url, store, reg) = try await makeProject()
+        let docURL = url.appendingPathComponent("manuscript/c1.md")
+        let doc = try await Document.load(
+            url: docURL, device: "test", session: "s", presenter: nil)
+        let id = ProjectIdentifier.id(for: url)
+        let req = "{\"project_id\":\"\(id)\",\"document_id\":\"ch-1\"}"
+
+        // First read fills the cache (one derive).
+        let firstJSON = try await ReadDocumentTool.handle(
+            paramsJSON: Data(req.utf8), registry: reg)
+        let first = try JSONDecoder().decode(
+            ReadDocumentTool.DocumentContent.self, from: firstJSON)
+        XCTAssertFalse(first.text.contains("Second paragraph inserted"))
+        XCTAssertEqual(store.derivedCache.deriveCount, 1)
+
+        // Append a new paragraph to the closed doc's op log and make it durable.
+        doc.setFullText("Chapter 1\n\nFirst paragraph.\n\nSecond paragraph inserted.\n")
+        try await doc.flushBurstNow()
+
+        // Second read must reflect the new op — re-derived, not a stale hit.
+        let secondJSON = try await ReadDocumentTool.handle(
+            paramsJSON: Data(req.utf8), registry: reg)
+        let second = try JSONDecoder().decode(
+            ReadDocumentTool.DocumentContent.self, from: secondJSON)
+        XCTAssertTrue(second.text.contains("Second paragraph inserted"),
+            "closed-doc read must reflect the appended op, not stale cached text")
+        XCTAssertEqual(store.derivedCache.deriveCount, 2,
+            "the op-log append should invalidate the token and force a re-derive")
+    }
+
+    /// TB tracer (§3.7): read_document resolved OPEN docs by PATH
+    /// (`ds.document(for: path)`) while the annotation tools resolve by
+    /// DOCID (`ds.document(forDocId:)`). A rename that updates the
+    /// manifest's `path` before the DocumentStore registry is re-keyed to
+    /// match — the exact window between a rename op landing and the
+    /// registry catching up — used to make read_document silently fall
+    /// through to the closed-doc (DerivedManuscript) branch even though the
+    /// doc was open live with unflushed edits, re-opening the ADR-0018
+    /// read/comment id-disagreement the tripwire-20 era closed.
+    func test_readDocument_openDoc_resolvesByDocIdDespitePathRename() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RDID-\(UUID())")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("manuscript"), withIntermediateDirectories: true)
+        let docPath = "manuscript/c1.md"
+        try "Chapter 1\n\nFirst paragraph.\n".write(
+            to: tmp.appendingPathComponent(docPath),
+            atomically: true, encoding: .utf8)
+        let ch = StructureItem(id: "ch-1", title: "Ch 1", type: .document, path: docPath)
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A",
+            created: Date(), modified: Date(),
+            structure: [ch], research: [])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(
+            to: tmp.appendingPathComponent("project.maugham.json"))
+
+        let store = try await ProjectStore.load(from: tmp)
+        let ds = try await DocumentStore.open(url: tmp)
+        store.documentStore = ds
+
+        let doc = try await Document.load(
+            url: tmp.appendingPathComponent(docPath),
+            device: "test", session: "s", presenter: nil)
+        ds.register(document: doc, for: docPath)
+
+        let reg = ProjectRegistry()
+        reg.register(url: tmp, store: store)
+        let id = ProjectIdentifier.id(for: tmp)
+
+        // Live, unflushed edit: only visible via the live Document, not the
+        // op log the closed-doc branch derives from.
+        doc.setFullText("Chapter 1\n\nLIVE EDIT NOT YET FLUSHED.\n")
+
+        // Simulate the rename-timing window: the manifest's path changes (as
+        // a rename op would produce) but the DocumentStore registry is NOT
+        // re-keyed — it's still keyed by the old path.
+        store.manifest.structure[0].path = "manuscript/renamed.md"
+
+        let req = "{\"project_id\":\"\(id)\",\"document_id\":\"ch-1\"}"
+        let json = try await ReadDocumentTool.handle(
+            paramsJSON: Data(req.utf8), registry: reg)
+        let content = try JSONDecoder().decode(
+            ReadDocumentTool.DocumentContent.self, from: json)
+        XCTAssertTrue(content.text.contains("LIVE EDIT NOT YET FLUSHED"),
+            "read_document must resolve the open doc by docId, not by the "
+            + "(possibly stale) manifest path, so it returns the live "
+            + "in-memory text instead of silently falling to the closed-doc "
+            + "derived branch; got: \(content.text)")
+    }
+
+    /// WB fix 2 (2026-07-11 whole-branch review): the path-fallback leg
+    /// `?? ds.document(for: path)` returned whatever doc is registered under that
+    /// path STRING without confirming its `docId == item.id`. In a rename /
+    /// path-reuse window — a DIFFERENT open doc registered under the target's path
+    /// — read_document for the target would serve the OTHER doc's body under the
+    /// target's id/title (a mirror of the bug the docId-first primary leg fixed).
+    /// The fallback must confirm identity and otherwise fall to the closed-doc
+    /// (derived-from-op-log) branch.
+    func test_readDocument_pathFallback_confirmsDocIdIdentity() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RDFB-\(UUID())")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("manuscript"), withIntermediateDirectories: true)
+        // Target doc (ch-1) with distinctive real text; a second doc (ch-2) whose
+        // body must never surface under ch-1's identity.
+        try "Chapter 1\n\nThe target paragraph.\n".write(
+            to: tmp.appendingPathComponent("manuscript/c1.md"),
+            atomically: true, encoding: .utf8)
+        try "Chapter 2\n\nWRONG DOC BODY must not leak.\n".write(
+            to: tmp.appendingPathComponent("manuscript/c2.md"),
+            atomically: true, encoding: .utf8)
+        let ch1 = StructureItem(id: "ch-1", title: "Ch 1", type: .document, path: "manuscript/c1.md")
+        let ch2 = StructureItem(id: "ch-2", title: "Ch 2", type: .document, path: "manuscript/c2.md")
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A",
+            created: Date(), modified: Date(),
+            structure: [ch1, ch2], research: [])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(
+            to: tmp.appendingPathComponent("project.maugham.json"))
+
+        let store = try await ProjectStore.load(from: tmp)
+        let ds = try await DocumentStore.open(url: tmp)
+        store.documentStore = ds
+
+        // ch-1 is CLOSED (op log bootstrapped so the derived branch has real text)
+        // and NOT in the registry.
+        _ = try await Document.load(
+            url: tmp.appendingPathComponent("manuscript/c1.md"),
+            device: "test", session: "s", presenter: nil)
+
+        // ch-2 is OPEN but — the path-reuse window — registered under ch-1's PATH
+        // key. `document(forDocId: "ch-1")` misses (ch-1 not open); the fallback
+        // `document(for: "manuscript/c1.md")` returns THIS ch-2 doc.
+        let ch2doc = try await Document.load(
+            url: tmp.appendingPathComponent("manuscript/c2.md"),
+            device: "test", session: "s", presenter: nil)
+        XCTAssertEqual(ch2doc.docId, "ch-2")
+        ds.register(document: ch2doc, for: "manuscript/c1.md")
+
+        let reg = ProjectRegistry()
+        reg.register(url: tmp, store: store)
+        let id = ProjectIdentifier.id(for: tmp)
+        let req = "{\"project_id\":\"\(id)\",\"document_id\":\"ch-1\"}"
+        let json = try await ReadDocumentTool.handle(
+            paramsJSON: Data(req.utf8), registry: reg)
+        let content = try JSONDecoder().decode(
+            ReadDocumentTool.DocumentContent.self, from: json)
+        XCTAssertTrue(content.text.contains("The target paragraph"),
+            "read_document for ch-1 must return ch-1's derived text; got: \(content.text)")
+        XCTAssertFalse(content.text.contains("WRONG DOC BODY"),
+            "the path-fallback must not serve the wrongly-registered ch-2 body under ch-1's id")
+    }
+
     func test_readDocument_missingDoc_throws() async throws {
         let (url, _, reg) = try await makeProject()
         let id = ProjectIdentifier.id(for: url)

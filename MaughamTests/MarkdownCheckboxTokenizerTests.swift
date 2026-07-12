@@ -19,6 +19,15 @@ final class MarkdownCheckboxTokenizerTests: XCTestCase {
         XCTAssertEqual(result!.body, "done thing")
     }
 
+    func test_match_uppercaseCheckedBox_returnsDone() {
+        // GFM treats `[X]` as equivalent to `[x]`; the scanner must too so
+        // derivation matches detection (Task 22b).
+        let result = MarkdownCheckboxScanner.match("- [X] loud thing")
+        XCTAssertNotNil(result)
+        XCTAssertTrue(result!.checked)
+        XCTAssertEqual(result!.body, "loud thing")
+    }
+
     func test_match_indented_alsoMatches() {
         XCTAssertNotNil(MarkdownCheckboxScanner.match("    - [ ] indented"))
     }
@@ -72,6 +81,14 @@ final class MarkdownCheckboxTokenizerTests: XCTestCase {
             "- [ ] foo")
     }
 
+    func test_flipBracket_uppercaseChecked_becomesUnchecked() {
+        // Clicking an uppercase `[X]` must clear it (Task 22b) — otherwise
+        // the box paints/derives as checked but can't be toggled off.
+        XCTAssertEqual(
+            MarkdownCheckboxScanner.flipBracket(in: "- [X] foo", atUTF16Offset: 2),
+            "- [ ] foo")
+    }
+
     // MARK: - Tokenizer emission
 
     func test_tokenizer_emitsCheckboxToken_forOpenBox() {
@@ -100,6 +117,22 @@ final class MarkdownCheckboxTokenizerTests: XCTestCase {
         }
         if case .checkbox(let checked) = cb.kind {
             XCTAssertTrue(checked)
+        } else {
+            XCTFail("expected checkbox kind")
+        }
+    }
+
+    func test_tokenizer_emitsCheckboxToken_forUppercaseCheckedBox() {
+        // Editor paint/hit-test path must recognize `[X]` too (Task 22b).
+        let tokens = MarkdownTokenizer().tokenize("- [X] thing")
+        guard let cb = tokens.first(where: {
+            if case .checkbox = $0.kind { return true }; return false
+        }) else {
+            XCTFail("no checkbox token for uppercase box")
+            return
+        }
+        if case .checkbox(let checked) = cb.kind {
+            XCTAssertTrue(checked, "capital X reads as checked")
         } else {
             XCTFail("expected checkbox kind")
         }

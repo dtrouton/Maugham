@@ -83,7 +83,11 @@ public enum ReadInboxEntryTool: MCPTool {
             throw MCPError.invalidArgument(
                 "inbox entry not found or already resolved: \(params.entry_id)")
         }
-        return try JSONEncoder().encode(entry)
+        return try MCPResponseBudget.enforce(
+            try JSONEncoder().encode(entry),
+            hint: "This capture (likely a long voice transcript) is too large to "
+                + "return in one MCP response. Read the source asset directly on "
+                + "disk under .maugham/inbox/.")
     }
 }
 

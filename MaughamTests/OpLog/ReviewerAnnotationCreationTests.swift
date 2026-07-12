@@ -8,36 +8,12 @@ import MaughamCore
 @MainActor
 final class ReviewerAnnotationCreationTests: XCTestCase {
 
-    private func makeProject(initialMd: String) throws -> (URL, String) {
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("REVANN-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(
-            at: tmp, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(
-            at: tmp.appendingPathComponent("manuscript"),
-            withIntermediateDirectories: true)
-        let docPath = "manuscript/c1.md"
-        try initialMd.data(using: .utf8)!.write(
-            to: tmp.appendingPathComponent(docPath))
-        let manifest = ProjectManifest(
-            type: .novel, title: "T", author: "A",
-            created: Date(), modified: Date(),
-            structure: [StructureItem(
-                id: "doc-test", title: "C1", type: .document,
-                path: docPath)],
-            research: [])
-        let enc = JSONEncoder()
-        enc.dateEncodingStrategy = .iso8601
-        try enc.encode(manifest).write(
-            to: tmp.appendingPathComponent("project.maugham.json"))
-        return (tmp, docPath)
-    }
-
     private func loadDoc() async throws -> (Document, String) {
-        let (project, path) = try makeProject(
+        let (_, docURL) = try makeTestProject(
+            prefix: "REVANN",
             initialMd: "She was angry and shaking with fury.")
         let doc = try await Document.load(
-            url: project.appendingPathComponent(path),
+            url: docURL,
             device: "m", session: "s", presenter: nil)
         let log = try await doc.opLog()
         guard let pid = log.first(where: { $0.kind == .bootstrap })?

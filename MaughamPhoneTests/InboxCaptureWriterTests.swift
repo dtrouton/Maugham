@@ -22,7 +22,7 @@ final class InboxCaptureWriterTests: XCTestCase {
     }
 
     private var manifestURL: URL {
-        root.appendingPathComponent(".maugham/inbox/inbox.\(DeviceSlug.make(from: deviceId)).jsonl")
+        root.appendingPathComponent(".maugham/inbox/inbox.\(DeviceSlug.make(from: deviceId).raw).jsonl")
     }
 
     /// Read the manifest back through the Mac reader.
@@ -53,7 +53,7 @@ final class InboxCaptureWriterTests: XCTestCase {
 
         // Manifest file is the per-device stream named off the device slug.
         XCTAssertTrue(FileManager.default.fileExists(atPath: manifestURL.path),
-                      "expected manifest at inbox.\(DeviceSlug.make(from: deviceId)).jsonl")
+                      "expected manifest at inbox.\(DeviceSlug.make(from: deviceId).raw).jsonl")
     }
 
     func test_writeImage_writesAssetAndManifest() async throws {

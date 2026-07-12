@@ -73,11 +73,29 @@ public enum ReadDocumentTool: MCPTool {
         // disk (autosave is debounced at 750ms). Otherwise derive from the
         // op log (ADR 0018): the .md can lag the op log, causing
         // read_document and add_comment to disagree on paragraph ids.
+        //
+        // Resolve by docId first — the same key the annotation tools use
+        // (AnnotationToolHelpers.withAnnotationDocument) — with the path
+        // lookup only as a fallback. The registry is keyed by path, but a
+        // rename can update the manifest's path before the registry is
+        // re-keyed; resolving by path alone in that window would silently
+        // miss the live doc and fall to the (possibly stale) derived
+        // branch while add_comment, resolving by docId, still hits the
+        // live doc — reopening the paragraph-id disagreement ADR 0018 was
+        // meant to close.
         let text: String
-        if let ds = store.documentStore, let doc = ds.document(for: path) {
+        if let ds = store.documentStore,
+           let doc = ds.document(forDocId: item.id)
+               ?? ds.document(for: path).flatMap({ $0.docId == item.id ? $0 : nil }) {
             text = doc.materialize()
         } else {
-            text = DerivedManuscript.materialize(forDocId: item.id, in: projectURL)
+            // Closed doc: derive through the per-project cache (E6) rather than
+            // a bare `DerivedManuscript.materialize`, so a large closed-doc read
+            // pays the JSONL-decode cost once per (doc, op-log-file-set) instead
+            // of once per call — the same cache search/links/tasks already ride.
+            // Freshness is preserved: the cache's validity token is the op-log
+            // file set's (path, mtime, size), so any append/seal/sync re-derives.
+            text = store.derivedCache.materialize(forDocId: item.id, in: projectURL)
         }
         let mode = Self.modeFor(path: path, projectType: store.manifest.type)
         // `text` is the ANCHORED body (so Claude can target `<!-- ¶id -->`
@@ -97,7 +115,11 @@ public enum ReadDocumentTool: MCPTool {
             character_count: chars,
             tags: item.tags,
             links: item.links)
-        return try JSONEncoder().encode(content)
+        return try MCPResponseBudget.enforce(
+            try JSONEncoder().encode(content),
+            hint: "This document is too large to return in one MCP response. "
+                + "Use search_text to locate the passage you need, or split the "
+                + "manuscript into per-chapter documents in the binder and read one.")
     }
 
     private static func emitResearchItem(
@@ -113,7 +135,15 @@ public enum ReadDocumentTool: MCPTool {
                 throw MCPError.invalidArgument(
                     "Research item '\(item.title)' has no on-disk path")
             }
-            let abs = projectURL.appendingPathComponent(path)
+            // Manifest-supplied path — a corrupted/hostile manifest must not
+            // be able to read a file outside the project root (A5).
+            let abs: URL
+            do {
+                abs = try SafeRelativePath.resolve(path, under: projectURL)
+            } catch {
+                throw MCPError.invalidArgument(
+                    "Research item '\(item.title)' has an unsafe path: \(error.localizedDescription)")
+            }
             let text = (try? String(contentsOf: abs, encoding: .utf8)) ?? "" // adr-0018-ok: research-item document read, not manuscript
             let words = text.split { $0.isWhitespace || $0.isNewline }.count
             let chars = text.count
@@ -127,7 +157,10 @@ public enum ReadDocumentTool: MCPTool {
                 character_count: chars,
                 tags: item.tags,
                 links: item.links)
-            return try JSONEncoder().encode(content)
+            return try MCPResponseBudget.enforce(
+                try JSONEncoder().encode(content),
+                hint: "This research document is too large to return in one MCP "
+                    + "response. Open the file directly on disk at \(path).")
         case .image:
             return try emitImageResearchItem(
                 item: item, projectURL: projectURL, params: params)
@@ -157,7 +190,15 @@ public enum ReadDocumentTool: MCPTool {
             throw MCPError.invalidArgument(
                 "Research item '\(item.title)' has no on-disk path")
         }
-        let abs = projectURL.appendingPathComponent(path)
+        // Manifest-supplied path — a corrupted/hostile manifest must not be
+        // able to read a file outside the project root (A5).
+        let abs: URL
+        do {
+            abs = try SafeRelativePath.resolve(path, under: projectURL)
+        } catch {
+            throw MCPError.invalidArgument(
+                "Research item '\(item.title)' has an unsafe path: \(error.localizedDescription)")
+        }
         // Pre-check the on-disk size so the error names the research item
         // rather than the bare filename. Builder re-checks defensively.
         let attrs = try? FileManager.default.attributesOfItem(atPath: abs.path)

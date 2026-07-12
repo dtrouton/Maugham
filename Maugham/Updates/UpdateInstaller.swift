@@ -26,6 +26,37 @@ public enum InstallMode: Equatable {
     case finderFallback // reveal the .dmg in Finder (current behavior)
 }
 
+/// Persisted across a quit when the quit-time in-place install couldn't be
+/// launched (`launchSwapHelper` returned false — the install location went
+/// unwritable, python3 vanished, or the script couldn't be written, between
+/// staging and quit). The app is already tearing down at that point, so
+/// unlike `installNow`'s live Finder-fallback (`MaughamApp.swift`'s
+/// `performInstall`), the reveal is deferred to next launch rather than
+/// attempted mid-teardown.
+///
+/// Not `BuildVariant`-scoped by name: dev and stable run under distinct
+/// bundle identifiers, so `UserDefaults.standard` is already a separate
+/// preferences domain per variant (see `BuildVariant.swift`; mirrors
+/// `UserPreferences`'s unscoped `"maugham.*"` key convention).
+public enum PendingUpdateReveal {
+    static let defaultsKey = "maugham.revealPendingUpdateOnNextLaunch"
+
+    /// Record a staged bundle to reveal in Finder on next launch.
+    public static func markPending(bundleURL: URL, defaults: UserDefaults = .standard) {
+        defaults.set(bundleURL.path, forKey: defaultsKey)
+    }
+
+    /// Consume (clear) any pending reveal, returning the bundle URL to show
+    /// if one was recorded. Clears eagerly so a crash-loop can't re-show the
+    /// same stale reveal forever.
+    @discardableResult
+    public static func consumePending(defaults: UserDefaults = .standard) -> URL? {
+        guard let path = defaults.string(forKey: defaultsKey) else { return nil }
+        defaults.removeObject(forKey: defaultsKey)
+        return URL(fileURLWithPath: path)
+    }
+}
+
 public enum UpdateInstaller {
     /// Pure decision: a staged bundle is trustworthy iff its signature is valid,
     /// it is notarized, and its Team ID matches the running app's Team ID.

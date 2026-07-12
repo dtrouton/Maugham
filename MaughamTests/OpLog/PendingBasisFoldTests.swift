@@ -17,42 +17,17 @@ import MaughamCore
 @MainActor
 final class PendingBasisFoldTests: XCTestCase {
 
-    private func makeProject(initialMd: String) throws -> (URL, String) {
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("PBF-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(
-            at: tmp, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(
-            at: tmp.appendingPathComponent("manuscript"),
-            withIntermediateDirectories: true)
-        let docPath = "manuscript/c1.md"
-        try initialMd.data(using: .utf8)!.write(
-            to: tmp.appendingPathComponent(docPath))
-        let manifest = ProjectManifest(
-            type: .novel, title: "T", author: "A",
-            created: Date(), modified: Date(),
-            structure: [StructureItem(
-                id: "doc-test", title: "C1", type: .document, path: docPath)],
-            research: [])
-        let enc = JSONEncoder()
-        enc.dateEncodingStrategy = .iso8601
-        try enc.encode(manifest).write(
-            to: tmp.appendingPathComponent("project.maugham.json"))
-        return (tmp, docPath)
-    }
-
     private func pendingFileURL(project: URL, docId: String, device: String) -> URL {
         project
             .appendingPathComponent(".maugham/pending")
             .appendingPathComponent(
-                "\(docId).\(DeviceSlug.make(from: device)).pending.jsonl")
+                "\(docId).\(DeviceSlug.make(from: device).raw).pending.jsonl")
     }
 
     // MARK: - (a) clean quit → no pending file
 
     func test_cleanClose_leavesNoPendingFile() async throws {
-        let (project, path) = try makeProject(initialMd: "Alpha.\n\nBravo.")
-        let url = project.appendingPathComponent(path)
+        let (project, url) = try makeTestProject(prefix: "PBF", initialMd: "Alpha.\n\nBravo.")
 
         let docId: String
         do {
@@ -72,9 +47,9 @@ final class PendingBasisFoldTests: XCTestCase {
     // MARK: - (b) peer delete while closed → not reverted by a stale pending file
 
     func test_peerDeleteWhileClosed_staleEmptyPending_doesNotRevertDelete() async throws {
-        let (project, path) = try makeProject(
+        let (project, url) = try makeTestProject(
+            prefix: "PBF",
             initialMd: "Alpha.\n\nBravo.\n\nCharlie.")
-        let url = project.appendingPathComponent(path)
 
         // Session 1: bootstrap all three, capture ids + the bootstrap opId.
         let docId: String
@@ -128,9 +103,9 @@ final class PendingBasisFoldTests: XCTestCase {
     // MARK: - (c) crash-with-changes + stale basis → text recovered, order NOT reasserted
 
     func test_crashWithChanges_staleBasis_recoversTextNotOrder() async throws {
-        let (project, path) = try makeProject(
+        let (project, url) = try makeTestProject(
+            prefix: "PBF",
             initialMd: "Alpha.\n\nBravo.\n\nCharlie.")
-        let url = project.appendingPathComponent(path)
 
         let docId: String
         let ids: [String]
@@ -186,9 +161,9 @@ final class PendingBasisFoldTests: XCTestCase {
     // MARK: - (d) crash-with-changes + current basis → order recovered (today's behavior)
 
     func test_crashWithChanges_currentBasis_recoversOrder() async throws {
-        let (project, path) = try makeProject(
+        let (project, url) = try makeTestProject(
+            prefix: "PBF",
             initialMd: "Alpha.\n\nBravo.\n\nCharlie.")
-        let url = project.appendingPathComponent(path)
 
         let docId: String
         let ids: [String]

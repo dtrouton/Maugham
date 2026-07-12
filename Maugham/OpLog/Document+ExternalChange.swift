@@ -49,6 +49,27 @@ extension Document {
         // callback can't re-derive state from disk and RESURRECT the husk
         // (rebuilding paragraphs/sequence into a doc no reader observes).
         guard !isClosed else { return }
+        // Flush any un-bursted local work BEFORE the merge (E3a). This
+        // re-derives purely from the on-disk ops, so anything that hasn't
+        // reached a burst boundary would otherwise be silently discarded the
+        // instant a peer op syncs in mid-draft (a second Mac, a phone Accept) —
+        // losing up to a burst window of live edits and autosaving the wrong
+        // text. Flushing turns them into real ops so they participate in the
+        // opId-ordered merge like any peer's. Reuses the tested flush path (the
+        // same one `close()` runs) rather than inventing a fold. The flushed op
+        // lands in `_opLogMirror` here, BEFORE `opStore.load` below, so the
+        // `newOps` echo-filter still sees only the foreign op — our own op is
+        // never re-processed as foreign.
+        //
+        // The guard is the SAME disjunction `flushBurstNow` uses to decide
+        // whether to emit (`hadPending || emitOrderingOnly`, Document.swift):
+        // `!pending.isEmpty()` catches un-bursted TYPING, and
+        // `_orderingChangedSinceLoad` catches a pure REORDER / DELETE, which
+        // records nothing in the pending buffer (its sequence IS the payload) —
+        // without the second arm that ordering change would be re-derived away.
+        if !pending.isEmpty() || _orderingChangedSinceLoad {
+            try await flushBurstNow()
+        }
         // Reload the log file (OpLogStore.load dedupes by op_id and sorts).
         let ops = try await opStore.load(docId: docId)
 
@@ -67,23 +88,31 @@ extension Document {
             return
         }
 
-        // Re-derive from the merged log, but PRESERVE the recovered sequence
-        // when the new derivation produces an empty one. The recovery code
-        // in Document.load seeded sequence from the parsed .md file for the
-        // legacy case where typing_burst ops didn't capture sequence; that
-        // recovery happens once at load and would be lost on every external
-        // change otherwise.
-        let state = Deriver.derive(ops: ops)
+        // Re-derive from the merged log through the SAME path as
+        // `Document.load` (E3c): `deriveWithSequenceFallback` + `reconcile`.
+        // The durable guarantee is identity with load — whatever `Document.load`
+        // would produce for these ops, the live merge produces. The old
+        // hand-rolled empty-sequence-PRESERVE branch made the two diverge.
+        // Two behaviors ride on that identity:
+        //   1. `deriveWithSequenceFallback` synthesizes a sequence from
+        //      first-appearance order for a legacy sequence-less log, where the
+        //      bare `Deriver.derive` returns an empty sequence. This subsumes
+        //      the old PRESERVE branch: it existed only to stop that empty derive
+        //      from clobbering the sequence `Document.load` used to recover from
+        //      the parsed `.md`, and ADR 0019 replaced that `.md`-recovery with
+        //      this same fallback — so preserving is dead. (An explicit
+        //      `sequence: []` op — writer deleted every paragraph — still derives
+        //      to [] here exactly as in load; `reconcile` leaves paragraphs alone
+        //      when the sequence is empty, matching load.)
+        //   2. `reconcile` drops orphan paragraphs (ids the merged `sequence`
+        //      no longer references but the deriver's accumulator still carries).
+        //      Without it a live merge left orphans the load path trims, so the
+        //      inline-task deriver surfaced phantom task rows until reopen.
+        let state = Document.reconcile(
+            derived: Deriver.deriveWithSequenceFallback(ops: ops))
         let priorSequence = self.sequence
         self.paragraphs = state.paragraphs
-        if state.sequence.isEmpty && !state.paragraphs.isEmpty
-           && !self.sequence.isEmpty {
-            // Keep the previously-recovered sequence. The new ops added
-            // paragraphs that aren't in `self.sequence` will appear at the
-            // tail (handled by mutation paths going forward).
-        } else {
-            self.sequence = state.sequence
-        }
+        self.sequence = state.sequence
         // External op-log changes (cross-Mac sync) can shrink sequence —
         // flag a sweep so any annotations on now-removed paragraphs get
         // auto-archived on the next burst.
@@ -111,7 +140,37 @@ extension Document {
         }
 
         // No conflict UI for log merge. Just publish the new state.
+        //
+        // E3(b) — preserve the writer's ⌘Z stack across a PURE-APPEND merge.
+        // Publishing flows through `applyExternalText`, which does a wholesale
+        // `textView.string = …` and clears the native typing-undo stack on every
+        // buffer replace (ADR 0023 D1, the v0.16.0 ⌘Z-crash class) unless the
+        // apply is flagged undo-coherent. Without this, a remote peer's op — even
+        // one only appending a new paragraph elsewhere in the doc — wipes the
+        // entire stack.
+        //
+        // The safe-to-preserve condition is a range-safety invariant, not a
+        // paragraph-set one: a preserved native typing-undo action holds absolute
+        // character ranges, so it only stays valid if every character offset it
+        // could reference is unmoved — i.e. the NEW display text has the OLD
+        // display text as a literal prefix. That admits an end-of-document append
+        // and nothing else: a reorder or a MID-SEQUENCE insert shifts offsets
+        // after the change point and would let a preserved action pop against text
+        // that moved (the exact stale-range crash). `hasPrefix` is
+        // necessary-and-sufficient; `removedFromLog.isEmpty` is kept as cheap
+        // defense-in-depth (a removal can't grow a prefix, but the guard documents
+        // intent and short-circuits). Compare the pre-recompute displayText to the
+        // freshly recomputed one, then arm — the flag is a one-shot consumed by
+        // the bound editor's LATER `EditorSurface.updateNSView` pass; any
+        // non-pure-append merge leaves it false → the D1-consistent clear. The
+        // caret-aware variant was declined by design (re-opens the v0.16 class).
+        let oldDisplayText = self.displayText
         recomputeDisplayText()
+        let pureAppend = removedFromLog.isEmpty
+            && self.displayText.hasPrefix(oldDisplayText)
+        if pureAppend {
+            _undoCoherentApplyPending = true
+        }
     }
 
     // MARK: - Conflict backups (forensic snapshots of discarded / diverged bytes)

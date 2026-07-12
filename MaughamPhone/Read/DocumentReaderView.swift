@@ -273,6 +273,9 @@ struct DocumentReaderView: View {
 
         let text: String
         do {
+            // adr-0018-ok: the actual contracted display-read divergence lives here,
+            // not in CoordinatedFileIO's generic primitive — the Read tab renders the
+            // on-disk manuscript body for display; see cross-surface-contracts.md.
             let data = try io.coordinatedRead(at: docURL)
             text = String(decoding: data, as: UTF8.self)
         } catch {

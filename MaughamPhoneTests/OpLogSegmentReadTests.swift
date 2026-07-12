@@ -29,12 +29,12 @@ final class OpLogSegmentReadTests: XCTestCase {
         jsonl.append(0x0A)
         try OpLogSegment.encode(jsonl: jsonl).write(
             to: OpLogStore.segmentFileURL(
-                forDocId: "doc-ph1", deviceSlug: "mac", index: 1, in: projectURL))
+                forDocId: "doc-ph1", deviceSlug: DeviceSlug.make(from: "mac"), index: 1, in: projectURL))
         var tail = Data()
         tail.append(try enc.encode(op("01B", next: "live")))
         tail.append(0x0A)
         try tail.write(to: OpLogStore.opLogFileURL(
-            forDocId: "doc-ph1", deviceSlug: "mac", in: projectURL))
+            forDocId: "doc-ph1", deviceSlug: DeviceSlug.make(from: "mac"), in: projectURL))
 
         let ops = OpLogStore.loadSyncMerged(forDocId: "doc-ph1", in: projectURL)
         XCTAssertEqual(ops.map(\.opId), ["01A", "01B"])

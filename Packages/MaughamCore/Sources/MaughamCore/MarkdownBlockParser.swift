@@ -287,4 +287,20 @@ public enum MarkdownBlockParser {
               let pathRange = Range(match.range(at: 2), in: trimmed) else { return nil }
         return (String(trimmed[altRange]), String(trimmed[pathRange]))
     }
+
+    /// Every `![alt](path)` occurrence anywhere in `text`, in document order —
+    /// an unanchored scan, unlike `matchSoloImage` above (whole-line, `./`-relative
+    /// only). Shared home for consumers harvesting images embedded alongside other
+    /// content in a run of text, e.g. `PaletteCard`'s `## Images` section (which may
+    /// mix dash items, prose, and inline image references on the same or different
+    /// lines) — one regex instead of a second hand-rolled copy per caller.
+    public static func findInlineImages(in text: String) -> [(altText: String, path: String)] {
+        guard let regex = try? NSRegularExpression(pattern: #"!\[(.*?)\]\(([^)]+)\)"#) else { return [] }
+        let range = NSRange(text.startIndex..., in: text)
+        return regex.matches(in: text, range: range).compactMap { match in
+            guard let altRange = Range(match.range(at: 1), in: text),
+                  let pathRange = Range(match.range(at: 2), in: text) else { return nil }
+            return (String(text[altRange]), String(text[pathRange]))
+        }
+    }
 }

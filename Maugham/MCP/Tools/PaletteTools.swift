@@ -152,6 +152,14 @@ public enum ReadPaletteCardTool: MCPTool {
                 + omitted.joined(separator: ", ")
                 + " — fetch each via the image parameter.]"
         }
+        // Images are already budgeted above; the card's markdown text is the
+        // one unbounded part, and this envelope bypasses the central backstop in
+        // MCPToolsCallHandler (it returns a `content` array directly), so guard
+        // the text explicitly.
+        try MCPResponseBudget.enforce(
+            Data(text.utf8),
+            hint: "This palette card's notes are too large to return in one MCP "
+                + "response. Open the card's markdown directly on disk at \(rel).")
         var blocks: [AnyJSON] = [.object(["type": .string("text"), "text": .string(text)])]
         blocks.append(contentsOf: imageBlocks)
         return try JSONEncoder().encode(AnyJSON.object(["content": .array(blocks)]))

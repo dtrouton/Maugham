@@ -4,8 +4,11 @@ Stable releases are tag-triggered via GitHub Actions. The recipe:
 
 1. Write release notes: `docs/release-notes/v0.X.Y.md` (template at `docs/release-notes/_template.md`).
 2. Commit them on `main`.
-3. `./scripts/cut-release.sh 0.X.Y` — verifies notes exist, tree is clean, tests pass, then
-   creates `v0.X.Y` tag and prints the push command. Pass `--skip-tests` only if you know why.
+3. `./scripts/cut-release.sh 0.X.Y` — verifies notes exist, tree is clean,
+   **verifies every GitHub Action pin resolves to the tag in its `# vX` comment**
+   (needs network + `gh` auth), runs tests, then creates the `v0.X.Y` tag and
+   prints the push command. Pass `--skip-tests` only if you know why; pass
+   `--skip-pin-check` only for a genuinely offline cut.
 4. `git push --tags`. Workflow at `.github/workflows/release.yml` builds Release config,
    runs tests, packages the `.dmg`, and creates the GitHub Release with the notes file as body.
 5. ~10 minutes later, the stable app's next check picks it up. Menu title goes to
@@ -13,7 +16,12 @@ Stable releases are tag-triggered via GitHub Actions. The recipe:
 
 **Version is tag-derived.** `project.yml`'s `CFBundleShortVersionString` stays at the placeholder
 `"0.0.0-dev"` for local builds; CI rewrites it from the tag at build time. Don't bump it in
-`project.yml` — bump it via the tag.
+`project.yml` — bump it via the tag. `CFBundleVersion` (the build number) is
+`git rev-list --count HEAD` — deterministic, tied to git history, and strictly monotonic across
+releases (same mechanism as the phone pipeline; replaced `github.run_number`). This needs the full
+history, so the release checkout uses `fetch-depth: 0`. The Mac and phone targets share
+byte-identical placeholders in `project.yml`, so the release workflow's rewrite is **scoped to the
+`Maugham:` target block** — it must not touch the `MaughamPhone:` placeholders.
 
 **Workflow fails before publish if `docs/release-notes/v0.X.Y.md` is missing.** Tag pattern
 `v[0-9]+.[0-9]+.[0-9]+` triggers the release workflow; milestone tags (`milestone-*`) don't.
@@ -32,13 +40,16 @@ launch Gatekeeper-clean (no right-click → Open). Dev builds stay ad-hoc
 entitlements file is `Maugham/Maugham.entitlements` (minimal — add WhisperKit keys
 only if a notarization dry-run proves them needed).
 
-**Auto-update is in-place.** The updater downloads the notarized `.zip`, verifies it
-(codesign + our Team ID via `UpdateInstaller.runningAppTeamID` + notarization), and
-swaps the running app via a detached helper — "Restart & Update" relaunches; dismissing
-applies the staged update on next ordinary quit (`UpdateChecker.pendingQuitInstall`).
-Falls back to revealing the `.dmg` in Finder if `/Applications` (the running app's
-location) is unwritable. The verify/stage Process work runs off the main actor. See
-`docs/superpowers/specs/2026-06-01-mac-auto-update-design.md`.
+**Auto-update is in-place — for the `.zip` path only.** The updater downloads the
+notarized `.zip`, verifies it in-app (codesign + our Team ID via
+`UpdateInstaller.runningAppTeamID` + notarization), and swaps the running app via a
+detached helper — "Restart & Update" relaunches; dismissing applies the staged
+update on next ordinary quit (`UpdateChecker.pendingQuitInstall`). If
+`/Applications` (the running app's location) is unwritable, it falls back to
+revealing the `.dmg` in Finder instead — that fallback path is **not** in-app
+verified; the `.dmg` is Gatekeeper-verified on launch, the same as any downloaded
+app, not by `UpdateInstaller`. The verify/stage Process work runs off the main
+actor. See `docs/superpowers/specs/2026-06-01-mac-auto-update-design.md`.
 
 **Release configuration — After any change to `ProjectWindow.body` (or any large SwiftUI `body`),
 run a local Release build before tagging:**
@@ -49,6 +60,52 @@ xcodebuild -project Maugham.xcodeproj -scheme Maugham -configuration Release bui
 
 The Release config's stricter type-check budget can reject a `body` that the Debug config accepts —
 this is how a green local test run shipped a broken Release build to CI on the v0.8.0 tag.
+
+## Pinned toolchain + action-pin preflight
+
+**The toolchain is pinned, not floating.** All three workflows (`ci.yml`,
+`release.yml`, `phone-release.yml`) now pin the same toolchain so CI and the two
+release pipelines build identically and can't drift between releases:
+
+- **Xcode `26.3`** via `maxim-lobanov/setup-xcode` (was `latest-stable` in the
+  release workflows). 26.3 is the newest Xcode the `macos-15` runner has
+  installed — 26.5/26.6 exist only on the developer machine and pinning them
+  would fail the runner (commit `a20e0da`). If GitHub updates the runner image
+  and 26.3 disappears, the setup step fails loudly; bump all three files together.
+- **xcodegen pinned to a specific released binary** (xcodegen 2.45.4) instead of
+  the floating `brew install xcodegen`. Each workflow downloads the official
+  `xcodegen.zip` release asset, verifies its `sha256`
+  (`090ec29491aad50aec10631bf6e62253fed733c50f3aab0f5ffc86bc170bdbef`), and
+  installs the `bin/` + `share/` layout (the binary resolves its `SettingPresets`
+  from `../share`). The asset is a **universal (x86_64 + arm64)** binary, so it
+  runs on any macos-runner architecture. **To bump xcodegen:** change
+  `XCODEGEN_VERSION` and `XCODEGEN_SHA256` (the sha256 of `xcodegen.zip` from that
+  GitHub release) in all three workflows.
+  - **Why not Homebrew?** `brew install xcodegen` floats to the tap's current
+    version, and there is no supported way to pin it: `brew install --formula
+    <raw-formula-url>` was **removed years ago** — modern Homebrew treats the URL
+    as a formula *name* and errors ("No available formula"). A direct
+    checksum-verified download is the least-moving-parts way to freeze the version.
+
+**Action pins are verified at cut time.** Every `uses: owner/repo@<sha> # vX`
+across `.github/workflows/*.yml` is SHA-pinned (supply-chain hygiene), but a SHA
+is opaque — nothing structurally guarantees it's the commit its `# vX` comment
+claims. `cut-release.sh` (and `cut-phone-release.sh`) now dereference each tag via
+the GitHub API and abort the cut on any mismatch or any unpinned action. This is
+the fabricated-SHA guard (PR #1 history). Logic lives in
+`scripts/lib/verify-action-pins.sh`; unit-tested offline with a stubbed `gh` in
+`scripts/tests/verify-action-pins.test.sh` (`bash scripts/tests/verify-action-pins.test.sh`).
+Use `--skip-pin-check` only for an offline cut where you already trust the pins.
+
+> **The dry run IS the integration test for all of the above.** The pinned Xcode
+> version, the pinned xcodegen formula, the `git rev-list` build number + its
+> `fetch-depth: 0` requirement, and the target-scoped `sed` only fully exercise
+> on a real GitHub runner — they cannot be validated on the developer machine
+> (whose Xcode/xcodegen differ from the runner's). Before the next real Mac
+> release, cut a throwaway **dry-run tag in the reserved patch ≥ 90 band** (e.g.
+> `v0.X.90`, published as a prerelease so installed users never see it) and
+> confirm the run is green end-to-end. Only then cut the real tag. A step that
+> passes locally here can still fail on the runner.
 
 ## Phone releases
 

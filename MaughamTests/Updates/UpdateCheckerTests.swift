@@ -19,7 +19,7 @@ final class UpdateCheckerTests: XCTestCase {
     private func makeChecker(
         currentVersion: String = "0.1.0",
         fetch: @escaping () async throws -> GitHubRelease,
-        downloadAsset: @escaping (URL, String) async throws -> URL = { _, _ in
+        downloadAsset: @escaping (URL, String, @escaping @MainActor (Double) -> Void) async throws -> URL = { _, _, _ in
             URL(fileURLWithPath: "/tmp/fake.zip")
         },
         stageAndVerify: @escaping (URL, String) async throws -> URL = { u, _ in u }
@@ -51,7 +51,7 @@ final class UpdateCheckerTests: XCTestCase {
         let checker = makeChecker(
             currentVersion: "0.1.0",
             fetch: { self.release(version: "0.2.0") },
-            downloadAsset: { url, _ in URL(fileURLWithPath: "/tmp/Maugham-0.2.0.zip") },
+            downloadAsset: { url, _, _ in URL(fileURLWithPath: "/tmp/Maugham-0.2.0.zip") },
             stageAndVerify: { _, _ in URL(fileURLWithPath: "/tmp/Maugham.app") })
         await checker.performCheck(trigger: .manual)
         if case .readyToInstall(_, let v, _) = checker.state {

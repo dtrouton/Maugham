@@ -3,8 +3,13 @@ import Foundation
 /// A parsed sensory-palette card. Cards are plain markdown research assets under
 /// `research/palette/`. The MODEL owns the file: `PaletteCardParser` reads it and
 /// `PaletteCardRenderer` writes the canonical form back, so `parse(render(card))
-/// == card` for any editor-reachable model. External hand-edits are unsupported;
-/// re-rendering normalizes them.
+/// == card` for any editor-reachable model — WITH ONE documented residual: a body
+/// line that spells a known section heading (`## Images`/`## Swatches`/`## Senses`)
+/// is claimed by section detection before the body branch, so such a line (and text
+/// after it, up to the next heading) leaves `body` on the first round and any inline
+/// image on it is harvested into `imagePaths`. The round-trip then converges from the
+/// second render on. A mid-body-heading hardening is a tracked follow-up. External
+/// hand-edits are unsupported; re-rendering normalizes them.
 ///
 /// Canonical card markdown:
 ///
@@ -35,8 +40,11 @@ import Foundation
 /// Title is the first `# ` heading (else the fallback). `kind:` is captured once,
 /// from the first `kind:` line before any real section (unknown/missing →
 /// `.other`); a later `kind:`-looking line is ordinary body prose. Everything
-/// between `kind:` and the first real `##` section is `body` (blank-line runs →
-/// paragraph breaks). `## Swatches` items must be `#RGB`/`#RRGGBB` (others
+/// between `kind:` and the first real `##` section is `body`, preserved
+/// byte-for-byte (indentation, trailing whitespace, interior blank-line runs)
+/// except the single structural blank line the renderer pads around a
+/// non-empty body, which is stripped on the way in and re-added on the way
+/// out. `## Swatches` items must be `#RGB`/`#RRGGBB` (others
 /// ignored); `## Senses` items with a leading `<sense>:` token are tagged, others
 /// untagged; `## Images` items are card-relative paths, resolved to
 /// project-relative; inline `![alt](path)` images anywhere are ALSO collected
@@ -129,9 +137,15 @@ public enum PaletteCardParser {
         var section: Section = .none
         var seenSectionHeading = false
         var kindCaptured = false
+        var imagesSectionLines: [String] = []
 
         for rawLine in markdown.split(separator: "\n", omittingEmptySubsequences: false) {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            let raw = String(rawLine)
+            // `line` is a trimmed PROBE used only for structure detection
+            // (heading/title/kind matching, `- ` item prefixes) — never for
+            // body storage, so indentation and trailing whitespace typed
+            // into body prose survive verbatim below.
+            let line = raw.trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("## ") {
                 switch line.dropFirst(3).trimmingCharacters(in: .whitespaces).lowercased() {
                 case "swatches": section = .swatches; seenSectionHeading = true; continue
@@ -156,11 +170,26 @@ public enum PaletteCardParser {
                 kindCaptured = true
                 continue
             }
-            // Freeform prose before the first `##` accumulates as body (blanks kept
-            // so paragraph breaks survive; collapsed after the walk).
+            // Freeform prose before the first `##` accumulates as body verbatim
+            // (raw, untrimmed) — body bytes are storage, not presentation; the
+            // one structural blank line the renderer pads around a non-empty
+            // body is peeled off below, after the walk. The blank line the
+            // renderer emits between the title and `kind:` is a SECOND piece
+            // of structural framing that lands here too (it's still
+            // `section == .none` and `kind:` hasn't been captured yet) — drop
+            // it rather than let it masquerade as a leading body blank. Only
+            // an empty (not just blank-probe) line is treated as that framing,
+            // so a real pre-`kind:` prose line still falls through to body.
             if section == .none {
-                bodyLines.append(line)
+                if !kindCaptured, raw.isEmpty { continue }
+                bodyLines.append(raw)
                 continue
+            }
+            if section == .images {
+                // Captured verbatim (dash items and prose alike) so the inline-image
+                // scan below can find `![alt](path)` written as loose text in this
+                // section, without also sweeping body prose (that's prose, not data).
+                imagesSectionLines.append(line)
             }
             guard line.hasPrefix("- ") else { continue }
             let item = String(line.dropFirst(2)).trimmingCharacters(in: .whitespaces)
@@ -177,36 +206,33 @@ public enum PaletteCardParser {
                     notes.append(.init(sense: nil, text: item))
                 }
             case .images:
-                images.append(resolve(path: item, relativeTo: cardDirectory))
+                if !item.contains("://") { images.append(resolve(path: item, relativeTo: cardDirectory)) }
             default:
                 break  // .unknown dropped; .none is unreachable (pre-section prose
                        // is captured into `bodyLines` above and never reaches here).
             }
         }
 
-        // Inline ![alt](path) images anywhere in the body, deduped against section images.
-        for path in inlineImagePaths(in: markdown) {
+        // Inline ![alt](path) images, but ONLY within the `## Images` section —
+        // body prose keeps its `![]()` text verbatim rather than being harvested
+        // (a body-typed image must stay editable/removable as prose, not become a
+        // thumbnail the model can never drop). Remote URLs never enter imagePaths.
+        let imagesSectionText = imagesSectionLines.joined(separator: "\n")
+        for path in inlineImagePaths(in: imagesSectionText) where !path.contains("://") {
             let resolved = resolve(path: path, relativeTo: cardDirectory)
             if !images.contains(resolved) { images.append(resolved) }
         }
 
-        // Collapse the captured body: runs of blank lines become paragraph
-        // breaks (`\n\n`), adjacent non-blank lines join with `\n`.
-        var body = ""
-        var pendingBreak = false
-        for line in bodyLines {
-            if line.isEmpty {
-                if !body.isEmpty { pendingBreak = true }
-            } else {
-                if body.isEmpty {
-                    body = line
-                } else {
-                    body += pendingBreak ? "\n\n" : "\n"
-                    body += line
-                }
-                pendingBreak = false
-            }
-        }
+        // Body bytes are storage: preserved verbatim. The renderer always pads
+        // a non-empty body with exactly one blank-line separator before it
+        // (after `kind:`) and one after (before the next `##`) — that single
+        // pair is structural framing, not body content, so it's the only
+        // thing peeled off here. Any further leading/trailing blank lines the
+        // writer actually typed, plus every interior blank-line run, survive
+        // untouched.
+        if bodyLines.first == "" { bodyLines.removeFirst() }
+        if bodyLines.last == "" { bodyLines.removeLast() }
+        let body = bodyLines.joined(separator: "\n")
 
         return PaletteCard(
             researchItemId: itemId,
@@ -218,18 +244,10 @@ public enum PaletteCardParser {
             body: body)
     }
 
-    /// Extract the `path` from every `![alt](path)` in document order. Uses
-    /// `NSRegularExpression` because bare-slash regex literals are off in the
-    /// Mac target's Swift 5.10 language mode.
-    private static let inlineImageRegex = try! NSRegularExpression(
-        pattern: "!\\[[^\\]]*\\]\\(([^)]+)\\)")
-
+    /// Extract the `path` from every `![alt](path)` in document order, via
+    /// `MarkdownBlockParser`'s shared unanchored image scanner.
     private static func inlineImagePaths(in markdown: String) -> [String] {
-        let range = NSRange(markdown.startIndex..., in: markdown)
-        return inlineImageRegex.matches(in: markdown, range: range).compactMap { match in
-            guard let captured = Range(match.range(at: 1), in: markdown) else { return nil }
-            return String(markdown[captured])
-        }
+        MarkdownBlockParser.findInlineImages(in: markdown).map(\.path)
     }
 
     /// Resolve a card-relative path ("../x.jpg", "y.jpg") to project-relative,
@@ -249,7 +267,8 @@ public enum PaletteCardParser {
 }
 
 /// The exact inverse of `PaletteCardParser`: renders a `PaletteCard` back to its
-/// canonical markdown. `parse(render(card)) == card` for editor-reachable models.
+/// canonical markdown. `parse(render(card)) == card` for editor-reachable models,
+/// except the known-section-heading-in-body residual documented on `PaletteCard`.
 /// The model owns the file, so rendering normalizes to canonical form (uppercase
 /// swatches, card-relative `./` image paths, the three sections always present).
 public enum PaletteCardRenderer {

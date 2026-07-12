@@ -102,4 +102,35 @@ final class DocumentTaskCacheLiveInvalidationTests: XCTestCase {
         XCTAssertGreaterThan(doc.tasksVersion, v1,
             "Adding `[[todo:` should invalidate tasks cache live")
     }
+
+    /// Regression for the A1-Medium drift: `changeTouchesTaskMarkup` only
+    /// recognized lowercase `- [x]` while `TasksPane`'s flip helper already
+    /// treated `- [X]` (uppercase) as a valid checked marker. A writer
+    /// typing `- [X]` directly (or content authored elsewhere using the
+    /// uppercase convention) silently skipped the live cache-invalidation
+    /// fast path — the task list wouldn't refresh until the next burst
+    /// flush. Both sites must now source detection from the shared
+    /// `TaskMarkup.lineContainsTaskMarker` predicate.
+    ///
+    /// Uses `setParagraph` (not `setFullText`) so the invalidation is
+    /// gated ONLY by `changeTouchesTaskMarkup` — `setFullText` also
+    /// invalidates on paragraph removal/archival, which would mask the
+    /// predicate gap being tested here.
+    func test_setParagraph_uppercaseCheckedBox_invalidatesTasksImmediately() async throws {
+        let doc = try await makeDoc(text: "Just plain text.")
+        let pid = doc.opLogSnapshot.last(where: { $0.kind == .bootstrap })?
+            .changes.first?.paragraphId ?? "missing"
+        XCTAssertFalse(pid == "missing", "Bootstrap should have minted a paragraph id")
+
+        _ = doc.tasks(filter: TaskFilter(
+            scope: .document(docId: doc.docId),
+            statuses: Set(TaskStatus.allCases)))
+        let v1 = doc.tasksVersion
+
+        // Same paragraph id, no removal — isolates the predicate gate.
+        doc.setParagraph(id: pid, text: "- [X] a completed thing")
+
+        XCTAssertGreaterThan(doc.tasksVersion, v1,
+            "Editing a paragraph to uppercase `- [X]` should invalidate tasks cache live, same as lowercase `- [x]`")
+    }
 }

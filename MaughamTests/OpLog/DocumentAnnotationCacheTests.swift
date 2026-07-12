@@ -6,51 +6,26 @@ import MaughamCore
 @MainActor
 final class DocumentAnnotationCacheTests: XCTestCase {
 
-    private func makeProject(initialMd: String = "") throws -> (URL, String) {
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CACHE-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(
-            at: tmp, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(
-            at: tmp.appendingPathComponent("manuscript"),
-            withIntermediateDirectories: true)
-        let docPath = "manuscript/c1.md"
-        try initialMd.data(using: .utf8)!.write(
-            to: tmp.appendingPathComponent(docPath))
-        let manifest = ProjectManifest(
-            type: .novel, title: "T", author: "A",
-            created: Date(), modified: Date(),
-            structure: [StructureItem(
-                id: "doc-test", title: "C1", type: .document,
-                path: docPath)],
-            research: [])
-        let enc = JSONEncoder()
-        enc.dateEncodingStrategy = .iso8601
-        try enc.encode(manifest).write(
-            to: tmp.appendingPathComponent("project.maugham.json"))
-        return (tmp, docPath)
-    }
-
     func test_initially_no_annotations() async throws {
-        let (project, path) = try makeProject(initialMd: "Hello.")
+        let (_, docURL) = try makeTestProject(prefix: "CACHE", initialMd: "Hello.")
         let doc = try await Document.load(
-            url: project.appendingPathComponent(path),
+            url: docURL,
             device: "m", session: "s", presenter: nil)
         XCTAssertEqual(doc.annotations(), [])
     }
 
     func test_annotationsVersion_startsAtZero() async throws {
-        let (project, path) = try makeProject(initialMd: "Hello.")
+        let (_, docURL) = try makeTestProject(prefix: "CACHE", initialMd: "Hello.")
         let doc = try await Document.load(
-            url: project.appendingPathComponent(path),
+            url: docURL,
             device: "m", session: "s", presenter: nil)
         XCTAssertEqual(doc.annotationsVersion, 0)
     }
 
     func test_addComment_appendsClaudeCommentOp() async throws {
-        let (project, path) = try makeProject(initialMd: "First paragraph.")
+        let (_, docURL) = try makeTestProject(prefix: "CACHE", initialMd: "First paragraph.")
         let doc = try await Document.load(
-            url: project.appendingPathComponent(path),
+            url: docURL,
             device: "m", session: "s", presenter: nil)
         // Find a paragraph id from the bootstrap op.
         let log = try await doc.opLog()
@@ -70,9 +45,9 @@ final class DocumentAnnotationCacheTests: XCTestCase {
     }
 
     func test_addSuggestedChange_includesPriorAndSuggested() async throws {
-        let (project, path) = try makeProject(initialMd: "She was angry.")
+        let (_, docURL) = try makeTestProject(prefix: "CACHE", initialMd: "She was angry.")
         let doc = try await Document.load(
-            url: project.appendingPathComponent(path),
+            url: docURL,
             device: "m", session: "s", presenter: nil)
         let log = try await doc.opLog()
         guard let pid = log.first(where: { $0.kind == .bootstrap })?
@@ -94,9 +69,9 @@ final class DocumentAnnotationCacheTests: XCTestCase {
     }
 
     func test_acceptSuggestedChange_appliesChangeToDocument() async throws {
-        let (project, path) = try makeProject(initialMd: "She was angry.")
+        let (_, docURL) = try makeTestProject(prefix: "CACHE", initialMd: "She was angry.")
         let doc = try await Document.load(
-            url: project.appendingPathComponent(path),
+            url: docURL,
             device: "m", session: "s", presenter: nil)
         let log = try await doc.opLog()
         guard let pid = log.first(where: { $0.kind == .bootstrap })?
@@ -114,9 +89,9 @@ final class DocumentAnnotationCacheTests: XCTestCase {
     }
 
     func test_acceptComment_doesNotChangeDisplayText() async throws {
-        let (project, path) = try makeProject(initialMd: "Original prose.")
+        let (_, docURL) = try makeTestProject(prefix: "CACHE", initialMd: "Original prose.")
         let doc = try await Document.load(
-            url: project.appendingPathComponent(path),
+            url: docURL,
             device: "m", session: "s", presenter: nil)
         let log = try await doc.opLog()
         guard let pid = log.first(where: { $0.kind == .bootstrap })?
@@ -132,9 +107,9 @@ final class DocumentAnnotationCacheTests: XCTestCase {
     }
 
     func test_acceptQuery_capturesUserResponse() async throws {
-        let (project, path) = try makeProject(initialMd: "Hello.")
+        let (_, docURL) = try makeTestProject(prefix: "CACHE", initialMd: "Hello.")
         let doc = try await Document.load(
-            url: project.appendingPathComponent(path),
+            url: docURL,
             device: "m", session: "s", presenter: nil)
         let log = try await doc.opLog()
         guard let pid = log.first(where: { $0.kind == .bootstrap })?
@@ -152,9 +127,9 @@ final class DocumentAnnotationCacheTests: XCTestCase {
     }
 
     func test_addCraftNote_hasNoParagraphAnchor() async throws {
-        let (project, path) = try makeProject(initialMd: "Hello.")
+        let (_, docURL) = try makeTestProject(prefix: "CACHE", initialMd: "Hello.")
         let doc = try await Document.load(
-            url: project.appendingPathComponent(path),
+            url: docURL,
             device: "m", session: "s", presenter: nil)
         let id = try await doc.addAnnotation(
             kind: .craftNote, paragraphId: nil,
@@ -166,9 +141,9 @@ final class DocumentAnnotationCacheTests: XCTestCase {
     }
 
     func test_rejectWithUserResponse_capturesReasoning() async throws {
-        let (project, path) = try makeProject(initialMd: "She was angry.")
+        let (_, docURL) = try makeTestProject(prefix: "CACHE", initialMd: "She was angry.")
         let doc = try await Document.load(
-            url: project.appendingPathComponent(path),
+            url: docURL,
             device: "m", session: "s", presenter: nil)
         let log = try await doc.opLog()
         guard let pid = log.first(where: { $0.kind == .bootstrap })?
@@ -190,9 +165,9 @@ final class DocumentAnnotationCacheTests: XCTestCase {
     }
 
     func test_archive_leavesAnnotationInHistoryButOutOfDefaultView() async throws {
-        let (project, path) = try makeProject(initialMd: "Hello.")
+        let (_, docURL) = try makeTestProject(prefix: "CACHE", initialMd: "Hello.")
         let doc = try await Document.load(
-            url: project.appendingPathComponent(path),
+            url: docURL,
             device: "m", session: "s", presenter: nil)
         let log = try await doc.opLog()
         guard let pid = log.first(where: { $0.kind == .bootstrap })?
@@ -213,10 +188,11 @@ final class DocumentAnnotationCacheTests: XCTestCase {
     func test_annotation_isMarkedStaleWhenParagraphChanges() async throws {
         // Use a longer initial text so the bigram matcher has enough overlap to
         // reuse the same paragraph ID after the edit (threshold ≥ 0.6).
-        let (project, path) = try makeProject(
+        let (_, docURL) = try makeTestProject(
+            prefix: "CACHE",
             initialMd: "She was angry and shaking with fury.")
         let doc = try await Document.load(
-            url: project.appendingPathComponent(path),
+            url: docURL,
             device: "m", session: "s", presenter: nil)
         let log = try await doc.opLog()
         guard let pid = log.first(where: { $0.kind == .bootstrap })?
@@ -249,10 +225,11 @@ final class DocumentAnnotationCacheTests: XCTestCase {
     }
 
     func test_paragraphDeletion_autoArchivesAnnotations() async throws {
-        let (project, path) = try makeProject(
+        let (_, docURL) = try makeTestProject(
+            prefix: "CACHE",
             initialMd: "First paragraph.\n\nSecond paragraph.")
         let doc = try await Document.load(
-            url: project.appendingPathComponent(path),
+            url: docURL,
             device: "m", session: "s", presenter: nil)
         let log = try await doc.opLog()
         guard let bootstrap = log.first(where: { $0.kind == .bootstrap })
@@ -296,9 +273,9 @@ final class DocumentAnnotationCacheTests: XCTestCase {
 
         Second paragraph that will be deleted in this test entirely.
         """
-        let (project, path) = try makeProject(initialMd: initial)
+        let (_, docURL) = try makeTestProject(prefix: "CACHE", initialMd: initial)
         let doc = try await Document.load(
-            url: project.appendingPathComponent(path),
+            url: docURL,
             device: "m", session: "s", presenter: nil)
         let log = try await doc.opLog()
         let pids = log.first(where: { $0.kind == .bootstrap })!

@@ -6,44 +6,18 @@ import MaughamCore
 @MainActor
 final class DocumentTests: XCTestCase {
 
-    private func makeProject(initialMd: String = "") throws -> (URL, String) {
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("DOC-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(
-            at: tmp, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(
-            at: tmp.appendingPathComponent("manuscript"),
-            withIntermediateDirectories: true)
-        let docPath = "manuscript/c1.md"
-        try initialMd.data(using: .utf8)!.write(
-            to: tmp.appendingPathComponent(docPath))
-        // Minimal manifest so resolveDocId can find the doc.
-        let manifest = ProjectManifest(
-            type: .novel, title: "T", author: "A",
-            created: Date(), modified: Date(),
-            structure: [StructureItem(
-                id: "doc-test", title: "C1", type: .document,
-                path: docPath)],
-            research: [])
-        let enc = JSONEncoder()
-        enc.dateEncodingStrategy = .iso8601
-        try enc.encode(manifest).write(
-            to: tmp.appendingPathComponent("project.maugham.json"))
-        return (tmp, docPath)
-    }
-
     func test_load_emptyDocument_displayTextIsEmpty() async throws {
-        let (project, path) = try makeProject(initialMd: "")
+        let (_, docURL) = try makeTestProject(prefix: "DOC", initialMd: "")
         let doc = try await Document.load(
-            url: project.appendingPathComponent(path),
+            url: docURL,
             device: "m", session: "s", presenter: nil)
         XCTAssertEqual(doc.displayText, "")
     }
 
     func test_load_existingMd_runsBootstrapAndPopulatesDisplayText() async throws {
-        let (project, path) = try makeProject(initialMd: "Hello world.\n")
+        let (_, docURL) = try makeTestProject(prefix: "DOC", initialMd: "Hello world.\n")
         let doc = try await Document.load(
-            url: project.appendingPathComponent(path),
+            url: docURL,
             device: "m", session: "s", presenter: nil)
         // After bootstrap, the .md gained inline ¶id markers; displayText
         // is the stripped form.
@@ -51,18 +25,18 @@ final class DocumentTests: XCTestCase {
     }
 
     func test_setFullText_updatesDisplayTextOnce() async throws {
-        let (project, path) = try makeProject(initialMd: "Hello.\n")
+        let (_, docURL) = try makeTestProject(prefix: "DOC", initialMd: "Hello.\n")
         let doc = try await Document.load(
-            url: project.appendingPathComponent(path),
+            url: docURL,
             device: "m", session: "s", presenter: nil)
         doc.setFullText("Hello world.")
         XCTAssertEqual(doc.displayText, "Hello world.")
     }
 
     func test_setFullText_emitsParagraphChangeIntoPendingBuffer() async throws {
-        let (project, path) = try makeProject(initialMd: "Hello.\n")
+        let (project, docURL) = try makeTestProject(prefix: "DOC", initialMd: "Hello.\n")
         let doc = try await Document.load(
-            url: project.appendingPathComponent(path),
+            url: docURL,
             device: "m", session: "s", presenter: nil)
         doc.setFullText("Hello world.")
         try await doc.flushBurstNow()
@@ -75,9 +49,9 @@ final class DocumentTests: XCTestCase {
     }
 
     func test_materialize_roundTripsThroughBootstrap() async throws {
-        let (project, path) = try makeProject(initialMd: "Hello.\n\nWorld.\n")
+        let (_, docURL) = try makeTestProject(prefix: "DOC", initialMd: "Hello.\n\nWorld.\n")
         let doc = try await Document.load(
-            url: project.appendingPathComponent(path),
+            url: docURL,
             device: "m", session: "s", presenter: nil)
         let rendered = doc.materialize()
         // Rendered form has inline ¶id markers; parsing back yields the
@@ -89,15 +63,15 @@ final class DocumentTests: XCTestCase {
     }
 
     func test_close_flushesBurstAndAutosave() async throws {
-        let (project, path) = try makeProject(initialMd: "Hello.\n")
+        let (_, docURL) = try makeTestProject(prefix: "DOC", initialMd: "Hello.\n")
         let doc = try await Document.load(
-            url: project.appendingPathComponent(path),
+            url: docURL,
             device: "m", session: "s", presenter: nil)
         doc.setFullText("Hello world.")
         await doc.close()
         // After close, the .md on disk reflects materialize().
         let onDisk = try String(
-            contentsOf: project.appendingPathComponent(path),
+            contentsOf: docURL,
             encoding: .utf8)
         XCTAssertTrue(onDisk.contains("Hello world."))
     }
@@ -112,9 +86,9 @@ final class DocumentTests: XCTestCase {
     /// with an NSRangeException unsigned-underflow. The invariant: for
     /// any input text, displayText == text after setFullText returns.
     func test_setFullText_displayTextMatchesInputVerbatim() async throws {
-        let (project, path) = try makeProject(initialMd: "")
+        let (_, docURL) = try makeTestProject(prefix: "DOC", initialMd: "")
         let doc = try await Document.load(
-            url: project.appendingPathComponent(path),
+            url: docURL,
             device: "m", session: "s", presenter: nil)
 
         // Trailing newline — the case that crashed under autocorrect.
@@ -138,15 +112,15 @@ final class DocumentTests: XCTestCase {
     }
 
     func test_handleExternalDiskChange_echo_isNoOp() async throws {
-        let (project, path) = try makeProject(initialMd: "Hello.\n")
+        let (_, docURL) = try makeTestProject(prefix: "DOC", initialMd: "Hello.\n")
         let doc = try await Document.load(
-            url: project.appendingPathComponent(path),
+            url: docURL,
             device: "m", session: "s", presenter: nil)
         // Force lastDiskEcho to match the diskMd we'll feed in.
         doc.setFullText("Hello.")
         await doc.close()
         let onDisk = try String(
-            contentsOf: project.appendingPathComponent(path),
+            contentsOf: docURL,
             encoding: .utf8)
         let mirrorBefore = doc.opLogMirrorCount
         try await doc.handleExternalDiskChange(diskMd: onDisk)

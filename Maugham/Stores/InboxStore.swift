@@ -317,14 +317,20 @@ final class InboxStore {
 
     /// Absolute URL of an entry's asset file (image/audio), or nil for inline
     /// text. Used by the pane for playback and by promote/trash for relocation.
+    /// Resolves via `InboxConvention` (MaughamCore) — the single source of
+    /// truth shared with the phone writer's asset placement (E5a).
+    ///
+    /// `sourceFilename` is sidecar-supplied (a manifest row read off disk) —
+    /// validated to stay inside the kind's asset subdir before being handed
+    /// back as a URL (A5). An escaping filename resolves to nil, the same as
+    /// a `.text` entry with no asset — every existing caller already treats
+    /// nil as "nothing to relocate/play" and fails loudly downstream (e.g.
+    /// `InboxError.assetMissing`).
     func assetURL(for entry: InboxEntry) -> URL? {
-        guard let name = entry.sourceFilename else { return nil }
-        let subdir: String
-        switch entry.kind {
-        case .image: subdir = "images"
-        case .audio: subdir = "audio"
-        case .text:  return nil
+        guard let name = entry.sourceFilename,
+              let dir = InboxConvention.assetDir(for: entry.kind, inboxDir: inboxDir) else {
+            return nil
         }
-        return inboxDir.appendingPathComponent(subdir).appendingPathComponent(name)
+        return try? SafeRelativePath.resolve(name, under: dir)
     }
 }

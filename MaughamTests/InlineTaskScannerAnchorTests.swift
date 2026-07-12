@@ -32,6 +32,17 @@ final class InlineTaskScannerAnchorTests: XCTestCase {
         XCTAssertNil(match?.anchorId)
     }
 
+    func test_markdownScanner_uppercaseCheckedAnchored_keepsAnchorAndReadsChecked() {
+        // An already-anchored uppercase box must extract its anchor (so
+        // TaskDeriver reuses it rather than minting a duplicate) and read as
+        // checked (Task 22b).
+        let match = MarkdownCheckboxScanner.match(
+            "- [X] tighten this <!--t-9k2x6a-->")
+        XCTAssertEqual(match?.body, "tighten this")
+        XCTAssertEqual(match?.anchorId, "9k2x6a")
+        XCTAssertEqual(match?.checked, true)
+    }
+
     func test_fountainScanner_matchAll_recognizesAnchors() {
         let para = "First [[todo: a]]<!--t-aaaaaa--> middle [[done: b]]<!--t-bbbbbb--> last."
         let matches = FountainBoneyardScanner.matchAll(para)

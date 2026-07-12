@@ -13,7 +13,6 @@ struct CollectionBinderPaneToggle: View {
     @Binding var findActive: Bool
     @Binding var renamingItemId: String?
     let activePiece: StructureItem?
-    let onAddPiece: () -> Void
     let onAddSharedNote: () -> Void
     let onAddPieceNote: () -> Void
 
@@ -41,8 +40,7 @@ struct CollectionBinderPaneToggle: View {
                     CollectionPiecesPane(
                         store: store,
                         selectedItemId: $selectedItemId,
-                        renamingItemId: $renamingItemId,
-                        onAddPiece: onAddPiece)
+                        renamingItemId: $renamingItemId)
                 case .research:
                     CollectionResearchPane(
                         store: store,
@@ -63,8 +61,7 @@ struct CollectionBinderPaneToggle: View {
                     CollectionPiecesPane(
                         store: store,
                         selectedItemId: $selectedItemId,
-                        renamingItemId: $renamingItemId,
-                        onAddPiece: onAddPiece)
+                        renamingItemId: $renamingItemId)
                 }
             }
             // Exports footer, shown only on the Pieces segment.

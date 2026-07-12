@@ -5,36 +5,12 @@ import MaughamCore
 @MainActor
 final class DocumentOpLogAccessorTests: XCTestCase {
 
-    private func makeProject(initialMd: String) throws -> (URL, String) {
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("OPLOG-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(
-            at: tmp, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(
-            at: tmp.appendingPathComponent("manuscript"),
-            withIntermediateDirectories: true)
-        let docPath = "manuscript/c1.md"
-        try initialMd.data(using: .utf8)!.write(
-            to: tmp.appendingPathComponent(docPath))
-        let manifest = ProjectManifest(
-            type: .novel, title: "T", author: "A",
-            created: Date(), modified: Date(),
-            structure: [StructureItem(
-                id: "doc-test", title: "C1", type: .document,
-                path: docPath)],
-            research: [])
-        let enc = JSONEncoder()
-        enc.dateEncodingStrategy = .iso8601
-        try enc.encode(manifest).write(
-            to: tmp.appendingPathComponent("project.maugham.json"))
-        return (tmp, docPath)
-    }
-
     func test_opLog_returnsLogIncludingBootstrap() async throws {
-        let (project, path) = try makeProject(
+        let (_, docURL) = try makeTestProject(
+            prefix: "OPLOG",
             initialMd: "First paragraph.\n\nSecond paragraph.")
         let doc = try await Document.load(
-            url: project.appendingPathComponent(path),
+            url: docURL,
             device: "m", session: "s", presenter: nil)
         let ops = try await doc.opLog()
         XCTAssertFalse(ops.isEmpty)
@@ -42,9 +18,9 @@ final class DocumentOpLogAccessorTests: XCTestCase {
     }
 
     func test_opLog_reflectsAppendedBurst() async throws {
-        let (project, path) = try makeProject(initialMd: "Hello.")
+        let (_, docURL) = try makeTestProject(prefix: "OPLOG", initialMd: "Hello.")
         let doc = try await Document.load(
-            url: project.appendingPathComponent(path),
+            url: docURL,
             device: "m", session: "s", presenter: nil)
         let countBefore = (try await doc.opLog()).count
         doc.setFullText("Hello world.")

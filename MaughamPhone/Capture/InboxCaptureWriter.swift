@@ -46,12 +46,14 @@ struct InboxCaptureWriter {
                                        in: projectRoot)
     }
 
+    /// Resolves via `InboxConvention` (MaughamCore) — the single source of
+    /// truth shared with the Mac reader's asset lookup (E5a).
     private var imagesDir: URL {
-        inboxDir.appendingPathComponent("images", isDirectory: true)
+        InboxConvention.assetDir(for: .image, inboxDir: inboxDir) ?? inboxDir
     }
 
     private var audioDir: URL {
-        inboxDir.appendingPathComponent("audio", isDirectory: true)
+        InboxConvention.assetDir(for: .audio, inboxDir: inboxDir) ?? inboxDir
     }
 
     // MARK: - Entry assembly (pure, testable)

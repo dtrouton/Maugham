@@ -341,4 +341,68 @@ final class TripwirePhoneGrepTest: XCTestCase {
         XCTAssertTrue(offenders.first?.contains("Data(contentsOf: url)") == true,
             "Self-check: the planted unannotated Data(contentsOf:) should be caught.")
     }
+
+    // MARK: - InboxConvention subdir literal tripwire (E5a) — Mac twin
+
+    /// Recurrence-tripper: `InboxCaptureWriter`'s inbox asset subdir literals
+    /// (`"images"`/`"audio"`) must route through `InboxConvention`
+    /// (MaughamCore) — the Mac twin lives in `TripwireGrepTests.
+    /// test_noRawInboxSubdirLiteralsInInboxStore`.
+    func test_noRawInboxSubdirLiteralsInInboxCaptureWriter() throws {
+        let here = URL(fileURLWithPath: #filePath)
+        let repoRoot = here.deletingLastPathComponent().deletingLastPathComponent()
+        let target = repoRoot.appendingPathComponent(
+            "MaughamPhone/Capture/InboxCaptureWriter.swift")
+        let text = try String(contentsOf: target, encoding: .utf8)
+        let forbidden = ["\"images\"", "\"audio\""]
+        var offenders: [String] = []
+        for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+            for pat in forbidden where line.contains(pat) {
+                offenders.append("\(target.lastPathComponent):\(i + 1): "
+                    + line.trimmingCharacters(in: .whitespaces))
+            }
+        }
+        XCTAssertTrue(offenders.isEmpty,
+            "Raw inbox asset subdir literal (\"images\"/\"audio\") in "
+            + "InboxCaptureWriter.swift. Route through InboxConvention.imagesSubdir / "
+            + ".audioSubdir (MaughamCore) — the single source of truth shared with the "
+            + "Mac reader (InboxStore). See docs/superpowers/notes/cross-surface-contracts.md. "
+            + "Offenders:\n" + offenders.joined(separator: "\n"))
+    }
+
+    /// Self-check: prove the tripwire FIRES on planted raw subdir literals.
+    func test_inboxSubdirLiteralTripwireFiresOnPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("phone-tripwire-inbox-subdir-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        let planted = tmp.appendingPathComponent("InboxCaptureWriter.swift")
+        try """
+        private var imagesDir: URL {
+            inboxDir.appendingPathComponent("images", isDirectory: true)
+        }
+        private var audioDir: URL {
+            inboxDir.appendingPathComponent("audio", isDirectory: true)
+        }
+        """.write(to: planted, atomically: true, encoding: .utf8)
+
+        let forbidden = ["\"images\"", "\"audio\""]
+        let text = try String(contentsOf: planted, encoding: .utf8)
+        var offenders: [String] = []
+        for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+            for pat in forbidden where line.contains(pat) {
+                offenders.append("\(planted.lastPathComponent):\(i + 1): "
+                    + line.trimmingCharacters(in: .whitespaces))
+            }
+        }
+        XCTAssertEqual(offenders.count, 2,
+            "Self-check expected both the images and audio literal to fire. Got:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.contains { $0.contains("\"images\"") },
+            "Self-check: the planted \"images\" literal should be caught.")
+        XCTAssertTrue(offenders.contains { $0.contains("\"audio\"") },
+            "Self-check: the planted \"audio\" literal should be caught.")
+    }
 }
