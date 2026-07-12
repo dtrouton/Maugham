@@ -146,7 +146,9 @@ built `Maugham Dev.app`, surfacing the tools to Claude Code as `mcp__maugham_tes
 - **Transport is live-only Unix socket.** No stdio inside the app. The standalone `maugham-mcp` CLI is the stdio adapter for Claude Desktop. (ADR 0003)
 - **The server only runs while Maugham is running.** No background daemon, no LaunchAgent. Settings → General → "Allow Claude to connect (MCP)" toggles it; default on.
 - **Foundation scope: read tools + `add_note`.** `add_note` only writes under `research/`. **Manuscript text is never mutated via MCP** — that's the annotation layer's job (or no-op, in foundation scope). The user's framing: *"the manuscript is yours, full stop. Claude operates in a parallel annotation layer."* (ADR 0004)
-- **Tool responses are capped at ~1MB.** Transport limit. Larger payloads will fail silently or get truncated; design around it.
+- **Tool responses are capped at ~1MB, and the cap is enforced — not just documented.** The limit is a property of the JSON-RPC *line*, so it's enforced in two places rather than per-tool-by-hope:
+  - **Text:** `MCPResponseBudget.enforce(_:hint:)` (`MCPResponseBudget.swift`, `maxTextBytes = 900_000` — 900 KB, leaving headroom for the double-escape + envelope; see that file for the arithmetic). It fails loudly with a structured `payload_too_large` tool error carrying a section-scoped hint. The unbounded single-value file readers call it directly with a tailored hint (`read_document` manuscript + research, `read_publish_file`, `read_inbox_entry`, `read_craft_intent`, and `read_palette_card`'s markdown block — the last bypasses the default wrap because it returns a `content` envelope). Everything else that returns plain JSON is covered by a **central backstop** in `MCPToolsCallHandler`'s default text-wrap branch (generic hint), so a new text tool can't silently reintroduce the gap. Bounded-by-construction tools (`get_help`, `list_maugham_tools`, status/id responses) never trip it.
+  - **Images:** `ImageResponseBuilder` (720 KB raw-JPEG budget, base64 + envelope headroom) with crop-on-demand step-down. These return the `content`-array envelope and pass through `MCPToolsCallHandler` untouched by the text backstop.
 - **Image responses use crop-on-demand.** Parameters: `max_dimension` (default 2048), `quality` (default 85), `region` (optional crop rect). Default output: JPEG q=85, max 2048px on the long side. Don't return raw images.
 
 ## Tripwires
@@ -159,7 +161,7 @@ built `Maugham Dev.app`, surfacing the tools to Claude Code as `mcp__maugham_tes
 
 4. **Don't write to manuscripts from MCP, full stop.** Even if a future tool design "feels safe," the membrane principle is the hard rule. Writes go via the annotation layer or to `research/`. Violating this loses the user's trust in the whole MCP integration.
 
-5. **Don't return tool payloads >1MB.** Transport will choke. For listings that could blow past the cap, paginate or summarize.
+5. **Don't return tool payloads >1MB.** Transport will choke. The byte budget is enforced (`MCPResponseBudget` for text, `ImageResponseBuilder` for images — see "Hard rules") so an overrun surfaces as a structured `payload_too_large` error rather than a silent truncation, but that error is a dead-end for the caller: for anything that scales with project size (listings, cross-doc search), still paginate, filter, or summarize so the response fits *before* it hits the guard.
 
 6. **Don't add a tool without thinking about the membrane.** Read tools: low-risk, generally fine. Write tools: needs explicit ADR-level justification. Annotation tools: belong to the annotation layer, not direct manuscript mutation.
 
@@ -178,7 +180,7 @@ Adding a new tool:
 1. Implement the handler in `Tools/<ToolName>.swift`. Conform the enum to `MCPTool` and declare `method`, `description`, `inputSchemaJSON`, `handle(paramsJSON:registry:)` on it.
 2. Add the type to `MCPToolCatalog.all` in `MCPTool.swift`. That's the only registration step — `MCPToolsListHandler` and `MaughamApp.registerTools` derive from this list.
 3. If it returns images, use the crop-on-demand parameters (`max_dimension`, `quality`, `region`).
-4. If it could return >1MB, add pagination or summarization.
+4. If it could return >1MB: the `MCPResponseBudget` central backstop already fails such a response loudly, but a `payload_too_large` error is a poor experience — add pagination, filtering, or summarization so it fits. For a single unbounded file read, call `MCPResponseBudget.enforce` directly with a hint naming a section-scoped alternative (mirror `read_document`).
 5. Test from Claude Desktop with the configure-flow (Settings → Help → "Set up Claude Desktop…").
 
 `MCPCatalogConsistencyTests` will catch a missing catalog entry, a malformed schema, or any drift between advertisement and dispatch at test time.

@@ -97,7 +97,11 @@ public enum ReadDocumentTool: MCPTool {
             character_count: chars,
             tags: item.tags,
             links: item.links)
-        return try JSONEncoder().encode(content)
+        return try MCPResponseBudget.enforce(
+            try JSONEncoder().encode(content),
+            hint: "This document is too large to return in one MCP response. "
+                + "Use search_text to locate the passage you need, or split the "
+                + "manuscript into per-chapter documents in the binder and read one.")
     }
 
     private static func emitResearchItem(
@@ -127,7 +131,10 @@ public enum ReadDocumentTool: MCPTool {
                 character_count: chars,
                 tags: item.tags,
                 links: item.links)
-            return try JSONEncoder().encode(content)
+            return try MCPResponseBudget.enforce(
+                try JSONEncoder().encode(content),
+                hint: "This research document is too large to return in one MCP "
+                    + "response. Open the file directly on disk at \(path).")
         case .image:
             return try emitImageResearchItem(
                 item: item, projectURL: projectURL, params: params)

@@ -33,6 +33,9 @@ public enum ReadCraftIntentTool: MCPTool {
         }
         let url = entry.url.appendingPathComponent(rel)
         let markdown = (try? String(contentsOf: url, encoding: .utf8)) ?? "" // adr-0018-ok: craft-intent note read, not manuscript
-        return try JSONEncoder().encode(Result(exists: true, markdown: markdown, path: rel))
+        return try MCPResponseBudget.enforce(
+            try JSONEncoder().encode(Result(exists: true, markdown: markdown, path: rel)),
+            hint: "The craft-intent doc is too large to return in one MCP response. "
+                + "Open it directly on disk at \(rel).")
     }
 }

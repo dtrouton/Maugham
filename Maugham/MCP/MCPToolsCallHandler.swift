@@ -45,6 +45,19 @@ public enum MCPToolsCallHandler {
                obj["content"] is [Any] {
                 return resultData
             }
+            // Central byte-budget backstop for text responses (ADR 0004 /
+            // tripwire 10). Image tools return the `content`-array envelope
+            // handled above and self-budget via ImageResponseBuilder; every
+            // other tool lands here and gets checked, so a future text tool
+            // can't silently reintroduce the E4 gap even if it forgets to call
+            // MCPResponseBudget itself. Tools that already enforce with a
+            // tailored hint (read_document, read_publish_file, …) throw before
+            // reaching this point, so this never double-reports them.
+            try MCPResponseBudget.enforce(
+                resultData,
+                hint: "This response exceeds the MCP transport budget. Narrow the "
+                    + "request: use search_text to locate content, add filters to a "
+                    + "list_* call, or read a single item instead of the whole set.")
             // Default: wrap arbitrary JSON as a text content block.
             let asText = String(data: resultData, encoding: .utf8) ?? "{}"
             let wrapped = AnyJSON.object([
