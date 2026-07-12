@@ -52,6 +52,23 @@ public enum SafeRelativePath {
     /// The returned URL is built from the ORIGINAL (unresolved) `root`, so
     /// callers see exactly the URL a bare `appendingPathComponent` would
     /// have produced — this only adds a containment gate on top.
+    ///
+    /// This is a LEXICAL check: `standardizedFileURL` collapses `.`/`..`
+    /// segments in the path string without touching the filesystem, so it
+    /// cannot see a symlink planted somewhere inside the relative subtree
+    /// itself (as opposed to `root`, which IS resolved). A legitimately-
+    /// spelled relative path whose leaf — or an intermediate component — is,
+    /// on disk, a symlink pointing outside `root` will pass this check, and
+    /// a caller that then opens the returned URL for I/O can still be
+    /// redirected outside `root` at open time. A caller for whom that
+    /// distinction matters should re-verify after resolving: call
+    /// `resolvingSymlinksInPath()` on the returned URL and re-check
+    /// containment immediately before the actual read/write/move. None of
+    /// the five call sites this helper currently guards need that — they
+    /// all operate within a project tree the user already has local write
+    /// access to, so planting such a symlink requires the same access this
+    /// check exists to withhold from an untrusted sidecar value. The A5
+    /// audit (2026-07-11) scored this gap Low and deferred it.
     public static func resolve(_ relative: String, under root: URL) throws -> URL {
         guard !relative.isEmpty else { throw PathError.emptyPath }
         guard !relative.hasPrefix("/"), !relative.contains("\0") else {
