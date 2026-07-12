@@ -112,9 +112,7 @@ struct ProjectWindow: View {
                     case .projectSettings:
                         ProjectSettingsSheet(store: store)
                     case .claudeDesktop:
-                        HelpClaudeDesktopSheet(
-                            projectURL: store.url,
-                            projectTitle: store.manifest.title)
+                        HelpClaudeDesktopSheet()
                     }
                 }
                 .sheet(isPresented: $showingCheckpointLabelSheet) {
@@ -636,9 +634,6 @@ struct ProjectWindow: View {
                 findActive: $findActive,
                 renamingItemId: $pendingPieceRenameId,
                 activePiece: activePiece(in: store),
-                onAddPiece: {
-                    MaughamEvent.post(.maughamAddLoosePiece, to: .keyWindow)
-                },
                 onAddSharedNote: { Task { try? await addSharedNoteAction(store: store) } },
                 onAddPieceNote: { Task { try? await addPieceNoteAction(store: store) } }
             )

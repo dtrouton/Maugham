@@ -41,7 +41,18 @@ public enum OpLogSegment {
         case decompressionFailed
         case lengthMismatch(expected: UInt64, actual: UInt64)
         case checksumMismatch
+        case expectedByteCountTooLarge(UInt64)
     }
+
+    /// Ceiling on the header's claimed uncompressed byte count, checked
+    /// BEFORE decompression runs. Real segments seal well under 512 KB
+    /// (the growth spec's `segmentSealThreshold`); 64 MB is generous
+    /// headroom for a burst of ops landing before the next seal check
+    /// while still refusing to let a tampered/corrupt header (e.g. a tiny
+    /// compressed payload claiming a multi-GB inflated size — a
+    /// decompression-bomb shape) drive `NSData.decompressed` to exhaust
+    /// memory. Proportionate corrupt-file robustness, not a security gate.
+    static let maxExpectedByteCount: UInt64 = 64 * 1024 * 1024
 
     /// Decode outcome. `jsonl` carries the decompressed bytes whenever
     /// decompression succeeded — even on checksum mismatch — so callers can
@@ -114,6 +125,14 @@ public enum OpLogSegment {
             }
             jsonl = Data()
         } else {
+            // Pre-check: refuse to inflate a payload whose header claims an
+            // unreasonable size, so a lying/corrupt header can't drive
+            // decompression itself into an OOM before the post-inflate
+            // actual-vs-expected check below ever runs.
+            guard expected <= maxExpectedByteCount else {
+                return DecodeResult(
+                    jsonl: nil, failure: .expectedByteCountTooLarge(expected))
+            }
             guard let d = try? (payload as NSData).decompressed(
                 using: algorithm.nsAlgorithm) as Data else {
                 return DecodeResult(jsonl: nil, failure: .decompressionFailed)

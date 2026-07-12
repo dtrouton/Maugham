@@ -49,7 +49,14 @@ struct MaughamApp: App {
             MainActor.assumeIsolated {
                 if let pending = UpdateChecker.shared.pendingQuitInstall,
                    pending.bundleURL.pathExtension == "app" {
-                    UpdateInstaller.launchSwapHelper(stagedBundle: pending.bundleURL, relaunch: false)
+                    let launched = UpdateInstaller.launchSwapHelper(
+                        stagedBundle: pending.bundleURL, relaunch: false)
+                    if !launched {
+                        // Mirror installNow's live Finder-fallback: the app is
+                        // already quitting, so defer the reveal to next launch
+                        // rather than dropping the failure silently.
+                        PendingUpdateReveal.markPending(bundleURL: pending.bundleURL)
+                    }
                 }
             }
         }
@@ -62,6 +69,13 @@ struct MaughamApp: App {
                 .environment(userPreferences)
                 .environment(onboarding)
                 .task {
+                    // A prior quit staged an update but couldn't launch the
+                    // swap helper (install location went unwritable, python3
+                    // vanished, etc.) — the app was already tearing down, so
+                    // the Finder-reveal fallback was deferred to this launch.
+                    if let pendingReveal = PendingUpdateReveal.consumePending() {
+                        NSWorkspace.shared.activateFileViewerSelecting([pendingReveal])
+                    }
                     Self.registerTools(router: mcpRouter, registry: mcpRegistry)
                     let server = MCPServer(
                         socketPath: mcpSocketPath,

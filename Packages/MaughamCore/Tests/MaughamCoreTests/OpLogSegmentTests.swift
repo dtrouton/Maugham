@@ -63,4 +63,38 @@ final class OpLogSegmentTests: XCTestCase {
         XCTAssertEqual(result.failure, .checksumMismatch)
         XCTAssertEqual(result.jsonl, jsonl, "salvage must surface the decompressed bytes")
     }
+
+    // A lying header claiming an unreasonably large uncompressed size must
+    // fail CONTAINED before decompression is ever attempted — never inflate
+    // first and check after (that would defeat the bound).
+    func test_lyingExpectedByteCount_failsClosed_withoutInflating() throws {
+        var container = try OpLogSegment.encode(jsonl: jsonl)
+        var lyingCount = UInt64(1_000_000_000_000).littleEndian  // 1 TB
+        withUnsafeBytes(of: &lyingCount) { bytes in
+            container.replaceSubrange(8..<16, with: bytes)
+        }
+        let result = OpLogSegment.decodeVerifying(container)
+        XCTAssertEqual(result.failure, .expectedByteCountTooLarge(1_000_000_000_000))
+        XCTAssertNil(result.jsonl, "must not surface bytes from a rejected header")
+        XCTAssertFalse(result.isVerified)
+    }
+
+    // A header exactly at the ceiling is still a header claim, not real
+    // decompressed bytes — the real payload here is tiny, so this exercises
+    // the boundary without needing to build a genuine 64 MB fixture.
+    func test_expectedByteCountAtCeiling_stillGoesThroughLengthCheck() throws {
+        var container = try OpLogSegment.encode(jsonl: jsonl)
+        var ceiling = OpLogSegment.maxExpectedByteCount.littleEndian
+        withUnsafeBytes(of: &ceiling) { bytes in
+            container.replaceSubrange(8..<16, with: bytes)
+        }
+        let result = OpLogSegment.decodeVerifying(container)
+        // Passes the pre-check (== ceiling, not > ceiling), decompresses the
+        // real (tiny) payload, then fails the existing post-inflate
+        // actual-vs-expected check — proving both guards are independently wired.
+        XCTAssertEqual(
+            result.failure,
+            .lengthMismatch(expected: OpLogSegment.maxExpectedByteCount,
+                             actual: UInt64(jsonl.count)))
+    }
 }

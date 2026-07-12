@@ -6,7 +6,6 @@ struct CollectionPiecesPane: View {
     @Bindable var store: ProjectStore
     @Binding var selectedItemId: String?
     @Binding var renamingItemId: String?
-    let onAddPiece: () -> Void   // unused (Menu in header fires directly), kept for API compat
 
     var body: some View {
         VStack(spacing: 0) {
