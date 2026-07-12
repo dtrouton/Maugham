@@ -22,13 +22,13 @@ public final class UpdateChecker: ObservableObject {
 
     private let currentVersionString: String
     private let fetchLatest: () async throws -> GitHubRelease
-    private let downloadAsset: (URL, String) async throws -> URL
+    private let downloadAsset: (URL, String, @escaping @MainActor (Double) -> Void) async throws -> URL
     private let stageAndVerify: (URL, String) async throws -> URL
 
     public init(
         currentVersionString: String,
         fetchLatest: @escaping () async throws -> GitHubRelease,
-        downloadAsset: @escaping (URL, String) async throws -> URL,
+        downloadAsset: @escaping (URL, String, @escaping @MainActor (Double) -> Void) async throws -> URL,
         stageAndVerify: @escaping (URL, String) async throws -> URL
     ) {
         self.currentVersionString = currentVersionString
@@ -64,8 +64,11 @@ public final class UpdateChecker: ObservableObject {
                     : .idle
                 return
             }
-            state = .downloading(version: newVersion.string, progress: 0)
-            let downloaded = try await downloadAsset(asset.browserDownloadURL, newVersion.string)
+            let versionString = newVersion.string
+            state = .downloading(version: versionString, progress: 0)
+            let downloaded = try await downloadAsset(asset.browserDownloadURL, versionString) { [weak self] progress in
+                self?.state = .downloading(version: versionString, progress: progress)
+            }
             let stagedBundle = try await stageAndVerify(downloaded, newVersion.string)
             state = .readyToInstall(bundleURL: stagedBundle,
                                     version: newVersion.string,
@@ -80,9 +83,16 @@ public final class UpdateChecker: ObservableObject {
         }
     }
 
-    /// Default download implementation: URLSession download task into the
-    /// updates staging directory under Application Support.
-    private static func defaultDownload(from url: URL, version: String) async throws -> URL {
+    /// Default download implementation: streams the asset into the updates
+    /// staging directory under Application Support in 64KB chunks, reporting
+    /// fractional progress (0...1) as bytes arrive. `expectedContentLength`
+    /// <= 0 (server omitted Content-Length) reports -1 once; UpdateSheet
+    /// renders that as an indeterminate spinner rather than a stuck bar.
+    private static func defaultDownload(
+        from url: URL,
+        version: String,
+        progress: @escaping @MainActor (Double) -> Void
+    ) async throws -> URL {
         let lib = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
         let stagingDir = lib
             .appendingPathComponent("Application Support")
@@ -91,9 +101,58 @@ public final class UpdateChecker: ObservableObject {
         try FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
         let ext = url.pathExtension.isEmpty ? "zip" : url.pathExtension
         let target = stagingDir.appendingPathComponent("Maugham-\(version).\(ext)")
-        if FileManager.default.fileExists(atPath: target.path) { return target }
+        if FileManager.default.fileExists(atPath: target.path) {
+            await progress(1.0)
+            return target
+        }
 
-        let (tmpURL, _) = try await URLSession.shared.download(from: url)
+        let (byteStream, response) = try await URLSession.shared.bytes(from: url)
+        let expectedLength = response.expectedContentLength
+
+        let tmpURL = stagingDir.appendingPathComponent("Maugham-\(version).\(ext).download")
+        try? FileManager.default.removeItem(at: tmpURL)
+        FileManager.default.createFile(atPath: tmpURL.path, contents: nil)
+        let fileHandle = try FileHandle(forWritingTo: tmpURL)
+
+        do {
+            var chunk = Data()
+            chunk.reserveCapacity(64 * 1024)
+            var bytesWritten: Int64 = 0
+            var reportedIndeterminate = false
+
+            func flush() throws {
+                guard !chunk.isEmpty else { return }
+                try fileHandle.write(contentsOf: chunk)
+                bytesWritten += Int64(chunk.count)
+                chunk.removeAll(keepingCapacity: true)
+            }
+
+            for try await byte in byteStream {
+                chunk.append(byte)
+                guard chunk.count >= 64 * 1024 else { continue }
+                try flush()
+                if expectedLength > 0 {
+                    let fraction = min(1.0, max(0.0, Double(bytesWritten) / Double(expectedLength)))
+                    await progress(fraction)
+                } else if !reportedIndeterminate {
+                    reportedIndeterminate = true
+                    await progress(-1)
+                }
+            }
+            try flush()
+            try fileHandle.close()
+
+            if expectedLength > 0 {
+                await progress(1.0)
+            } else if !reportedIndeterminate {
+                await progress(-1)
+            }
+        } catch {
+            try? fileHandle.close()
+            try? FileManager.default.removeItem(at: tmpURL)
+            throw error
+        }
+
         try? FileManager.default.removeItem(at: target)
         try FileManager.default.moveItem(at: tmpURL, to: target)
         return target

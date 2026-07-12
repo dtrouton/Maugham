@@ -52,7 +52,13 @@ public struct UpdateSheet: View {
                 Text("Contacting GitHub…")
             }
         case .downloading(_, let progress):
-            ProgressView(value: progress).progressViewStyle(.linear)
+            if progress < 0 {
+                // Server omitted Content-Length; render indeterminate rather
+                // than a bar stuck at 0%.
+                ProgressView().controlSize(.small)
+            } else {
+                ProgressView(value: progress).progressViewStyle(.linear)
+            }
         case .readyToInstall(_, _, let notes):
             ScrollView {
                 Text(notes)
