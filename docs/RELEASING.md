@@ -72,12 +72,20 @@ release pipelines build identically and can't drift between releases:
   installed — 26.5/26.6 exist only on the developer machine and pinning them
   would fail the runner (commit `a20e0da`). If GitHub updates the runner image
   and 26.3 disappears, the setup step fails loudly; bump all three files together.
-- **xcodegen pinned to a frozen homebrew-core formula revision** (xcodegen
-  2.45.4) instead of `brew install xcodegen`: `brew install --formula
-  https://raw.githubusercontent.com/Homebrew/homebrew-core/<commit>/Formula/x/xcodegen.rb`.
-  Homebrew still fetches the arch-correct, checksum-verified bottle — only the
-  *version* is frozen. **To bump xcodegen:** pick a newer homebrew-core commit
-  for `Formula/x/xcodegen.rb` and update the URL in all three workflows.
+- **xcodegen pinned to a specific released binary** (xcodegen 2.45.4) instead of
+  the floating `brew install xcodegen`. Each workflow downloads the official
+  `xcodegen.zip` release asset, verifies its `sha256`
+  (`090ec29491aad50aec10631bf6e62253fed733c50f3aab0f5ffc86bc170bdbef`), and
+  installs the `bin/` + `share/` layout (the binary resolves its `SettingPresets`
+  from `../share`). The asset is a **universal (x86_64 + arm64)** binary, so it
+  runs on any macos-runner architecture. **To bump xcodegen:** change
+  `XCODEGEN_VERSION` and `XCODEGEN_SHA256` (the sha256 of `xcodegen.zip` from that
+  GitHub release) in all three workflows.
+  - **Why not Homebrew?** `brew install xcodegen` floats to the tap's current
+    version, and there is no supported way to pin it: `brew install --formula
+    <raw-formula-url>` was **removed years ago** — modern Homebrew treats the URL
+    as a formula *name* and errors ("No available formula"). A direct
+    checksum-verified download is the least-moving-parts way to freeze the version.
 
 **Action pins are verified at cut time.** Every `uses: owner/repo@<sha> # vX`
 across `.github/workflows/*.yml` is SHA-pinned (supply-chain hygiene), but a SHA

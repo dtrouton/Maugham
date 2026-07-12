@@ -43,16 +43,32 @@ jobs:
           xcrun --show-sdk-path --sdk macosx
           xcrun --show-sdk-version --sdk macosx
 
-      - name: Install xcodegen (pinned)
-        # Pin xcodegen by installing from a frozen homebrew-core formula revision
-        # instead of `brew install xcodegen` (which floats to whatever the tap
-        # currently ships). This commit holds xcodegen 2.45.4; Homebrew still
-        # fetches the arch-correct, checksum-verified bottle, so only the VERSION
-        # is frozen — no source build, no new supply-chain surface beyond the pin.
-        # To bump: pick a newer homebrew-core commit for Formula/x/xcodegen.rb.
+      - name: Install xcodegen (pinned 2.45.4, checksum-verified)
+        # Pin xcodegen to a specific released binary instead of `brew install
+        # xcodegen` (which floats to whatever the tap currently ships). Download
+        # the official XcodeGen release asset, verify its sha256, then install the
+        # bin/ + share/ layout (the binary resolves its SettingPresets from
+        # ../share). xcodegen.zip ships a universal (x86_64 + arm64) binary, so it
+        # runs on any macos-runner arch. Verified end-to-end locally (checksum gate
+        # + `xcodegen generate`); see docs/RELEASING.md.
+        # NB: `brew install --formula <url>` is NOT valid on modern Homebrew —
+        # formulae must live in a tap — hence this direct pinned download.
+        # To bump: change XCODEGEN_VERSION + XCODEGEN_SHA256 (sha256 of the
+        # xcodegen.zip asset from that GitHub release).
         run: |
-          brew install --formula \
-            https://raw.githubusercontent.com/Homebrew/homebrew-core/b5b18a8c62c748c0bd54d4a830cab0a11aae6b3b/Formula/x/xcodegen.rb
+          set -euo pipefail
+          XCODEGEN_VERSION=2.45.4
+          XCODEGEN_SHA256=090ec29491aad50aec10631bf6e62253fed733c50f3aab0f5ffc86bc170bdbef
+          curl -fsSL -o "$RUNNER_TEMP/xcodegen.zip" \
+            "https://github.com/yonaskolb/XcodeGen/releases/download/${XCODEGEN_VERSION}/xcodegen.zip"
+          echo "${XCODEGEN_SHA256}  $RUNNER_TEMP/xcodegen.zip" | shasum -a 256 -c -
+          unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP/xcodegen-dist"
+          PREFIX="$RUNNER_TEMP/xcodegen"
+          mkdir -p "$PREFIX"
+          cp -R "$RUNNER_TEMP/xcodegen-dist/xcodegen/bin"   "$PREFIX/"
+          cp -R "$RUNNER_TEMP/xcodegen-dist/xcodegen/share" "$PREFIX/"
+          echo "$PREFIX/bin" >> "$GITHUB_PATH"
+          "$PREFIX/bin/xcodegen" --version
 
       - name: Import Developer ID certificate
         uses: apple-actions/import-codesign-certs@5142e029c445c10ffc7149d172e540235a065466 # v7.0.0
