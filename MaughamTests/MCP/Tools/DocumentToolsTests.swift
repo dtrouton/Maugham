@@ -145,6 +145,69 @@ final class DocumentToolsTests: XCTestCase {
             "the op-log append should invalidate the token and force a re-derive")
     }
 
+    /// TB tracer (§3.7): read_document resolved OPEN docs by PATH
+    /// (`ds.document(for: path)`) while the annotation tools resolve by
+    /// DOCID (`ds.document(forDocId:)`). A rename that updates the
+    /// manifest's `path` before the DocumentStore registry is re-keyed to
+    /// match — the exact window between a rename op landing and the
+    /// registry catching up — used to make read_document silently fall
+    /// through to the closed-doc (DerivedManuscript) branch even though the
+    /// doc was open live with unflushed edits, re-opening the ADR-0018
+    /// read/comment id-disagreement the tripwire-20 era closed.
+    func test_readDocument_openDoc_resolvesByDocIdDespitePathRename() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RDID-\(UUID())")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("manuscript"), withIntermediateDirectories: true)
+        let docPath = "manuscript/c1.md"
+        try "Chapter 1\n\nFirst paragraph.\n".write(
+            to: tmp.appendingPathComponent(docPath),
+            atomically: true, encoding: .utf8)
+        let ch = StructureItem(id: "ch-1", title: "Ch 1", type: .document, path: docPath)
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A",
+            created: Date(), modified: Date(),
+            structure: [ch], research: [])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(
+            to: tmp.appendingPathComponent("project.maugham.json"))
+
+        let store = try await ProjectStore.load(from: tmp)
+        let ds = try await DocumentStore.open(url: tmp)
+        store.documentStore = ds
+
+        let doc = try await Document.load(
+            url: tmp.appendingPathComponent(docPath),
+            device: "test", session: "s", presenter: nil)
+        ds.register(document: doc, for: docPath)
+
+        let reg = ProjectRegistry()
+        reg.register(url: tmp, store: store)
+        let id = ProjectIdentifier.id(for: tmp)
+
+        // Live, unflushed edit: only visible via the live Document, not the
+        // op log the closed-doc branch derives from.
+        doc.setFullText("Chapter 1\n\nLIVE EDIT NOT YET FLUSHED.\n")
+
+        // Simulate the rename-timing window: the manifest's path changes (as
+        // a rename op would produce) but the DocumentStore registry is NOT
+        // re-keyed — it's still keyed by the old path.
+        store.manifest.structure[0].path = "manuscript/renamed.md"
+
+        let req = "{\"project_id\":\"\(id)\",\"document_id\":\"ch-1\"}"
+        let json = try await ReadDocumentTool.handle(
+            paramsJSON: Data(req.utf8), registry: reg)
+        let content = try JSONDecoder().decode(
+            ReadDocumentTool.DocumentContent.self, from: json)
+        XCTAssertTrue(content.text.contains("LIVE EDIT NOT YET FLUSHED"),
+            "read_document must resolve the open doc by docId, not by the "
+            + "(possibly stale) manifest path, so it returns the live "
+            + "in-memory text instead of silently falling to the closed-doc "
+            + "derived branch; got: \(content.text)")
+    }
+
     func test_readDocument_missingDoc_throws() async throws {
         let (url, _, reg) = try await makeProject()
         let id = ProjectIdentifier.id(for: url)

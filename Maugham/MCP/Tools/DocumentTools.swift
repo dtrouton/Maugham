@@ -73,8 +73,19 @@ public enum ReadDocumentTool: MCPTool {
         // disk (autosave is debounced at 750ms). Otherwise derive from the
         // op log (ADR 0018): the .md can lag the op log, causing
         // read_document and add_comment to disagree on paragraph ids.
+        //
+        // Resolve by docId first — the same key the annotation tools use
+        // (AnnotationToolHelpers.withAnnotationDocument) — with the path
+        // lookup only as a fallback. The registry is keyed by path, but a
+        // rename can update the manifest's path before the registry is
+        // re-keyed; resolving by path alone in that window would silently
+        // miss the live doc and fall to the (possibly stale) derived
+        // branch while add_comment, resolving by docId, still hits the
+        // live doc — reopening the paragraph-id disagreement ADR 0018 was
+        // meant to close.
         let text: String
-        if let ds = store.documentStore, let doc = ds.document(for: path) {
+        if let ds = store.documentStore,
+           let doc = ds.document(forDocId: item.id) ?? ds.document(for: path) {
             text = doc.materialize()
         } else {
             // Closed doc: derive through the per-project cache (E6) rather than
