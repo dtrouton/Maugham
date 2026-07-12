@@ -3,30 +3,38 @@ import Darwin
 
 /// Bridges Claude Desktop's stdio JSON-RPC to Maugham's Unix socket.
 /// Single-threaded line loop with auto-reconnect: when the socket dies
-/// (Maugham crashed or was rebuilt), the binary holds stdin/stdout open,
-/// synthesizes maugham_not_running for incoming requests, and periodically
-/// attempts reconnect with exponential backoff. When the connection is
-/// restored, request forwarding resumes transparently.
+/// (Maugham crashed or was rebuilt) or was never up (Maugham launched after
+/// Claude Desktop spawned us), the binary holds stdin/stdout open and, when a
+/// request can't be forwarded, polls for the socket to (re)appear within a
+/// bounded budget before forwarding. When the app is genuinely absent the
+/// budget is exhausted and we synthesize maugham_not_running.
 final class JSONRPCBridge {
     private let socketPath: String
     private var socketFD: Int32 = -1
     /// Buffer of bytes read from socket that haven't yet been parsed into a complete line.
     private var socketReadBuffer = Data()
 
-    /// Reconnect cadence in seconds. Starts fast, backs off, settles at
-    /// 8s. The binary stays alive indefinitely; each new stdin line
-    /// triggers a reconnect attempt if the socket is dead.
-    private let reconnectDelays: [TimeInterval] = [0.5, 1.0, 2.0, 4.0, 8.0]
-    private var nextReconnectIdx = 0
+    /// How long a single request will wait for the socket to (re)appear before
+    /// we give up and synthesize maugham_not_running, and how often we re-probe
+    /// within that window. Bounded (no retry-forever) per ADR 0003. A cold
+    /// launch under load routinely takes >5s; the default comfortably covers
+    /// it. Tests override the budget via env so absent-socket synthesis stays
+    /// fast.
+    private let reconnectBudget: TimeInterval
+    private let reconnectPollInterval: TimeInterval
 
-    init(socketPath: String) {
+    init(socketPath: String,
+         reconnectBudget: TimeInterval = 15.0,
+         reconnectPollInterval: TimeInterval = 0.25) {
         self.socketPath = socketPath
+        self.reconnectBudget = reconnectBudget
+        self.reconnectPollInterval = reconnectPollInterval
     }
 
     func run() {
-        // Try initial connect (non-fatal if it fails — we'll keep trying as
-        // requests arrive).
-        _ = tryConnect()
+        // Try an initial connect (non-fatal if it fails — a failed request will
+        // poll for the socket to come up).
+        connectIfNeeded()
 
         // Single-threaded line loop on stdin.
         var stdinBuffer = Data()
@@ -35,7 +43,7 @@ final class JSONRPCBridge {
             let n = read(0, &buf, buf.count)
             if n <= 0 {
                 // stdin closed — Claude Desktop quit or shut us down. Exit cleanly.
-                if socketFD >= 0 { close(socketFD); socketFD = -1 }
+                closeSocket()
                 return
             }
             stdinBuffer.append(buf, count: Int(n))
@@ -55,49 +63,36 @@ final class JSONRPCBridge {
         // get no response. Don't block waiting for one.
         let isNotification = Self.isNotification(line: line)
 
-        let hadPriorConnection = socketFD >= 0
-
-        // First attempt: forward on whatever connection we have (open one if needed).
-        if socketFD < 0 { _ = tryConnect() }
+        // First attempt: forward on whatever connection we have (open one now if
+        // we have none — no backoff on the first try).
+        connectIfNeeded()
         if socketFD >= 0, tryForward(line: line, isNotification: isNotification) {
             return
         }
 
-        // First attempt failed. If we had a prior connection that just died,
-        // Maugham was likely restarted (Xcode rebuild) — there's a window where
-        // the OLD process is gone but the NEW one's MCPServer hasn't bound the
-        // socket yet. Poll for up to 5s (cold-launch headroom) so the new
-        // server has time to come up before we give up. Without a prior
-        // connection we fall through quickly to synthesize the not-running
-        // error — no point making "I haven't started Maugham yet" callers wait.
+        // First attempt failed: either our cached fd was stale (Maugham
+        // restarted and the old process is gone) or we never had a connection
+        // (Maugham launched after Claude Desktop spawned us). Both look
+        // identical from here, and both must survive a cold launch — this is
+        // the "first call after the app (re)starts" flake. Poll for the socket
+        // to come up within a bounded budget, then forward. When Maugham is
+        // genuinely not running we exhaust the budget and synthesize below.
         closeSocket()
-        if hadPriorConnection {
-            // Poll for the new server to bind the socket. A cold launch under
-            // load routinely takes >5s, which was the deferred
-            // "first-call-after-restart" flake (the first request after an app
-            // restart returned maugham_not_running). 15s comfortably covers a
-            // cold launch; we poll every 0.25s so we reconnect the instant the
-            // server is up, not after a fixed wait.
-            let deadline = Date().addingTimeInterval(15.0)
-            while Date() < deadline {
-                Thread.sleep(forTimeInterval: 0.25)
-                let fd = openSocket()
-                if fd >= 0 {
-                    socketFD = fd
-                    socketReadBuffer.removeAll()
-                    nextReconnectIdx = 0
-                    if tryForward(line: line, isNotification: isNotification) {
-                        return
-                    }
-                    closeSocket()
+        let deadline = Date().addingTimeInterval(reconnectBudget)
+        while Date() < deadline {
+            let fd = openSocket()
+            if fd >= 0 {
+                socketFD = fd
+                socketReadBuffer.removeAll()
+                if tryForward(line: line, isNotification: isNotification) {
+                    return
                 }
+                closeSocket()
             }
-        } else if tryConnect(),
-                  tryForward(line: line, isNotification: isNotification) {
-            return
+            Thread.sleep(forTimeInterval: reconnectPollInterval)
         }
 
-        // Still failed. For notifications: silent (Claude doesn't expect bytes).
+        // Budget exhausted. For notifications: silent (Claude doesn't expect bytes).
         // For requests: synthesize a maugham_not_running error.
         if isNotification { return }
         if let response = Self.errorResponseFor(line: line) {
@@ -132,25 +127,16 @@ final class JSONRPCBridge {
         return false
     }
 
-    /// Try to connect to the socket. Returns true on success; updates
-    /// socketFD. Implements exponential backoff: each call advances the
-    /// delay index; on success the index resets.
-    private func tryConnect() -> Bool {
-        if socketFD >= 0 { return true }
-        // Apply backoff for repeated failed attempts.
-        if nextReconnectIdx > 0 {
-            let delay = reconnectDelays[min(nextReconnectIdx - 1, reconnectDelays.count - 1)]
-            Thread.sleep(forTimeInterval: delay)
-        }
+    /// Open a connection if we don't already have one. No backoff — used for
+    /// the immediate first-attempt and startup; the polled reconnect in
+    /// handleStdinLine owns the timed cadence.
+    private func connectIfNeeded() {
+        if socketFD >= 0 { return }
         let fd = openSocket()
         if fd >= 0 {
             socketFD = fd
             socketReadBuffer.removeAll()
-            nextReconnectIdx = 0
-            return true
         }
-        nextReconnectIdx = min(nextReconnectIdx + 1, reconnectDelays.count)
-        return false
     }
 
     private func closeSocket() {

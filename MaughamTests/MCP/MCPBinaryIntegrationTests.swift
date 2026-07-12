@@ -27,8 +27,13 @@ final class MCPBinaryIntegrationTests: XCTestCase {
         // Point the binary at a socket path that definitely doesn't exist.
         let process = Process()
         process.executableURL = bin
-        process.environment = ["MAUGHAM_MCP_SOCKET":
-            "/tmp/definitely-not-a-real-socket-\(UUID()).sock"]
+        process.environment = [
+            "MAUGHAM_MCP_SOCKET":
+                "/tmp/definitely-not-a-real-socket-\(UUID()).sock",
+            // Keep absent-socket synthesis fast: the production default reconnect
+            // budget is 15s (covers a cold app launch); these tests exercise the
+            // never-appears path and only need to see the synthesized error.
+            "MAUGHAM_MCP_RECONNECT_BUDGET_MS": "200"]
         let inPipe = Pipe()
         let outPipe = Pipe()
         process.standardInput = inPipe
@@ -60,8 +65,13 @@ extension MCPBinaryIntegrationTests {
         }
         let process = Process()
         process.executableURL = bin
-        process.environment = ["MAUGHAM_MCP_SOCKET":
-            "/tmp/definitely-not-a-real-socket-\(UUID()).sock"]
+        process.environment = [
+            "MAUGHAM_MCP_SOCKET":
+                "/tmp/definitely-not-a-real-socket-\(UUID()).sock",
+            // Keep absent-socket synthesis fast: the production default reconnect
+            // budget is 15s (covers a cold app launch); these tests exercise the
+            // never-appears path and only need to see the synthesized error.
+            "MAUGHAM_MCP_RECONNECT_BUDGET_MS": "200"]
         let inPipe = Pipe()
         let outPipe = Pipe()
         process.standardInput = inPipe
@@ -96,8 +106,13 @@ extension MCPBinaryIntegrationTests {
         }
         let process = Process()
         process.executableURL = bin
-        process.environment = ["MAUGHAM_MCP_SOCKET":
-            "/tmp/definitely-not-a-real-socket-\(UUID()).sock"]
+        process.environment = [
+            "MAUGHAM_MCP_SOCKET":
+                "/tmp/definitely-not-a-real-socket-\(UUID()).sock",
+            // Keep absent-socket synthesis fast: the production default reconnect
+            // budget is 15s (covers a cold app launch); these tests exercise the
+            // never-appears path and only need to see the synthesized error.
+            "MAUGHAM_MCP_RECONNECT_BUDGET_MS": "200"]
         let inPipe = Pipe()
         let outPipe = Pipe()
         process.standardInput = inPipe
@@ -149,8 +164,13 @@ extension MCPBinaryIntegrationTests {
         }
         let process = Process()
         process.executableURL = bin
-        process.environment = ["MAUGHAM_MCP_SOCKET":
-            "/tmp/definitely-not-a-real-socket-\(UUID()).sock"]
+        process.environment = [
+            "MAUGHAM_MCP_SOCKET":
+                "/tmp/definitely-not-a-real-socket-\(UUID()).sock",
+            // Keep absent-socket synthesis fast: the production default reconnect
+            // budget is 15s (covers a cold app launch); these tests exercise the
+            // never-appears path and only need to see the synthesized error.
+            "MAUGHAM_MCP_RECONNECT_BUDGET_MS": "200"]
         let inPipe = Pipe()
         let outPipe = Pipe()
         process.standardInput = inPipe
@@ -193,8 +213,13 @@ extension MCPBinaryIntegrationTests {
         }
         let process = Process()
         process.executableURL = bin
-        process.environment = ["MAUGHAM_MCP_SOCKET":
-            "/tmp/definitely-not-a-real-socket-\(UUID()).sock"]
+        process.environment = [
+            "MAUGHAM_MCP_SOCKET":
+                "/tmp/definitely-not-a-real-socket-\(UUID()).sock",
+            // Keep absent-socket synthesis fast: the production default reconnect
+            // budget is 15s (covers a cold app launch); these tests exercise the
+            // never-appears path and only need to see the synthesized error.
+            "MAUGHAM_MCP_RECONNECT_BUDGET_MS": "200"]
         let inPipe = Pipe()
         let outPipe = Pipe()
         process.standardInput = inPipe
