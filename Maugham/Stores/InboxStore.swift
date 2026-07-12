@@ -317,14 +317,10 @@ final class InboxStore {
 
     /// Absolute URL of an entry's asset file (image/audio), or nil for inline
     /// text. Used by the pane for playback and by promote/trash for relocation.
+    /// Resolves via `InboxConvention` (MaughamCore) — the single source of
+    /// truth shared with the phone writer's asset placement (E5a).
     func assetURL(for entry: InboxEntry) -> URL? {
         guard let name = entry.sourceFilename else { return nil }
-        let subdir: String
-        switch entry.kind {
-        case .image: subdir = "images"
-        case .audio: subdir = "audio"
-        case .text:  return nil
-        }
-        return inboxDir.appendingPathComponent(subdir).appendingPathComponent(name)
+        return InboxConvention.assetURL(kind: entry.kind, filename: name, inboxDir: inboxDir)
     }
 }

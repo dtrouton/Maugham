@@ -1260,4 +1260,62 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertFalse(offenders.contains { $0.contains("mintUnique") },
             "Self-check: ParagraphID.mintUnique(excluding:) must NOT fire.")
     }
+
+    // MARK: - InboxConvention choke-point (E5a)
+
+    /// Recurrence-tripper: `InboxStore`'s inbox asset subdir literals
+    /// (`"images"`/`"audio"`) must resolve through `InboxConvention`
+    /// (MaughamCore) — the exact phone-v0.1.1-class reach-around the cross-
+    /// surface contract registry exists to kill, sitting outside it until
+    /// now. A raw `"images"`/`"audio"` string literal here means the
+    /// subdir↔kind mapping diverged from the phone writer's independently
+    /// hardcoded copy. Phone twin: `TripwirePhoneGrepTest.
+    /// test_noRawInboxSubdirLiteralsInInboxCaptureWriter`.
+    func test_noRawInboxSubdirLiteralsInInboxStore() throws {
+        let offenders = try grepSwift(
+            in: sourceDir,
+            files: ["InboxStore.swift"],
+            patterns: ["\"images\"", "\"audio\""])
+        XCTAssertTrue(offenders.isEmpty,
+            "Raw inbox asset subdir literal (\"images\"/\"audio\") in InboxStore.swift. "
+            + "Route through InboxConvention.assetSubdir(for:) / "
+            + "assetURL(kind:filename:inboxDir:) (MaughamCore) — the single source of "
+            + "truth shared with the phone writer (InboxCaptureWriter). See "
+            + "docs/superpowers/notes/cross-surface-contracts.md. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// Self-check: prove the tripwire FIRES on planted raw subdir literals.
+    func test_inboxSubdirLiteralTripwireFiresOnPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-inbox-subdir-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        let planted = tmp.appendingPathComponent("InboxStore.swift")
+        try """
+        func assetURL(for entry: InboxEntry) -> URL? {
+            let subdir: String
+            switch entry.kind {
+            case .image: subdir = "images"
+            case .audio: subdir = "audio"
+            case .text: return nil
+            }
+            return inboxDir.appendingPathComponent(subdir)
+        }
+        """.write(to: planted, atomically: true, encoding: .utf8)
+
+        let offenders = try grepSwift(
+            in: tmp,
+            files: ["InboxStore.swift"],
+            patterns: ["\"images\"", "\"audio\""])
+        XCTAssertEqual(offenders.count, 2,
+            "Self-check expected both the images and audio literal to fire. Got:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.contains { $0.contains("\"images\"") },
+            "Self-check: the planted \"images\" literal should be caught.")
+        XCTAssertTrue(offenders.contains { $0.contains("\"audio\"") },
+            "Self-check: the planted \"audio\" literal should be caught.")
+    }
 }
