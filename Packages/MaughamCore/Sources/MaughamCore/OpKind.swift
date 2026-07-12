@@ -1,6 +1,6 @@
 import Foundation
 
-public enum OpKind: String, Codable, Equatable, Sendable {
+public enum OpKind: String, Codable, Equatable, Sendable, CaseIterable {
     case typingBurst = "typing_burst"
     case claudeSuggestion = "claude_suggestion"
     case claudeAccept = "claude_accept"
