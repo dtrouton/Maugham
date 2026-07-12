@@ -1,0 +1,66 @@
+# Maugham — What It Is
+
+*Written for a smart outsider. The companion document, [`constitution.md`](constitution.md), holds the opinions — the vision, the musts, and the must-nots. This one holds the facts, including the unflattering ones.*
+
+## What it is
+
+Maugham is a Mac-native focus text editor for serious creative writing — prose, novels, screenplays, and mixed collections — with an iPhone companion for capture, reading, and review on the go. It is built in Swift, SwiftUI, and AppKit, and it is designed from the ground up to live *alongside* an AI collaborator rather than embed one: Claude Desktop connects through a local socket, reads the manuscript, and annotates it. It never edits it.
+
+The name is after W. Somerset Maugham, a working writer's writer.
+
+## Who uses it
+
+One person: its author, who is writing fiction in it daily. That is the honest userbase today, and the noncommercial source license reflects it.
+
+It is built, however, as if for a real audience: serious creative writers who want AI as a reader, researcher, and production assistant — not a ghostwriter — and who want their manuscript in plain text they own on their own machine. Every design decision is tested against that writer, not just the current userbase of one.
+
+## What it does
+
+Organized by what a writer is doing, not by feature list:
+
+**Writing.** A focused editor with a centered column, typewriter scrolling, sentence- and paragraph-level focus dimming (⌘\), smart typography, and per-project fonts and themes. Prose is Markdown; screenplays are Fountain with full per-element styling, Tab-cycling between elements, scene numbers, dual dialogue, page counts, and a title page. ⌘S is a deliberate anachronism: saving is automatic, so ⌘S writes a *labeled checkpoint* — a named moment you can return to — and flashes to preserve the muscle-memory ritual.
+
+**Structuring.** Four project types (Short Story, Novel, Screenplay, Collection). A Binder sidebar holds the pieces — drag to reorder, group into acts and chapters. An Inspector carries per-piece synopsis, status, tags, and word targets. Outline and corkboard views give the aerial picture; `[[wiki-links]]` connect pieces to each other and to research.
+
+**Research.** A research browser lives beside the draft — notes, images, PDFs — plus a *sensory palette*: subject-keyed cards (a character, a place) holding color swatches, reference images, and sense-tagged notes, paired with an optional craft-intent document stating what the story needs sensorially.
+
+**Working with Claude.** A bundled local MCP server exposes 47 tools to Claude Desktop. Claude can read everything — binder, manuscript, research, wiki-graph, tasks, palette — and can *propose*: comments, queries, craft notes, and suggested changes, all anchored to specific paragraphs. Proposals land in an Annotations pane where the writer accepts, rejects, or archives each one. This membrane — Claude proposes, the writer disposes — is load-bearing and enforced in the architecture, not just the UI. Claude can also compile the book (below) and answer help questions from the same guide the app ships.
+
+**Capturing on the go.** The iPhone app captures text, photos, and voice notes into a per-project inbox; voice is transcribed on the Mac by a local Whisper model. Captures can be aimed at a palette subject in the moment. On the Mac, inbox entries are promoted into research, palette cards, or notes. The phone also reads the manuscript and triages Claude's annotations away from the desk.
+
+**Publishing.** Claude co-authors a per-project LaTeX template tuned to the writer's typographic taste, and the app compiles it to a bespoke PDF with a bundled TeX engine (tectonic) — no TeX installation required — or to a standard EPUB. Output lands in the project's `Exports/` folder. This is the "delight others" feature: a manuscript becomes a book-shaped thing you can hand to someone.
+
+**Keeping the words safe.** Autosave (750ms), labeled checkpoints, unified undo across every kind of change, per-document History Rewind (scrub back through every edit ever made), trash-not-delete for binder operations, integrity-checked backups to any local or cloud-synced folder, and self-healing for a corrupted project manifest. The words are plain text on disk at all times.
+
+## How it's structured
+
+Five parts, one repository:
+
+- **The Mac app** (`Maugham/`) — the full writing environment.
+- **The iPhone app** (`MaughamPhone/`) — capture, read, review; deliberately not an editor.
+- **MaughamCore** (`Packages/MaughamCore/`) — a shared Foundation-only package holding everything both surfaces need: the operation log, the Fountain parser, the data models. A tripwire test suite enforces that the phone never reimplements what the Mac owns.
+- **The MCP bridge** (`maugham-mcp/`) — a small CLI that connects Claude Desktop's stdio to the Mac app's Unix socket. Live-only: Claude can only reach projects that are open in a running Maugham.
+- **The docs** (`docs/`) — a user guide (served identically in-app, to Claude, and on GitHub), ADRs recording every architectural decision, and dated specs and plans for each milestone.
+
+The central architectural idea is the **operation log**: every edit to a manuscript is an append-only operation in a per-document journal. The `.md`/`.fountain` files on disk are *derived* from that log — clean, standard, portable plain text, readable by any tool forever — but the log is the truth. This buys conflict-free sync between Mac and phone (each device appends to its own file; iCloud Drive never has to merge), a complete forensic history, rewind to any point, and undo that spans every kind of change. The cost is discipline: all editing must flow through Maugham, and an outside edit to the `.md` is deliberately discarded.
+
+Distribution is grown-up: signed and notarized `.dmg` releases with silent in-place auto-update on the Mac, TestFlight for the phone, tag-driven CI for both.
+
+## How it's built
+
+The author of Maugham does not write code. Every line is written by Claude via Claude Code's agent-driven workflow: each milestone is brainstormed into a spec, planned into tasks, and dispatched to subagents; decisions land as ADRs; hard-won lessons become tripwire tests and memory files so they are never relearned. The repository is as much a record of that working method as it is a codebase — roughly two months old at this writing, with 20+ ADRs and a per-milestone paper trail under `docs/superpowers/`.
+
+## The unglamorous truth
+
+What the marketing paragraph above won't tell you:
+
+- **The userbase is one.** Nobody else has installed it. Everything claimed about "writers" is really a claim about one writer plus conviction.
+- **The safety net is largely untested by disaster.** History Rewind and the backup system are insurance that has rarely been drawn on in anger. They are well-tested in code and barely tested by life.
+- **The newest surfaces are unproven.** The sensory palette, craft intent, and the tasks layer shipped recently and haven't yet demonstrated they earn their place in a real writing practice.
+- **The writer statistics are interesting more than useful.** Session tracking, activity views, project statistics — pleasant to look at, not yet load-bearing for the actual writing. Screenplay statistics still render novel-shaped ("words by chapter" for a one-file screenplay).
+- **Screenplay intelligence is unstarted.** The IDE-like features — character autocomplete, slugline reuse, prefix completion — are a roadmap group with zero code behind them. An earlier attempt at multi-file screenplays was abandoned outright (ADR 0001) and single-file is now doctrine.
+- **Collaboration is a design, not a feature.** The human-reviewer layer (a transferable author lock; collaborators in the same annotation membrane as Claude) exists as a provisional design sketch only. Maugham today is strictly single-writer.
+- **Assorted open edges.** Snapshots (named, user-curated versions), FDX and Word export, Shunn-format manuscript export, project templates, and a submission tracker are all open or speculative roadmap items. The Annotations and History panes still confuse — sibling tabs with opposite affordances and no onboarding hint.
+- **Some polish is testing-driven, not use-driven.** A few shipped features have been exercised more thoroughly by their test suites and release smokes than by actual writing sessions.
+
+None of this is hidden in the roadmap — [`docs/roadmap.md`](roadmap.md) tracks all of it — but a fair summary of Maugham is: a genuinely solid foundation (editor, op log, sync, safety, publishing, the Claude membrane) with a long tail of ambitions in various states of undress.

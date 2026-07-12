@@ -8,8 +8,9 @@ Read in this order, then start work:
 
 1. `MEMORY.md` at `~/.claude/projects/-Users-denver-src-Maugham/memory/MEMORY.md` — the milestone index. Don't re-derive what's shipped; it's all there.
 2. `README.md` and `docs/roadmap.md` — current shipped scope and open work.
-3. `docs/adr/` — every architectural decision made since the master spec. **ADRs supersede the master spec.** Don't re-read `docs/superpowers/specs/2026-05-07-maugham-master-design.md` except for original-intent questions.
-4. This file's "Hard invariants" and "Tripwires" sections.
+3. `docs/constitution.md` — the product constitution: musts / must-nots, each marked *identity* or *position*, with falsification conditions. Test new milestones against it; ADRs cite its principles by name. Companion `docs/product.md` is the honest what-is-built overview.
+4. `docs/adr/` — every architectural decision made since the master spec. **ADRs supersede the master spec.** Don't re-read `docs/superpowers/specs/2026-05-07-maugham-master-design.md` except for original-intent questions.
+5. This file's "Hard invariants" and "Tripwires" sections.
 
 The most recent codebase audits live at `docs/superpowers/notes/2026-05-19-state-of-the-code.md` and `docs/superpowers/notes/2026-05-19-step-back-audit.md` — load them if you're touching anything they cover.
 
