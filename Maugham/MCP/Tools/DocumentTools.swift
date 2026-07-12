@@ -77,7 +77,13 @@ public enum ReadDocumentTool: MCPTool {
         if let ds = store.documentStore, let doc = ds.document(for: path) {
             text = doc.materialize()
         } else {
-            text = DerivedManuscript.materialize(forDocId: item.id, in: projectURL)
+            // Closed doc: derive through the per-project cache (E6) rather than
+            // a bare `DerivedManuscript.materialize`, so a large closed-doc read
+            // pays the JSONL-decode cost once per (doc, op-log-file-set) instead
+            // of once per call — the same cache search/links/tasks already ride.
+            // Freshness is preserved: the cache's validity token is the op-log
+            // file set's (path, mtime, size), so any append/seal/sync re-derives.
+            text = store.derivedCache.materialize(forDocId: item.id, in: projectURL)
         }
         let mode = Self.modeFor(path: path, projectType: store.manifest.type)
         // `text` is the ANCHORED body (so Claude can target `<!-- ¶id -->`

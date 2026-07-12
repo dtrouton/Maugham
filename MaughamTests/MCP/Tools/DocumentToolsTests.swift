@@ -65,6 +65,86 @@ final class DocumentToolsTests: XCTestCase {
         XCTAssertEqual(doc.mode, "prose")
     }
 
+    /// E6: the closed-doc branch derives through the per-project
+    /// `DerivedManuscriptCache`, not a bare `DerivedManuscript.materialize`.
+    /// The two must return byte-identical anchored text for the same closed
+    /// doc — the cache only memoizes the intermediate `DerivedState`.
+    func test_readDocument_closedDoc_equivalentToDirectMaterialize() async throws {
+        let (url, _, reg) = try await makeProject()
+        _ = try await Document.load(
+            url: url.appendingPathComponent("manuscript/c1.md"),
+            device: "test", session: "s", presenter: nil)
+        let id = ProjectIdentifier.id(for: url)
+        let req = "{\"project_id\":\"\(id)\",\"document_id\":\"ch-1\"}"
+        let json = try await ReadDocumentTool.handle(
+            paramsJSON: Data(req.utf8), registry: reg)
+        let doc = try JSONDecoder().decode(
+            ReadDocumentTool.DocumentContent.self, from: json)
+        // Direct derive bypasses the cache entirely; the tool's cache-backed
+        // read must match it exactly (anchored form).
+        let direct = DerivedManuscript.materialize(forDocId: "ch-1", in: url)
+        XCTAssertFalse(direct.isEmpty, "op log should have bootstrap ops")
+        XCTAssertEqual(doc.text, direct,
+            "cache-backed closed-doc read must equal a direct materialize")
+    }
+
+    /// A second identical closed-doc read hits the cache — `deriveCount` (the
+    /// number of actual JSONL decodes) stays at 1 across two reads, proving the
+    /// tool now shares the per-project cache instead of decoding every call.
+    func test_readDocument_closedDoc_secondReadHitsCache() async throws {
+        let (url, store, reg) = try await makeProject()
+        _ = try await Document.load(
+            url: url.appendingPathComponent("manuscript/c1.md"),
+            device: "test", session: "s", presenter: nil)
+        let id = ProjectIdentifier.id(for: url)
+        let req = "{\"project_id\":\"\(id)\",\"document_id\":\"ch-1\"}"
+        _ = try await ReadDocumentTool.handle(
+            paramsJSON: Data(req.utf8), registry: reg)
+        XCTAssertEqual(store.derivedCache.deriveCount, 1,
+            "first read should derive exactly once")
+        _ = try await ReadDocumentTool.handle(
+            paramsJSON: Data(req.utf8), registry: reg)
+        XCTAssertEqual(store.derivedCache.deriveCount, 1,
+            "second read of an unchanged closed doc should hit the cache")
+    }
+
+    /// Freshness: an op appended to a CLOSED doc's log after the cache is
+    /// filled must be reflected on the next read. The validity token is the
+    /// op-log file set's (path, mtime, size); the append grows the file, so the
+    /// token invalidates and the tool re-derives (deriveCount 1 → 2) rather
+    /// than serving stale text. This is the test that pins the invalidation
+    /// contract — read_document via the cache can never lag the op log.
+    func test_readDocument_closedDoc_reflectsOpAppendedAfterCacheFill() async throws {
+        let (url, store, reg) = try await makeProject()
+        let docURL = url.appendingPathComponent("manuscript/c1.md")
+        let doc = try await Document.load(
+            url: docURL, device: "test", session: "s", presenter: nil)
+        let id = ProjectIdentifier.id(for: url)
+        let req = "{\"project_id\":\"\(id)\",\"document_id\":\"ch-1\"}"
+
+        // First read fills the cache (one derive).
+        let firstJSON = try await ReadDocumentTool.handle(
+            paramsJSON: Data(req.utf8), registry: reg)
+        let first = try JSONDecoder().decode(
+            ReadDocumentTool.DocumentContent.self, from: firstJSON)
+        XCTAssertFalse(first.text.contains("Second paragraph inserted"))
+        XCTAssertEqual(store.derivedCache.deriveCount, 1)
+
+        // Append a new paragraph to the closed doc's op log and make it durable.
+        doc.setFullText("Chapter 1\n\nFirst paragraph.\n\nSecond paragraph inserted.\n")
+        try await doc.flushBurstNow()
+
+        // Second read must reflect the new op — re-derived, not a stale hit.
+        let secondJSON = try await ReadDocumentTool.handle(
+            paramsJSON: Data(req.utf8), registry: reg)
+        let second = try JSONDecoder().decode(
+            ReadDocumentTool.DocumentContent.self, from: secondJSON)
+        XCTAssertTrue(second.text.contains("Second paragraph inserted"),
+            "closed-doc read must reflect the appended op, not stale cached text")
+        XCTAssertEqual(store.derivedCache.deriveCount, 2,
+            "the op-log append should invalidate the token and force a re-derive")
+    }
+
     func test_readDocument_missingDoc_throws() async throws {
         let (url, _, reg) = try await makeProject()
         let id = ProjectIdentifier.id(for: url)
