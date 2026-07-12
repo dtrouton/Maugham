@@ -975,7 +975,16 @@ final class TripwireGrepTests: XCTestCase {
                 .map(String.init)
             for (i, line) in lines.enumerated() where line.contains("ContentUnavailableView(") {
                 let lookahead = lines[i..<min(i + contentUnavailableViewFrameWindow + 1, lines.count)]
-                let hasFrame = lookahead.contains { $0.contains(".frame(maxWidth: .infinity") }
+                // Comment lines don't count — a comment merely DISCUSSING the
+                // frame chain (e.g. explaining why one is missing) must not
+                // satisfy the requirement. Caught in dev: an early self-check
+                // fixture's own explanatory comment contained the frame
+                // substring and silently passed a frameless CUV.
+                let hasFrame = lookahead.contains {
+                    let trimmed = $0.trimmingCharacters(in: .whitespaces)
+                    guard !trimmed.hasPrefix("//") && !trimmed.hasPrefix("///") else { return false }
+                    return trimmed.contains(".frame(maxWidth: .infinity")
+                }
                 if !hasFrame {
                     offenders.append("\(url.lastPathComponent):\(i + 1): \(line.trimmingCharacters(in: .whitespaces))")
                 }
@@ -1012,15 +1021,27 @@ final class TripwireGrepTests: XCTestCase {
                 // will float to window center (tripwire 15).
             }
         }
+        struct CommentTrapPane: View {
+            var body: some View {
+                ContentUnavailableView("Comment trap", systemImage: "tray")
+                // Merely MENTIONING .frame(maxWidth: .infinity in a comment
+                // must not satisfy the guard — this pane is still frameless.
+            }
+        }
         """.write(to: tmp.appendingPathComponent("SelfCheckPane.swift"),
                   atomically: true, encoding: .utf8)
 
         let offenders = try Self.findFramelessContentUnavailableViews(in: tmp)
-        XCTAssertEqual(offenders.count, 1,
-            "Self-check expected exactly the frameless BadPane to fire. Got:\n"
+        XCTAssertEqual(offenders.count, 2,
+            "Self-check expected the frameless BadPane and CommentTrapPane to "
+            + "fire — the latter proves a comment merely containing the frame "
+            + "substring doesn't satisfy the guard. Got:\n"
             + offenders.joined(separator: "\n"))
-        XCTAssertTrue(offenders.first?.contains("Nothing here") == true,
-            "Self-check: the planted frameless BadPane offender should be the one caught.")
+        XCTAssertTrue(offenders.contains { $0.contains("Nothing here") },
+            "Self-check: the planted frameless BadPane offender should be caught.")
+        XCTAssertTrue(offenders.contains { $0.contains("Comment trap") },
+            "Self-check: the planted CommentTrapPane offender should be caught "
+            + "even though a nearby COMMENT contains the frame substring.")
     }
 
     // MARK: - Paragraph-id literal alphabet lint (tripwire 8)
@@ -1051,6 +1072,15 @@ final class TripwireGrepTests: XCTestCase {
     /// refactor that adds one; exercised by the self-check below.
     static let paragraphIdConstructorTokenPattern = "ParagraphID\\(\"([0-9A-Za-z]{4})\"\\)"
 
+    /// Matches a `paragraphId: "xxxx"` keyword-argument literal — the shape
+    /// used to construct `Op` values directly in tests (158 occurrences
+    /// across the suite as of the 2026-07-11 audit; all 22 distinct values
+    /// were clean, but the shape itself crosses the `.md` ↔ op-log boundary
+    /// exactly like the other two, and wasn't covered until this pass). The
+    /// quote marks bound the match exactly, so a 3- or 5-char value simply
+    /// doesn't match (no lookahead needed, unlike the anchor pattern).
+    static let paragraphIdKeywordArgTokenPattern = "paragraphId:\\s*\"([0-9A-Za-z]{4})\""
+
     /// A line is exempt when it's a comment (doc-comments illustrating the
     /// anchor FORMAT with an uppercase `¶XXXX` placeholder — e.g.
     /// ProjectASTBuilderTests.swift's "carry `<!-- ¶XXXX -->` anchors" prose —
@@ -1067,9 +1097,9 @@ final class TripwireGrepTests: XCTestCase {
     }
 
     /// Scan every `.swift` file under `dirs` for 4-char paragraph-id literals
-    /// matching either token pattern, and report every one whose characters
-    /// aren't a subset of `paragraphIdAlphabet`. SHARED between the
-    /// production check and the self-test. `allowed` skips files by
+    /// matching any of the three token patterns, and report every one whose
+    /// characters aren't a subset of `paragraphIdAlphabet`. SHARED between
+    /// the production check and the self-test. `allowed` skips files by
     /// `lastPathComponent` — the production call excludes
     /// `TripwireGrepTests.swift` itself (ADR-0021-tripwire precedent): its
     /// self-check test embeds a planted bad-alphabet literal as literal
@@ -1077,8 +1107,11 @@ final class TripwireGrepTests: XCTestCase {
     static func scanParagraphIdAlphabetViolations(
         in dirs: [URL], allowed: Set<String> = []
     ) throws -> [String] {
-        let regexes = try [paragraphIdAnchorTokenPattern, paragraphIdConstructorTokenPattern]
-            .map { try NSRegularExpression(pattern: $0) }
+        let regexes = try [
+            paragraphIdAnchorTokenPattern,
+            paragraphIdConstructorTokenPattern,
+            paragraphIdKeywordArgTokenPattern,
+        ].map { try NSRegularExpression(pattern: $0) }
         var offenders: [String] = []
         for dir in dirs {
             guard let walker = FileManager.default.enumerator(
@@ -1113,8 +1146,10 @@ final class TripwireGrepTests: XCTestCase {
     /// isn't drawn from `ParagraphID`'s alphabet is a latent Bootstrap/
     /// RenderFilter rejection waiting to happen the moment that test crosses
     /// the `.md` ↔ op-log boundary for real (CLAUDE.md tripwire 8). Scans all
-    /// three test targets: MaughamTests, MaughamPhoneTests,
-    /// Packages/MaughamCore/Tests.
+    /// three test targets — MaughamTests, MaughamPhoneTests,
+    /// Packages/MaughamCore/Tests — for all three literal shapes: `¶xxxx`
+    /// anchor comments, `ParagraphID("xxxx")` constructions, and
+    /// `paragraphId: "xxxx"` `Op`-construction keyword arguments.
     func test_paragraphIdLiteralsInTestsUseValidAlphabet() throws {
         let dirs = [
             repoRoot.appendingPathComponent("MaughamTests", isDirectory: true),
@@ -1135,10 +1170,11 @@ final class TripwireGrepTests: XCTestCase {
     }
 
     /// Self-check: prove the alphabet lint FIRES on a planted bad-alphabet
-    /// anchor literal AND a planted bad-alphabet `ParagraphID("...")`
-    /// construction, and does NOT fire on a comment-prose placeholder, a
-    /// deliberate `XCTAssertNil`-guarded malformed-rejection literal, or a
-    /// valid literal.
+    /// anchor literal, a planted bad-alphabet `ParagraphID("...")`
+    /// construction, AND a planted bad-alphabet `paragraphId: "..."`
+    /// keyword-argument literal, and does NOT fire on a comment-prose
+    /// placeholder, a deliberate `XCTAssertNil`-guarded malformed-rejection
+    /// literal, or a valid literal.
     func test_paragraphIdAlphabetLintFiresOnPlantedOffenders() throws {
         let fm = FileManager.default
         let tmp = fm.temporaryDirectory
@@ -1159,6 +1195,9 @@ final class TripwireGrepTests: XCTestCase {
             func test_badConstructor() {
                 let id = ParagraphID("ilou")
             }
+            func test_badKeywordArg() {
+                let op = Op.insert(paragraphId: "ilou", text: "x", sequence: 1)
+            }
             func test_rejectsMalformed() {
                 XCTAssertNil(ParagraphID.parseComment("<!-- ¶ABCD -->"))
             }
@@ -1168,14 +1207,17 @@ final class TripwireGrepTests: XCTestCase {
 
         let dirs = [tmp]
         let offenders = try Self.scanParagraphIdAlphabetViolations(in: dirs)
-        XCTAssertEqual(offenders.count, 2,
-            "Self-check expected exactly the bad anchor and bad constructor "
-            + "literals to fire (comment placeholder and XCTAssertNil-guarded "
-            + "rejection test excluded). Got:\n" + offenders.joined(separator: "\n"))
+        XCTAssertEqual(offenders.count, 3,
+            "Self-check expected exactly the bad anchor, bad constructor, and "
+            + "bad keyword-arg literals to fire (comment placeholder and "
+            + "XCTAssertNil-guarded rejection test excluded). Got:\n"
+            + offenders.joined(separator: "\n"))
         XCTAssertTrue(offenders.contains { $0.contains("[ilou]") && $0.contains("¶ilou") },
             "Self-check: the planted bad anchor literal should be caught.")
         XCTAssertTrue(offenders.contains { $0.contains("[ilou]") && $0.contains("ParagraphID(\"ilou\")") },
             "Self-check: the planted bad ParagraphID(\"...\") construction should be caught.")
+        XCTAssertTrue(offenders.contains { $0.contains("[ilou]") && $0.contains("paragraphId: \"ilou\"") },
+            "Self-check: the planted bad paragraphId: \"...\" keyword-arg literal should be caught.")
         XCTAssertFalse(offenders.contains { $0.contains("a3f9") },
             "Self-check: the valid literal must NOT fire.")
         XCTAssertFalse(offenders.contains { $0.contains("ABCD") },
