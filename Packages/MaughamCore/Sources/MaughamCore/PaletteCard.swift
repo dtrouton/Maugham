@@ -3,8 +3,13 @@ import Foundation
 /// A parsed sensory-palette card. Cards are plain markdown research assets under
 /// `research/palette/`. The MODEL owns the file: `PaletteCardParser` reads it and
 /// `PaletteCardRenderer` writes the canonical form back, so `parse(render(card))
-/// == card` for any editor-reachable model. External hand-edits are unsupported;
-/// re-rendering normalizes them.
+/// == card` for any editor-reachable model — WITH ONE documented residual: a body
+/// line that spells a known section heading (`## Images`/`## Swatches`/`## Senses`)
+/// is claimed by section detection before the body branch, so such a line (and text
+/// after it, up to the next heading) leaves `body` on the first round and any inline
+/// image on it is harvested into `imagePaths`. The round-trip then converges from the
+/// second render on. A mid-body-heading hardening is a tracked follow-up. External
+/// hand-edits are unsupported; re-rendering normalizes them.
 ///
 /// Canonical card markdown:
 ///
@@ -262,7 +267,8 @@ public enum PaletteCardParser {
 }
 
 /// The exact inverse of `PaletteCardParser`: renders a `PaletteCard` back to its
-/// canonical markdown. `parse(render(card)) == card` for editor-reachable models.
+/// canonical markdown. `parse(render(card)) == card` for editor-reachable models,
+/// except the known-section-heading-in-body residual documented on `PaletteCard`.
 /// The model owns the file, so rendering normalizes to canonical form (uppercase
 /// swatches, card-relative `./` image paths, the three sections always present).
 public enum PaletteCardRenderer {
