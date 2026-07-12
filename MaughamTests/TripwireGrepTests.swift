@@ -837,6 +837,351 @@ final class TripwireGrepTests: XCTestCase {
             + "existing id population. Offenders:\n" + offenders.joined(separator: "\n"))
     }
 
+    // MARK: - applyExternalText call-site census (tripwire 7)
+
+    /// A line is exempt when it's the function's own definition (`func
+    /// applyExternalText(`, in EditorCoordinator.swift) or a comment —
+    /// tripwire 7's whole point is that a call site outside the one
+    /// sanctioned caller (EditorSurface.swift's `updateNSView`, the
+    /// cloud-conflict resolution path) is a binding race; prose that merely
+    /// discusses `applyExternalText` (and there is a lot of it — tripwires
+    /// 2/3/6/7 are cross-referenced throughout Editor/) is not a call.
+    private func isApplyExternalTextNonCallLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasPrefix("//") || trimmed.hasPrefix("///") { return true }
+        if trimmed.contains("func applyExternalText(") { return true }
+        return false
+    }
+
+    /// Recurrence-tripper: `EditorCoordinator.applyExternalText` exists ONLY
+    /// for cloud-conflict resolution (CLAUDE.md tripwire 7); a second
+    /// production call site is a binding race of the same shape that drove
+    /// three cursor races in the `EditorHost` triad (tripwire 6). Unlike the
+    /// other tripwires here, this is a CENSUS, not an allow/deny grep — the
+    /// one legitimate call (EditorSurface.swift's `updateNSView`) must be
+    /// present exactly once, and adding a second must fail even though
+    /// `applyExternalText(` isn't a forbidden token in isolation.
+    func test_applyExternalTextHasExactlyOneProductionCallSite() throws {
+        let callSites = try grepSwift(
+            in: sourceDir,
+            patterns: ["applyExternalText("],
+            excludeLine: { [self] in isApplyExternalTextNonCallLine($0) }
+        )
+        XCTAssertEqual(callSites.count, 1,
+            "Expected exactly ONE production call site of applyExternalText( — "
+            + "EditorSurface.swift's updateNSView (the sanctioned cloud-conflict "
+            + "resolution path, tripwire 7). A second call site is a binding race "
+            + "(tripwire 6/7 class of bug, EditorHost.swift AREA.md). Found:\n"
+            + callSites.joined(separator: "\n"))
+        XCTAssertTrue(callSites.first?.contains("EditorSurface.swift") == true,
+            "The one call site should be in EditorSurface.swift. Got:\n"
+            + callSites.joined(separator: "\n"))
+    }
+
+    /// Self-check: prove the census FIRES when a second call site is planted
+    /// (the real defect this test guards against — an allow/deny grep for a
+    /// forbidden token wouldn't catch a second occurrence of a REQUIRED one).
+    func test_applyExternalTextCensusFiresOnPlantedSecondCallSite() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-applyexternaltext-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        /// Doc-comment mentioning applyExternalText( is not a call.
+        func applyExternalText(_ text: String, preserveUndoStack: Bool = false) {
+            // definition — excluded
+        }
+        """.write(to: tmp.appendingPathComponent("EditorCoordinator.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
+        struct EditorSurface {
+            func updateNSView() {
+                context.coordinator.applyExternalText(text, preserveUndoStack: true)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("EditorSurface.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
+        struct RewindSheet {
+            func apply() {
+                // A second, forbidden call site — planted offender.
+                coordinator.applyExternalText(restored, preserveUndoStack: false)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("RewindSheet.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let callSites = try grepSwift(
+            in: tmp,
+            patterns: ["applyExternalText("],
+            excludeLine: { [self] in isApplyExternalTextNonCallLine($0) }
+        )
+        XCTAssertEqual(callSites.count, 2,
+            "Self-check expected two call sites (EditorSurface + planted RewindSheet) "
+            + "with the definition and doc-comment excluded. Got:\n"
+            + callSites.joined(separator: "\n"))
+        XCTAssertTrue(callSites.contains { $0.contains("RewindSheet.swift") },
+            "Self-check: the planted second call site in RewindSheet.swift should fire.")
+    }
+
+    // MARK: - ContentUnavailableView frame guard (tripwire 15)
+
+    /// How many lines after a `ContentUnavailableView(` opener the required
+    /// `.frame(maxWidth: .infinity` must appear. Measured against the actual
+    /// codebase (2026-07-11): the shortest single-line calls chain the frame
+    /// on the very next line (distance 1); the longest multi-line calls —
+    /// title + systemImage + description args each on their own line, then
+    /// the closing paren, then `.frame(...)` — land at distance 4
+    /// (e.g. DetailPaneToggle.swift, InboxPane.swift, HistoryPane.swift all
+    /// legitimately sit at 4). A 3-line window would false-positive on those
+    /// real, correct call sites, so the window is 4 — still crisp enough to
+    /// catch a genuinely frameless CUV (tripwire 15: recurred 4+ times
+    /// because `ContentUnavailableView` sizes to intrinsic content and an
+    /// unframed one lets the enclosing pane's toolbar float to window center).
+    private static let contentUnavailableViewFrameWindow = 4
+
+    /// Recurrence-tripper: every `ContentUnavailableView(` in Maugham/Views/
+    /// must chain `.frame(maxWidth: .infinity` within the next
+    /// `contentUnavailableViewFrameWindow` lines. Canonical examples:
+    /// HistoryPane, AnnotationsPane, OutlinePane (CLAUDE.md tripwire 15).
+    func test_contentUnavailableViewAlwaysChainsFullFrame() throws {
+        let viewsDir = repoRoot.appendingPathComponent("Maugham/Views", isDirectory: true)
+        let offenders = try Self.findFramelessContentUnavailableViews(in: viewsDir)
+        XCTAssertTrue(offenders.isEmpty,
+            "ContentUnavailableView( without a .frame(maxWidth: .infinity within "
+            + "\(Self.contentUnavailableViewFrameWindow) lines (tripwire 15). "
+            + "SwiftUI sizes ContentUnavailableView to intrinsic content, so an "
+            + "unframed one lets the enclosing pane's toolbar float to window "
+            + "center — this has recurred 4+ times. Canonical examples: "
+            + "HistoryPane, AnnotationsPane, OutlinePane. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// Shared scan: walk every `.swift` file in `dir`, and for each
+    /// `ContentUnavailableView(` opener, look ahead up to
+    /// `contentUnavailableViewFrameWindow` lines for the required frame
+    /// chain. SHARED between the production check and the self-test.
+    static func findFramelessContentUnavailableViews(in dir: URL) throws -> [String] {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        var offenders: [String] = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+                .map(String.init)
+            for (i, line) in lines.enumerated() where line.contains("ContentUnavailableView(") {
+                let lookahead = lines[i..<min(i + contentUnavailableViewFrameWindow + 1, lines.count)]
+                let hasFrame = lookahead.contains { $0.contains(".frame(maxWidth: .infinity") }
+                if !hasFrame {
+                    offenders.append("\(url.lastPathComponent):\(i + 1): \(line.trimmingCharacters(in: .whitespaces))")
+                }
+            }
+        }
+        return offenders
+    }
+
+    /// Self-check: prove the frame guard FIRES on a planted frameless
+    /// `ContentUnavailableView` and does NOT fire on one whose frame chain
+    /// sits at the edge of the window (distance 4, matching real call sites
+    /// like DetailPaneToggle.swift).
+    func test_contentUnavailableViewFrameGuardFiresOnPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-cuv-frame-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        struct GoodPane: View {
+            var body: some View {
+                ContentUnavailableView(
+                    "No items",
+                    systemImage: "tray",
+                    description: Text("Nothing here yet."))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        struct BadPane: View {
+            var body: some View {
+                ContentUnavailableView("Nothing here", systemImage: "tray")
+                // No full-frame modifier anywhere nearby — the toolbar
+                // will float to window center (tripwire 15).
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("SelfCheckPane.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let offenders = try Self.findFramelessContentUnavailableViews(in: tmp)
+        XCTAssertEqual(offenders.count, 1,
+            "Self-check expected exactly the frameless BadPane to fire. Got:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.first?.contains("Nothing here") == true,
+            "Self-check: the planted frameless BadPane offender should be the one caught.")
+    }
+
+    // MARK: - Paragraph-id literal alphabet lint (tripwire 8)
+
+    /// The `ParagraphID` alphabet (CLAUDE.md tripwire 8): digits + lowercase
+    /// letters minus the visually-ambiguous `i`/`l`/`o`/`u`.
+    /// `ParagraphID.parseComment` rejects any id outside this set at
+    /// Bootstrap/RenderFilter time; a permissive in-memory test literal
+    /// hides the mismatch until then. Case-sensitive by construction — the
+    /// alphabet contains no uppercase members, so an uppercase id (even one
+    /// using only otherwise-valid letters, e.g. `"ABCD"`) is correctly a
+    /// violation, not merely a normalization nit.
+    static let paragraphIdAlphabet = Set("0123456789abcdefghjkmnpqrstvwxyz")
+
+    /// Matches a 4-char id token immediately after a `¶` anchor marker,
+    /// bounded on both sides so it can't be fooled: `(?![0-9A-Za-z])`
+    /// prevents truncating a legitimate 5-char id fixture (e.g.
+    /// `¶abcde` elsewhere in the suite) into a false 4-char hit, and
+    /// requiring the match to start right at `¶` means a 2-char placeholder
+    /// like `¶id` never matches at all (both by design — the task scope is
+    /// 4-char literals specifically).
+    static let paragraphIdAnchorTokenPattern = "¶([0-9A-Za-z]{4})(?![0-9A-Za-z])"
+
+    /// Matches a raw `ParagraphID("xxxx")` 4-char construction literal. No
+    /// production call site exists today — `ParagraphID` is a static-function
+    /// namespace (`Packages/MaughamCore/Sources/MaughamCore/ParagraphID.swift`),
+    /// not a constructible type — so this guards the SHAPE against a future
+    /// refactor that adds one; exercised by the self-check below.
+    static let paragraphIdConstructorTokenPattern = "ParagraphID\\(\"([0-9A-Za-z]{4})\"\\)"
+
+    /// A line is exempt when it's a comment (doc-comments illustrating the
+    /// anchor FORMAT with an uppercase `¶XXXX` placeholder — e.g.
+    /// ProjectASTBuilderTests.swift's "carry `<!-- ¶XXXX -->` anchors" prose —
+    /// aren't literal ids), or when it deliberately tests REJECTION of a
+    /// malformed id. `ParagraphIDTests.test_parseComment_rejectsMalformed`
+    /// feeds `¶ABCD` (uppercase — outside the alphabet by construction) into
+    /// `XCTAssertNil` specifically to prove the parser rejects it; that's the
+    /// tripwire 8 contract being exercised, not violated.
+    static func isAllowedParagraphIdLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasPrefix("//") || trimmed.hasPrefix("///") { return true }
+        if trimmed.contains("XCTAssertNil") { return true }
+        return false
+    }
+
+    /// Scan every `.swift` file under `dirs` for 4-char paragraph-id literals
+    /// matching either token pattern, and report every one whose characters
+    /// aren't a subset of `paragraphIdAlphabet`. SHARED between the
+    /// production check and the self-test. `allowed` skips files by
+    /// `lastPathComponent` — the production call excludes
+    /// `TripwireGrepTests.swift` itself (ADR-0021-tripwire precedent): its
+    /// self-check test embeds a planted bad-alphabet literal as literal
+    /// source text, which would otherwise self-match this very scan.
+    static func scanParagraphIdAlphabetViolations(
+        in dirs: [URL], allowed: Set<String> = []
+    ) throws -> [String] {
+        let regexes = try [paragraphIdAnchorTokenPattern, paragraphIdConstructorTokenPattern]
+            .map { try NSRegularExpression(pattern: $0) }
+        var offenders: [String] = []
+        for dir in dirs {
+            guard let walker = FileManager.default.enumerator(
+                at: dir, includingPropertiesForKeys: nil) else { continue }
+            for case let url as URL in walker where url.pathExtension == "swift" {
+                if allowed.contains(url.lastPathComponent) { continue }
+                let text = try String(contentsOf: url, encoding: .utf8)
+                for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+                    let lineStr = String(line)
+                    if isAllowedParagraphIdLine(lineStr) { continue }
+                    let ns = lineStr as NSString
+                    for regex in regexes {
+                        regex.enumerateMatches(
+                            in: lineStr, range: NSRange(location: 0, length: ns.length)
+                        ) { match, _, _ in
+                            guard let match, match.numberOfRanges > 1 else { return }
+                            let token = ns.substring(with: match.range(at: 1))
+                            if !Set(token).isSubset(of: paragraphIdAlphabet) {
+                                offenders.append(
+                                    "\(url.lastPathComponent):\(i + 1): [\(token)] "
+                                    + lineStr.trimmingCharacters(in: .whitespaces))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return offenders
+    }
+
+    /// Recurrence-tripper: a 4-char paragraph-id literal in a test file that
+    /// isn't drawn from `ParagraphID`'s alphabet is a latent Bootstrap/
+    /// RenderFilter rejection waiting to happen the moment that test crosses
+    /// the `.md` ↔ op-log boundary for real (CLAUDE.md tripwire 8). Scans all
+    /// three test targets: MaughamTests, MaughamPhoneTests,
+    /// Packages/MaughamCore/Tests.
+    func test_paragraphIdLiteralsInTestsUseValidAlphabet() throws {
+        let dirs = [
+            repoRoot.appendingPathComponent("MaughamTests", isDirectory: true),
+            repoRoot.appendingPathComponent("MaughamPhoneTests", isDirectory: true),
+            repoRoot.appendingPathComponent("Packages/MaughamCore/Tests", isDirectory: true),
+        ]
+        let offenders = try Self.scanParagraphIdAlphabetViolations(
+            in: dirs, allowed: ["TripwireGrepTests.swift"])
+        XCTAssertTrue(offenders.isEmpty,
+            "4-char paragraph-id literal outside ParagraphID's alphabet "
+            + "([0-9a-hjkmnp-tv-z]) found in a test target (tripwire 8). Use "
+            + "ParagraphID.mint() or a literal drawn from that alphabet — "
+            + "ParagraphID.parseComment rejects anything else at "
+            + "Bootstrap/RenderFilter time. If this is deliberately testing "
+            + "REJECTION of a malformed id, the containing assertion should be "
+            + "an XCTAssertNil (exempted). Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// Self-check: prove the alphabet lint FIRES on a planted bad-alphabet
+    /// anchor literal AND a planted bad-alphabet `ParagraphID("...")`
+    /// construction, and does NOT fire on a comment-prose placeholder, a
+    /// deliberate `XCTAssertNil`-guarded malformed-rejection literal, or a
+    /// valid literal.
+    func test_paragraphIdAlphabetLintFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-paragraphid-alphabet-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        final class PlantedTests: XCTestCase {
+            // Doc-comment placeholder, not a literal: <!-- ¶XXXX --> anchors.
+            func test_good() {
+                let md = "<!-- ¶a3f9 --> text"
+            }
+            func test_badAnchor() {
+                // "ilou" hits all four excluded letters: i, l, o, u.
+                let md = "<!-- ¶ilou --> text"
+            }
+            func test_badConstructor() {
+                let id = ParagraphID("ilou")
+            }
+            func test_rejectsMalformed() {
+                XCTAssertNil(ParagraphID.parseComment("<!-- ¶ABCD -->"))
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("PlantedTests.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let dirs = [tmp]
+        let offenders = try Self.scanParagraphIdAlphabetViolations(in: dirs)
+        XCTAssertEqual(offenders.count, 2,
+            "Self-check expected exactly the bad anchor and bad constructor "
+            + "literals to fire (comment placeholder and XCTAssertNil-guarded "
+            + "rejection test excluded). Got:\n" + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.contains { $0.contains("[ilou]") && $0.contains("¶ilou") },
+            "Self-check: the planted bad anchor literal should be caught.")
+        XCTAssertTrue(offenders.contains { $0.contains("[ilou]") && $0.contains("ParagraphID(\"ilou\")") },
+            "Self-check: the planted bad ParagraphID(\"...\") construction should be caught.")
+        XCTAssertFalse(offenders.contains { $0.contains("a3f9") },
+            "Self-check: the valid literal must NOT fire.")
+        XCTAssertFalse(offenders.contains { $0.contains("ABCD") },
+            "Self-check: the XCTAssertNil-guarded rejection literal must NOT fire.")
+    }
+
     /// Self-check: prove the guard FIRES on a planted bare `ParagraphID.mint()`
     /// call and does NOT fire on the safe `ParagraphID.mintUnique(excluding:)`
     /// sibling.
