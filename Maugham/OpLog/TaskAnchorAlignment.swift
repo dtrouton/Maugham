@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// V2 task-anchor alignment for `Document.setFullText`. Re-injects task
 /// anchors per paragraph (Pass 1 — body-match + LCS via `RenderFilter`),
@@ -359,11 +360,12 @@ enum TaskAnchorAlignment {
     }
 
     /// Whether a line text plausibly contains a task marker (markdown
-    /// checkbox or Fountain `[[todo:…]]` / `[[done:…]]`). Cheap substring
-    /// test; the aligner uses this to avoid treating arbitrary prose as a
-    /// move-target during Pass 2.
+    /// checkbox or Fountain `[[todo:…]]` / `[[done:…]]`). The aligner uses
+    /// this to avoid treating arbitrary prose as a move-target during
+    /// Pass 2. Detection is sourced from the shared
+    /// `TaskMarkup.lineContainsTaskMarker` predicate (MaughamCore) — see
+    /// `Document.changeTouchesTaskMarkup` for the sibling call site.
     private static func lineCarriesTaskMarker(_ line: String) -> Bool {
-        return line.contains("- [ ]") || line.contains("- [x]")
-            || line.contains("[[todo:") || line.contains("[[done:")
+        return TaskMarkup.lineContainsTaskMarker(line)
     }
 }

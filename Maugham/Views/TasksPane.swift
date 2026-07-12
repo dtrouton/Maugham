@@ -724,8 +724,13 @@ struct TasksPane: View {
 /// Flip the leading checkbox marker of an inline-task paragraph.
 /// Operates only on the first occurrence of `- [ ]` / `- [x]` / `- [X]`
 /// at the start of the trimmed paragraph (per Fountain/markdown).
+/// Detection of "is there a marker to flip at all" is sourced from the
+/// shared `TaskMarkup.lineContainsTaskMarker` predicate (MaughamCore);
+/// the actual bracket swap stays local since it needs a precise range,
+/// which the boolean predicate can't express.
 @MainActor
 func flipInlineCheckbox(_ text: String) -> String {
+    guard TaskMarkup.lineContainsTaskMarker(text) else { return text }
     var t = text
     if let range = t.range(of: "- [ ]") {
         t.replaceSubrange(range, with: "- [x]")
