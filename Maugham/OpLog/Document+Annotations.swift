@@ -618,6 +618,11 @@ extension Document {
     /// `AnnotationInverse` factory (cross-surface contract, tripwire 19); this
     /// method owns only the current-status query the factory is fed.
     public func reopenAnnotation(id: String) async throws {
+        // Decline atomically on a husked doc (whole-branch review, 2026-07-11):
+        // a compound-undo hop resuming after `close()` husked must not append a
+        // reopen op-side while the paired text restore no-ops (isClosed-guarded).
+        // Sibling of the `appendTaskOpInternal` guard.
+        if rejectMutationIfClosed("reopenAnnotation") { return }
         let current = annotations(filter: AnnotationFilter(statuses: nil))
             .first { $0.id == id }
         let undoneKind: OpKind

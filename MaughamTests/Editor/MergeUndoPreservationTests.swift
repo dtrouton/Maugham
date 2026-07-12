@@ -145,6 +145,96 @@ final class MergeUndoPreservationTests: XCTestCase {
             "the appended paragraph is untouched by the typing-undo")
     }
 
+    // MARK: - Test C2 — the trio's central path: un-bursted local typing + merge
+
+    /// WB fix 3 (2026-07-11 whole-branch review): Test C above pre-flushes the
+    /// local burst (line: `try await doc.flushBurstNow()`) so the upcoming merge
+    /// is a clean foreign append with no local op competing. That deliberately
+    /// AVOIDS the Task 5 × Task 7 combination — the case where the writer's
+    /// un-bursted typing is STILL pending when the peer op arrives, so
+    /// `handleExternalLogChange` must (Task 5) flush-first, THEN (Task 7) arm the
+    /// pure-append undo-coherence. Nothing pinned that central path; this does.
+    ///
+    /// The teeth: with the local typing un-bursted, a genuine range-based typing
+    /// undo must still (a) be PRESERVED across the merge and (b) FIRE SAFELY
+    /// afterward against a valid range — proving the flush-first op doesn't
+    /// perturb the offsets the preserved action captured.
+    ///
+    /// The foreign op is given a lexicographically-maximal opId so it WINS the
+    /// sequence LWW and lands as a true end-append. Without that, the flush-first
+    /// op (the first burst after load always stamps a sequence, ADR 0016) carries
+    /// the pre-merge sequence with a newer real-time opId and would drop the
+    /// peer's new paragraph — the accepted single-editor sequence-LWW limitation
+    /// (OpLog/AREA.md merge contract), a separate concern from the undo-safety
+    /// path under test here.
+    func test_unburstedLocalTyping_endAppendMerge_preservesAndFiresRangeUndo() async throws {
+        let rdh = try await EditorIntegrationHarness.withRealDocument(
+            initialText: "Alpha.\n\nBeta.")
+        let doc = rdh.document
+        let tv = rdh.harness.textView
+        XCTAssertEqual(doc.sequence.count, 2, "fixture seeds two paragraphs")
+        try await persistMirror(rdh)
+        let p1 = doc.sequence[0], p2 = doc.sequence[1]
+
+        // Type "Z" at the end through the coordinator — and DO NOT flush it. The
+        // burst stays in the pending buffer, so the merge must flush-first (Task 5)
+        // before it can re-derive from disk.
+        rdh.harness.setCursor(to: (tv.string as NSString).length)
+        await rdh.harness.typeString("Z")
+        XCTAssertEqual(doc.displayText, "Alpha.\n\nBeta.Z",
+            "the keystroke reached the Document (still un-bursted)")
+        XCTAssertFalse(doc.pending.isEmpty(),
+            "precondition: the local typing is un-bursted (pending non-empty)")
+
+        // A REAL range-based typing undo (mutates the buffer on fire via its
+        // captured range), the kind NSTextView registers.
+        let um = UndoManager()
+        rdh.harness.coordinator.undoManagerOverrideForTesting = um
+        let zLocation = (tv.string as NSString).length - 1
+        um.registerUndo(withTarget: tv) { target in
+            target.textStorage?.replaceCharacters(
+                in: NSRange(location: zLocation, length: 1), with: "")
+        }
+        XCTAssertTrue(um.canUndo, "precondition: a range-based typing undo exists")
+
+        // A peer APPENDS a new paragraph at the very end. The maximal opId makes
+        // it win the sequence LWW over the flush-first op, so it lands as a true
+        // end-append (old displayText is a literal prefix of the new).
+        let p3 = ParagraphID.mint()
+        let foreign = Op(
+            opId: "7ZZZZZZZZZZZZZZZZZZZZZZZZZZ",   // lexicographically-maximal ULID
+            docId: doc.docId, at: Date(),
+            device: "peer-mac", session: "peer-session",
+            kind: .typingBurst,
+            changes: [.init(paragraphId: p3, prior: nil, next: "Gamma.")],
+            sequence: [p1, p2, p3], provenance: nil)
+        try await mergeForeignOp(foreign, into: rdh)
+
+        // Task 5 flushed the pending "Z" into a real op; Task 7 armed pure-append.
+        XCTAssertTrue(doc.pending.isEmpty(),
+            "flush-first turned the un-bursted typing into a real op")
+        XCTAssertEqual(doc.displayText, "Alpha.\n\nBeta.Z\n\nGamma.",
+            "the local edit survived the flush-first AND the foreign append landed")
+
+        pumpEditorUpdate(rdh)
+
+        XCTAssertEqual(tv.string, doc.displayText,
+            "the append reached the editor buffer (a real replace occurred)")
+        XCTAssertTrue(um.canUndo,
+            "(a) the pure end-append preserved the range-based typing undo (Task 7)")
+
+        // (b) Teeth: fire the preserved action. Its captured range is still valid,
+        // so it deletes the typed "Z" cleanly and leaves the appended paragraph
+        // intact — no stale-range crash/corruption despite the flush-first op.
+        um.undo()
+        XCTAssertFalse(tv.string.contains("Beta.Z"),
+            "firing the preserved typing undo removed the typed char — range stayed valid")
+        XCTAssertTrue(tv.string.contains("Beta."),
+            "the paragraph survives with the Z undone")
+        XCTAssertTrue(tv.string.contains("Gamma."),
+            "the appended paragraph is untouched by the typing-undo")
+    }
+
     // MARK: - Test A — reorder of existing paragraphs clears the stack (RED before fix)
 
     func test_reorderMerge_clearsUndoStack() async throws {

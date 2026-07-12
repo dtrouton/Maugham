@@ -185,6 +185,12 @@ extension Document {
     /// `.maugham/ops/<docId>.jsonl`. JSONLAppendStore dedupes by opId, so
     /// even pathological re-entry is safe on disk.
     internal func appendTaskOpInternal(_ op: Op) {
+        // Decline atomically on a husked doc (whole-branch review, 2026-07-11):
+        // a compound-undo hop resuming after `close()` husked would otherwise
+        // append this op-side change to a cleared mirror / disk while its text
+        // side no-ops (setParagraph/applyRestore are already isClosed-guarded) —
+        // a torn op log. Matches the text-side guards so both sides no-op together.
+        if rejectMutationIfClosed("appendTaskOpInternal") { return }
         _opLogMirror.append(op)
         invalidateTasksCache()
         // Annotation cache only invalidates for annotation ops — task ops

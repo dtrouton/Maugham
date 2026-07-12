@@ -123,4 +123,120 @@ final class TaskArchiveUndoAnnotationTests: XCTestCase {
         XCTAssertEqual(annotation(doc, survivorAnnId)?.status, .open,
             "the survivor paragraph's annotation was never touched")
     }
+
+    // MARK: - WB fix 1: close() during an in-flight compound undo stays consistent
+
+    /// Whole-branch review (2026-07-11): Task 4's `drainTaskAppends()` at the top
+    /// of `close()` awaits only the task-op appends ALREADY in flight. A compound
+    /// undo (this file's scenario) runs in `_lastUndoWorkTask`'s async hop and its
+    /// LATE appends — the status inverse via `appendTaskOpInternal`, the swept
+    /// annotation's reopen — land AFTER that drain ran. Meanwhile the undo's TEXT
+    /// side (`applyRestore` → `setFullText`) is `isClosed`-guarded and no-ops once
+    /// husked. Without awaiting the undo hop, a quit between ⌘Z and `close()`
+    /// husks mid-undo: the op side appends while the text side declines → a TORN
+    /// op log on reload (paragraph gone, task un-archived / annotation reopened).
+    ///
+    /// The fix awaits `_lastUndoWorkTask` before husking, THEN drains the task
+    /// appends the hop spawned, THEN flushes — so the undo either fully applies
+    /// or (post-husk, via the fix-1b guards) fully declines; never torn.
+    ///
+    /// The delay makes the RED deterministic: without the drain-of-undo-work the
+    /// hop's status-inverse disk append cannot land before we reload.
+    func test_close_duringCompoundUndo_awaitsUndoWork_opLogStaysConsistent() async throws {
+        let stored = """
+        - [ ] foo <!--t-aaaaaa-->
+
+        Some other prose.
+        """
+        let doc = try await makeDocument(initialMd: stored)
+        let pids = try await paragraphIds(of: doc)
+        let taskPid = pids[0]
+        let inlineId = synthId(for: doc, anchor: "aaaaaa")
+
+        // Open annotation on the sole-task paragraph → the collapse's sweep
+        // archives it; the compound undo reopens it.
+        let annId = try await doc.addAnnotation(
+            kind: .comment, paragraphId: taskPid, body: "note on the task line")
+
+        let um = UndoManager()
+        doc.archiveTask(id: inlineId, undoManager: um)
+        // Make the archive (taskArchive op) AND the collapse sweep (annotation
+        // archive) durable BEFORE introducing the delay, so the reload baseline is
+        // the archived state and only the UNDO's appends are subject to the race.
+        await doc.drainTaskAppends()
+        try await doc.flushBurstNow()            // fires the orphan sweep (annotation → archived)
+        await doc.drainTaskAppends()
+        XCTAssertEqual(status(doc, inlineId), .archived)
+        XCTAssertEqual(annotation(doc, annId)?.status, .archived,
+            "precondition: the collapse swept the annotation to archived")
+
+        // Delay the detached task-op disk append so the undo hop's status-inverse
+        // append cannot reach disk before close()+reload UNLESS close() drains it.
+        Document._testDelayTaskAppends = .milliseconds(500)
+        defer { Document._testDelayTaskAppends = nil }
+
+        um.undo()                                // schedules the compound-undo hop
+        await doc.close()                        // must await the hop + drain its appends
+
+        // Reload from DISK. A CONSISTENT result = the undo FULLY applied: paragraph
+        // restored, task open, annotation reopened. Any single facet lagging (e.g.
+        // task still archived because its delayed inverse was dropped) is the tear.
+        let reloaded = try await Document.load(
+            url: doc.url, device: "m2", session: "s2", presenter: nil)
+        XCTAssertNotNil(reloaded.paragraph(id: taskPid),
+            "undo restored the collapsed paragraph (text side)")
+        XCTAssertEqual(status(reloaded, inlineId), .open,
+            "undo's status inverse is durable — task is open, not torn-archived")
+        XCTAssertEqual(annotation(reloaded, annId)?.status, .open,
+            "undo reopened the sweep-archived annotation, durably")
+        await reloaded.close()
+    }
+
+    // MARK: - WB fix 1b: task/annotation op appends decline atomically on a husk
+
+    /// The op-side mutation funnels (`appendTaskOpInternal`, `reopenAnnotation`)
+    /// lacked the `isClosed` guard that `setParagraph`/`setFullText`/`deleteParagraph`
+    /// carry. So a compound undo resuming AFTER a husk applied only half: the text
+    /// side no-oped (guarded) while the op side appended to a cleared mirror / disk
+    /// — a torn op log. Both must decline atomically on a husked doc.
+    func test_appendTaskOpInternal_and_reopenAnnotation_noOpOnHuskedDoc() async throws {
+        let stored = "- [ ] foo <!--t-aaaaaa-->\n\nSome other prose.\n"
+        let doc = try await makeDocument(initialMd: stored)
+        let pids = try await paragraphIds(of: doc)
+        let taskPid = pids[0]
+        let annId = try await doc.addAnnotation(
+            kind: .comment, paragraphId: taskPid, body: "note")
+        // Reject the annotation so there's a non-open status a stray reopen could
+        // flip, and make it durable before we husk.
+        try await doc.rejectAnnotation(id: annId)
+        await doc.drainTaskAppends()
+        try await doc.flushBurstNow()
+        XCTAssertEqual(annotation(doc, annId)?.status, .rejected)
+
+        await doc.close()   // husk: paragraphs/mirror/caches cleared, isClosed set
+
+        // Post-husk op-side mutations must decline (mirror stays empty, nothing
+        // reaches disk) — matching the already-guarded text side.
+        let strayOpId = ULID.generate()
+        doc.appendTaskOpInternal(Op(
+            opId: strayOpId, docId: doc.docId, at: Date(),
+            device: "m", session: "s", kind: .taskArchive,
+            changes: [], sequence: nil,
+            provenance: Op.Provenance(sessionId: "s", taskId: "inline:\(doc.docId):aaaaaa")))
+        try await doc.reopenAnnotation(id: annId)
+        await doc.drainTaskAppends()
+        XCTAssertEqual(doc.opLogMirrorCount, 0,
+            "appendTaskOpInternal/reopenAnnotation must no-op on a husked doc")
+
+        // And nothing leaked to disk: the stray task op is absent and the
+        // annotation stays rejected on reload.
+        let reloaded = try await Document.load(
+            url: doc.url, device: "m2", session: "s2", presenter: nil)
+        let log = try await reloaded.opLog()
+        XCTAssertFalse(log.contains { $0.opId == strayOpId },
+            "the post-husk task op must not have reached disk")
+        XCTAssertEqual(annotation(reloaded, annId)?.status, .rejected,
+            "reopenAnnotation on a husked doc appended nothing — status stands")
+        await reloaded.close()
+    }
 }

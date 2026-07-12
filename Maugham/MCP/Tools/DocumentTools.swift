@@ -85,7 +85,8 @@ public enum ReadDocumentTool: MCPTool {
         // meant to close.
         let text: String
         if let ds = store.documentStore,
-           let doc = ds.document(forDocId: item.id) ?? ds.document(for: path) {
+           let doc = ds.document(forDocId: item.id)
+               ?? ds.document(for: path).flatMap({ $0.docId == item.id ? $0 : nil }) {
             text = doc.materialize()
         } else {
             // Closed doc: derive through the per-project cache (E6) rather than

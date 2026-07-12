@@ -935,6 +935,20 @@ public final class Document {
         // appWillTerminate racing onDisappear) returns immediately rather than
         // re-running the flush machinery over husked state.
         guard !isClosed else { return }
+        // Let any in-flight ⌘Z undo/redo hop finish on the LIVE (non-husked) doc
+        // before husking (whole-branch review, 2026-07-11). An op-log undo runs
+        // its mutation in `_lastUndoWorkTask`'s async hop (OpUndoRegistrar); a
+        // COMPOUND undo (inline-task archive) restores paragraph text (guarded
+        // `applyRestore`/`setFullText`) AND appends a status inverse
+        // (`appendTaskOpInternal`) and reopens swept annotations. If close() husked
+        // mid-hop, the text side would no-op (isClosed guard) while the op side
+        // still appended — a TORN op log on reload. Awaiting the hop first makes
+        // the undo apply atomically on a live doc; the isClosed guards on the op
+        // funnels (fix 1b) are the belt for any hop that still resumes post-husk.
+        // `nil?.value` is a no-op when no undo is pending. Drained AFTER, because
+        // the hop's `appendTaskOpInternal` spawns a fresh detached append this
+        // must then catch.
+        await _lastUndoWorkTask?.value
         // Drain the detached task-op disk appends BEFORE anything else (E1).
         // `appendTaskOpInternal` updates the in-memory mirror synchronously
         // then disk-appends in a fire-and-forget Task; without this drain a
@@ -1043,7 +1057,7 @@ public final class Document {
     /// late mutation (a still-referenced zombie, an MCP misuse, a scheduler tail)
     /// must no-op rather than operate on husked state or resurrect it. Data
     /// safety is unaffected: the disk truth was written before husking.
-    private func rejectMutationIfClosed(_ site: StaticString) -> Bool {
+    internal func rejectMutationIfClosed(_ site: StaticString) -> Bool {
         guard isClosed else { return false }
         documentLog.error(
             "\(site, privacy: .public) called on a closed Document \(self.docId, privacy: .public); no-op (the instance is abandoned by contract)")
