@@ -6,6 +6,12 @@ Within each group, items are listed roughly small-first. Each group's "next up" 
 
 Status legend: ✓ shipped, • open, ⤴ superseded.
 
+## Codebase health & hardening
+
+- ✓ **Hardening milestone** (branch `feat/hardening-2026-07`, 2026-07-12) — full execution of the 2026-07-11 maintainability review's shortlist: 31 tasks + 1 follow-up across sync/durability correctness (task-op quit-durability, the external-merge door folding un-bursted work + range-safe pure-append undo preservation), palette hardening (rename-revert, coordinated writes, parse/render byte-fidelity — cross-surface via MaughamCore), doc-truth + generation tests (doc claims now assert against source), the enforcement ladder (mint/DeviceSlug/OpKind/InboxConvention/TaskMarkup/DocIdShape promotions), MCP robustness (text byte-budget, cache-routed reads, first-call-after-restart fixed), and release-pipeline pinning. Subagent-driven with two-stage per-task review + a whole-branch review that caught one emergent cross-task bug (close-drain vs compound-undo). CLAUDE.md gained Default-Workflow lines 9/10 (whole-branch review; •→✓ sibling-doc sweep) and tripwire rows 22–24. Findings + status: `docs/superpowers/notes/2026-07-11-maintainability-review.md` §9. Ships as **v0.21.0 + phone-v0.7.0** (paired).
+  - • **Follow-up F-A: palette `## Images`-in-body hardening** — a body line spelling a known section heading is claimed by section detection (drops following body text; converges from 2nd render). Promote to a section only when blank-delimited after the first real heading. Own TDD + parity-corpus check.
+  - • **Follow-up F-B: external-merge sweep reentrancy** — a prior local delete leaves `_pendingSweep` set; a keystroke racing the pure-append merge's sweep `await` can mutate paragraphs/sequence mid-merge (data-correctness window; undo-safety holds). Reason about the sweep-await reentrancy.
+
 ## Phase 1–3 — Shipped foundation, 2026-05-07 to 2026-05-10
 
 These milestones established the editor, the novel + screenplay project shapes, and the file-coordinated DocumentStore. See `docs/superpowers/plans/` for the dated milestone breakdowns and `docs/superpowers/specs/` for per-milestone designs.
