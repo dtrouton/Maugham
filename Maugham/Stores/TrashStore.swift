@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Per-project trash directory operations. Lives at <projectURL>/.trash/
 /// with each trashed item in its own timestamped subfolder containing the
@@ -83,8 +84,16 @@ public struct TrashStore {
                 folderContents: contents.map(\.lastPathComponent))
         }
 
-        // Restore to original path; ensure parent dirs exist
-        let dest = projectURL.appendingPathComponent(meta.originalRelativePath)
+        // Restore to original path; ensure parent dirs exist. meta.json is
+        // sidecar-supplied (read off disk, not validated at write time by
+        // every caller) — a corrupted or hostile originalRelativePath must
+        // not be able to move the file outside the project root (A5).
+        let dest: URL
+        do {
+            dest = try SafeRelativePath.resolve(meta.originalRelativePath, under: projectURL)
+        } catch {
+            throw TrashError.unsafeRelativePath(meta.originalRelativePath, underlying: error)
+        }
         try fm.createDirectory(
             at: dest.deletingLastPathComponent(),
             withIntermediateDirectories: true)
@@ -128,8 +137,16 @@ public struct TrashStore {
         let entryFolder = trashRoot.appendingPathComponent(entryId)
         try fm.createDirectory(at: entryFolder, withIntermediateDirectories: true)
 
-        // Move original file/folder into the entry folder, keeping its filename
-        let source = projectURL.appendingPathComponent(fileRelativePath)
+        // Move original file/folder into the entry folder, keeping its filename.
+        // fileRelativePath ultimately traces back to a manifest-derived path
+        // (item.path / a StructureItem's relative path) — validate it stays
+        // inside the project root before touching the filesystem (A5).
+        let source: URL
+        do {
+            source = try SafeRelativePath.resolve(fileRelativePath, under: projectURL)
+        } catch {
+            throw TrashError.unsafeRelativePath(fileRelativePath, underlying: error)
+        }
         let dest = entryFolder.appendingPathComponent(source.lastPathComponent)
         try fm.moveItem(at: source, to: dest)
 
@@ -184,6 +201,7 @@ public struct TrashStore {
     public enum TrashError: Error, LocalizedError {
         case entryFileMissing(trashId: String, folderContents: [String])
         case malformedEntryId(String)
+        case unsafeRelativePath(String, underlying: Error)
 
         public var errorDescription: String? {
             switch self {
@@ -191,6 +209,8 @@ public struct TrashStore {
                 return "Trash entry \(id) is missing its source file. Contents: \(contents.joined(separator: ", "))"
             case .malformedEntryId(let id):
                 return "Trash entry id \(id) is malformed (no parseable timestamp)."
+            case .unsafeRelativePath(let path, let underlying):
+                return "Trash relative path \"\(path)\" is unsafe: \(underlying.localizedDescription)"
             }
         }
     }

@@ -134,7 +134,15 @@ public enum ReadDocumentTool: MCPTool {
                 throw MCPError.invalidArgument(
                     "Research item '\(item.title)' has no on-disk path")
             }
-            let abs = projectURL.appendingPathComponent(path)
+            // Manifest-supplied path — a corrupted/hostile manifest must not
+            // be able to read a file outside the project root (A5).
+            let abs: URL
+            do {
+                abs = try SafeRelativePath.resolve(path, under: projectURL)
+            } catch {
+                throw MCPError.invalidArgument(
+                    "Research item '\(item.title)' has an unsafe path: \(error.localizedDescription)")
+            }
             let text = (try? String(contentsOf: abs, encoding: .utf8)) ?? "" // adr-0018-ok: research-item document read, not manuscript
             let words = text.split { $0.isWhitespace || $0.isNewline }.count
             let chars = text.count
@@ -181,7 +189,15 @@ public enum ReadDocumentTool: MCPTool {
             throw MCPError.invalidArgument(
                 "Research item '\(item.title)' has no on-disk path")
         }
-        let abs = projectURL.appendingPathComponent(path)
+        // Manifest-supplied path — a corrupted/hostile manifest must not be
+        // able to read a file outside the project root (A5).
+        let abs: URL
+        do {
+            abs = try SafeRelativePath.resolve(path, under: projectURL)
+        } catch {
+            throw MCPError.invalidArgument(
+                "Research item '\(item.title)' has an unsafe path: \(error.localizedDescription)")
+        }
         // Pre-check the on-disk size so the error names the research item
         // rather than the bare filename. Builder re-checks defensively.
         let attrs = try? FileManager.default.attributesOfItem(atPath: abs.path)
