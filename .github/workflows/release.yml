@@ -19,14 +19,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          # CFBundleVersion is now `git rev-list --count HEAD` (see the Extract
+          # step), which needs the full history. The default shallow clone
+          # (fetch-depth: 1) would make every build number 1. fetch-depth: 0 = full.
+          fetch-depth: 0
           # This job loads Developer ID signing + notarization secrets and never
           # pushes back to git, so don't leave the token in .git/config.
           persist-credentials: false
 
-      - name: Set up Xcode
+      - name: Set up Xcode 26.3
+        # Pinned (NOT latest-stable) so an unexpected Xcode bump on the runner
+        # can't silently change the toolchain between releases. 26.3 is the newest
+        # Xcode the macos-15 runner has installed (26.5/26.6 exist only on the
+        # developer machine — pinning those would fail the runner; commit a20e0da).
+        # Matches ci.yml so CI and release build with the same toolchain.
         uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
-          xcode-version: 'latest-stable'
+          xcode-version: '26.3'
 
       - name: Print Xcode + SDK info
         run: |
@@ -34,8 +43,16 @@ jobs:
           xcrun --show-sdk-path --sdk macosx
           xcrun --show-sdk-version --sdk macosx
 
-      - name: Install xcodegen
-        run: brew install xcodegen
+      - name: Install xcodegen (pinned)
+        # Pin xcodegen by installing from a frozen homebrew-core formula revision
+        # instead of `brew install xcodegen` (which floats to whatever the tap
+        # currently ships). This commit holds xcodegen 2.45.4; Homebrew still
+        # fetches the arch-correct, checksum-verified bottle, so only the VERSION
+        # is frozen — no source build, no new supply-chain surface beyond the pin.
+        # To bump: pick a newer homebrew-core commit for Formula/x/xcodegen.rb.
+        run: |
+          brew install --formula \
+            https://raw.githubusercontent.com/Homebrew/homebrew-core/b5b18a8c62c748c0bd54d4a830cab0a11aae6b3b/Formula/x/xcodegen.rb
 
       - name: Import Developer ID certificate
         uses: apple-actions/import-codesign-certs@5142e029c445c10ffc7149d172e540235a065466 # v7.0.0
@@ -52,9 +69,23 @@ jobs:
           mkdir -p /tmp/asc
           printf '%s' "$ASC_API_KEY" | base64 --decode > "/tmp/asc/AuthKey_${ASC_KEY_ID}.p8"
 
-      - name: Extract version from tag
+      - name: Extract version + build number from tag
         id: ver
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          # CFBundleVersion = commit count: deterministic, tied to git history, and
+          # strictly monotonic across releases (mirrors phone-release.yml). Replaces
+          # github.run_number, which is CI bookkeeping — not reproducible from source
+          # and reset to 1 if the workflow file is ever renamed. Needs full history
+          # (fetch-depth: 0); a shallow clone would make every build number 1.
+          BUILD="$(git rev-list --count HEAD)"
+          if [[ "$BUILD" -le 1 ]]; then
+            echo "::error::build number is $BUILD — history looks shallow (need fetch-depth: 0)"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+          echo "Releasing Maugham $VERSION ($BUILD)"
 
       - name: Classify release (stable vs dry-run prerelease)
         id: channel
@@ -86,19 +117,23 @@ jobs:
           fi
           echo "Release notes: $NOTES"
 
-      - name: Sync version into project.yml
+      - name: Sync version into project.yml (Maugham target only)
         env:
           VERSION: ${{ steps.ver.outputs.version }}
-          BUILD: ${{ github.run_number }}
+          BUILD: ${{ steps.ver.outputs.build }}
         run: |
-          # Use sed for the two version fields. macOS sed needs -i ''.
+          # The Mac (Maugham) and Phone (MaughamPhone) targets carry byte-identical
+          # placeholders — CFBundleShortVersionString "0.0.0-dev" / CFBundleVersion
+          # "1" — so an unscoped sed rewrites BOTH. Scope each substitution to the
+          # `Maugham:` target block (from its 2-space key up to the `MaughamPhone:`
+          # key) so the phone placeholders stay at their defaults. macOS sed needs -i ''.
           sed -i '' \
-            "s/CFBundleShortVersionString: \"0.0.0-dev\"/CFBundleShortVersionString: \"${VERSION}\"/" \
+            "/^  Maugham:$/,/^  MaughamPhone:$/ s/CFBundleShortVersionString: \"0.0.0-dev\"/CFBundleShortVersionString: \"${VERSION}\"/" \
             project.yml
           sed -i '' \
-            "s/CFBundleVersion: \"1\"/CFBundleVersion: \"${BUILD}\"/" \
+            "/^  Maugham:$/,/^  MaughamPhone:$/ s/CFBundleVersion: \"1\"/CFBundleVersion: \"${BUILD}\"/" \
             project.yml
-          grep -E "CFBundleShortVersionString|CFBundleVersion" project.yml
+          grep -nE "CFBundleShortVersionString|CFBundleVersion" project.yml
 
       - name: Generate project
         run: ./gen.sh
