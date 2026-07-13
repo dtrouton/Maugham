@@ -1,7 +1,7 @@
 import Foundation
 
 /// Which mode the right pane displays.
-public enum DetailSegment: String, Codable, Equatable, Sendable {
+public enum DetailSegment: String, Codable, Equatable, Sendable, CaseIterable {
     case inspector
     case annotations
     case research
