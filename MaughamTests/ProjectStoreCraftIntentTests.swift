@@ -100,6 +100,36 @@ final class ProjectStoreCraftIntentTests: XCTestCase {
         await ds.close()
     }
 
+    /// S1: a LEGACY craft-intent doc (by filename, role == nil) renamed away
+    /// from `craft-intent.md` BEFORE it is ever opened must still resolve — the
+    /// eager heal at load stamps the role first.
+    func test_eagerHeal_stampsLegacyCraftIntentAtLoad_survivingPreOpenRename() async throws {
+        let url = try await ProjectFactory.createNovelProject(named: "IntentEager", in: temp.url)
+        let store = try await ProjectStore.load(from: url)
+        let ds = try await DocumentStore.open(url: url)
+        store.documentStore = ds
+
+        // Simulate a v0.19.0 project: doc at the legacy path, no role.
+        let legacy = try await store.addResearchTextNote(
+            parentId: nil, title: ProjectStore.craftIntentTitle)
+        XCTAssertEqual(legacy.path, "research/craft-intent.md")
+        XCTAssertNil(legacy.role)
+        await ds.close()
+
+        // Reload: eager heal stamps the role before any lookup/rename.
+        let reloaded = try await ProjectStore.load(from: url)
+        XCTAssertEqual(
+            TreeWalk.find(id: legacy.id, in: reloaded.manifest.research)?.role, .craftIntent,
+            "eager heal stamps the legacy craft-intent doc's role at load")
+
+        // Renaming away from craft-intent.md still resolves via the role.
+        let ds2 = try await DocumentStore.open(url: url)
+        reloaded.documentStore = ds2
+        try await reloaded.updateResearchItem(id: legacy.id, title: "What this story needs")
+        XCTAssertEqual(reloaded.craftIntentItem(forPieceId: nil)?.id, legacy.id)
+        await ds2.close()
+    }
+
     func test_legacyCraftIntent_getsLazilyStamped() async throws {
         let url = try await ProjectFactory.createNovelProject(named: "IntentLegacy", in: temp.url)
         let store = try await ProjectStore.load(from: url)

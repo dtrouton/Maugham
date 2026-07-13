@@ -30,10 +30,14 @@ struct PaletteAimPicker: View {
     @State private var sense: String?
     @Environment(\.dismiss) private var dismiss
 
-    /// The five senses as raw strings — plain on the phone; the Mac maps them to
-    /// `PaletteCard.Sense` at promote time (tripwire 19: the mapping is the Mac's,
-    /// the phone just carries the string).
-    private static let senses = ["sight", "sound", "smell", "touch", "taste"]
+    /// The senses as raw strings, DERIVED from the Core vocabulary so a 6th
+    /// sense added to `PaletteCard.Sense` automatically appears in the phone aim
+    /// picker (never re-typed as a literal — tripwire 19). Plain strings on the
+    /// phone; the Mac maps them back to `PaletteCard.Sense` at promote time (the
+    /// mapping is the Mac's, the phone just carries the string). `internal`
+    /// (not `private`) so `PaletteAimTests` can pin the parity against
+    /// `PaletteCard.Sense.allCases`.
+    static let senses = PaletteCard.Sense.allCases.map(\.rawValue)
 
     init(research: [ResearchItem], current: PaletteAim?, onCommit: @escaping (PaletteAim?) -> Void) {
         self.research = research
@@ -48,10 +52,7 @@ struct PaletteAimPicker: View {
     /// the already-decoded manifest (NO file reads); mirrors the Mac's card
     /// filter in `ProjectStore+Palette.paletteCards()`.
     static func cardTitles(in research: [ResearchItem]) -> [String] {
-        guard let group = PaletteLookup.paletteGroup(in: research) else { return [] }
-        return (group.children ?? [])
-            .filter { $0.type == .asset && $0.kind == .document }
-            .map(\.title)
+        PaletteLookup.paletteCards(in: research).map(\.title)
     }
 
     private var trimmedSubject: String {

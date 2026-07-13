@@ -76,4 +76,16 @@ final class PaletteAimTests: XCTestCase {
             ["The Flat", "The Harbour"],
             "role-first lookup finds the group even when path/title diverge from the convention")
     }
+
+    // MARK: - Sense vocabulary parity (S3)
+
+    /// The phone must offer EXACTLY the Core sense vocabulary — derived from
+    /// `PaletteCard.Sense.allCases`, never a hand-typed literal. A 6th sense
+    /// added to Core must appear in the aim picker automatically (tripwire 19).
+    func test_senses_deriveFromCoreVocabulary_notALiteral() {
+        XCTAssertEqual(
+            PaletteAimPicker.senses,
+            PaletteCard.Sense.allCases.map(\.rawValue),
+            "phone-offered senses must equal PaletteCard.Sense.allCases raw values, in order")
+    }
 }

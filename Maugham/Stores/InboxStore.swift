@@ -96,7 +96,24 @@ final class InboxStore {
     /// Append `entry` verbatim to this device's manifest. The caller supplies a
     /// fully-formed row (used by promote/trash/transcript transitions, which
     /// build the next row from the current one).
+    /// Fire-and-forget append: persists `entry` and LOGS (can't cleanly
+    /// propagate) if the write fails. Its callers are UI transitions
+    /// (trash/restore/transcript) with no throwing channel; the manifest is the
+    /// inbox's source of truth, so a swallowed `try?` would lose a status
+    /// transition silently — hence surface the failure to the log at least.
+    /// Paths that CAN propagate (the promote flows) use `appendThrowing`.
     private func append(_ entry: InboxEntry) async {
+        do { try await appendThrowing(entry) }
+        catch {
+            inboxStoreLog.error(
+                "inbox manifest append failed for entry \(entry.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Throwing core of `append`, used by callers with a throwing channel (the
+    /// promote flows) so a failed terminal status write surfaces instead of
+    /// being swallowed (S8).
+    private func appendThrowing(_ entry: InboxEntry) async throws {
         try? FileManager.default.createDirectory(
             at: inboxDir, withIntermediateDirectories: true)
         var stamped = entry
@@ -111,16 +128,7 @@ final class InboxStore {
         let basis = entry.writtenAt ?? entry.createdAt
         stamped.writtenAt = max(Date(), basis.addingTimeInterval(0.001))
         let store = JSONLAppendStore<InboxEntry>(fileURL: ownManifestURL)
-        // LOG (can't cleanly propagate): `append` is `async` non-throwing and
-        // its callers are fire-and-forget UI transitions (promote/trash/
-        // transcript). The manifest is the inbox's source of truth — a
-        // swallowed `try?` would lose a status transition silently (e.g. a
-        // promote that never persists), so surface the failure.
-        do { try await store.append(stamped) }
-        catch {
-            inboxStoreLog.error(
-                "inbox manifest append failed for entry \(stamped.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
-        }
+        try await store.append(stamped)
     }
 
     /// Replace an entry's transcript + transcription state (Whisper result, or a
@@ -159,6 +167,23 @@ final class InboxStore {
         next.status = status
         next.resolvedAt = resolvedAt
         await append(next)
+        await refresh()
+    }
+
+    /// Throwing sibling of `updateStatus` for the promote flows, which are
+    /// `async throws` and MUST learn if the terminal `.promoted` flip fails to
+    /// persist. Otherwise the entry stays `.new` while its content is already on
+    /// the card, and a retry would double-append (S8). Non-promote transitions
+    /// (restore, transcript) stay on the non-throwing `updateStatus`. Throws
+    /// `entryNotFound` rather than silently no-op'ing on an unknown id.
+    func updateStatusThrowing(id: String, to status: InboxEntry.Status,
+                              resolvedAt: Date? = Date()) async throws {
+        guard var next = currentEntry(id: id) else {
+            throw InboxError.entryNotFound(id)
+        }
+        next.status = status
+        next.resolvedAt = resolvedAt
+        try await appendThrowing(next)
         await refresh()
     }
 
@@ -247,9 +272,22 @@ final class InboxStore {
     ) async throws -> PaletteCard {
         let sense = entry.sense.flatMap { PaletteCard.Sense(rawValue: $0) }
         let result: PaletteCard
+        // Deferred until AFTER the status flip commits: removing the inbox
+        // original before the throwing flip would strand the entry `.new` with
+        // the asset gone, so a retry hits `assetMissing` permanently. Removing it
+        // after means a failed flip leaves the original in place and a retry
+        // re-copies (a recoverable duplicate, never a stuck `.new`) — the same
+        // non-destructive contract the text/audio paths get from idempotent
+        // append (S8 whole-branch-review follow-up).
+        var originalToRemove: URL?
         switch entry.kind {
         case .text:
             let text = Self.flattenToNote(entry.inlineText ?? "")
+            // Reject an empty/whitespace-only capture the same way `.audio` does:
+            // otherwise a `SensoryNote(sense: nil, text: "")` is appended, the
+            // renderer emits a bare `"- "` line, and the next reparse silently
+            // DROPS it (`"- "` trims to `"-"`, failing the `- ` item guard) (S5).
+            guard !text.isEmpty else { throw InboxError.nothingToPromote(entry.id) }
             result = try await appendSensoryNote(
                 .init(sense: sense, text: text), toCard: cardId, projectStore: projectStore)
         case .audio:
@@ -262,13 +300,19 @@ final class InboxStore {
                   FileManager.default.fileExists(atPath: asset.path) else {
                 throw InboxError.assetMissing(entry.sourceFilename ?? entry.id)
             }
-            // addImage copies into the card's `<slug>_assets/` folder; remove the
-            // inbox original to finish the move. Same non-destructive contract as
-            // promoteToResearch: a failed removal leaves a duplicate, never data loss.
+            // addImage copies into the card's `<slug>_assets/` folder; the inbox
+            // original is removed only after the status flip commits (see above).
             result = try await projectStore.addImage(toPaletteCard: cardId, fileURL: asset)
-            try? FileManager.default.removeItem(at: asset)
+            originalToRemove = asset
         }
-        await updateStatus(id: entry.id, to: .promoted)
+        // Throwing flip (S8): the note/image is already on the card, so a
+        // swallowed status-write failure would leave the entry `.new` and a
+        // retry would double-append. Surface it — the append step above is now
+        // idempotent, so a caught-and-retried promote converges to one note.
+        try await updateStatusThrowing(id: entry.id, to: .promoted)
+        // Only now that the entry is durably `.promoted` do we drop the inbox
+        // original. A failed removal still leaves a recoverable duplicate.
+        if let originalToRemove { try? FileManager.default.removeItem(at: originalToRemove) }
         return result
     }
 
@@ -283,6 +327,14 @@ final class InboxStore {
             .first(where: { $0.researchItemId == cardId }) else {
             throw ProjectStoreError.structureMissing
         }
+        // Idempotency guard against a double-promote retry (S8): if the most-
+        // recent note is already identical (same sense + text), the previous
+        // attempt's append landed even though its `.promoted` status flip may
+        // have failed — so skip re-adding it and return the card unchanged,
+        // letting the caller retry only the status flip. Dedup is scoped to the
+        // immediately-preceding note (the retry signature), so a legitimately-
+        // repeated note typed later still appends.
+        if card.notes.last == note { return card }
         let updated = PaletteCard(
             researchItemId: card.researchItemId, title: card.title, kind: card.kind,
             swatches: card.swatches, notes: card.notes + [note],

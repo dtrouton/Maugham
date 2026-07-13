@@ -59,8 +59,13 @@ extension ProjectStore {
     }
 
     /// Document assets under the palette group, in manifest (wall) order.
+    /// Delegates to the shared `PaletteLookup.paletteCards` filter so the
+    /// group-lookup-then-document-child predicate stays single-sourced across
+    /// Mac + phone (tripwire 19). Role identity is stamped eagerly at load
+    /// (`healPaletteRolesEagerly`) and by `paletteGroup()`, so this pure read
+    /// needs no lazy heal of its own.
     public func paletteCardItems() -> [ResearchItem] {
-        (paletteGroup()?.children ?? []).filter { $0.type == .asset && $0.kind == .document }
+        PaletteLookup.paletteCards(in: manifest.research)
     }
 
     /// Read + parse every card. Unreadable files are skipped, not fatal.
@@ -213,6 +218,43 @@ extension ProjectStore {
     func healRole(of item: ResearchItem, to role: ResearchRole) {
         guard item.role != role else { return }
         Task { [weak self] in try? await self?.stampRole(itemId: item.id, role: role) }
+    }
+
+    /// One-shot EAGER role heal, run at PROJECT LOAD (`ProjectStore.load`)
+    /// before any rename affordance is reachable. The lazy heal only fires when
+    /// a role-first lookup runs; but renames happen from the Research binder,
+    /// which never calls `paletteGroup()`/`craftIntentItem(...)`. So on a legacy
+    /// (role == nil) project, renaming the palette group away from
+    /// `research/palette` — or the craft-intent doc away from `craft-intent.md`
+    /// — BEFORE the palette wall / craft-intent doc is ever opened would defeat
+    /// BOTH the role check and the path/filename fallback, permanently orphaning
+    /// the cards (a later `ensurePaletteGroup()` mints a fresh empty group).
+    /// Stamping the durable role at load closes that window.
+    ///
+    /// Identifies legacy items by the same path/filename identity the lookups
+    /// fall back to: the `research/palette` group, and every `craft-intent.md`
+    /// research asset (all scopes — project + per-piece for collections).
+    /// Idempotent and cheap: the `role != …` predicate makes it a pure
+    /// in-memory scan with ZERO writes once every convention item is stamped.
+    /// Mac-only (the phone never writes the manifest).
+    func healPaletteRolesEagerly() async {
+        let legacyGroups = TreeWalk.collect(in: manifest.research) {
+            $0.type == .group
+                && $0.role != .paletteGroup
+                && $0.path == PaletteConvention.folderPath
+        }
+        for group in legacyGroups {
+            try? await stampRole(itemId: group.id, role: .paletteGroup)
+        }
+        let legacyIntents = TreeWalk.collect(in: manifest.research) {
+            $0.type == .asset
+                && $0.role != .craftIntent
+                && ($0.path as NSString?)?.lastPathComponent
+                    == PaletteConvention.craftIntentFileName
+        }
+        for intent in legacyIntents {
+            try? await stampRole(itemId: intent.id, role: .craftIntent)
+        }
     }
 
     /// Persist a durable `role` onto a research item. Idempotent: a no-op when

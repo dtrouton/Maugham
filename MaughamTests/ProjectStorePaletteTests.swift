@@ -171,6 +171,35 @@ final class ProjectStorePaletteTests: XCTestCase {
         await ds.close()
     }
 
+    /// S1: a LEGACY project (palette group by path, role == nil) whose group is
+    /// renamed away from `research/palette` BEFORE the palette wall is ever
+    /// opened must still resolve — the eager heal at load stamps the role first.
+    func test_eagerHeal_stampsLegacyPaletteRoleAtLoad_survivingPreOpenRename() async throws {
+        let (url, store, ds) = try await makeNovel()
+        // Simulate a v0.19.0 project: group exists by path identity, no role.
+        let legacy = try await store.addResearchItem(parentId: nil, title: "Palette", kind: nil)
+        XCTAssertEqual(legacy.path, ProjectStore.paletteFolderPath)
+        XCTAssertNil(legacy.role)
+        await ds.close()
+
+        // Reload: the eager heal (awaited inside `load`) stamps the role BEFORE
+        // any lookup or rename is reachable — no sleep needed.
+        let reloaded = try await ProjectStore.load(from: url)
+        XCTAssertEqual(
+            TreeWalk.find(id: legacy.id, in: reloaded.manifest.research)?.role, .paletteGroup,
+            "eager heal stamps the legacy palette group's role at load")
+
+        // A rename away from research/palette (the fragile pre-role path) still
+        // resolves via the now-durable role, and mints no duplicate group.
+        let ds2 = try await DocumentStore.open(url: url)
+        reloaded.documentStore = ds2
+        try await reloaded.updateResearchItem(id: legacy.id, title: "Moods")
+        XCTAssertEqual(reloaded.paletteGroup()?.id, legacy.id)
+        let ensured = try await reloaded.ensurePaletteGroup()
+        XCTAssertEqual(ensured.id, legacy.id, "no duplicate group after a post-load rename")
+        await ds2.close()
+    }
+
     func test_paletteGroupDisplayTitle_reflectsLiveTitle() async throws {
         let (_, store, ds) = try await makeNovel()
         XCTAssertEqual(store.paletteGroupDisplayTitle, ProjectStore.paletteGroupTitle)

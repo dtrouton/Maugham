@@ -30,4 +30,17 @@ public enum PaletteLookup {
         if let byRole = scoped.first(where: { $0.role == .craftIntent }) { return byRole }
         return scoped.first { ($0.path as NSString?)?.lastPathComponent == PaletteConvention.craftIntentFileName }
     }
+
+    /// The palette group's document cards, in manifest (wall) order — the direct
+    /// `.asset`/`.document` children of the role-first palette group. Empty when
+    /// no palette group exists. The single source of the "which research items
+    /// are palette cards" filter, shared by the Mac
+    /// (`ProjectStore.paletteCardItems`), the phone Read tab
+    /// (`PaletteLoading.paletteCards`), and phone capture aim
+    /// (`PaletteAimPicker.cardTitles`) so the predicate can't drift across the
+    /// three surfaces (tripwire 19).
+    public static func paletteCards(in research: [ResearchItem]) -> [ResearchItem] {
+        guard let group = paletteGroup(in: research) else { return [] }
+        return (group.children ?? []).filter { $0.type == .asset && $0.kind == .document }
+    }
 }
