@@ -272,6 +272,14 @@ final class InboxStore {
     ) async throws -> PaletteCard {
         let sense = entry.sense.flatMap { PaletteCard.Sense(rawValue: $0) }
         let result: PaletteCard
+        // Deferred until AFTER the status flip commits: removing the inbox
+        // original before the throwing flip would strand the entry `.new` with
+        // the asset gone, so a retry hits `assetMissing` permanently. Removing it
+        // after means a failed flip leaves the original in place and a retry
+        // re-copies (a recoverable duplicate, never a stuck `.new`) — the same
+        // non-destructive contract the text/audio paths get from idempotent
+        // append (S8 whole-branch-review follow-up).
+        var originalToRemove: URL?
         switch entry.kind {
         case .text:
             let text = Self.flattenToNote(entry.inlineText ?? "")
@@ -292,17 +300,19 @@ final class InboxStore {
                   FileManager.default.fileExists(atPath: asset.path) else {
                 throw InboxError.assetMissing(entry.sourceFilename ?? entry.id)
             }
-            // addImage copies into the card's `<slug>_assets/` folder; remove the
-            // inbox original to finish the move. Same non-destructive contract as
-            // promoteToResearch: a failed removal leaves a duplicate, never data loss.
+            // addImage copies into the card's `<slug>_assets/` folder; the inbox
+            // original is removed only after the status flip commits (see above).
             result = try await projectStore.addImage(toPaletteCard: cardId, fileURL: asset)
-            try? FileManager.default.removeItem(at: asset)
+            originalToRemove = asset
         }
         // Throwing flip (S8): the note/image is already on the card, so a
         // swallowed status-write failure would leave the entry `.new` and a
         // retry would double-append. Surface it — the append step above is now
         // idempotent, so a caught-and-retried promote converges to one note.
         try await updateStatusThrowing(id: entry.id, to: .promoted)
+        // Only now that the entry is durably `.promoted` do we drop the inbox
+        // original. A failed removal still leaves a recoverable duplicate.
+        if let originalToRemove { try? FileManager.default.removeItem(at: originalToRemove) }
         return result
     }
 
