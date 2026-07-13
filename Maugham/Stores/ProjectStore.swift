@@ -231,6 +231,14 @@ public final class ProjectStore {
             manifest: manifest,
             trashStore: trashStore,
             trashEntries: trashEntries)
+        // S1: eagerly stamp the durable `role` on legacy (role == nil) palette /
+        // craft-intent items BEFORE the window (and any rename affordance) is
+        // reachable, so a rename made before the palette wall is ever opened
+        // can't orphan the cards. Idempotent + zero-write once healed; awaited
+        // so identity is durable before `load` returns. documentStore isn't
+        // wired yet, so the stamp's manifest save uses the direct-write path
+        // (same as the project-id backfill above).
+        await store.healPaletteRolesEagerly()
         // F5: word counts move OFF the blocking load path. `load` returns as
         // soon as the manifest is ready so the window appears immediately; the
         // per-doc derive sweep (the JSONL-decode cost, ~tens of ms/doc on a

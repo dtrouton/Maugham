@@ -1,16 +1,52 @@
 import Foundation
 
-/// Marks items with app-level meaning that must survive rename/move
-/// (ADR-0015-tolerant: unknown raw values decode to `.unknown`, which no
-/// lookup matches — semantically equivalent to nil for old readers).
-public enum ResearchRole: String, Codable, Sendable {
-    case paletteGroup = "palette_group"
-    case craftIntent = "craft_intent"
-    case unknown
+/// Marks items with app-level meaning that must survive rename/move.
+///
+/// ADR-0015 safe round-trip: `role` is *identity-bearing*, so — unlike the
+/// tolerant `ItemType`/`AssetKind` decoders that degrade to a benign default —
+/// an unrecognised (future) value is preserved verbatim in `.unknown(raw)` and
+/// re-encoded as that same raw string. This keeps a cross-version round-trip
+/// lossless: an OLD build that decodes a NEWER build's role and later re-saves
+/// the manifest (including a lazy heal) does NOT clobber the newer identity
+/// marker down to the literal `"unknown"`. No lookup matches `.unknown`, so it
+/// remains semantically equivalent to nil for old readers.
+///
+/// Not a `String`-raw enum: the associated value can't ride on `rawValue`, so
+/// the conformance is hand-written. `Equatable`/`Sendable` synthesise (the
+/// payload is `String`); no `CaseIterable` is declared (it would not synthesise
+/// with an associated value, and nothing enumerates the cases).
+public enum ResearchRole: Codable, Equatable, Sendable {
+    case paletteGroup
+    case craftIntent
+    /// A role written by a newer build. Carries the original raw string so
+    /// re-encode is lossless (see type doc).
+    case unknown(String)
+
+    private static let paletteGroupRaw = "palette_group"
+    private static let craftIntentRaw = "craft_intent"
+
+    /// The stable on-disk string. Known cases emit their canonical value; an
+    /// `.unknown` emits the preserved original raw.
+    public var rawValue: String {
+        switch self {
+        case .paletteGroup: return Self.paletteGroupRaw
+        case .craftIntent: return Self.craftIntentRaw
+        case .unknown(let raw): return raw
+        }
+    }
 
     public init(from decoder: Decoder) throws {
         let raw = try decoder.singleValueContainer().decode(String.self)
-        self = ResearchRole(rawValue: raw) ?? .unknown
+        switch raw {
+        case Self.paletteGroupRaw: self = .paletteGroup
+        case Self.craftIntentRaw: self = .craftIntent
+        default: self = .unknown(raw)
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 }
 

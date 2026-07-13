@@ -12,8 +12,7 @@ enum PaletteLoading {
     /// `kind == .document` directly under the palette group. Empty when there's
     /// no palette group.
     static func paletteCards(in research: [ResearchItem]) -> [ResearchItem] {
-        guard let group = PaletteLookup.paletteGroup(in: research) else { return [] }
-        return (group.children ?? []).filter { $0.type == .asset && $0.kind == .document }
+        PaletteLookup.paletteCards(in: research)
     }
 
     /// Filters the palette group's descendants AND the craft-intent asset out of
