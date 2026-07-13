@@ -128,25 +128,38 @@ struct DetailPaneToggle<Inspector: View>: View {
         }
         .pickerStyle(.segmented)
         .labelsHidden()
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        // Unread badge over the (rightmost) inbox segment. SwiftUI's segmented
-        // Picker can't badge a segment directly, so overlay top-trailing — which
-        // sits over the inbox tab since it's last. Hidden at zero; capped at 99+.
+        // Unread badge over the inbox segment. SwiftUI's segmented Picker can't
+        // badge a segment directly, so we overlay top-trailing and shift left by
+        // one equal-width segment: inbox is the SECOND-to-last tab (palette, ⌘⌥7,
+        // is last). Anchored on the bare picker (before padding) so the width the
+        // GeometryReader measures divides evenly across the segments. Hidden at
+        // zero; capped at 99+.
         .overlay(alignment: .topTrailing) {
             if inboxCount > 0 {
-                Text(inboxCount > 99 ? "99+" : "\(inboxCount)")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 1)
-                    .background(.red, in: Capsule())
-                    .padding(.trailing, 10)
-                    .padding(.top, 2)
-                    .allowsHitTesting(false)
-                    .help("\(inboxCount) new capture\(inboxCount == 1 ? "" : "s") in the inbox (⌘⌥6)")
+                GeometryReader { geo in
+                    let segmentCount = hideOutline ? 7 : 8
+                    let segmentWidth = geo.size.width / CGFloat(segmentCount)
+                    inboxBadge
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .offset(x: -segmentWidth)
+                }
             }
         }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+    }
+
+    private var inboxBadge: some View {
+        Text(inboxCount > 99 ? "99+" : "\(inboxCount)")
+            .font(.caption2.weight(.bold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(.red, in: Capsule())
+            .padding(.trailing, 10)
+            .padding(.top, 2)
+            .allowsHitTesting(false)
+            .help("\(inboxCount) new capture\(inboxCount == 1 ? "" : "s") in the inbox (⌘⌥6)")
     }
 
     // MARK: - Content routing
