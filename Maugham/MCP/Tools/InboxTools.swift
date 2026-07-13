@@ -83,8 +83,13 @@ public enum ReadInboxEntryTool: MCPTool {
             throw MCPError.invalidArgument(
                 "inbox entry not found or already resolved: \(params.entry_id)")
         }
+        // Emit dates as ISO8601 strings, consistent with `list_inbox`'s
+        // `created_at` formatting — a bare JSONEncoder would serialize
+        // createdAt/writtenAt/resolvedAt as raw reference-date Doubles.
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
         return try MCPResponseBudget.enforce(
-            try JSONEncoder().encode(entry),
+            try encoder.encode(entry),
             hint: "This capture (likely a long voice transcript) is too large to "
                 + "return in one MCP response. Read the source asset directly on "
                 + "disk under .maugham/inbox/.")

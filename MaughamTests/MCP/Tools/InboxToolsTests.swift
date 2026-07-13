@@ -215,6 +215,68 @@ final class InboxToolsTests: XCTestCase {
         withExtendedLifetime(ds) {}
     }
 
+    // MARK: - title ignored for palette promotes (S11)
+
+    /// `title` is honored for research promotes only; a palette-card promote
+    /// must leave the card's own title untouched. Pinned so a future
+    /// title→caption edit can't silently start honoring the ignored param.
+    func test_promote_titleIgnoredForPalettePromote() async throws {
+        let (url, store, ds, reg, projectId) = try await openNovelWithRegistry()
+        let item = try await store.addPaletteCard(title: "The Flat", kind: .location)
+        try await seed(url, [InboxEntry(
+            id: "e11", createdAt: Date(timeIntervalSince1970: 100),
+            deviceId: "phone", kind: .text, inlineText: "Damp plaster smell.")])
+
+        let params = #"{"project_id":"\#(projectId)","entry_id":"e11","title":"Renamed By Caller","palette_card_id":"\#(item.id)"}"#
+        let data = try await PromoteInboxEntryTool.handle(
+            paramsJSON: Data(params.utf8), registry: reg)
+        let result = try JSONDecoder().decode(PromoteInboxEntryTool.Result.self, from: data)
+
+        // The passed title was ignored — the card keeps its own title.
+        XCTAssertEqual(result.title, "The Flat")
+        let card = store.loadPaletteCards().first(where: { $0.researchItemId == item.id })
+        XCTAssertEqual(card?.title, "The Flat")
+        withExtendedLifetime(ds) {}
+    }
+
+    // MARK: - date serialization (S9)
+
+    /// `read_inbox_entry` must emit its Date fields as ISO8601 strings —
+    /// consistent with `list_inbox`'s `created_at` — not raw reference-date
+    /// Doubles (the bug: a bare JSONEncoder with no dateEncodingStrategy).
+    func test_readInboxEntry_datesAreISO8601Strings() async throws {
+        let (url, _, ds, reg, projectId) = try await openNovelWithRegistry()
+        try await seed(url, [InboxEntry(
+            id: "e12", createdAt: Date(timeIntervalSince1970: 100),
+            writtenAt: Date(timeIntervalSince1970: 200),
+            deviceId: "phone", kind: .text, inlineText: "Dated capture.",
+            paletteSubject: "The Flat", sense: "smell")])
+
+        let params = #"{"project_id":"\#(projectId)","entry_id":"e12"}"#
+        let data = try await ReadInboxEntryTool.handle(
+            paramsJSON: Data(params.utf8), registry: reg)
+        let json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        // Date fields are ISO8601 strings, not numbers.
+        XCTAssertNotNil(json["created_at"] as? String,
+                        "created_at should be an ISO8601 string, got \(String(describing: json["created_at"]))")
+        XCTAssertNil(json["created_at"] as? NSNumber,
+                     "created_at must not be a raw reference-date Double")
+        XCTAssertNotNil(json["written_at"] as? String,
+                        "written_at should be an ISO8601 string, got \(String(describing: json["written_at"]))")
+
+        // The string round-trips to the seeded instant.
+        let iso = ISO8601DateFormatter()
+        let created = try XCTUnwrap(json["created_at"] as? String)
+        XCTAssertEqual(iso.date(from: created), Date(timeIntervalSince1970: 100))
+
+        // Palette fields riding the same tool still serialize correctly.
+        XCTAssertEqual(json["palette_subject"] as? String, "The Flat")
+        XCTAssertEqual(json["sense"] as? String, "smell")
+        withExtendedLifetime(ds) {}
+    }
+
     func test_listInbox_passesThroughPaletteSubjectAndSense() async throws {
         let (url, _, ds, reg, projectId) = try await openNovelWithRegistry()
         try await seed(url, [InboxEntry(
