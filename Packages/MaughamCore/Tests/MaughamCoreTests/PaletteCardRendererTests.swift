@@ -73,6 +73,42 @@ final class PaletteCardRendererTests: XCTestCase {
         XCTAssertEqual(roundTrip(card), card)
     }
 
+    // S5: an untagged note with empty/whitespace-only text must not render as a
+    // bare `- ` line (which the parser drops on reparse, silently taking the
+    // note with it). The renderer skips it, so OTHER notes survive the round trip
+    // and no bare bullet is emitted.
+    func test_render_skipsUntaggedEmptyNote_noBareBullet_othersSurvive() {
+        let card = PaletteCard(
+            researchItemId: "res-e", title: "The Flat", kind: .location,
+            swatches: [],
+            notes: [.init(sense: nil, text: ""),
+                    .init(sense: .smell, text: "turpentine"),
+                    .init(sense: nil, text: "   "),
+                    .init(sense: nil, text: "cold quarry tile")],
+            imagePaths: [], body: "")
+        let md = PaletteCardRenderer.render(card, cardDirectory: "research/palette")
+        XCTAssertFalse(md.contains("- \n"),
+                       "an untagged-empty note must not emit a bare `- ` bullet")
+        let parsed = PaletteCardParser.parse(
+            markdown: md, itemId: "res-e",
+            fallbackTitle: "fallback", cardDirectory: "research/palette")
+        XCTAssertEqual(parsed.notes,
+                       [.init(sense: .smell, text: "turpentine"),
+                        .init(sense: nil, text: "cold quarry tile")],
+                       "the empty untagged notes are dropped; other notes survive")
+    }
+
+    // A tagged note with empty text is NOT skipped — `- smell: ` round-trips.
+    func test_render_keepsTaggedEmptyNote() {
+        let card = PaletteCard(
+            researchItemId: "res-te", title: "X", kind: .other,
+            swatches: [], notes: [.init(sense: .smell, text: "")],
+            imagePaths: [], body: "")
+        let md = PaletteCardRenderer.render(card, cardDirectory: "research/palette")
+        XCTAssertTrue(md.contains("- smell: \n"))
+        XCTAssertEqual(roundTrip(card).notes, [.init(sense: .smell, text: "")])
+    }
+
     func test_relativize() {
         XCTAssertEqual(PaletteCardRenderer.relativize(
             "research/palette/x_assets/a.png", from: "research/palette"), "./x_assets/a.png")

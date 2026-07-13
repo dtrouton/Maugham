@@ -268,7 +268,10 @@ public enum PaletteCardParser {
 
 /// The exact inverse of `PaletteCardParser`: renders a `PaletteCard` back to its
 /// canonical markdown. `parse(render(card)) == card` for editor-reachable models,
-/// except the known-section-heading-in-body residual documented on `PaletteCard`.
+/// except the known-section-heading-in-body residual documented on `PaletteCard`
+/// and an untagged note with empty/whitespace-only text, which is intentionally
+/// dropped (it can't round-trip: it would render as a bare `- ` the parser then
+/// discards) — so it never survives into a re-parsed card.
 /// The model owns the file, so rendering normalizes to canonical form (uppercase
 /// swatches, card-relative `./` image paths, the three sections always present).
 public enum PaletteCardRenderer {
@@ -279,7 +282,16 @@ public enum PaletteCardRenderer {
         for s in card.swatches { out += "- \(s.uppercased())\n" }
         out += "\n## Senses\n\n"
         for n in card.notes {
-            out += n.sense.map { "- \($0.rawValue): \(n.text)\n" } ?? "- \(n.text)\n"
+            if let sense = n.sense {
+                out += "- \(sense.rawValue): \(n.text)\n"
+            } else if !n.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                out += "- \(n.text)\n"
+            }
+            // An untagged note with empty/whitespace-only text is skipped: it
+            // would render as a bare `"- "` line that the parser drops on the
+            // next reparse (trims to `"-"`, failing the `- ` item guard), so
+            // emitting it makes the round-trip unstable. Tagged-empty notes
+            // (`- smell: `) still round-trip and are kept.
         }
         out += "\n## Images\n\n"
         for p in card.imagePaths { out += "- \(relativize(p, from: cardDirectory))\n" }
