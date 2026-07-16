@@ -42,6 +42,7 @@ final class MCPProtocolHandlersTests: XCTestCase {
             "find_references", "get_session_stats", "add_note",
             "list_research", "list_documents_by_tag",
             "link_research", "unlink_research", "list_all_links",
+            "move_research_item",
             "add_comment", "add_suggested_change", "add_query",
             "add_craft_note", "list_annotations", "get_annotation",
             "list_tasks", "get_task",

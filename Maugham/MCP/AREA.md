@@ -6,7 +6,7 @@ The local MCP server that lets Claude Desktop read and contribute to projects. R
 
 The in-app MCP server: tool registration, JSON-RPC handling, the read/search/discover surface for projects, the `add_note` write path (research-only), the annotation layer (paragraph-anchored comments from Claude), and the bridge between Claude Desktop's stdio and Maugham's Unix socket.
 
-## Tool catalogue (47)
+## Tool catalogue (48)
 
 **Discovery / identity**
 - `list_projects` — enumerate all open Maugham projects
