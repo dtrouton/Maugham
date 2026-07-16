@@ -317,6 +317,74 @@ final class ResearchMoveTests: XCTestCase {
             "piece→piece transfers the association; A gets no link")
         await ds.close()
     }
+
+    // MARK: batch delete
+
+    func test_deleteResearchItems_batchOneSave() async throws {
+        let (url, store, ds, _) = try await makeCollection()
+        let a = try await store.addResearchTextNote(parentId: nil, title: "A")
+        let b = try await store.addResearchTextNote(parentId: nil, title: "B")
+        let link = try await store.addResearchLink(
+            parentId: nil, title: "L", url: "https://x.example")
+
+        try await store.deleteResearchItems(ids: [a.id, b.id, link.id])
+
+        XCTAssertNil(item(store, a.id))
+        XCTAssertNil(item(store, b.id))
+        XCTAssertNil(item(store, link.id))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: url.appendingPathComponent("research/a.md").path))
+        XCTAssertNotNil(store.lastDeletedTrashId)
+        await ds.close()
+    }
+
+    func test_deleteResearchItems_descendantCollapses() async throws {
+        let (_, store, ds, _) = try await makeCollection()
+        let group = try await store.addResearchItem(parentId: nil, title: "G", kind: nil)
+        let child = try await store.addResearchTextNote(parentId: group.id, title: "C")
+
+        // Selecting both must not attempt to trash the child twice.
+        try await store.deleteResearchItems(ids: [group.id, child.id])
+
+        XCTAssertNil(item(store, group.id))
+        XCTAssertNil(item(store, child.id))
+        await ds.close()
+    }
+
+    /// Never-moved link: `addResearchLink` mints `path: nil`. Confirms the
+    /// path-less branch still works after the refactor.
+    func test_deleteResearchItems_neverMovedLink_pathLessDelete() async throws {
+        let (_, store, ds, _) = try await makeCollection()
+        let link = try await store.addResearchLink(
+            parentId: nil, title: "Ref", url: "https://example.com")
+        XCTAssertNil(item(store, link.id)?.path, "sanity: never-moved link has no path")
+
+        try await store.deleteResearchItems(ids: [link.id])
+
+        XCTAssertNil(item(store, link.id))
+        await ds.close()
+    }
+
+    /// Moved link: after `moveResearchItems` a link carries a synthetic
+    /// `.link` path with no file backing it (ADR-noted in moveResearchItem).
+    /// Deleting it must NOT attempt to trash that path (no file exists there)
+    /// — it must fall through to manifest-only removal like the path-less
+    /// case, matching the fidelity-check finding that the old, unguarded
+    /// `if let path = item.path, !path.isEmpty` branch would otherwise call
+    /// into `trash(relativePath:)` against a nonexistent file and throw.
+    func test_deleteResearchItems_movedLink_syntheticPathDelete() async throws {
+        let (_, store, ds, piece) = try await makeCollection()
+        let link = try await store.addResearchLink(
+            parentId: nil, title: "Ref", url: "https://example.com")
+        try await store.moveResearchItems(ids: [link.id], to: .piece(piece.id))
+        let moved = try XCTUnwrap(item(store, link.id))
+        XCTAssertNotNil(moved.path, "sanity: moved link now carries a synthetic path")
+
+        try await store.deleteResearchItems(ids: [link.id])
+
+        XCTAssertNil(item(store, link.id))
+        await ds.close()
+    }
 }
 
 func XCTAssertThrowsErrorAsync<T>(

@@ -418,10 +418,17 @@ extension ProjectStore {
         return copy
     }
 
-    /// Delete a research item. File-backed items (assets, groups with folders)
-    /// are moved into the project's .trash/ folder (recoverable). Link-type
-    /// or path-less items are removed from the manifest directly.
-    public func deleteResearchItem(id: String) async throws {
+    /// Trash one item's file (if any) and remove it from the manifest.
+    /// Does NOT save the manifest or refresh trashEntries — callers batch that.
+    /// Returns the trash entry when a file was trashed.
+    ///
+    /// Link items are never file-trashed even when `path` is non-nil: a
+    /// never-moved shared link mints `path: nil` (`addResearchLink`), but a
+    /// piece-scoped link (`addPieceResearchLink`) or a link that has been
+    /// moved (`moveResearchItems`) carries a *synthetic* `.link` path with no
+    /// backing file on disk. Attempting to trash that path would throw
+    /// (`FileManager.moveItem` "no such file") instead of deleting the item.
+    private func trashResearchItemCore(id: String) async throws -> TrashEntry? {
         guard let item = findResearchItem(id: id, in: manifest.research) else {
             throw ProjectStoreError.structureMissing
         }
@@ -429,7 +436,8 @@ extension ProjectStore {
             of: id, in: manifest.research, parent: nil)
         let index = currentResearchIndex(of: id, parentId: parentId)
 
-        if let path = item.path, !path.isEmpty {
+        var entry: TrashEntry?
+        if let path = item.path, !path.isEmpty, item.kind != .link {
             // Trash through the typed user-content mover. It flushes the
             // research-note debounce (and closes+unregisters any open Document)
             // INTERNALLY before the move, so a queued `scheduleFileSave` can't
@@ -437,7 +445,6 @@ extension ProjectStore {
             // (tripwire 14, enforce-by-construction). With no DocumentStore
             // (load-only context) the discipline is a provable no-op.
             let metadata = try JSONEncoder().encode(item)
-            let entry: TrashEntry
             if let ds = documentStore {
                 entry = try await ds.trash(
                     relativePath: path,
@@ -454,17 +461,40 @@ extension ProjectStore {
                     originalIndex: index,
                     displayTitle: item.title)
             }
-            removeResearchItem(id: id)
-            manifest.modified = Date()
-            try await saveManifest()
-            trashEntries = (try? await trashStore.list()) ?? trashEntries
-            lastDeletedTrashId = entry.id
-        } else {
-            // Path-less items (links, etc.) — just remove from manifest.
-            removeResearchItem(id: id)
-            manifest.modified = Date()
-            try await saveManifest()
         }
+        removeResearchItem(id: id)
+        return entry
+    }
+
+    /// Delete a research item. File-backed items (assets, groups with folders)
+    /// are moved into the project's .trash/ folder (recoverable). Link-type
+    /// or path-less items are removed from the manifest directly.
+    public func deleteResearchItem(id: String) async throws {
+        try await deleteResearchItems(ids: [id])
+    }
+
+    /// Batch-delete research items in one manifest save. Descendants of a
+    /// selected group are collapsed out (via `collapseResearchSelection`) so
+    /// they aren't trashed twice. `lastDeletedTrashId` points at the last
+    /// trashed entry (nil if nothing in the batch was file-backed).
+    public func deleteResearchItems(ids: [String]) async throws {
+        let effective = collapseResearchSelection(ids)
+        // Validate the whole batch before trashing anything.
+        for id in effective {
+            guard findResearchItem(id: id, in: manifest.research) != nil else {
+                throw ProjectStoreError.structureMissing
+            }
+        }
+        var lastEntry: TrashEntry?
+        for id in effective {
+            if let entry = try await trashResearchItemCore(id: id) {
+                lastEntry = entry
+            }
+        }
+        manifest.modified = Date()
+        try await saveManifest()
+        trashEntries = (try? await trashStore.list()) ?? trashEntries
+        if let lastEntry { lastDeletedTrashId = lastEntry.id }
     }
 
     /// Import a list of file URLs (and/or folders) into the research tree
