@@ -16,7 +16,11 @@ struct ResearchView: View {
     var body: some View {
         List(selection: $selectedResearchId) {
             ForEach(store.manifest.research) { item in
-                node(for: item)
+                ResearchTreeNode(
+                    item: item,
+                    renamingItemId: $renamingItemId,
+                    findParentId: { findParentId(of: $0) },
+                    actions: treeActions)
             }
         }
         .listStyle(.sidebar)
@@ -71,69 +75,28 @@ struct ResearchView: View {
         pendingRenameId = nil
     }
 
-    @ViewBuilder
-    private func node(for item: ResearchItem) -> some View {
-        if item.type == .group {
-            DisclosureGroup {
-                AnyView(childNodes(for: item))
-            } label: {
-                row(for: item)
-            }
-        } else {
-            row(for: item)
-        }
-    }
-
-    private func childNodes(for item: ResearchItem) -> some View {
-        ForEach(item.children ?? []) { child in
-            AnyView(node(for: child))
-        }
-    }
-
-    private func row(for item: ResearchItem) -> some View {
-        ResearchRow(
-            item: item,
-            renamingItemId: $renamingItemId,
-            onRename: { id, newTitle in
-                Task { await rename(id: id, to: newTitle) }
-            },
-            onDrop: { draggedId, position in
+    private var treeActions: ResearchTreeActions {
+        ResearchTreeActions(
+            rename: { id, newTitle in Task { await rename(id: id, to: newTitle) } },
+            internalDrop: { draggedId, position, target in
                 Task { await handleInternalDrop(
-                    draggedId: draggedId, position: position, target: item) }
+                    draggedId: draggedId, position: position, target: target) }
             },
-            onExternalDrop: { providers, position in
-                let parent = position == .middle && item.type == .group
-                    ? item.id
-                    : findParentId(of: item.id)
+            externalDrop: { providers, position, target in
+                let parent = position == .middle && target.type == .group
+                    ? target.id
+                    : findParentId(of: target.id)
                 Task { await importExternal(providers, toParentId: parent) }
-            }
-        )
-        .contextMenu {
-            Button("New Note") {
-                let parentId = item.type == .group ? item.id : findParentId(of: item.id)
-                Task { await addResearchNote(parentId: parentId) }
-            }
-            if item.type == .group {
-                Button("New Group") {
-                    Task { await addGroup(parentId: item.id) }
-                }
-                Button("Add File…") {
-                    Task { await runAddFile(parentId: item.id) }
-                }
-                Button("Add Link…") {
-                    addLinkParentId = item.id
-                    showingAddLinkSheet = true
-                }
-                Divider()
-            }
-            Button("Duplicate") {
-                Task { await duplicate(id: item.id) }
-            }
-            Button("Rename") { renamingItemId = item.id }
-            Button("Delete", role: .destructive) {
-                Task { await delete(id: item.id) }
-            }
-        }
+            },
+            newNote: { parentId in Task { await addResearchNote(parentId: parentId) } },
+            newGroup: { parentId in Task { await addGroup(parentId: parentId) } },
+            addFile: { parentId in Task { await runAddFile(parentId: parentId) } },
+            addLink: { parentId in
+                addLinkParentId = parentId
+                showingAddLinkSheet = true
+            },
+            duplicate: { id in Task { await duplicate(id: id) } },
+            delete: { id in Task { await delete(id: id) } })
     }
 
     private func handleInternalDrop(
