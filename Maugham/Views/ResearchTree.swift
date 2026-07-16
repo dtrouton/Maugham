@@ -108,4 +108,26 @@ enum ResearchSelectionSync {
         }
         return orderedSelection(selection, in: research)
     }
+
+    /// Insertion index for a batch drop beside `targetId`, computed against
+    /// the destination sibling list WITH the moving ids filtered out. This
+    /// matches `moveResearchItems(atIndex:)` semantics: the store removes the
+    /// whole batch first, then inserts at `destIndex` — so an index taken
+    /// against the pre-removal list drifts right by however many moved items
+    /// preceded the target. `.top` inserts before the target; `.bottom` and
+    /// `.middle` (non-group) insert after. Returns nil when the target is
+    /// itself part of the batch or absent from `siblings` (callers treat nil
+    /// as append/bail).
+    static func postRemovalInsertionIndex(
+        targetId: String, position: DropIntent.Position,
+        movingIds: [String], siblings: [ResearchItem]
+    ) -> Int? {
+        let moving = Set(movingIds)
+        guard !moving.contains(targetId) else { return nil }
+        let remaining = siblings.filter { !moving.contains($0.id) }
+        guard let idx = remaining.firstIndex(where: { $0.id == targetId }) else {
+            return nil
+        }
+        return position == .top ? idx : idx + 1
+    }
 }

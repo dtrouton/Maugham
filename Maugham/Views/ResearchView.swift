@@ -114,7 +114,12 @@ struct ResearchView: View {
     private func handleInternalDrop(
         draggedId: String, position: DropIntent.Position, target: ResearchItem
     ) async {
-        guard draggedId != target.id else { return }
+        let movingIds = ResearchSelectionSync.expandedDragIds(
+            draggedId: draggedId, selection: selection, in: store.manifest.research)
+        // Dropping onto a row that is itself part of the moved batch is a
+        // no-op (also covers dragged == target: movingIds always contains
+        // draggedId).
+        guard !movingIds.contains(target.id) else { return }
         let toParentId: String?
         let destIndex: Int
         switch position {
@@ -131,8 +136,6 @@ struct ResearchView: View {
             toParentId = findParentId(of: target.id)
             destIndex = currentIndex(of: target.id, in: toParentId) + 1
         }
-        let movingIds = ResearchSelectionSync.expandedDragIds(
-            draggedId: draggedId, selection: selection, in: store.manifest.research)
         do {
             if movingIds.count == 1 {
                 try await store.moveResearchItem(
@@ -141,8 +144,20 @@ struct ResearchView: View {
                 let moveTarget: ResearchMoveTarget = toParentId.map {
                     ResearchMoveTarget.group($0)
                 } ?? .sharedRoot
+                // The batch mover removes all moving items BEFORE inserting,
+                // so its atIndex is a post-removal index — compute it against
+                // the destination siblings with the batch filtered out (nil
+                // appends; only when target is nested elsewhere unexpectedly).
+                let atIndex: Int?
+                if position == .middle && target.type == .group {
+                    atIndex = 0
+                } else {
+                    atIndex = ResearchSelectionSync.postRemovalInsertionIndex(
+                        targetId: target.id, position: position,
+                        movingIds: movingIds, siblings: siblingList(of: toParentId))
+                }
                 try await store.moveResearchItems(
-                    ids: movingIds, to: moveTarget, atIndex: destIndex)
+                    ids: movingIds, to: moveTarget, atIndex: atIndex)
             }
         } catch ProjectStoreError.cycle {
             pendingError = "Can't move a group into one of its own descendants."
@@ -331,14 +346,15 @@ struct ResearchView: View {
         return nil
     }
 
-    private func currentIndex(of id: String, in parentId: String?) -> Int {
-        let siblings: [ResearchItem]
+    private func siblingList(of parentId: String?) -> [ResearchItem] {
         if let parentId,
            let parent = TreeWalk.find(id: parentId, in: store.manifest.research) {
-            siblings = parent.children ?? []
-        } else {
-            siblings = store.manifest.research
+            return parent.children ?? []
         }
-        return siblings.firstIndex(where: { $0.id == id }) ?? 0
+        return store.manifest.research
+    }
+
+    private func currentIndex(of id: String, in parentId: String?) -> Int {
+        siblingList(of: parentId).firstIndex(where: { $0.id == id }) ?? 0
     }
 }

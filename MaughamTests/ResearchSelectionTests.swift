@@ -39,4 +39,64 @@ final class ResearchSelectionTests: XCTestCase {
             ["c"],
             "dragging a row outside the selection moves only that row")
     }
+
+    // MARK: - postRemovalInsertionIndex
+    // `moveResearchItems(atIndex:)` removes the batch BEFORE inserting, so
+    // the drop index must be computed against the sibling list with the
+    // moving ids filtered out. Regression: computing against the pre-removal
+    // list made "[A,B,C,D,E], drag {A,B} below D" land as [C,D,E,A,B]
+    // instead of [C,D,A,B,E].
+
+    private let abcde = ["a", "b", "c", "d", "e"]
+
+    func test_postRemovalIndex_earlierItemsPastLaterTarget_bottom() {
+        // Filtered siblings [c,d,e]; below d → index 2 (→ [C,D,A,B,E]).
+        XCTAssertEqual(
+            ResearchSelectionSync.postRemovalInsertionIndex(
+                targetId: "d", position: .bottom,
+                movingIds: ["a", "b"], siblings: abcde.map(note)),
+            2)
+    }
+
+    func test_postRemovalIndex_earlierItemsPastLaterTarget_top() {
+        // Filtered siblings [c,d,e]; above d → index 1 (→ [C,A,B,D,E]).
+        XCTAssertEqual(
+            ResearchSelectionSync.postRemovalInsertionIndex(
+                targetId: "d", position: .top,
+                movingIds: ["a", "b"], siblings: abcde.map(note)),
+            1)
+    }
+
+    func test_postRemovalIndex_laterItemsBeforeEarlierTarget_unaffected() {
+        // Moving [d,e] above b: nothing moved precedes the target, so the
+        // index matches the naive one. Filtered [a,b,c]; above b → 1.
+        XCTAssertEqual(
+            ResearchSelectionSync.postRemovalInsertionIndex(
+                targetId: "b", position: .top,
+                movingIds: ["d", "e"], siblings: abcde.map(note)),
+            1)
+    }
+
+    func test_postRemovalIndex_middleNonGroup_insertsAfterTarget() {
+        XCTAssertEqual(
+            ResearchSelectionSync.postRemovalInsertionIndex(
+                targetId: "c", position: .middle,
+                movingIds: ["a"], siblings: abcde.map(note)),
+            2)
+    }
+
+    func test_postRemovalIndex_targetInsideBatch_isNil() {
+        XCTAssertNil(
+            ResearchSelectionSync.postRemovalInsertionIndex(
+                targetId: "b", position: .bottom,
+                movingIds: ["a", "b"], siblings: abcde.map(note)),
+            "dropping onto a row that is itself moving has no anchor")
+    }
+
+    func test_postRemovalIndex_targetNotASibling_isNil() {
+        XCTAssertNil(
+            ResearchSelectionSync.postRemovalInsertionIndex(
+                targetId: "zz", position: .bottom,
+                movingIds: ["a"], siblings: abcde.map(note)))
+    }
 }

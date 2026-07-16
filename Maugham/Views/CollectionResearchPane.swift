@@ -427,6 +427,10 @@ struct CollectionResearchPane: View {
         // drop through the batch mover, which tolerates mixed source sections.
         let movingIds = ResearchSelectionSync.expandedDragIds(
             draggedId: draggedId, selection: selection, in: store.manifest.research)
+        // Dropping onto a row that is itself part of the moved batch is a
+        // no-op (simplest safe choice: there is no meaningful anchor when the
+        // anchor row is leaving its slot).
+        guard !movingIds.contains(target.id) else { return }
         if movingIds.count > 1 {
             await handleMultiDrop(
                 movingIds: movingIds, position: position,
@@ -504,9 +508,13 @@ struct CollectionResearchPane: View {
     /// A multi-selection internal drag. The whole selection (possibly spanning
     /// both sections) routes through the batch mover: `.middle` on a group moves
     /// into that group; a drop beside a nested row moves into that row's parent
-    /// group; a drop beside a top-level row targets the drop's section root at
-    /// the target's position. The store validates cycles and tolerates mixed
-    /// source sections.
+    /// group at the drop position; a drop beside a top-level row targets the
+    /// drop's section root at the target's position. The store validates cycles
+    /// and tolerates mixed source sections.
+    ///
+    /// Index semantics: `moveResearchItems` removes the whole batch BEFORE
+    /// inserting at `atIndex`, so every index here is computed post-removal
+    /// via `ResearchSelectionSync.postRemovalInsertionIndex` (nil = append).
     private func handleMultiDrop(
         movingIds: [String], position: DropIntent.Position,
         target: ResearchItem, targetSection: Scope
@@ -518,19 +526,20 @@ struct CollectionResearchPane: View {
                 return
             }
             if let toParentId = findParentId(of: target.id) {
+                let groupChildren = TreeWalk.find(
+                    id: toParentId, in: store.manifest.research)?.children ?? []
+                let atIndex = ResearchSelectionSync.postRemovalInsertionIndex(
+                    targetId: target.id, position: position,
+                    movingIds: movingIds, siblings: groupChildren)
                 try await store.moveResearchItems(
-                    ids: movingIds, to: .group(toParentId))
+                    ids: movingIds, to: .group(toParentId), atIndex: atIndex)
                 return
             }
-            let sectionTarget = sectionRootTarget(targetSection)
-            if let targetIdx = store.manifest.research.firstIndex(
-                where: { $0.id == target.id }) {
-                let destIdx = position == .top ? targetIdx : targetIdx + 1
-                try await store.moveResearchItems(
-                    ids: movingIds, to: sectionTarget, atIndex: destIdx)
-            } else {
-                try await store.moveResearchItems(ids: movingIds, to: sectionTarget)
-            }
+            let atIndex = ResearchSelectionSync.postRemovalInsertionIndex(
+                targetId: target.id, position: position,
+                movingIds: movingIds, siblings: store.manifest.research)
+            try await store.moveResearchItems(
+                ids: movingIds, to: sectionRootTarget(targetSection), atIndex: atIndex)
         } catch ProjectStoreError.cycle {
             pendingError = "Can't move a group into one of its own descendants."
         } catch {
@@ -549,16 +558,13 @@ struct CollectionResearchPane: View {
     /// row) moves the dragged items to that section's root. Row-level
     /// `.dropDestination`s sit deeper in the hierarchy and win when the pointer
     /// is over a row; this section-level one catches header/whitespace releases.
-    /// The dropped `ids` are expanded to the whole selection when the drag began
-    /// inside it, so releasing a multi-selection on a header moves all of them.
+    /// Rows drag exactly one id (a single-String Transferable payload), which
+    /// is expanded to the whole selection when the drag began inside it, so
+    /// releasing a multi-selection on a header moves all of them.
     private func moveToSection(ids: [String], scope: Scope) async {
-        let movingIds: [String]
-        if ids.count == 1, let only = ids.first {
-            movingIds = ResearchSelectionSync.expandedDragIds(
-                draggedId: only, selection: selection, in: store.manifest.research)
-        } else {
-            movingIds = ids
-        }
+        guard let draggedId = ids.first else { return }
+        let movingIds = ResearchSelectionSync.expandedDragIds(
+            draggedId: draggedId, selection: selection, in: store.manifest.research)
         do {
             try await store.moveResearchItems(ids: movingIds, to: sectionRootTarget(scope))
         } catch {

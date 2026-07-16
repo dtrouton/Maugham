@@ -261,6 +261,33 @@ final class ResearchMoveTests: XCTestCase {
         await ds.close()
     }
 
+    /// Regression (2026-07 multiselect drag): the batch mover removes all
+    /// moving items BEFORE inserting at `destIndex`, so a drop index computed
+    /// against the pre-removal sibling list drifts. [A,B,C,D,E], drag {A,B}
+    /// below D: the view computes the index via
+    /// `ResearchSelectionSync.postRemovalInsertionIndex` (post-removal list
+    /// [C,D,E] → 2) and the result must be [C,D,A,B,E] — not the pre-fix
+    /// [C,D,E,A,B].
+    func test_moveBatch_earlierItemsPastLaterTarget_exactOrder() async throws {
+        let (_, store, ds, _) = try await makeCollection()
+        var ids: [String] = []
+        for title in ["A", "B", "C", "D", "E"] {
+            ids.append(try await store.addResearchTextNote(
+                parentId: nil, title: title).id)
+        }
+        let (a, b, c, d, e) = (ids[0], ids[1], ids[2], ids[3], ids[4])
+
+        let atIndex = ResearchSelectionSync.postRemovalInsertionIndex(
+            targetId: d, position: .bottom,
+            movingIds: [a, b], siblings: store.manifest.research)
+        try await store.moveResearchItems(
+            ids: [a, b], to: .sharedRoot, atIndex: atIndex)
+
+        let order = store.manifest.research.map(\.id).filter { ids.contains($0) }
+        XCTAssertEqual(order, [c, d, a, b, e])
+        await ds.close()
+    }
+
     // MARK: link cleanup
 
     func test_moveIntoPiece_dropsNowRedundantExplicitLink() async throws {
