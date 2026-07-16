@@ -219,6 +219,47 @@ final class ResearchMoveTests: XCTestCase {
             atPath: url.appendingPathComponent(moved.path!).path))
         await ds.close()
     }
+
+    // MARK: existing single-item mover — _assets orphan regression
+
+    /// Latent bug: the old cross-group branch built a one-step RenamePlan and
+    /// left the note's sibling <slug>_assets/ folder behind. Pin the fix.
+    func test_crossGroupMove_carriesAssetsFolder() async throws {
+        let (url, store, ds, _) = try await makeCollection()
+        let group = try await store.addResearchItem(
+            parentId: nil, title: "World", kind: nil)
+        let note = try await store.addResearchTextNote(parentId: nil, title: "Harbor")
+        // Simulate an image note: create the sibling assets folder on disk.
+        let assetsURL = url.appendingPathComponent("research/harbor_assets")
+        try FileManager.default.createDirectory(
+            at: assetsURL, withIntermediateDirectories: true)
+        try Data([0xFF]).write(to: assetsURL.appendingPathComponent("img.png"))
+
+        try await store.moveResearchItem(
+            id: note.id, toParentId: group.id, atIndex: 0)
+
+        let groupPath = try XCTUnwrap(item(store, group.id)?.path)
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: url.appendingPathComponent("\(groupPath)/harbor_assets/img.png").path),
+            "assets folder must travel with the note")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: assetsURL.path),
+            "old assets folder must be gone")
+        await ds.close()
+    }
+
+    func test_sameParentReorder_stillManifestOnly() async throws {
+        let (_, store, ds, _) = try await makeCollection()
+        let a = try await store.addResearchTextNote(parentId: nil, title: "A")
+        let b = try await store.addResearchTextNote(parentId: nil, title: "B")
+
+        try await store.moveResearchItem(id: b.id, toParentId: nil, atIndex: 0)
+
+        let topIds = store.manifest.research.map(\.id)
+        XCTAssertEqual(topIds.firstIndex(of: b.id)! < topIds.firstIndex(of: a.id)!, true)
+        XCTAssertEqual(item(store, a.id)?.path, "research/a.md")
+        XCTAssertEqual(item(store, b.id)?.path, "research/b.md")
+        await ds.close()
+    }
 }
 
 func XCTAssertThrowsErrorAsync<T>(

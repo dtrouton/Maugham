@@ -271,21 +271,6 @@ extension ProjectStore {
         }
         let oldParentId = findResearchParentId(of: id, in: manifest.research, parent: nil)
 
-        // Cycle check for groups.
-        if item.type == .group, let toParentId, toParentId == id {
-            throw ProjectStoreError.cycle
-        }
-        if item.type == .group, let toParentId,
-           Self.researchContains(id: toParentId, in: item.children ?? []) {
-            throw ProjectStoreError.cycle
-        }
-        // Validate destination parent if non-nil.
-        if let toParentId,
-           let parent = findResearchItem(id: toParentId, in: manifest.research),
-           parent.type != .group {
-            throw ProjectStoreError.parentNotFound(toParentId)
-        }
-
         // No-op detection.
         let oldIndex = currentResearchIndex(of: id, parentId: oldParentId)
         if oldParentId == toParentId, oldIndex == destIndex { return }
@@ -305,47 +290,11 @@ extension ProjectStore {
             return
         }
 
-        // Cross-group: physical move required.
-        guard let documentStore else {
-            throw ProjectStoreError.fileSystemError("DocumentStore not available")
-        }
-        let updatedItem: ResearchItem
-        if let oldPath = item.path {
-            let leaf = (oldPath as NSString).lastPathComponent
-            let newParentPath = researchParentPath(parentId: toParentId)
-            let parentURL = url.appendingPathComponent(newParentPath, isDirectory: true)
-            try? FileManager.default.createDirectory(
-                at: parentURL, withIntermediateDirectories: true)
-            let existing = (try? FileManager.default
-                .contentsOfDirectory(atPath: parentURL.path)) ?? []
-            let dedupedLeaf = Self.researchDedupedFilename(leaf, existing: existing)
-            let newPath = "\(newParentPath)/\(dedupedLeaf)"
-            let plan = try RenamePlan(steps: [
-                .init(oldRelativePath: oldPath, newRelativePath: newPath)
-            ])
-            try await documentStore.relocate(plan: plan)
-
-            var copy = item
-            copy.path = newPath
-            if let children = copy.children {
-                copy.children = Self.researchRewriteChildPaths(
-                    children, oldPrefix: oldPath, newPrefix: newPath)
-            }
-            updatedItem = copy
-        } else {
-            // Link asset — no path. Just relocate in the manifest.
-            updatedItem = item
-        }
-
-        // Remove from old parent, insert into new parent at clamped index.
-        removeResearchItem(id: id)
-        var destSiblings = childrenOfResearch(parentId: toParentId)
-        let clamped = max(0, min(destIndex, destSiblings.count))
-        destSiblings.insert(updatedItem, at: clamped)
-        replaceResearchChildren(parentId: toParentId, with: destSiblings)
-
-        manifest.modified = Date()
-        try await saveManifest()
+        // Cross-group: delegate to the batch scope-aware mover (one
+        // RenamePlan incl. the note's sibling _assets/ folder, manifest
+        // rewrite, single save).
+        let target: ResearchMoveTarget = toParentId.map { .group($0) } ?? .sharedRoot
+        try await moveResearchItems(ids: [id], to: target, atIndex: destIndex)
     }
 
     func findResearchParentId(
