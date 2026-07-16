@@ -18,6 +18,7 @@ struct CollectionResearchPane: View {
     @State private var pendingError: String?
     @State private var showingAddLinkSheet: Bool = false
     @State private var addLinkScope: AddLinkScope = .shared
+    @State private var selection = Set<String>()
 
     private enum AddLinkScope: Equatable {
         case shared
@@ -26,7 +27,7 @@ struct CollectionResearchPane: View {
     }
 
     var body: some View {
-        List(selection: $selectedResearchId) {
+        List(selection: $selection) {
             sharedSection
             if let piece = activePiece, piece.pieceKind == .loose {
                 pieceSection(for: piece)
@@ -52,6 +53,17 @@ struct CollectionResearchPane: View {
         }
         .onChange(of: pendingRenameId) { _, _ in
             tryCommitPendingRename()
+        }
+        .onChange(of: selection) { _, newValue in
+            selectedResearchId = ResearchSelectionSync.previewId(for: newValue)
+        }
+        .onChange(of: selectedResearchId) { _, newValue in
+            if let id = newValue, !selection.contains(id) {
+                selection = [id]
+            }
+        }
+        .onAppear {
+            if let id = selectedResearchId { selection = [id] }
         }
     }
 
@@ -410,6 +422,18 @@ struct CollectionResearchPane: View {
         let draggedSection = sectionScope(ofItemId: draggedId)
         let targetSection = sectionScope(ofItemId: target.id)
 
+        // Whole-selection drag: dragging a row inside a multi-selection carries
+        // the entire selection (expanded to visual order). Route every such
+        // drop through the batch mover, which tolerates mixed source sections.
+        let movingIds = ResearchSelectionSync.expandedDragIds(
+            draggedId: draggedId, selection: selection, in: store.manifest.research)
+        if movingIds.count > 1 {
+            await handleMultiDrop(
+                movingIds: movingIds, position: position,
+                target: target, targetSection: targetSection)
+            return
+        }
+
         do {
             if draggedSection != targetSection {
                 try await handleCrossSectionDrop(
@@ -477,19 +501,66 @@ struct CollectionResearchPane: View {
         }
     }
 
+    /// A multi-selection internal drag. The whole selection (possibly spanning
+    /// both sections) routes through the batch mover: `.middle` on a group moves
+    /// into that group; a drop beside a nested row moves into that row's parent
+    /// group; a drop beside a top-level row targets the drop's section root at
+    /// the target's position. The store validates cycles and tolerates mixed
+    /// source sections.
+    private func handleMultiDrop(
+        movingIds: [String], position: DropIntent.Position,
+        target: ResearchItem, targetSection: Scope
+    ) async {
+        do {
+            if position == .middle && target.type == .group {
+                try await store.moveResearchItems(
+                    ids: movingIds, to: .group(target.id), atIndex: 0)
+                return
+            }
+            if let toParentId = findParentId(of: target.id) {
+                try await store.moveResearchItems(
+                    ids: movingIds, to: .group(toParentId))
+                return
+            }
+            let sectionTarget = sectionRootTarget(targetSection)
+            if let targetIdx = store.manifest.research.firstIndex(
+                where: { $0.id == target.id }) {
+                let destIdx = position == .top ? targetIdx : targetIdx + 1
+                try await store.moveResearchItems(
+                    ids: movingIds, to: sectionTarget, atIndex: destIdx)
+            } else {
+                try await store.moveResearchItems(ids: movingIds, to: sectionTarget)
+            }
+        } catch ProjectStoreError.cycle {
+            pendingError = "Can't move a group into one of its own descendants."
+        } catch {
+            pendingError = error.localizedDescription
+        }
+    }
+
+    private func sectionRootTarget(_ scope: Scope) -> ResearchMoveTarget {
+        if case .piece(let pieceId) = scope {
+            return .piece(pieceId)
+        }
+        return .sharedRoot
+    }
+
     /// An internal drag released on a section's header or empty area (not on a
     /// row) moves the dragged items to that section's root. Row-level
     /// `.dropDestination`s sit deeper in the hierarchy and win when the pointer
     /// is over a row; this section-level one catches header/whitespace releases.
+    /// The dropped `ids` are expanded to the whole selection when the drag began
+    /// inside it, so releasing a multi-selection on a header moves all of them.
     private func moveToSection(ids: [String], scope: Scope) async {
-        let target: ResearchMoveTarget
-        if case .piece(let pieceId) = scope {
-            target = .piece(pieceId)
+        let movingIds: [String]
+        if ids.count == 1, let only = ids.first {
+            movingIds = ResearchSelectionSync.expandedDragIds(
+                draggedId: only, selection: selection, in: store.manifest.research)
         } else {
-            target = .sharedRoot
+            movingIds = ids
         }
         do {
-            try await store.moveResearchItems(ids: ids, to: target)
+            try await store.moveResearchItems(ids: movingIds, to: sectionRootTarget(scope))
         } catch {
             pendingError = error.localizedDescription
         }

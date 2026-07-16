@@ -12,9 +12,10 @@ struct ResearchView: View {
     @State private var pendingError: String?
     @State private var showingAddLinkSheet: Bool = false
     @State private var addLinkParentId: String?
+    @State private var selection = Set<String>()
 
     var body: some View {
-        List(selection: $selectedResearchId) {
+        List(selection: $selection) {
             ForEach(store.manifest.research) { item in
                 ResearchTreeNode(
                     item: item,
@@ -65,6 +66,17 @@ struct ResearchView: View {
         }
         .onChange(of: pendingRenameId) { _, _ in
             tryCommitPendingRename()
+        }
+        .onChange(of: selection) { _, newValue in
+            selectedResearchId = ResearchSelectionSync.previewId(for: newValue)
+        }
+        .onChange(of: selectedResearchId) { _, newValue in
+            if let id = newValue, !selection.contains(id) {
+                selection = [id]
+            }
+        }
+        .onAppear {
+            if let id = selectedResearchId { selection = [id] }
         }
     }
 
@@ -119,9 +131,19 @@ struct ResearchView: View {
             toParentId = findParentId(of: target.id)
             destIndex = currentIndex(of: target.id, in: toParentId) + 1
         }
+        let movingIds = ResearchSelectionSync.expandedDragIds(
+            draggedId: draggedId, selection: selection, in: store.manifest.research)
         do {
-            try await store.moveResearchItem(
-                id: draggedId, toParentId: toParentId, atIndex: destIndex)
+            if movingIds.count == 1 {
+                try await store.moveResearchItem(
+                    id: draggedId, toParentId: toParentId, atIndex: destIndex)
+            } else {
+                let moveTarget: ResearchMoveTarget = toParentId.map {
+                    ResearchMoveTarget.group($0)
+                } ?? .sharedRoot
+                try await store.moveResearchItems(
+                    ids: movingIds, to: moveTarget, atIndex: destIndex)
+            }
         } catch ProjectStoreError.cycle {
             pendingError = "Can't move a group into one of its own descendants."
         } catch {

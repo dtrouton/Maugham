@@ -57,7 +57,7 @@ struct ResearchTreeNode: View {
             onExternalDrop: { providers, position in
                 actions.externalDrop(providers, position, item)
             })
-            .tag(item.id as String?)
+            .tag(item.id)
             .contextMenu {
                 Button("New Note") {
                     actions.newNote(item.type == .group ? item.id : findParentId(item.id))
@@ -72,5 +72,40 @@ struct ResearchTreeNode: View {
                 Button("Rename") { renamingItemId = item.id }
                 Button("Delete", role: .destructive) { actions.delete(item.id) }
             }
+    }
+}
+
+/// Selection⇄preview sync + drag-expansion rules shared by the two research
+/// surfaces. Pure functions — unit-tested in ResearchSelectionTests.
+enum ResearchSelectionSync {
+    /// The preview pane shows a single item or nothing.
+    static func previewId(for selection: Set<String>) -> String? {
+        selection.count == 1 ? selection.first : nil
+    }
+
+    /// Selection ordered by depth-first manifest tree position (visual order).
+    static func orderedSelection(
+        _ selection: Set<String>, in research: [ResearchItem]
+    ) -> [String] {
+        var ordered: [String] = []
+        func walk(_ items: [ResearchItem]) {
+            for item in items {
+                if selection.contains(item.id) { ordered.append(item.id) }
+                if let children = item.children { walk(children) }
+            }
+        }
+        walk(research)
+        return ordered
+    }
+
+    /// Standard Mac behavior: dragging a row inside the selection drags the
+    /// whole selection; dragging an unselected row drags just that row.
+    static func expandedDragIds(
+        draggedId: String, selection: Set<String>, in research: [ResearchItem]
+    ) -> [String] {
+        guard selection.contains(draggedId), selection.count > 1 else {
+            return [draggedId]
+        }
+        return orderedSelection(selection, in: research)
     }
 }
