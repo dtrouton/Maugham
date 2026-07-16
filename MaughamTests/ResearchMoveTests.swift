@@ -385,6 +385,65 @@ final class ResearchMoveTests: XCTestCase {
         XCTAssertNil(item(store, link.id))
         await ds.close()
     }
+
+    // MARK: section classification (sectionScope core: researchRootPath + scope)
+    //
+    // `CollectionResearchPane.sectionScope(ofItemId:)` — the load-bearing
+    // classifier that decides same-section reorder vs cross-section scope move —
+    // is `ProjectStore.researchRootPath(ofItemId:in:)` mapped through
+    // `researchScopePieceId(ofPath:)`. These pin that composed logic for the
+    // three cases that broke naive path-on-the-item classification.
+
+    func test_sectionScope_nestedInSharedGroup_resolvesShared() async throws {
+        let (_, store, ds, _) = try await makeCollection()
+        let group = try await store.addResearchItem(
+            parentId: nil, title: "Notes", kind: nil)
+        let child = try await store.addResearchTextNote(
+            parentId: group.id, title: "Inside")
+
+        let rootPath = ProjectStore.researchRootPath(
+            ofItemId: child.id, in: store.manifest.research)
+        XCTAssertEqual(rootPath, item(store, group.id)?.path)
+        XCTAssertNil(store.researchScopePieceId(ofPath: rootPath),
+                     "shared group → shared section")
+        await ds.close()
+    }
+
+    func test_sectionScope_nestedInPieceGroup_resolvesPiece() async throws {
+        let (_, store, ds, piece) = try await makeCollection()
+        let group = try await store.addResearchItem(
+            parentId: nil, title: "Notes", kind: nil)
+        let child = try await store.addResearchTextNote(
+            parentId: group.id, title: "Inside")
+        // Relocate the whole group into the piece's research folder.
+        try await store.moveResearchItems(ids: [group.id], to: .piece(piece.id))
+
+        let rootPath = ProjectStore.researchRootPath(
+            ofItemId: child.id, in: store.manifest.research)
+        XCTAssertEqual(rootPath, item(store, group.id)?.path)
+        XCTAssertEqual(store.researchScopePieceId(ofPath: rootPath), piece.id,
+                       "group moved under the piece → piece section")
+        await ds.close()
+    }
+
+    func test_sectionScope_pathlessLinkInSharedGroup_resolvesViaRoot() async throws {
+        let (_, store, ds, _) = try await makeCollection()
+        let group = try await store.addResearchItem(
+            parentId: nil, title: "Notes", kind: nil)
+        // A never-moved link mints `path: nil` — classifying by its own path
+        // would misread it as shared by accident; classifying by root is what
+        // makes it correct.
+        let link = try await store.addResearchLink(
+            parentId: group.id, title: "Ref", url: "https://example.com")
+        XCTAssertNil(item(store, link.id)?.path, "sanity: link path is nil")
+
+        let rootPath = ProjectStore.researchRootPath(
+            ofItemId: link.id, in: store.manifest.research)
+        XCTAssertEqual(rootPath, item(store, group.id)?.path)
+        XCTAssertNil(store.researchScopePieceId(ofPath: rootPath),
+                     "pathless link inside a shared group → shared section")
+        await ds.close()
+    }
 }
 
 func XCTAssertThrowsErrorAsync<T>(

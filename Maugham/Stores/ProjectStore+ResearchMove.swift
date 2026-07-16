@@ -17,6 +17,24 @@ public enum ResearchMoveTarget: Equatable, Sendable {
 
 extension ProjectStore {
 
+    /// Path of the ROOT ancestor of `id` within `research` (the item's own
+    /// path if it is top-level; nil if `id` isn't present). The pure,
+    /// testable core of section classification: nested items — especially
+    /// pathless links inside a group — can't be classified by their own path,
+    /// but the root always carries a reliable path. Combine with
+    /// `researchScopePieceId(ofPath:)` to get the owning scope.
+    static func researchRootPath(
+        ofItemId id: String, in research: [ResearchItem]
+    ) -> String? {
+        var rootId = id
+        while let parent = TreeWalk.first(in: research, where: {
+            ($0.children ?? []).contains { $0.id == rootId }
+        }) {
+            rootId = parent.id
+        }
+        return TreeWalk.find(id: rootId, in: research)?.path
+    }
+
     /// Scope of a manifest-relative research path: the owning loose piece's
     /// id for paths under `pieces/<NN>-<slug>/research/`, nil for shared.
     func researchScopePieceId(ofPath path: String?) -> String? {

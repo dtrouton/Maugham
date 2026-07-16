@@ -83,6 +83,11 @@ struct CollectionResearchPane: View {
             Task { await importExternal(providers, scope: .shared) }
             return true
         }
+        .dropDestination(for: String.self) { ids, _ in
+            guard !ids.isEmpty else { return false }
+            Task { await moveToSection(ids: ids, scope: .shared) }
+            return true
+        }
     }
 
     private func pieceSection(for piece: StructureItem) -> some View {
@@ -109,6 +114,11 @@ struct CollectionResearchPane: View {
         }
         .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers in
             Task { await importExternal(providers, scope: .piece(piece.id)) }
+            return true
+        }
+        .dropDestination(for: String.self) { ids, _ in
+            guard !ids.isEmpty else { return false }
+            Task { await moveToSection(ids: ids, scope: .piece(piece.id)) }
             return true
         }
     }
@@ -376,30 +386,38 @@ struct CollectionResearchPane: View {
 
     // MARK: - Internal drop (reorder + drop-into-group, within-section only)
 
-    /// Within-section research drop: reorder against the target's sibling list,
-    /// or (`.middle` on a group) move into that group. Cross-*section* drags are
-    /// silently ignored — Task 7 adds them.
+    /// Research drop. Within a section it reorders against the target's
+    /// sibling list, or (`.middle` on a group) moves into that group. Across
+    /// sections (Shared ↔ piece, piece ↔ piece) it becomes a scope move via the
+    /// batch mover, which relocates the file and rewrites the manifest path
+    /// (Task 3 also cleans up any now-orphaned links); role-bearing items refuse
+    /// the cross-scope move with a thrown error, surfaced via `pendingError`.
     ///
     /// Section membership is resolved via the item's ROOT ancestor path
-    /// (`sectionScope(ofItemId:)`), NOT `scopeFor(item:)` on the item itself:
-    /// a link dropped into a group carries a nil path, so a direct path check
-    /// would misread it as `.shared` and either block a legitimate in-section
-    /// reorder or (with a bare `findParentId != nil` escape hatch) leak a
-    /// cross-section move. Roots always carry a reliable path, so classifying by
-    /// root both admits every within-section drop and blocks every cross-section
-    /// one. This is the intended guard; see the task report for the deviation
-    /// from the brief's literal expression.
+    /// (`sectionScope(ofItemId:)`), NOT a direct path check on the item
+    /// itself: a link dropped into a group carries a nil path, so a direct
+    /// check would misread it as `.shared`. Roots always carry a reliable path, so
+    /// classifying by root correctly separates within-section drops from
+    /// cross-section ones. The `scope` parameter (the section the target row is
+    /// rendered in) is unused for internal drops — target membership is derived
+    /// from the tree — but is retained for external drops.
     private func handleInternalDrop(
         draggedId: String, position: DropIntent.Position,
         target: ResearchItem, scope: Scope
     ) async {
         guard draggedId != target.id else { return }
-        guard TreeWalk.find(id: draggedId, in: store.manifest.research) != nil,
-              sectionScope(ofItemId: draggedId) == scope,
-              sectionScope(ofItemId: target.id) == scope else {
-            return  // cross-section drop — Task 7
-        }
+        guard TreeWalk.find(id: draggedId, in: store.manifest.research) != nil else { return }
+        let draggedSection = sectionScope(ofItemId: draggedId)
+        let targetSection = sectionScope(ofItemId: target.id)
+
         do {
+            if draggedSection != targetSection {
+                try await handleCrossSectionDrop(
+                    draggedId: draggedId, position: position,
+                    target: target, targetSection: targetSection)
+                return
+            }
+            // Same-section: reorder, or move into a group.
             if position == .middle && target.type == .group {
                 try await store.moveResearchItem(
                     id: draggedId, toParentId: target.id, atIndex: 0)
@@ -426,6 +444,57 @@ struct CollectionResearchPane: View {
         }
     }
 
+    /// A cross-section drag = scope move. Dropping `.middle` on a group in the
+    /// other section moves into that group; a row drop targets the section's
+    /// root at an index derived from the target's top-level position (append
+    /// when the target is nested). Throws propagate to `handleInternalDrop`'s
+    /// catch, which surfaces them via `pendingError`.
+    private func handleCrossSectionDrop(
+        draggedId: String, position: DropIntent.Position,
+        target: ResearchItem, targetSection: Scope
+    ) async throws {
+        if position == .middle && target.type == .group {
+            try await store.moveResearchItems(
+                ids: [draggedId], to: .group(target.id), atIndex: 0)
+            return
+        }
+        let sectionTarget: ResearchMoveTarget
+        if case .piece(let pieceId) = targetSection {
+            sectionTarget = .piece(pieceId)
+        } else {
+            sectionTarget = .sharedRoot
+        }
+        // Insert relative to the target row's top-level position; append when
+        // the target is nested inside a group.
+        if findParentId(of: target.id) == nil,
+           let targetIdx = store.manifest.research.firstIndex(where: { $0.id == target.id }) {
+            let destIdx = position == .top ? targetIdx : targetIdx + 1
+            try await store.moveResearchItems(
+                ids: [draggedId], to: sectionTarget, atIndex: destIdx)
+        } else {
+            try await store.moveResearchItems(
+                ids: [draggedId], to: sectionTarget)
+        }
+    }
+
+    /// An internal drag released on a section's header or empty area (not on a
+    /// row) moves the dragged items to that section's root. Row-level
+    /// `.dropDestination`s sit deeper in the hierarchy and win when the pointer
+    /// is over a row; this section-level one catches header/whitespace releases.
+    private func moveToSection(ids: [String], scope: Scope) async {
+        let target: ResearchMoveTarget
+        if case .piece(let pieceId) = scope {
+            target = .piece(pieceId)
+        } else {
+            target = .sharedRoot
+        }
+        do {
+            try await store.moveResearchItems(ids: ids, to: target)
+        } catch {
+            pendingError = error.localizedDescription
+        }
+    }
+
     // MARK: - Tree helpers
 
     private func findParentId(of childId: String) -> String? {
@@ -434,29 +503,15 @@ struct CollectionResearchPane: View {
 
     /// The visible section a research item belongs to, resolved via its ROOT
     /// ancestor's path. Nested items — especially pathless links — can't be
-    /// classified directly (`scopeFor` reads a nil path as `.shared`), but the
-    /// root always carries a reliable path.
+    /// classified by their own path (a nil path reads as `.shared`), but the
+    /// root always carries a reliable path. The root-walk + path→scope mapping
+    /// is extracted onto `ProjectStore` (`researchRootPath` +
+    /// `researchScopePieceId`) so it's unit-testable; see `ResearchMoveTests`.
     private func sectionScope(ofItemId id: String) -> Scope {
-        var rootId = id
-        while let parent = findParentId(of: rootId) { rootId = parent }
-        guard let root = TreeWalk.find(id: rootId, in: store.manifest.research) else {
-            return .shared
-        }
-        return scopeFor(item: root)
-    }
-
-    /// Which section a given research item belongs to, based on its path.
-    /// Reliable for root items (they always carry a path); nested/pathless
-    /// items must be resolved via `sectionScope(ofItemId:)`.
-    private func scopeFor(item: ResearchItem) -> Scope {
-        guard let path = item.path, path.hasPrefix("pieces/") else {
-            return .shared
-        }
-        for piece in store.manifest.structure where piece.pieceKind == .loose {
-            if let prefix = ProjectStore.pieceResearchPrefix(for: piece),
-               path.hasPrefix(prefix) {
-                return .piece(piece.id)
-            }
+        let rootPath = ProjectStore.researchRootPath(
+            ofItemId: id, in: store.manifest.research)
+        if let pieceId = store.researchScopePieceId(ofPath: rootPath) {
+            return .piece(pieceId)
         }
         return .shared
     }
