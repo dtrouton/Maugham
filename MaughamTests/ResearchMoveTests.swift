@@ -203,6 +203,109 @@ final class ResearchMoveTests: XCTestCase {
         await ds.close()
     }
 
+    // MARK: role guard — palette-group nesting (final-review C1)
+
+    /// A same-scope `.middle`-drop of the role-stamped palette group onto
+    /// another shared group would route through `.group(...)` (scope nil==nil,
+    /// so the cross-scope guard passes) and NEST it. But `PaletteLookup`
+    /// scans only the TOP level of `research`, so a nested palette group goes
+    /// invisible and the next `ensurePaletteGroup` mints a duplicate. The
+    /// nesting refusal moves nothing.
+    func test_paletteGroup_nestIntoSharedGroup_refusesAndMovesNothing() async throws {
+        let (_, store, ds, _) = try await makeCollection()
+        let host = try await store.addResearchItem(
+            parentId: nil, title: "Shared Group", kind: nil)
+        let palette = try await store.addResearchItem(
+            parentId: nil, title: PaletteConvention.groupTitle, kind: nil)
+        store.mutateResearchItem(id: palette.id) { $0.role = .paletteGroup }
+
+        await XCTAssertThrowsErrorAsync(
+            try await store.moveResearchItems(ids: [palette.id], to: .group(host.id)))
+
+        // Moved nothing: palette stays top-level, host gained no child.
+        XCTAssertTrue(store.manifest.research.contains { $0.id == palette.id },
+            "palette group stays at top level")
+        XCTAssertFalse((item(store, host.id)?.children ?? []).contains { $0.id == palette.id })
+        // Top-level lookup still resolves it.
+        XCTAssertEqual(
+            PaletteLookup.paletteGroup(in: store.manifest.research)?.id, palette.id)
+        await ds.close()
+    }
+
+    /// The nesting refusal must not block a legitimate same-scope TOP-LEVEL
+    /// reorder of the palette group (destination is `.sharedRoot`, parentId nil).
+    func test_paletteGroup_topLevelReorder_stillWorks() async throws {
+        let (_, store, ds, _) = try await makeCollection()
+        _ = try await store.addResearchTextNote(parentId: nil, title: "First")
+        let palette = try await store.addResearchItem(
+            parentId: nil, title: PaletteConvention.groupTitle, kind: nil)
+        store.mutateResearchItem(id: palette.id) { $0.role = .paletteGroup }
+
+        try await store.moveResearchItems(ids: [palette.id], to: .sharedRoot, atIndex: 0)
+
+        XCTAssertEqual(store.manifest.research.first?.id, palette.id,
+            "palette group reordered to the top of shared research")
+        await ds.close()
+    }
+
+    // MARK: link cleanup — pathless nested link source scope (final-review C2)
+
+    /// A link minted by `addResearchLink` carries `path: nil`. When it lives
+    /// nested inside a group that itself lives under a piece, deriving its
+    /// source scope from `item.path` reads nil (→ shared) and the move-out
+    /// SKIPS the compensating explicit link. Source scope must be resolved via
+    /// the ROOT ancestor (which always carries a reliable path).
+    func test_pathlessLinkNestedInPieceGroup_movedToShared_preservesLink() async throws {
+        let (_, store, ds, piece) = try await makeCollection()
+        let group = try await store.addResearchItem(
+            parentId: nil, title: "Cluster", kind: nil)
+        try await store.moveResearchItems(ids: [group.id], to: .piece(piece.id))
+        // Pathless link minted directly inside the now-piece-scoped group.
+        let link = try await store.addResearchLink(
+            parentId: group.id, title: "Ref", url: "https://example.com")
+        XCTAssertNil(item(store, link.id)?.path, "sanity: nested link path is nil")
+
+        try await store.moveResearchItems(ids: [link.id], to: .sharedRoot)
+
+        XCTAssertTrue(store.linkedResearchIds(forDocumentId: piece.id).contains(link.id),
+            "moving a pathless nested link out of the piece must preserve the association")
+        await ds.close()
+    }
+
+    // MARK: ProjectStoreError renders (final-review I1)
+
+    func test_projectStoreError_localizedDescription_rendersPayload() {
+        XCTAssertEqual(
+            ProjectStoreError.fileSystemError("boom").localizedDescription, "boom")
+        XCTAssertFalse(
+            ProjectStoreError.parentNotFound("res-x").localizedDescription
+                .contains("ProjectStoreError error"),
+            "parentNotFound must render human text, not the Foundation fallback")
+    }
+
+    // MARK: single same-parent reorder index (final-review I2)
+
+    /// `ResearchView`'s single-item same-parent drop feeds `moveResearchItem`
+    /// a POST-removal index (via `postRemovalInsertionIndex`), matching the
+    /// store's remove-then-insert. [A,B,C] drag A below B → [B,A,C], NOT the
+    /// pre-removal-index [B,C,A]. Store-level pin of the composed math (the
+    /// view logic itself isn't directly testable).
+    func test_singleSameParentReorder_dragBelowNext_landsBetween() async throws {
+        let (_, store, ds, _) = try await makeCollection()
+        let a = try await store.addResearchTextNote(parentId: nil, title: "A")
+        let b = try await store.addResearchTextNote(parentId: nil, title: "B")
+        let c = try await store.addResearchTextNote(parentId: nil, title: "C")
+
+        let atIndex = ResearchSelectionSync.postRemovalInsertionIndex(
+            targetId: b.id, position: .bottom,
+            movingIds: [a.id], siblings: store.manifest.research)
+        try await store.moveResearchItem(
+            id: a.id, toParentId: nil, atIndex: atIndex ?? 0)
+
+        XCTAssertEqual(store.manifest.research.map(\.id), [b.id, a.id, c.id])
+        await ds.close()
+    }
+
     // MARK: arrival name collision
 
     func test_nameCollisionOnArrival_dedupes() async throws {

@@ -106,6 +106,13 @@ extension ProjectStore {
 
         // ---- Phase 1: validate everything, mutate nothing ----
         var items: [ResearchItem] = []
+        // C2: each item's SOURCE scope, captured here (before removal) via the
+        // ROOT ancestor's path — a pathless nested link (`addResearchLink`
+        // mints no path) can't be classified by its own path, but its root
+        // always carries one. Phase 5 consumes these instead of re-deriving
+        // from `item.path`, which would misread a nested link as shared and
+        // skip the compensating explicit link the spec promises.
+        var sourceScopes: [String?] = []
         for id in effectiveIds {
             guard let item = findResearchItem(id: id, in: manifest.research) else {
                 throw ProjectStoreError.structureMissing
@@ -123,7 +130,21 @@ extension ProjectStore {
                 throw ProjectStoreError.fileSystemError(
                     "“\(item.title)” has a fixed home and can't move between shared and piece research")
             }
+            // C1: the palette group's lookup (`PaletteLookup.paletteGroup`)
+            // scans only the TOP level of `research`. A same-scope group move
+            // passes the cross-scope guard above (scope unchanged) yet would
+            // NEST the palette group, hiding it from the wall/phone/MCP and
+            // letting the next `ensurePaletteGroup` mint a duplicate. Refuse
+            // any destination inside a group. Scoped to `.paletteGroup` (not
+            // all roles): craft intent stays nestable — its lookup walks the
+            // whole tree — and unknown roles keep only the scope guard above.
+            if item.role == .paletteGroup, dest.parentId != nil {
+                throw ProjectStoreError.fileSystemError(
+                    "“\(item.title)” is the palette group and must stay at the top level of research")
+            }
             items.append(item)
+            let rootPath = Self.researchRootPath(ofItemId: id, in: manifest.research)
+            sourceScopes.append(researchScopePieceId(ofPath: rootPath))
         }
 
         // ---- Phase 2: build ONE RenamePlan ----
@@ -261,8 +282,11 @@ extension ProjectStore {
         // link (asset ids only; for groups, their descendant assets).
         // Piece→piece → the association transfers with containment: drop at
         // the destination, no link added at the source.
-        for (item, updated) in zip(items, updatedItems) {
-            let sourceScope = researchScopePieceId(ofPath: item.path)
+        for (index, (item, updated)) in zip(items, updatedItems).enumerated() {
+            // C2: use the source scope captured in Phase 1 via the root
+            // ancestor, not a re-derivation from `item.path` (nil for a
+            // pathless nested link → misclassified as shared).
+            let sourceScope = sourceScopes[index]
             let destScope = dest.destPieceId
             guard sourceScope != destScope else { continue }
 

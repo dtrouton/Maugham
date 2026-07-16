@@ -158,8 +158,23 @@ struct ResearchView: View {
         }
         do {
             if movingIds.count == 1 {
+                // Feed a POST-removal index: `moveResearchItem`'s same-parent
+                // branch removes-then-inserts, so a pre-removal index drifts
+                // ([A,B,C] drag A below B → [B,C,A] not [B,A,C]) — the same
+                // math the multi-drag branch and the collection pane already
+                // use. The middle-into-group case keeps its explicit index 0
+                // (the target is the new parent, not a sibling).
+                let atIndex: Int
+                if position == .middle && target.type == .group {
+                    atIndex = destIndex
+                } else {
+                    atIndex = ResearchSelectionSync.postRemovalInsertionIndex(
+                        targetId: target.id, position: position,
+                        movingIds: [draggedId],
+                        siblings: siblingList(of: toParentId)) ?? destIndex
+                }
                 try await store.moveResearchItem(
-                    id: draggedId, toParentId: toParentId, atIndex: destIndex)
+                    id: draggedId, toParentId: toParentId, atIndex: atIndex)
             } else {
                 let moveTarget: ResearchMoveTarget = toParentId.map {
                     ResearchMoveTarget.group($0)

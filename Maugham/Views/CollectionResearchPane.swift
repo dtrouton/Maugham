@@ -587,6 +587,9 @@ struct CollectionResearchPane: View {
     /// releasing a multi-selection on a header moves all of them.
     private func moveToSection(ids: [String], scope: Scope) async {
         guard let draggedId = ids.first else { return }
+        // Ignore unknown payloads (arbitrary text drags), mirroring the
+        // existence guard in `handleInternalDrop`.
+        guard TreeWalk.find(id: draggedId, in: store.manifest.research) != nil else { return }
         let movingIds = ResearchSelectionSync.expandedDragIds(
             draggedId: draggedId, selection: selection, in: store.manifest.research)
         do {
