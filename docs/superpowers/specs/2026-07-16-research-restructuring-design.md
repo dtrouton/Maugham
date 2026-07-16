@@ -1,7 +1,7 @@
 # Research Restructuring — scope moves, collection-pane parity, multiselect
 
 **Date:** 2026-07-16
-**Status:** Approved (brainstorm 2026-07-16)
+**Status:** Implemented (branch `feat/research-restructuring-2026-07-16`, 2026-07-16)
 
 ## Problem
 
