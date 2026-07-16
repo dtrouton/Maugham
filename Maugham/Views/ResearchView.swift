@@ -108,7 +108,27 @@ struct ResearchView: View {
                 showingAddLinkSheet = true
             },
             duplicate: { id in Task { await duplicate(id: id) } },
-            delete: { id in Task { await delete(id: id) } })
+            delete: { id in Task { await delete(id: id) } },
+            selectionForRow: { rowId in
+                ResearchSelectionSync.expandedDragIds(
+                    draggedId: rowId, selection: selection,
+                    in: store.manifest.research)
+            },
+            moveTargets: { ids in
+                ResearchSelectionSync.moveTargets(forIds: ids, manifest: store.manifest)
+            },
+            move: { ids, target in
+                Task {
+                    do { try await store.moveResearchItems(ids: ids, to: target) }
+                    catch { pendingError = error.localizedDescription }
+                }
+            },
+            deleteMany: { ids in
+                Task {
+                    do { try await store.deleteResearchItems(ids: ids) }
+                    catch { pendingError = error.localizedDescription }
+                }
+            })
     }
 
     private func handleInternalDrop(

@@ -471,6 +471,42 @@ final class ResearchMoveTests: XCTestCase {
                      "pathless link inside a shared group → shared section")
         await ds.close()
     }
+
+    // MARK: - cross-section single-item move index (Task 9 side-fix)
+
+    /// A cross-section single-item row-drop must compute its landing slot
+    /// POST-removal. `manifest.research` is one flat array holding BOTH
+    /// sections' top-level items; when the moved (piece) item precedes the
+    /// (shared) target in that array, a pre-removal index drifts right by one
+    /// and the item lands after the target instead of before it. Pins the
+    /// `postRemovalInsertionIndex`-derived landing the view now uses.
+    func test_crossSectionMove_moverPrecedesTarget_landsBeforeTarget() async throws {
+        let (_, store, ds, piece) = try await makeCollection()
+        // Flat order [P, S0, S1]: piece note first, then two shared notes.
+        let p = try await store.createResearchNote(
+            scope: .document(piece.id), title: "P")
+        let s0 = try await store.addResearchTextNote(parentId: nil, title: "S0")
+        let s1 = try await store.addResearchTextNote(parentId: nil, title: "S1")
+
+        let order = store.manifest.research.map(\.id)
+        let pIdx = try XCTUnwrap(order.firstIndex(of: p.id))
+        let s1Idx = try XCTUnwrap(order.firstIndex(of: s1.id))
+        XCTAssertLessThan(pIdx, s1Idx, "precondition: mover precedes target")
+
+        // Drop P above S1. The correct post-removal index is 1 (filtered
+        // siblings [S0,S1]); the naive pre-removal index would be s1Idx (2).
+        let atIndex = ResearchSelectionSync.postRemovalInsertionIndex(
+            targetId: s1.id, position: .top,
+            movingIds: [p.id], siblings: store.manifest.research)
+        XCTAssertEqual(atIndex, 1, "post-removal index, not pre-removal \(s1Idx)")
+
+        try await store.moveResearchItems(
+            ids: [p.id], to: .sharedRoot, atIndex: atIndex)
+
+        XCTAssertEqual(store.manifest.research.map(\.id), [s0.id, p.id, s1.id],
+                       "P lands before S1, not after it")
+        await ds.close()
+    }
 }
 
 func XCTAssertThrowsErrorAsync<T>(

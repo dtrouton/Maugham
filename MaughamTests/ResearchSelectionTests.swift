@@ -99,4 +99,39 @@ final class ResearchSelectionTests: XCTestCase {
                 targetId: "zz", position: .bottom,
                 movingIds: ["a"], siblings: abcde.map(note)))
     }
+
+    // MARK: - moveTargets
+
+    func test_moveTargets_excludesMovingGroupAndDescendants() throws {
+        var outer = ResearchItem(id: "outer", title: "Outer", type: .group,
+                                 kind: nil, path: "research/outer", addedAt: Date())
+        var inner = ResearchItem(id: "inner", title: "Inner", type: .group,
+                                 kind: nil, path: "research/outer/inner", addedAt: Date())
+        inner.children = []
+        outer.children = [inner]
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A",
+            created: Date(), modified: Date(),
+            structure: [], research: [outer])
+
+        let targets = ResearchSelectionSync.moveTargets(
+            forIds: ["outer"], manifest: manifest)
+        let ids = targets.map(\.id)
+        XCTAssertTrue(ids.contains("shared"))
+        XCTAssertFalse(ids.contains("group-outer"), "can't move into itself")
+        XCTAssertFalse(ids.contains("group-inner"), "can't move into own descendant")
+    }
+
+    func test_moveTargets_roleBearing_isEmpty() throws {
+        var palette = ResearchItem(id: "pal", title: "Palette", type: .group,
+                                   kind: nil, path: "research/palette", addedAt: Date())
+        palette.role = .paletteGroup
+        let manifest = ProjectManifest(
+            type: .collection, title: "T", author: "A",
+            created: Date(), modified: Date(),
+            structure: [], research: [palette])
+
+        XCTAssertTrue(ResearchSelectionSync.moveTargets(
+            forIds: ["pal"], manifest: manifest).isEmpty)
+    }
 }

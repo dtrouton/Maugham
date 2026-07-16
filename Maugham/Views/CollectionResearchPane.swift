@@ -222,7 +222,27 @@ struct CollectionResearchPane: View {
                 showingAddLinkSheet = true
             },
             duplicate: { id in Task { await duplicate(id: id) } },
-            delete: { id in Task { await delete(id: id) } })
+            delete: { id in Task { await delete(id: id) } },
+            selectionForRow: { rowId in
+                ResearchSelectionSync.expandedDragIds(
+                    draggedId: rowId, selection: selection,
+                    in: store.manifest.research)
+            },
+            moveTargets: { ids in
+                ResearchSelectionSync.moveTargets(forIds: ids, manifest: store.manifest)
+            },
+            move: { ids, target in
+                Task {
+                    do { try await store.moveResearchItems(ids: ids, to: target) }
+                    catch { pendingError = error.localizedDescription }
+                }
+            },
+            deleteMany: { ids in
+                Task {
+                    do { try await store.deleteResearchItems(ids: ids) }
+                    catch { pendingError = error.localizedDescription }
+                }
+            })
     }
 
     // MARK: - Filtered item lists
@@ -493,16 +513,20 @@ struct CollectionResearchPane: View {
             sectionTarget = .sharedRoot
         }
         // Insert relative to the target row's top-level position; append when
-        // the target is nested inside a group.
-        if findParentId(of: target.id) == nil,
-           let targetIdx = store.manifest.research.firstIndex(where: { $0.id == target.id }) {
-            let destIdx = position == .top ? targetIdx : targetIdx + 1
-            try await store.moveResearchItems(
-                ids: [draggedId], to: sectionTarget, atIndex: destIdx)
-        } else {
-            try await store.moveResearchItems(
-                ids: [draggedId], to: sectionTarget)
-        }
+        // the target is nested inside a group (helper returns nil).
+        //
+        // `moveResearchItems` removes the batch (here just `draggedId`) BEFORE
+        // inserting, so the index must be POST-removal. `manifest.research` is
+        // one flat array holding BOTH sections' top-level items, so a
+        // pre-removal `firstIndex` drifts right by one whenever the dragged
+        // top-level item precedes the target in that array — the same class
+        // Task 8 fixed for multi-drag. `postRemovalInsertionIndex` filters the
+        // moving id out first, matching the store's insertion list exactly.
+        let atIndex = ResearchSelectionSync.postRemovalInsertionIndex(
+            targetId: target.id, position: position,
+            movingIds: [draggedId], siblings: store.manifest.research)
+        try await store.moveResearchItems(
+            ids: [draggedId], to: sectionTarget, atIndex: atIndex)
     }
 
     /// A multi-selection internal drag. The whole selection (possibly spanning

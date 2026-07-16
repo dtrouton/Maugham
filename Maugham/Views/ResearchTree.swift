@@ -6,6 +6,15 @@ import UniformTypeIdentifiers
 /// story/screenplay) and CollectionResearchPane (per-section). Extracted so
 /// collections get real nesting + drop-into-group instead of the flat fork
 /// that made groups decorative (2026-07-16 research-restructuring spec).
+/// A single "Move to ▸" submenu entry: a stable menu identity, a display
+/// title (nested groups flattened as "Outer / Inner"), and the typed move
+/// destination the store consumes.
+struct ResearchMoveMenuTarget: Identifiable {
+    let id: String          // stable menu identity, e.g. "shared" / "group-<id>" / "piece-<id>"
+    let title: String       // "Shared", "World / Maps", piece title
+    let target: ResearchMoveTarget
+}
+
 struct ResearchTreeActions {
     var rename: (String, String) -> Void
     var internalDrop: (_ draggedId: String, _ position: DropIntent.Position, _ target: ResearchItem) -> Void
@@ -16,6 +25,13 @@ struct ResearchTreeActions {
     var addLink: (_ parentId: String?) -> Void
     var duplicate: (String) -> Void
     var delete: (String) -> Void
+    /// Ordered ids the context menu should act on for `rowId`: the whole
+    /// selection when `rowId` is inside a multi-selection, else just `rowId`.
+    var selectionForRow: (_ rowId: String) -> [String]
+    /// Valid "Move to" destinations for `forIds` (empty ⇒ hide the submenu).
+    var moveTargets: (_ forIds: [String]) -> [ResearchMoveMenuTarget]
+    var move: (_ ids: [String], _ target: ResearchMoveTarget) -> Void
+    var deleteMany: (_ ids: [String]) -> Void
 }
 
 struct ResearchTreeNode: View {
@@ -68,9 +84,25 @@ struct ResearchTreeNode: View {
                     Button("Add Link…") { actions.addLink(item.id) }
                     Divider()
                 }
-                Button("Duplicate") { actions.duplicate(item.id) }
-                Button("Rename") { renamingItemId = item.id }
-                Button("Delete", role: .destructive) { actions.delete(item.id) }
+                let acting = actions.selectionForRow(item.id)
+                let targets = actions.moveTargets(acting)
+                if !targets.isEmpty {
+                    Menu("Move to") {
+                        ForEach(targets) { t in
+                            Button(t.title) { actions.move(acting, t.target) }
+                        }
+                    }
+                    Divider()
+                }
+                if acting.count > 1 {
+                    Button("Delete \(acting.count) Items", role: .destructive) {
+                        actions.deleteMany(acting)
+                    }
+                } else {
+                    Button("Duplicate") { actions.duplicate(item.id) }
+                    Button("Rename") { renamingItemId = item.id }
+                    Button("Delete", role: .destructive) { actions.delete(item.id) }
+                }
             }
     }
 }
@@ -129,5 +161,53 @@ enum ResearchSelectionSync {
             return nil
         }
         return position == .top ? idx : idx + 1
+    }
+
+    /// Menu targets for moving `ids`: Shared root, every group (nested titles
+    /// flattened as "Outer / Inner"), and — in collections — every loose
+    /// piece. Excludes invalid destinations: groups inside a moving group
+    /// (cycle), the moving groups themselves (no-op / self), and everything
+    /// cross-scope for role-bearing items.
+    static func moveTargets(
+        forIds ids: [String], manifest: ProjectManifest
+    ) -> [ResearchMoveMenuTarget] {
+        let movingItems = ids.compactMap { TreeWalk.find(id: $0, in: manifest.research) }
+        guard !movingItems.isEmpty else { return [] }
+        let movingGroupIds = Set(movingItems.filter { $0.type == .group }.map(\.id))
+        let anyRoleBearing = movingItems.contains { $0.role != nil }
+
+        func isInsideMovingGroup(_ id: String) -> Bool {
+            movingItems.contains { g in
+                g.type == .group && TreeWalk.contains(id: id, in: g.children ?? [])
+            }
+        }
+
+        var targets: [ResearchMoveMenuTarget] = [
+            .init(id: "shared", title: "Shared", target: .sharedRoot)
+        ]
+        // Groups, flattened titles.
+        func walkGroups(_ items: [ResearchItem], prefix: String) {
+            for item in items where item.type == .group {
+                let title = prefix.isEmpty ? item.title : "\(prefix) / \(item.title)"
+                if !movingGroupIds.contains(item.id), !isInsideMovingGroup(item.id) {
+                    targets.append(.init(
+                        id: "group-\(item.id)", title: title, target: .group(item.id)))
+                }
+                walkGroups(item.children ?? [], prefix: title)
+            }
+        }
+        walkGroups(manifest.research, prefix: "")
+        // Loose pieces (collections).
+        if manifest.type == .collection {
+            for piece in manifest.structure
+                where piece.type == .document && piece.pieceKind == .loose {
+                targets.append(.init(
+                    id: "piece-\(piece.id)", title: piece.title,
+                    target: .piece(piece.id)))
+            }
+        }
+        // Role-bearing selections may only move within their scope — cheapest
+        // honest menu: offer nothing (the store would refuse anyway).
+        return anyRoleBearing ? [] : targets
     }
 }
