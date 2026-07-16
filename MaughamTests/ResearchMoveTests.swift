@@ -260,6 +260,63 @@ final class ResearchMoveTests: XCTestCase {
         XCTAssertEqual(item(store, b.id)?.path, "research/b.md")
         await ds.close()
     }
+
+    // MARK: link cleanup
+
+    func test_moveIntoPiece_dropsNowRedundantExplicitLink() async throws {
+        let (_, store, ds, piece) = try await makeCollection()
+        let note = try await store.addResearchTextNote(parentId: nil, title: "Sarah")
+        try await store.linkResearch(researchId: note.id, toDocumentId: piece.id)
+
+        try await store.moveResearchItems(ids: [note.id], to: .piece(piece.id))
+
+        XCTAssertFalse(store.linkedResearchIds(forDocumentId: piece.id).contains(note.id),
+            "containment covers it — explicit link is redundant")
+        await ds.close()
+    }
+
+    func test_moveOutOfPiece_preservesAssociationAsExplicitLink() async throws {
+        let (_, store, ds, piece) = try await makeCollection()
+        let note = try await store.createResearchNote(
+            scope: .document(piece.id), title: "Clock Tower")
+
+        try await store.moveResearchItems(ids: [note.id], to: .sharedRoot)
+
+        XCTAssertTrue(store.linkedResearchIds(forDocumentId: piece.id).contains(note.id),
+            "the piece association must survive the move out")
+        await ds.close()
+    }
+
+    func test_groupOutOfPiece_linksDescendantAssets() async throws {
+        let (_, store, ds, piece) = try await makeCollection()
+        let group = try await store.addResearchItem(
+            parentId: nil, title: "Cluster", kind: nil)
+        let child = try await store.addResearchTextNote(parentId: group.id, title: "Inside")
+        try await store.moveResearchItems(ids: [group.id], to: .piece(piece.id))
+
+        try await store.moveResearchItems(ids: [group.id], to: .sharedRoot)
+
+        let links = store.linkedResearchIds(forDocumentId: piece.id)
+        XCTAssertTrue(links.contains(child.id), "descendant assets get the link")
+        XCTAssertFalse(links.contains(group.id), "groups themselves are not linked")
+        await ds.close()
+    }
+
+    func test_pieceToPiece_movesLinkCleanupBothEnds() async throws {
+        let (_, store, ds, pieceA) = try await makeCollection()
+        let pieceB = try await store.addLoosePiece(title: "Story B", mode: .prose)
+        let note = try await store.createResearchNote(
+            scope: .document(pieceA.id), title: "Shared Cast")
+        try await store.linkResearch(researchId: note.id, toDocumentId: pieceB.id)
+
+        try await store.moveResearchItems(ids: [note.id], to: .piece(pieceB.id))
+
+        XCTAssertFalse(store.linkedResearchIds(forDocumentId: pieceB.id).contains(note.id),
+            "arrived into B's containment — link redundant")
+        XCTAssertFalse(store.linkedResearchIds(forDocumentId: pieceA.id).contains(note.id),
+            "piece→piece transfers the association; A gets no link")
+        await ds.close()
+    }
 }
 
 func XCTAssertThrowsErrorAsync<T>(

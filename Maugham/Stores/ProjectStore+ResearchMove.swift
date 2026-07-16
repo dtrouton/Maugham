@@ -237,6 +237,47 @@ extension ProjectStore {
         siblings.insert(contentsOf: updatedItems, at: insertAt)
         replaceResearchChildren(parentId: dest.parentId, with: siblings)
 
+        // ---- Phase 5: link cleanup (same manifest save) ----
+        // Into piece X → drop X's now-redundant explicit links.
+        // Out of piece Y to shared → preserve the association as an explicit
+        // link (asset ids only; for groups, their descendant assets).
+        // Piece→piece → the association transfers with containment: drop at
+        // the destination, no link added at the source.
+        for (item, updated) in zip(items, updatedItems) {
+            let sourceScope = researchScopePieceId(ofPath: item.path)
+            let destScope = dest.destPieceId
+            guard sourceScope != destScope else { continue }
+
+            var affectedAssetIds: [String] = []
+            if item.type == .asset {
+                affectedAssetIds = [item.id]
+            } else {
+                affectedAssetIds = TreeWalk.collect(
+                    in: updated.children ?? [], where: { $0.type == .asset }).map(\.id)
+            }
+
+            if let destPiece = destScope {
+                Self.applyLinkMutation(
+                    documentId: destPiece, in: &manifest.structure
+                ) { doc in
+                    guard var ids = doc.linkedResearchIds else { return }
+                    ids.removeAll { affectedAssetIds.contains($0) || $0 == item.id }
+                    doc.linkedResearchIds = ids.isEmpty ? nil : ids
+                }
+            }
+            if let sourcePiece = sourceScope, destScope == nil {
+                Self.applyLinkMutation(
+                    documentId: sourcePiece, in: &manifest.structure
+                ) { doc in
+                    var ids = doc.linkedResearchIds ?? []
+                    for assetId in affectedAssetIds where !ids.contains(assetId) {
+                        ids.append(assetId)
+                    }
+                    doc.linkedResearchIds = ids.isEmpty ? nil : ids
+                }
+            }
+        }
+
         manifest.modified = Date()
         try await saveManifest()
     }
