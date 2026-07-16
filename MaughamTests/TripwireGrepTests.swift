@@ -204,7 +204,8 @@ final class TripwireGrepTests: XCTestCase {
         }
         return matched.isEmpty
             ? ["ProjectStore+Structure.swift", "ProjectStore+CollectionPieces.swift",
-               "ProjectStore+Research.swift", "ProjectStore+WikiLink.swift"]
+               "ProjectStore+Research.swift", "ProjectStore+ResearchMove.swift",
+               "ProjectStore+WikiLink.swift"]
             : Set(matched)
     }
 
