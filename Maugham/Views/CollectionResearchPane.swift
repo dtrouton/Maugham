@@ -22,6 +22,7 @@ struct CollectionResearchPane: View {
     private enum AddLinkScope: Equatable {
         case shared
         case piece(String)
+        case group(String)
     }
 
     var body: some View {
@@ -64,7 +65,11 @@ struct CollectionResearchPane: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(items) { item in
-                    row(for: item, scope: .shared)
+                    ResearchTreeNode(
+                        item: item,
+                        renamingItemId: $renamingItemId,
+                        findParentId: { findParentId(of: $0) },
+                        actions: treeActions(scope: .shared))
                 }
             }
         } header: {
@@ -88,7 +93,11 @@ struct CollectionResearchPane: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(items) { item in
-                    row(for: item, scope: .piece(piece.id))
+                    ResearchTreeNode(
+                        item: item,
+                        renamingItemId: $renamingItemId,
+                        findParentId: { findParentId(of: $0) },
+                        actions: treeActions(scope: .piece(piece.id)))
                 }
             }
         } header: {
@@ -109,7 +118,7 @@ struct CollectionResearchPane: View {
     private var sharedHeaderMenu: some View {
         Menu {
             Button("New Note") { Task { await addNote(scope: .shared) } }
-            Button("New Group") { Task { await addGroup() } }
+            Button("New Group") { Task { await addGroup(parentId: nil) } }
             Button("Add File…") { Task { await runAddFile(scope: .shared) } }
             Button("Add Link…") {
                 addLinkScope = .shared
@@ -126,6 +135,7 @@ struct CollectionResearchPane: View {
     private func pieceHeaderMenu(pieceId: String) -> some View {
         Menu {
             Button("New Note") { Task { await addNote(scope: .piece(pieceId)) } }
+            Button("New Group") { Task { await addGroupInPiece(pieceId: pieceId) } }
             Button("Add File…") { Task { await runAddFile(scope: .piece(pieceId)) } }
             Button("Add Link…") {
                 addLinkScope = .piece(pieceId)
@@ -139,42 +149,58 @@ struct CollectionResearchPane: View {
         .fixedSize()
     }
 
-    // MARK: - Row
+    // MARK: - Scope
 
     private enum Scope: Equatable {
         case shared
         case piece(String)
     }
 
-    @ViewBuilder
-    private func row(for item: ResearchItem, scope: Scope) -> some View {
-        ResearchRow(
-            item: item,
-            renamingItemId: $renamingItemId,
-            onRename: { id, newTitle in
-                Task { await rename(id: id, to: newTitle) }
+    // MARK: - Tree actions
+
+    private func treeActions(scope: Scope) -> ResearchTreeActions {
+        ResearchTreeActions(
+            rename: { id, newTitle in Task { await rename(id: id, to: newTitle) } },
+            internalDrop: { draggedId, position, target in
+                Task { await handleInternalDrop(
+                    draggedId: draggedId, position: position,
+                    target: target, scope: scope) }
             },
-            onDrop: { draggedId, position in
-                Task { await handleResearchReorder(
-                    draggedId: draggedId,
-                    targetItem: item,
-                    position: position,
-                    scope: scope) }
+            externalDrop: { providers, position, target in
+                if position == .middle && target.type == .group {
+                    Task { await importExternalIntoGroup(providers, parentId: target.id) }
+                } else {
+                    Task { await importExternal(providers, scope: scope) }
+                }
             },
-            onExternalDrop: { providers, _ in
-                Task { await importExternal(providers, scope: scope) }
-            })
-            .tag(item.id as String?)
-            .contextMenu {
-                Button("Rename") { renamingItemId = item.id }
-                Button("Duplicate") {
-                    Task { await duplicate(id: item.id) }
+            newNote: { parentId in
+                if let parentId {
+                    Task { await addNoteInGroup(parentId: parentId) }
+                } else {
+                    Task { await addNote(scope: scope) }
                 }
-                Divider()
-                Button("Delete", role: .destructive) {
-                    Task { await delete(id: item.id) }
+            },
+            newGroup: { parentId in Task { await addGroup(parentId: parentId) } },
+            addFile: { parentId in
+                if let parentId {
+                    Task { await runAddFileInGroup(parentId: parentId) }
+                } else {
+                    Task { await runAddFile(scope: scope) }
                 }
-            }
+            },
+            addLink: { parentId in
+                if let parentId {
+                    addLinkScope = .group(parentId)
+                } else {
+                    switch scope {
+                    case .shared: addLinkScope = .shared
+                    case .piece(let id): addLinkScope = .piece(id)
+                    }
+                }
+                showingAddLinkSheet = true
+            },
+            duplicate: { id in Task { await duplicate(id: id) } },
+            delete: { id in Task { await delete(id: id) } })
     }
 
     // MARK: - Filtered item lists
@@ -194,7 +220,7 @@ struct CollectionResearchPane: View {
 
     private func tryCommitPendingRename() {
         guard let id = pendingRenameId,
-              store.manifest.research.contains(where: { $0.id == id }) else { return }
+              TreeWalk.contains(id: id, in: store.manifest.research) else { return }
         renamingItemId = id
         pendingRenameId = nil
     }
@@ -215,15 +241,37 @@ struct CollectionResearchPane: View {
         }
     }
 
-    private func addGroup() async {
+    private func addNoteInGroup(parentId: String) async {
+        do {
+            let note = try await store.addResearchTextNote(
+                parentId: parentId, title: "Untitled Note")
+            selectedResearchId = note.id
+            pendingRenameId = note.id
+        } catch { pendingError = error.localizedDescription }
+    }
+
+    private func addGroup(parentId: String?) async {
         do {
             let g = try await store.addResearchItem(
-                parentId: nil, title: "Untitled Group", kind: nil)
+                parentId: parentId, title: "Untitled Group", kind: nil)
             selectedResearchId = g.id
             pendingRenameId = g.id
         } catch {
             pendingError = error.localizedDescription
         }
+    }
+
+    /// A group created "in" a piece is a top-level manifest node whose FOLDER
+    /// lives under the piece's research/ — create then move (one visible item
+    /// either way; the move is cheap and reuses the validated path).
+    private func addGroupInPiece(pieceId: String) async {
+        do {
+            let g = try await store.addResearchItem(
+                parentId: nil, title: "Untitled Group", kind: nil)
+            try await store.moveResearchItems(ids: [g.id], to: .piece(pieceId))
+            selectedResearchId = g.id
+            pendingRenameId = g.id
+        } catch { pendingError = error.localizedDescription }
     }
 
     private func addLinkForScope(title: String, url: String) async {
@@ -236,6 +284,9 @@ struct CollectionResearchPane: View {
             case .piece(let pieceId):
                 link = try await store.createResearchLink(
                     scope: .document(pieceId), title: title, url: url)
+            case .group(let parentId):
+                link = try await store.addResearchLink(
+                    parentId: parentId, title: title, url: url)
             }
             selectedResearchId = link.id
         } catch {
@@ -250,6 +301,17 @@ struct CollectionResearchPane: View {
         panel.canChooseDirectories = false
         guard panel.runModal() == .OK else { return }
         await runImport(urls: panel.urls, scope: scope)
+    }
+
+    private func runAddFileInGroup(parentId: String) async {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK else { return }
+        do {
+            _ = try await store.importResearchFiles(panel.urls, toParentId: parentId)
+        } catch { pendingError = error.localizedDescription }
     }
 
     private func runImport(urls: [URL], scope: Scope) async {
@@ -274,6 +336,16 @@ struct CollectionResearchPane: View {
         let urls = await DropClassification.fileURLs(from: providers)
         guard !urls.isEmpty else { return }
         await runImport(urls: urls, scope: scope)
+    }
+
+    private func importExternalIntoGroup(
+        _ providers: [NSItemProvider], parentId: String
+    ) async {
+        let urls = await DropClassification.fileURLs(from: providers)
+        guard !urls.isEmpty else { return }
+        do {
+            _ = try await store.importResearchFiles(urls, toParentId: parentId)
+        } catch { pendingError = error.localizedDescription }
     }
 
     private func rename(id: String, to newTitle: String) async {
@@ -302,41 +374,80 @@ struct CollectionResearchPane: View {
         }
     }
 
-    /// Within-section research reorder. Cross-section drags (Shared → per-piece
-    /// or between different pieces) are ignored — those are out of scope per
-    /// the milestone spec. Within-section, we compute the destination index in
-    /// the flat manifest.research array such that the section-filtered view
-    /// reflects the drop position. moveResearchItem preserves the relative
-    /// order of items in other sections.
-    private func handleResearchReorder(
-        draggedId: String,
-        targetItem: ResearchItem,
-        position: DropIntent.Position,
-        scope: Scope
+    // MARK: - Internal drop (reorder + drop-into-group, within-section only)
+
+    /// Within-section research drop: reorder against the target's sibling list,
+    /// or (`.middle` on a group) move into that group. Cross-*section* drags are
+    /// silently ignored — Task 7 adds them.
+    ///
+    /// Section membership is resolved via the item's ROOT ancestor path
+    /// (`sectionScope(ofItemId:)`), NOT `scopeFor(item:)` on the item itself:
+    /// a link dropped into a group carries a nil path, so a direct path check
+    /// would misread it as `.shared` and either block a legitimate in-section
+    /// reorder or (with a bare `findParentId != nil` escape hatch) leak a
+    /// cross-section move. Roots always carry a reliable path, so classifying by
+    /// root both admits every within-section drop and blocks every cross-section
+    /// one. This is the intended guard; see the task report for the deviation
+    /// from the brief's literal expression.
+    private func handleInternalDrop(
+        draggedId: String, position: DropIntent.Position,
+        target: ResearchItem, scope: Scope
     ) async {
-        guard draggedId != targetItem.id else { return }
-        // Both items must belong to the same section. If the dragged item
-        // came from a different section, silently ignore the drop.
-        guard let dragged = store.manifest.research.first(where: { $0.id == draggedId }),
-              scopeFor(item: dragged) == scope,
-              scopeFor(item: targetItem) == scope else {
-            return
+        guard draggedId != target.id else { return }
+        guard TreeWalk.find(id: draggedId, in: store.manifest.research) != nil,
+              sectionScope(ofItemId: draggedId) == scope,
+              sectionScope(ofItemId: target.id) == scope else {
+            return  // cross-section drop — Task 7
         }
-        guard let sourceFullIdx = store.manifest.research.firstIndex(where: { $0.id == draggedId }),
-              let targetFullIdx = store.manifest.research.firstIndex(where: { $0.id == targetItem.id }) else {
-            return
-        }
-        var destIdx = position == .top ? targetFullIdx : targetFullIdx + 1
-        if sourceFullIdx < destIdx { destIdx -= 1 }
         do {
+            if position == .middle && target.type == .group {
+                try await store.moveResearchItem(
+                    id: draggedId, toParentId: target.id, atIndex: 0)
+                return
+            }
+            let toParentId = findParentId(of: target.id)
+            let siblings: [ResearchItem]
+            if let toParentId,
+               let parent = TreeWalk.find(id: toParentId, in: store.manifest.research) {
+                siblings = parent.children ?? []
+            } else {
+                siblings = store.manifest.research
+            }
+            guard let targetIdx = siblings.firstIndex(where: { $0.id == target.id }) else { return }
+            var destIdx = position == .top ? targetIdx : targetIdx + 1
+            if let sourceIdx = siblings.firstIndex(where: { $0.id == draggedId }),
+               sourceIdx < destIdx { destIdx -= 1 }
             try await store.moveResearchItem(
-                id: draggedId, toParentId: nil, atIndex: destIdx)
+                id: draggedId, toParentId: toParentId, atIndex: destIdx)
+        } catch ProjectStoreError.cycle {
+            pendingError = "Can't move a group into one of its own descendants."
         } catch {
             pendingError = error.localizedDescription
         }
     }
 
+    // MARK: - Tree helpers
+
+    private func findParentId(of childId: String) -> String? {
+        store.findResearchParentId(of: childId, in: store.manifest.research, parent: nil)
+    }
+
+    /// The visible section a research item belongs to, resolved via its ROOT
+    /// ancestor's path. Nested items — especially pathless links — can't be
+    /// classified directly (`scopeFor` reads a nil path as `.shared`), but the
+    /// root always carries a reliable path.
+    private func sectionScope(ofItemId id: String) -> Scope {
+        var rootId = id
+        while let parent = findParentId(of: rootId) { rootId = parent }
+        guard let root = TreeWalk.find(id: rootId, in: store.manifest.research) else {
+            return .shared
+        }
+        return scopeFor(item: root)
+    }
+
     /// Which section a given research item belongs to, based on its path.
+    /// Reliable for root items (they always carry a path); nested/pathless
+    /// items must be resolved via `sectionScope(ofItemId:)`.
     private func scopeFor(item: ResearchItem) -> Scope {
         guard let path = item.path, path.hasPrefix("pieces/") else {
             return .shared
