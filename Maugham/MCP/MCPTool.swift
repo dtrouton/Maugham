@@ -48,6 +48,7 @@ public enum MCPToolCatalog {
         LinkResearchTool.self,
         UnlinkResearchTool.self,
         ListAllLinksTool.self,
+        MoveResearchItemTool.self,
         AddCommentTool.self,
         AddSuggestedChangeTool.self,
         AddQueryTool.self,

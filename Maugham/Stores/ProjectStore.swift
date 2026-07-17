@@ -30,6 +30,35 @@ public enum ProjectStoreError: Error, Equatable {
     case cycle
 }
 
+/// Human-readable messages so `error.localizedDescription` in the pane alerts
+/// (`ResearchView`/`CollectionResearchPane`) renders real text rather than the
+/// Foundation fallback "(Maugham.ProjectStoreError error N)". `fileSystemError`
+/// carries an already-composed message, so it renders its payload verbatim.
+extension ProjectStoreError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .manifestNotFound:
+            return "The project could not be found."
+        case .manifestUnreadable(let detail):
+            return "The project could not be read: \(detail)"
+        case .manifestUnwritable(let detail):
+            return "The project could not be saved: \(detail)"
+        case .manifestSchemaTooNew(let found, let supported):
+            return "This project was created by a newer version of Maugham "
+                + "(format \(found); this build supports \(supported)). "
+                + "Update Maugham to open it."
+        case .structureMissing:
+            return "That item is no longer in the project."
+        case .parentNotFound(let id):
+            return "The destination “\(id)” could not be found."
+        case .fileSystemError(let message):
+            return message
+        case .cycle:
+            return "An item can’t be moved into one of its own descendants."
+        }
+    }
+}
+
 /// Manages an open Maugham project: its manifest and structure.
 /// The op log (under .maugham/ops/) is the source of truth for manuscript
 /// content; .md files on disk are derived. See CLAUDE.md hard invariants.

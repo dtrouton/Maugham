@@ -12,11 +12,16 @@ struct ResearchView: View {
     @State private var pendingError: String?
     @State private var showingAddLinkSheet: Bool = false
     @State private var addLinkParentId: String?
+    @State private var selection = Set<String>()
 
     var body: some View {
-        List(selection: $selectedResearchId) {
+        List(selection: $selection) {
             ForEach(store.manifest.research) { item in
-                node(for: item)
+                ResearchTreeNode(
+                    item: item,
+                    renamingItemId: $renamingItemId,
+                    findParentId: { findParentId(of: $0) },
+                    actions: treeActions)
             }
         }
         .listStyle(.sidebar)
@@ -62,6 +67,17 @@ struct ResearchView: View {
         .onChange(of: pendingRenameId) { _, _ in
             tryCommitPendingRename()
         }
+        .onChange(of: selection) { _, newValue in
+            selectedResearchId = ResearchSelectionSync.previewId(for: newValue)
+        }
+        .onChange(of: selectedResearchId) { _, newValue in
+            if let id = newValue, !selection.contains(id) {
+                selection = [id]
+            }
+        }
+        .onAppear {
+            if let id = selectedResearchId { selection = [id] }
+        }
     }
 
     private func tryCommitPendingRename() {
@@ -71,75 +87,59 @@ struct ResearchView: View {
         pendingRenameId = nil
     }
 
-    @ViewBuilder
-    private func node(for item: ResearchItem) -> some View {
-        if item.type == .group {
-            DisclosureGroup {
-                AnyView(childNodes(for: item))
-            } label: {
-                row(for: item)
-            }
-        } else {
-            row(for: item)
-        }
-    }
-
-    private func childNodes(for item: ResearchItem) -> some View {
-        ForEach(item.children ?? []) { child in
-            AnyView(node(for: child))
-        }
-    }
-
-    private func row(for item: ResearchItem) -> some View {
-        ResearchRow(
-            item: item,
-            renamingItemId: $renamingItemId,
-            onRename: { id, newTitle in
-                Task { await rename(id: id, to: newTitle) }
-            },
-            onDrop: { draggedId, position in
+    private var treeActions: ResearchTreeActions {
+        ResearchTreeActions(
+            rename: { id, newTitle in Task { await rename(id: id, to: newTitle) } },
+            internalDrop: { draggedId, position, target in
                 Task { await handleInternalDrop(
-                    draggedId: draggedId, position: position, target: item) }
+                    draggedId: draggedId, position: position, target: target) }
             },
-            onExternalDrop: { providers, position in
-                let parent = position == .middle && item.type == .group
-                    ? item.id
-                    : findParentId(of: item.id)
+            externalDrop: { providers, position, target in
+                let parent = position == .middle && target.type == .group
+                    ? target.id
+                    : findParentId(of: target.id)
                 Task { await importExternal(providers, toParentId: parent) }
-            }
-        )
-        .contextMenu {
-            Button("New Note") {
-                let parentId = item.type == .group ? item.id : findParentId(of: item.id)
-                Task { await addResearchNote(parentId: parentId) }
-            }
-            if item.type == .group {
-                Button("New Group") {
-                    Task { await addGroup(parentId: item.id) }
+            },
+            newNote: { parentId in Task { await addResearchNote(parentId: parentId) } },
+            newGroup: { parentId in Task { await addGroup(parentId: parentId) } },
+            addFile: { parentId in Task { await runAddFile(parentId: parentId) } },
+            addLink: { parentId in
+                addLinkParentId = parentId
+                showingAddLinkSheet = true
+            },
+            duplicate: { id in Task { await duplicate(id: id) } },
+            delete: { id in Task { await delete(id: id) } },
+            selectionForRow: { rowId in
+                ResearchSelectionSync.expandedDragIds(
+                    draggedId: rowId, selection: selection,
+                    in: store.manifest.research)
+            },
+            moveTargets: { ids in
+                ResearchSelectionSync.moveTargets(forIds: ids, manifest: store.manifest)
+            },
+            move: { ids, target in
+                Task {
+                    do { try await store.moveResearchItems(ids: ids, to: target) }
+                    catch { pendingError = error.localizedDescription }
                 }
-                Button("Add File…") {
-                    Task { await runAddFile(parentId: item.id) }
+            },
+            deleteMany: { ids in
+                Task {
+                    do { try await store.deleteResearchItems(ids: ids) }
+                    catch { pendingError = error.localizedDescription }
                 }
-                Button("Add Link…") {
-                    addLinkParentId = item.id
-                    showingAddLinkSheet = true
-                }
-                Divider()
-            }
-            Button("Duplicate") {
-                Task { await duplicate(id: item.id) }
-            }
-            Button("Rename") { renamingItemId = item.id }
-            Button("Delete", role: .destructive) {
-                Task { await delete(id: item.id) }
-            }
-        }
+            })
     }
 
     private func handleInternalDrop(
         draggedId: String, position: DropIntent.Position, target: ResearchItem
     ) async {
-        guard draggedId != target.id else { return }
+        let movingIds = ResearchSelectionSync.expandedDragIds(
+            draggedId: draggedId, selection: selection, in: store.manifest.research)
+        // Dropping onto a row that is itself part of the moved batch is a
+        // no-op (also covers dragged == target: movingIds always contains
+        // draggedId).
+        guard !movingIds.contains(target.id) else { return }
         let toParentId: String?
         let destIndex: Int
         switch position {
@@ -157,8 +157,43 @@ struct ResearchView: View {
             destIndex = currentIndex(of: target.id, in: toParentId) + 1
         }
         do {
-            try await store.moveResearchItem(
-                id: draggedId, toParentId: toParentId, atIndex: destIndex)
+            if movingIds.count == 1 {
+                // Feed a POST-removal index: `moveResearchItem`'s same-parent
+                // branch removes-then-inserts, so a pre-removal index drifts
+                // ([A,B,C] drag A below B → [B,C,A] not [B,A,C]) — the same
+                // math the multi-drag branch and the collection pane already
+                // use. The middle-into-group case keeps its explicit index 0
+                // (the target is the new parent, not a sibling).
+                let atIndex: Int
+                if position == .middle && target.type == .group {
+                    atIndex = destIndex
+                } else {
+                    atIndex = ResearchSelectionSync.postRemovalInsertionIndex(
+                        targetId: target.id, position: position,
+                        movingIds: [draggedId],
+                        siblings: siblingList(of: toParentId)) ?? destIndex
+                }
+                try await store.moveResearchItem(
+                    id: draggedId, toParentId: toParentId, atIndex: atIndex)
+            } else {
+                let moveTarget: ResearchMoveTarget = toParentId.map {
+                    ResearchMoveTarget.group($0)
+                } ?? .sharedRoot
+                // The batch mover removes all moving items BEFORE inserting,
+                // so its atIndex is a post-removal index — compute it against
+                // the destination siblings with the batch filtered out (nil
+                // appends; only when target is nested elsewhere unexpectedly).
+                let atIndex: Int?
+                if position == .middle && target.type == .group {
+                    atIndex = 0
+                } else {
+                    atIndex = ResearchSelectionSync.postRemovalInsertionIndex(
+                        targetId: target.id, position: position,
+                        movingIds: movingIds, siblings: siblingList(of: toParentId))
+                }
+                try await store.moveResearchItems(
+                    ids: movingIds, to: moveTarget, atIndex: atIndex)
+            }
         } catch ProjectStoreError.cycle {
             pendingError = "Can't move a group into one of its own descendants."
         } catch {
@@ -346,14 +381,15 @@ struct ResearchView: View {
         return nil
     }
 
-    private func currentIndex(of id: String, in parentId: String?) -> Int {
-        let siblings: [ResearchItem]
+    private func siblingList(of parentId: String?) -> [ResearchItem] {
         if let parentId,
            let parent = TreeWalk.find(id: parentId, in: store.manifest.research) {
-            siblings = parent.children ?? []
-        } else {
-            siblings = store.manifest.research
+            return parent.children ?? []
         }
-        return siblings.firstIndex(where: { $0.id == id }) ?? 0
+        return store.manifest.research
+    }
+
+    private func currentIndex(of id: String, in parentId: String?) -> Int {
+        siblingList(of: parentId).firstIndex(where: { $0.id == id }) ?? 0
     }
 }

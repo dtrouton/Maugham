@@ -29,6 +29,7 @@ Write:
 - Link research notes to chapters
 - Unlink as needed
 - Promote a capture-inbox entry into research — unscoped, or scoped to a chapter/piece
+- Move research items (including whole groups) between shared research, a group, and a collection piece's research folder — link associations update automatically
 - Add text notes and suggested changes to the Annotations pane (non-destructive proposals you review, accept, reject, or undo with ⌘Z)
 
 Claude doesn't modify your manuscript text directly — proposals appear as annotations you control. See [Annotations & Suggestions](annotations-and-suggestions.md) for how to accept, reject, or undo changes.

@@ -422,7 +422,9 @@ extension ProjectStore {
     /// Validate this is a Collection project, look up the loose piece by id,
     /// and derive its folder paths. Throws if the project is not a Collection
     /// or if `pieceId` does not identify a loose piece.
-    private func resolveLoosePiece(_ pieceId: String) throws
+    /// `internal` (not `private`) so `ProjectStore+ResearchMove` can resolve a
+    /// `.piece` move target's research folder through the same validated path.
+    func resolveLoosePiece(_ pieceId: String) throws
         -> (piece: StructureItem, pieceFolder: String, researchFolder: String) {
         guard manifest.type == .collection else {
             throw ProjectStoreError.fileSystemError(

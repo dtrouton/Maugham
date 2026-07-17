@@ -122,16 +122,36 @@ extension ProjectStore {
         return "\((piecePath as NSString).deletingLastPathComponent)/research/"
     }
 
+    /// Section roots for the binder pane's tree rendering: the top-level
+    /// manifest research nodes whose path sits under this collection loose
+    /// piece's folder (the current path-prefix filter). The binder pane renders
+    /// these as disclosure trees, so a group moved into the piece stays a single
+    /// expandable node. This is DELIBERATELY different from
+    /// `derivedResearchItems`, which flattens each root to its contained assets
+    /// for association semantics — the two must agree on which roots belong to
+    /// the piece (path prefix), then diverge on presentation (tree vs. flat).
+    public func pieceResearchSectionRoots(forDocumentId docId: String) -> [ResearchItem] {
+        guard manifest.type == .collection,
+              let piece = manifest.structure.first(where: { $0.id == docId }),
+              let prefix = Self.pieceResearchPrefix(for: piece) else { return [] }
+        return manifest.research.filter { $0.path?.hasPrefix(prefix) == true }
+    }
+
     /// Research items structurally associated with a document — no link record.
-    /// Collection loose piece → containment (path prefix); single-doc project
-    /// types → every research asset; multi-doc (novel) → none (chapters
-    /// associate via linkedResearchIds only).
+    /// Collection loose piece → containment, FLATTENED to contained assets: each
+    /// piece section root contributes itself (if an asset) or its subtree's
+    /// assets (if a group). Flattening is by SUBTREE MEMBERSHIP, not path, so a
+    /// pathless link (`path == nil`) nested in a piece group still counts as
+    /// contained — a path-prefix filter would miss it. Single-doc project types
+    /// → every research asset; multi-doc (novel) → none (chapters associate via
+    /// linkedResearchIds only).
     public func derivedResearchItems(forDocumentId docId: String) -> [ResearchItem] {
         switch manifest.type {
         case .collection:
-            guard let piece = manifest.structure.first(where: { $0.id == docId }),
-                  let prefix = Self.pieceResearchPrefix(for: piece) else { return [] }
-            return manifest.research.filter { $0.path?.hasPrefix(prefix) == true }
+            return pieceResearchSectionRoots(forDocumentId: docId).flatMap { root -> [ResearchItem] in
+                if root.type == .asset { return [root] }
+                return TreeWalk.collect(in: root.children ?? [], where: { $0.type == .asset })
+            }
         case .shortStory, .screenplay:
             return TreeWalk.collect(in: manifest.research, where: { $0.type == .asset })
         case .novel, .unknown:

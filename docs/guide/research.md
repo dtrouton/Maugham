@@ -9,6 +9,12 @@ The binder's **Research** segment is for everything that isn't manuscript: chara
 
 Click a research item to view it. Documents are editable in place. Images, PDFs, audio, and links use Maugham's preview renderers. Mark inline images in notes with `![alt](./image.png)` — ⌘⇧P toggles the preview pane.
 
+### Organizing research
+
+Groups nest — right-click + **New Group** to make a folder, drop items into it. In a Collection, both the shared research section and each piece's own research section render full nested trees the same way.
+
+Select several items (⌘-click) to work on them together. Right-click a selection for **Move to ▸** (Shared, any group, or — in a Collection — any loose piece) and batch **Delete**. Dragging a row that's part of your selection moves the whole selection; drop it on a group to nest it there, or drop it in a different Collection section to move it between shared research and a piece's research folder. Scope moves leave your links alone: an item inside a piece is already associated by containment, so a link you added by hand goes quietly dormant while it lives there (Maugham just hides the now-redundant entry) and reappears on the **Linked** list if you move the item back out. An association that only ever came from containment ends when you move the item out — nothing is auto-linked in its place.
+
 ### Capture inbox
 
 Voice/text/photo captures from the iPhone companion app land in the Mac's capture inbox (⌘⌥6). Right-click an entry to promote it into research — three destinations:

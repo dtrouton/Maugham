@@ -271,21 +271,6 @@ extension ProjectStore {
         }
         let oldParentId = findResearchParentId(of: id, in: manifest.research, parent: nil)
 
-        // Cycle check for groups.
-        if item.type == .group, let toParentId, toParentId == id {
-            throw ProjectStoreError.cycle
-        }
-        if item.type == .group, let toParentId,
-           Self.researchContains(id: toParentId, in: item.children ?? []) {
-            throw ProjectStoreError.cycle
-        }
-        // Validate destination parent if non-nil.
-        if let toParentId,
-           let parent = findResearchItem(id: toParentId, in: manifest.research),
-           parent.type != .group {
-            throw ProjectStoreError.parentNotFound(toParentId)
-        }
-
         // No-op detection.
         let oldIndex = currentResearchIndex(of: id, parentId: oldParentId)
         if oldParentId == toParentId, oldIndex == destIndex { return }
@@ -305,47 +290,11 @@ extension ProjectStore {
             return
         }
 
-        // Cross-group: physical move required.
-        guard let documentStore else {
-            throw ProjectStoreError.fileSystemError("DocumentStore not available")
-        }
-        let updatedItem: ResearchItem
-        if let oldPath = item.path {
-            let leaf = (oldPath as NSString).lastPathComponent
-            let newParentPath = researchParentPath(parentId: toParentId)
-            let parentURL = url.appendingPathComponent(newParentPath, isDirectory: true)
-            try? FileManager.default.createDirectory(
-                at: parentURL, withIntermediateDirectories: true)
-            let existing = (try? FileManager.default
-                .contentsOfDirectory(atPath: parentURL.path)) ?? []
-            let dedupedLeaf = Self.researchDedupedFilename(leaf, existing: existing)
-            let newPath = "\(newParentPath)/\(dedupedLeaf)"
-            let plan = try RenamePlan(steps: [
-                .init(oldRelativePath: oldPath, newRelativePath: newPath)
-            ])
-            try await documentStore.relocate(plan: plan)
-
-            var copy = item
-            copy.path = newPath
-            if let children = copy.children {
-                copy.children = Self.researchRewriteChildPaths(
-                    children, oldPrefix: oldPath, newPrefix: newPath)
-            }
-            updatedItem = copy
-        } else {
-            // Link asset — no path. Just relocate in the manifest.
-            updatedItem = item
-        }
-
-        // Remove from old parent, insert into new parent at clamped index.
-        removeResearchItem(id: id)
-        var destSiblings = childrenOfResearch(parentId: toParentId)
-        let clamped = max(0, min(destIndex, destSiblings.count))
-        destSiblings.insert(updatedItem, at: clamped)
-        replaceResearchChildren(parentId: toParentId, with: destSiblings)
-
-        manifest.modified = Date()
-        try await saveManifest()
+        // Cross-group: delegate to the batch scope-aware mover (one
+        // RenamePlan incl. the note's sibling _assets/ folder, manifest
+        // rewrite, single save).
+        let target: ResearchMoveTarget = toParentId.map { .group($0) } ?? .sharedRoot
+        try await moveResearchItems(ids: [id], to: target, atIndex: destIndex)
     }
 
     func findResearchParentId(
@@ -469,10 +418,17 @@ extension ProjectStore {
         return copy
     }
 
-    /// Delete a research item. File-backed items (assets, groups with folders)
-    /// are moved into the project's .trash/ folder (recoverable). Link-type
-    /// or path-less items are removed from the manifest directly.
-    public func deleteResearchItem(id: String) async throws {
+    /// Trash one item's file (if any) and remove it from the manifest.
+    /// Does NOT save the manifest or refresh trashEntries — callers batch that.
+    /// Returns the trash entry when a file was trashed.
+    ///
+    /// Link items are never file-trashed even when `path` is non-nil: a
+    /// never-moved shared link mints `path: nil` (`addResearchLink`), but a
+    /// piece-scoped link (`addPieceResearchLink`) or a link that has been
+    /// moved (`moveResearchItems`) carries a *synthetic* `.link` path with no
+    /// backing file on disk. Attempting to trash that path would throw
+    /// (`FileManager.moveItem` "no such file") instead of deleting the item.
+    private func trashResearchItemCore(id: String) async throws -> TrashEntry? {
         guard let item = findResearchItem(id: id, in: manifest.research) else {
             throw ProjectStoreError.structureMissing
         }
@@ -480,7 +436,8 @@ extension ProjectStore {
             of: id, in: manifest.research, parent: nil)
         let index = currentResearchIndex(of: id, parentId: parentId)
 
-        if let path = item.path, !path.isEmpty {
+        var entry: TrashEntry?
+        if let path = item.path, !path.isEmpty, item.kind != .link {
             // Trash through the typed user-content mover. It flushes the
             // research-note debounce (and closes+unregisters any open Document)
             // INTERNALLY before the move, so a queued `scheduleFileSave` can't
@@ -488,7 +445,6 @@ extension ProjectStore {
             // (tripwire 14, enforce-by-construction). With no DocumentStore
             // (load-only context) the discipline is a provable no-op.
             let metadata = try JSONEncoder().encode(item)
-            let entry: TrashEntry
             if let ds = documentStore {
                 entry = try await ds.trash(
                     relativePath: path,
@@ -505,17 +461,40 @@ extension ProjectStore {
                     originalIndex: index,
                     displayTitle: item.title)
             }
-            removeResearchItem(id: id)
-            manifest.modified = Date()
-            try await saveManifest()
-            trashEntries = (try? await trashStore.list()) ?? trashEntries
-            lastDeletedTrashId = entry.id
-        } else {
-            // Path-less items (links, etc.) — just remove from manifest.
-            removeResearchItem(id: id)
-            manifest.modified = Date()
-            try await saveManifest()
         }
+        removeResearchItem(id: id)
+        return entry
+    }
+
+    /// Delete a research item. File-backed items (assets, groups with folders)
+    /// are moved into the project's .trash/ folder (recoverable). Link-type
+    /// or path-less items are removed from the manifest directly.
+    public func deleteResearchItem(id: String) async throws {
+        try await deleteResearchItems(ids: [id])
+    }
+
+    /// Batch-delete research items in one manifest save. Descendants of a
+    /// selected group are collapsed out (via `collapseResearchSelection`) so
+    /// they aren't trashed twice. `lastDeletedTrashId` points at the last
+    /// trashed entry (nil if nothing in the batch was file-backed).
+    public func deleteResearchItems(ids: [String]) async throws {
+        let effective = collapseResearchSelection(ids)
+        // Validate the whole batch before trashing anything.
+        for id in effective {
+            guard findResearchItem(id: id, in: manifest.research) != nil else {
+                throw ProjectStoreError.structureMissing
+            }
+        }
+        var lastEntry: TrashEntry?
+        for id in effective {
+            if let entry = try await trashResearchItemCore(id: id) {
+                lastEntry = entry
+            }
+        }
+        manifest.modified = Date()
+        try await saveManifest()
+        trashEntries = (try? await trashStore.list()) ?? trashEntries
+        if let lastEntry { lastDeletedTrashId = lastEntry.id }
     }
 
     /// Import a list of file URLs (and/or folders) into the research tree
