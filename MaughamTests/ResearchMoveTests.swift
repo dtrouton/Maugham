@@ -448,6 +448,55 @@ final class ResearchMoveTests: XCTestCase {
         await ds.close()
     }
 
+    // MARK: derived flattening — group moved into a piece (smoke round 2)
+
+    /// A group moved into a piece must derive as its FLATTENED contained assets
+    /// (matching the single-doc case), not as the single group node. Subtree
+    /// membership is load-bearing: a pathless link (`addResearchLink` mints
+    /// `path: nil`) nested inside the piece group must still count as contained,
+    /// even though a path-prefix filter would miss it. The section-roots helper
+    /// keeps the group node for the binder pane's tree rendering.
+    func test_derived_groupMovedIntoPiece_flattensContainedAssets() async throws {
+        let (_, store, ds, piece) = try await makeCollection()
+        let group = try await store.addResearchItem(
+            parentId: nil, title: "Setting", kind: nil)
+        let note = try await store.addResearchTextNote(
+            parentId: group.id, title: "Harbor")
+        let link = try await store.addResearchLink(
+            parentId: group.id, title: "Ref", url: "https://example.com")
+        XCTAssertNil(item(store, link.id)?.path, "sanity: nested link path is nil")
+
+        try await store.moveResearchItems(ids: [group.id], to: .piece(piece.id))
+
+        let derivedIds = Set(store.derivedResearchItems(forDocumentId: piece.id).map(\.id))
+        XCTAssertTrue(derivedIds.contains(note.id), "nested note is contained")
+        XCTAssertTrue(derivedIds.contains(link.id), "nested pathless link is contained")
+        XCTAssertFalse(derivedIds.contains(group.id), "the group node itself is not an asset")
+
+        let rootIds = store.pieceResearchSectionRoots(forDocumentId: piece.id).map(\.id)
+        XCTAssertEqual(rootIds, [group.id],
+            "the section-roots helper keeps the group root for tree rendering")
+        await ds.close()
+    }
+
+    /// The link picker must exclude the nested contained assets (offering them
+    /// would be redundant — they're already structurally associated).
+    func test_linkable_excludesNestedAssetsOfPieceGroup() async throws {
+        let (_, store, ds, piece) = try await makeCollection()
+        let group = try await store.addResearchItem(
+            parentId: nil, title: "Setting", kind: nil)
+        let note = try await store.addResearchTextNote(
+            parentId: group.id, title: "Harbor")
+        let link = try await store.addResearchLink(
+            parentId: group.id, title: "Ref", url: "https://example.com")
+        try await store.moveResearchItems(ids: [group.id], to: .piece(piece.id))
+
+        let linkable = Set(store.linkableResearchItems(forDocumentId: piece.id).map(\.id))
+        XCTAssertFalse(linkable.contains(note.id), "nested note is already contained")
+        XCTAssertFalse(linkable.contains(link.id), "nested link is already contained")
+        await ds.close()
+    }
+
     // MARK: batch delete
 
     func test_deleteResearchItems_batchOneSave() async throws {

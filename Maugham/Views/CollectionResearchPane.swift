@@ -73,8 +73,16 @@ struct CollectionResearchPane: View {
         Section {
             let items = sharedItems()
             if items.isEmpty {
+                // An EMPTY section's Section-level `.dropDestination` never
+                // fires (SwiftUI gives it no live drop region), so back the
+                // empty-state row itself as a full-width internal-drop target.
                 Text("No shared research yet.")
                     .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .dropDestination(for: String.self) { ids, _ in
+                        sectionDropHandler(ids: ids, scope: .shared)
+                    }
             } else {
                 ForEach(items) { item in
                     ResearchTreeNode(
@@ -89,6 +97,9 @@ struct CollectionResearchPane: View {
                 Text("Shared")
                 Spacer()
                 sharedHeaderMenu
+            }
+            .dropDestination(for: String.self) { ids, _ in
+                sectionDropHandler(ids: ids, scope: .shared)
             }
         }
         .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers in
@@ -106,8 +117,15 @@ struct CollectionResearchPane: View {
         Section {
             let items = pieceItems(piece: piece)
             if items.isEmpty {
+                // See sharedSection: an empty section needs a row/header-level
+                // drop target because the Section-level one won't fire.
                 Text("No research yet.")
                     .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .dropDestination(for: String.self) { ids, _ in
+                        sectionDropHandler(ids: ids, scope: .piece(piece.id))
+                    }
             } else {
                 ForEach(items) { item in
                     ResearchTreeNode(
@@ -122,6 +140,9 @@ struct CollectionResearchPane: View {
                 Text(piece.title)
                 Spacer()
                 pieceHeaderMenu(pieceId: piece.id)
+            }
+            .dropDestination(for: String.self) { ids, _ in
+                sectionDropHandler(ids: ids, scope: .piece(piece.id))
             }
         }
         .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers in
@@ -255,7 +276,10 @@ struct CollectionResearchPane: View {
     }
 
     private func pieceItems(piece: StructureItem) -> [ResearchItem] {
-        store.derivedResearchItems(forDocumentId: piece.id)
+        // Section ROOTS (tree rendering) — a group moved into the piece stays a
+        // single expandable node. `derivedResearchItems` flattens to contained
+        // assets for association semantics; the pane wants the tree.
+        store.pieceResearchSectionRoots(forDocumentId: piece.id)
     }
 
     // MARK: - Actions
@@ -585,6 +609,21 @@ struct CollectionResearchPane: View {
     /// Rows drag exactly one id (a single-String Transferable payload), which
     /// is expanded to the whole selection when the drag began inside it, so
     /// releasing a multi-selection on a header moves all of them.
+    /// Back-stop drop handler for a section's header and empty-state row — the
+    /// two targets that catch an internal drag when the Section-level
+    /// `.dropDestination` can't (an empty section has no live drop region).
+    /// Guards the payload exactly as `moveToSection` does (non-empty, and the
+    /// dragged id must exist in the tree — same TreeWalk existence check), then
+    /// routes to it. Returns whether the drop was accepted.
+    private func sectionDropHandler(ids: [String], scope: Scope) -> Bool {
+        guard let draggedId = ids.first,
+              TreeWalk.find(id: draggedId, in: store.manifest.research) != nil else {
+            return false
+        }
+        Task { await moveToSection(ids: ids, scope: scope) }
+        return true
+    }
+
     private func moveToSection(ids: [String], scope: Scope) async {
         guard let draggedId = ids.first else { return }
         // Ignore unknown payloads (arbitrary text drags), mirroring the

@@ -175,6 +175,15 @@ final class ListAllLinksToolTests: XCTestCase {
         let owned = try await store.addPieceResearchNote(
             pieceId: piece.id, title: "Owned Note")
         _ = try await store.addResearchTextNote(parentId: nil, title: "Shared Note")
+        // A group moved into the piece: its nested asset must surface as a
+        // piece_research edge (containment is flattened to contained assets).
+        let ds = try await DocumentStore.open(url: url)
+        store.documentStore = ds
+        let group = try await store.addResearchItem(
+            parentId: nil, title: "Setting", kind: nil)
+        let nested = try await store.addResearchTextNote(
+            parentId: group.id, title: "Harbor")
+        try await store.moveResearchItems(ids: [group.id], to: .piece(piece.id))
         let reg = ProjectRegistry()
         reg.register(url: url, store: store)
         let projectId = ProjectIdentifier.id(for: url)
@@ -189,5 +198,12 @@ final class ListAllLinksToolTests: XCTestCase {
         XCTAssertFalse(edges.contains {
             $0.kind == "piece_research" && $0.to_title == "Shared Note"
         }, "shared research must not appear as piece_research")
+        XCTAssertTrue(edges.contains {
+            $0.kind == "piece_research" && $0.from_id == piece.id && $0.to_id == nested.id
+        }, "a nested asset of a group moved into the piece is contained; edges: \(edges)")
+        XCTAssertFalse(edges.contains {
+            $0.kind == "piece_research" && $0.to_id == group.id
+        }, "the group node itself is not an asset edge")
+        await ds.close()
     }
 }
