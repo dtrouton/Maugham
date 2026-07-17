@@ -27,7 +27,16 @@ image code path did not change in between — Claude Desktop auto-updates.
    to the Maugham dev build with a copy of the same project open; the model
    (Claude) called `read_document` on the same asset at 1350px and **received
    and read the image** (transcribable handwriting).
-4. **Claude Desktop**: same block shape → its model reports no image, at
+4. **Second independent client, STABLE deployment**: a separate Claude Code
+   session (Opus) connected to the installed `/Applications` bridge against
+   the original project id from the bug report
+   (`proj_f90ce439dc9eed0ba15f4ae6071f6b8fdba7df32`). All three parameter
+   regimes delivered readable pixels — 1350px full page (verbatim two-line
+   transcription), 256px thumbnail (visible), 1600px q90 top-40% region crop
+   (verbatim line). Corroboration that real pixels were read, not
+   reconstructed: the cropped page 2 line continues page 1's closing scene
+   across consecutive notebook pages.
+5. **Claude Desktop**: same block shape → its model reports no image, at
    every size, including a 39KB payload at 256px.
 
 Other ruled-out hypotheses: protocol-version mismatch (Maugham echoes the
