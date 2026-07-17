@@ -248,14 +248,14 @@ final class ResearchMoveTests: XCTestCase {
         await ds.close()
     }
 
-    // MARK: link cleanup — pathless nested link source scope (final-review C2)
+    // MARK: link cleanup — pathless nested link, containment-only, severs on move-out
 
-    /// A link minted by `addResearchLink` carries `path: nil`. When it lives
-    /// nested inside a group that itself lives under a piece, deriving its
-    /// source scope from `item.path` reads nil (→ shared) and the move-out
-    /// SKIPS the compensating explicit link. Source scope must be resolved via
-    /// the ROOT ancestor (which always carries a reliable path).
-    func test_pathlessLinkNestedInPieceGroup_movedToShared_preservesLink() async throws {
+    /// A link minted by `addResearchLink` carries `path: nil`. Minted directly
+    /// inside a piece-scoped group it is a containment-only association (no
+    /// manual link record on the piece). Moving it out alone must NOT create an
+    /// auto-link — scope moves never touch `linkedResearchIds`, so a
+    /// containment-only association simply severs on move-out.
+    func test_pathlessLinkNestedInPieceGroup_movedToShared_noAutoLink() async throws {
         let (_, store, ds, piece) = try await makeCollection()
         let group = try await store.addResearchItem(
             parentId: nil, title: "Cluster", kind: nil)
@@ -267,8 +267,8 @@ final class ResearchMoveTests: XCTestCase {
 
         try await store.moveResearchItems(ids: [link.id], to: .sharedRoot)
 
-        XCTAssertTrue(store.linkedResearchIds(forDocumentId: piece.id).contains(link.id),
-            "moving a pathless nested link out of the piece must preserve the association")
+        XCTAssertFalse(store.linkedResearchIds(forDocumentId: piece.id).contains(link.id),
+            "containment-only association severs on move-out — no auto-link")
         await ds.close()
     }
 
@@ -391,33 +391,59 @@ final class ResearchMoveTests: XCTestCase {
         await ds.close()
     }
 
-    // MARK: link cleanup
+    // MARK: link semantics — scope moves never touch linkedResearchIds
+    //
+    // New contract (user feedback 2026-07-17): because we now auto-associate on
+    // move-in (containment) and creation-in-a-piece, scope moves leave
+    // `linkedResearchIds` entirely untouched. A manual link goes DORMANT while
+    // contained (the UI hides it: `LinkedResearchPane` filters derived ids out
+    // of the Linked section; `linkableResearchItems` excludes contained items
+    // from the picker) and RESURFACES on move-out. A containment-only
+    // association severs on move-out — no auto-link is minted.
 
-    func test_moveIntoPiece_dropsNowRedundantExplicitLink() async throws {
+    func test_moveIntoPiece_keepsDormantManualLink() async throws {
         let (_, store, ds, piece) = try await makeCollection()
         let note = try await store.addResearchTextNote(parentId: nil, title: "Sarah")
         try await store.linkResearch(researchId: note.id, toDocumentId: piece.id)
 
         try await store.moveResearchItems(ids: [note.id], to: .piece(piece.id))
 
-        XCTAssertFalse(store.linkedResearchIds(forDocumentId: piece.id).contains(note.id),
-            "containment covers it — explicit link is redundant")
+        XCTAssertTrue(store.linkedResearchIds(forDocumentId: piece.id).contains(note.id),
+            "manual link is never deleted — it stays dormant while contained")
+        // Now contained: the UI hides the dormant link because it's derived.
+        XCTAssertTrue(store.derivedResearchItems(forDocumentId: piece.id)
+            .contains(where: { $0.id == note.id }),
+            "the note is derived (contained), so the Linked section hides it")
         await ds.close()
     }
 
-    func test_moveOutOfPiece_preservesAssociationAsExplicitLink() async throws {
+    func test_moveOutOfPiece_containmentOnly_severs() async throws {
         let (_, store, ds, piece) = try await makeCollection()
         let note = try await store.createResearchNote(
             scope: .document(piece.id), title: "Clock Tower")
 
         try await store.moveResearchItems(ids: [note.id], to: .sharedRoot)
 
-        XCTAssertTrue(store.linkedResearchIds(forDocumentId: piece.id).contains(note.id),
-            "the piece association must survive the move out")
+        XCTAssertFalse(store.linkedResearchIds(forDocumentId: piece.id).contains(note.id),
+            "containment-only association severs on move-out — no auto-link")
         await ds.close()
     }
 
-    func test_groupOutOfPiece_linksDescendantAssets() async throws {
+    func test_manualLink_roundTrip_resurfaces() async throws {
+        let (_, store, ds, piece) = try await makeCollection()
+        // Manual link created while the note lives in shared research.
+        let note = try await store.addResearchTextNote(parentId: nil, title: "Sarah")
+        try await store.linkResearch(researchId: note.id, toDocumentId: piece.id)
+
+        try await store.moveResearchItems(ids: [note.id], to: .piece(piece.id))
+        try await store.moveResearchItems(ids: [note.id], to: .sharedRoot)
+
+        XCTAssertTrue(store.linkedResearchIds(forDocumentId: piece.id).contains(note.id),
+            "the hand-added link survived the round trip and resurfaces on move-out")
+        await ds.close()
+    }
+
+    func test_groupOutOfPiece_noAutoLinks() async throws {
         let (_, store, ds, piece) = try await makeCollection()
         let group = try await store.addResearchItem(
             parentId: nil, title: "Cluster", kind: nil)
@@ -427,24 +453,31 @@ final class ResearchMoveTests: XCTestCase {
         try await store.moveResearchItems(ids: [group.id], to: .sharedRoot)
 
         let links = store.linkedResearchIds(forDocumentId: piece.id)
-        XCTAssertTrue(links.contains(child.id), "descendant assets get the link")
-        XCTAssertFalse(links.contains(group.id), "groups themselves are not linked")
+        XCTAssertFalse(links.contains(child.id),
+            "containment-only descendant severs — no auto-link on move-out")
+        XCTAssertFalse(links.contains(group.id), "groups are never linked")
         await ds.close()
     }
 
-    func test_pieceToPiece_movesLinkCleanupBothEnds() async throws {
+    func test_pieceToPiece_linksUntouched() async throws {
         let (_, store, ds, pieceA) = try await makeCollection()
         let pieceB = try await store.addLoosePiece(title: "Story B", mode: .prose)
         let note = try await store.createResearchNote(
             scope: .document(pieceA.id), title: "Shared Cast")
+        // A hand-added manual link to the DESTINATION piece.
         try await store.linkResearch(researchId: note.id, toDocumentId: pieceB.id)
+
+        let beforeA = store.linkedResearchIds(forDocumentId: pieceA.id)
+        let beforeB = store.linkedResearchIds(forDocumentId: pieceB.id)
 
         try await store.moveResearchItems(ids: [note.id], to: .piece(pieceB.id))
 
-        XCTAssertFalse(store.linkedResearchIds(forDocumentId: pieceB.id).contains(note.id),
-            "arrived into B's containment — link redundant")
-        XCTAssertFalse(store.linkedResearchIds(forDocumentId: pieceA.id).contains(note.id),
-            "piece→piece transfers the association; A gets no link")
+        XCTAssertEqual(store.linkedResearchIds(forDocumentId: pieceA.id), beforeA,
+            "piece→piece leaves A's linkedResearchIds exactly as they were")
+        XCTAssertEqual(store.linkedResearchIds(forDocumentId: pieceB.id), beforeB,
+            "piece→piece leaves B's linkedResearchIds exactly as they were")
+        XCTAssertTrue(store.linkedResearchIds(forDocumentId: pieceB.id).contains(note.id),
+            "B's manual link persists — dormant now that the note is contained")
         await ds.close()
     }
 

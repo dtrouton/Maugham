@@ -106,13 +106,6 @@ extension ProjectStore {
 
         // ---- Phase 1: validate everything, mutate nothing ----
         var items: [ResearchItem] = []
-        // C2: each item's SOURCE scope, captured here (before removal) via the
-        // ROOT ancestor's path — a pathless nested link (`addResearchLink`
-        // mints no path) can't be classified by its own path, but its root
-        // always carries one. Phase 5 consumes these instead of re-deriving
-        // from `item.path`, which would misread a nested link as shared and
-        // skip the compensating explicit link the spec promises.
-        var sourceScopes: [String?] = []
         for id in effectiveIds {
             guard let item = findResearchItem(id: id, in: manifest.research) else {
                 throw ProjectStoreError.structureMissing
@@ -143,8 +136,6 @@ extension ProjectStore {
                     "“\(item.title)” is the palette group and must stay at the top level of research")
             }
             items.append(item)
-            let rootPath = Self.researchRootPath(ofItemId: id, in: manifest.research)
-            sourceScopes.append(researchScopePieceId(ofPath: rootPath))
         }
 
         // ---- Phase 2: build ONE RenamePlan ----
@@ -276,49 +267,13 @@ extension ProjectStore {
         siblings.insert(contentsOf: updatedItems, at: insertAt)
         replaceResearchChildren(parentId: dest.parentId, with: siblings)
 
-        // ---- Phase 5: link cleanup (same manifest save) ----
-        // Into piece X → drop X's now-redundant explicit links.
-        // Out of piece Y to shared → preserve the association as an explicit
-        // link (asset ids only; for groups, their descendant assets).
-        // Piece→piece → the association transfers with containment: drop at
-        // the destination, no link added at the source.
-        for (index, (item, updated)) in zip(items, updatedItems).enumerated() {
-            // C2: use the source scope captured in Phase 1 via the root
-            // ancestor, not a re-derivation from `item.path` (nil for a
-            // pathless nested link → misclassified as shared).
-            let sourceScope = sourceScopes[index]
-            let destScope = dest.destPieceId
-            guard sourceScope != destScope else { continue }
-
-            var affectedAssetIds: [String] = []
-            if item.type == .asset {
-                affectedAssetIds = [item.id]
-            } else {
-                affectedAssetIds = TreeWalk.collect(
-                    in: updated.children ?? [], where: { $0.type == .asset }).map(\.id)
-            }
-
-            if let destPiece = destScope {
-                Self.applyLinkMutation(
-                    documentId: destPiece, in: &manifest.structure
-                ) { doc in
-                    guard var ids = doc.linkedResearchIds else { return }
-                    ids.removeAll { affectedAssetIds.contains($0) || $0 == item.id }
-                    doc.linkedResearchIds = ids.isEmpty ? nil : ids
-                }
-            }
-            if let sourcePiece = sourceScope, destScope == nil {
-                Self.applyLinkMutation(
-                    documentId: sourcePiece, in: &manifest.structure
-                ) { doc in
-                    var ids = doc.linkedResearchIds ?? []
-                    for assetId in affectedAssetIds where !ids.contains(assetId) {
-                        ids.append(assetId)
-                    }
-                    doc.linkedResearchIds = ids.isEmpty ? nil : ids
-                }
-            }
-        }
+        // Scope moves deliberately leave `linkedResearchIds` UNTOUCHED (user
+        // feedback 2026-07-17). Because we now auto-associate on move-in
+        // (containment) and creation-in-a-piece, a manual link goes DORMANT
+        // while contained — the UI hides it (LinkedResearchPane filters derived
+        // ids out of the Linked section; `linkableResearchItems` excludes
+        // contained items) and it RESURFACES on move-out. A containment-only
+        // association simply severs on move-out; no auto-link is minted.
 
         manifest.modified = Date()
         try await saveManifest()

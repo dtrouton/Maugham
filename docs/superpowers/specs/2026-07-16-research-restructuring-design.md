@@ -41,6 +41,9 @@ breaks the image refs. The fix rides this milestone.
 - **Link cleanup both ways:** moving into piece X drops X's now-redundant
   explicit link; moving out of piece X auto-creates an explicit link X→item so
   the right-pane association survives.
+  (Amended 2026-07-17 after user smoke: scope moves no longer touch
+  linkedResearchIds — manual links stay dormant while contained and resurface
+  on move-out; containment-only associations sever.)
 - **Multiselect drives full batch operations** (move, delete), not move-only.
 - **Approach A** (scope-aware extension of the existing typed-mover seam) over
   B (overload `toParentId` with piece ids — stringly, conflates id namespaces,
@@ -92,6 +95,10 @@ func moveResearchItems(
   moved ids from X's `linkedResearchIds`; out of piece X → append the moved
   ids to X's `linkedResearchIds`. Piece→piece = remove from source piece's
   links if present, drop from destination's (containment covers it).
+  (Amended 2026-07-17 after user smoke: scope moves no longer touch
+  linkedResearchIds — manual links stay dormant while contained and resurface
+  on move-out; containment-only associations sever. Phase 5 and the C2
+  sourceScopes capture were removed.)
 - **Role guards:** items with `role == .paletteGroup` or `.craftIntent` refuse
   cross-scope moves (typed error; UI hides the affordance). Palette *cards*
   are ordinary items — moving one out of the palette group is allowed and

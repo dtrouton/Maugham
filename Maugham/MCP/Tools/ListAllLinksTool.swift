@@ -52,9 +52,31 @@ public enum ListAllLinksTool: MCPTool {
 
         var edges: [Edge] = []
 
-        // Linked-research edges
+        // Containment edges — a collection loose piece owns research by path
+        // prefix (the strongest association; spec 2026-07-07 ends MCP's
+        // blindness to it). Uses the same derivation as the panes. Emitted
+        // first so a redundant linked_research edge (a dormant manual link now
+        // covered by containment, 2026-07-17) can be suppressed below.
+        var containmentPairs = Set<String>()   // "\(from_id)\t\(to_id)"
+        for piece in store.manifest.structure where piece.pieceKind == .loose {
+            for r in store.derivedResearchItems(forDocumentId: piece.id) {
+                containmentPairs.insert("\(piece.id)\t\(r.id)")
+                edges.append(Edge(
+                    from_id: piece.id,
+                    from_title: piece.title,
+                    to_id: r.id,
+                    to_title: r.title,
+                    kind: "piece_research"))
+            }
+        }
+
+        // Linked-research edges. Skip any pair already emitted as
+        // piece_research: a manual link goes dormant once the item is contained
+        // (mirrors the UI redundancy rule — LinkedResearchPane hides derived
+        // ids from the Linked section), so surfacing both edges would be noise.
         for doc in docs {
             for rid in store.linkedResearchIds(forDocumentId: doc.id) {
+                if containmentPairs.contains("\(doc.id)\t\(rid)") { continue }
                 let title = researchById[rid]?.title ?? rid
                 edges.append(Edge(
                     from_id: doc.id,
@@ -62,20 +84,6 @@ public enum ListAllLinksTool: MCPTool {
                     to_id: rid,
                     to_title: title,
                     kind: "linked_research"))
-            }
-        }
-
-        // Containment edges — a collection loose piece owns research by path
-        // prefix (the strongest association; spec 2026-07-07 ends MCP's
-        // blindness to it). Uses the same derivation as the panes.
-        for piece in store.manifest.structure where piece.pieceKind == .loose {
-            for r in store.derivedResearchItems(forDocumentId: piece.id) {
-                edges.append(Edge(
-                    from_id: piece.id,
-                    from_title: piece.title,
-                    to_id: r.id,
-                    to_title: r.title,
-                    kind: "piece_research"))
             }
         }
 

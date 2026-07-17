@@ -206,4 +206,41 @@ final class ListAllLinksToolTests: XCTestCase {
         }, "the group node itself is not an asset edge")
         await ds.close()
     }
+
+    /// A dormant manual link (a hand-added link that was then moved into the
+    /// piece, so containment now covers it too) must NOT emit both a
+    /// `linked_research` AND a `piece_research` edge for the same (piece,
+    /// research) pair. Mirror the UI redundancy rule: containment wins, the
+    /// linked_research edge is skipped.
+    func test_listAllLinks_dormantManualLink_emitsOnlyPieceResearch() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LAL-DORM-\(UUID())")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        let url = try await ProjectFactory.createCollectionProject(named: "C", in: tmp)
+        let store = try await ProjectStore.load(from: url)
+        let ds = try await DocumentStore.open(url: url)
+        store.documentStore = ds
+        let piece = try await store.addLoosePiece(title: "Story A", mode: .prose)
+        let note = try await store.addResearchTextNote(parentId: nil, title: "Sarah")
+        // Hand-add a manual link, THEN move the note into the piece so
+        // containment now covers the same association (link goes dormant).
+        try await store.linkResearch(researchId: note.id, toDocumentId: piece.id)
+        try await store.moveResearchItems(ids: [note.id], to: .piece(piece.id))
+        // Sanity: the dormant manual link is still recorded on the piece.
+        XCTAssertTrue(store.linkedResearchIds(forDocumentId: piece.id).contains(note.id))
+
+        let reg = ProjectRegistry()
+        reg.register(url: url, store: store)
+        let projectId = ProjectIdentifier.id(for: url)
+        let json = try await ListAllLinksTool.handle(
+            paramsJSON: Data("{\"project_id\":\"\(projectId)\"}".utf8), registry: reg)
+        let edges = try JSONDecoder().decode([ListAllLinksTool.Edge].self, from: json)
+
+        let pairEdges = edges.filter { $0.from_id == piece.id && $0.to_id == note.id }
+        XCTAssertEqual(pairEdges.count, 1,
+            "exactly one edge for the (piece, research) pair; edges: \(edges)")
+        XCTAssertEqual(pairEdges.first?.kind, "piece_research",
+            "containment wins — the redundant linked_research edge is skipped")
+        await ds.close()
+    }
 }
