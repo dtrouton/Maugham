@@ -43,6 +43,8 @@ targets:
         type: folder
       - path: docs/guide
         type: folder
+      - path: docs/skills
+        type: folder
       - path: Maugham/Resources/Samples
         type: folder
     info:
