@@ -83,6 +83,43 @@ final class GetHelpToolTests: XCTestCase {
             index: tempIndex(), skills: tempSkills()))
     }
 
+    /// M3: user documentation must not be held hostage to the skills bundle.
+    /// When the skills index is empty (e.g. a packaging regression dropped the
+    /// `skills/` folder), help topics must still resolve.
+    func test_helpTopicsResolve_whenSkillsIndexEmpty() throws {
+        let data = try GetHelpTool.respond(
+            paramsJSON: #"{"topic":"focus"}"#.data(using: .utf8),
+            index: tempIndex(), skills: .empty)
+        let obj = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(obj["slug"] as? String, "focus")
+        XCTAssertEqual(obj["markdown"] as? String, "# Focus\nUse Cmd-backslash.")
+    }
+
+    /// The topic list still serves (with an empty skills section) when the
+    /// skills index is empty.
+    func test_topicList_servesWithEmptySkillsIndex() throws {
+        let data = try GetHelpTool.respond(paramsJSON: nil, index: tempIndex(), skills: .empty)
+        let obj = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual((obj["skills"] as? [[String: Any]])?.count, 0)
+        XCTAssertNotNil(obj["topics"])
+    }
+
+    /// Namespace disjointness: the real bundled guide slugs and the real
+    /// bundled skill names must not collide, and no skill may be named
+    /// "skills" (the literal topic id) — pinning the shadowing rules so a
+    /// future content addition can't silently shadow a help topic or the
+    /// skills-list branch.
+    func test_bundledGuideSlugsAndSkillNames_areDisjoint() throws {
+        let guideSlugs = Set(try HelpTopicIndex.bundled().topics.map(\.slug))
+        let skillNames = Set(try SkillIndex.bundled().skills.map(\.name))
+        XCTAssertTrue(guideSlugs.isDisjoint(with: skillNames),
+                      "guide slugs and skill names overlap: \(guideSlugs.intersection(skillNames))")
+        XCTAssertFalse(skillNames.contains("skills"),
+                       "no skill may be named \"skills\" — it's the literal topic id")
+        XCTAssertFalse(guideSlugs.contains("skills"),
+                       "no guide topic may be named \"skills\" — the literal topic id wins over it")
+    }
+
     /// "skills" is a literal topic id that wins over any hypothetical help
     /// topic of the same name — pin the precedence so a future help topic
     /// named "skills" can't silently shadow this branch.

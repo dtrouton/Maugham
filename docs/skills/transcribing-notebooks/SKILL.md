@@ -20,8 +20,11 @@ transcriptions stored as research notes. Never write into the manuscript.
    effective resolution, e.g. `{"x": 0, "y": 0.6, "width": 1, "height": 0.2}`
    for a band 60% down the page. Crop tight; resolution goes where the
    pixels are.
-4. **Write the transcription** with `add_note` into the piece's research
-   (pass the piece as the target so it lands beside the source images).
+4. **Write the transcription** as a research note — never the manuscript.
+   Create it with `add_note(project_id, title, body)` (project-level, or
+   pass an existing research group as `parent_group_id`), then move it
+   beside the source images with `move_research_item(project_id,
+   research_ids: [<new note id>], target_document_id: <piece id>)`.
    One note per session or per chapter of pages — follow the existing
    naming in the project (e.g. `dreams-notes-transcription-part-2`).
 5. **Verify continuity.** Consecutive pages usually continue sentences

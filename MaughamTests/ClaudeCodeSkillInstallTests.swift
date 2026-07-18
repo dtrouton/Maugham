@@ -48,12 +48,30 @@ final class ClaudeCodeSkillInstallTests: XCTestCase {
                 serverKey: "maugham",
                 binaryPath: "/Applications/Maugham.app/Contents/MacOS/maugham-mcp",
                 socketPath: nil),
-            "claude mcp add maugham /Applications/Maugham.app/Contents/MacOS/maugham-mcp")
+            "claude mcp add maugham \"/Applications/Maugham.app/Contents/MacOS/maugham-mcp\"")
         XCTAssertEqual(
             ClaudeCodeSkillInstall.cliCommand(
                 serverKey: "maugham-dev",
                 binaryPath: "/tmp/Dev.app/Contents/MacOS/maugham-mcp",
                 socketPath: "/tmp/dev.sock"),
-            "claude mcp add maugham-dev --env \"MAUGHAM_MCP_SOCKET=/tmp/dev.sock\" -- /tmp/Dev.app/Contents/MacOS/maugham-mcp")
+            "claude mcp add maugham-dev --env \"MAUGHAM_MCP_SOCKET=/tmp/dev.sock\" -- \"/tmp/Dev.app/Contents/MacOS/maugham-mcp\"")
+    }
+
+    /// The dev bundle is "Maugham Dev.app" — a space in the binary path.
+    /// Without quoting, the emitted command word-splits and `claude mcp add`
+    /// fails. Assert both branches quote the path so the class stays caught.
+    func test_cliCommand_quotesPathWithSpaces() {
+        XCTAssertEqual(
+            ClaudeCodeSkillInstall.cliCommand(
+                serverKey: "maugham-dev",
+                binaryPath: "/Applications/Maugham Dev.app/Contents/MacOS/maugham-mcp",
+                socketPath: nil),
+            "claude mcp add maugham-dev \"/Applications/Maugham Dev.app/Contents/MacOS/maugham-mcp\"")
+        XCTAssertEqual(
+            ClaudeCodeSkillInstall.cliCommand(
+                serverKey: "maugham-dev",
+                binaryPath: "/Applications/Maugham Dev.app/Contents/MacOS/maugham-mcp",
+                socketPath: "/tmp/dev.sock"),
+            "claude mcp add maugham-dev --env \"MAUGHAM_MCP_SOCKET=/tmp/dev.sock\" -- \"/Applications/Maugham Dev.app/Contents/MacOS/maugham-mcp\"")
     }
 }

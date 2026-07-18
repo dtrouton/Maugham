@@ -40,8 +40,8 @@ public enum ClaudeCodeSkillInstall {
         serverKey: String, binaryPath: String, socketPath: String?
     ) -> String {
         if let socketPath {
-            return "claude mcp add \(serverKey) --env \"MAUGHAM_MCP_SOCKET=\(socketPath)\" -- \(binaryPath)"
+            return "claude mcp add \(serverKey) --env \"MAUGHAM_MCP_SOCKET=\(socketPath)\" -- \"\(binaryPath)\""
         }
-        return "claude mcp add \(serverKey) \(binaryPath)"
+        return "claude mcp add \(serverKey) \"\(binaryPath)\""
     }
 }

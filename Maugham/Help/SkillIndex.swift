@@ -41,6 +41,16 @@ struct SkillIndex {
     let skills: [Skill]
     let bootstrapTemplate: Skill?
 
+    private init(skills: [Skill], bootstrapTemplate: Skill?) {
+        self.skills = skills
+        self.bootstrapTemplate = bootstrapTemplate
+    }
+
+    /// Empty index — no skills, no bootstrap template. Used only to degrade
+    /// `get_help` when the `skills/` folder is missing from the bundle, so
+    /// user documentation still resolves (see `GetHelpTool.handle`).
+    static let empty = SkillIndex(skills: [], bootstrapTemplate: nil)
+
     init(directory: URL, strict: Bool) throws {
         guard FileManager.default.fileExists(atPath: directory.path) else {
             throw LoadError.directoryMissing

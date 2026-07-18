@@ -59,7 +59,17 @@ public enum GetHelpTool: MCPTool {
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
         let index = try HelpTopicIndex.bundled()
-        let skills = try SkillIndex.bundled()
+        // User documentation must not be held hostage to the skills bundle: a
+        // packaging regression that drops the `skills/` folder should still
+        // serve help topics. Degrade only the missing-directory case to an
+        // empty skills index (the skills list is then empty); every other
+        // load error (malformed frontmatter, duplicate name) still throws.
+        let skills: SkillIndex
+        do {
+            skills = try SkillIndex.bundled()
+        } catch SkillIndex.LoadError.directoryMissing {
+            skills = SkillIndex.empty
+        }
         return try respond(paramsJSON: paramsJSON, index: index, skills: skills)
     }
 }
