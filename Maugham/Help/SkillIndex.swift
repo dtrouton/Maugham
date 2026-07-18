@@ -27,6 +27,12 @@ struct SkillIndex {
     enum LoadError: Error, Equatable {
         case directoryMissing
         case malformedFrontmatter(String)
+        /// Two skill folders declared the same frontmatter `name`. The name
+        /// mints the skill URI namespace served over SEP-2640 (names are NOT
+        /// unique identifiers per the SEP; the URI is — see SkillsExtension),
+        /// so a duplicate would produce colliding URIs end-to-end. Refused
+        /// loudly in strict (dev) loads; lenient (release) keeps the first.
+        case duplicateSkillName(String)
     }
 
     /// The router template installed into ~/.claude/skills — not served.
@@ -51,6 +57,10 @@ struct SkillIndex {
                 let skill = try Self.loadSkill(at: folder)
                 if folder.lastPathComponent == Self.bootstrapFolderName {
                     bootstrap = skill
+                } else if loaded.contains(where: { $0.name == skill.name }) {
+                    // Colliding frontmatter names would mint colliding
+                    // skill URIs — a load error, not a tolerated shadow.
+                    throw LoadError.duplicateSkillName(skill.name)
                 } else {
                     loaded.append(skill)
                 }

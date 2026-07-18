@@ -107,4 +107,68 @@ final class SkillsExtensionTests: XCTestCase {
         let result = try SkillsExtension.handleList(paramsJSON: nil, index: makeIndex())
         XCTAssertLessThan(result.count, 1_000_000)
     }
+
+    /// Helper: add a second skill folder alongside makeIndex()'s.
+    private func writeSkill(folder: String, name: String, description: String) throws {
+        let dir = temp.url.appendingPathComponent(folder)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try "---\nname: \(name)\ndescription: \(description)\n---\nBody \(name)."
+            .write(to: dir.appendingPathComponent("SKILL.md"),
+                   atomically: true, encoding: .utf8)
+    }
+
+    func test_get_matchesByURI_notByName() throws {
+        // Two skills; each get must return the entry whose uri matches the
+        // request — identity is the URI, not a name-coincidence lookup.
+        // (Colliding frontmatter names cannot reach this surface: SkillIndex
+        // refuses them at load, pinned in SkillIndexTests.)
+        _ = try makeIndex()
+        try writeSkill(folder: "editing-pass", name: "editing-pass", description: "Edit.")
+        let index = try SkillIndex(directory: temp.url, strict: true)
+
+        for name in ["editing-pass", "transcribing-notebooks"] {
+            let uri = "skill://\(name)/SKILL.md"
+            let params = try JSONSerialization.data(withJSONObject: ["uri": uri])
+            let obj = try json(try SkillsExtension.handleGet(paramsJSON: params, index: index))
+            let skill = try XCTUnwrap(obj["skill"] as? [String: Any])
+            XCTAssertEqual(skill["uri"] as? String, uri,
+                           "get must return the entry with the requested URI")
+            XCTAssertEqual(skill["name"] as? String, name)
+        }
+    }
+
+    func test_read_jsonSibling_correctMimeTypeAndText() throws {
+        _ = try makeIndex()
+        let jsonBody = "{\"key\": \"value\"}"
+        try jsonBody.write(
+            to: temp.url.appendingPathComponent("transcribing-notebooks/config.json"),
+            atomically: true, encoding: .utf8)
+        let index = try SkillIndex(directory: temp.url, strict: true)
+
+        let params = try JSONSerialization.data(
+            withJSONObject: ["uri": "skill://transcribing-notebooks/config.json"])
+        let obj = try json(try SkillsExtension.handleRead(paramsJSON: params, index: index))
+        let content = try XCTUnwrap((obj["contents"] as? [[String: Any]])?.first)
+        XCTAssertEqual(content["mimeType"] as? String, "application/json")
+        XCTAssertEqual(content["text"] as? String, jsonBody)
+        XCTAssertNil(content["blob"], "UTF-8 file must use text, not blob")
+    }
+
+    func test_read_binarySibling_returnsBlobNotEmptyText() throws {
+        _ = try makeIndex()
+        let bytes = Data([0xFF, 0xFE, 0x00])  // not valid UTF-8
+        try bytes.write(
+            to: temp.url.appendingPathComponent("transcribing-notebooks/data.bin"))
+        let index = try SkillIndex(directory: temp.url, strict: true)
+
+        let params = try JSONSerialization.data(
+            withJSONObject: ["uri": "skill://transcribing-notebooks/data.bin"])
+        let obj = try json(try SkillsExtension.handleRead(paramsJSON: params, index: index))
+        let content = try XCTUnwrap((obj["contents"] as? [[String: Any]])?.first)
+        XCTAssertNil(content["text"], "non-UTF-8 must not emit a (lossy) text field")
+        let blob = try XCTUnwrap(content["blob"] as? String)
+        XCTAssertEqual(Data(base64Encoded: blob), bytes,
+                       "blob must round-trip the exact bytes")
+        XCTAssertEqual(content["mimeType"] as? String, "application/octet-stream")
+    }
 }

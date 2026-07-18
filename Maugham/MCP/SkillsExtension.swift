@@ -11,8 +11,14 @@ import Foundation
 /// don't implement resources/directory/read); skills/list result =
 /// {skills:[{uri, frontmatter:{name,description}, resources:[{uri,
 /// digest:"sha256:<hex>"}]}]}; skills/get param {uri} → {skill:{…}};
-/// resources/read is the base primitive (we serve skill:// only); unknown
+/// resources/read is the base primitive (we serve skill:// only; UTF-8
+/// files → `text` + extension-derived mimeType, non-UTF-8 → base64 `blob`
+/// + application/octet-stream, per the base Resources contract); unknown
 /// skill URI MUST return -32602 Invalid params (MCPError.invalidArgument).
+/// Identity is the URI, not the name (SEP: names are not unique ids) —
+/// skills/get resolves by URI, and because the skill:// namespace derives
+/// from the frontmatter name, SkillIndex refuses colliding names at load
+/// (strict throws duplicateSkillName; lenient keeps first).
 /// Deviation from the diff: entries also carry top-level `name`/`description`
 /// (the diff nests them only under `frontmatter`). This is a compatible
 /// superset — extra fields, no renamed/removed ones — kept so Maugham clients
@@ -60,8 +66,7 @@ public enum SkillsExtension {
 
     static func handleGet(paramsJSON: Data?, index: SkillIndex) throws -> Data {
         guard let data = paramsJSON,
-              let params = try? JSONDecoder().decode(URIParams.self, from: data),
-              let skill = skillFor(skillMdURI: params.uri, in: index) else {
+              let params = try? JSONDecoder().decode(URIParams.self, from: data) else {
             // Draft: unknown skill URI → invalid params (-32602). MCPError
             // .invalidArgument maps to that class at the router boundary.
             throw MCPError.invalidArgument(
@@ -69,8 +74,16 @@ public enum SkillsExtension {
         }
         let entryData = try handleList(paramsJSON: nil, index: index)
         let obj = try JSONSerialization.jsonObject(with: entryData) as! [String: Any]
-        let entry = (obj["skills"] as! [[String: Any]])
-            .first { ($0["name"] as? String) == skill.name }!
+        // Match by URI, not name — per the SEP, names are not unique
+        // identifiers; the URI is the identity. (Belt-and-braces: the URI
+        // namespace derives from the frontmatter name, so SkillIndex also
+        // refuses colliding names at load — LoadError.duplicateSkillName —
+        // keeping URIs unique by construction.)
+        guard let entry = (obj["skills"] as! [[String: Any]])
+            .first(where: { ($0["uri"] as? String) == params.uri }) else {
+            throw MCPError.invalidArgument(
+                "Unknown skill URI. Call skills/list for served skills.")
+        }
         return try JSONSerialization.data(
             withJSONObject: ["skill": entry], options: [.sortedKeys])
     }
@@ -88,24 +101,32 @@ public enum SkillsExtension {
         }
         for skill in index.skills {
             for file in skill.files where uri(for: skill, file: file) == params.uri {
-                let text = String(data: file.bytes, encoding: .utf8) ?? ""
-                return try JSONSerialization.data(withJSONObject: [
-                    "contents": [[
-                        "uri": params.uri,
-                        "mimeType": "text/markdown",
-                        "text": text,
-                    ]]
-                ], options: [.sortedKeys])
+                // Base Resources contract: UTF-8 files return `text` with an
+                // extension-derived mimeType; non-UTF-8 bytes return `blob`
+                // (base64) — never a silently-lossy empty `text`.
+                var content: [String: Any] = ["uri": params.uri]
+                if let text = String(data: file.bytes, encoding: .utf8) {
+                    content["mimeType"] = mimeType(forRelativePath: file.relativePath)
+                    content["text"] = text
+                } else {
+                    content["mimeType"] = "application/octet-stream"
+                    content["blob"] = file.bytes.base64EncodedString()
+                }
+                return try JSONSerialization.data(
+                    withJSONObject: ["contents": [content]], options: [.sortedKeys])
             }
         }
         throw MCPError.invalidArgument("Unknown skill resource: \(params.uri)")
     }
 
-    private static func skillFor(
-        skillMdURI: String, in index: SkillIndex
-    ) -> SkillIndex.Skill? {
-        index.skills.first { skill in
-            uri(for: skill, file: skill.files[0]) == skillMdURI
+    /// mimeType for a UTF-8 skill file, by extension. Unknown text-decodable
+    /// extensions fall back to text/plain (binary never reaches this — it
+    /// takes the blob branch above).
+    private static func mimeType(forRelativePath path: String) -> String {
+        switch (path as NSString).pathExtension.lowercased() {
+        case "md", "markdown": return "text/markdown"
+        case "json":           return "application/json"
+        default:               return "text/plain"
         }
     }
 }

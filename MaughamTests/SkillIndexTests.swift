@@ -75,6 +75,25 @@ final class SkillIndexTests: XCTestCase {
         XCTAssertEqual(index.skills.map(\.name), ["good"])
     }
 
+    func test_strict_duplicateFrontmatterNameThrows() throws {
+        // Distinct folders, colliding frontmatter `name` — would mint
+        // colliding skill:// URIs (the namespace derives from the name).
+        try writeSkill("aaa-folder", frontmatter: "name: dup\ndescription: first", body: "A")
+        try writeSkill("bbb-folder", frontmatter: "name: dup\ndescription: second", body: "B")
+        XCTAssertThrowsError(try SkillIndex(directory: temp.url, strict: true)) { error in
+            XCTAssertEqual(error as? SkillIndex.LoadError, .duplicateSkillName("dup"))
+        }
+    }
+
+    func test_lenient_duplicateFrontmatterNameKeepsFirst() throws {
+        try writeSkill("aaa-folder", frontmatter: "name: dup\ndescription: first", body: "A")
+        try writeSkill("bbb-folder", frontmatter: "name: dup\ndescription: second", body: "B")
+        let index = try SkillIndex(directory: temp.url, strict: false)
+        XCTAssertEqual(index.skills.map(\.name), ["dup"], "one survivor — URIs stay unique")
+        XCTAssertEqual(index.skills.first?.description, "first",
+                       "folder-name sort order: first loaded wins")
+    }
+
     func test_bundledSkills_loadAndAreNonEmpty() throws {
         // The real bundled content: both skills present with descriptions.
         let index = try SkillIndex.bundled()
