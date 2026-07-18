@@ -12,8 +12,14 @@ public enum MCPInitializeHandler {
         public let version: String
     }
     public struct ToolsCapability: Codable, Equatable {}
+    /// Empty object value under `capabilities.extensions.<id>` — per SEP-2640,
+    /// signals "extension supported, no optional features" (see SkillsExtension
+    /// pin comment; `directoryRead` is the only optional flag and unimplemented).
+    public struct EmptyObject: Codable, Equatable {}
     public struct Capabilities: Codable, Equatable {
         public let tools: ToolsCapability
+        /// SEP-2640: extensions declared as an object keyed by extension id.
+        public let extensions: [String: EmptyObject]
     }
     public struct Result: Codable, Equatable {
         public let protocolVersion: String
@@ -39,7 +45,9 @@ public enum MCPInitializeHandler {
             serverInfo: ServerInfo(
                 name: BuildVariant.current.mcpServerKey,
                 version: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0-dev"),
-            capabilities: Capabilities(tools: ToolsCapability()))
+            capabilities: Capabilities(
+                tools: ToolsCapability(),
+                extensions: [SkillsExtension.extensionId: EmptyObject()]))
         return try JSONEncoder().encode(result)
     }
 }
