@@ -10,6 +10,10 @@ struct HelpClaudeDesktopSheet: View {
     @State private var errorMessage: String?
     @State private var copied: Bool = false
 
+    @State private var skillState: ClaudeCodeSkillInstall.State = .notInstalled
+    @State private var skillError: String?
+    @State private var cliCopied: Bool = false
+
     private var binaryPath: String {
         Bundle.main.bundleURL
             .appendingPathComponent("Contents/MacOS/maugham-mcp").path
@@ -30,6 +34,7 @@ struct HelpClaudeDesktopSheet: View {
                 Text(err).font(.callout).foregroundStyle(.red)
             }
             if showingManualSnippet { manualSnippet }
+            claudeCodeSection
             Spacer(minLength: 0)
             HStack {
                 Spacer()
@@ -39,12 +44,97 @@ struct HelpClaudeDesktopSheet: View {
         }
         .padding(24)
         .frame(minWidth: 580, minHeight: 360)
-        .onAppear { detect() }
+        .onAppear {
+            detect()
+            detectSkill()
+        }
     }
 
     private func detect() {
         state = ClaudeDesktopConfig.detect(
             configURL: configURL, expectedBinary: binaryPath)
+    }
+
+    // MARK: Claude Code
+
+    private var bootstrapTemplate: String? {
+        (try? SkillIndex.bundled())?.bootstrapTemplate?.raw
+    }
+
+    private var claudeCodeCLICommand: String {
+        let socket: String? = BuildVariant.current == .dev
+            ? BuildVariant.current.mcpSocketPath : nil
+        return ClaudeCodeSkillInstall.cliCommand(
+            serverKey: BuildVariant.current.mcpServerKey,
+            binaryPath: binaryPath,
+            socketPath: socket)
+    }
+
+    private var claudeCodeSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Divider()
+            Text("Claude Code").font(.headline)
+            claudeCodeCommandRow
+            Text("Run this once in a terminal to connect Maugham to Claude Code.")
+                .font(.callout).foregroundStyle(.secondary)
+            claudeCodeSkillControls
+            if let skillError {
+                Text(skillError).font(.callout).foregroundStyle(.red)
+            }
+        }
+    }
+
+    private var claudeCodeCommandRow: some View {
+        HStack(spacing: 8) {
+            Text(claudeCodeCLICommand)
+                .font(.system(.callout, design: .monospaced))
+                .textSelection(.enabled)
+                .lineLimit(1).truncationMode(.middle)
+            Button(cliCopied ? "Copied" : "Copy") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(claudeCodeCLICommand, forType: .string)
+                cliCopied = true
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var claudeCodeSkillControls: some View {
+        switch skillState {
+        case .notInstalled:
+            Button("Install Claude Code Skill") { installSkill() }
+            Text("Adds a small skill so Claude automatically loads Maugham's workflows (transcription, editing passes).")
+                .font(.callout).foregroundStyle(.secondary)
+        case .installedCurrent:
+            Label("Maugham skill installed", systemImage: "checkmark.circle")
+                .foregroundStyle(.secondary)
+        case .stale:
+            HStack {
+                Label("Maugham skill is out of date", systemImage: "exclamationmark.triangle")
+                Button("Update") { installSkill() }
+            }
+        }
+    }
+
+    private func detectSkill() {
+        guard let template = bootstrapTemplate else { return }
+        skillState = ClaudeCodeSkillInstall.detect(
+            installURL: ClaudeCodeSkillInstall.defaultSkillURL, template: template)
+    }
+
+    private func installSkill() {
+        guard let template = bootstrapTemplate else {
+            skillError = "Bundled skill template missing — reinstall Maugham."
+            return
+        }
+        skillError = nil
+        do {
+            try ClaudeCodeSkillInstall.install(
+                installURL: ClaudeCodeSkillInstall.defaultSkillURL, template: template)
+            detectSkill()
+        } catch {
+            skillError = error.localizedDescription
+        }
     }
 
     // MARK: State views
