@@ -1,7 +1,7 @@
 # Skills over MCP — Maugham-served agent skills + bootstrap
 
 **Date:** 2026-07-18
-**Status:** Approved (brainstorm 2026-07-18)
+**Status:** Implemented (branch `feat/skills-over-mcp-2026-07-18`, 2026-07-18)
 
 ## Problem
 
