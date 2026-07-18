@@ -329,6 +329,19 @@ struct MaughamApp: App {
         router.register(method: MCPToolsCallHandler.method) { params in
             try await MCPToolsCallHandler.handle(paramsJSON: params, router: router)
         }
+
+        // SEP-2640 skills extension — protocol methods (not tools; the tool
+        // count is unaffected). Method names contain `/`, so they can't
+        // collide with tool names. See Maugham/MCP/SkillsExtension.swift.
+        router.register(method: SkillsExtension.listMethod) { params in
+            try SkillsExtension.handleList(paramsJSON: params, index: try SkillIndex.bundled())
+        }
+        router.register(method: SkillsExtension.getMethod) { params in
+            try SkillsExtension.handleGet(paramsJSON: params, index: try SkillIndex.bundled())
+        }
+        router.register(method: SkillsExtension.readMethod) { params in
+            try SkillsExtension.handleRead(paramsJSON: params, index: try SkillIndex.bundled())
+        }
     }
 
     private static func dispatchFindAction(tag: Int) {

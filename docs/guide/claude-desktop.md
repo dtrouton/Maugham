@@ -11,6 +11,16 @@ Maugham ships a local MCP server. Once configured, Claude Desktop can read your 
 
 That's it. You can test by asking Claude: *"What Maugham projects are open?"*
 
+### Claude Code
+
+The same setup sheet (**Help → Set up Claude Desktop…**) has a **Claude Code** section:
+a copyable `claude mcp add …` command connects Claude Code (the CLI) to the same MCP
+tools, and **Install Claude Code Skill** writes a small router skill to
+`~/.claude/skills/maugham/SKILL.md` so Claude Code automatically finds and follows
+Maugham's own task procedures — notebook transcription, an editing pass — instead of
+improvising. If Maugham later ships an updated procedure, the sheet flags the installed
+skill as out of date; click **Update**.
+
 ### What Claude can do
 
 Read:
@@ -22,6 +32,7 @@ Read:
 - List the reference graph (wiki links + linked research backrefs, including a collection piece's own research)
 - Read your session stats ("how much have I written this week?")
 - Filter chapters by tag
+- Load Maugham's own task procedures ("skills") for jobs like notebook-photo transcription or an editing pass — automatically in Claude Code once the skill is installed, or in any client by asking Claude to call `get_help` with topic `"skills"`
 
 Write:
 

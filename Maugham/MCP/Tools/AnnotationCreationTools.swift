@@ -20,7 +20,9 @@ public enum AddCommentTool: MCPTool {
         "modify the manuscript; the user accepts or rejects them via the " +
         "Annotations pane. Reject reasoning is captured for future sessions. " +
         "Optionally pass `quote` (an exact phrase from the paragraph) to anchor " +
-        "the comment to a sub-paragraph span; omit it to anchor the whole paragraph."
+        "the comment to a sub-paragraph span; omit it to anchor the whole paragraph. " +
+        "Running an editing pass? Call get_help with topic \"editing-pass\" first — " +
+        "it covers craft intent and annotation conventions."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"},"document_id":{"type":"string"},"paragraph_id":{"type":"string"},"body":{"type":"string"},"quote":{"type":"string"}},"required":["project_id","document_id","paragraph_id","body"]}"#
 

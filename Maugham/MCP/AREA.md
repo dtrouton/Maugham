@@ -11,7 +11,7 @@ The in-app MCP server: tool registration, JSON-RPC handling, the read/search/dis
 **Discovery / identity**
 - `list_projects` — enumerate all open Maugham projects
 - `list_maugham_tools` — flat, authoritative list of every tool + server identity block
-- `get_help` — read Maugham's bundled user documentation by topic (read-only)
+- `get_help` — read Maugham's bundled user documentation by topic (read-only); topic `"skills"` lists Maugham's agent skills, a skill's name as topic loads its full procedure (see "SEP-2640 skills extension" below)
 
 **Project read**
 - `get_metadata` — title, type, tags, word targets, session stats for a project
@@ -132,6 +132,48 @@ built `Maugham Dev.app`, surfacing the tools to Claude Code as `mcp__maugham_tes
   domain, ADR 0019)
 - `test_list_checkpoints` — checkpoints + metadata
 
+## SEP-2640 skills extension (protocol methods, not tools)
+
+`Maugham/MCP/SkillsExtension.swift` implements the draft **Skills Over MCP** extension
+(SEP-2640, Extensions Track) on top of the existing `resources/read` primitive:
+`initialize` capabilities declare `capabilities.extensions["io.modelcontextprotocol/skills"] = {}`;
+`skills/list` enumerates bundled skills (`name`/`description`/`uri`/`frontmatter`/`resources`,
+each resource carrying a `sha256:<hex>` digest); `skills/get` resolves a single skill **by
+URI** (per the draft, names aren't unique identifiers) and fails loudly (protocol error
+`-32602`) on an unknown URI; `resources/read` is implemented narrowly for `skill://` URIs
+only — any other URI fails loudly too (Maugham's server has no general resources support).
+These three are **protocol methods**, registered directly on the router in
+`MaughamApp.registerTools` alongside `initialize`/`tools/list`/`tools/call` — not tools,
+so **the tool catalogue count stays 48** whether or not a connecting client speaks the
+extension.
+
+**Content source:** `docs/skills/<name>/SKILL.md` (agentskills.io flat-frontmatter format:
+`name`, `description`, markdown body) is bundled as a `folder` resource in `project.yml`
+and loaded by `Maugham/Help/SkillIndex.swift` (modeled on `HelpTopicIndex`; strict/throwing
+load in dev builds, skip-with-log in release so one malformed skill can't take the server
+down). It's a fourth bundled content root alongside `docs/guide/` (help topics) and
+`Maugham/Resources/Samples/` (sample projects) — same discipline: edit the bundled file,
+don't add a second copy. Two skills are served today: `transcribing-notebooks`,
+`editing-pass`. A third folder, `maugham-bootstrap` (frontmatter `name: maugham`), is the
+Claude Code router template — `SkillIndex` loads it but `skills/list`/`skills/get`/`get_help`
+never serve it; it reaches the world only via `ClaudeCodeSkillInstall`'s installer, wired
+into `Views/HelpClaudeDesktopSheet.swift`'s Claude Code section (copyable variant-aware
+`claude mcp add …` command + an install/update button that writes/refreshes
+`~/.claude/skills/maugham/SKILL.md`, byte-compared for staleness).
+
+**Today-compat surface:** no shipping MCP client speaks SEP-2640 yet, so `get_help` also
+serves skills through the same `SkillIndex` — topic id `"skills"` returns the index (name +
+one-line description per skill), a skill's own name as topic returns its full body.
+`read_document` and `add_comment` each gained one nudge sentence pointing at the relevant
+skill topic, so clients with only tools (today's Claude Desktop and Claude Code) still find
+the procedure.
+
+**Drift risk:** SEP-2640 is unmerged; all shapes live in `SkillsExtension.swift` with a
+revision pin (`// SEP-2640 pin: PR #2640 diff fetched 2026-07-18`) — check the SEP on next
+touch. One documented, deliberate deviation from the pinned diff: `skills/list` entries
+carry top-level `name`/`description` in addition to the diff's `frontmatter`-nested copy —
+a compatible superset (extra fields only), not a rename.
+
 ## Layout
 
 - `MCPServer.swift` — Unix socket server, connection lifecycle, SIGPIPE handling. **SIGPIPE handling is idempotent and required** — don't simplify it away.
@@ -140,6 +182,8 @@ built `Maugham Dev.app`, surfacing the tools to Claude Code as `mcp__maugham_tes
 - `Tools/` — one file per tool. Read tools are pure; `add_note` is the only writer in foundation scope and it can only write under `research/`.
 - Paragraph-anchored annotations live in `Tools/AnnotationCreationTools.swift` (add_comment / add_suggested_change / add_query / add_craft_note), `Tools/AnnotationReadTools.swift` (list_annotations / get_annotation), and `Tools/AnnotationToolHelpers.swift` (`withAnnotationDocument` — transient-load fallback when the doc isn't open in the editor). The parallel comment layer that lets Claude annotate the manuscript without mutating it.
 - `../maugham-mcp/` — the standalone CLI binary that bridges Claude Desktop's stdio to the app's Unix socket. Lives outside this directory but is conceptually part of this area. Main entry: `JSONRPCBridge.swift`.
+- `SkillsExtension.swift` — SEP-2640 skills extension surface (`skills/list`/`skills/get`/`resources/read` for `skill://`); see the section above. `MCPInitializeHandler.swift` declares the extension capability.
+- `ClaudeCodeSkillInstall.swift` — Claude Code bootstrap-skill installer: detect/install/stale-vs-current for `~/.claude/skills/maugham/SKILL.md`, plus the copyable `claude mcp add` CLI command string (variant-aware via `BuildVariant`). Consumed by `Views/HelpClaudeDesktopSheet.swift`'s Claude Code section, not executed — Maugham never shells out to `claude`.
 
 ## Hard rules
 
@@ -211,5 +255,6 @@ End-to-end-through-the-bridge coverage lives in `MaughamTests/MCP/MCPBinaryInteg
 - Manuscript persistence — `Maugham/Stores/DocumentStore.swift`.
 - The op log that MCP read tools read against — `Maugham/OpLog/`.
 - Settings UI for the "Allow Claude to connect" toggle — `Maugham/Views/SettingsTabs/`.
-- The "Set up Claude Desktop…" flow — `Maugham/Views/` (Help menu wiring).
+- The "Set up Claude Desktop…" flow — `Maugham/Views/` (Help menu wiring; also hosts the Claude Code section, `HelpClaudeDesktopSheet.swift`).
+- Skill content loading — `Maugham/Help/SkillIndex.swift` (mirrors `HelpTopicIndex`'s pattern but lives in `Help/`, not `MCP/`, since it's also consumed by `get_help`; this area only implements the SEP-2640 protocol surface and the Claude Code installer on top of it).
 - The standalone `maugham-mcp` CLI source — `../maugham-mcp/` (separate Swift package, ships bundled inside `Maugham.app/Contents/MacOS/`).
