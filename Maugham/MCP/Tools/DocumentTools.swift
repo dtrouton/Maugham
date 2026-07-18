@@ -36,7 +36,9 @@ public enum ReadDocumentTool: MCPTool {
         (default 2048 px longest edge, quality 85). Use `region` to crop \
         into a sub-area at higher effective resolution — useful for \
         hard-to-read handwriting or marginalia. `region` coordinates are \
-        normalized 0–1 with top-left origin.
+        normalized 0–1 with top-left origin. Transcribing notebook photos? \
+        Call get_help with topic "transcribing-notebooks" first for the \
+        recommended workflow.
         """
     public static let inputSchemaJSON = #"""
         {"type":"object","properties":{"project_id":{"type":"string"},"document_id":{"type":"string"},"max_dimension":{"type":"integer","description":"Longest-edge cap for image research items (256–4096, default 2048). Ignored for text documents."},"quality":{"type":"integer","description":"JPEG quality 10–100 for image research items (default 85). Ignored for text documents."},"region":{"type":"object","description":"Optional crop for image research items, normalized 0–1, top-left origin. e.g. {x:0.3,y:0.5,width:0.2,height:0.1} = 20% × 10% slice 30% from the left, 50% down. Ignored for text documents.","properties":{"x":{"type":"number"},"y":{"type":"number"},"width":{"type":"number"},"height":{"type":"number"}},"required":["x","y","width","height"]}},"required":["project_id","document_id"]}
