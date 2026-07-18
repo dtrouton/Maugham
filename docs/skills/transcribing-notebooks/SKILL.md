@@ -5,38 +5,40 @@ description: Transcribe handwritten notebook photos from a Maugham project's res
 
 # Transcribing notebook photos
 
-Turn photographed notebook pages (image research items) into faithful text
-transcriptions stored as research notes. Never write into the manuscript.
+You are producing the faithful text record of the writer's handwritten
+notebook pages (image research items). The deliverable is a transcription
+the writer can trust without re-checking the photos: complete, verbatim,
+honestly marked where the ink defeats you.
 
-## Workflow
+## What matters, in order
 
-1. **Find the pages.** `list_research(project_id)` — image items have
-   `kind: image`. Note which pages are already covered by existing
-   transcription notes (search their titles/bodies first; don't re-transcribe).
-2. **Read each page.** `read_document(project_id, document_id)` — the
-   default 2048px works for most handwriting. If the transport caps you
-   to a lower size (the response says so), that's normal.
-3. **Hard-to-read lines:** re-read with a `region` crop at higher
-   effective resolution, e.g. `{"x": 0, "y": 0.6, "width": 1, "height": 0.2}`
-   for a band 60% down the page. Crop tight; resolution goes where the
-   pixels are.
-4. **Write the transcription** as a research note — never the manuscript.
-   Create it with `add_note(project_id, title, body)` (project-level, or
-   pass an existing research group as `parent_group_id`), then move it
-   beside the source images with `move_research_item(project_id,
-   research_ids: [<new note id>], target_document_id: <piece id>)`.
-   One note per session or per chapter of pages — follow the existing
-   naming in the project (e.g. `dreams-notes-transcription-part-2`).
-5. **Verify continuity.** Consecutive pages usually continue sentences
-   across the boundary; if a page doesn't follow from the last, say so
-   rather than smoothing it over.
+1. **Nothing silently dropped.** Every handwritten line ends up either
+   transcribed or explicitly marked `[illegible]`. Before finishing a
+   page, reconcile against the image — if a sentence reads as nonsense,
+   you have probably lost a line; go back and look.
+2. **Verbatim fidelity.** Preserve the writer's spelling, punctuation,
+   and paragraph grouping. Resist smoothing what they actually wrote.
+3. **Honesty when the ink wins.** Attempt every word; look closer before
+   giving up (a region crop raises effective resolution on a stubborn
+   line); only then mark `[illegible]`. Never reconstruct from context or
+   memory. If a read returns no visible image, stop and say exactly that.
 
-## Honesty rules (non-negotiable)
+## Constraints
 
-- Transcribe only what you can actually read in the returned pixels.
-- Mark unreadable passages `[illegible]` — never reconstruct, guess, or
-  paraphrase them into existence.
-- If a read returns no visible image, STOP and say exactly that. Do not
-  produce a transcription from context or memory.
-- Preserve the writer's spelling, punctuation, and line grouping; use
-  paragraph breaks where the notebook has them.
+- Transcriptions are research notes — never manuscript text. Create the
+  note with `add_note`, then file it beside the source images with
+  `move_research_item` (`research_ids: [<note id>]`,
+  `target_document_id: <piece id>`).
+- Check what's already transcribed before starting (search existing note
+  titles and bodies) and extend the established naming rather than
+  repeating work.
+- Consecutive pages usually continue mid-sentence. If a page doesn't
+  follow from the previous one, say so rather than smoothing it over.
+
+## Tools
+
+`list_research` finds the pages (`kind: image`). `read_document` returns
+a page image and accepts `max_dimension` and a normalized `region` crop
+for looking closer at a stubborn line. Read whole pages; crop to inspect,
+not to assemble — stitching a page together from crops is how lines get
+lost.

@@ -5,29 +5,35 @@ description: Run an editing pass over a Maugham manuscript using the annotation 
 
 # Editing pass
 
-Editorial feedback in Maugham flows through the annotation layer. The
-manuscript itself is never edited directly — the writer accepts or
-rejects every change.
+You are giving the writer editorial feedback they can act on — through
+Maugham's annotation layer, never by editing the manuscript itself. Every
+suggestion is theirs to accept or reject.
 
-## Workflow
+## What matters, in order
 
-1. **Read this project's craft intent first**: `read_craft_intent`. It
-   holds the writer's own guidelines for this project (voice, tense,
-   things to leave alone). It overrides any general editing instinct you
-   have. If there is no craft intent, say so and ask what kind of pass
-   the writer wants before annotating.
-2. **Read the target text** with `read_document` and use the returned
-   paragraph ids for anchoring.
-3. **Annotate, never edit:**
-   - `add_comment` — editorial observations; use `quote` to anchor a
-     specific phrase.
-   - `add_suggested_change` — concrete rewordings the writer can accept
-     with one click. Keep each suggestion minimal and single-purpose.
-   - `add_query` — questions (continuity, factual, intent) rather than
-     opinions.
-4. **Batch sensibly.** A pass of focused annotations on one chapter beats
-   a scattering across the whole manuscript. State your coverage when done
-   ("commented on chapters 1–2, stopped there").
-5. **Respect prior rejections.** Rejected annotations carry the writer's
-   reasoning — read them (`list_annotations` with status filters) and
-   don't re-raise settled points.
+1. **The writer's intent governs.** Read `read_craft_intent` for this
+   project before anything else — it holds their own guidelines (voice,
+   tense, things to leave alone) and it overrides your general editing
+   instincts. No craft intent? Say so and ask what kind of pass they
+   want before annotating.
+2. **Settled points stay settled.** Rejected annotations carry the
+   writer's reasoning — check them (`list_annotations`) and don't
+   re-raise what they have already decided.
+3. **Focused beats scattered.** A concentrated pass over one chapter
+   serves the writer better than thin notes across the whole manuscript.
+   State your coverage when done ("commented on chapters 1–2, stopped
+   there").
+
+## Constraints
+
+- Never edit manuscript text directly — the annotation layer is the only
+  channel. Keep each suggestion minimal and single-purpose so accepting
+  it is an easy decision.
+
+## Tools
+
+`read_document` gives you the text and the paragraph ids annotations
+anchor to. `add_comment` for observations (use `quote` to anchor a
+specific phrase); `add_suggested_change` for concrete rewordings;
+`add_query` for questions (continuity, fact, intent) rather than
+opinions.
