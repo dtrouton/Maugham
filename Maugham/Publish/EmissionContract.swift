@@ -145,6 +145,16 @@ public enum EmissionContract {
     A per-piece file **MAY NOT**: `\\usepackage` (packages load only in the \
     preamble) or change `\\geometry` (page geometry is preamble-level and does \
     not revert at `\\endgroup`). These are collection-level — edit `preamble.tex`.
+
+    **Scoping, verified by compile probe** (bundled tectonic 0.15.0, LaTeX \
+    kernel 2021-11-15; pinned by `StarterTemplateDefectProbeTests`): command \
+    renewals made at style-file scope — `\\renewcommand`, \
+    `\\RenewDocumentCommand`, `\\DeclareRobustCommand`, including renewals of \
+    robust kernel commands like `\\textbf` — revert at the `\\endgroup` and \
+    cannot restyle later pieces. What DOES escape the group: `\\global`-prefixed \
+    definitions (never use them in a style file) and counter changes \
+    (`\\setcounter`/`\\addtocounter` — LaTeX counters are global). For \
+    heading-only styling, prefer renewing the `\\pieceheading` hook.
     """
 
     static let fontsConvention = """
