@@ -27,8 +27,11 @@
 % which is \input'd first). The optional first arg `notoc` suppresses the ToC
 % entry — the emitter passes \begin{screenplay}[notoc]{Title} when a section
 % sets include_in_toc:false. The default `toc` produces heading + ToC entry.
+% \def, NOT \newcommand, for the comparison macro — same \ifx/\long trap
+% as prose.tex: a \newcommand-defined macro is \long and never \ifx-matches
+% the \def'd argument, silently killing every ToC entry.
 \makeatletter
-\newcommand{\screenplay@toc}{toc}
+\def\screenplay@toc{toc}
 \NewEnviron{screenplay}[2][toc]{%
   \def\screenplay@arg{#1}%
   \ifx\screenplay@arg\screenplay@toc \pieceheading{#2}\else \pieceheadingnotoc{#2}\fi

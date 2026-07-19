@@ -116,9 +116,12 @@ public enum LaTeXBodyEmitter {
             }
             out.append("\\end{\(env)}")
         case .verbatim(let lines):
-            // A mangle guard, not code support: escaped text joined by `\\`
-            // in a plain paragraph — no `\texttt`, no monospace pretension.
-            out.append(lines.map(LaTeXEscape.escape).joined(separator: "\\\\"))
+            // A mangle guard, not code support: escaped text joined by
+            // `\newline` in a plain paragraph — no `\texttt`, no monospace
+            // pretension. `\newline`, never bare `\\`: `\\` scans forward for
+            // `*` and `[...]`, so a fenced line starting with `[` became its
+            // optional argument and killed the compile ("Missing number").
+            out.append(lines.map(LaTeXEscape.escape).joined(separator: "\\newline "))
             out.append("")   // blank line → \par, matching .paragraph
         }
     }
@@ -135,7 +138,10 @@ public enum LaTeXBodyEmitter {
             case .code(let s):      return "\\texttt{\(LaTeXEscape.escape(s))}"
             case .wikiLink(let target, let display):
                 return "\\wikilink{\(LaTeXEscape.escape(target))}{\(LaTeXEscape.escape(display))}"
-            case .lineBreak:        return "\\\\"
+            // `\newline`, not `\\`: a following `[` or `*` in the text would
+            // be captured as `\\`'s optional/star argument. Trailing space
+            // stops the control word absorbing a following letter.
+            case .lineBreak:        return "\\newline "
             }
         }.joined()
     }
@@ -207,9 +213,11 @@ public enum LaTeXBodyEmitter {
     private static func emitTitlePage(_ fields: [ProjectAST.TitleField],
                                       into out: inout [String]) {
         func escapeMultiline(_ s: String) -> String {
+            // `\newline`, not `\\` — same `[`/`*` argument-capture hazard as
+            // the fence join above.
             s.split(separator: "\n", omittingEmptySubsequences: false)
                 .map { LaTeXEscape.escape(String($0)) }
-                .joined(separator: "\\\\")
+                .joined(separator: "\\newline ")
         }
         out.append("\\begin{center}")
         out.append("\\vspace*{1.5in}")

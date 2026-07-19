@@ -66,7 +66,25 @@ final class LaTeXBodyEmitterTests: XCTestCase {
             ])
         ])
         let body = LaTeXBodyEmitter.emit(ast)
-        XCTAssertTrue(body.contains("a\\\\b"))
+        XCTAssertTrue(body.contains("a\\newline b"))
+    }
+
+    func testEmits_hardLineBreak_beforeBracketOrStar_noArgumentCapture() {
+        // A bare `\\` scans forward for `*` and `[...]`: text starting with `[`
+        // becomes its optional argument (compile failure "Missing number") and
+        // a leading `*` is swallowed as the starred form. `\newline` scans
+        // nothing.
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .paragraph([.text("a"), .lineBreak, .text("[x] bracketed")]),
+                .paragraph([.text("b"), .lineBreak, .text("*starred")]),
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("a\\newline [x] bracketed"))
+        XCTAssertTrue(body.contains("b\\newline *starred"))
+        XCTAssertFalse(body.contains("\\\\["))
+        XCTAssertFalse(body.contains("\\\\*"))
     }
 
     func testEmits_inlineWikiLink_command() {
@@ -176,9 +194,23 @@ final class LaTeXBodyEmitterTests: XCTestCase {
             ])
         ])
         let body = LaTeXBodyEmitter.emit(ast)
-        XCTAssertTrue(body.contains("*not em*\\\\50\\% off"))
+        XCTAssertTrue(body.contains("*not em*\\newline 50\\% off"))
         XCTAssertFalse(body.contains("\\texttt"))
         XCTAssertFalse(body.contains("\\emph"))
+    }
+
+    func testEmits_verbatim_lineStartingWithBracket_noArgumentCapture() {
+        // A fenced line beginning with `[` (e.g. TOML/INI headers) must not be
+        // captured as `\\`'s optional argument — that was a real compile
+        // failure ("Missing number, treated as zero").
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .prose(.verbatim(["[options]", "key = value"]))
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("[options]\\newline key = value"))
+        XCTAssertFalse(body.contains("\\\\["))
     }
 
     // MARK: - scene break + escaping
@@ -263,6 +295,21 @@ final class LaTeXBodyEmitterTests: XCTestCase {
         XCTAssertTrue(body.contains("\\end{center}"))
         // Its own page.
         XCTAssertTrue(body.contains("\\clearpage"))
+    }
+
+    func testEmits_fountainTitlePage_multilineField_noArgumentCapture() {
+        // Multiline title-page fields are joined by line breaks; a continuation
+        // line starting with `[` must not become `\\`'s optional argument.
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.titlePage([
+                    .init(key: "Contact", value: "Agent Name\n[c/o] The Agency"),
+                ]))
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("Agent Name\\newline [c/o] The Agency"))
+        XCTAssertFalse(body.contains("\\\\["))
     }
 
     func testEmits_dualDialogue_command() {
