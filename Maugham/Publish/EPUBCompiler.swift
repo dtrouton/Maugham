@@ -15,12 +15,17 @@ public struct EPUBCompiler {
     public let maughamVersion: String
     public let tectonicVersion: String
     public let jobID: String?
+    /// The requested edition language, used only for the output filename's
+    /// `{language}` token / collision suffix. dc:language comes from
+    /// `config.metadata.language`, which the orchestrator has already folded
+    /// to the edition.
+    public let language: String?
 
     public init(
         projectURL: URL, astSource: ProjectASTBuilder.Source,
         config: PublishConfig, jobManager: CompileJobManager,
         maughamVersion: String, tectonicVersion: String,
-        jobID: String? = nil
+        jobID: String? = nil, language: String? = nil
     ) {
         self.projectURL = projectURL
         self.astSource = astSource
@@ -29,6 +34,7 @@ public struct EPUBCompiler {
         self.maughamVersion = maughamVersion
         self.tectonicVersion = tectonicVersion
         self.jobID = jobID
+        self.language = language
     }
 
     public func compile(label: String?) async throws -> Result {
@@ -118,6 +124,6 @@ public struct EPUBCompiler {
     private func makeOutputFilename(
         format: PublishConfig.Format, label: String?
     ) -> String {
-        OutputFilenameBuilder.make(config: config, format: format, label: label, language: nil)
+        OutputFilenameBuilder.make(config: config, format: format, label: label, language: language)
     }
 }

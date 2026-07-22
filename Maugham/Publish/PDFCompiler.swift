@@ -15,6 +15,11 @@ public struct PDFCompiler {
     public let jobManager: CompileJobManager
     public let maughamVersion: String
     public let jobID: String?
+    /// The requested edition language, used only for the output filename's
+    /// `{language}` token / collision suffix. dc-facing metadata (including
+    /// `\MaughamLanguage`) comes from `config.metadata`, which the orchestrator
+    /// has already folded to the edition.
+    public let language: String?
 
     public init(
         projectURL: URL,
@@ -22,7 +27,8 @@ public struct PDFCompiler {
         config: PublishConfig,
         jobManager: CompileJobManager,
         maughamVersion: String,
-        jobID: String? = nil
+        jobID: String? = nil,
+        language: String? = nil
     ) throws {
         self.projectURL = projectURL
         self.astSource = astSource
@@ -30,6 +36,7 @@ public struct PDFCompiler {
         self.jobManager = jobManager
         self.maughamVersion = maughamVersion
         self.jobID = jobID
+        self.language = language
     }
 
     /// Full PDF compile.
@@ -61,6 +68,7 @@ public struct PDFCompiler {
         \\renewcommand{\\Keywords}{\(LaTeXEscape.escape(m.keywords.joined(separator: ", ")))}
         \\renewcommand{\\MaughamVersion}{\(LaTeXEscape.escape(config.nextVersion))}
         \\renewcommand{\\MaughamLabel}{\(LaTeXEscape.escape(label ?? ""))}
+        \\renewcommand{\\MaughamLanguage}{\(LaTeXEscape.escape(m.language))}
         """
         try metaTex.write(to: metaURL, atomically: true, encoding: .utf8)
 
@@ -127,7 +135,7 @@ public struct PDFCompiler {
     private func makeOutputFilename(
         format: PublishConfig.Format, label: String?
     ) -> String {
-        OutputFilenameBuilder.make(config: config, format: format, label: label, language: nil)
+        OutputFilenameBuilder.make(config: config, format: format, label: label, language: language)
     }
 
     /// Locates `tectonic` either from the running app bundle or, in XCTest,
