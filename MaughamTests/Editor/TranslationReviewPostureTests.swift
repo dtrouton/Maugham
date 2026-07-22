@@ -83,10 +83,15 @@ final class TranslationReviewPostureTests: XCTestCase {
 
     // MARK: - Harness: end-to-end read-only posture (zero ops)
 
-    /// Enter translation review on a real Document → simulated typing mutates
-    /// NOTHING: op-log length unchanged, `displayText` unchanged, the text view's
-    /// buffer unchanged, and `applyExternalText` never fires around the typing.
-    /// Exiting the posture restores normal editing.
+    /// Drives the coordinator membrane setter DIRECTLY (`setTranslationReview`),
+    /// i.e. the membrane in isolation — NOT the control-model/`updateNSView` entry
+    /// path (that end-to-end race is covered by
+    /// `test_enteringTranslationReview_*` / `test_exitingTranslationReview_*`
+    /// below, which hand-pump `EditorSurface.reconcileTextBuffer`). With the
+    /// membrane on, simulated typing on a real Document mutates NOTHING: op-log
+    /// length unchanged, `displayText` unchanged, the text-view buffer unchanged,
+    /// and `applyExternalText` never fires around the typing. Exiting restores
+    /// normal editing.
     @MainActor
     func test_translationReview_typingProducesZeroOps_thenExitRestoresEditing() async throws {
         let rd = try await EditorIntegrationHarness.withRealDocument(
@@ -127,5 +132,193 @@ final class TranslationReviewPostureTests: XCTestCase {
             "leaving translation review must restore normal editing")
 
         await doc.close()
+    }
+
+    // MARK: - Entry/exit race (real control-plane wiring, hand-pumped updateNSView)
+
+    /// The Critical race: `control.translationLanguage` changing drives TWO
+    /// independent reactions with no ordering guarantee — the coordinator's async
+    /// observation re-arm (flips the membrane on a LATER main-actor turn) vs
+    /// SwiftUI's render → `updateNSView` → buffer swap. If the render wins, the
+    /// translated text is briefly EDITABLE and a keystroke lands in the op log.
+    ///
+    /// This drives the REAL entry point (mutating the observed `EditorControl`,
+    /// NOT `setTranslationReview` directly) and then hand-pumps
+    /// `EditorSurface.reconcileTextBuffer` — the exact reconciliation
+    /// `updateNSView` performs — WITHOUT settling first, so the render deliberately
+    /// wins the race against the not-yet-run async re-arm. The synchronous membrane
+    /// flip inside `reconcileTextBuffer` is what makes the keystroke-in-the-window
+    /// assertion pass: strip that flip and the membrane is still off here (the
+    /// async re-arm hasn't run), the keystroke lands, and this fails.
+    ///
+    /// `NSViewRepresentable.Context` is unsynthesizable, so the SwiftUI
+    /// body-eval → `updateNSView` dispatch itself remains machine-unverifiable
+    /// (smoke-only); everything from the reconciliation onward is exercised here.
+    @MainActor
+    func test_enteringTranslationReview_membraneFlipsBeforeBufferSwap_typingNeverLands() async throws {
+        let rd = try await EditorIntegrationHarness.withRealDocument(
+            mode: ProseMode(),
+            initialText: "Source one\n\nSource two")
+        let harness = rd.harness
+        let doc = rd.document
+        let coordinator = harness.coordinator
+
+        // Wire the REAL control-plane model — the production entry point. Initial
+        // apply runs with language nil, so the membrane starts off.
+        let control = EditorControl()
+        coordinator.observeControl(control)
+        XCTAssertFalse(coordinator.isTranslationReview)
+
+        let opCountBefore = doc.opLogMirrorCount
+        let displayBefore = doc.displayText
+        let translated = "Traduction un\n\nTraduction deux"
+
+        // Enter translation review through the REAL entry point. This schedules
+        // the async observation re-arm; it does NOT flip the membrane yet.
+        control.translationLanguage = "fr"
+
+        // Simulate the render that carries the translated surface into the buffer
+        // (EditorHost sets translatedSurfaceText → updateNSView) — WITHOUT
+        // settling, so this wins the race against the async re-arm.
+        EditorSurface.reconcileTextBuffer(
+            textView: harness.textView,
+            coordinator: coordinator,
+            translationLanguage: control.translationLanguage,
+            text: translated,
+            undoCoherentApply: false)
+
+        XCTAssertEqual(harness.currentText, translated,
+            "the translated surface must be swapped into the buffer")
+        // The membrane is ALREADY blocking here — before the async re-arm ran.
+        // A keystroke in this window must not land.
+        harness.assertNoApplyExternalText {
+            harness.typeCharacter("X")
+        }
+        try await doc.flushBurstNow()
+
+        XCTAssertEqual(doc.opLogMirrorCount, opCountBefore,
+            "a keystroke during the entry transition must produce ZERO ops")
+        XCTAssertEqual(doc.displayText, displayBefore,
+            "the source manuscript must be untouched by the blocked keystroke")
+        XCTAssertEqual(harness.currentText, translated,
+            "the buffer must still show translated text (keystroke blocked)")
+
+        await doc.close()
+    }
+
+    /// Symmetric exit: leaving translation review (`translationLanguage → nil`)
+    /// must release the membrane synchronously in the same pass the source buffer
+    /// is swapped back in, so editing resumes IMMEDIATELY — without waiting for the
+    /// async re-arm. Strip the synchronous flip and the membrane is still on here
+    /// (async re-arm not yet run), the keystroke is blocked, and this fails.
+    @MainActor
+    func test_exitingTranslationReview_membraneFlipsBeforeBufferSwap_editingResumes() async throws {
+        let rd = try await EditorIntegrationHarness.withRealDocument(
+            mode: ProseMode(),
+            initialText: "Source one\n\nSource two")
+        let harness = rd.harness
+        let doc = rd.document
+        let coordinator = harness.coordinator
+
+        // Start IN translation review: initial apply flips the membrane on.
+        let control = EditorControl()
+        control.translationLanguage = "fr"
+        coordinator.observeControl(control)
+        XCTAssertTrue(coordinator.isTranslationReview,
+            "initial apply with a language must enter translation review")
+
+        // Model the entered state: translated text sits in the buffer.
+        let translated = "Traduction un\n\nTraduction deux"
+        EditorSurface.reconcileTextBuffer(
+            textView: harness.textView,
+            coordinator: coordinator,
+            translationLanguage: "fr",
+            text: translated,
+            undoCoherentApply: false)
+        XCTAssertEqual(harness.currentText, translated)
+
+        // Exit through the REAL entry point (schedules the async re-arm)…
+        control.translationLanguage = nil
+        // …then hand-pump the render that swaps the source surface back in, WITHOUT
+        // settling — the render wins the race against the async re-arm.
+        EditorSurface.reconcileTextBuffer(
+            textView: harness.textView,
+            coordinator: coordinator,
+            translationLanguage: control.translationLanguage,
+            text: doc.displayText,
+            undoCoherentApply: false)
+
+        XCTAssertEqual(harness.currentText, doc.displayText,
+            "the source manuscript must be restored to the buffer on exit")
+        XCTAssertFalse(coordinator.isTranslationReview,
+            "the membrane must be released synchronously on exit")
+
+        // Editing resumes right away — no settle for the async re-arm.
+        let opCountBefore = doc.opLogMirrorCount
+        harness.typeCharacter("Q")
+        try await doc.flushBurstNow()
+        XCTAssertGreaterThan(doc.opLogMirrorCount, opCountBefore,
+            "editing must resume immediately after exiting translation review")
+
+        await doc.close()
+    }
+
+    // MARK: - Undo-coherent flag coupling (Important)
+
+    /// A translation entry/exit swap must NEVER preserve the undo stack, even when
+    /// an accept/revert set the one-shot undo-coherent flag in the SAME pass:
+    /// carrying the source's native undo actions across the translated-buffer swap
+    /// re-opens the ⌘Z EXC_BAD_ACCESS class (EditorUndoStackClearTests). When the
+    /// translation membrane flips this pass, `reconcileTextBuffer` forces a
+    /// non-undo-coherent replace regardless of the flag.
+    @MainActor
+    func test_reconcile_translationSwap_forcesUndoStackClear_evenWithCoherentFlag() {
+        let harness = EditorIntegrationHarness(initialText: "Source one")
+        let coordinator = harness.coordinator
+        let um = UndoManager()
+        coordinator.undoManagerOverrideForTesting = um
+        um.registerUndo(withTarget: self) { _ in }   // stale native typing action
+        XCTAssertTrue(um.canUndo)
+
+        // Entering translation review (membrane flips) with the one-shot
+        // undo-coherent flag set: the translation swap must win and clear the stack.
+        EditorSurface.reconcileTextBuffer(
+            textView: harness.textView,
+            coordinator: coordinator,
+            translationLanguage: "fr",
+            text: "Traduction un",
+            undoCoherentApply: true)
+
+        XCTAssertTrue(coordinator.isTranslationReview)
+        XCTAssertFalse(um.canUndo,
+            "a translation-entry swap must drop the stale native undo stack even "
+            + "when the one-shot undo-coherent flag is set")
+    }
+
+    /// Control half: when the membrane does NOT change this pass (an ordinary
+    /// accept/revert replace, no translation transition), the one-shot
+    /// undo-coherent flag is honored and the accept-registered undo action survives.
+    @MainActor
+    func test_reconcile_nonTranslationSwap_honorsUndoCoherentFlag() {
+        let harness = EditorIntegrationHarness(initialText: "Source one")
+        let coordinator = harness.coordinator
+        let um = UndoManager()
+        coordinator.undoManagerOverrideForTesting = um
+        um.registerUndo(withTarget: self) { _ in }   // accept/revert registration
+        XCTAssertTrue(um.canUndo)
+
+        // No translation transition (language stays nil → membrane unchanged); the
+        // undo-coherent flag must be honored so the accept registration survives.
+        EditorSurface.reconcileTextBuffer(
+            textView: harness.textView,
+            coordinator: coordinator,
+            translationLanguage: nil,
+            text: "Accepted revision",
+            undoCoherentApply: true)
+
+        XCTAssertFalse(coordinator.isTranslationReview)
+        XCTAssertTrue(um.canUndo,
+            "a non-translation undo-coherent replace must keep the accept-undo "
+            + "registration")
     }
 }

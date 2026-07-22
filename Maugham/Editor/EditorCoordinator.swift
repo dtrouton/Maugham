@@ -736,9 +736,16 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// value changes, flowing through the single `applyExternalText` site in
     /// `updateNSView`); this setter only governs the membrane. Idempotent /
     /// no-op guarded (updateNSView / applyControl run every layout pass).
-    func setTranslationReview(_ enabled: Bool) {
-        guard isTranslationReview != enabled else { return }
+    ///
+    /// Returns `true` when the flag actually flipped (used by
+    /// `EditorSurface.reconcileTextBuffer` to detect a translation entry/exit
+    /// swap in the same layout pass, so it can force a non-undo-coherent buffer
+    /// replace regardless of any one-shot undo-coherent flag).
+    @discardableResult
+    func setTranslationReview(_ enabled: Bool) -> Bool {
+        guard isTranslationReview != enabled else { return false }
         isTranslationReview = enabled
+        return true
     }
 
     func setReviewMode(_ enabled: Bool) {
