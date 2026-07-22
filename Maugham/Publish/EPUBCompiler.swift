@@ -118,6 +118,6 @@ public struct EPUBCompiler {
     private func makeOutputFilename(
         format: PublishConfig.Format, label: String?
     ) -> String {
-        OutputFilenameBuilder.make(config: config, format: format, label: label)
+        OutputFilenameBuilder.make(config: config, format: format, label: label, language: nil)
     }
 }

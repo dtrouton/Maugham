@@ -34,6 +34,10 @@ public struct PublishConfig: Codable, Equatable, Sendable {
     public var epubOverrides: EPUBOverrides
     public var nextVersion: String           // e.g. "0.3"
     public var activeLabelHint: String?
+    /// Per-language metadata overrides for translated editions, keyed by
+    /// lowercase BCP-47-ish tag (e.g. "fr", "pt-br"). Empty for a
+    /// single-language project. See `effectiveMetadata(language:)`.
+    public var languageOverrides: [String: LanguageOverride]
 
     public struct Metadata: Codable, Equatable, Sendable {
         public var title: String
@@ -238,6 +242,26 @@ public struct PublishConfig: Codable, Equatable, Sendable {
         }
     }
 
+    /// Metadata overrides for one translated edition. Mirrors `EPUBOverrides`'
+    /// free-form `metadata` dict: known keys (`title`, `author`, `year`, …) are
+    /// applied by `effectiveMetadata(language:)`; unknown keys are ignored.
+    public struct LanguageOverride: Codable, Equatable, Sendable {
+        public var metadata: [String: String]
+
+        public init(metadata: [String: String] = [:]) {
+            self.metadata = metadata
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(metadata, forKey: .metadata)
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case metadata
+        }
+    }
+
     public init(
         schemaVersion: Int = 1,
         metadata: Metadata = .init(),
@@ -246,7 +270,8 @@ public struct PublishConfig: Codable, Equatable, Sendable {
         sections: [String: Section] = [:],
         epubOverrides: EPUBOverrides = .init(),
         nextVersion: String = "0.1",
-        activeLabelHint: String? = nil
+        activeLabelHint: String? = nil,
+        languageOverrides: [String: LanguageOverride] = [:]
     ) {
         self.schemaVersion = schemaVersion
         self.metadata = metadata
@@ -256,6 +281,35 @@ public struct PublishConfig: Codable, Equatable, Sendable {
         self.epubOverrides = epubOverrides
         self.nextVersion = nextVersion
         self.activeLabelHint = activeLabelHint
+        self.languageOverrides = languageOverrides
+    }
+
+    /// The metadata that should drive an edition compiled for `language`.
+    ///
+    /// - `language == nil`: the base `metadata`, unchanged (single-language
+    ///   compile).
+    /// - otherwise: `metadata` with its `language` set to the tag (dc:language),
+    ///   then the `languageOverrides[language]` dict applied over the known keys.
+    ///   An explicit `language` key in the override dict wins over the raw tag.
+    public func effectiveMetadata(language: String?) -> Metadata {
+        guard let language else { return metadata }
+        var m = metadata
+        m.language = language
+        guard let override = languageOverrides[language]?.metadata else { return m }
+        if let v = override["title"]     { m.title = v }
+        if let v = override["subtitle"]  { m.subtitle = v }
+        if let v = override["author"]    { m.author = v }
+        if let v = override["copyright"] { m.copyright = v }
+        if let v = override["isbn"]      { m.isbn = v }
+        if let v = override["publisher"] { m.publisher = v }
+        if let v = override["year"], let y = Int(v) { m.year = y }  // unparseable ignored
+        if let v = override["language"]  { m.language = v }         // explicit key beats tag
+        if let v = override["keywords"] {
+            m.keywords = v.split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+        }
+        return m
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -268,6 +322,27 @@ public struct PublishConfig: Codable, Equatable, Sendable {
         try c.encode(epubOverrides, forKey: .epubOverrides)
         try c.encode(nextVersion, forKey: .nextVersion)
         try c.encodeAlways(activeLabelHint, forKey: .activeLabelHint)
+        try c.encode(languageOverrides, forKey: .languageOverrides)
+    }
+
+    // Explicit top-level decoder: the synthesized `init(from:)` would throw
+    // `keyNotFound` on `language_overrides` for any config.json written before
+    // this milestone (Swift does not honor a stored-property default during
+    // synthesized decode). Every pre-existing key is decoded exactly as the
+    // synthesized decoder would (required = `decode`, optional = `decodeIfPresent`);
+    // only `language_overrides` is tolerated-missing → `[:]`.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try c.decode(Int.self, forKey: .schemaVersion)
+        metadata = try c.decode(Metadata.self, forKey: .metadata)
+        outputs = try c.decode(Outputs.self, forKey: .outputs)
+        cover = try c.decode(Cover.self, forKey: .cover)
+        sections = try c.decode([String: Section].self, forKey: .sections)
+        epubOverrides = try c.decode(EPUBOverrides.self, forKey: .epubOverrides)
+        nextVersion = try c.decode(String.self, forKey: .nextVersion)
+        activeLabelHint = try c.decodeIfPresent(String.self, forKey: .activeLabelHint)
+        languageOverrides = try c.decodeIfPresent(
+            [String: LanguageOverride].self, forKey: .languageOverrides) ?? [:]
     }
 
     enum CodingKeys: String, CodingKey {
@@ -279,5 +354,6 @@ public struct PublishConfig: Codable, Equatable, Sendable {
         case epubOverrides = "epub_overrides"
         case nextVersion = "next_version"
         case activeLabelHint = "active_label_hint"
+        case languageOverrides = "language_overrides"
     }
 }

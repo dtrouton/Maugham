@@ -17,18 +17,34 @@ enum OutputFilenameBuilder {
     static func make(
         config: PublishConfig,
         format: PublishConfig.Format,
-        label: String?
+        label: String?,
+        language: String?
     ) -> String {
         var title = sanitizeForFilesystem(config.metadata.title)
         if config.outputs.sanitizeSpaces {
             title = title.replacingOccurrences(of: " ", with: "-")
         }
         let labelSuffix = label.map { "-\(sanitizeForFilesystem($0))" } ?? ""
-        return config.outputs.filenameTemplate
+        let template = config.outputs.filenameTemplate
+        var name = template
             .replacingOccurrences(of: "{title}",        with: title)
             .replacingOccurrences(of: "{version}",      with: config.nextVersion)
             .replacingOccurrences(of: "{label_suffix}", with: labelSuffix)
+            .replacingOccurrences(of: "{language}",     with: language ?? "")
             .replacingOccurrences(of: "{ext}",          with: format.rawValue)
+
+        // Collision guard: if a language edition was requested but the template
+        // has no {language} token, insert -<lang> before the extension so the
+        // translated edition can't silently overwrite the source-language file.
+        if let language, !template.contains("{language}") {
+            let ext = ".\(format.rawValue)"
+            if name.hasSuffix(ext) {
+                name = "\(name.dropLast(ext.count))-\(language)\(ext)"
+            } else {
+                name += "-\(language)"
+            }
+        }
+        return name
     }
 
     /// Always-on sanitization: strip path separators, null bytes, and any

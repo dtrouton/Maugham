@@ -12,6 +12,10 @@ public struct Publication: Codable, Equatable, Sendable {
     public let compiledAt: Date
     public let maughamVersion: String
     public let tectonicVersion: String
+    /// The edition's language tag, when this publication is a translated
+    /// edition. `nil` for source-language publications (and any record written
+    /// before this field existed — synthesized `decodeIfPresent`).
+    public let language: String?
 
     public init(
         publicationID: String,
@@ -24,7 +28,8 @@ public struct Publication: Codable, Equatable, Sendable {
         republishedFrom: String?,
         compiledAt: Date,
         maughamVersion: String,
-        tectonicVersion: String
+        tectonicVersion: String,
+        language: String? = nil
     ) {
         self.publicationID = publicationID
         self.version = version
@@ -37,6 +42,7 @@ public struct Publication: Codable, Equatable, Sendable {
         self.compiledAt = compiledAt
         self.maughamVersion = maughamVersion
         self.tectonicVersion = tectonicVersion
+        self.language = language
     }
 
     enum CodingKeys: String, CodingKey {
@@ -49,5 +55,6 @@ public struct Publication: Codable, Equatable, Sendable {
         case compiledAt = "compiled_at"
         case maughamVersion = "maugham_version"
         case tectonicVersion = "tectonic_version"
+        case language
     }
 }

@@ -127,7 +127,7 @@ public struct PDFCompiler {
     private func makeOutputFilename(
         format: PublishConfig.Format, label: String?
     ) -> String {
-        OutputFilenameBuilder.make(config: config, format: format, label: label)
+        OutputFilenameBuilder.make(config: config, format: format, label: label, language: nil)
     }
 
     /// Locates `tectonic` either from the running app bundle or, in XCTest,
