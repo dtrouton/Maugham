@@ -895,13 +895,21 @@ struct ProjectWindow: View {
             device: _checkpointDeviceId,
             session: _checkpointSessionId,
             docPaths: Self.documentPaths(in: store.manifest.structure),
-            documentStore: documentStore
+            documentStore: documentStore,
+            editorControl: editorControl
         ) {
             if store.manifest.type == .collection {
                 collectionInspector(store: store)
             } else {
                 existingInspectorSwitch(store: store)
             }
+        }
+        // Entering translation review surfaces the Translation segment so the
+        // source text + translator queries are one glance away. Exiting leaves
+        // the segment in place (it shows a "not in review" empty state) rather
+        // than yanking the pane out from under the writer.
+        .onChange(of: editorControl.translationLanguage) { _, lang in
+            if lang != nil { detailSegment = .translation }
         }
     }
 
