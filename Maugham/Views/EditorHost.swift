@@ -398,19 +398,19 @@ struct EditorHost: View {
         let derived = TranslationDeriver.derive(
             records: records, sequence: doc.sequence,
             paragraphs: doc.paragraphs, language: language)
-        // The badge overlay must measure ¶ ranges against the SAME rendered
-        // surface swapped into the buffer, so build the string once and hand
-        // both to the coordinator (via control) and the editor (Task 12).
-        let rendered = derived.entries
-            .map { $0.translatedText ?? $0.sourceText }
-            .joined(separator: "\n\n")
-        translatedSurfaceText = rendered
-        control.translationBadges = EditorControl.TranslationBadgeModel(
-            entries: derived.entries.map {
-                TranslationBadgeLayout.Entry(
-                    paragraphId: $0.paragraphId, status: $0.status)
-            },
-            renderedText: rendered)
+        // The badge overlay measures ¶ ranges by accumulating each entry's OWN
+        // text (TranslationBadgeLayout.ranges) rather than re-splitting a
+        // joined string, so hand it the same per-block text the buffer swap
+        // joins — same bytes as `translatedSurfaceText` below, just chunked
+        // per paragraph (Task 12 fix round 1).
+        let badgeEntries = derived.entries.map {
+            TranslationBadgeLayout.Entry(
+                paragraphId: $0.paragraphId,
+                text: $0.translatedText ?? $0.sourceText,
+                status: $0.status)
+        }
+        translatedSurfaceText = badgeEntries.map(\.text).joined(separator: "\n\n")
+        control.translationBadges = EditorControl.TranslationBadgeModel(entries: badgeEntries)
     }
 
     private var currentItem: StructureItem? {

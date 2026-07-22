@@ -322,8 +322,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// The current per-paragraph badge resolution (¶ → UTF-16 range + status) in
     /// the rendered translated surface. Recomputed only when the pushed model
     /// changes — never per draw (tripwire 4). The overlay reads this directly.
-    var resolvedTranslationBadges:
-        [(paragraphId: String, range: NSRange, status: TranslationStatus)] = []
+    var resolvedTranslationBadges: [TranslationBadgeLayout.BadgeRange] = []
     /// Last translation-badge model applied, for the per-`applyControl` no-op
     /// guard (the model is pushed on every observation pass, like
     /// `reviewAnnotations`). Nil until the first push.

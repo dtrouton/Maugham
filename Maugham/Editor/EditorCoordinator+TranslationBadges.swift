@@ -22,8 +22,7 @@ extension EditorCoordinator {
     func setTranslationBadges(_ model: EditorControl.TranslationBadgeModel) {
         guard model != appliedTranslationBadgeModel else { return }
         appliedTranslationBadgeModel = model
-        resolvedTranslationBadges = TranslationBadgeLayout.ranges(
-            entries: model.entries, renderedText: model.renderedText)
+        resolvedTranslationBadges = TranslationBadgeLayout.ranges(entries: model.entries)
         applyTranslationDimming()
         syncTranslationBadgeOverlay()
     }
