@@ -111,7 +111,10 @@ public enum CompileTool: MCPTool {
         let projectURL = entry.url
         let stores = PublishingStores.sharedFor(
             projectID: params.projectID, projectURL: projectURL)
-        let astSource = ProjectStoreASTSource(projectStore: store)
+        let astSource = ProjectStoreASTSource(
+            projectStore: store,
+            language: params.language,
+            allowStale: params.allowStale ?? false)
         let orch = CompileOrchestrator(
             projectURL: projectURL,
             astSource: astSource,
