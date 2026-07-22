@@ -111,6 +111,12 @@ public enum AnnotationDeriver {
             let spanIsStale = (span != nil && resolvedSpanRange == nil)
             let isStale = paragraphStale || spanIsStale
 
+            // Translation-pass language tag — query-only. add_query encodes its
+            // whole Params into `toolArgs` provenance, so decode it back out
+            // here; malformed/absent toolArgs → nil, never throws.
+            let language: String? = (kind == .query)
+                ? decodeToolArgsLanguage(prov?.toolArgs) : nil
+
             result.append(Annotation(
                 id: op.opId,
                 kind: kind,
@@ -126,7 +132,8 @@ public enum AnnotationDeriver {
                 isStale: isStale,
                 author: author,
                 span: span,
-                resolvedSpanRange: resolvedSpanRange))
+                resolvedSpanRange: resolvedSpanRange,
+                language: language))
         }
         // Newest first by createdAt; tie-break by op_id (descending) for
         // stable ordering of same-instant ops.
@@ -138,6 +145,17 @@ public enum AnnotationDeriver {
     }
 
     // MARK: - Helpers
+
+    /// The subset of an annotation op's `toolArgs` we read back — the
+    /// translation-pass language tag written by add_query.
+    private struct ToolArgsLanguage: Decodable { let language: String? }
+
+    /// Decode the `language` tag out of an op's `toolArgs` JSON string, if
+    /// present. Absent or malformed JSON → nil (never throws).
+    private static func decodeToolArgsLanguage(_ json: String?) -> String? {
+        guard let json, let data = json.data(using: .utf8) else { return nil }
+        return (try? JSONDecoder().decode(ToolArgsLanguage.self, from: data))?.language
+    }
 
     private static func isLifecycleKind(_ kind: OpKind) -> Bool {
         switch kind {

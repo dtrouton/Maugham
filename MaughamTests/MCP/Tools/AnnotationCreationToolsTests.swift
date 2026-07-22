@@ -231,6 +231,92 @@ final class AnnotationCreationToolsTests: XCTestCase {
         await h.documentStore.close()
     }
 
+    // MARK: - add_query language tag
+
+    func test_addQuery_withLanguage_roundTripsOntoAnnotation() async throws {
+        let h = try await makeHarness()
+
+        let log = try await h.doc.opLog()
+        guard let pid = log.first(where: { $0.kind == .bootstrap })?
+            .changes.first?.paragraphId
+        else { return XCTFail("no bootstrap paragraph") }
+
+        let params: [String: Any] = [
+            "project_id": h.projectId,
+            "document_id": h.doc.docId,
+            "paragraph_id": pid,
+            "body": "how formal is this address in the target?",
+            "language": "es"
+        ]
+        let paramsData = try JSONSerialization.data(withJSONObject: params)
+        let resultData = try await AddQueryTool.handle(
+            paramsJSON: paramsData, registry: h.registry)
+        let result = try JSONDecoder().decode(
+            AddQueryTool.Result.self, from: resultData)
+
+        let ann = h.doc.annotations().first { $0.id == result.annotation_id }
+        XCTAssertNotNil(ann, "derived annotation not found")
+        XCTAssertEqual(ann?.kind, .query)
+        XCTAssertEqual(ann?.language, "es")
+
+        await h.documentStore.close()
+    }
+
+    func test_addQuery_withoutLanguage_derivesNilLanguage() async throws {
+        let h = try await makeHarness()
+
+        let log = try await h.doc.opLog()
+        guard let pid = log.first(where: { $0.kind == .bootstrap })?
+            .changes.first?.paragraphId
+        else { return XCTFail("no bootstrap paragraph") }
+
+        let params: [String: Any] = [
+            "project_id": h.projectId,
+            "document_id": h.doc.docId,
+            "paragraph_id": pid,
+            "body": "a plain query, no translation pass"
+        ]
+        let paramsData = try JSONSerialization.data(withJSONObject: params)
+        let resultData = try await AddQueryTool.handle(
+            paramsJSON: paramsData, registry: h.registry)
+        let result = try JSONDecoder().decode(
+            AddQueryTool.Result.self, from: resultData)
+
+        let ann = h.doc.annotations().first { $0.id == result.annotation_id }
+        XCTAssertNotNil(ann)
+        XCTAssertNil(ann?.language)
+
+        await h.documentStore.close()
+    }
+
+    func test_addQuery_invalidLanguage_throwsInvalidArgument() async throws {
+        let h = try await makeHarness()
+
+        let log = try await h.doc.opLog()
+        guard let pid = log.first(where: { $0.kind == .bootstrap })?
+            .changes.first?.paragraphId
+        else { return XCTFail("no bootstrap paragraph") }
+
+        let params: [String: Any] = [
+            "project_id": h.projectId,
+            "document_id": h.doc.docId,
+            "paragraph_id": pid,
+            "body": "bad tag",
+            "language": "Spanish!"
+        ]
+        let paramsData = try JSONSerialization.data(withJSONObject: params)
+
+        do {
+            _ = try await AddQueryTool.handle(
+                paramsJSON: paramsData, registry: h.registry)
+            XCTFail("expected invalidArgument for a malformed language tag")
+        } catch MCPError.invalidArgument {
+            // expected
+        }
+
+        await h.documentStore.close()
+    }
+
     // MARK: - add_craft_note
 
     func test_addCraftNote_acceptsNoParagraphId() async throws {

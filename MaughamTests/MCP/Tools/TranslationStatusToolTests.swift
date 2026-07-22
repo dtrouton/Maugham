@@ -118,6 +118,53 @@ final class TranslationStatusToolTests: XCTestCase {
         await h.documentStore.close()
     }
 
+    // MARK: - open_queries counts language-tagged open queries
+
+    func test_translationStatus_countsLanguageTaggedOpenQueries() async throws {
+        let h = try await makeHarness()
+        let ids = h.doc1.sequence
+        // Translate the first paragraph into es and fr so both languages
+        // produce a row.
+        try await seed(h, doc: h.doc1, paragraphId: ids[0], language: "es", text: "a")
+        try await seed(h, doc: h.doc1, paragraphId: ids[0], language: "fr", text: "c")
+
+        // One open query tagged es, one tagged fr, one untagged — only the
+        // language-matched ones count toward that language's open_queries.
+        try await addQuery(h, doc: h.doc1, paragraphId: ids[0],
+                           body: "how formal here?", language: "es")
+        try await addQuery(h, doc: h.doc1, paragraphId: ids[1],
+                           body: "idiom or literal?", language: "es")
+        try await addQuery(h, doc: h.doc1, paragraphId: ids[0],
+                           body: "tu or vous?", language: "fr")
+        try await addQuery(h, doc: h.doc1, paragraphId: ids[0],
+                           body: "plain craft query", language: nil)
+
+        let result = try await status(h, [
+            "project_id": h.projectId,
+            "document_id": "doc-1"
+        ])
+        let byLang = Dictionary(uniqueKeysWithValues: result.rows.map { ($0.language, $0) })
+        XCTAssertEqual(byLang["es"]?.open_queries, 2,
+                       "two es-tagged open queries counted for es")
+        XCTAssertEqual(byLang["fr"]?.open_queries, 1,
+                       "one fr-tagged open query counted for fr")
+
+        await h.documentStore.close()
+    }
+
+    private func addQuery(_ h: Harness, doc: Document, paragraphId: String,
+                          body: String, language: String?) async throws {
+        var params: [String: Any] = [
+            "project_id": h.projectId,
+            "document_id": doc.docId,
+            "paragraph_id": paragraphId,
+            "body": body
+        ]
+        if let language { params["language"] = language }
+        let data = try JSONSerialization.data(withJSONObject: params)
+        _ = try await AddQueryTool.handle(paramsJSON: data, registry: h.registry)
+    }
+
     // MARK: - project-wide walk covers every manuscript doc
 
     func test_translationStatus_projectWide_covers2Docs() async throws {

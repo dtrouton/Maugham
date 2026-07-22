@@ -290,6 +290,17 @@ public enum TranslationStatusTool: MCPTool {
             if !explicitDoc && languages.isEmpty { continue }
             let state = try currentParagraphState(
                 projectId: params.project_id, documentId: docId, registry: registry)
+
+            // Open translator questions for this doc, resolved the same
+            // open/closed way list_annotations does so counts match the pane.
+            // Fetched once per doc; bucketed by language below.
+            let openQueries = try await withAnnotationDocument(
+                projectId: params.project_id, documentId: docId, registry: registry
+            ) { doc in
+                doc.annotations(filter: AnnotationFilter(
+                    kinds: [.query], statuses: [.open]))
+            }
+
             for language in languages {
                 let records = TranslationStore.loadMerged(
                     forDocId: docId, language: language, in: state.projectURL)
@@ -303,7 +314,7 @@ public enum TranslationStatusTool: MCPTool {
                     stale: derived.staleCount,
                     missing: derived.missingCount,
                     orphans: derived.orphans.count,
-                    open_queries: 0))  // Task 5 flips this to annotation.language
+                    open_queries: openQueries.filter { $0.language == language }.count))
             }
         }
 
