@@ -39,6 +39,17 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// nothing reads it back. Use `setLockEditing(_:)` to flip it.
     private(set) var lockEditing = false
 
+    /// Translation-review posture (Task 11): when true the editor is displaying a
+    /// DERIVED translated surface (`translatedText ?? sourceText`, joined) instead
+    /// of the source manuscript, so the buffer is read-only — `shouldChangeTextIn`
+    /// rejects every mutation via `EditorEditPolicy`, guaranteeing the translated
+    /// view produces zero ops. Independent of `isReviewMode`/`lockEditing`: a
+    /// reader can inspect a translation of a manuscript they authored. Plain
+    /// stored property, no observers (tripwire 2), threaded ONE-WAY from
+    /// ProjectWindow → EditorHost → EditorSurface; nothing reads it back. Use
+    /// `setTranslationReview(_:)` to flip it so the membrane sees it immediately.
+    private(set) var isTranslationReview = false
+
     /// Weak handle to the floating selection toolbar overlay so the
     /// selection-change callback can position/show/hide it. Lives in the scroll
     /// view's superview (see EditorSurface), NOT a subview of the clipped
@@ -717,6 +728,19 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         lockEditing = locked
     }
 
+    /// Translation-review posture changed (Task 11). Plain stored-property flip
+    /// threaded ONE-WAY from EditorSurface (tripwires 2 & 6). The membrane reads
+    /// `isTranslationReview` live in `shouldChangeTextIn`, so no restyle is needed
+    /// — the next keystroke sees the new value (mirrors `setLockEditing`). The
+    /// translated-surface buffer swap itself is EditorHost's job (the text binding
+    /// value changes, flowing through the single `applyExternalText` site in
+    /// `updateNSView`); this setter only governs the membrane. Idempotent /
+    /// no-op guarded (updateNSView / applyControl run every layout pass).
+    func setTranslationReview(_ enabled: Bool) {
+        guard isTranslationReview != enabled else { return }
+        isTranslationReview = enabled
+    }
+
     func setReviewMode(_ enabled: Bool) {
         guard isReviewMode != enabled else { return }
         isReviewMode = enabled
@@ -789,6 +813,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             _ = control.sentenceFocus
             _ = control.paragraphFocus
             _ = control.reviewAnnotations
+            _ = control.translationLanguage
         } onChange: { [weak self] in
             // onChange fires once (pre-change). Re-arm on the next main-actor
             // turn — after the mutation commits — so the re-applied values are
@@ -814,6 +839,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         applyControlCount += 1
         setLockEditing(c.lockEditing)        // self-guarded
         setReviewMode(c.isReviewMode)        // self-guarded
+        // Translation review is a pure membrane flip driven off language
+        // presence; the surface buffer swap is EditorHost's (the text binding).
+        setTranslationReview(c.translationLanguage != nil)   // self-guarded
         if theme != c.theme || typography != c.typography {
             applyAppearance(theme: c.theme, typography: c.typography)
         }
@@ -840,7 +868,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // stops the smart-typography path below from running its insertText, so
         // no mutation leaks. Placed at the very top, before the existing guard.
         guard EditorEditPolicy.allowsTextMutation(
-            isReviewMode: isReviewMode, lockEditing: lockEditing) else {
+            isReviewMode: isReviewMode, lockEditing: lockEditing,
+            isTranslationReview: isTranslationReview) else {
             return false
         }
         guard let replacementString,

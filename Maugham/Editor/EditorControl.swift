@@ -20,6 +20,14 @@ final class EditorControl {
     var isReviewMode: Bool = false
     var lockEditing: Bool = false
 
+    /// Selected translation language, or nil when the editor shows the source
+    /// manuscript (Task 11). Non-nil ⇒ the editor is in read-only translation
+    /// review: the coordinator flips its membrane (via `applyControl` →
+    /// `setTranslationReview`) and EditorHost swaps in the derived translated
+    /// surface. One-way (sources → model → coordinator); the UI sets it in a
+    /// later task. Genuine control state — never text-/cursor-derived (D1).
+    var translationLanguage: String? = nil
+
     // Appearance.
     var theme: Theme = .light
     var typography: TypographySettings = .defaults

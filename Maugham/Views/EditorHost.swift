@@ -53,6 +53,18 @@ struct EditorHost: View {
     /// editor switches away.
     @State private var priorLoadedPath: String?
 
+    /// The derived translated surface shown in read-only translation review
+    /// (Task 11), or nil when the editor shows the source manuscript. This is
+    /// DELIBERATE one-way threaded state (tripwire 6): it is recomputed ONLY on
+    /// explicit events — `control.translationLanguage` changing, or an
+    /// `annotationsVersion` tick while in the posture — never observed off
+    /// `displayText`. When non-nil it becomes the EditorSurface's `text` value,
+    /// so the buffer swap flows through the single `applyExternalText` site in
+    /// `EditorSurface.updateNSView`; the editor membrane (flipped in the
+    /// coordinator off `control.translationLanguage`) blocks every edit, so the
+    /// surface is read-only and produces zero ops.
+    @State private var translatedSurfaceText: String? = nil
+
     /// Session id stable for the lifetime of this app launch. Stamped onto
     /// every `typing_burst` Op so multi-window edits can be merged across
     /// instances. Computed once via a lazy static.
@@ -86,8 +98,16 @@ struct EditorHost: View {
                     // (tripwires 2/3/6/7) — it stays inline here, NOT packaged into
                     // the configuration.
                     text: Binding(
-                        get: { doc.displayText },
+                        // In translation review the surface shows the derived
+                        // translated buffer, not the source manuscript.
+                        get: { translatedSurfaceText ?? doc.displayText },
                         set: { newText in
+                            // Defense in depth: the coordinator membrane already
+                            // blocks every mutation in translation review, so no
+                            // set should reach here — but if one did, it must
+                            // NEVER write the translated buffer back onto the
+                            // source op log.
+                            guard translatedSurfaceText == nil else { return }
                             doc.setFullText(newText)
                             documentStore.recordEditorTextWrite(
                                 documentId: doc.docId,
@@ -114,16 +134,31 @@ struct EditorHost: View {
                     control.reviewAnnotations = control.isReviewMode
                         ? doc.annotations(filter: AnnotationFilter(statuses: [.open]))
                         : []
+                    // While in translation review, a source-side change (or a
+                    // freshly promoted translation) must re-derive the surface.
+                    if control.translationLanguage != nil {
+                        recomputeTranslatedSurface(doc: doc)
+                    }
                 }
                 .onChange(of: control.isReviewMode) { _, nowReview in
                     control.reviewAnnotations = nowReview
                         ? doc.annotations(filter: AnnotationFilter(statuses: [.open]))
                         : []
                 }
+                // Dedicated one-way recompute: entering translation review
+                // (language becomes non-nil) derives the surface once; exiting
+                // (nil) drops it so `text` reverts to `doc.displayText` and the
+                // existing applyExternalText site swaps the source buffer back in.
+                .onChange(of: control.translationLanguage) { _, _ in
+                    recomputeTranslatedSurface(doc: doc)
+                }
                 .onAppear {
                     control.reviewAnnotations = control.isReviewMode
                         ? doc.annotations(filter: AnnotationFilter(statuses: [.open]))
                         : []
+                    // A re-mount while a language is selected must restore the
+                    // translated surface.
+                    recomputeTranslatedSurface(doc: doc)
                 }
             } else if currentItem?.type == .group {
                 placeholder("Select a document inside this group to edit.")
@@ -341,6 +376,30 @@ struct EditorHost: View {
                         undoManager: um)
                 }),
             consumeUndoCoherentApplyFlag: { doc.consumeUndoCoherentApplyFlag() })
+    }
+
+    /// Re-derive the read-only translation surface for the live document, or
+    /// clear it when no language is selected (Task 11). Pulls the persisted
+    /// translation records for `control.translationLanguage`, derives against the
+    /// live doc's authoritative `sequence`/`paragraphs`, and joins the entries in
+    /// order as `translatedText ?? sourceText` with the pinned `"\n\n"` separator
+    /// (the same render `ProjectStoreASTSource` uses for publish). Called only on
+    /// explicit events (language change, annotationsVersion tick while in mode,
+    /// re-mount) — never off `displayText` — so it stays one-way threaded state,
+    /// not parallel observable state feeding the binding (tripwire 6).
+    private func recomputeTranslatedSurface(doc: Document) {
+        guard let language = control.translationLanguage else {
+            translatedSurfaceText = nil
+            return
+        }
+        let records = TranslationStore.loadMerged(
+            forDocId: doc.docId, language: language, in: store.url)
+        let derived = TranslationDeriver.derive(
+            records: records, sequence: doc.sequence,
+            paragraphs: doc.paragraphs, language: language)
+        translatedSurfaceText = derived.entries
+            .map { $0.translatedText ?? $0.sourceText }
+            .joined(separator: "\n\n")
     }
 
     private var currentItem: StructureItem? {
