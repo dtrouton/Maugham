@@ -53,6 +53,13 @@ final class TranslationReviewEventTests: XCTestCase {
     func test_enterTranslationReview_droppedWhenWindowNotKey() {
         // `.keyWindow` scoping: a non-key window's receiver must NOT act — this
         // is the same drop rule as ⌘⌥R review-mode toggle (menu-command class).
+        //
+        // v0.24.0 incident: this drop is exactly why UI INSIDE the project
+        // window (the confirmationDialog picker) must mutate state directly
+        // instead of self-posting a .keyWindow event — while a dialog/sheet is
+        // presented, ITS window holds key status, so a synchronous self-post
+        // lands right here and is dropped. See TranslationReviewModifier's
+        // dialog buttons.
         var fired = 0
         let token = MaughamEvent.observe(
             .maughamEnterTranslationReview,

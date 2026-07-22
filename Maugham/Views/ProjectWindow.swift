@@ -1445,15 +1445,22 @@ private struct TranslationReviewModifier: ViewModifier {
                 isPresented: $showingPicker,
                 titleVisibility: .visible
             ) {
+                // Mutate directly — do NOT post .keyWindow events from these
+                // buttons. The confirmationDialog's own window holds key status
+                // while its action runs, so a synchronous .keyWindow post from
+                // here is dropped by shouldDeliver's isWindowKey check (the
+                // v0.24.0 enter-does-nothing bug). The onKeyWindowCommand
+                // receivers above remain for genuine out-of-window posters.
                 ForEach(pickerLanguages, id: \.self) { tag in
                     Button(TranslationReviewIndicator.displayLabel(forLanguageTag: tag)) {
-                        MaughamEvent.post(.maughamEnterTranslationReview,
-                                          to: .keyWindow, payload: ["language": tag])
+                        translationLanguage = tag
+                        editorControl.translationLanguage = tag
                     }
                 }
                 if translationLanguage != nil {
                     Button("Show Source (Off)") {
-                        MaughamEvent.post(.maughamExitTranslationReview, to: .keyWindow)
+                        translationLanguage = nil
+                        editorControl.translationLanguage = nil
                     }
                 }
                 Button("Cancel", role: .cancel) {}
