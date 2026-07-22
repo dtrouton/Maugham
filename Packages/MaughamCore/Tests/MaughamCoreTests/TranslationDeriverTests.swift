@@ -38,6 +38,28 @@ final class TranslationDeriverTests: XCTestCase {
         XCTAssertEqual(doc.entries[2].sourceText, "Three")
     }
 
+    func test_derive_blankSourceWithNoRecord_isFreshNotMissing() {
+        // A whitespace-only source paragraph has nothing to translate, so a
+        // missing record is not a gap (M1): it derives `.fresh`, the entry is
+        // kept, and translatedText stays nil (render shows the source fallback).
+        // A genuinely non-empty untranslated paragraph is still `.missing`.
+        let paragraphs = ["aaaa": "One", "bbbb": "   ", "cccc": "Three"]
+        let sequence = ["aaaa", "bbbb", "cccc"]
+        let records = [
+            TranslationRecord(paragraphId: "aaaa", language: "es", text: "Uno",
+                              sourceHash: TranslationHash.hash("One")),
+        ]
+        let doc = TranslationDeriver.derive(records: records, sequence: sequence,
+                                            paragraphs: paragraphs, language: "es")
+        XCTAssertEqual(doc.entries.map(\.status), [.fresh, .fresh, .missing])
+        // The blank entry is kept, with no translated text.
+        XCTAssertEqual(doc.entries[1].paragraphId, "bbbb")
+        XCTAssertNil(doc.entries[1].translatedText)
+        // Blank counts as fresh (nothing to translate), not missing.
+        XCTAssertEqual(doc.freshCount, 2)
+        XCTAssertEqual(doc.missingCount, 1)
+    }
+
     func test_derive_latestWinsWithinRecords() {
         let old = TranslationRecord(paragraphId: "aaaa", language: "es", text: "vieja",
                                     sourceHash: TranslationHash.hash("One"))

@@ -34,6 +34,11 @@ partitioning discipline applied verbatim (never a single shared file across devi
 manuscript mutation as `add_note` writing under `research/` — a new plane, not a loosened
 rule.
 
+`TranslationRecord` supports tombstones (`text == nil` removes the paragraph's translation
+in the newest-`opId`-wins merge), and `TranslationDeriver`/`latestByParagraph` honor them,
+but no MCP tool AUTHORS one in v1 — the store layer is tombstone-ready while the surface
+that would delete a single paragraph's translation is deliberately deferred.
+
 ### 2. Freshness is derived, never stored — with server-stamped hashes as the join key.
 
 A translation record does not carry a `fresh`/`stale` flag. `TranslationDeriver.derive`
@@ -50,6 +55,11 @@ whitespace — including a Markdown two-space hard break — does not flip stale
 was a deliberate choice (a hard-break-only edit is not something a translator needs to
 re-see) over the alternative of false-positive staleness on every incidental
 trailing-space fix.
+
+A whitespace-only source paragraph with no translation record derives as `fresh`, not
+`missing` (the entry is still kept so the render shows its source-text fallback): a blank
+line has nothing to translate, so the coverage gate already excludes it (§4) and
+`translation_status` must not report it as a permanent `missing` gap.
 
 ### 3. `write_translation` is all-or-nothing, and Claude never invents a hash.
 

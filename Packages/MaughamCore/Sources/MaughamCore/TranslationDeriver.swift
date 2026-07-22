@@ -58,8 +58,16 @@ public enum TranslationDeriver {
                                      translatedText: rec.text, status: status,
                                      verbatim: rec.verbatim))
             } else {
+                // A whitespace-only source paragraph has nothing to translate,
+                // so a missing record is not a real gap: derive it `.fresh`
+                // (the coverage gate already excludes blanks — this keeps
+                // translation_status from reporting a permanently-"missing"
+                // blank). The entry is KEPT either way so the render still shows
+                // its source-text fallback; `translatedText` stays nil.
+                let isBlank = source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 entries.append(.init(paragraphId: id, sourceText: source,
-                                     translatedText: nil, status: .missing, verbatim: false))
+                                     translatedText: nil,
+                                     status: isBlank ? .fresh : .missing, verbatim: false))
             }
         }
         let orphans = records.filter { !inSequence.contains($0.paragraphId) }

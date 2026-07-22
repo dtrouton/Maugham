@@ -65,6 +65,11 @@ struct EditorHost: View {
     /// surface is read-only and produces zero ops.
     @State private var translatedSurfaceText: String? = nil
 
+    /// This view's hosting NSWindow, resolved via `WindowAccessor` so the
+    /// project-scoped `maughamTranslationDidUpdate` observer can apply the
+    /// ADR 0021 liveness/scope filter (a closed window must not act).
+    @State private var window: NSWindow? = nil
+
     /// Session id stable for the lifetime of this app launch. Stamped onto
     /// every `typing_burst` Op so multi-window edits can be merged across
     /// instances. Computed once via a lazy static.
@@ -134,11 +139,29 @@ struct EditorHost: View {
                     control.reviewAnnotations = control.isReviewMode
                         ? doc.annotations(filter: AnnotationFilter(statuses: [.open]))
                         : []
-                    // While in translation review, a source-side change (or a
-                    // freshly promoted translation) must re-derive the surface.
+                    // While in translation review, a source-side edit (which
+                    // flips paragraphs stale) must re-derive the surface. Note
+                    // this fires on annotation-set changes only; a fresh
+                    // translation WRITE (write_translation) does not bump
+                    // annotationsVersion — that refresh arrives via the
+                    // maughamTranslationDidUpdate observer below.
                     if control.translationLanguage != nil {
                         recomputeTranslatedSurface(doc: doc)
                     }
+                }
+                // A retranslation landed via write_translation for THIS doc:
+                // re-derive so the read-only surface + badges refresh live
+                // instead of freezing until the writer exits and re-enters.
+                // Project-scoped (ADR 0021); the liveness/scope filter lives in
+                // MaughamEvent.shouldDeliver. Guarded on being in-mode and the
+                // event naming the loaded doc.
+                .onProjectEvent(
+                    .maughamTranslationDidUpdate, url: store.url, window: window
+                ) { note in
+                    guard control.translationLanguage != nil,
+                          note.userInfo?["document_id"] as? String == doc.docId
+                    else { return }
+                    recomputeTranslatedSurface(doc: doc)
                 }
                 .onChange(of: control.isReviewMode) { _, nowReview in
                     control.reviewAnnotations = nowReview
@@ -220,6 +243,7 @@ struct EditorHost: View {
         // read of `document.displayText` into this view's body would reopen the
         // parallel-observable-state cursor races (tripwires 6 and 7).
         .task { await loadDocumentIfNeeded() }
+        .background(WindowAccessor(window: $window))
     }
 
     /// Build the EditorSurface configuration wall in a dedicated function so the
@@ -403,14 +427,30 @@ struct EditorHost: View {
         // joined string, so hand it the same per-block text the buffer swap
         // joins — same bytes as `translatedSurfaceText` below, just chunked
         // per paragraph (Task 12 fix round 1).
-        let badgeEntries = derived.entries.map {
-            TranslationBadgeLayout.Entry(
-                paragraphId: $0.paragraphId,
-                text: $0.translatedText ?? $0.sourceText,
-                status: $0.status)
-        }
+        //
+        let badgeEntries = Self.reviewBadgeEntries(from: derived.entries)
         translatedSurfaceText = badgeEntries.map(\.text).joined(separator: "\n\n")
         control.translationBadges = EditorControl.TranslationBadgeModel(entries: badgeEntries)
+    }
+
+    /// Build the per-paragraph review entries from a derived translation. This
+    /// is the ONE place the review plane's text is constructed — the surface
+    /// buffer (`translatedSurfaceText`), the badge ranges, and the ⌘⌥8 pane all
+    /// derive from these entry texts, so stripping inline task anchors here
+    /// keeps them byte-consistent and anchor-free. A `missing` paragraph falls
+    /// back to its source text, which can carry `<!--t-XXXX-->` anchors; without
+    /// this strip they'd render raw in the read-only surface. Pure + static so
+    /// `EditorHostTranslationSurfaceTests` can pin the anchor-free rendering
+    /// without an AppKit surface (mirrors `TranslationBadgeLayout.ranges`).
+    static func reviewBadgeEntries(
+        from entries: [TranslatedDocument.Entry]
+    ) -> [TranslationBadgeLayout.Entry] {
+        entries.map {
+            TranslationBadgeLayout.Entry(
+                paragraphId: $0.paragraphId,
+                text: RenderFilter.stripTaskAnchorsInline($0.translatedText ?? $0.sourceText),
+                status: $0.status)
+        }
     }
 
     private var currentItem: StructureItem? {

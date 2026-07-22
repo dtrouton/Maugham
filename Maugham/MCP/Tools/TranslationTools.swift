@@ -135,7 +135,19 @@ public enum WriteTranslationTool: MCPTool {
             }
         }
 
-        // 7. Response.
+        // 7. Notify any live window on this project so an in-progress
+        // translation-review posture re-derives its read-only surface (a
+        // retranslation must land live, not stay frozen until exit/re-enter).
+        // Project-scoped, mirroring how AddNoteTool posts maughamMCPNoteAdded.
+        MaughamEvent.post(
+            .maughamTranslationDidUpdate,
+            to: .project(for: state.projectURL),
+            payload: [
+                "document_id": params.document_id,
+                "language": params.language
+            ])
+
+        // 8. Response.
         return try JSONEncoder().encode(Result(
             written: params.entries.count,
             language: params.language,
@@ -211,8 +223,10 @@ public enum ReadTranslationTool: MCPTool {
         let entries = derived.entries
             .filter { filter == nil || $0.status == filter }
             .map { e in
+                // Strip inline task anchors from the source so Claude never
+                // echoes a `<!--t-XXXX-->` marker into a translation.
                 Entry(paragraph_id: e.paragraphId,
-                      source_text: e.sourceText,
+                      source_text: MarkdownDisplayFilter.stripTaskAnchorsInline(e.sourceText),
                       translated_text: e.translatedText,
                       status: e.status.rawValue,
                       verbatim: e.verbatim)

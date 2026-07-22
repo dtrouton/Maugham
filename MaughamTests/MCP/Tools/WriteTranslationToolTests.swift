@@ -242,6 +242,44 @@ final class WriteTranslationToolTests: XCTestCase {
         await h.documentStore.close()
     }
 
+    // MARK: - I1: write_translation posts maughamTranslationDidUpdate
+
+    func test_writeTranslation_postsTranslationDidUpdateEvent() async throws {
+        let h = try await makeHarness()
+        let pid = h.doc.sequence[0]
+
+        // Observe the project-scoped refresh event through the real
+        // MaughamEvent filter (a live window on THIS project).
+        var receivedDoc: String?
+        var receivedLang: String?
+        let token = MaughamEvent.observe(
+            .maughamTranslationDidUpdate,
+            context: {
+                EventReceiverContext(
+                    kind: .project(id: h.projectId),
+                    isWindowLive: true, isWindowKey: false)
+            },
+            handler: {
+                receivedDoc = $0.userInfo?["document_id"] as? String
+                receivedLang = $0.userInfo?["language"] as? String
+            })
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        _ = try await call(h, [
+            "project_id": h.projectId,
+            "document_id": h.doc.docId,
+            "language": "es",
+            "entries": [["paragraph_id": pid, "text": "Primer párrafo."]]
+        ])
+
+        XCTAssertEqual(receivedDoc, h.doc.docId,
+            "write_translation must announce the affected document")
+        XCTAssertEqual(receivedLang, "es",
+            "write_translation must announce the affected language")
+
+        await h.documentStore.close()
+    }
+
     // MARK: - Behavior 2a: duplicate ids in batch are rejected atomically
 
     func test_writeTranslation_duplicateIdsInBatch_rejectedAtomically() async throws {

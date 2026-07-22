@@ -112,6 +112,37 @@ final class ReadTranslationToolTests: XCTestCase {
         await h.documentStore.close()
     }
 
+    // MARK: - I2: source_text is anchor-free
+
+    func test_readTranslation_sourceTextStripsInlineTaskAnchors() async throws {
+        let h = try await makeHarness()
+        let pid = h.doc.sequence[0]
+        // Give the paragraph a checkbox, then read tasks to mint the inline
+        // task anchor into the live paragraph text (the DocumentTaskAnchorPersist
+        // idiom).
+        h.doc.setParagraph(id: pid, text: "- [ ] buy milk")
+        _ = h.doc.tasks(filter: TaskFilter(
+            scope: .document(docId: h.doc.docId),
+            statuses: Set(TaskStatus.allCases)))
+        // Setup precondition: the live source now carries an anchor.
+        XCTAssertTrue(h.doc.paragraph(id: pid)!.contains("<!--t-"),
+            "setup must produce an anchored source paragraph")
+
+        try await seed(h, paragraphId: pid, language: "es", text: "comprar leche", fresh: false)
+
+        let result = try decode(try await read(h, [
+            "project_id": h.projectId,
+            "document_id": h.doc.docId,
+            "language": "es"
+        ]))
+        let entry = result.entries.first { $0.paragraph_id == pid }!
+        XCTAssertFalse(entry.source_text.contains("<!--t-"),
+            "read_translation must strip inline task anchors from source_text so " +
+            "Claude never echoes a marker into a translation (got: \(entry.source_text))")
+
+        await h.documentStore.close()
+    }
+
     // MARK: - status filter narrows to matching entries only
 
     func test_readTranslation_statusFilterReturnsOnlyStale() async throws {

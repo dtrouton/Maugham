@@ -15,8 +15,8 @@ import Foundation
 /// - **`.project(id:)`** (data events for windows on one project —
 ///   `maughamScriptDidUpdate`, `maughamOpenRewind`, `maughamMCPNoteAdded`,
 ///   `maughamCheckpointAdded`, `maughamSessionLogChanged`,
-///   `maughamNavigateToDocument`): delivered to live windows on the matching
-///   project only.
+///   `maughamNavigateToDocument`, `maughamTranslationDidUpdate`): delivered to
+///   live windows on the matching project only.
 /// - **`.allWindows`** (genuinely global fan-out, no liveness guard — see the
 ///   per-name zombie-harm audit note where present): `maughamNewProject`,
 ///   `maughamOpenProject`, `maughamAppWillTerminate`, `maughamShowHelp`.
@@ -60,6 +60,15 @@ extension Notification.Name {
     /// Posted to leave translation review and show the source manuscript again.
     /// Scope: .keyWindow.
     public static let maughamExitTranslationReview = Notification.Name("maugham.exitTranslationReview")
+    /// Posted by `write_translation` after it appends new translation records —
+    /// a data event, so its scope is `.project(for: projectURL)` (mirrors
+    /// `maughamMCPNoteAdded`, delivered to live windows on the project only).
+    /// `userInfo["document_id"]` and `userInfo["language"]` name the affected
+    /// (doc, language). A window already inside translation review for that
+    /// pair re-derives its read-only surface so a retranslation lands live
+    /// rather than staying frozen until the writer exits and re-enters. Scope:
+    /// .project(id:).
+    public static let maughamTranslationDidUpdate = Notification.Name("maugham.translation.did.update")
     public static let maughamToggleFullScreen = Notification.Name("maugham.toggleFullScreen")
     public static let maughamDummySave = Notification.Name("maugham.dummySave")
     public static let maughamShowProjectSettings = Notification.Name("maugham.showProjectSettings")

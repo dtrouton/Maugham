@@ -1,4 +1,13 @@
 import Foundation
+import os
+
+/// Diagnostic channel for translation-sidecar anomalies (M6: a device file
+/// that exists in the directory listing but can't be read). Subsystem from the
+/// running bundle id so dev/stable logs separate without hardcoding a literal
+/// (tripwire 13 spirit); mirrors `Deriver.swift`'s `deriverLog`.
+private let translationLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.maugham.core",
+    category: "TranslationStore")
 
 /// Sidecar store for per-paragraph translations. Per-device files under
 /// `.maugham/translations/` (tripwire 17); newest-opId-wins per paragraph.
@@ -53,7 +62,15 @@ public enum TranslationStore {
                                   in projectURL: URL) -> [TranslationRecord] {
         var all: [TranslationRecord] = []
         for url in fileURLs(forDocId: docId, language: language, in: projectURL) {
-            guard let bytes = try? Data(contentsOf: url) else { continue }  // adr-0018-ok: translation sidecar JSONL bytes, not manuscript-as-truth (ADR 0018)
+            // The URL came from the directory listing, so it exists; a read
+            // failure here means the device file is present but unreadable
+            // (permissions, iCloud eviction, corruption). Warn before skipping
+            // rather than silently dropping a whole device's translations.
+            guard let bytes = try? Data(contentsOf: url) else {  // adr-0018-ok: translation sidecar JSONL bytes, not manuscript-as-truth (ADR 0018)
+                translationLog.warning(
+                    "skipping unreadable translation file: \(url.lastPathComponent, privacy: .public)")
+                continue
+            }
             all.append(contentsOf:
                 JSONLAppendStore<TranslationRecord>.parse(bytes: bytes, dedupKey: nil, sortedBy: nil).elements)
         }

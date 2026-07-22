@@ -80,6 +80,47 @@ final class TranslationReviewEventTests: XCTestCase {
         XCTAssertEqual(fired, 1, "the picker command must reach the key window")
     }
 
+    // MARK: - I1: translation-did-update refresh event (project-scoped)
+
+    private func projectContext(_ id: String) -> EventReceiverContext {
+        EventReceiverContext(kind: .project(id: id), isWindowLive: true, isWindowKey: false)
+    }
+
+    func test_translationDidUpdate_deliversToLiveWindowOnProject() {
+        var receivedDoc: String?
+        var receivedLang: String?
+        let token = MaughamEvent.observe(
+            .maughamTranslationDidUpdate,
+            context: { [self] in projectContext("proj-1") },
+            handler: {
+                receivedDoc = $0.userInfo?["document_id"] as? String
+                receivedLang = $0.userInfo?["language"] as? String
+            })
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        MaughamEvent.post(.maughamTranslationDidUpdate, to: .project(id: "proj-1"),
+                          payload: ["document_id": "doc-9", "language": "es"])
+
+        XCTAssertEqual(receivedDoc, "doc-9",
+            "the refresh event must name the affected document so EditorHost can guard on it")
+        XCTAssertEqual(receivedLang, "es")
+    }
+
+    func test_translationDidUpdate_droppedForOtherProject() {
+        var fired = 0
+        let token = MaughamEvent.observe(
+            .maughamTranslationDidUpdate,
+            context: { [self] in projectContext("proj-1") },
+            handler: { _ in fired += 1 })
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        MaughamEvent.post(.maughamTranslationDidUpdate, to: .project(id: "proj-2"),
+                          payload: ["document_id": "doc-9", "language": "es"])
+
+        XCTAssertEqual(fired, 0,
+            "a translation write in another project must not refresh this project's review")
+    }
+
     // MARK: - Indicator display-label helper (pure)
 
     func test_displayLabel_formatsLocalizedNameWithTag() {

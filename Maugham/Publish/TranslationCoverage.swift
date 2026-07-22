@@ -136,8 +136,8 @@ enum TranslationCoverage {
                     level: .error, file: nil, line: nil,
                     message: describe(gap),
                     contextLines: [
-                        "Translate the listed paragraphs with write_translation,",
-                        "or use allow_stale for a source-text fallback edition."
+                        "Translate the listed paragraphs with write_translation, or",
+                        "re-compile with allow_stale for a source-text fallback edition."
                     ])
             }
             return .blocked(
