@@ -222,6 +222,17 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// the reconciler re-converges if state ever drifts.
     private var reviewToggleObserver: NSObjectProtocol?
 
+    /// Observer tokens for translation-review entry/exit (Task 13). Same
+    /// rationale as `reviewToggleObserver`: flip the read-only membrane
+    /// SYNCHRONOUSLY in the key window's coordinator so the very next keystroke
+    /// already sees the toggled posture — the `control.translationLanguage`
+    /// mirror lands a frame later. `ProjectWindow`'s `TranslationReviewModifier`
+    /// still owns the language + the surface swap on the SAME posts; the
+    /// model-driven `applyControl → setTranslationReview` is the no-op-guarded
+    /// reconciler both paths converge through (ADR 0017), so they can't diverge.
+    private var translationEnterObserver: NSObjectProtocol?
+    private var translationExitObserver: NSObjectProtocol?
+
     /// The control-plane model (ADR 0017). Set once at `attach` via
     /// `observeControl`; the coordinator READS it (never writes). nil until
     /// `observeControl` runs.
@@ -504,6 +515,22 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             guard let self else { return }
             self.setReviewMode(!self.isReviewMode)
         }
+        // Translation review (Task 13): flip the read-only membrane
+        // synchronously on the key window's coordinator, exactly as ⌘⌥R does
+        // above. Language + surface swap stay EditorHost's; this only governs
+        // the membrane so the next keystroke is already blocked (or unblocked).
+        translationEnterObserver = MaughamEvent.observe(
+            .maughamEnterTranslationReview,
+            context: { [weak self] in self?.receiverContext(.keyWindow) }
+        ) { [weak self] _ in
+            self?.setTranslationReview(true)
+        }
+        translationExitObserver = MaughamEvent.observe(
+            .maughamExitTranslationReview,
+            context: { [weak self] in self?.receiverContext(.keyWindow) }
+        ) { [weak self] _ in
+            self?.setTranslationReview(false)
+        }
         // The former annotation-set-changed notification observer is gone (ADR
         // 0017): an AnnotationsPane edit/withdraw bumps `annotationsVersion` on the shared
         // Document, which EditorHost mirrors into `control.reviewAnnotations` →
@@ -529,6 +556,12 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = reviewToggleObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+        if let token = translationEnterObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+        if let token = translationExitObserver {
             NotificationCenter.default.removeObserver(token)
         }
     }
@@ -607,11 +640,13 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // deliveries. `receiverContext` also returns nil once `isDetached`, so
         // this is belt-and-suspenders with the deinit removal (which stays).
         for token in [navigateObserver, findMatchObserver, paragraphNavigateObserver,
-                      annotationNavigateObserver, reviewToggleObserver] {
+                      annotationNavigateObserver, reviewToggleObserver,
+                      translationEnterObserver, translationExitObserver] {
             if let token { NotificationCenter.default.removeObserver(token) }
         }
         navigateObserver = nil; findMatchObserver = nil; paragraphNavigateObserver = nil
         annotationNavigateObserver = nil; reviewToggleObserver = nil
+        translationEnterObserver = nil; translationExitObserver = nil
         // Clear the native undo stack before the text-view reference is
         // dropped: a doc switch recreates the EditorSurface via `.id(path)`,
         // and the NEW text view is seeded in `makeNSView` — no

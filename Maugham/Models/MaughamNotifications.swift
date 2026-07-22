@@ -46,6 +46,20 @@ extension Notification.Name {
     public static let maughamOpenProject = Notification.Name("maugham.openProject")
     public static let maughamToggleNoChrome = Notification.Name("maugham.toggleNoChrome")
     public static let maughamToggleReviewMode = Notification.Name("maugham.toggleReviewMode")
+    /// Posted by the Translation Review menu command (`.keyWindow`, menu-command
+    /// class). The app-global menu can't reach the focused window's active-doc
+    /// selection or project URL, so it just asks the key window to resolve the
+    /// active doc's available translation languages and present the picker.
+    public static let maughamShowTranslationPicker = Notification.Name("maugham.showTranslationPicker")
+    /// Posted when the writer picks a translation to review — the key
+    /// ProjectWindow enters read-only translation-review posture for the active
+    /// doc (EditorHost swaps in the derived translated surface; the coordinator
+    /// flips its membrane synchronously). `userInfo["language"]` carries the
+    /// BCP-47 language tag. Scope: .keyWindow.
+    public static let maughamEnterTranslationReview = Notification.Name("maugham.enterTranslationReview")
+    /// Posted to leave translation review and show the source manuscript again.
+    /// Scope: .keyWindow.
+    public static let maughamExitTranslationReview = Notification.Name("maugham.exitTranslationReview")
     public static let maughamToggleFullScreen = Notification.Name("maugham.toggleFullScreen")
     public static let maughamDummySave = Notification.Name("maugham.dummySave")
     public static let maughamShowProjectSettings = Notification.Name("maugham.showProjectSettings")
