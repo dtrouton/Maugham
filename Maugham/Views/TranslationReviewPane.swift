@@ -160,7 +160,7 @@ struct TranslationReviewPane: View {
                 .font(.caption.smallCaps())
                 .foregroundStyle(.secondary)
             if openQueries.isEmpty {
-                Text("No open translator queries for this language.")
+                Text("No open queries for this language.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             } else {

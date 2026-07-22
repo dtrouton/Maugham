@@ -149,7 +149,7 @@ URI** (per the draft, names aren't unique identifiers) and fails loudly (protoco
 only — any other URI fails loudly too (Maugham's server has no general resources support).
 These three are **protocol methods**, registered directly on the router in
 `MaughamApp.registerTools` alongside `initialize`/`tools/list`/`tools/call` — not tools,
-so **the tool catalogue count stays 49** whether or not a connecting client speaks the
+so **the tool catalogue count stays 51** whether or not a connecting client speaks the
 extension.
 
 **Content source:** `docs/skills/<name>/SKILL.md` (agentskills.io flat-frontmatter format:
@@ -158,8 +158,8 @@ and loaded by `Maugham/Help/SkillIndex.swift` (modeled on `HelpTopicIndex`; stri
 load in dev builds, skip-with-log in release so one malformed skill can't take the server
 down). It's a fourth bundled content root alongside `docs/guide/` (help topics) and
 `Maugham/Resources/Samples/` (sample projects) — same discipline: edit the bundled file,
-don't add a second copy. Two skills are served today: `transcribing-notebooks`,
-`editing-pass`. A third folder, `maugham-bootstrap` (frontmatter `name: maugham`), is the
+don't add a second copy. Three skills are served today: `transcribing-notebooks`,
+`editing-pass`, `translation-pass`. A fourth folder, `maugham-bootstrap` (frontmatter `name: maugham`), is the
 Claude Code router template — `SkillIndex` loads it but `skills/list`/`skills/get`/`get_help`
 never serve it; it reaches the world only via `ClaudeCodeSkillInstall`'s installer, wired
 into `Views/HelpClaudeDesktopSheet.swift`'s Claude Code section (copyable variant-aware

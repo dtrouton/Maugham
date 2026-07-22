@@ -10,5 +10,6 @@
   { "slug": "sense-pass",          "title": "The Sense Pass",         "order": 9 },
   { "slug": "annotations-and-suggestions", "title": "Annotations & Suggestions", "order": 10 },
   { "slug": "publishing",          "title": "Publishing to PDF & EPUB","order": 11 },
-  { "slug": "reference",           "title": "Reference",              "order": 12 }
+  { "slug": "translation-review",  "title": "Translating Your Manuscript", "order": 12 },
+  { "slug": "reference",           "title": "Reference",              "order": 13 }
 ]
