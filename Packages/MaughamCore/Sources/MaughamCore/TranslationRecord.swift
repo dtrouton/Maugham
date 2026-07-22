@@ -49,13 +49,4 @@ public struct TranslationRecord: Codable, Equatable, Sendable {
         s.range(of: "^[a-z]{2,3}(-[a-z0-9]{2,8})*$", options: .regularExpression) != nil
     }
 
-    public static func == (lhs: TranslationRecord, rhs: TranslationRecord) -> Bool {
-        lhs.opId == rhs.opId &&
-        lhs.paragraphId == rhs.paragraphId &&
-        lhs.language == rhs.language &&
-        lhs.text == rhs.text &&
-        lhs.sourceHash == rhs.sourceHash &&
-        lhs.verbatim == rhs.verbatim &&
-        abs(lhs.at.timeIntervalSince1970 - rhs.at.timeIntervalSince1970) < 0.001
-    }
 }
