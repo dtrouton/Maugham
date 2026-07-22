@@ -53,7 +53,7 @@ public enum TranslationStore {
                                   in projectURL: URL) -> [TranslationRecord] {
         var all: [TranslationRecord] = []
         for url in fileURLs(forDocId: docId, language: language, in: projectURL) {
-            guard let bytes = try? Data(contentsOf: url) else { continue }
+            guard let bytes = try? Data(contentsOf: url) else { continue }  // adr-0018-ok: translation sidecar JSONL bytes, not manuscript-as-truth (ADR 0018)
             all.append(contentsOf:
                 JSONLAppendStore<TranslationRecord>.parse(bytes: bytes, dedupKey: nil, sortedBy: nil).elements)
         }
