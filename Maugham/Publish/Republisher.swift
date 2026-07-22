@@ -79,6 +79,11 @@ public struct Republisher {
         let prior = try await publicationStore.publication(forSnapshotID: snapshotID)
         let priorVersion = prior?.version
         let language = prior?.language
+        // Round 3: `republish` has no `allow_stale` parameter of its own — it
+        // replays whichever gate mode the ORIGINAL compile used. `false` for
+        // a strictly-gated edition and for any publication compiled before
+        // this field existed (ADR 0015 additive default).
+        let allowStale = prior?.allowStale ?? false
 
         let jobID = await jobManager.register(phase: .renderingBody)
 
@@ -87,11 +92,14 @@ public struct Republisher {
         // (see `pieceRef(for:)` in ProjectStoreASTSource), so a translated
         // edition (`prior.language != nil`) can drift stale between the
         // gated `compile` and a later `republish`. Re-run the same coverage
-        // check here, gated exactly like `CompileOrchestrator.compile`, so a
-        // republish can't silently ship content the gate would have refused.
-        // No `allow_stale` escape hatch: `republish` is a reproduction
-        // command, not a place to accept a new source-text fallback — a
-        // proof-in-progress belongs in `compile` with `allow_stale` instead.
+        // check here, gated exactly like `CompileOrchestrator.compile` — but
+        // in whichever mode `prior.allowStale` pins (round 3): an edition
+        // originally compiled with allow_stale reproduces that SAME
+        // tolerance on republish (new gaps included — that IS the original
+        // mode, demoted to itemized warnings), while a strictly-gated
+        // edition still blocks unconditionally. Zero-layer failure is
+        // unconditional either way, matching `CompileOrchestrator.compile`.
+        var gateWarnings: [TectonicLogParser.Diagnostic] = []
         if let language, let source = astSource as? ProjectStoreASTSource {
             let report = await TranslationCoverage.check(
                 projectStore: source.projectStore, language: language)
@@ -107,15 +115,15 @@ public struct Republisher {
                     errors: [diag], logExcerpt: "no_translation_layer: \(language)")
             }
 
-            if report.isBlocked {
+            if report.isBlocked && !allowStale {
                 let diags = report.gaps.map { gap in
                     TectonicLogParser.Diagnostic(
                         level: .error, file: nil, line: nil,
                         message: TranslationCoverage.describe(gap),
                         contextLines: [
                             "Translate the listed paragraphs with write_translation,",
-                            "then republish — or use compile with allow_stale for a",
-                            "new source-fallback edition."
+                            "then republish — or republish an edition originally",
+                            "compiled with allow_stale for a source-fallback reproduction."
                         ])
                 }
                 await jobManager.fail(
@@ -123,6 +131,16 @@ public struct Republisher {
                     logExcerpt: "translation_stale: \(language)")
                 return .failed(
                     errors: diags, logExcerpt: "translation_stale: \(language)")
+            }
+
+            if allowStale {
+                gateWarnings += report.gaps.map { gap in
+                    TectonicLogParser.Diagnostic(
+                        level: .warning, file: nil, line: nil,
+                        message: TranslationCoverage.describe(gap)
+                            + " — compiled with source-text fallback",
+                        contextLines: [])
+                }
             }
         }
 
@@ -193,12 +211,17 @@ public struct Republisher {
             compiledAt: Date(),
             maughamVersion: maughamVersion,
             tectonicVersion: tectonicVersion,
-            language: language)
+            language: language,
+            allowStale: allowStale)
         try await publicationStore.append(pub)
 
+        // Gate warnings (allow-stale fallbacks) ride alongside the
+        // compiler's own warnings on the success path, matching
+        // `CompileOrchestrator.compile`.
+        let allWarnings = gateWarnings + warnings
         await jobManager.complete(jobID: jobID, outputPath: dest.path,
-                                  warnings: warnings, errors: errors)
-        return .completed(pub, warnings: warnings)
+                                  warnings: allWarnings, errors: errors)
+        return .completed(pub, warnings: allWarnings)
     }
 
     private func relativePath(_ abs: String, from root: URL) -> String {

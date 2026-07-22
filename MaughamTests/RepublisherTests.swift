@@ -150,10 +150,13 @@ final class RepublisherTests: XCTestCase {
         let jobManager: CompileJobManager
     }
 
-    /// A real novel project with two fully-`es`-translated paragraphs, wired
-    /// with the plain (non-shared) stores `Republisher`/`CompileOrchestrator`
-    /// take directly, matching this file's existing construction style.
-    private func makeGatedRepubFixture() async throws -> GatedRepubFixture {
+    /// A real novel project with two paragraphs, wired with the plain
+    /// (non-shared) stores `Republisher`/`CompileOrchestrator` take directly,
+    /// matching this file's existing construction style. `translateAll`
+    /// controls whether the second paragraph gets an `es` translation record
+    /// at all — `false` leaves it permanently missing, for round-3's
+    /// persistent-gap-under-allow_stale scenario.
+    private func makeGatedRepubFixture(translateAll: Bool = true) async throws -> GatedRepubFixture {
         let projectURL = try await ProjectFactory.createNovelProject(
             named: "RepubGate-\(UUID().uuidString.prefix(6))", in: tmp)
         let probe = try await ProjectStore.load(from: projectURL)
@@ -180,7 +183,8 @@ final class RepublisherTests: XCTestCase {
         cfg.languageOverrides = ["es": .init(metadata: ["title": "Título"])]
         try await configStore.save(cfg)
 
-        for id in doc.sequence {
+        let idsToTranslate = translateAll ? doc.sequence : [doc.sequence[0]]
+        for id in idsToTranslate {
             let rec = TranslationRecord(
                 paragraphId: id, language: "es", text: "Traducción \(id).",
                 sourceHash: TranslationHash.hash(doc.paragraphs[id] ?? ""),
@@ -302,5 +306,67 @@ final class RepublisherTests: XCTestCase {
         case .failed(let errors, let log):
             XCTFail("republish failed: errors=\(errors.map(\.message)) log=\(log.prefix(300))")
         }
+    }
+
+    // MARK: - F1 round 3: republish honors the original compile's allow_stale mode
+
+    /// Round 3: republish has no `allow_stale` parameter of its own — it
+    /// replays whichever gate mode the ORIGINAL compile used. An edition
+    /// compiled with `allow_stale: true` must republish successfully even
+    /// with the SAME persistent gap still present (no source edit at all —
+    /// this isn't "new staleness slipping through", it's the mode the writer
+    /// already opted into), demoting the gap to an itemized warning again.
+    func testRepublish_allowStaleEdition_succeedsWithItemizedWarningForPersistentGap() async throws {
+        let fx = try await makeGatedRepubFixture(translateAll: false)
+        let ids = fx.doc.sequence
+
+        // 1. Initial compile under allow_stale: ids[1] has no translation
+        //    record at all, so it falls back to source text — demoted to a
+        //    warning, not a block.
+        let orch = CompileOrchestrator(
+            projectURL: fx.projectURL,
+            astSource: ProjectStoreASTSource(
+                projectStore: fx.store, language: "es", allowStale: true),
+            configStore: fx.configStore,
+            publicationStore: fx.publicationStore,
+            snapshotStore: fx.snapshotStore,
+            jobManager: fx.jobManager,
+            maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0")
+        let initial = try await orch.compile(
+            format: .epub, label: nil, language: "es", allowStale: true)
+        guard case .completed(let initialPub, let initialWarnings) = initial else {
+            XCTFail("initial allow_stale compile failed: \(initial)")
+            return
+        }
+        XCTAssertEqual(initialPub.allowStale, true,
+            "an allow_stale compile must record allowStale on its Publication")
+        XCTAssertTrue(initialWarnings.map(\.message).joined().contains("¶\(ids[1])"),
+            "initial compile must itemize the missing paragraph as a warning")
+
+        // 2. No source edits — the SAME gap persists. Republish must still
+        //    succeed, demoting the persistent gap to a warning again rather
+        //    than blocking (which is what round 1's strict-gate fix would
+        //    otherwise do unconditionally).
+        let r = Republisher(
+            projectURL: fx.projectURL,
+            astSource: ProjectStoreASTSource(
+                projectStore: fx.store, language: "es", allowStale: true),
+            publicationStore: fx.publicationStore,
+            snapshotStore: fx.snapshotStore,
+            jobManager: fx.jobManager,
+            maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0")
+        let outcome = try await r.republish(
+            snapshotID: initialPub.snapshotID, format: .epub, label: nil)
+
+        guard case .completed(let pub, let warnings) = outcome else {
+            XCTFail("expected allow_stale republish to succeed, got \(outcome)")
+            return
+        }
+        XCTAssertEqual(pub.allowStale, true,
+            "the republished edition must carry allowStale forward")
+        let message = warnings.map(\.message).joined(separator: "\n")
+        XCTAssertTrue(message.contains("¶\(ids[1])"),
+            "republish gate must itemize the persistent gap as a warning, got: \(message)")
+        XCTAssertTrue(message.lowercased().contains("fallback"), message)
     }
 }

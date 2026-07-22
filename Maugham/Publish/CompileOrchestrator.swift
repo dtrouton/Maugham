@@ -212,7 +212,8 @@ public struct CompileOrchestrator {
             compiledAt: Date(),
             maughamVersion: maughamVersion,
             tectonicVersion: tectonicVersion,
-            language: language)
+            language: language,
+            allowStale: allowStale)
         // TODO: transactional commit. If `configStore.save` throws after
         // `publicationStore.append` succeeds, the next compile reuses the same
         // version → two Publications at the same version. Swapping order moves
