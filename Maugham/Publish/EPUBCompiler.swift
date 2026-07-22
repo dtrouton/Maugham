@@ -64,7 +64,11 @@ public struct EPUBCompiler {
             to: build.appendingPathComponent("compile.log"),
             atomically: true, encoding: .utf8)
 
-        let cssURL = publish.appendingPathComponent("styles.css")
+        // Pick the language-suffixed stylesheet (`styles.es.css`) when the
+        // edition ships one; else the base `styles.css` (Task 10).
+        let cssName = LanguageSuffixedFile.resolve(
+            "styles.css", language: language, under: publish)
+        let cssURL = publish.appendingPathComponent(cssName)
         let css = (try? String(contentsOf: cssURL)) ?? ""  // adr-0018-ok: bundled EPUB CSS asset read, not manuscript
 
         var cover: EPUBPackage.Cover? = nil

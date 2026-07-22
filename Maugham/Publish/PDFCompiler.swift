@@ -82,7 +82,11 @@ public struct PDFCompiler {
         let cache = try TectonicCache.ensureCacheExists()
         let invoker = TectonicInvoker(binaryURL: binary, cacheURL: cache)
 
-        let templateURL = publish.appendingPathComponent("template.tex")
+        // Pick the language-suffixed template (`template.es.tex`) when the
+        // edition ships one; else the base `template.tex` (Task 10).
+        let templateName = LanguageSuffixedFile.resolve(
+            "template.tex", language: language, under: publish)
+        let templateURL = publish.appendingPathComponent(templateName)
         let invocationResult = try await invoker.compile(
             texFile: templateURL,
             workingDirectory: publish,
@@ -112,8 +116,10 @@ public struct PDFCompiler {
             await jobManager.updatePhase(jobID: id, phase: .writingOutput)
         }
 
-        // tectonic emitted template.pdf into build/, not publish root.
-        let generated = build.appendingPathComponent("template.pdf")
+        // tectonic emits <templateBasename>.pdf into build/, not publish root —
+        // a suffixed template (`template.es.tex`) yields `template.es.pdf`.
+        let generatedName = (templateName as NSString).deletingPathExtension + ".pdf"
+        let generated = build.appendingPathComponent(generatedName)
         let filename = makeOutputFilename(format: .pdf, label: label)
         let exports = projectURL.appendingPathComponent(config.outputs.directory,
                                                        isDirectory: true)

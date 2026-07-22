@@ -64,6 +64,20 @@ public struct CompileOrchestrator {
         var effective = config
         effective.metadata = config.effectiveMetadata(language: language)
 
+        // Task 10: resolve language-suffixed per-piece style files on the
+        // EFFECTIVE config before snapshot + emit. The emitter has no
+        // filesystem access, so existence-based resolution happens here. Only
+        // `effective` is rewritten — snapshot/compilers read it — while the
+        // shared config saved below stays on the base names. `language == nil`
+        // is a no-op. Republish stays consistent: the snapshot captures the
+        // whole publish tree (including any `.es.tex` piece files), and it
+        // freezes `effective`, so the frozen config's suffixed names match the
+        // frozen tree.
+        let publishDir = projectURL.appendingPathComponent(
+            ".maugham/publish", isDirectory: true)
+        effective = LanguageSuffixedFile.resolvingStyleFiles(
+            in: effective, language: language, publishDir: publishDir)
+
         // D3c: pre-compile collision guard. `PublishStarter.install` (D3a)
         // reconciles `next_version` past existing publications, but a writer
         // can still manually set it backward via set_publish_config. Refuse
