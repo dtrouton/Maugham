@@ -43,7 +43,6 @@ public struct CompileOrchestrator {
         language: String? = nil,
         allowStale: Bool = false
     ) async throws -> Outcome {
-        _ = allowStale  // Task 9 consumes allowStale (staleness gate).
         let jobID = await jobManager.register(phase: .renderingBody)
 
         guard let config = try await configStore.load() else {
@@ -89,6 +88,65 @@ public struct CompileOrchestrator {
             return .failed(
                 errors: [diag],
                 logExcerpt: "version_collision: \(config.nextVersion)")
+        }
+
+        // Task 9: translation coverage gate. A translated edition
+        // (`language != nil`) must not ship a book whose translation lags the
+        // source. Reuse the astSource's own `ProjectStore` (the same one the
+        // substitution path reads) to walk pieces, derive each, and refuse — or,
+        // under allow_stale, demote gaps to warnings that itemize every fallback.
+        var gateWarnings: [TectonicLogParser.Diagnostic] = []
+        if let language, let source = astSource as? ProjectStoreASTSource {
+            let report = await TranslationCoverage.check(
+                projectStore: source.projectStore, language: language)
+
+            // Zero-layer guard: no records anywhere for the language → refuse
+            // unconditionally, even under allow_stale (the "edition" would just
+            // be the source book relabeled).
+            if let zeroErr = report.zeroLayerError {
+                let diag = TectonicLogParser.Diagnostic(
+                    level: .error, file: nil, line: nil,
+                    message: zeroErr, contextLines: [])
+                await jobManager.fail(
+                    jobID: jobID, errors: [diag],
+                    logExcerpt: "no_translation_layer: \(language)")
+                return .failed(
+                    errors: [diag], logExcerpt: "no_translation_layer: \(language)")
+            }
+
+            if report.isBlocked && !allowStale {
+                let diags = report.gaps.map { gap in
+                    TectonicLogParser.Diagnostic(
+                        level: .error, file: nil, line: nil,
+                        message: TranslationCoverage.describe(gap),
+                        contextLines: [
+                            "Translate the listed paragraphs with write_translation,",
+                            "or pass allow_stale to compile with source-text fallback."
+                        ])
+                }
+                await jobManager.fail(
+                    jobID: jobID, errors: diags,
+                    logExcerpt: "translation_stale: \(language)")
+                return .failed(
+                    errors: diags, logExcerpt: "translation_stale: \(language)")
+            }
+
+            // allow_stale (or no gaps): demote gaps to warnings itemizing every
+            // fallback paragraph. Fountain element-drift warnings always attach.
+            if allowStale {
+                gateWarnings += report.gaps.map { gap in
+                    TectonicLogParser.Diagnostic(
+                        level: .warning, file: nil, line: nil,
+                        message: TranslationCoverage.describe(gap)
+                            + " — compiled with source-text fallback",
+                        contextLines: [])
+                }
+            }
+            gateWarnings += report.fountainDriftWarnings.map { message in
+                TectonicLogParser.Diagnostic(
+                    level: .warning, file: nil, line: nil,
+                    message: message, contextLines: [])
+            }
         }
 
         // Capture snapshot BEFORE compile so it reflects the source state used.
@@ -176,10 +234,13 @@ public struct CompileOrchestrator {
             from: config.nextVersion)
         try await configStore.save(nextConfig)
 
+        // Gate warnings (allow_stale fallbacks + fountain drift) ride alongside
+        // the compiler's own warnings on the success path.
+        let allWarnings = gateWarnings + warnings
         await jobManager.complete(
             jobID: jobID, outputPath: outputPath,
-            warnings: warnings, errors: errors)
-        return .completed(pub, warnings: warnings)
+            warnings: allWarnings, errors: errors)
+        return .completed(pub, warnings: allWarnings)
     }
 
     private func relativePath(_ abs: String, from root: URL) -> String {
