@@ -96,59 +96,23 @@ public struct CompileOrchestrator {
         // Task 9: translation coverage gate. A translated edition
         // (`language != nil`) must not ship a book whose translation lags the
         // source. Reuse the astSource's own `ProjectStore` (the same one the
-        // substitution path reads) to walk pieces, derive each, and refuse — or,
-        // under allow_stale, demote gaps to warnings that itemize every fallback.
+        // substitution path reads) to walk pieces, derive each, and hand the
+        // report to `TranslationCoverage.applyGate` — the ONE place either
+        // `compile` or `republish` decides block-vs-warn (Task 9 F1 round 5;
+        // this used to be reimplemented in `Republisher.republish`, which let
+        // the two drift apart).
         var gateWarnings: [TectonicLogParser.Diagnostic] = []
         if let language, let source = astSource as? ProjectStoreASTSource {
             let report = await TranslationCoverage.check(
                 projectStore: source.projectStore, language: language)
-
-            // Zero-layer guard: no records anywhere for the language → refuse
-            // unconditionally, even under allow_stale (the "edition" would just
-            // be the source book relabeled).
-            if let zeroErr = report.zeroLayerError {
-                let diag = TectonicLogParser.Diagnostic(
-                    level: .error, file: nil, line: nil,
-                    message: zeroErr, contextLines: [])
-                await jobManager.fail(
-                    jobID: jobID, errors: [diag],
-                    logExcerpt: "no_translation_layer: \(language)")
-                return .failed(
-                    errors: [diag], logExcerpt: "no_translation_layer: \(language)")
-            }
-
-            if report.isBlocked && !allowStale {
-                let diags = report.gaps.map { gap in
-                    TectonicLogParser.Diagnostic(
-                        level: .error, file: nil, line: nil,
-                        message: TranslationCoverage.describe(gap),
-                        contextLines: [
-                            "Translate the listed paragraphs with write_translation,",
-                            "or pass allow_stale to compile with source-text fallback."
-                        ])
-                }
-                await jobManager.fail(
-                    jobID: jobID, errors: diags,
-                    logExcerpt: "translation_stale: \(language)")
-                return .failed(
-                    errors: diags, logExcerpt: "translation_stale: \(language)")
-            }
-
-            // allow_stale (or no gaps): demote gaps to warnings itemizing every
-            // fallback paragraph. Fountain element-drift warnings always attach.
-            if allowStale {
-                gateWarnings += report.gaps.map { gap in
-                    TectonicLogParser.Diagnostic(
-                        level: .warning, file: nil, line: nil,
-                        message: TranslationCoverage.describe(gap)
-                            + " — compiled with source-text fallback",
-                        contextLines: [])
-                }
-            }
-            gateWarnings += report.fountainDriftWarnings.map { message in
-                TectonicLogParser.Diagnostic(
-                    level: .warning, file: nil, line: nil,
-                    message: message, contextLines: [])
+            switch TranslationCoverage.applyGate(
+                report: report, language: language, allowStale: allowStale
+            ) {
+            case .blocked(let errors, let logExcerpt):
+                await jobManager.fail(jobID: jobID, errors: errors, logExcerpt: logExcerpt)
+                return .failed(errors: errors, logExcerpt: logExcerpt)
+            case .passed(let warnings):
+                gateWarnings += warnings
             }
         }
 

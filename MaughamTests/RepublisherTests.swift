@@ -369,4 +369,127 @@ final class RepublisherTests: XCTestCase {
             "republish gate must itemize the persistent gap as a warning, got: \(message)")
         XCTAssertTrue(message.lowercased().contains("fallback"), message)
     }
+
+    // MARK: - F1 round 5: republish surfaces fountain drift warnings too
+
+    private struct FountainRepubFixture {
+        let projectURL: URL
+        let item: StructureItem
+        let doc: Document
+        let store: ProjectStore
+        let configStore: PublishConfigStore
+        let publicationStore: PublicationStore
+        let snapshotStore: PublicationSnapshotStore
+        let jobManager: CompileJobManager
+    }
+
+    /// A real screenplay project with one fully-`es`-translated fountain
+    /// piece whose translation deliberately flips an action line into an
+    /// ALL-CAPS character cue — the SAME drift
+    /// `TranslationCoverageGateTests
+    /// .test_fountainDrift_allCapsActionToCharacter_warns` exercises at the
+    /// `TranslationCoverage.check` level, wired end-to-end here through a
+    /// real compile + republish.
+    private func makeFountainRepubFixture() async throws -> FountainRepubFixture {
+        let projectURL = try await ProjectFactory.createScreenplayProject(
+            named: "RepubDrift-\(UUID().uuidString.prefix(6))", in: tmp)
+        let probe = try await ProjectStore.load(from: projectURL)
+        let item = try XCTUnwrap(
+            ProjectStore.collectDocuments(in: probe.manifest.structure).first)
+        let path = try XCTUnwrap(item.path)
+        let docURL = projectURL.appendingPathComponent(path)
+        try """
+        INT. WAR ROOM - DAY
+
+        The captain nods slowly.
+        Ready the men now.
+        """.write(to: docURL, atomically: true, encoding: .utf8)
+
+        let doc = try await Document.load(
+            url: docURL, device: "test", session: "s", presenter: nil)
+        let store = try await ProjectStore.load(from: projectURL)
+        XCTAssertEqual(doc.sequence.count, 2,
+            "fixture must be scene heading + one action block paragraph")
+        let ids = doc.sequence
+
+        let configStore = PublishConfigStore(projectURL: projectURL)
+        var cfg = try await configStore.load() ?? PublishConfig()
+        cfg.metadata.title = "RepubDrift"
+        cfg.metadata.author = "T"
+        cfg.metadata.language = "en"
+        cfg.languageOverrides = ["es": .init(metadata: ["title": "Título"])]
+        try await configStore.save(cfg)
+
+        let slug = DeviceSlug.make(from: "test-mac")
+        func fresh(_ id: String, _ text: String) async throws {
+            let rec = TranslationRecord(
+                paragraphId: id, language: "es", text: text,
+                sourceHash: TranslationHash.hash(doc.paragraphs[id] ?? ""),
+                verbatim: false)
+            try await TranslationStore.append(
+                rec, forDocId: item.id, deviceSlug: slug, in: projectURL)
+        }
+        // Scene heading: identity translation (fully covered, no gap).
+        // Action block: ALL-CAPS character cue + dialogue — the drift.
+        try await fresh(ids[0], doc.paragraphs[ids[0]] ?? "")
+        try await fresh(ids[1], "EL CAPITÁN\nPreparen a los hombres.")
+
+        return FountainRepubFixture(
+            projectURL: projectURL, item: item, doc: doc, store: store,
+            configStore: configStore,
+            publicationStore: PublicationStore(projectURL: projectURL),
+            snapshotStore: PublicationSnapshotStore(projectURL: projectURL),
+            jobManager: CompileJobManager())
+    }
+
+    /// Round 5: `Republisher.republish` used to reimplement the gate block
+    /// inline and never read `report.fountainDriftWarnings` at all, so a
+    /// republished screenplay edition silently dropped this warning even
+    /// though the same-language `compile` surfaced it. Both now route
+    /// through the ONE shared `TranslationCoverage.applyGate`, so this
+    /// asserts republish surfaces the SAME drift warning `compile` does.
+    func testRepublish_surfacesFountainDriftWarning() async throws {
+        let fx = try await makeFountainRepubFixture()
+
+        let orch = CompileOrchestrator(
+            projectURL: fx.projectURL,
+            astSource: ProjectStoreASTSource(
+                projectStore: fx.store, language: "es", allowStale: false),
+            configStore: fx.configStore,
+            publicationStore: fx.publicationStore,
+            snapshotStore: fx.snapshotStore,
+            jobManager: fx.jobManager,
+            maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0")
+        let initial = try await orch.compile(
+            format: .epub, label: nil, language: "es", allowStale: false)
+        guard case .completed(let initialPub, let initialWarnings) = initial else {
+            XCTFail("initial es compile failed: \(initial)")
+            return
+        }
+        XCTAssertTrue(
+            initialWarnings.map(\.message).joined().lowercased().contains("drift"),
+            "initial compile must surface the fountain drift warning")
+
+        // No source edits — republish the SAME snapshot.
+        let r = Republisher(
+            projectURL: fx.projectURL,
+            astSource: ProjectStoreASTSource(
+                projectStore: fx.store, language: "es", allowStale: false),
+            publicationStore: fx.publicationStore,
+            snapshotStore: fx.snapshotStore,
+            jobManager: fx.jobManager,
+            maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0")
+        let outcome = try await r.republish(
+            snapshotID: initialPub.snapshotID, format: .epub, label: nil)
+
+        guard case .completed(_, let warnings) = outcome else {
+            XCTFail("expected republish to succeed, got \(outcome)")
+            return
+        }
+        let message = warnings.map(\.message).joined(separator: "\n").lowercased()
+        XCTAssertTrue(message.contains("drift"),
+            "republish must surface the fountain drift warning too, got: \(message)")
+        XCTAssertTrue(message.contains("action"), message)
+        XCTAssertTrue(message.contains("character"), message)
+    }
 }

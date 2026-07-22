@@ -7,10 +7,12 @@ import MaughamCore
 /// translation lags the source. `check` walks the SAME pieces as
 /// `ProjectStoreASTSource.orderedPieces()`, derives each piece's translation
 /// against the same `(sequence, paragraphs)` source split the substitution path
-/// uses, and reports per-piece stale/missing ¶id gaps. `CompileOrchestrator`
-/// consumes the report: it refuses an un-`allow_stale` edition with gaps, and
-/// under `allow_stale` demotes the gaps to warnings that itemize every paragraph
-/// that fell back to source text.
+/// uses, and reports per-piece stale/missing ¶id gaps. Both `CompileOrchestrator
+/// .compile` and `Republisher.republish` consume the report through the SAME
+/// `applyGate` (round 5 — these had reimplemented it separately and drifted):
+/// it refuses an un-`allow_stale` edition with gaps, and under `allow_stale`
+/// demotes the gaps to warnings that itemize every paragraph that fell back to
+/// source text.
 @MainActor
 enum TranslationCoverage {
 
@@ -96,6 +98,69 @@ enum TranslationCoverage {
             : nil
         return Report(gaps: gaps, fountainDriftWarnings: driftWarnings,
                       zeroLayerError: zeroLayer)
+    }
+
+    /// Outcome of `applyGate`: either the gate refuses (with the errors and
+    /// `logExcerpt` the caller should hand to `jobManager.fail`/`.failed`),
+    /// or it passes (with the warnings — allow_stale fallbacks + fountain
+    /// drift — the caller should merge into its success-path warnings).
+    enum GateResult {
+        case blocked(errors: [TectonicLogParser.Diagnostic], logExcerpt: String)
+        case passed(warnings: [TectonicLogParser.Diagnostic])
+    }
+
+    /// The ONE gate-application block for a translated compile — zero-layer
+    /// check, then the isBlocked/allowStale block-vs-warn branch, then
+    /// fountain-drift warnings — shared verbatim by `CompileOrchestrator
+    /// .compile` and `Republisher.republish` (Task 9 F1 round 5: these had
+    /// drifted apart, and `Republisher` silently dropped
+    /// `fountainDriftWarnings` because it never read that field). Neither
+    /// caller may reimplement any part of this switch.
+    nonisolated static func applyGate(
+        report: Report, language: String, allowStale: Bool
+    ) -> GateResult {
+        // Zero-layer guard: no records anywhere for the language → refuse
+        // unconditionally, even under allow_stale (the "edition" would just
+        // be the source book relabeled).
+        if let zeroErr = report.zeroLayerError {
+            let diag = TectonicLogParser.Diagnostic(
+                level: .error, file: nil, line: nil,
+                message: zeroErr, contextLines: [])
+            return .blocked(
+                errors: [diag], logExcerpt: "no_translation_layer: \(language)")
+        }
+
+        if report.isBlocked && !allowStale {
+            let diags = report.gaps.map { gap in
+                TectonicLogParser.Diagnostic(
+                    level: .error, file: nil, line: nil,
+                    message: describe(gap),
+                    contextLines: [
+                        "Translate the listed paragraphs with write_translation,",
+                        "or use allow_stale for a source-text fallback edition."
+                    ])
+            }
+            return .blocked(
+                errors: diags, logExcerpt: "translation_stale: \(language)")
+        }
+
+        // allow_stale (or no gaps): demote gaps to warnings itemizing every
+        // fallback paragraph. Fountain element-drift warnings always attach.
+        var warnings: [TectonicLogParser.Diagnostic] = []
+        if allowStale {
+            warnings += report.gaps.map { gap in
+                TectonicLogParser.Diagnostic(
+                    level: .warning, file: nil, line: nil,
+                    message: describe(gap) + " — compiled with source-text fallback",
+                    contextLines: [])
+            }
+        }
+        warnings += report.fountainDriftWarnings.map { message in
+            TectonicLogParser.Diagnostic(
+                level: .warning, file: nil, line: nil,
+                message: message, contextLines: [])
+        }
+        return .passed(warnings: warnings)
     }
 
     /// `"<title>: N stale (¶a, ¶b), M missing (¶c)"`. Empty lists drop their

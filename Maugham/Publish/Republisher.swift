@@ -92,55 +92,23 @@ public struct Republisher {
         // (see `pieceRef(for:)` in ProjectStoreASTSource), so a translated
         // edition (`prior.language != nil`) can drift stale between the
         // gated `compile` and a later `republish`. Re-run the same coverage
-        // check here, gated exactly like `CompileOrchestrator.compile` — but
-        // in whichever mode `prior.allowStale` pins (round 3): an edition
-        // originally compiled with allow_stale reproduces that SAME
-        // tolerance on republish (new gaps included — that IS the original
-        // mode, demoted to itemized warnings), while a strictly-gated
-        // edition still blocks unconditionally. Zero-layer failure is
-        // unconditional either way, matching `CompileOrchestrator.compile`.
+        // check here and hand the report to `TranslationCoverage.applyGate`
+        // in whichever mode `prior.allowStale` pins (round 3) — the SAME
+        // helper `CompileOrchestrator.compile` uses (round 5: this used to
+        // be reimplemented inline here, and had silently dropped
+        // `fountainDriftWarnings` as a result).
         var gateWarnings: [TectonicLogParser.Diagnostic] = []
         if let language, let source = astSource as? ProjectStoreASTSource {
             let report = await TranslationCoverage.check(
                 projectStore: source.projectStore, language: language)
-
-            if let zeroErr = report.zeroLayerError {
-                let diag = TectonicLogParser.Diagnostic(
-                    level: .error, file: nil, line: nil,
-                    message: zeroErr, contextLines: [])
-                await jobManager.fail(
-                    jobID: jobID, errors: [diag],
-                    logExcerpt: "no_translation_layer: \(language)")
-                return .failed(
-                    errors: [diag], logExcerpt: "no_translation_layer: \(language)")
-            }
-
-            if report.isBlocked && !allowStale {
-                let diags = report.gaps.map { gap in
-                    TectonicLogParser.Diagnostic(
-                        level: .error, file: nil, line: nil,
-                        message: TranslationCoverage.describe(gap),
-                        contextLines: [
-                            "Translate the listed paragraphs with write_translation,",
-                            "then republish — or republish an edition originally",
-                            "compiled with allow_stale for a source-fallback reproduction."
-                        ])
-                }
-                await jobManager.fail(
-                    jobID: jobID, errors: diags,
-                    logExcerpt: "translation_stale: \(language)")
-                return .failed(
-                    errors: diags, logExcerpt: "translation_stale: \(language)")
-            }
-
-            if allowStale {
-                gateWarnings += report.gaps.map { gap in
-                    TectonicLogParser.Diagnostic(
-                        level: .warning, file: nil, line: nil,
-                        message: TranslationCoverage.describe(gap)
-                            + " — compiled with source-text fallback",
-                        contextLines: [])
-                }
+            switch TranslationCoverage.applyGate(
+                report: report, language: language, allowStale: allowStale
+            ) {
+            case .blocked(let errors, let logExcerpt):
+                await jobManager.fail(jobID: jobID, errors: errors, logExcerpt: logExcerpt)
+                return .failed(errors: errors, logExcerpt: logExcerpt)
+            case .passed(let warnings):
+                gateWarnings += warnings
             }
         }
 
