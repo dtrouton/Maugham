@@ -73,4 +73,66 @@ final class RepublisherTests: XCTestCase {
             XCTFail("republish failed: errors=\(errors.map(\.message)) log=\(log.prefix(300))")
         }
     }
+
+    /// Finding 1: `Republisher` used to build its compilers and the new
+    /// `Publication` with a default `language: nil`, so a republished
+    /// Spanish edition's catalog record reported untagged and its filename
+    /// lacked the `-es` suffix — even though the snapshotted config (and
+    /// thus the compiled content) was already Spanish. Republisher must
+    /// carry the prior publication's `language` forward.
+    func testRepublish_carriesEditionLanguageAndFilenameSuffix() async throws {
+        let testBundlePath = Bundle(for: RepublisherTests.self).bundlePath
+        let appPath = testBundlePath.replacingOccurrences(
+            of: "/Contents/PlugIns/MaughamTests.xctest", with: "")
+        guard let _ = try? TectonicLocator.locateInBundle(
+            at: URL(fileURLWithPath: appPath)) else {
+            throw XCTSkip("tectonic missing")
+        }
+
+        struct Src: ProjectASTBuilder.Source {
+            func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+                [.init(pieceID: "p1", title: "C", mode: .prose, displayText: "Hola.")]
+            }
+        }
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "RepubLang", author: "T")))
+
+        // 1. Initial Spanish-edition compile creates v0.1 + a snapshot whose
+        //    Publication.language is "es".
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: Src(),
+            configStore: configStore,
+            publicationStore: PublicationStore(projectURL: tmp),
+            snapshotStore: PublicationSnapshotStore(projectURL: tmp),
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0")
+        let initial = try await orch.compile(format: .pdf, label: nil, language: "es")
+        guard case .completed(let initialPub, _) = initial else {
+            XCTFail("initial failed: \(initial)")
+            return
+        }
+        XCTAssertEqual(initialPub.language, "es")
+
+        // 2. Republish from that snapshot — the new record must carry the
+        //    edition language forward, and the output filename must stay
+        //    language-suffixed.
+        let r = Republisher(
+            projectURL: tmp,
+            astSource: Src(),
+            publicationStore: PublicationStore(projectURL: tmp),
+            snapshotStore: PublicationSnapshotStore(projectURL: tmp),
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0")
+        let outcome = try await r.republish(
+            snapshotID: initialPub.snapshotID,
+            format: .pdf, label: nil)
+        switch outcome {
+        case .completed(let pub, _):
+            XCTAssertEqual(pub.language, "es")
+            XCTAssertTrue(pub.outputPath.hasSuffix("-es.pdf"),
+                          "expected language-suffixed republish filename, got \(pub.outputPath)")
+        case .failed(let errors, let log):
+            XCTFail("republish failed: errors=\(errors.map(\.message)) log=\(log.prefix(300))")
+        }
+    }
 }

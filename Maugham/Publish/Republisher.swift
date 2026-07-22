@@ -71,9 +71,15 @@ public struct Republisher {
             snap, into: stage.appendingPathComponent(".maugham/publish",
                                                      isDirectory: true))
 
-        // Find the prior publication so we can fill `republishedFrom`.
+        // Find the prior publication so we can fill `republishedFrom` and
+        // carry its edition `language` forward — the snapshot's config is
+        // already language-effective (Task 7 Rule 1), but the compilers and
+        // the new Publication record still need the tag explicitly to
+        // language-suffix the filename and tag the catalog entry.
         let pubs = try await publicationStore.load()
-        let priorVersion = pubs.first(where: { $0.snapshotID == snapshotID })?.version
+        let prior = pubs.first(where: { $0.snapshotID == snapshotID })
+        let priorVersion = prior?.version
+        let language = prior?.language
 
         let jobID = await jobManager.register(phase: .renderingBody)
 
@@ -87,7 +93,8 @@ public struct Republisher {
             let pdf = try PDFCompiler(
                 projectURL: stage, astSource: astSource,
                 config: snap.config, jobManager: jobManager,
-                maughamVersion: maughamVersion, jobID: jobID)
+                maughamVersion: maughamVersion, jobID: jobID,
+                language: language)
             let r = try await pdf.compile(label: label)
             outputPath = r.outputPath
             warnings = r.warnings
@@ -98,7 +105,8 @@ public struct Republisher {
                 projectURL: stage, astSource: astSource,
                 config: snap.config, jobManager: jobManager,
                 maughamVersion: maughamVersion,
-                tectonicVersion: tectonicVersion, jobID: jobID)
+                tectonicVersion: tectonicVersion, jobID: jobID,
+                language: language)
             let r = try await e.compile(label: label)
             outputPath = r.outputPath
             warnings = r.warnings
@@ -141,7 +149,8 @@ public struct Republisher {
             republishedFrom: priorVersion,
             compiledAt: Date(),
             maughamVersion: maughamVersion,
-            tectonicVersion: tectonicVersion)
+            tectonicVersion: tectonicVersion,
+            language: language)
         try await publicationStore.append(pub)
 
         await jobManager.complete(jobID: jobID, outputPath: dest.path,

@@ -160,6 +160,31 @@ final class CompileLanguageThreadingTests: XCTestCase {
                       "metadata.tex missing default MaughamLanguage:\n\(metaTex)")
     }
 
+    // Orchestrator-level companion to the two PDFCompiler-direct tests above:
+    // the direct tests prove PDFCompiler writes `\MaughamLanguage` correctly
+    // in isolation, but don't prove `CompileOrchestrator.compile` actually
+    // threads `language` through to PDFCompiler in the production call path.
+    func test_rule5_orchestratorPdfCompile_threadsLanguageToMetadataTexAndFilename() async throws {
+        let testBundlePath = Bundle(for: CompileLanguageThreadingTests.self).bundlePath
+        let appPath = testBundlePath.replacingOccurrences(
+            of: "/Contents/PlugIns/MaughamTests.xctest", with: "")
+        guard (try? TectonicLocator.locateInBundle(
+            at: URL(fileURLWithPath: appPath))) != nil else {
+            throw XCTSkip("tectonic missing")
+        }
+
+        let outcome = try await makeOrchestrator().compile(
+            format: .pdf, label: nil, language: "es")
+        let pub = try completedPublication(outcome)
+
+        XCTAssertTrue(pub.outputPath.hasSuffix("-es.pdf"),
+                      "expected language-suffixed PDF filename, got \(pub.outputPath)")
+
+        let metaTex = try metadataTexContents()
+        XCTAssertTrue(metaTex.contains("\\renewcommand{\\MaughamLanguage}{es}"),
+                      "metadata.tex missing Spanish MaughamLanguage:\n\(metaTex)")
+    }
+
     // MARK: - config-save pin: a language compile must NOT rewrite the shared config
 
     func test_configSavePin_languageCompileLeavesBaseMetadataIntactBumpsVersion() async throws {

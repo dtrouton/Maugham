@@ -19,6 +19,7 @@ enum CompileResponseEncoder {
             "errors": []
         ]
         if let label = pub.label { obj["label"] = label }
+        if let language = pub.language { obj["language"] = language }
         return try JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys])
     }
 
