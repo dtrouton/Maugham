@@ -6,7 +6,7 @@ The local MCP server that lets Claude Desktop read and contribute to projects. R
 
 The in-app MCP server: tool registration, JSON-RPC handling, the read/search/discover surface for projects, the `add_note` write path (research-only), the annotation layer (paragraph-anchored comments from Claude), and the bridge between Claude Desktop's stdio and Maugham's Unix socket.
 
-## Tool catalogue (48)
+## Tool catalogue (51)
 
 **Discovery / identity**
 - `list_projects` — enumerate all open Maugham projects
@@ -71,6 +71,11 @@ The in-app MCP server: tool registration, JSON-RPC handling, the read/search/dis
 - `set_piece_style` — attach per-piece LaTeX style overrides
 - `clear_piece_style` — remove per-piece style overrides
 
+**Translation**
+- `write_translation` — record per-paragraph translations of a document into a language, in a parallel translation layer (the manuscript is never mutated). Each entry supplies `text` or `verbatim: true` (copy source chrome unchanged); the server stamps each record with a hash of the current source paragraph for downstream staleness detection. All-or-nothing on unknown paragraph ids; non-verbatim entries surface structural-drift warnings. Reads current paragraph state via the shared `currentParagraphState` helper (open doc → live `Document`; closed → `DerivedManuscriptCache`, never the on-disk `.md`, tripwire 20).
+- `read_translation` — read a document's translation into a language, paragraph by paragraph in manuscript order; each entry pairs source with translated text and a freshness `status` (`fresh`/`stale`/`missing`). Unknown language reads as all-`missing` (not an error). Optional `status` filter narrows to matching entries (`status=stale`+`status=missing` = the retranslation worklist). Whole-doc payload, so it self-enforces the 900 KB `MCPResponseBudget`.
+- `translation_status` — summarise translation progress; with `document_id` one doc, without it every manuscript doc (skipping collection references, same walk as `ProjectStoreASTSource`). One row per (document, language) with `fresh`/`stale`/`missing`/`orphans` counts plus `open_queries` (unresolved translator questions for that language; wired in the annotation-language pass).
+
 **Inbox / capture**
 - `list_inbox` — enumerate capture inbox entries (voice/text/photo); summaries include the phone's optional `palette_subject`/`sense` aim fields when present
 - `read_inbox_entry` — read the content of a single inbox entry
@@ -82,8 +87,8 @@ A **separate** catalog, `TestMCPToolCatalog`, that mirrors `MCPToolCatalog`'s sh
 (`register(router:registry:)`) but is registered onto the **same dev-build Unix socket**
 only inside `#if MAUGHAM_DEV_BUILD` in `MaughamApp.registerTools` — absent from the stable
 binary entirely (enforced by `TripwireGrepTests.test_testMCPCatalog_registeredOnlyUnderDevFlag`).
-It exists for **Claude Code**, not Claude Desktop, and is not part of the production 48-tool
-count above — the "Tool catalogue (48)" heading is unaffected by these tools.
+It exists for **Claude Code**, not Claude Desktop, and is not part of the production 51-tool
+count above — the "Tool catalogue (51)" heading is unaffected by these tools.
 
 Purpose: let Claude Code drive the full create → edit → autosave → checkpoint → quit →
 relaunch → verify loop end to end without the owner acting as a human tester, so the
@@ -144,7 +149,7 @@ URI** (per the draft, names aren't unique identifiers) and fails loudly (protoco
 only — any other URI fails loudly too (Maugham's server has no general resources support).
 These three are **protocol methods**, registered directly on the router in
 `MaughamApp.registerTools` alongside `initialize`/`tools/list`/`tools/call` — not tools,
-so **the tool catalogue count stays 48** whether or not a connecting client speaks the
+so **the tool catalogue count stays 51** whether or not a connecting client speaks the
 extension.
 
 **Content source:** `docs/skills/<name>/SKILL.md` (agentskills.io flat-frontmatter format:
@@ -153,8 +158,8 @@ and loaded by `Maugham/Help/SkillIndex.swift` (modeled on `HelpTopicIndex`; stri
 load in dev builds, skip-with-log in release so one malformed skill can't take the server
 down). It's a fourth bundled content root alongside `docs/guide/` (help topics) and
 `Maugham/Resources/Samples/` (sample projects) — same discipline: edit the bundled file,
-don't add a second copy. Two skills are served today: `transcribing-notebooks`,
-`editing-pass`. A third folder, `maugham-bootstrap` (frontmatter `name: maugham`), is the
+don't add a second copy. Three skills are served today: `transcribing-notebooks`,
+`editing-pass`, `translation-pass`. A fourth folder, `maugham-bootstrap` (frontmatter `name: maugham`), is the
 Claude Code router template — `SkillIndex` loads it but `skills/list`/`skills/get`/`get_help`
 never serve it; it reaches the world only via `ClaudeCodeSkillInstall`'s installer, wired
 into `Views/HelpClaudeDesktopSheet.swift`'s Claude Code section (copyable variant-aware

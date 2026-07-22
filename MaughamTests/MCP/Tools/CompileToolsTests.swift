@@ -49,6 +49,30 @@ final class CompileToolsTests: XCTestCase {
         XCTAssertEqual(resp?["format"] as? String, "pdf")
         XCTAssertNotNil(resp?["output_path"])
         XCTAssertNotNil(resp?["version"])
+        // Same conditional-key precedent as "label": absent when no
+        // language was requested (finding 3 companion — see the
+        // language-present case below).
+        XCTAssertNil(resp?["language"])
+    }
+
+    // Finding 3: `CompileResponseEncoder.encodeCompleted` surfaced `label`
+    // but not `language`. A language compile's response must carry the tag
+    // so callers (and republish flows) can see which edition was produced.
+    func testCompile_pdf_language_completedSync_surfacesLanguageKey() async throws {
+        let testBundlePath = Bundle(for: CompileToolsTests.self).bundlePath
+        let appPath = testBundlePath.replacingOccurrences(
+            of: "/Contents/PlugIns/MaughamTests.xctest", with: "")
+        guard (try? TectonicLocator.locateInBundle(
+            at: URL(fileURLWithPath: appPath))) != nil else {
+            throw XCTSkip("tectonic binary not bundled in test host")
+        }
+        let data = try await CompileTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"pdf","language":"es","wait_seconds":120}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(resp?["status"] as? String, "completed",
+                       "unexpected response: \(resp ?? [:])")
+        XCTAssertEqual(resp?["language"] as? String, "es")
     }
 
     func testCompile_returnsJobID_whenWaitExpired() async throws {

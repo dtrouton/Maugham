@@ -15,12 +15,17 @@ public struct EPUBCompiler {
     public let maughamVersion: String
     public let tectonicVersion: String
     public let jobID: String?
+    /// The requested edition language, used only for the output filename's
+    /// `{language}` token / collision suffix. dc:language comes from
+    /// `config.metadata.language`, which the orchestrator has already folded
+    /// to the edition.
+    public let language: String?
 
     public init(
         projectURL: URL, astSource: ProjectASTBuilder.Source,
         config: PublishConfig, jobManager: CompileJobManager,
         maughamVersion: String, tectonicVersion: String,
-        jobID: String? = nil
+        jobID: String? = nil, language: String? = nil
     ) {
         self.projectURL = projectURL
         self.astSource = astSource
@@ -29,6 +34,7 @@ public struct EPUBCompiler {
         self.maughamVersion = maughamVersion
         self.tectonicVersion = tectonicVersion
         self.jobID = jobID
+        self.language = language
     }
 
     public func compile(label: String?) async throws -> Result {
@@ -58,7 +64,11 @@ public struct EPUBCompiler {
             to: build.appendingPathComponent("compile.log"),
             atomically: true, encoding: .utf8)
 
-        let cssURL = publish.appendingPathComponent("styles.css")
+        // Pick the language-suffixed stylesheet (`styles.es.css`) when the
+        // edition ships one; else the base `styles.css` (Task 10).
+        let cssName = LanguageSuffixedFile.resolve(
+            "styles.css", language: language, under: publish)
+        let cssURL = publish.appendingPathComponent(cssName)
         let css = (try? String(contentsOf: cssURL)) ?? ""  // adr-0018-ok: bundled EPUB CSS asset read, not manuscript
 
         var cover: EPUBPackage.Cover? = nil
@@ -118,6 +128,6 @@ public struct EPUBCompiler {
     private func makeOutputFilename(
         format: PublishConfig.Format, label: String?
     ) -> String {
-        OutputFilenameBuilder.make(config: config, format: format, label: label)
+        OutputFilenameBuilder.make(config: config, format: format, label: label, language: language)
     }
 }

@@ -15,8 +15,8 @@ import Foundation
 /// - **`.project(id:)`** (data events for windows on one project —
 ///   `maughamScriptDidUpdate`, `maughamOpenRewind`, `maughamMCPNoteAdded`,
 ///   `maughamCheckpointAdded`, `maughamSessionLogChanged`,
-///   `maughamNavigateToDocument`): delivered to live windows on the matching
-///   project only.
+///   `maughamNavigateToDocument`, `maughamTranslationDidUpdate`): delivered to
+///   live windows on the matching project only.
 /// - **`.allWindows`** (genuinely global fan-out, no liveness guard — see the
 ///   per-name zombie-harm audit note where present): `maughamNewProject`,
 ///   `maughamOpenProject`, `maughamAppWillTerminate`, `maughamShowHelp`.
@@ -46,6 +46,29 @@ extension Notification.Name {
     public static let maughamOpenProject = Notification.Name("maugham.openProject")
     public static let maughamToggleNoChrome = Notification.Name("maugham.toggleNoChrome")
     public static let maughamToggleReviewMode = Notification.Name("maugham.toggleReviewMode")
+    /// Posted by the Translation Review menu command (`.keyWindow`, menu-command
+    /// class). The app-global menu can't reach the focused window's active-doc
+    /// selection or project URL, so it just asks the key window to resolve the
+    /// active doc's available translation languages and present the picker.
+    public static let maughamShowTranslationPicker = Notification.Name("maugham.showTranslationPicker")
+    /// Posted when the writer picks a translation to review — the key
+    /// ProjectWindow enters read-only translation-review posture for the active
+    /// doc (EditorHost swaps in the derived translated surface; the coordinator
+    /// flips its membrane synchronously). `userInfo["language"]` carries the
+    /// BCP-47 language tag. Scope: .keyWindow.
+    public static let maughamEnterTranslationReview = Notification.Name("maugham.enterTranslationReview")
+    /// Posted to leave translation review and show the source manuscript again.
+    /// Scope: .keyWindow.
+    public static let maughamExitTranslationReview = Notification.Name("maugham.exitTranslationReview")
+    /// Posted by `write_translation` after it appends new translation records —
+    /// a data event, so its scope is `.project(for: projectURL)` (mirrors
+    /// `maughamMCPNoteAdded`, delivered to live windows on the project only).
+    /// `userInfo["document_id"]` and `userInfo["language"]` name the affected
+    /// (doc, language). A window already inside translation review for that
+    /// pair re-derives its read-only surface so a retranslation lands live
+    /// rather than staying frozen until the writer exits and re-enters. Scope:
+    /// .project(id:).
+    public static let maughamTranslationDidUpdate = Notification.Name("maugham.translation.did.update")
     public static let maughamToggleFullScreen = Notification.Name("maugham.toggleFullScreen")
     public static let maughamDummySave = Notification.Name("maugham.dummySave")
     public static let maughamShowProjectSettings = Notification.Name("maugham.showProjectSettings")

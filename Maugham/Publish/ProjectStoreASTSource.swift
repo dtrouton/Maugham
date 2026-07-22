@@ -19,8 +19,20 @@ public struct ProjectStoreASTSource: ProjectASTBuilder.Source {
 
     public let projectStore: ProjectStore
 
-    public init(projectStore: ProjectStore) {
+    /// When non-nil, `orderedPieces()` substitutes the merged translation
+    /// sidecar for this language edition into each piece's display text; when
+    /// nil, the source-language materialize path is byte-untouched.
+    public let language: String?
+
+    /// Reserved for Task 9's coverage gate (compile refuses an un-`allow_stale`
+    /// edition whose translation lags the source). Stored here so the gate can
+    /// read the same value the substitution used.
+    public let allowStale: Bool
+
+    public init(projectStore: ProjectStore, language: String? = nil, allowStale: Bool = false) {
         self.projectStore = projectStore
+        self.language = language
+        self.allowStale = allowStale
     }
 
     public func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
@@ -34,22 +46,61 @@ public struct ProjectStoreASTSource: ProjectASTBuilder.Source {
         let mode: ProjectAST.Mode = path.lowercased().hasSuffix(".fountain")
             ? .fountain
             : .prose
-        // ADR 0018 open-doc rule: an OPEN doc's live `Document` is the freshest
-        // source — the op log lags an actively-edited doc by the burst window
-        // (30s idle / 90s cap), since the 750ms autosave appends no ops. So a
-        // compile must take the in-memory anchored form (matching the derived
-        // fallback) for open docs, deriving only for closed ones. Reading the
-        // `.md` directly stays forbidden — it can be a stale artifact.
         let text: String
-        if let ds = projectStore.documentStore, let doc = ds.document(for: path) {
-            text = doc.materialize()
+        if let language {
+            text = translatedDisplayText(forDocId: item.id, path: path, language: language)
         } else {
-            text = projectStore.derivedCache.materialize(forDocId: item.id, in: projectStore.url)
+            // ADR 0018 open-doc rule: an OPEN doc's live `Document` is the
+            // freshest source — the op log lags an actively-edited doc by the
+            // burst window (30s idle / 90s cap), since the 750ms autosave appends
+            // no ops. So a compile must take the in-memory anchored form (matching
+            // the derived fallback) for open docs, deriving only for closed ones.
+            // Reading the `.md` directly stays forbidden — it can be a stale artifact.
+            if let ds = projectStore.documentStore, let doc = ds.document(for: path) {
+                text = doc.materialize()
+            } else {
+                text = projectStore.derivedCache.materialize(forDocId: item.id, in: projectStore.url)
+            }
         }
         return ProjectASTBuilder.PieceRef(
             pieceID: item.id,
             title: item.title,
             mode: mode,
             displayText: text)
+    }
+
+    /// Display text for a translated edition. Takes the SAME `(sequence,
+    /// paragraphs)` source-of-truth split as the nil-language path — open doc →
+    /// live `Document`, closed → `derivedCache.state` — never the raw `.md`
+    /// (tripwire 20). Overlays the merged translation sidecar and emits, per
+    /// paragraph in `sequence` order, `translatedText ?? sourceText`, joined with
+    /// the blank-line block separator that `stripAnchors(materialize())` yields.
+    /// Consequence: an all-verbatim (identity) translation reproduces the
+    /// source-language AST exactly — pinned by `ASTTranslationSubstitutionTests`.
+    private func translatedDisplayText(
+        forDocId docId: String, path: String, language: String
+    ) -> String {
+        let sequence: [String]
+        let paragraphs: [String: String]
+        if let ds = projectStore.documentStore, let doc = ds.document(for: path) {
+            sequence = doc.sequence
+            paragraphs = doc.paragraphs
+        } else {
+            let state = projectStore.derivedCache.state(forDocId: docId, in: projectStore.url)
+            sequence = state.sequence
+            paragraphs = state.paragraphs
+        }
+        let records = TranslationStore.loadMerged(
+            forDocId: docId, language: language, in: projectStore.url)
+        let derived = TranslationDeriver.derive(
+            records: records, sequence: sequence, paragraphs: paragraphs, language: language)
+        // Task 9's coverage gate guards this fallback: a paragraph with no
+        // translation (or a stale one) falls back to its source text so the join
+        // never drops a block; un-gated stale/missing compiles are refused
+        // upstream, so a mixed-language render can only reach here under
+        // `allow_stale`.
+        return derived.entries
+            .map { $0.translatedText ?? $0.sourceText }
+            .joined(separator: "\n\n")
     }
 }

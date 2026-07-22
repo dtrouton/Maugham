@@ -186,9 +186,20 @@ public enum RepublishTool: MCPTool {
         let projectURL = entry.url
         let stores = PublishingStores.sharedFor(
             projectID: params.projectID, projectURL: projectURL)
+        // Resolve the prior publication BEFORE building astSource — its
+        // `language` must drive translation substitution here exactly like
+        // CompileTool threads `params.language`, or a republished translated
+        // edition silently compiles the byte-identical source-language body
+        // (found during Task 9 F1 hardening). `Republisher.republish` looks
+        // up the SAME prior via `PublicationStore.publication(forSnapshotID:)`
+        // — resolving it here too, rather than re-deriving it a second way,
+        // keeps the two agreeing on which publication is "prior".
+        let prior = try await stores.publicationStore.publication(
+            forSnapshotID: params.snapshotID)
         let republisher = Republisher(
             projectURL: projectURL,
-            astSource: ProjectStoreASTSource(projectStore: store),
+            astSource: ProjectStoreASTSource(
+                projectStore: store, language: prior?.language, allowStale: false),
             publicationStore: stores.publicationStore,
             snapshotStore: stores.snapshotStore,
             jobManager: stores.jobManager,

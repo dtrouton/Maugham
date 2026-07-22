@@ -482,8 +482,10 @@ extension EditorCoordinator {
     func applyFocusDim(in textView: NSTextView) {
         guard let storage = textView.textStorage else { return }
         // Review posture turns focus-dim off — the reviewer reads the whole
-        // crafted draft, not a dimmed sentence/paragraph window.
-        guard !isReviewMode else { return }
+        // crafted draft, not a dimmed sentence/paragraph window. Translation
+        // review is the same read-only whole-document posture (the derived
+        // translated surface), so it dims off too.
+        guard !isReviewMode, !isTranslationReview else { return }
         let useSentence = sentenceFocus
         let useParagraph = paragraphFocus && !sentenceFocus
         guard useSentence || useParagraph else { return }

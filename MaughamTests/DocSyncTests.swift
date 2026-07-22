@@ -196,7 +196,7 @@ final class DocSyncTests: XCTestCase {
         XCTAssertTrue(caseNames.contains("inbox"),
             "Self-check precondition: DetailSegment should still have an `inbox` case.")
 
-        let doctoredDoc = "The right column has modes: Inspector, Research, Outline, Tasks, Annotations, History, Palette."
+        let doctoredDoc = "The right column has modes: Inspector, Research, Outline, Tasks, Annotations, History, Palette, Translation."
         let missing = Self.missingCaseMentions(caseNames, in: doctoredDoc)
         XCTAssertEqual(missing, ["inbox"],
             "Self-check expected exactly the omitted \"inbox\" case to be reported missing. Got: \(missing).")

@@ -15,6 +15,11 @@ public struct PDFCompiler {
     public let jobManager: CompileJobManager
     public let maughamVersion: String
     public let jobID: String?
+    /// The requested edition language, used only for the output filename's
+    /// `{language}` token / collision suffix. dc-facing metadata (including
+    /// `\MaughamLanguage`) comes from `config.metadata`, which the orchestrator
+    /// has already folded to the edition.
+    public let language: String?
 
     public init(
         projectURL: URL,
@@ -22,7 +27,8 @@ public struct PDFCompiler {
         config: PublishConfig,
         jobManager: CompileJobManager,
         maughamVersion: String,
-        jobID: String? = nil
+        jobID: String? = nil,
+        language: String? = nil
     ) throws {
         self.projectURL = projectURL
         self.astSource = astSource
@@ -30,6 +36,7 @@ public struct PDFCompiler {
         self.jobManager = jobManager
         self.maughamVersion = maughamVersion
         self.jobID = jobID
+        self.language = language
     }
 
     /// Full PDF compile.
@@ -61,6 +68,8 @@ public struct PDFCompiler {
         \\renewcommand{\\Keywords}{\(LaTeXEscape.escape(m.keywords.joined(separator: ", ")))}
         \\renewcommand{\\MaughamVersion}{\(LaTeXEscape.escape(config.nextVersion))}
         \\renewcommand{\\MaughamLabel}{\(LaTeXEscape.escape(label ?? ""))}
+        \\providecommand{\\MaughamLanguage}{}
+        \\renewcommand{\\MaughamLanguage}{\(LaTeXEscape.escape(m.language))}
         """
         try metaTex.write(to: metaURL, atomically: true, encoding: .utf8)
 
@@ -73,7 +82,11 @@ public struct PDFCompiler {
         let cache = try TectonicCache.ensureCacheExists()
         let invoker = TectonicInvoker(binaryURL: binary, cacheURL: cache)
 
-        let templateURL = publish.appendingPathComponent("template.tex")
+        // Pick the language-suffixed template (`template.es.tex`) when the
+        // edition ships one; else the base `template.tex` (Task 10).
+        let templateName = LanguageSuffixedFile.resolve(
+            "template.tex", language: language, under: publish)
+        let templateURL = publish.appendingPathComponent(templateName)
         let invocationResult = try await invoker.compile(
             texFile: templateURL,
             workingDirectory: publish,
@@ -103,8 +116,10 @@ public struct PDFCompiler {
             await jobManager.updatePhase(jobID: id, phase: .writingOutput)
         }
 
-        // tectonic emitted template.pdf into build/, not publish root.
-        let generated = build.appendingPathComponent("template.pdf")
+        // tectonic emits <templateBasename>.pdf into build/, not publish root —
+        // a suffixed template (`template.es.tex`) yields `template.es.pdf`.
+        let generatedName = (templateName as NSString).deletingPathExtension + ".pdf"
+        let generated = build.appendingPathComponent(generatedName)
         let filename = makeOutputFilename(format: .pdf, label: label)
         let exports = projectURL.appendingPathComponent(config.outputs.directory,
                                                        isDirectory: true)
@@ -127,7 +142,7 @@ public struct PDFCompiler {
     private func makeOutputFilename(
         format: PublishConfig.Format, label: String?
     ) -> String {
-        OutputFilenameBuilder.make(config: config, format: format, label: label)
+        OutputFilenameBuilder.make(config: config, format: format, label: label, language: language)
     }
 
     /// Locates `tectonic` either from the running app bundle or, in XCTest,

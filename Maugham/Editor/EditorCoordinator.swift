@@ -39,6 +39,17 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// nothing reads it back. Use `setLockEditing(_:)` to flip it.
     private(set) var lockEditing = false
 
+    /// Translation-review posture (Task 11): when true the editor is displaying a
+    /// DERIVED translated surface (`translatedText ?? sourceText`, joined) instead
+    /// of the source manuscript, so the buffer is read-only — `shouldChangeTextIn`
+    /// rejects every mutation via `EditorEditPolicy`, guaranteeing the translated
+    /// view produces zero ops. Independent of `isReviewMode`/`lockEditing`: a
+    /// reader can inspect a translation of a manuscript they authored. Plain
+    /// stored property, no observers (tripwire 2), threaded ONE-WAY from
+    /// ProjectWindow → EditorHost → EditorSurface; nothing reads it back. Use
+    /// `setTranslationReview(_:)` to flip it so the membrane sees it immediately.
+    private(set) var isTranslationReview = false
+
     /// Weak handle to the floating selection toolbar overlay so the
     /// selection-change callback can position/show/hide it. Lives in the scroll
     /// view's superview (see EditorSurface), NOT a subview of the clipped
@@ -211,6 +222,17 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// the reconciler re-converges if state ever drifts.
     private var reviewToggleObserver: NSObjectProtocol?
 
+    /// Observer tokens for translation-review entry/exit (Task 13). Same
+    /// rationale as `reviewToggleObserver`: flip the read-only membrane
+    /// SYNCHRONOUSLY in the key window's coordinator so the very next keystroke
+    /// already sees the toggled posture — the `control.translationLanguage`
+    /// mirror lands a frame later. `ProjectWindow`'s `TranslationReviewModifier`
+    /// still owns the language + the surface swap on the SAME posts; the
+    /// model-driven `applyControl → setTranslationReview` is the no-op-guarded
+    /// reconciler both paths converge through (ADR 0017), so they can't diverge.
+    private var translationEnterObserver: NSObjectProtocol?
+    private var translationExitObserver: NSObjectProtocol?
+
     /// The control-plane model (ADR 0017). Set once at `attach` via
     /// `observeControl`; the coordinator READS it (never writes). nil until
     /// `observeControl` runs.
@@ -302,6 +324,20 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// view (like the gutter) and shown only in review mode.
     weak var markRenderer: AnnotationMarkRenderer?
     weak var marginRail: ReviewMarginRailView?
+
+    /// Staleness-badge overlay for translation review (Task 12): margin dots in
+    /// the LEFT inset — amber (stale) / gray-hollow (missing). Installed lazily
+    /// on the text view (like the review overlays) and shown only in translation
+    /// review. See `EditorCoordinator+TranslationBadges.swift`.
+    weak var translationBadgeOverlay: TranslationBadgeOverlayView?
+    /// The current per-paragraph badge resolution (¶ → UTF-16 range + status) in
+    /// the rendered translated surface. Recomputed only when the pushed model
+    /// changes — never per draw (tripwire 4). The overlay reads this directly.
+    var resolvedTranslationBadges: [TranslationBadgeLayout.BadgeRange] = []
+    /// Last translation-badge model applied, for the per-`applyControl` no-op
+    /// guard (the model is pushed on every observation pass, like
+    /// `reviewAnnotations`). Nil until the first push.
+    var appliedTranslationBadgeModel: EditorControl.TranslationBadgeModel?
 
     /// The annotation id whose margin card is currently selected (click-to-reveal
     /// actions). nil = nothing selected. Read by `ReviewMarginRailView` to
@@ -479,6 +515,22 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             guard let self else { return }
             self.setReviewMode(!self.isReviewMode)
         }
+        // Translation review (Task 13): flip the read-only membrane
+        // synchronously on the key window's coordinator, exactly as ⌘⌥R does
+        // above. Language + surface swap stay EditorHost's; this only governs
+        // the membrane so the next keystroke is already blocked (or unblocked).
+        translationEnterObserver = MaughamEvent.observe(
+            .maughamEnterTranslationReview,
+            context: { [weak self] in self?.receiverContext(.keyWindow) }
+        ) { [weak self] _ in
+            self?.setTranslationReview(true)
+        }
+        translationExitObserver = MaughamEvent.observe(
+            .maughamExitTranslationReview,
+            context: { [weak self] in self?.receiverContext(.keyWindow) }
+        ) { [weak self] _ in
+            self?.setTranslationReview(false)
+        }
         // The former annotation-set-changed notification observer is gone (ADR
         // 0017): an AnnotationsPane edit/withdraw bumps `annotationsVersion` on the shared
         // Document, which EditorHost mirrors into `control.reviewAnnotations` →
@@ -504,6 +556,12 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = reviewToggleObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+        if let token = translationEnterObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+        if let token = translationExitObserver {
             NotificationCenter.default.removeObserver(token)
         }
     }
@@ -582,11 +640,13 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // deliveries. `receiverContext` also returns nil once `isDetached`, so
         // this is belt-and-suspenders with the deinit removal (which stays).
         for token in [navigateObserver, findMatchObserver, paragraphNavigateObserver,
-                      annotationNavigateObserver, reviewToggleObserver] {
+                      annotationNavigateObserver, reviewToggleObserver,
+                      translationEnterObserver, translationExitObserver] {
             if let token { NotificationCenter.default.removeObserver(token) }
         }
         navigateObserver = nil; findMatchObserver = nil; paragraphNavigateObserver = nil
         annotationNavigateObserver = nil; reviewToggleObserver = nil
+        translationEnterObserver = nil; translationExitObserver = nil
         // Clear the native undo stack before the text-view reference is
         // dropped: a doc switch recreates the EditorSurface via `.id(path)`,
         // and the NEW text view is seeded in `makeNSView` — no
@@ -717,6 +777,26 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         lockEditing = locked
     }
 
+    /// Translation-review posture changed (Task 11). Plain stored-property flip
+    /// threaded ONE-WAY from EditorSurface (tripwires 2 & 6). The membrane reads
+    /// `isTranslationReview` live in `shouldChangeTextIn`, so no restyle is needed
+    /// — the next keystroke sees the new value (mirrors `setLockEditing`). The
+    /// translated-surface buffer swap itself is EditorHost's job (the text binding
+    /// value changes, flowing through the single `applyExternalText` site in
+    /// `updateNSView`); this setter only governs the membrane. Idempotent /
+    /// no-op guarded (updateNSView / applyControl run every layout pass).
+    ///
+    /// Returns `true` when the flag actually flipped (used by
+    /// `EditorSurface.reconcileTextBuffer` to detect a translation entry/exit
+    /// swap in the same layout pass, so it can force a non-undo-coherent buffer
+    /// replace regardless of any one-shot undo-coherent flag).
+    @discardableResult
+    func setTranslationReview(_ enabled: Bool) -> Bool {
+        guard isTranslationReview != enabled else { return false }
+        isTranslationReview = enabled
+        return true
+    }
+
     func setReviewMode(_ enabled: Bool) {
         guard isReviewMode != enabled else { return }
         isReviewMode = enabled
@@ -789,6 +869,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             _ = control.sentenceFocus
             _ = control.paragraphFocus
             _ = control.reviewAnnotations
+            _ = control.translationLanguage
+            _ = control.translationBadges
         } onChange: { [weak self] in
             // onChange fires once (pre-change). Re-arm on the next main-actor
             // turn — after the mutation commits — so the re-applied values are
@@ -814,6 +896,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         applyControlCount += 1
         setLockEditing(c.lockEditing)        // self-guarded
         setReviewMode(c.isReviewMode)        // self-guarded
+        // Translation review is a pure membrane flip driven off language
+        // presence; the surface buffer swap is EditorHost's (the text binding).
+        setTranslationReview(c.translationLanguage != nil)   // self-guarded
         if theme != c.theme || typography != c.typography {
             applyAppearance(theme: c.theme, typography: c.typography)
         }
@@ -824,6 +909,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             applyFocusPrefs(sentence: c.sentenceFocus, paragraph: c.paragraphFocus)
         }
         setReviewAnnotations(c.reviewAnnotations)   // self-guarded
+        setTranslationBadges(c.translationBadges)   // self-guarded
     }
 
     // MARK: - NSTextViewDelegate
@@ -840,7 +926,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // stops the smart-typography path below from running its insertText, so
         // no mutation leaks. Placed at the very top, before the existing guard.
         guard EditorEditPolicy.allowsTextMutation(
-            isReviewMode: isReviewMode, lockEditing: lockEditing) else {
+            isReviewMode: isReviewMode, lockEditing: lockEditing,
+            isTranslationReview: isTranslationReview) else {
             return false
         }
         guard let replacementString,

@@ -315,6 +315,59 @@ struct EditorSurface: NSViewRepresentable {
         }
     }
 
+    /// Reconcile the text buffer for one layout pass: flip the mutation membrane
+    /// to reflect the current control value, then swap the buffer if it drifted.
+    ///
+    /// Extracted from `updateNSView` so the ORDERING is unit-testable without a
+    /// synthesizable `NSViewRepresentable.Context` (the closest real-wiring test
+    /// the entry/exit race admits — `TranslationReviewPostureTests` hand-pumps
+    /// this against the real coordinator).
+    ///
+    /// Why the membrane flip lives HERE, strictly before the buffer swap: entering
+    /// translation review changes `control.translationLanguage`, which drives TWO
+    /// independent reactions with no ordering guarantee — (1) the coordinator's
+    /// `withObservationTracking` re-arm (`applyControl → setTranslationReview`),
+    /// which applies on a LATER main-actor turn, and (2) SwiftUI's
+    /// `.onChange → translatedSurfaceText → render → updateNSView`, which swaps the
+    /// translated text into the buffer via `applyExternalText`. If (2) wins,
+    /// translated text is briefly EDITABLE (membrane still off) and a keystroke
+    /// lands in the op log as manuscript text. Flipping the membrane synchronously
+    /// here, in the same pass as the swap, closes that window; the async re-arm
+    /// stays for genuinely out-of-band control changes (ADR 0017's purpose).
+    ///
+    /// `setTranslationReview` is a cheap no-op-guarded stored-property flip, so it
+    /// is safe on every pass — this does NOT re-introduce the per-keystroke control
+    /// bookkeeping ADR 0017 removed (that was the full appearance/posture/focus
+    /// compare set; only the translation membrane flag is touched here).
+    @MainActor
+    static func reconcileTextBuffer(
+        textView: NSTextView,
+        coordinator: EditorCoordinator,
+        translationLanguage: String?,
+        text: String,
+        undoCoherentApply: Bool
+    ) {
+        // Membrane BEFORE swap — see the doc-comment above.
+        let translationMembraneChanged =
+            coordinator.setTranslationReview(translationLanguage != nil)
+        guard textView.string != text else { return }
+        // The undo stack may be preserved ONLY for an ordinary in-place
+        // accept/revert replace on the SOURCE manuscript. Any translation-review
+        // buffer replace must drop it: the translated buffer is a different text,
+        // and carrying the source's native undo actions across the swap re-opens
+        // the ⌘Z EXC_BAD_ACCESS class (EditorUndoStackClearTests). That covers
+        // two cases the membrane-changed check alone misses — not just the
+        // entry/exit TRANSITION (`translationMembraneChanged`), but also an
+        // IN-MODE translated-content refresh (already in translation review, the
+        // membrane doesn't flip this pass) where an unrelated accept/revert
+        // one-shot flag set in the same pass would otherwise retain a stale undo
+        // action across the replace. Gating on `translationLanguage == nil` (the
+        // editor is showing the source manuscript) forces the clear in both.
+        let preserveUndoStack =
+            undoCoherentApply && translationLanguage == nil && !translationMembraneChanged
+        coordinator.applyExternalText(text, preserveUndoStack: preserveUndoStack)
+    }
+
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? MaughamTextView else { return }
         // SwiftUI's NSViewRepresentable doesn't always propagate scroll-view
@@ -334,10 +387,12 @@ struct EditorSurface: NSViewRepresentable {
         // the flag, or it would wrongly mark the NEXT unrelated replace as
         // undo-coherent and skip the stale-undo-stack clear (the ⌘Z crash class).
         let undoCoherentApply = configuration.consumeUndoCoherentApplyFlag?() ?? false
-        if textView.string != text {
-            context.coordinator.applyExternalText(
-                text, preserveUndoStack: undoCoherentApply)
-        }
+        Self.reconcileTextBuffer(
+            textView: textView,
+            coordinator: context.coordinator,
+            translationLanguage: configuration.control.translationLanguage,
+            text: text,
+            undoCoherentApply: undoCoherentApply)
         let p = configuration.presentation
         let pp = configuration.paragraphProviders
         let rp = configuration.reviewProviders
@@ -579,6 +634,11 @@ final class MaughamTextView: NSTextView {
         // sits in the right inset) on every resize, like the gutter above.
         coordinator?.layoutReviewOverlays(in: self)
         coordinator?.refreshReviewOverlays()
+
+        // Re-frame the translation-badge overlay (covers the view; dots in the
+        // left inset) on resize too (Task 12).
+        coordinator?.layoutTranslationBadgeOverlay(in: self)
+        coordinator?.translationBadgeOverlay?.needsDisplay = true
     }
 
     func installGutter(coordinator: EditorCoordinator) {

@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 // MARK: - shared response encoding
 
@@ -18,6 +19,7 @@ enum CompileResponseEncoder {
             "errors": []
         ]
         if let label = pub.label { obj["label"] = label }
+        if let language = pub.language { obj["language"] = language }
         return try JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys])
     }
 
@@ -79,17 +81,20 @@ public enum CompileTool: MCPTool {
     public static let description =
     "Full PDF or EPUB compile. wait_seconds blocks up to that long for completion; if it elapses, returns {status: in_progress, job_id, phase}. On success creates a Publication record referencing the captured PublicationSnapshot (template + config + styles bytes, frozen at compile time). Note: the Publication.checkpoint_id field is reserved for a follow-up milestone — it's empty in v1, and reproducibility is via snapshot_id (which republish uses)."
     public static let inputSchemaJSON = """
-    {"type":"object","properties":{"project_id":{"type":"string"},"format":{"type":"string","enum":["pdf","epub"]},"label":{"type":"string"},"wait_seconds":{"type":"integer","default":60}},"required":["project_id","format"]}
+    {"type":"object","properties":{"project_id":{"type":"string"},"format":{"type":"string","enum":["pdf","epub"]},"label":{"type":"string"},"language":{"type":"string","description":"BCP-47-ish language tag (e.g. 'es') to compile a translated edition: applies language_overrides, sets dc:language / \\\\MaughamLanguage, and language-suffixes the output filename. Omit for the source-language edition."},"allow_stale":{"type":"boolean","default":false,"description":"Compile a translated edition even if some paragraphs are stale or missing, falling back to source text for those paragraphs (default false blocks the compile and reports the gap instead)."},"wait_seconds":{"type":"integer","default":60}},"required":["project_id","format"]}
     """
 
     struct Params: Codable {
         let projectID: String
         let format: PublishConfig.Format
         let label: String?
+        let language: String?
+        let allowStale: Bool?
         let waitSeconds: Int?
         enum CodingKeys: String, CodingKey {
             case projectID = "project_id"
-            case format, label
+            case format, label, language
+            case allowStale = "allow_stale"
             case waitSeconds = "wait_seconds"
         }
     }
@@ -97,12 +102,19 @@ public enum CompileTool: MCPTool {
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
         let params = try decodeParams(Params.self, from: paramsJSON)
+        if let language = params.language,
+           !TranslationRecord.isValidLanguageTag(language) {
+            throw MCPError.invalidArgument("invalid language tag: \(language)")
+        }
         let entry = try resolveProject(params.projectID, in: registry)
         let store = entry.store
         let projectURL = entry.url
         let stores = PublishingStores.sharedFor(
             projectID: params.projectID, projectURL: projectURL)
-        let astSource = ProjectStoreASTSource(projectStore: store)
+        let astSource = ProjectStoreASTSource(
+            projectStore: store,
+            language: params.language,
+            allowStale: params.allowStale ?? false)
         let orch = CompileOrchestrator(
             projectURL: projectURL,
             astSource: astSource,
@@ -116,7 +128,13 @@ public enum CompileTool: MCPTool {
         let wait = TimeInterval(params.waitSeconds ?? 60)
         let format = params.format
         let label = params.label
-        let task = Task { try await orch.compile(format: format, label: label) }
+        let language = params.language
+        let allowStale = params.allowStale ?? false
+        let task = Task {
+            try await orch.compile(
+                format: format, label: label,
+                language: language, allowStale: allowStale)
+        }
         do {
             let outcome = try await withTimeout(seconds: wait) { try await task.value }
             return try CompileResponseEncoder.encodeOutcome(outcome)

@@ -37,13 +37,46 @@ public struct CompileOrchestrator {
         self.tectonicVersion = tectonicVersion
     }
 
-    public func compile(format: PublishConfig.Format, label: String?) async throws -> Outcome {
+    public func compile(
+        format: PublishConfig.Format,
+        label: String?,
+        language: String? = nil,
+        allowStale: Bool = false
+    ) async throws -> Outcome {
         let jobID = await jobManager.register(phase: .renderingBody)
 
         guard let config = try await configStore.load() else {
             await jobManager.fail(jobID: jobID, errors: [], logExcerpt: "no config")
             return .failed(errors: [], logExcerpt: "no config")
         }
+
+        // The edition-effective config: base config with its metadata folded
+        // to the language edition (dc:language set + language_overrides applied).
+        // `language == nil` leaves metadata untouched (single-language compile).
+        // Everything downstream — snapshot, compilers, filename, Publication —
+        // reads `effective`, so the snapshot freezes config/templates for
+        // `Republisher` (which reads snap.config). It does NOT freeze
+        // manuscript/translation content — `astSource` still reads the live
+        // ProjectStore on republish, so a translated edition is re-gated
+        // separately in `Republisher.republish` (Task 9 F1), not here.
+        // The post-compile version bump below saves the ORIGINAL `config`, never
+        // `effective`, so a translated compile can't overwrite the shared config.
+        var effective = config
+        effective.metadata = config.effectiveMetadata(language: language)
+
+        // Task 10: resolve language-suffixed per-piece style files on the
+        // EFFECTIVE config before snapshot + emit. The emitter has no
+        // filesystem access, so existence-based resolution happens here. Only
+        // `effective` is rewritten — snapshot/compilers read it — while the
+        // shared config saved below stays on the base names. `language == nil`
+        // is a no-op. Republish stays consistent: the snapshot captures the
+        // whole publish tree (including any `.es.tex` piece files), and it
+        // freezes `effective`, so the frozen config's suffixed names match the
+        // frozen tree.
+        let publishDir = projectURL.appendingPathComponent(
+            ".maugham/publish", isDirectory: true)
+        effective = LanguageSuffixedFile.resolvingStyleFiles(
+            in: effective, language: language, publishDir: publishDir)
 
         // D3c: pre-compile collision guard. `PublishStarter.install` (D3a)
         // reconciles `next_version` past existing publications, but a writer
@@ -74,9 +107,33 @@ public struct CompileOrchestrator {
                 logExcerpt: "version_collision: \(config.nextVersion)")
         }
 
+        // Task 9: translation coverage gate. A translated edition
+        // (`language != nil`) must not ship a book whose translation lags the
+        // source. Reuse the astSource's own `ProjectStore` (the same one the
+        // substitution path reads) to walk pieces, derive each, and hand the
+        // report to `TranslationCoverage.applyGate` — the ONE place either
+        // `compile` or `republish` decides block-vs-warn (Task 9 F1 round 5;
+        // this used to be reimplemented in `Republisher.republish`, which let
+        // the two drift apart).
+        var gateWarnings: [TectonicLogParser.Diagnostic] = []
+        if let language, let source = astSource as? ProjectStoreASTSource {
+            let report = await TranslationCoverage.check(
+                projectStore: source.projectStore, language: language)
+            switch TranslationCoverage.applyGate(
+                report: report, language: language, allowStale: allowStale
+            ) {
+            case .blocked(let errors, let logExcerpt):
+                await jobManager.fail(jobID: jobID, errors: errors, logExcerpt: logExcerpt)
+                return .failed(errors: errors, logExcerpt: logExcerpt)
+            case .passed(let warnings):
+                gateWarnings += warnings
+            }
+        }
+
         // Capture snapshot BEFORE compile so it reflects the source state used.
+        // Freeze the edition-effective config (see `effective` above).
         let snap = try snapshotStore.capture(
-            config: config, maughamVersion: maughamVersion,
+            config: effective, maughamVersion: maughamVersion,
             tectonicVersion: tectonicVersion)
 
         let outputPath: String
@@ -88,8 +145,9 @@ public struct CompileOrchestrator {
         case .pdf:
             let pdf = try PDFCompiler(
                 projectURL: projectURL, astSource: astSource,
-                config: config, jobManager: jobManager,
-                maughamVersion: maughamVersion, jobID: jobID)
+                config: effective, jobManager: jobManager,
+                maughamVersion: maughamVersion, jobID: jobID,
+                language: language)
             let result = try await pdf.compile(label: label)
             outputPath = result.outputPath
             warnings = result.warnings
@@ -99,9 +157,10 @@ public struct CompileOrchestrator {
         case .epub:
             let epub = EPUBCompiler(
                 projectURL: projectURL, astSource: astSource,
-                config: config, jobManager: jobManager,
+                config: effective, jobManager: jobManager,
                 maughamVersion: maughamVersion,
-                tectonicVersion: tectonicVersion, jobID: jobID)
+                tectonicVersion: tectonicVersion, jobID: jobID,
+                language: language)
             let result = try await epub.compile(label: label)
             outputPath = result.outputPath
             warnings = result.warnings
@@ -130,7 +189,9 @@ public struct CompileOrchestrator {
             republishedFrom: nil,
             compiledAt: Date(),
             maughamVersion: maughamVersion,
-            tectonicVersion: tectonicVersion)
+            tectonicVersion: tectonicVersion,
+            language: language,
+            allowStale: allowStale)
         // TODO: transactional commit. If `configStore.save` throws after
         // `publicationStore.append` succeeds, the next compile reuses the same
         // version → two Publications at the same version. Swapping order moves
@@ -155,10 +216,13 @@ public struct CompileOrchestrator {
             from: config.nextVersion)
         try await configStore.save(nextConfig)
 
+        // Gate warnings (allow_stale fallbacks + fountain drift) ride alongside
+        // the compiler's own warnings on the success path.
+        let allWarnings = gateWarnings + warnings
         await jobManager.complete(
             jobID: jobID, outputPath: outputPath,
-            warnings: warnings, errors: errors)
-        return .completed(pub, warnings: warnings)
+            warnings: allWarnings, errors: errors)
+        return .completed(pub, warnings: allWarnings)
     }
 
     private func relativePath(_ abs: String, from root: URL) -> String {

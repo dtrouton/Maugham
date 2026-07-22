@@ -71,11 +71,46 @@ public struct Republisher {
             snap, into: stage.appendingPathComponent(".maugham/publish",
                                                      isDirectory: true))
 
-        // Find the prior publication so we can fill `republishedFrom`.
-        let pubs = try await publicationStore.load()
-        let priorVersion = pubs.first(where: { $0.snapshotID == snapshotID })?.version
+        // Find the prior publication so we can fill `republishedFrom` and
+        // carry its edition `language` forward — the snapshot's config is
+        // already language-effective (Task 7 Rule 1), but the compilers and
+        // the new Publication record still need the tag explicitly to
+        // language-suffix the filename and tag the catalog entry.
+        let prior = try await publicationStore.publication(forSnapshotID: snapshotID)
+        let priorVersion = prior?.version
+        let language = prior?.language
+        // Round 3: `republish` has no `allow_stale` parameter of its own — it
+        // replays whichever gate mode the ORIGINAL compile used. `false` for
+        // a strictly-gated edition and for any publication compiled before
+        // this field existed (ADR 0015 additive default).
+        let allowStale = prior?.allowStale ?? false
 
         let jobID = await jobManager.register(phase: .renderingBody)
+
+        // Task 9 F1: the snapshot freezes config/templates only — `astSource`
+        // still reads the LIVE ProjectStore for manuscript/translation content
+        // (see `pieceRef(for:)` in ProjectStoreASTSource), so a translated
+        // edition (`prior.language != nil`) can drift stale between the
+        // gated `compile` and a later `republish`. Re-run the same coverage
+        // check here and hand the report to `TranslationCoverage.applyGate`
+        // in whichever mode `prior.allowStale` pins (round 3) — the SAME
+        // helper `CompileOrchestrator.compile` uses (round 5: this used to
+        // be reimplemented inline here, and had silently dropped
+        // `fountainDriftWarnings` as a result).
+        var gateWarnings: [TectonicLogParser.Diagnostic] = []
+        if let language, let source = astSource as? ProjectStoreASTSource {
+            let report = await TranslationCoverage.check(
+                projectStore: source.projectStore, language: language)
+            switch TranslationCoverage.applyGate(
+                report: report, language: language, allowStale: allowStale
+            ) {
+            case .blocked(let errors, let logExcerpt):
+                await jobManager.fail(jobID: jobID, errors: errors, logExcerpt: logExcerpt)
+                return .failed(errors: errors, logExcerpt: logExcerpt)
+            case .passed(let warnings):
+                gateWarnings += warnings
+            }
+        }
 
         let outputPath: String
         let warnings: [TectonicLogParser.Diagnostic]
@@ -87,7 +122,8 @@ public struct Republisher {
             let pdf = try PDFCompiler(
                 projectURL: stage, astSource: astSource,
                 config: snap.config, jobManager: jobManager,
-                maughamVersion: maughamVersion, jobID: jobID)
+                maughamVersion: maughamVersion, jobID: jobID,
+                language: language)
             let r = try await pdf.compile(label: label)
             outputPath = r.outputPath
             warnings = r.warnings
@@ -98,7 +134,8 @@ public struct Republisher {
                 projectURL: stage, astSource: astSource,
                 config: snap.config, jobManager: jobManager,
                 maughamVersion: maughamVersion,
-                tectonicVersion: tectonicVersion, jobID: jobID)
+                tectonicVersion: tectonicVersion, jobID: jobID,
+                language: language)
             let r = try await e.compile(label: label)
             outputPath = r.outputPath
             warnings = r.warnings
@@ -141,12 +178,18 @@ public struct Republisher {
             republishedFrom: priorVersion,
             compiledAt: Date(),
             maughamVersion: maughamVersion,
-            tectonicVersion: tectonicVersion)
+            tectonicVersion: tectonicVersion,
+            language: language,
+            allowStale: allowStale)
         try await publicationStore.append(pub)
 
+        // Gate warnings (allow-stale fallbacks) ride alongside the
+        // compiler's own warnings on the success path, matching
+        // `CompileOrchestrator.compile`.
+        let allWarnings = gateWarnings + warnings
         await jobManager.complete(jobID: jobID, outputPath: dest.path,
-                                  warnings: warnings, errors: errors)
-        return .completed(pub, warnings: warnings)
+                                  warnings: allWarnings, errors: errors)
+        return .completed(pub, warnings: allWarnings)
     }
 
     private func relativePath(_ abs: String, from root: URL) -> String {

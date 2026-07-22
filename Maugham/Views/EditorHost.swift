@@ -53,6 +53,23 @@ struct EditorHost: View {
     /// editor switches away.
     @State private var priorLoadedPath: String?
 
+    /// The derived translated surface shown in read-only translation review
+    /// (Task 11), or nil when the editor shows the source manuscript. This is
+    /// DELIBERATE one-way threaded state (tripwire 6): it is recomputed ONLY on
+    /// explicit events — `control.translationLanguage` changing, or an
+    /// `annotationsVersion` tick while in the posture — never observed off
+    /// `displayText`. When non-nil it becomes the EditorSurface's `text` value,
+    /// so the buffer swap flows through the single `applyExternalText` site in
+    /// `EditorSurface.updateNSView`; the editor membrane (flipped in the
+    /// coordinator off `control.translationLanguage`) blocks every edit, so the
+    /// surface is read-only and produces zero ops.
+    @State private var translatedSurfaceText: String? = nil
+
+    /// This view's hosting NSWindow, resolved via `WindowAccessor` so the
+    /// project-scoped `maughamTranslationDidUpdate` observer can apply the
+    /// ADR 0021 liveness/scope filter (a closed window must not act).
+    @State private var window: NSWindow? = nil
+
     /// Session id stable for the lifetime of this app launch. Stamped onto
     /// every `typing_burst` Op so multi-window edits can be merged across
     /// instances. Computed once via a lazy static.
@@ -86,8 +103,16 @@ struct EditorHost: View {
                     // (tripwires 2/3/6/7) — it stays inline here, NOT packaged into
                     // the configuration.
                     text: Binding(
-                        get: { doc.displayText },
+                        // In translation review the surface shows the derived
+                        // translated buffer, not the source manuscript.
+                        get: { translatedSurfaceText ?? doc.displayText },
                         set: { newText in
+                            // Defense in depth: the coordinator membrane already
+                            // blocks every mutation in translation review, so no
+                            // set should reach here — but if one did, it must
+                            // NEVER write the translated buffer back onto the
+                            // source op log.
+                            guard translatedSurfaceText == nil else { return }
                             doc.setFullText(newText)
                             documentStore.recordEditorTextWrite(
                                 documentId: doc.docId,
@@ -114,16 +139,49 @@ struct EditorHost: View {
                     control.reviewAnnotations = control.isReviewMode
                         ? doc.annotations(filter: AnnotationFilter(statuses: [.open]))
                         : []
+                    // While in translation review, a source-side edit (which
+                    // flips paragraphs stale) must re-derive the surface. Note
+                    // this fires on annotation-set changes only; a fresh
+                    // translation WRITE (write_translation) does not bump
+                    // annotationsVersion — that refresh arrives via the
+                    // maughamTranslationDidUpdate observer below.
+                    if control.translationLanguage != nil {
+                        recomputeTranslatedSurface(doc: doc)
+                    }
+                }
+                // A retranslation landed via write_translation for THIS doc:
+                // re-derive so the read-only surface + badges refresh live
+                // instead of freezing until the writer exits and re-enters.
+                // Project-scoped (ADR 0021); the liveness/scope filter lives in
+                // MaughamEvent.shouldDeliver. Guarded on being in-mode and the
+                // event naming the loaded doc.
+                .onProjectEvent(
+                    .maughamTranslationDidUpdate, url: store.url, window: window
+                ) { note in
+                    guard control.translationLanguage != nil,
+                          note.userInfo?["document_id"] as? String == doc.docId
+                    else { return }
+                    recomputeTranslatedSurface(doc: doc)
                 }
                 .onChange(of: control.isReviewMode) { _, nowReview in
                     control.reviewAnnotations = nowReview
                         ? doc.annotations(filter: AnnotationFilter(statuses: [.open]))
                         : []
                 }
+                // Dedicated one-way recompute: entering translation review
+                // (language becomes non-nil) derives the surface once; exiting
+                // (nil) drops it so `text` reverts to `doc.displayText` and the
+                // existing applyExternalText site swaps the source buffer back in.
+                .onChange(of: control.translationLanguage) { _, _ in
+                    recomputeTranslatedSurface(doc: doc)
+                }
                 .onAppear {
                     control.reviewAnnotations = control.isReviewMode
                         ? doc.annotations(filter: AnnotationFilter(statuses: [.open]))
                         : []
+                    // A re-mount while a language is selected must restore the
+                    // translated surface.
+                    recomputeTranslatedSurface(doc: doc)
                 }
             } else if currentItem?.type == .group {
                 placeholder("Select a document inside this group to edit.")
@@ -185,6 +243,7 @@ struct EditorHost: View {
         // read of `document.displayText` into this view's body would reopen the
         // parallel-observable-state cursor races (tripwires 6 and 7).
         .task { await loadDocumentIfNeeded() }
+        .background(WindowAccessor(window: $window))
     }
 
     /// Build the EditorSurface configuration wall in a dedicated function so the
@@ -341,6 +400,57 @@ struct EditorHost: View {
                         undoManager: um)
                 }),
             consumeUndoCoherentApplyFlag: { doc.consumeUndoCoherentApplyFlag() })
+    }
+
+    /// Re-derive the read-only translation surface for the live document, or
+    /// clear it when no language is selected (Task 11). Pulls the persisted
+    /// translation records for `control.translationLanguage`, derives against the
+    /// live doc's authoritative `sequence`/`paragraphs`, and joins the entries in
+    /// order as `translatedText ?? sourceText` with the pinned `"\n\n"` separator
+    /// (the same render `ProjectStoreASTSource` uses for publish). Called only on
+    /// explicit events (language change, annotationsVersion tick while in mode,
+    /// re-mount) — never off `displayText` — so it stays one-way threaded state,
+    /// not parallel observable state feeding the binding (tripwire 6).
+    private func recomputeTranslatedSurface(doc: Document) {
+        guard let language = control.translationLanguage else {
+            translatedSurfaceText = nil
+            control.translationBadges = .empty
+            return
+        }
+        let records = TranslationStore.loadMerged(
+            forDocId: doc.docId, language: language, in: store.url)
+        let derived = TranslationDeriver.derive(
+            records: records, sequence: doc.sequence,
+            paragraphs: doc.paragraphs, language: language)
+        // The badge overlay measures ¶ ranges by accumulating each entry's OWN
+        // text (TranslationBadgeLayout.ranges) rather than re-splitting a
+        // joined string, so hand it the same per-block text the buffer swap
+        // joins — same bytes as `translatedSurfaceText` below, just chunked
+        // per paragraph (Task 12 fix round 1).
+        //
+        let badgeEntries = Self.reviewBadgeEntries(from: derived.entries)
+        translatedSurfaceText = badgeEntries.map(\.text).joined(separator: "\n\n")
+        control.translationBadges = EditorControl.TranslationBadgeModel(entries: badgeEntries)
+    }
+
+    /// Build the per-paragraph review entries from a derived translation. This
+    /// is the ONE place the review plane's text is constructed — the surface
+    /// buffer (`translatedSurfaceText`), the badge ranges, and the ⌘⌥8 pane all
+    /// derive from these entry texts, so stripping inline task anchors here
+    /// keeps them byte-consistent and anchor-free. A `missing` paragraph falls
+    /// back to its source text, which can carry `<!--t-XXXX-->` anchors; without
+    /// this strip they'd render raw in the read-only surface. Pure + static so
+    /// `EditorHostTranslationSurfaceTests` can pin the anchor-free rendering
+    /// without an AppKit surface (mirrors `TranslationBadgeLayout.ranges`).
+    static func reviewBadgeEntries(
+        from entries: [TranslatedDocument.Entry]
+    ) -> [TranslationBadgeLayout.Entry] {
+        entries.map {
+            TranslationBadgeLayout.Entry(
+                paragraphId: $0.paragraphId,
+                text: RenderFilter.stripTaskAnchorsInline($0.translatedText ?? $0.sourceText),
+                status: $0.status)
+        }
     }
 
     private var currentItem: StructureItem? {

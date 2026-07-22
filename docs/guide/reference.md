@@ -28,6 +28,7 @@ The ones you'll use most:
 | `⌘⌥5` | Tasks pane |
 | `⌘⌥6` | Inbox pane |
 | `⌘⌥7` | Palette pane |
+| `⌘⌥8` | Translation pane |
 | `⌘⇧P` | Toggle Research preview |
 | `⌘/` | Syntax + keyboard reference |
 

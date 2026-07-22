@@ -111,6 +111,7 @@ public enum AddQueryTool: MCPTool {
         public let paragraph_id: String
         public let body: String
         public let quote: String?
+        public let language: String?
     }
     public struct Result: Codable, Equatable {
         public let annotation_id: String
@@ -121,15 +122,22 @@ public enum AddQueryTool: MCPTool {
         "character motivation). The writer replies via the Annotations pane; " +
         "the reply is persisted in the annotation history. Optionally pass " +
         "`quote` (an exact phrase from the paragraph) to anchor the query to a " +
-        "sub-paragraph span; omit it to anchor the whole paragraph."
+        "sub-paragraph span; omit it to anchor the whole paragraph. During a " +
+        "translation pass, pass `language` (the target tag, e.g. `es`) to mark " +
+        "the query as a translator question about that language — " +
+        "translation_status counts these as `open_queries`."
     public static let inputSchemaJSON =
-        #"{"type":"object","properties":{"project_id":{"type":"string"},"document_id":{"type":"string"},"paragraph_id":{"type":"string"},"body":{"type":"string"},"quote":{"type":"string"}},"required":["project_id","document_id","paragraph_id","body"]}"#
+        #"{"type":"object","properties":{"project_id":{"type":"string"},"document_id":{"type":"string"},"paragraph_id":{"type":"string"},"body":{"type":"string"},"quote":{"type":"string"},"language":{"type":"string","description":"optional translation-pass target tag, e.g. es, pt-br"}},"required":["project_id","document_id","paragraph_id","body"]}"#
 
     @MainActor
     public static func handle(
         paramsJSON: Data?, registry: ProjectRegistry
     ) async throws -> Data {
         let params = try decodeParams(Params.self, from: paramsJSON)
+        if let language = params.language,
+           !TranslationRecord.isValidLanguageTag(language) {
+            throw MCPError.invalidArgument("invalid language tag: \(language)")
+        }
         let id = try await withAnnotationDocument(
             projectId: params.project_id,
             documentId: params.document_id,

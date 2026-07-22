@@ -297,6 +297,11 @@ struct ProjectWindow: View {
             effectivePosture: effectivePosture,
             effectiveTypography: effectiveTypography,
             editorControl: $editorControl))
+        .modifier(TranslationReviewModifier(
+            window: window,
+            projectURL: url,
+            activeDocId: selectedItemId,
+            editorControl: $editorControl))
         .modifier(PaletteSegmentModifier(
             binderSegment: binderSegment,
             showInspector: $showInspector,
@@ -890,13 +895,21 @@ struct ProjectWindow: View {
             device: _checkpointDeviceId,
             session: _checkpointSessionId,
             docPaths: Self.documentPaths(in: store.manifest.structure),
-            documentStore: documentStore
+            documentStore: documentStore,
+            editorControl: editorControl
         ) {
             if store.manifest.type == .collection {
                 collectionInspector(store: store)
             } else {
                 existingInspectorSwitch(store: store)
             }
+        }
+        // Entering translation review surfaces the Translation segment so the
+        // source text + translator queries are one glance away. Exiting leaves
+        // the segment in place (it shows a "not in review" empty state) rather
+        // than yanking the pane out from under the writer.
+        .onChange(of: editorControl.translationLanguage) { _, lang in
+            if lang != nil { detailSegment = .translation }
         }
     }
 
@@ -1376,6 +1389,89 @@ private struct EditorControlMirrorModifier: ViewModifier {
                 editorControl.typewriterScroll = userPreferences.typewriterScroll
                 editorControl.sentenceFocus = userPreferences.sentenceFocus
                 editorControl.paragraphFocus = userPreferences.paragraphFocus
+            }
+    }
+}
+
+/// Owns this window's translation-review selection (Task 13): receives the
+/// key-window picker / enter / exit commands (ADR 0021), resolves the active
+/// doc's available languages for the picker, mirrors the chosen language
+/// ONE-WAY into `editorControl.translationLanguage` (EditorHost swaps in the
+/// derived surface and the coordinator flips its membrane from there — Tasks
+/// 11/12), and renders the top indicator pill next to `ReviewModeIndicator`.
+///
+/// Menu-shape note: the app-global menu can't reach `activeDocId`/`projectURL`
+/// (per-window state), so the menu posts a generic "show picker" command and
+/// THIS window presents the picker — resolving languages is a direct local call
+/// here, and the filesystem scan happens only on demand rather than on every
+/// body render (as a focused-value publish of the list would). Extracted into a
+/// ViewModifier to stay under ProjectWindow.body's type-checker ceiling.
+private struct TranslationReviewModifier: ViewModifier {
+    let window: NSWindow?
+    let projectURL: URL
+    let activeDocId: String?
+    @Binding var editorControl: EditorControl
+
+    @State private var translationLanguage: String?
+    @State private var pickerLanguages: [String] = []
+    @State private var showingPicker = false
+
+    func body(content: Content) -> some View {
+        content
+            .onKeyWindowCommand(.maughamShowTranslationPicker, window: window) { _ in
+                pickerLanguages = activeDocId.map {
+                    TranslationStore.languages(forDocId: $0, in: projectURL).sorted()
+                } ?? []
+                showingPicker = true
+            }
+            .onKeyWindowCommand(.maughamEnterTranslationReview, window: window) { note in
+                guard let lang = note.userInfo?["language"] as? String else { return }
+                translationLanguage = lang
+                editorControl.translationLanguage = lang
+            }
+            .onKeyWindowCommand(.maughamExitTranslationReview, window: window) { _ in
+                translationLanguage = nil
+                editorControl.translationLanguage = nil
+            }
+            // The chosen language belongs to the doc that was active when it was
+            // picked; a doc switch must drop the posture back to the source.
+            .onChange(of: activeDocId) { _, _ in
+                guard translationLanguage != nil else { return }
+                translationLanguage = nil
+                editorControl.translationLanguage = nil
+            }
+            .confirmationDialog(
+                "Translation Review",
+                isPresented: $showingPicker,
+                titleVisibility: .visible
+            ) {
+                ForEach(pickerLanguages, id: \.self) { tag in
+                    Button(TranslationReviewIndicator.displayLabel(forLanguageTag: tag)) {
+                        MaughamEvent.post(.maughamEnterTranslationReview,
+                                          to: .keyWindow, payload: ["language": tag])
+                    }
+                }
+                if translationLanguage != nil {
+                    Button("Show Source (Off)") {
+                        MaughamEvent.post(.maughamExitTranslationReview, to: .keyWindow)
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(pickerLanguages.isEmpty
+                     ? "No translations are available for this document yet."
+                     : "Choose a translation to review in read-only mode.")
+            }
+            .safeAreaInset(edge: .top) {
+                if let lang = translationLanguage {
+                    TranslationReviewIndicator(
+                        languageTag: lang,
+                        staleCount: TranslationReviewIndicator.staleCount(
+                            in: editorControl.translationBadges.entries),
+                        onExit: {
+                            MaughamEvent.post(.maughamExitTranslationReview, to: .keyWindow)
+                        })
+                }
             }
     }
 }

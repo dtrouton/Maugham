@@ -20,6 +20,14 @@ final class EditorControl {
     var isReviewMode: Bool = false
     var lockEditing: Bool = false
 
+    /// Selected translation language, or nil when the editor shows the source
+    /// manuscript (Task 11). Non-nil ⇒ the editor is in read-only translation
+    /// review: the coordinator flips its membrane (via `applyControl` →
+    /// `setTranslationReview`) and EditorHost swaps in the derived translated
+    /// surface. One-way (sources → model → coordinator); the UI sets it in a
+    /// later task. Genuine control state — never text-/cursor-derived (D1).
+    var translationLanguage: String? = nil
+
     // Appearance.
     var theme: Theme = .light
     var typography: TypographySettings = .defaults
@@ -29,6 +37,31 @@ final class EditorControl {
 
     // Review render set (open annotations shown in review posture).
     var reviewAnnotations: [Annotation] = []
+
+    /// Ordered per-paragraph translation freshness for the staleness-badge
+    /// overlay + the dimmed-missing treatment (Task 12). Each entry carries its
+    /// own rendered TEXT (`translatedText ?? sourceText`), the same string
+    /// EditorHost joins to build the translated buffer — so this is the same
+    /// bytes as that joined surface, just chunked per paragraph rather than
+    /// pushed as one flat string; not new text-derived control state. `.empty`
+    /// when not in translation review. Threaded ONE-WAY (sources → model →
+    /// coordinator) on EXPLICIT translation events only — a language change, an
+    /// `annotationsVersion` tick while in the posture, or a re-mount — never off
+    /// `displayText`. D1-safe for the same reason `translationLanguage` /
+    /// `reviewAnnotations` are: the translation-review surface is READ-ONLY, so
+    /// this never changes on the typing hot path. The coordinator's
+    /// `TranslationBadgeLayout.ranges` accumulates offsets directly over these
+    /// entries' texts, so it maps cleanly onto the live surface without
+    /// re-splitting a joined string.
+    var translationBadges: TranslationBadgeModel = .empty
+
+    /// The ordered translation-freshness entries (each carrying its own block
+    /// text). Equatable so the coordinator can no-op-guard the per-`applyControl`
+    /// push (like `reviewAnnotations`).
+    struct TranslationBadgeModel: Equatable {
+        var entries: [TranslationBadgeLayout.Entry]
+        static let empty = TranslationBadgeModel(entries: [])
+    }
 
     init() {}
 }

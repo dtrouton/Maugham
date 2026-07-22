@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 public enum PublishConfigValidator {
 
@@ -69,6 +70,12 @@ public enum PublishConfigValidator {
             errs.append(.init(
                 field: "outputs.formats_enabled",
                 message: "at least one format must be enabled"))
+        }
+
+        for key in cfg.languageOverrides.keys where !TranslationRecord.isValidLanguageTag(key) {
+            errs.append(.init(
+                field: "language_overrides.\(key)",
+                message: "'\(key)' is not a valid language tag (lowercase BCP-47, e.g. 'fr', 'pt-br')"))
         }
 
         return errs

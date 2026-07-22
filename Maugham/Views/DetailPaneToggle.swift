@@ -15,6 +15,10 @@ struct DetailPaneToggle<Inspector: View>: View {
     let session: String
     let docPaths: [String: String]
     let documentStore: DocumentStore?
+    /// Editor control model — supplies the active translation language and the
+    /// per-paragraph freshness entries the Translation segment reads (ADR 0017).
+    /// Optional so callers that don't surface translation review can omit it.
+    let editorControl: EditorControl?
     @ViewBuilder var inspectorContent: () -> Inspector
 
     /// Local transcription exists only on Apple Silicon (see DocumentStore.makeTranscriber).
@@ -40,6 +44,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         session: String = "",
         docPaths: [String: String] = [:],
         documentStore: DocumentStore? = nil,
+        editorControl: EditorControl? = nil,
         @ViewBuilder inspectorContent: @escaping () -> Inspector
     ) {
         self.store = store
@@ -55,6 +60,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         self.session = session
         self.docPaths = docPaths
         self.documentStore = documentStore
+        self.editorControl = editorControl
         self.inspectorContent = inspectorContent
     }
 
@@ -125,23 +131,27 @@ struct DetailPaneToggle<Inspector: View>: View {
                 .tag(DetailSegment.palette)
                 .help("Palette Card (⌘⌥7)")
                 .keyboardShortcut("7", modifiers: [.command, .option])
+            Image(systemName: "character.book.closed")
+                .tag(DetailSegment.translation)
+                .help("Translation — source text and translator queries (⌘⌥8)")
+                .keyboardShortcut("8", modifiers: [.command, .option])
         }
         .pickerStyle(.segmented)
         .labelsHidden()
         // Unread badge over the inbox segment. SwiftUI's segmented Picker can't
         // badge a segment directly, so we overlay top-trailing and shift left by
-        // one equal-width segment: inbox is the SECOND-to-last tab (palette, ⌘⌥7,
-        // is last). Anchored on the bare picker (before padding) so the width the
-        // GeometryReader measures divides evenly across the segments. Hidden at
-        // zero; capped at 99+.
+        // TWO equal-width segments: inbox is the THIRD-to-last tab (palette, ⌘⌥7,
+        // and translation, ⌘⌥8, follow it). Anchored on the bare picker (before
+        // padding) so the width the GeometryReader measures divides evenly across
+        // the segments. Hidden at zero; capped at 99+.
         .overlay(alignment: .topTrailing) {
             if inboxCount > 0 {
                 GeometryReader { geo in
-                    let segmentCount = hideOutline ? 7 : 8
+                    let segmentCount = hideOutline ? 8 : 9
                     let segmentWidth = geo.size.width / CGFloat(segmentCount)
                     inboxBadge
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                        .offset(x: -segmentWidth)
+                        .offset(x: -2 * segmentWidth)
                 }
             }
         }
@@ -192,6 +202,25 @@ struct DetailPaneToggle<Inspector: View>: View {
             inboxPane
         case .palette:
             PalettePane(store: store)
+        case .translation:
+            translationPane
+        }
+    }
+
+    @ViewBuilder
+    private var translationPane: some View {
+        if let ds = documentStore,
+           let control = editorControl,
+           let docId = activeDocId,
+           docId != "__no-selection__",
+           let doc = ds.document(forDocId: docId) {
+            TranslationReviewPane(document: doc, control: control)
+        } else {
+            ContentUnavailableView(
+                "Select a document",
+                systemImage: "character.book.closed",
+                description: Text("Open a manuscript and enter translation review to reply to translator queries."))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

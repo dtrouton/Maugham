@@ -1,6 +1,6 @@
 # Inspector, Research & Outline
 
-The right column has eight modes: Inspector, Research, and Outline (covered on this page), plus Tasks, Annotations, History, Inbox, and Palette (each covered elsewhere — see the pointers at the bottom of this page). Switch with the numbered/lettered shortcuts below or the small picker at the top of the pane.
+The right column has nine modes: Inspector, Research, and Outline (covered on this page), plus Tasks, Annotations, History, Inbox, Palette, and Translation (each covered elsewhere — see the pointers at the bottom of this page). Switch with the numbered/lettered shortcuts below or the small picker at the top of the pane.
 
 ### Inspector mode (⌘⌥1)
 
@@ -29,4 +29,4 @@ Layout choice persists per project.
 
 The right pane also has a **Tasks** mode (⌘⌥5) — see [Tasks & To-Dos](tasks.md) — and an **Annotations** mode (⌘⌥A) — see [Annotations & Suggestions](annotations-and-suggestions.md).
 
-It also has a **History** mode (⌘⌥4) — a read-only timeline of edits, annotations, and checkpoints, with a scrubber for time-travel — an **Inbox** mode (⌘⌥6) — triage text/audio/photo captures from MaughamPhone, see [The Sense Pass](sense-pass.md) — and a **Palette** mode (⌘⌥7) — a card for the sensory palette wall, also covered there.
+It also has a **History** mode (⌘⌥4) — a read-only timeline of edits, annotations, and checkpoints, with a scrubber for time-travel — an **Inbox** mode (⌘⌥6) — triage text/audio/photo captures from MaughamPhone, see [The Sense Pass](sense-pass.md) — a **Palette** mode (⌘⌥7) — a card for the sensory palette wall, also covered there — and a **Translation** mode (⌘⌥8) — the selected paragraph's source text and any open translator queries, active while reviewing a translation, see [Translating Your Manuscript](translation-review.md).

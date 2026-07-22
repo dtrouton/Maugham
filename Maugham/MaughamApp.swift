@@ -184,6 +184,7 @@ struct MaughamApp: App {
                     MaughamEvent.post(.maughamToggleReviewMode, to: .keyWindow)
                 }
                 .keyboardShortcut("r", modifiers: [.command, .option])
+                FocusedTranslationReviewButton()
                 Button("Toggle Full-Screen Focus") {
                     MaughamEvent.post(.maughamToggleFullScreen, to: .keyWindow)
                 }
@@ -386,6 +387,20 @@ private struct FocusedShareForReviewButton: View {
     var body: some View {
         Button("Share for Review…") {
             MaughamEvent.post(.maughamShareForReview, to: .keyWindow)
+        }
+        .disabled(projectURL == nil)
+    }
+}
+
+/// View → "Translation Review…". Disabled when no project window is focused.
+/// The app-global menu can't reach the focused window's active-doc selection,
+/// so the command just asks the key window to resolve that doc's available
+/// languages and present the picker (`TranslationReviewModifier` does the rest).
+private struct FocusedTranslationReviewButton: View {
+    @FocusedValue(\.projectURL) private var projectURL
+    var body: some View {
+        Button("Translation Review…") {
+            MaughamEvent.post(.maughamShowTranslationPicker, to: .keyWindow)
         }
         .disabled(projectURL == nil)
     }

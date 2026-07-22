@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 @MainActor
@@ -239,6 +240,99 @@ final class PublicationToolsTests: XCTestCase {
         let afterPubs = afterResp?["publications"] as? [[String: Any]] ?? []
         XCTAssertGreaterThanOrEqual(afterPubs.count, 2)
         XCTAssertEqual(afterPubs.last?["republished_from"] as? String, priorVersion)
+    }
+
+    /// Finding (Task 9 F1 round 2): `RepublishTool.handle` built its
+    /// `ProjectStoreASTSource` with NO `language:`, so it never threaded the
+    /// prior publication's edition language into the astSource — a
+    /// republished "es" edition silently compiled the byte-identical English
+    /// source body, not the translated one. `handle` must now resolve the
+    /// prior publication BEFORE constructing the source and pass its
+    /// `language` through, exactly like `CompileTool.handle` threads
+    /// `params.language`. This test drives BOTH MCP tool handlers (not
+    /// `Republisher` directly) so it actually exercises that wiring.
+    func testRepublish_recompilesTranslatedBody_notSourceText() async throws {
+        // Overwrite the starter body with known, deterministic content before
+        // the first `Document.load` so Bootstrap mints anchors from it.
+        let probe = try await ProjectStore.load(from: projectURL)
+        let item = try XCTUnwrap(
+            ProjectStore.collectDocuments(in: probe.manifest.structure).first)
+        let path = try XCTUnwrap(item.path)
+        let docURL = projectURL.appendingPathComponent(path)
+        try "First paragraph in English.".write(
+            to: docURL, atomically: true, encoding: .utf8)
+
+        let doc = try await Document.load(
+            url: docURL, device: "test", session: "s", presenter: nil)
+        XCTAssertEqual(doc.sequence.count, 1, "fixture must have one paragraph")
+        let paragraphID = doc.sequence[0]
+
+        // Base config + an "es" language override.
+        let stores = PublishingStores.sharedFor(projectID: pid!, projectURL: projectURL)
+        var cfg = try await stores.configStore.load() ?? PublishConfig()
+        cfg.metadata.title = "T"
+        cfg.metadata.author = "A"
+        cfg.metadata.language = "en"
+        cfg.languageOverrides = ["es": .init(metadata: ["title": "Título"])]
+        try await stores.configStore.save(cfg)
+
+        // Full "es" coverage for the single paragraph.
+        let rec = TranslationRecord(
+            paragraphId: paragraphID, language: "es",
+            text: "Primer párrafo en español.",
+            sourceHash: TranslationHash.hash(doc.paragraphs[paragraphID] ?? ""),
+            verbatim: false)
+        try await TranslationStore.append(
+            rec, forDocId: item.id, deviceSlug: DeviceSlug.make(from: "test-mac"),
+            in: projectURL)
+
+        // 1. Gated "es" compile via the MCP tool. EPUB is pure Swift (no
+        //    bundled tectonic) and lets this test inspect the actual body text.
+        let compileData = try await CompileTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"epub","language":"es","wait_seconds":60}"#.utf8),
+            registry: registry)
+        let compileResp = try JSONSerialization.jsonObject(with: compileData) as? [String: Any]
+        XCTAssertEqual(compileResp?["status"] as? String, "completed",
+                       "initial es compile failed: \(compileResp ?? [:])")
+
+        let listData = try await ListPublicationsTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)"}"#.utf8), registry: registry)
+        let listResp = try JSONSerialization.jsonObject(with: listData) as? [String: Any]
+        let pubs = listResp?["publications"] as? [[String: Any]] ?? []
+        guard let snapshotID = pubs.last?["snapshot_id"] as? String else {
+            return XCTFail("es compile did not record a snapshot_id: \(pubs)")
+        }
+
+        // 2. Republish via the MCP tool — must carry the edition language
+        //    into astSource and compile the TRANSLATED body.
+        let repubData = try await RepublishTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","snapshot_id":"\#(snapshotID)","format":"epub"}"#.utf8),
+            registry: registry)
+        let repubResp = try JSONSerialization.jsonObject(with: repubData) as? [String: Any]
+        XCTAssertEqual(repubResp?["status"] as? String, "completed",
+                       "republish failed: \(repubResp ?? [:])")
+        guard let outputPath = repubResp?["output_path"] as? String else {
+            return XCTFail("republish response missing output_path: \(repubResp ?? [:])")
+        }
+
+        let epubURL = projectURL.appendingPathComponent(outputPath)
+        let body = try unzipEntry(epubURL, entry: "OEBPS/section-001.xhtml")
+        XCTAssertTrue(body.contains("Primer párrafo en español"),
+                      "republished body must contain the TRANSLATED text, got:\n\(body)")
+        XCTAssertFalse(body.contains("First paragraph in English"),
+                       "republished body must NOT contain the untranslated source text, got:\n\(body)")
+    }
+
+    private func unzipEntry(_ archive: URL, entry: String) throws -> String {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+        proc.arguments = ["-p", archive.path, entry]
+        let pipe = Pipe()
+        proc.standardOutput = pipe
+        try proc.run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        proc.waitUntilExit()
+        return String(decoding: data, as: UTF8.self)
     }
 
     // MARK: - D3b: publication_id addressing
