@@ -76,8 +76,7 @@ public struct Republisher {
         // already language-effective (Task 7 Rule 1), but the compilers and
         // the new Publication record still need the tag explicitly to
         // language-suffix the filename and tag the catalog entry.
-        let pubs = try await publicationStore.load()
-        let prior = pubs.first(where: { $0.snapshotID == snapshotID })
+        let prior = try await publicationStore.publication(forSnapshotID: snapshotID)
         let priorVersion = prior?.version
         let language = prior?.language
 
