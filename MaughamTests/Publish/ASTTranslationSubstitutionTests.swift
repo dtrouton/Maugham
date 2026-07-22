@@ -148,6 +148,81 @@ final class ASTTranslationSubstitutionTests: XCTestCase {
             + "means the \"\\n\\n\" join is wrong — fix the join, not the test")
     }
 
+    // MARK: - identity equivalence: prose with fenced code containing blank line
+
+    func test_identityEquivalence_fencedCodeBlockWithInternalBlankLine() async throws {
+        // A fenced code block with a truly blank line inside the fence.
+        // ParagraphParser splits it into two paragraph units at that blank;
+        // the pin proves the substitution path still round-trips byte-identically.
+        let body = """
+        Preamble text.
+
+        ```
+        line one
+
+        line three
+        ```
+
+        Trailing text.
+        """
+        let fx = try await makeFixture(fileName: "code.md", body: body)
+        try await writeIdentityTranslation(fx, language: "es")
+        // Doc is NOT registered → both sources take the closed-doc branch.
+
+        let sourceAST = ProjectASTBuilder.build(
+            from: ProjectStoreASTSource(projectStore: fx.store))
+        let translatedAST = ProjectASTBuilder.build(
+            from: ProjectStoreASTSource(projectStore: fx.store, language: "es"))
+
+        XCTAssertFalse(sourceAST.sections.isEmpty, "fixture produced no sections")
+        XCTAssertEqual(
+            translatedAST, sourceAST,
+            "identity translation must reproduce the source AST via the closed-doc "
+            + "derivedCache path even when a fenced code block contains internal blanks; "
+            + "a divergence means the \"\\n\\n\" join no longer matches stripAnchors(materialize()) "
+            + "— fix the join, not the test")
+    }
+
+    // MARK: - identity equivalence: fountain with trailing held-blank dialogue pause
+
+    func test_identityEquivalence_fountainTrailingHeldBlank() async throws {
+        // A fountain document whose LAST paragraph is a held-blank dialogue pause
+        // (a two-space line, per ParagraphParser's held-blank rule).
+        // This pins the trailing-whitespace trim edge in the join.
+        let body = """
+        INT. KITCHEN - DAY
+
+        AARON
+        What's for breakfast?
+
+        """
+        let fx = try await makeFixture(fileName: "trailing.fountain", body: body)
+
+        // Register the doc so BOTH sources take the open-doc (live Document) branch.
+        let ds = try await DocumentStore.open(url: fx.store.url)
+        fx.store.documentStore = ds
+        defer { Task { await ds.close() } }
+        ds.register(document: fx.doc, for: fx.path)
+
+        try await writeIdentityTranslation(fx, language: "es")
+
+        let sourceAST = ProjectASTBuilder.build(
+            from: ProjectStoreASTSource(projectStore: fx.store))
+        let translatedAST = ProjectASTBuilder.build(
+            from: ProjectStoreASTSource(projectStore: fx.store, language: "es"))
+
+        // Guard: the fixture really includes the held-blank final paragraph.
+        XCTAssertGreaterThan(fx.doc.sequence.count, 1,
+            "fixture must include the held-blank dialogue pause as a paragraph")
+        XCTAssertFalse(sourceAST.sections.isEmpty, "fixture produced no sections")
+        XCTAssertEqual(
+            translatedAST, sourceAST,
+            "identity translation must reproduce the source AST via the open-doc "
+            + "live-Document path even with a trailing held-blank dialogue pause; "
+            + "a divergence means the \"\\n\\n\" join's trailing-whitespace trim "
+            + "is wrong — fix the join, not the test")
+    }
+
     // MARK: - real substitution: translated text lands in the AST nodes
 
     func test_realTranslation_blockquoteParagraph_reemergesTranslatedAndSameKind() async throws {
