@@ -295,6 +295,44 @@ final class TranslationReviewPostureTests: XCTestCase {
             + "when the one-shot undo-coherent flag is set")
     }
 
+    /// In-mode refresh (Task 12 carry-over): ALREADY in translation review — the
+    /// membrane does NOT flip this pass — but the translated CONTENT changes AND
+    /// an unrelated accept/revert set the one-shot undo-coherent flag in the same
+    /// pass. The membrane-changed check alone would (wrongly) preserve the stale
+    /// stack across this in-mode buffer replace; gating on `translationLanguage ==
+    /// nil` forces the clear. Strip the `translationLanguage == nil` term and this
+    /// fails (the stale action survives the replace — the ⌘Z crash class).
+    @MainActor
+    func test_reconcile_inModeTranslatedRefresh_clearsUndoStack_evenWithCoherentFlag() {
+        let harness = EditorIntegrationHarness(initialText: "Source one")
+        let coordinator = harness.coordinator
+        let um = UndoManager()
+        coordinator.undoManagerOverrideForTesting = um
+
+        // Enter translation review (membrane flips ON); buffer shows translated
+        // text. No flag here — this is just establishing the in-mode state.
+        EditorSurface.reconcileTextBuffer(
+            textView: harness.textView, coordinator: coordinator,
+            translationLanguage: "fr", text: "Traduction un", undoCoherentApply: false)
+        XCTAssertTrue(coordinator.isTranslationReview)
+
+        // A stale native action lands (or an accept/revert one-shot registration).
+        um.registerUndo(withTarget: self) { _ in }
+        XCTAssertTrue(um.canUndo)
+
+        // Still IN translation review (language unchanged → membrane does NOT
+        // flip), the translated content changes, and the undo-coherent flag is
+        // set in this same pass. The swap must STILL clear the stack.
+        EditorSurface.reconcileTextBuffer(
+            textView: harness.textView, coordinator: coordinator,
+            translationLanguage: "fr", text: "Traduction deux", undoCoherentApply: true)
+
+        XCTAssertTrue(coordinator.isTranslationReview)
+        XCTAssertFalse(um.canUndo,
+            "an in-mode translated-content refresh must clear the undo stack even "
+            + "when the one-shot undo-coherent flag is set in the same pass")
+    }
+
     /// Control half: when the membrane does NOT change this pass (an ordinary
     /// accept/revert replace, no translation transition), the one-shot
     /// undo-coherent flag is honored and the accept-registered undo action survives.

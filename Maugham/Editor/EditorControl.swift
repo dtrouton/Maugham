@@ -38,5 +38,27 @@ final class EditorControl {
     // Review render set (open annotations shown in review posture).
     var reviewAnnotations: [Annotation] = []
 
+    /// Ordered per-paragraph translation freshness for the staleness-badge
+    /// overlay + the dimmed-missing treatment (Task 12), paired with the rendered
+    /// translated surface those paragraph offsets map into. `.empty` when not in
+    /// translation review. Threaded ONE-WAY (sources → model → coordinator) on
+    /// EXPLICIT translation events only — a language change, an
+    /// `annotationsVersion` tick while in the posture, or a re-mount — never off
+    /// `displayText`. D1-safe for the same reason `translationLanguage` /
+    /// `reviewAnnotations` are: the translation-review surface is READ-ONLY, so
+    /// this never changes on the typing hot path. `renderedText` is the SAME
+    /// string EditorHost swaps into the editor buffer, so the coordinator's
+    /// `TranslationBadgeLayout` offsets map cleanly onto the live surface.
+    var translationBadges: TranslationBadgeModel = .empty
+
+    /// The ordered translation-freshness entries + the rendered translated
+    /// surface they index into. Equatable so the coordinator can no-op-guard the
+    /// per-`applyControl` push (like `reviewAnnotations`).
+    struct TranslationBadgeModel: Equatable {
+        var entries: [TranslationBadgeLayout.Entry]
+        var renderedText: String
+        static let empty = TranslationBadgeModel(entries: [], renderedText: "")
+    }
+
     init() {}
 }

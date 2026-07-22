@@ -351,12 +351,20 @@ struct EditorSurface: NSViewRepresentable {
         let translationMembraneChanged =
             coordinator.setTranslationReview(translationLanguage != nil)
         guard textView.string != text else { return }
-        // A translation entry/exit swap must NEVER preserve the undo stack: the
-        // translated buffer is a different text, and carrying the source's native
-        // undo actions across the swap re-opens the ⌘Z EXC_BAD_ACCESS class
-        // (EditorUndoStackClearTests). If an accept/revert set the one-shot
-        // undo-coherent flag in this SAME pass, the translation swap wins.
-        let preserveUndoStack = undoCoherentApply && !translationMembraneChanged
+        // The undo stack may be preserved ONLY for an ordinary in-place
+        // accept/revert replace on the SOURCE manuscript. Any translation-review
+        // buffer replace must drop it: the translated buffer is a different text,
+        // and carrying the source's native undo actions across the swap re-opens
+        // the ⌘Z EXC_BAD_ACCESS class (EditorUndoStackClearTests). That covers
+        // two cases the membrane-changed check alone misses — not just the
+        // entry/exit TRANSITION (`translationMembraneChanged`), but also an
+        // IN-MODE translated-content refresh (already in translation review, the
+        // membrane doesn't flip this pass) where an unrelated accept/revert
+        // one-shot flag set in the same pass would otherwise retain a stale undo
+        // action across the replace. Gating on `translationLanguage == nil` (the
+        // editor is showing the source manuscript) forces the clear in both.
+        let preserveUndoStack =
+            undoCoherentApply && translationLanguage == nil && !translationMembraneChanged
         coordinator.applyExternalText(text, preserveUndoStack: preserveUndoStack)
     }
 
@@ -626,6 +634,11 @@ final class MaughamTextView: NSTextView {
         // sits in the right inset) on every resize, like the gutter above.
         coordinator?.layoutReviewOverlays(in: self)
         coordinator?.refreshReviewOverlays()
+
+        // Re-frame the translation-badge overlay (covers the view; dots in the
+        // left inset) on resize too (Task 12).
+        coordinator?.layoutTranslationBadgeOverlay(in: self)
+        coordinator?.translationBadgeOverlay?.needsDisplay = true
     }
 
     func installGutter(coordinator: EditorCoordinator) {

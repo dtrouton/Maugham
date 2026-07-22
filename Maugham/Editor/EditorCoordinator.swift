@@ -314,6 +314,21 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     weak var markRenderer: AnnotationMarkRenderer?
     weak var marginRail: ReviewMarginRailView?
 
+    /// Staleness-badge overlay for translation review (Task 12): margin dots in
+    /// the LEFT inset — amber (stale) / gray-hollow (missing). Installed lazily
+    /// on the text view (like the review overlays) and shown only in translation
+    /// review. See `EditorCoordinator+TranslationBadges.swift`.
+    weak var translationBadgeOverlay: TranslationBadgeOverlayView?
+    /// The current per-paragraph badge resolution (¶ → UTF-16 range + status) in
+    /// the rendered translated surface. Recomputed only when the pushed model
+    /// changes — never per draw (tripwire 4). The overlay reads this directly.
+    var resolvedTranslationBadges:
+        [(paragraphId: String, range: NSRange, status: TranslationStatus)] = []
+    /// Last translation-badge model applied, for the per-`applyControl` no-op
+    /// guard (the model is pushed on every observation pass, like
+    /// `reviewAnnotations`). Nil until the first push.
+    var appliedTranslationBadgeModel: EditorControl.TranslationBadgeModel?
+
     /// The annotation id whose margin card is currently selected (click-to-reveal
     /// actions). nil = nothing selected. Read by `ReviewMarginRailView` to
     /// emphasise the selected card; drives the inline actions row. Lives here (not
@@ -821,6 +836,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             _ = control.paragraphFocus
             _ = control.reviewAnnotations
             _ = control.translationLanguage
+            _ = control.translationBadges
         } onChange: { [weak self] in
             // onChange fires once (pre-change). Re-arm on the next main-actor
             // turn — after the mutation commits — so the re-applied values are
@@ -859,6 +875,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             applyFocusPrefs(sentence: c.sentenceFocus, paragraph: c.paragraphFocus)
         }
         setReviewAnnotations(c.reviewAnnotations)   // self-guarded
+        setTranslationBadges(c.translationBadges)   // self-guarded
     }
 
     // MARK: - NSTextViewDelegate

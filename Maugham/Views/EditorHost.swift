@@ -390,6 +390,7 @@ struct EditorHost: View {
     private func recomputeTranslatedSurface(doc: Document) {
         guard let language = control.translationLanguage else {
             translatedSurfaceText = nil
+            control.translationBadges = .empty
             return
         }
         let records = TranslationStore.loadMerged(
@@ -397,9 +398,19 @@ struct EditorHost: View {
         let derived = TranslationDeriver.derive(
             records: records, sequence: doc.sequence,
             paragraphs: doc.paragraphs, language: language)
-        translatedSurfaceText = derived.entries
+        // The badge overlay must measure ¶ ranges against the SAME rendered
+        // surface swapped into the buffer, so build the string once and hand
+        // both to the coordinator (via control) and the editor (Task 12).
+        let rendered = derived.entries
             .map { $0.translatedText ?? $0.sourceText }
             .joined(separator: "\n\n")
+        translatedSurfaceText = rendered
+        control.translationBadges = EditorControl.TranslationBadgeModel(
+            entries: derived.entries.map {
+                TranslationBadgeLayout.Entry(
+                    paragraphId: $0.paragraphId, status: $0.status)
+            },
+            renderedText: rendered)
     }
 
     private var currentItem: StructureItem? {
