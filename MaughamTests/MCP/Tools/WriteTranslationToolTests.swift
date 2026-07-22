@@ -241,4 +241,34 @@ final class WriteTranslationToolTests: XCTestCase {
 
         await h.documentStore.close()
     }
+
+    // MARK: - Behavior 2a: duplicate ids in batch are rejected atomically
+
+    func test_writeTranslation_duplicateIdsInBatch_rejectedAtomically() async throws {
+        let h = try await makeHarness()
+        let pid = h.doc.sequence[0]
+
+        do {
+            _ = try await call(h, [
+                "project_id": h.projectId,
+                "document_id": h.doc.docId,
+                "language": "es",
+                "entries": [
+                    ["paragraph_id": pid, "text": "primera entrada"],
+                    ["paragraph_id": pid, "text": "segunda entrada"]
+                ]
+            ])
+            XCTFail("expected invalidArgument for duplicate paragraph ids in batch")
+        } catch let MCPError.invalidArgument(msg) {
+            XCTAssertTrue(msg.contains("duplicate paragraph ids in batch"), "got: \(msg)")
+            XCTAssertTrue(msg.contains(pid), "message should name the duplicate id: \(msg)")
+        }
+
+        // All-or-nothing: nothing appended.
+        let records = TranslationStore.loadMerged(
+            forDocId: h.doc.docId, language: "es", in: h.projectURL)
+        XCTAssertTrue(records.isEmpty, "store must be empty after duplicate-id reject")
+
+        await h.documentStore.close()
+    }
 }

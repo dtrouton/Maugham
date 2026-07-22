@@ -97,6 +97,14 @@ public enum WriteTranslationTool: MCPTool {
             }
         }
 
+        // 2a. Reject intra-batch duplicate paragraph ids (a client bug).
+        let ids = params.entries.map(\.paragraph_id)
+        let duplicates = Array(Set(ids.filter { id in ids.filter { $0 == id }.count > 1 })).sorted()
+        if !duplicates.isEmpty {
+            throw MCPError.invalidArgument(
+                "duplicate paragraph ids in batch: \(duplicates.joined(separator: ", "))")
+        }
+
         // 3. All-or-nothing: every id must be in the current sequence.
         let known = Set(state.sequence)
         let unknown = params.entries.map(\.paragraph_id).filter { !known.contains($0) }
