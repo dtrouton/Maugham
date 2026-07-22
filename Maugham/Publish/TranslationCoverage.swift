@@ -63,6 +63,10 @@ enum TranslationCoverage {
             // A blank paragraph (whitespace-only source) has nothing to
             // translate, so it is neither "missing" nor "stale" and does not
             // demand a translation layer — count only non-empty paragraphs.
+            // Deliberately broader than Task 7's zero-paragraph fixtures
+            // require: those fixtures are wholly-empty docs, but a REAL
+            // manuscript can mix genuine untranslated paragraphs with
+            // incidental blank ones, and only the former should gate.
             let translatable = derived.entries.filter {
                 !$0.sourceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             }
@@ -130,6 +134,9 @@ enum TranslationCoverage {
             entries.map(\.sourceText).joined(separator: "\n\n"))
         let subText = MarkdownDisplayFilter.stripAnchors(
             entries.map { $0.translatedText ?? $0.sourceText }.joined(separator: "\n\n"))
+        // Two uncached FountainTokenizer parses per fully-covered fountain
+        // piece, on every gated compile. Accepted: tectonic dominates compile
+        // cost by orders of magnitude, so re-parsing here isn't worth a cache.
         let sourceLines = FountainTokenizer().parse(sourceText).lines.map(\.element)
         let subLines = FountainTokenizer().parse(subText).lines.map(\.element)
         if sourceLines == subLines { return nil }

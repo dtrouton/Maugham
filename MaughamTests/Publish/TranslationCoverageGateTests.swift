@@ -270,6 +270,46 @@ final class TranslationCoverageGateTests: XCTestCase {
         XCTAssertFalse(message.contains("drift"), "no drift warning expected: \(message)")
     }
 
+    // MARK: - Scenario 6: empty-paragraph filter (F2 — direct coverage)
+
+    /// A real untranslated paragraph must gate as "missing"; a whitespace-only
+    /// paragraph inserted alongside it must never count toward stale, missing,
+    /// or the zero-layer trigger, no matter how it got there (the filter in
+    /// `TranslationCoverage.check` is a general non-empty-text guard, not
+    /// special-cased to Task 7's wholly-empty-doc fixtures).
+    func test_emptyParagraphFilter_realParagraphGatesWhitespaceParagraphDoesNot() async throws {
+        let fx = try await makeCompileFixture(content: """
+        First real paragraph.
+
+        Second real paragraph.
+        """)
+        XCTAssertEqual(fx.doc.sequence.count, 2, "fixture must have two paragraphs")
+        let ids = fx.doc.sequence
+
+        // ids[0] fully translated so `anyRecords` is true and the zero-layer
+        // guard doesn't mask the missing-paragraph assertion below. ids[1] is
+        // left untranslated on purpose — it must surface as "missing".
+        try await writeTranslation(fx, paragraphID: ids[0], text: "Primer párrafo real.",
+                                   sourceHash: sourceHash(fx, ids[0]))
+
+        // Insert a whitespace-only paragraph with no translation record at all.
+        let blankID = fx.doc.insertParagraph(after: ids[1], text: "   ")
+        try await fx.doc.flushBurstNow()
+
+        let freshStore = try await ProjectStore.load(from: fx.projectURL)
+        let report = TranslationCoverage.check(projectStore: freshStore, language: "es")
+
+        XCTAssertNil(report.zeroLayerError,
+            "ids[0] carries a real translation record, so zero-layer must not fire")
+        XCTAssertTrue(report.isBlocked, "the untranslated real paragraph must block")
+        let gap = try XCTUnwrap(report.gaps.first)
+        XCTAssertEqual(gap.missing, [ids[1]],
+            "only the real untranslated paragraph may appear in missing — " +
+            "the whitespace-only paragraph must never appear, got \(gap.missing)")
+        XCTAssertFalse(gap.stale.contains(blankID), "whitespace-only paragraph must never be stale")
+        XCTAssertFalse(gap.missing.contains(blankID), "whitespace-only paragraph must never be missing")
+    }
+
     // MARK: - fountain fixture (check-level, no compile)
 
     private func makeFountainFixture(body: String) async throws

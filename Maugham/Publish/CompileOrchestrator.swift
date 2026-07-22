@@ -54,8 +54,11 @@ public struct CompileOrchestrator {
         // to the language edition (dc:language set + language_overrides applied).
         // `language == nil` leaves metadata untouched (single-language compile).
         // Everything downstream — snapshot, compilers, filename, Publication —
-        // reads `effective`, so the snapshot freezes the edition and Republisher
-        // (which reads snap.config) reproduces it with zero further changes.
+        // reads `effective`, so the snapshot freezes config/templates for
+        // `Republisher` (which reads snap.config). It does NOT freeze
+        // manuscript/translation content — `astSource` still reads the live
+        // ProjectStore on republish, so a translated edition is re-gated
+        // separately in `Republisher.republish` (Task 9 F1), not here.
         // The post-compile version bump below saves the ORIGINAL `config`, never
         // `effective`, so a translated compile can't overwrite the shared config.
         var effective = config

@@ -83,6 +83,50 @@ public struct Republisher {
 
         let jobID = await jobManager.register(phase: .renderingBody)
 
+        // Task 9 F1: the snapshot freezes config/templates only — `astSource`
+        // still reads the LIVE ProjectStore for manuscript/translation content
+        // (see `pieceRef(for:)` in ProjectStoreASTSource), so a translated
+        // edition (`prior.language != nil`) can drift stale between the
+        // gated `compile` and a later `republish`. Re-run the same coverage
+        // check here, gated exactly like `CompileOrchestrator.compile`, so a
+        // republish can't silently ship content the gate would have refused.
+        // No `allow_stale` escape hatch: `republish` is a reproduction
+        // command, not a place to accept a new source-text fallback — a
+        // proof-in-progress belongs in `compile` with `allow_stale` instead.
+        if let language, let source = astSource as? ProjectStoreASTSource {
+            let report = await TranslationCoverage.check(
+                projectStore: source.projectStore, language: language)
+
+            if let zeroErr = report.zeroLayerError {
+                let diag = TectonicLogParser.Diagnostic(
+                    level: .error, file: nil, line: nil,
+                    message: zeroErr, contextLines: [])
+                await jobManager.fail(
+                    jobID: jobID, errors: [diag],
+                    logExcerpt: "no_translation_layer: \(language)")
+                return .failed(
+                    errors: [diag], logExcerpt: "no_translation_layer: \(language)")
+            }
+
+            if report.isBlocked {
+                let diags = report.gaps.map { gap in
+                    TectonicLogParser.Diagnostic(
+                        level: .error, file: nil, line: nil,
+                        message: TranslationCoverage.describe(gap),
+                        contextLines: [
+                            "Translate the listed paragraphs with write_translation,",
+                            "then republish — or use compile with allow_stale for a",
+                            "new source-fallback edition."
+                        ])
+                }
+                await jobManager.fail(
+                    jobID: jobID, errors: diags,
+                    logExcerpt: "translation_stale: \(language)")
+                return .failed(
+                    errors: diags, logExcerpt: "translation_stale: \(language)")
+            }
+        }
+
         let outputPath: String
         let warnings: [TectonicLogParser.Diagnostic]
         let errors: [TectonicLogParser.Diagnostic]
