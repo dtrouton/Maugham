@@ -142,3 +142,171 @@ public enum WriteTranslationTool: MCPTool {
             warnings: warnings))
     }
 }
+
+// MARK: - read_translation
+
+public enum ReadTranslationTool: MCPTool {
+    public struct Entry: Codable, Equatable {
+        public let paragraph_id: String
+        public let source_text: String
+        public let translated_text: String?
+        public let status: String
+        public let verbatim: Bool
+    }
+    public struct Params: Codable {
+        public let project_id: String
+        public let document_id: String
+        public let language: String
+        public let status: String?
+    }
+    public struct Result: Codable, Equatable {
+        public let language: String
+        public let entries: [Entry]
+        public let orphan_count: Int
+    }
+
+    public static let method = "read_translation"
+    public static let description =
+        "Read a document's translation into a language, paragraph by paragraph in " +
+        "manuscript order. Each entry pairs the current source paragraph with its " +
+        "translated text and a freshness `status`: `fresh` (translation matches the " +
+        "current source), `stale` (the source was edited after translating — retranslate), " +
+        "or `missing` (no translation yet). An unknown language is not an error: every " +
+        "paragraph reads as `missing`. Pass `status` (`fresh`|`stale`|`missing`) to return " +
+        "only matching entries — the usual way to find retranslation work is `status=stale` " +
+        "plus `status=missing`. `orphan_count` reports translations whose paragraph no longer " +
+        "exists in the source (dropped after an edit). " +
+        "See get_help topic 'translation-pass' for the translation workflow."
+    public static let inputSchemaJSON =
+        #"{"type":"object","properties":{"project_id":{"type":"string"},"document_id":{"type":"string"},"language":{"type":"string","description":"lowercase tag, e.g. es, pt-br"},"status":{"type":"string","description":"optional filter: fresh | stale | missing — omit for all paragraphs"}},"required":["project_id","document_id","language"]}"#
+
+    @MainActor
+    public static func handle(
+        paramsJSON: Data?, registry: ProjectRegistry
+    ) async throws -> Data {
+        let params = try decodeParams(Params.self, from: paramsJSON)
+
+        let filter: TranslationStatus?
+        if let raw = params.status {
+            guard let s = TranslationStatus(rawValue: raw) else {
+                throw MCPError.invalidArgument(
+                    "invalid status filter: \(raw) (expected fresh, stale, or missing)")
+            }
+            filter = s
+        } else {
+            filter = nil
+        }
+
+        let state = try currentParagraphState(
+            projectId: params.project_id,
+            documentId: params.document_id,
+            registry: registry)
+
+        let records = TranslationStore.loadMerged(
+            forDocId: params.document_id, language: params.language, in: state.projectURL)
+        let derived = TranslationDeriver.derive(
+            records: records, sequence: state.sequence,
+            paragraphs: state.paragraphs, language: params.language)
+
+        let entries = derived.entries
+            .filter { filter == nil || $0.status == filter }
+            .map { e in
+                Entry(paragraph_id: e.paragraphId,
+                      source_text: e.sourceText,
+                      translated_text: e.translatedText,
+                      status: e.status.rawValue,
+                      verbatim: e.verbatim)
+            }
+
+        let encoded = try JSONEncoder().encode(Result(
+            language: params.language,
+            entries: entries,
+            orphan_count: derived.orphans.count))
+        return try MCPResponseBudget.enforce(
+            encoded, hint: "filter with status=stale or status=missing to reduce payload")
+    }
+}
+
+// MARK: - translation_status
+
+public enum TranslationStatusTool: MCPTool {
+    public struct Row: Codable, Equatable {
+        public let document_id: String
+        public let language: String
+        public let fresh: Int
+        public let stale: Int
+        public let missing: Int
+        public let orphans: Int
+        public let open_queries: Int
+    }
+    public struct Params: Codable {
+        public let project_id: String
+        public let document_id: String?
+    }
+    public struct Result: Codable, Equatable {
+        public let rows: [Row]
+    }
+
+    public static let method = "translation_status"
+    public static let description =
+        "Summarise translation progress. With `document_id`, reports one document; " +
+        "without it, walks every manuscript document in the project. Each row is one " +
+        "(document, language) pair with paragraph counts by freshness — `fresh`, `stale`, " +
+        "`missing` — plus `orphans` (translations whose source paragraph was deleted) and " +
+        "`open_queries` (unresolved translator questions raised against that language). " +
+        "Use it to see how much of a book is translated and where retranslation is due. " +
+        "See get_help topic 'translation-pass' for the translation workflow."
+    public static let inputSchemaJSON =
+        #"{"type":"object","properties":{"project_id":{"type":"string"},"document_id":{"type":"string","description":"optional — omit to report every manuscript document in the project"}},"required":["project_id"]}"#
+
+    @MainActor
+    public static func handle(
+        paramsJSON: Data?, registry: ProjectRegistry
+    ) async throws -> Data {
+        let params = try decodeParams(Params.self, from: paramsJSON)
+        guard let entry = registry.lookup(id: params.project_id) else {
+            throw MCPError.unknownProjectID(params.project_id)
+        }
+
+        // Which documents to report: the named one, or every manuscript leaf
+        // (skip collection references, same walk as ProjectStoreASTSource).
+        let docIds: [String]
+        if let only = params.document_id {
+            docIds = [only]
+        } else {
+            docIds = ProjectStore.collectDocuments(in: entry.store.manifest.structure)
+                .filter { $0.pieceKind != .reference }
+                .map(\.id)
+        }
+
+        let explicitDoc = params.document_id != nil
+        var rows: [Row] = []
+        for docId in docIds {
+            // In the project-wide walk, skip resolving (and, for a closed doc,
+            // deriving) paragraph state for documents with no translation files —
+            // a cheap filename scan. An explicit document_id always resolves so a
+            // bad id fails loudly rather than returning empty rows.
+            let languages = TranslationStore.languages(forDocId: docId, in: entry.url).sorted()
+            if !explicitDoc && languages.isEmpty { continue }
+            let state = try currentParagraphState(
+                projectId: params.project_id, documentId: docId, registry: registry)
+            for language in languages {
+                let records = TranslationStore.loadMerged(
+                    forDocId: docId, language: language, in: state.projectURL)
+                let derived = TranslationDeriver.derive(
+                    records: records, sequence: state.sequence,
+                    paragraphs: state.paragraphs, language: language)
+                rows.append(Row(
+                    document_id: docId,
+                    language: language,
+                    fresh: derived.freshCount,
+                    stale: derived.staleCount,
+                    missing: derived.missingCount,
+                    orphans: derived.orphans.count,
+                    open_queries: 0))  // Task 5 flips this to annotation.language
+            }
+        }
+
+        return try JSONEncoder().encode(Result(rows: rows))
+    }
+}
