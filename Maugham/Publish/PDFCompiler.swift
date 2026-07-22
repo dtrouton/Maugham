@@ -68,6 +68,7 @@ public struct PDFCompiler {
         \\renewcommand{\\Keywords}{\(LaTeXEscape.escape(m.keywords.joined(separator: ", ")))}
         \\renewcommand{\\MaughamVersion}{\(LaTeXEscape.escape(config.nextVersion))}
         \\renewcommand{\\MaughamLabel}{\(LaTeXEscape.escape(label ?? ""))}
+        \\providecommand{\\MaughamLanguage}{}
         \\renewcommand{\\MaughamLanguage}{\(LaTeXEscape.escape(m.language))}
         """
         try metaTex.write(to: metaURL, atomically: true, encoding: .utf8)

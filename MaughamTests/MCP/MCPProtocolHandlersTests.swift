@@ -55,6 +55,7 @@ final class MCPProtocolHandlersTests: XCTestCase {
             "compile", "preview_compile",
             "compile_status", "compile_cancel",
             "list_publications", "read_publication_page", "republish",
+            "read_translation", "write_translation", "translation_status",
             "set_piece_style", "clear_piece_style",
             "list_inbox", "read_inbox_entry", "promote_inbox_entry",
             "list_maugham_tools", "get_help"
