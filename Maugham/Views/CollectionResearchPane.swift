@@ -260,8 +260,10 @@ struct CollectionResearchPane: View {
             },
             deleteMany: { ids in
                 Task {
-                    do { try await store.deleteResearchItems(ids: ids) }
-                    catch { pendingError = error.localizedDescription }
+                    do {
+                        try await store.deleteResearchItems(ids: ids)
+                        pruneSelectionAfterDelete()
+                    } catch { pendingError = error.localizedDescription }
                 }
             })
     }
@@ -435,8 +437,21 @@ struct CollectionResearchPane: View {
     private func delete(id: String) async {
         do {
             try await store.deleteResearchItem(id: id)
+            pruneSelectionAfterDelete()
         } catch {
             pendingError = error.localizedDescription
+        }
+    }
+
+    /// Post-delete hygiene (2026-07-19 sweep W6): drop ids that no longer
+    /// exist in the manifest from `selection`/`selectedResearchId` so
+    /// `previewId(for:)` can't resolve to a ghost item.
+    private func pruneSelectionAfterDelete() {
+        selection = ResearchSelectionSync.pruned(
+            selection, in: store.manifest.research)
+        if let sel = selectedResearchId,
+           TreeWalk.find(id: sel, in: store.manifest.research) == nil {
+            selectedResearchId = nil
         }
     }
 
