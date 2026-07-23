@@ -16,6 +16,7 @@ final class MCPToolsListSmokeTest: XCTestCase {
         // production catalog here (see TestMCPCatalogConsistencyTests for the
         // dev-tool discovery coverage).
         let productionCount = names.filter { !$0.hasPrefix("test_") }.count
-        XCTAssertEqual(productionCount, 51)
+        XCTAssertEqual(productionCount, MCPToolCatalog.all.count,
+                       "tools/list must advertise exactly the production catalog")
     }
 }
