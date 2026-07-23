@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 @MainActor
@@ -221,6 +222,84 @@ final class CompileToolsTests: XCTestCase {
         let stores = PublishingStores.sharedFor(projectID: pid, projectURL: projectURL)
         let pubs = try await stores.publicationStore.load()
         XCTAssertTrue(pubs.isEmpty, "dry_run must not mint a Publication")
+    }
+
+    /// F2 review fix 1: a dry_run job's terminal state must survive a
+    /// `compile_status` poll (reachable via the wait_seconds:0 timeout race) —
+    /// it reports `dry_run_passed` + warnings, NOT a completed job with an
+    /// empty output_path.
+    func testStatus_dryRunJob_reportsDryRunPassed() async throws {
+        let stores = PublishingStores.sharedFor(projectID: pid, projectURL: projectURL)
+        let jobID = await stores.jobManager.register(phase: .renderingBody)
+        let warning = TectonicLogParser.Diagnostic(
+            level: .warning, file: nil, line: nil,
+            message: "Chapter One: 1 missing (¶abcd) — compiled with source-text fallback",
+            contextLines: [])
+        await stores.jobManager.completeDryRun(jobID: jobID, warnings: [warning])
+
+        let data = try await CompileStatusTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","job_id":"\#(jobID)"}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(resp?["status"] as? String, "dry_run_passed",
+                       "polled dry_run job must not degrade: \(resp ?? [:])")
+        XCTAssertNil(resp?["output_path"], "dry_run has no output")
+        let warnings = resp?["warnings"] as? [[String: Any]]
+        XCTAssertEqual(warnings?.count, 1)
+        XCTAssertTrue((warnings?.first?["message"] as? String ?? "").contains("¶abcd"))
+    }
+
+    /// F2 review fix 2: tool-level parity pin — a gate-blocked
+    /// `preview_compile` returns the standard failed JSON shape through
+    /// `PreviewCompileTool.handle` itself: `status: failed`, itemized `errors`
+    /// diagnostics, `log_excerpt`, and `log_path`.
+    func testPreview_gateBlocked_returnsStandardFailedShape() async throws {
+        // Real-content fixture: overwrite the starter doc BEFORE first
+        // Document.load so Bootstrap mints anchors, translate only the first
+        // paragraph, leave the second missing — the es gate must block.
+        let fixtureURL = try await ProjectFactory.createNovelProject(
+            named: "GateShape-\(UUID().uuidString.prefix(6))", in: tmp)
+        let probe = try await ProjectStore.load(from: fixtureURL)
+        let item = try XCTUnwrap(
+            ProjectStore.collectDocuments(in: probe.manifest.structure).first)
+        let path = try XCTUnwrap(item.path)
+        try """
+        First paragraph.
+
+        Second paragraph.
+        """.write(to: fixtureURL.appendingPathComponent(path),
+                  atomically: true, encoding: .utf8)
+        let doc = try await Document.load(
+            url: fixtureURL.appendingPathComponent(path),
+            device: "test", session: "s", presenter: nil)
+        let store = try await ProjectStore.load(from: fixtureURL)
+        registry.register(url: fixtureURL, store: store)
+        let fixturePid = ProjectIdentifier.id(for: fixtureURL)
+
+        let ids = doc.sequence
+        try await TranslationStore.append(
+            TranslationRecord(
+                paragraphId: ids[0], language: "es", text: "Primero.",
+                sourceHash: TranslationHash.hash(doc.paragraphs[ids[0]] ?? ""),
+                verbatim: false),
+            forDocId: item.id, deviceSlug: DeviceSlug.make(from: "test-mac"),
+            in: fixtureURL)
+
+        let data = try await PreviewCompileTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(fixturePid)","format":"epub","language":"es"}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(resp?["status"] as? String, "failed",
+                       "gate block must surface as failed: \(resp ?? [:])")
+        let errors = resp?["errors"] as? [[String: Any]]
+        XCTAssertFalse(errors?.isEmpty ?? true, "failed shape must itemize errors")
+        let message = (errors ?? []).compactMap { $0["message"] as? String }.joined()
+        XCTAssertTrue(message.contains("¶\(ids[1])"),
+                      "gate error must list the missing ¶id, got: \(message)")
+        XCTAssertEqual(resp?["log_excerpt"] as? String, "translation_stale: es",
+                       "failed shape must carry the gate logExcerpt")
+        XCTAssertEqual(resp?["log_path"] as? String, "build/compile.log",
+                       "failed shape must carry log_path (compile parity)")
     }
 
     // MARK: - F2: schema round-trip for the new params

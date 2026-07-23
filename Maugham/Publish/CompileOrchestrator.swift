@@ -151,11 +151,12 @@ public struct CompileOrchestrator {
         // standard `.failed` shape above) but BEFORE any mutation — no snapshot,
         // no compile, no Publication, no event, no version bump, no output file.
         // Returns the gate verdict (any allow_stale/fountain-drift warnings) so
-        // the caller can see exactly what a real compile would emit. The job is
-        // closed cleanly with an empty output so it doesn't linger in-progress.
+        // the caller can see exactly what a real compile would emit. The job
+        // terminates in the distinct `.dryRunPassed` state so a polled
+        // `compile_status` (wait_seconds:0 race) reports the dry-run outcome,
+        // not a completed job with an empty output path.
         if dryRun {
-            await jobManager.complete(
-                jobID: jobID, outputPath: "", warnings: gateWarnings, errors: [])
+            await jobManager.completeDryRun(jobID: jobID, warnings: gateWarnings)
             return .dryRunPassed(warnings: gateWarnings)
         }
 

@@ -291,6 +291,13 @@ public enum CompileStatusTool: MCPTool {
             return try JSONSerialization.data(withJSONObject: [
                 "status": "cancelled"
             ], options: [.sortedKeys])
+        case .dryRunPassed(let warnings):
+            // F2: a polled dry_run job reports its actual outcome — the same
+            // shape the synchronous compile(dry_run:true) response carries.
+            return try JSONSerialization.data(withJSONObject: [
+                "status": "dry_run_passed",
+                "warnings": warnings.map { CompileResponseEncoder.encode(diag: $0) }
+            ], options: [.sortedKeys])
         }
     }
 }
