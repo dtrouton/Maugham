@@ -53,6 +53,34 @@ final class PreviewCompilerTests: XCTestCase {
         XCTAssertEqual(cfg?.nextVersion, "0.1")
     }
 
+    // MARK: - F5: EMISSION.md auto-refresh (previews are where iteration lives)
+
+    /// A stale EMISSION.md seeded before a preview is refreshed to the
+    /// current contract, stamped with the app version the preview was
+    /// constructed with — mirroring `CompileOrchestrator`'s refresh.
+    func testPreview_refreshesStaleEmissionDoc() async throws {
+        let emissionURL = tmp.appendingPathComponent(".maugham/publish/EMISSION.md")
+        try "# STALE from an old init\n".write(to: emissionURL, atomically: true, encoding: .utf8)
+
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "PreF5", author: "T")))
+        struct Src: ProjectASTBuilder.Source {
+            func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+                [.init(pieceID: "p1", title: "C1", mode: .prose, displayText: "A.")]
+            }
+        }
+        let preview = PreviewCompiler(
+            projectURL: tmp, astSource: Src(),
+            configStore: configStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "9.9.9-previewtest", tectonicVersion: "n/a")
+        _ = try await preview.preview(format: .epub, sectionIDs: nil, maxPages: nil)
+
+        let refreshed = try String(contentsOf: emissionURL, encoding: .utf8)
+        XCTAssertEqual(refreshed, EmissionContract.renderProjectCopy(appVersion: "9.9.9-previewtest"))
+        XCTAssertFalse(refreshed.contains("STALE from an old init"))
+    }
+
     // MARK: - F1: default subset vs. explicit override
 
     struct ThreePieceSrc: ProjectASTBuilder.Source {

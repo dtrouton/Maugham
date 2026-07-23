@@ -62,6 +62,15 @@ public struct PreviewCompiler {
             await jobManager.fail(jobID: jobID, errors: [], logExcerpt: "no config")
             return Result(outputPath: "", warnings: [], errors: [])
         }
+        // F5: previews are where template iteration lives, so refresh the
+        // project's app-owned EMISSION.md here too — same unconditional
+        // overwrite of that ONE file as `CompileOrchestrator.compile`, never
+        // touching template.tex/preamble/partials/config.json/style files.
+        try EmissionContract.renderProjectCopy(appVersion: maughamVersion)
+            .write(to: projectURL.appendingPathComponent(
+                        ".maugham/publish/EMISSION.md"),
+                   atomically: true, encoding: .utf8)
+
         // Preview output lands in build/preview/ — don't pollute Exports/.
         config.outputs = .init(
             directory: ".maugham/publish/build/preview",

@@ -81,6 +81,20 @@ public struct CompileOrchestrator {
         // frozen tree.
         let publishDir = projectURL.appendingPathComponent(
             ".maugham/publish", isDirectory: true)
+
+        // F5: EMISSION.md is app-owned and generated — refresh the project's
+        // copy on every compile (dry_run included: it still runs the
+        // pipeline's front half, and there's no reason to let the doc drift
+        // just because nothing got emitted) so it never misinforms an agent
+        // reading it as instructed. Unconditional overwrite of that ONE file;
+        // every other starter file (template.tex, preamble/partials,
+        // config.json, style files) is untouched. Runs after config load and
+        // BEFORE snapshot capture below, so a real compile's snapshot embeds
+        // the freshly-stamped copy.
+        try EmissionContract.renderProjectCopy(appVersion: maughamVersion)
+            .write(to: publishDir.appendingPathComponent("EMISSION.md"),
+                   atomically: true, encoding: .utf8)
+
         effective = LanguageSuffixedFile.resolvingStyleFiles(
             in: effective, language: language, publishDir: publishDir)
 
