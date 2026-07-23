@@ -208,6 +208,17 @@ public struct CompileOrchestrator {
             effectiveVersion = latest.version
         }
 
+        // C1: thread the resolved version into the EFFECTIVE config so it
+        // reaches the compiled OUTPUT — the filename `{version}` token
+        // (OutputFilenameBuilder), the PDF interior `\MaughamVersion`, and the
+        // EPUB `<dc:...>`/metadata all render `config.nextVersion`, which for an
+        // edition still holds the (possibly-bumped) source next_version, not the
+        // version this edition targets. No-op for source compiles (equal by
+        // construction: `effectiveVersion == config.nextVersion`). Runs BEFORE
+        // snapshot capture so a republished edition reproduces the frozen
+        // version — and its filename — exactly.
+        effective.nextVersion = effectiveVersion
+
         // Pre-compile collision guard: refuse only an exact (version, language,
         // format) match. For source compiles this is strictly weaker than the
         // old version-only guard (format joins the key), permitting a

@@ -14,7 +14,7 @@ is visible in any other language's edition.
 the source manuscript first (no `language` parameter) — that's when the version number
 is minted. Then compile the edition by specifying the language (e.g., `language:es`);
 it borrows the source version's number as its identity. If the source isn't yet published,
-the edge compile will refuse loudly. Use `dry_run: true` to check whether the edition
+the edition compile will refuse loudly. Use `dry_run: true` to check whether the edition
 would pass the translation-coverage gate before committing to a full compile.
 
 ## What matters, in order

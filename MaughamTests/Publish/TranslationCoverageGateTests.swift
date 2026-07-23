@@ -435,8 +435,10 @@ final class TranslationCoverageGateTests: XCTestCase {
         // Only the seeded source publication remains — the blocked dry_run
         // minted no NEW (es) Publication (spec 2026-07-23 seeding).
         let pubs = try await fx.stores.publicationStore.load()
-        XCTAssertTrue(pubs.filter { $0.language == "es" }.isEmpty,
-                      "blocked dry_run must mint no es Publication")
+        XCTAssertEqual(pubs.count, 1,
+                       "only the seeded source publication may remain: \(pubs)")
+        XCTAssertNil(pubs.first?.language,
+                     "the sole remaining publication is the seeded source (language == nil)")
         let after = try await fx.stores.configStore.load()!
         XCTAssertEqual(after.nextVersion, before.nextVersion,
                        "dry_run must not bump next_version")
@@ -467,8 +469,10 @@ final class TranslationCoverageGateTests: XCTestCase {
         // Only the seeded source publication remains — the passing dry_run
         // minted no NEW (es) Publication (spec 2026-07-23 seeding).
         let pubs = try await fx.stores.publicationStore.load()
-        XCTAssertTrue(pubs.filter { $0.language == "es" }.isEmpty,
-                      "passing dry_run must mint no es Publication")
+        XCTAssertEqual(pubs.count, 1,
+                       "only the seeded source publication may remain: \(pubs)")
+        XCTAssertNil(pubs.first?.language,
+                     "the sole remaining publication is the seeded source (language == nil)")
         let after = try await fx.stores.configStore.load()!
         XCTAssertEqual(after.nextVersion, before.nextVersion,
                        "dry_run must not bump next_version")

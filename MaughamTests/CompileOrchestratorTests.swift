@@ -731,4 +731,64 @@ final class CompileOrchestratorTests: XCTestCase {
         let pubs = try await pubStore.load()
         XCTAssertEqual(pubs.count, 2, "one source + one language edition")
     }
+
+    // MARK: - C1: the RESOLVED edition version reaches the compiled OUTPUT
+    //
+    // The edition-effective config threads `effectiveVersion` into
+    // `effective.nextVersion` so the filename `{version}` token, the PDF
+    // `\MaughamVersion`, and the EPUB metadata render the version the edition
+    // TARGETS — not the (possibly-bumped) `config.nextVersion`. Before the fix,
+    // an edition compiled after the source bump shipped under the wrong version.
+
+    /// (C1-1) Source at 0.1, next_version manually advanced to 0.5, then a
+    /// version-less es edition. The es edition renders the SOURCE version 0.1,
+    /// so its output filename must carry "v0.1" — NOT "v0.5" (the pre-fix bug,
+    /// where the filename rendered config.nextVersion).
+    func testC1_editionOutputFilename_usesResolvedSourceVersion_notNextVersion() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        var cfg = PublishConfig(metadata: .init(title: "Ed", author: "T"))
+        cfg.nextVersion = "0.5"
+        try await configStore.save(cfg)
+        let pubStore = PublicationStore(projectURL: tmp)
+        try await seedSourcePublication(pubStore, version: "0.1", format: .pdf)
+
+        let result = try await makeOrch(configStore, pubStore)
+            .compile(format: .epub, label: nil, language: "es")
+        guard case .completed(let pub, _) = result else {
+            return XCTFail("expected completed, got \(result)")
+        }
+        XCTAssertEqual(pub.version, "0.1")
+        XCTAssertTrue(pub.outputPath.contains("v0.1"),
+                      "edition filename must render the resolved source version: \(pub.outputPath)")
+        XCTAssertFalse(pub.outputPath.contains("v0.5"),
+                       "edition filename must not render the bumped next_version: \(pub.outputPath)")
+    }
+
+    /// (C1-2) Two pinned es editions at DIFFERENT source versions must produce
+    /// DISTINCT output filenames. Both pass the (version, language, format)
+    /// collision guard (versions differ), so before the C1 fix both rendered
+    /// config.nextVersion into the SAME filename — silently clobbering each
+    /// other's output while the two records pointed at one path.
+    func testC1_twoPinnedEditionsAtDifferentVersions_distinctOutputPaths() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Ed", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+        try await seedSourcePublication(pubStore, version: "1.0", format: .epub)
+        try await seedSourcePublication(pubStore, version: "1.1", format: .epub)
+        let orch = makeOrch(configStore, pubStore)
+
+        let a = try await orch.compile(
+            format: .epub, label: nil, language: "es", version: "1.0")
+        let b = try await orch.compile(
+            format: .epub, label: nil, language: "es", version: "1.1")
+        guard case .completed(let pubA, _) = a, case .completed(let pubB, _) = b else {
+            return XCTFail("both pinned editions must complete; got \(a) / \(b)")
+        }
+        XCTAssertEqual(pubA.version, "1.0")
+        XCTAssertEqual(pubB.version, "1.1")
+        XCTAssertNotEqual(pubA.outputPath, pubB.outputPath,
+                          "distinct pinned versions must not share an output path (clobber): \(pubA.outputPath)")
+        XCTAssertTrue(pubA.outputPath.contains("v1.0"), pubA.outputPath)
+        XCTAssertTrue(pubB.outputPath.contains("v1.1"), pubB.outputPath)
+    }
 }

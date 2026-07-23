@@ -29,17 +29,18 @@ enum OutputFilenameBuilder {
 
         // F7 residue: when {language} expands empty (source-language
         // compile), a separator immediately preceding the token would
-        // otherwise dangle (e.g. "T-v0.1-.pdf"). Strip one `-`/`_`/`.`
-        // right before the token before the generic replacement runs. A
-        // token with no preceding separator falls through to the plain
+        // otherwise dangle (e.g. "T-v0.1-.pdf"). Strip EXACTLY ONE `-`/`_`/`.`
+        // right before each token occurrence before the generic replacement
+        // runs. A token with no preceding separator falls through to the plain
         // empty replacement below, unchanged from today. When language IS
-        // present, the separator is meaningful and stays.
+        // present, the separator is meaningful and stays. (M1: single-pass
+        // per-occurrence strip — the old sequential replace-all cascaded on a
+        // doubled-separator template like "{title}._{language}.{ext}",
+        // removing both separators instead of one.)
         var workingTemplate = template
         if language == nil || language?.isEmpty == true {
-            for separator in ["-", "_", "."] {
-                workingTemplate = workingTemplate.replacingOccurrences(
-                    of: "\(separator){language}", with: "{language}")
-            }
+            workingTemplate = stripOneSeparatorBefore(
+                token: "{language}", in: template)
         }
 
         var name = workingTemplate
@@ -61,6 +62,28 @@ enum OutputFilenameBuilder {
             }
         }
         return name
+    }
+
+    /// Strip a single `-`/`_`/`.` immediately preceding each occurrence of
+    /// `token`, leaving any earlier separators intact. Spec: drop exactly ONE
+    /// dangling separator per token, never cascade across a doubled separator.
+    private static func stripOneSeparatorBefore(
+        token: String, in template: String
+    ) -> String {
+        let separators: Set<Character> = ["-", "_", "."]
+        var result = ""
+        var remainder = Substring(template)
+        while let range = remainder.range(of: token) {
+            var prefix = remainder[remainder.startIndex..<range.lowerBound]
+            if let last = prefix.last, separators.contains(last) {
+                prefix = prefix.dropLast()
+            }
+            result += prefix
+            result += token
+            remainder = remainder[range.upperBound...]
+        }
+        result += remainder
+        return result
     }
 
     /// Always-on sanitization: strip path separators, null bytes, and any

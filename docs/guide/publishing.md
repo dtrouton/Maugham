@@ -30,7 +30,7 @@ A publication is identified by three dimensions: **version, language, and format
 
 **Language editions are renderings of existing source versions:** `compile language:es` (without a `version` parameter) renders the latest source publication's version as a Spanish edition — it borrows that source's version number (e.g., `1.0`) as its identity. If you want to pair a translation with a *specific* earlier source version, pass `version: 1.0` alongside `language: es`. Importantly, language compiles never bump `next_version` — translations don't mint new versions, they render existing ones.
 
-The manuscript text in a language edition is the *current* text, not the frozen text from when the source version was compiled. If you need to reproduce a translation exactly as it was, use `republish` on that edition to recreate its output from the same snapshot. 
+The manuscript text in a language edition is the *current* text, not the frozen text from when the source version was compiled. The same holds for the edition's *piece set*: a pinned edition renders the pieces currently included (sections you exclude or include after the source compile change the edition accordingly), and republishing reproduces that historical included subset from the snapshot. If you need to reproduce a translation exactly as it was, use `republish` on that edition to recreate its output from the same snapshot. Note that republished `-r…` rows sit outside the version families — they carry a distinct republish-marked version and aren't themselves pinnable as an edition's source version.
 
 **Failing-loudly:** If you try to compile a language edition but no source publication exists yet, it refuses with a clear message: *"compile the source edition first or pass version."*
 
