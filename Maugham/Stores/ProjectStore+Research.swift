@@ -707,19 +707,20 @@ extension ProjectStore {
             if FileManager.default.fileExists(atPath: oldAssetsURL.path) {
                 try await move(oldAssetsURL, newAssetsURL)
 
-                // Update internal refs in the renamed note
-                if let content = try? String(contentsOf: newURL, encoding: .utf8) {  // adr-0018-ok: research-note read, not manuscript
-                    let oldRef = "./\(oldSlug)_assets/"
-                    let newRef = "./\(dedupedSlug)_assets/"
-                    let rewritten = content.replacingOccurrences(of: oldRef, with: newRef)
-                    if rewritten != content {
+                // Update internal refs in the renamed note. Cosmetic post-move
+                // fix — MUST NOT abort the rename: the FS moves above have
+                // already committed, so a throw here would leave manifest↔disk
+                // diverged (same class as the 2026-07-19 sweep W1). The shared
+                // helper is non-throwing by design.
+                await Self.rewriteAssetRefsBestEffort(
+                    oldStem: oldSlug, newStem: dedupedSlug, noteURL: newURL,
+                    write: { text, dest in
                         if let ds {
-                            try await ds.coordinatedWrite(text: rewritten, to: newURL)
+                            try await ds.coordinatedWrite(text: text, to: dest)
                         } else {
-                            try rewritten.write(to: newURL, atomically: true, encoding: .utf8)
+                            try text.write(to: dest, atomically: true, encoding: .utf8)
                         }
-                    }
-                }
+                    })
             }
 
             return (relativeResearchPath(newURL), [])
