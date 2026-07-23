@@ -34,11 +34,6 @@ public enum ReadPreviewPageTool: MCPTool {
         }
     }
 
-    /// The deterministic preview output directory `PreviewCompiler` writes to
-    /// (`config.outputs.directory = ".maugham/publish/build/preview"`). Kept in
-    /// sync with `PreviewCompiler.preview`'s override, one path constant.
-    static let previewSubpath = ".maugham/publish/build/preview"
-
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
         let params = try decodeParams(Params.self, from: paramsJSON)
@@ -46,7 +41,7 @@ public enum ReadPreviewPageTool: MCPTool {
         let projectURL = entry.url
 
         let previewDir = projectURL.appendingPathComponent(
-            previewSubpath, isDirectory: true)
+            PreviewCompiler.previewSubpath, isDirectory: true)
         let fm = FileManager.default
 
         // Gather PDF and EPUB previews with their mtimes. We consider both so

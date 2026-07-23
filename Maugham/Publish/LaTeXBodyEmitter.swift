@@ -176,8 +176,9 @@ public enum LaTeXBodyEmitter {
     /// the pre-F6 hardcoded frame exactly (centered, pushed down 1.5in, page
     /// break after); the single argument carries the fields — in DECLARED
     /// order, Title in `\Large\textbf`, everything else plain
-    /// `\par`-terminated. A per-piece style file can restyle it
-    /// (`\RenewDocumentCommand` inside the pieceheading-hook discipline,
+    /// `\par`-terminated. A per-piece style file can restyle it by defining
+    /// the macro in the style file itself — the emitted `\providecommand`
+    /// will then no-op (matching the `\lyricline` precedent documented in
     /// EMISSION.md).
     private static let fountainProvidecommands: [String] = [
         "\\providecommand{\\lyricline}[1]{\\textit{#1}\\par}",

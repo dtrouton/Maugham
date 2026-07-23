@@ -3,6 +3,11 @@ import Foundation
 @MainActor
 public struct PreviewCompiler {
 
+    /// The deterministic preview output directory where previews are rendered.
+    /// Kept in sync with `ReadPreviewPageTool.previewSubpath` — the single
+    /// source of truth for preview output paths.
+    public static let previewSubpath = ".maugham/publish/build/preview"
+
     public struct Result {
         public let outputPath: String
         public let warnings: [TectonicLogParser.Diagnostic]
@@ -73,7 +78,7 @@ public struct PreviewCompiler {
 
         // Preview output lands in build/preview/ — don't pollute Exports/.
         config.outputs = .init(
-            directory: ".maugham/publish/build/preview",
+            directory: Self.previewSubpath,
             filenameTemplate: "preview-{version}-{ext}.{ext}",
             sanitizeSpaces: true,
             formatsEnabled: config.outputs.formatsEnabled)

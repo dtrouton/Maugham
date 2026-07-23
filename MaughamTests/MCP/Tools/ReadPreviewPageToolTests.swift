@@ -32,7 +32,7 @@ final class ReadPreviewPageToolTests: XCTestCase {
     // MARK: - Helpers
 
     private var previewDir: URL {
-        projectURL.appendingPathComponent(ReadPreviewPageTool.previewSubpath, isDirectory: true)
+        projectURL.appendingPathComponent(PreviewCompiler.previewSubpath, isDirectory: true)
     }
 
     /// Write a minimal one-page PDF at `url`. `fillGray` distinguishes the
@@ -188,7 +188,7 @@ final class ReadPreviewPageToolTests: XCTestCase {
         // file (relative path) so both tools open identical bytes.
         try writePDF(named: "preview-0.1-pdf.pdf", in: previewDir,
                      fillGray: 0.5)
-        let relPath = "\(ReadPreviewPageTool.previewSubpath)/preview-0.1-pdf.pdf"
+        let relPath = "\(PreviewCompiler.previewSubpath)/preview-0.1-pdf.pdf"
 
         let stores = PublishingStores.sharedFor(projectID: pid!, projectURL: projectURL)
         try await stores.publicationStore.append(Publication(
