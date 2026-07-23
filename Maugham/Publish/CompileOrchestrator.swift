@@ -47,7 +47,8 @@ public struct CompileOrchestrator {
         label: String?,
         language: String? = nil,
         allowStale: Bool = false,
-        dryRun: Bool = false
+        dryRun: Bool = false,
+        version: String? = nil
     ) async throws -> Outcome {
         let jobID = await jobManager.register(phase: .renderingBody)
 
@@ -107,33 +108,111 @@ public struct CompileOrchestrator {
         let emitSource = IncludeFilteredASTSource(
             base: astSource, excludedSectionIDs: excludedSectionIDs)
 
-        // D3c: pre-compile collision guard. `PublishStarter.install` (D3a)
-        // reconciles `next_version` past existing publications, but a writer
-        // can still manually set it backward via set_publish_config. Refuse
-        // to compile into an already-used version so we don't mint two
-        // publications at the same version string — they'd be unaddressable
-        // apart via the `version` query (publication_id query works, but the
-        // collision is still a bug we should surface explicitly).
+        // Edition identity (spec 2026-07-23): a Publication is keyed on the
+        // triple (version, language, format). Resolve the version THIS compile
+        // mints at BEFORE the collision guard runs.
+        //   • source (language == nil): version comes from next_version; a
+        //     caller-supplied `version` is meaningless here and refused loudly.
+        //   • edition (language != nil): an edition is a rendering OF a source
+        //     version — it never mints its own. With `version` it pins that
+        //     exact source version, which must already have a source-language
+        //     publication. Without `version` it targets the latest source
+        //     publication's version (most recent `compiledAt`, `language == nil`);
+        //     when no source publication exists at all it refuses loudly
+        //     ("compile the source edition first").
         let existingPublications = try await publicationStore.load()
-        if existingPublications.contains(where: { $0.version == config.nextVersion }) {
-            let next = PublishConfigValidator.bumpedNextVersion(
-                from: config.nextVersion)
+
+        let effectiveVersion: String
+        if language == nil {
+            if let version {
+                let diag = TectonicLogParser.Diagnostic(
+                    level: .error, file: nil, line: nil,
+                    message: "version '\(version)' requires a language — source versions come from next_version, not a pinned version.",
+                    contextLines: [
+                        "Omit `version` to compile the source edition at next_version ('\(config.nextVersion)').",
+                        "Or pass `language` to render an edition of an existing source version."
+                    ])
+                await jobManager.fail(
+                    jobID: jobID, errors: [diag],
+                    logExcerpt: "version_without_language: \(version)")
+                return .failed(
+                    errors: [diag],
+                    logExcerpt: "version_without_language: \(version)")
+            }
+            effectiveVersion = config.nextVersion
+        } else if let version {
+            guard existingPublications.contains(where: {
+                $0.language == nil && $0.version == version
+            }) else {
+                let diag = TectonicLogParser.Diagnostic(
+                    level: .error, file: nil, line: nil,
+                    message: "no source v\(version) to render in \(language!) — compile the source edition first, then render its edition.",
+                    contextLines: [
+                        "A language edition pins an EXISTING source publication's version.",
+                        "No source-language publication (language == nil) exists at v\(version)."
+                    ])
+                await jobManager.fail(
+                    jobID: jobID, errors: [diag],
+                    logExcerpt: "no_source_version: \(version)/\(language!)")
+                return .failed(
+                    errors: [diag],
+                    logExcerpt: "no_source_version: \(version)/\(language!)")
+            }
+            effectiveVersion = version
+        } else {
+            // Latest source publication by compiledAt. (Republished source
+            // records carry a distinct `-r…` version; the pinned-`version`
+            // path gives the writer full control when that edge matters.)
+            let sources = existingPublications.filter { $0.language == nil }
+            guard let latest = sources.max(by: { $0.compiledAt < $1.compiledAt }) else {
+                let diag = TectonicLogParser.Diagnostic(
+                    level: .error, file: nil, line: nil,
+                    message: "no source publication exists — compile the source edition first (or pass version to pin one) before rendering the \(language!) edition.",
+                    contextLines: [
+                        "An edition is a rendering of a source version; it no longer mints its own.",
+                        "Compile without a language to create the source edition, then retry."
+                    ])
+                await jobManager.fail(
+                    jobID: jobID, errors: [diag],
+                    logExcerpt: "no_source_publication: \(language!)")
+                return .failed(
+                    errors: [diag],
+                    logExcerpt: "no_source_publication: \(language!)")
+            }
+            effectiveVersion = latest.version
+        }
+
+        // Pre-compile collision guard: refuse only an exact (version, language,
+        // format) match. For source compiles this is strictly weaker than the
+        // old version-only guard (format joins the key), permitting a
+        // deliberately completed edition family at a manually-set version.
+        // Republished records share a version deliberately but always carry a
+        // distinct `-r…` version string, so they never match this triple
+        // (republish path untouched).
+        if existingPublications.contains(where: {
+            $0.version == effectiveVersion
+                && $0.language == language
+                && $0.format == format
+        }) {
+            let langLabel = language ?? "source"
             let diag = TectonicLogParser.Diagnostic(
                 level: .error,
                 file: nil, line: nil,
-                message: "Publication v\(config.nextVersion) already exists; refusing to compile a colliding version.",
+                message: "Publication v\(effectiveVersion) (\(langLabel), \(format.rawValue)) already exists; refusing to compile a colliding edition.",
                 contextLines: [
-                    "config.next_version is '\(config.nextVersion)', which matches an existing Publication.",
-                    "Bump next_version to '\(next)' (or higher) via set_publish_config, then retry.",
+                    "The (version, language, format) triple '\(effectiveVersion)/\(langLabel)/\(format.rawValue)' matches an existing Publication.",
+                    language == nil
+                        ? "Bump next_version via set_publish_config, or compile a different format/language to complete the family."
+                        : "This edition already exists; compile a different format, or a new source version.",
                     "Or use republish if you want a new compile from a prior snapshot."
                 ])
             await jobManager.fail(
                 jobID: jobID,
                 errors: [diag],
-                logExcerpt: "version_collision: \(config.nextVersion)")
+                logExcerpt: "version_collision: \(effectiveVersion)/\(langLabel)/\(format.rawValue)")
             return .failed(
                 errors: [diag],
-                logExcerpt: "version_collision: \(config.nextVersion)")
+                logExcerpt: "version_collision: \(effectiveVersion)/\(langLabel)/\(format.rawValue)")
         }
 
         // Task 9: translation coverage gate. A translated edition
@@ -224,7 +303,7 @@ public struct CompileOrchestrator {
         let pubIDSuffix = String(UUID().uuidString.lowercased().prefix(12))
         let pub = Publication(
             publicationID: "pub-\(pubIDSuffix)",
-            version: config.nextVersion,
+            version: effectiveVersion,
             label: label,
             format: format,
             outputPath: relativePath(outputPath, from: projectURL),
@@ -254,11 +333,17 @@ public struct CompileOrchestrator {
             to: .project(for: projectURL),
             object: pub.publicationID)
 
-        // Bump version in config.
-        var nextConfig = config
-        nextConfig.nextVersion = PublishConfigValidator.bumpedNextVersion(
-            from: config.nextVersion)
-        try await configStore.save(nextConfig)
+        // Bump version in config — source compiles only. A language edition is
+        // a rendering of an existing source version and must never advance the
+        // source version counter (spec 2026-07-23). Saving the ORIGINAL
+        // `config` (never `effective`) keeps a translated compile from
+        // overwriting the shared config.
+        if language == nil {
+            var nextConfig = config
+            nextConfig.nextVersion = PublishConfigValidator.bumpedNextVersion(
+                from: config.nextVersion)
+            try await configStore.save(nextConfig)
+        }
 
         // Gate warnings (allow_stale fallbacks + fountain drift) ride alongside
         // the compiler's own warnings on the success path.

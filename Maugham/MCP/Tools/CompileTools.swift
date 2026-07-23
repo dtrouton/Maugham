@@ -84,9 +84,9 @@ enum CompileResponseEncoder {
 public enum CompileTool: MCPTool {
     public static let method = "compile"
     public static let description =
-    "Full PDF or EPUB compile. wait_seconds blocks up to that long for completion; if it elapses, returns {status: in_progress, job_id, phase}. On success creates a Publication record referencing the captured PublicationSnapshot (template + config + styles bytes, frozen at compile time). Note: the Publication.checkpoint_id field is reserved for a follow-up milestone — it's empty in v1, and reproducibility is via snapshot_id (which republish uses)."
+    "Full PDF or EPUB compile. wait_seconds blocks up to that long for completion; if it elapses, returns {status: in_progress, job_id, phase}. On success creates a Publication record referencing the captured PublicationSnapshot (template + config + styles bytes, frozen at compile time). A Publication is keyed on (version, language, format): a source compile (no language) takes its version from next_version and bumps it; a language edition renders an EXISTING source version (pin it with version, or omit to target the latest source publication) and never bumps next_version. Note: the Publication.checkpoint_id field is reserved for a follow-up milestone — it's empty in v1, and reproducibility is via snapshot_id (which republish uses)."
     public static let inputSchemaJSON = """
-    {"type":"object","properties":{"project_id":{"type":"string"},"format":{"type":"string","enum":["pdf","epub"]},"label":{"type":"string"},"language":{"type":"string","description":"BCP-47-ish language tag (e.g. 'es') to compile a translated edition: applies language_overrides, sets dc:language / \\\\MaughamLanguage, and language-suffixes the output filename. Omit for the source-language edition."},"allow_stale":{"type":"boolean","default":false,"description":"Compile a translated edition even if some paragraphs are stale or missing, falling back to source text for those paragraphs (default false blocks the compile and reports the gap instead)."},"dry_run":{"type":"boolean","default":false,"description":"Run the version-collision guard and translation-coverage gate for this edition and report the verdict WITHOUT compiling: no output file, no Publication record, no version bump. Returns {status: dry_run_passed, warnings} when it would compile, or the same failed/gate-blocked shape a real compile returns. Answers 'would this edition compile pass for the currently included sections' without minting a throwaway Publication."},"wait_seconds":{"type":"integer","default":60}},"required":["project_id","format"]}
+    {"type":"object","properties":{"project_id":{"type":"string"},"format":{"type":"string","enum":["pdf","epub"]},"label":{"type":"string"},"language":{"type":"string","description":"BCP-47-ish language tag (e.g. 'es') to compile a translated edition: applies language_overrides, sets dc:language / \\\\MaughamLanguage, and language-suffixes the output filename. Omit for the source-language edition."},"version":{"type":"string","description":"Editions only (requires language). Pins the EXISTING source-publication version this edition renders (e.g. '1.0'); refused without language. Omit and the edition targets the latest source publication's version. A Publication is keyed on (version, language, format), so 1.0/en, 1.0/es, and 1.0/es/epub coexist as one family."},"allow_stale":{"type":"boolean","default":false,"description":"Compile a translated edition even if some paragraphs are stale or missing, falling back to source text for those paragraphs (default false blocks the compile and reports the gap instead)."},"dry_run":{"type":"boolean","default":false,"description":"Run the version-collision guard and translation-coverage gate for this edition and report the verdict WITHOUT compiling: no output file, no Publication record, no version bump. Returns {status: dry_run_passed, warnings} when it would compile, or the same failed/gate-blocked shape a real compile returns. Answers 'would this edition compile pass for the currently included sections' without minting a throwaway Publication."},"wait_seconds":{"type":"integer","default":60}},"required":["project_id","format"]}
     """
 
     struct Params: Codable {
@@ -94,12 +94,13 @@ public enum CompileTool: MCPTool {
         let format: PublishConfig.Format
         let label: String?
         let language: String?
+        let version: String?
         let allowStale: Bool?
         let dryRun: Bool?
         let waitSeconds: Int?
         enum CodingKeys: String, CodingKey {
             case projectID = "project_id"
-            case format, label, language
+            case format, label, language, version
             case allowStale = "allow_stale"
             case dryRun = "dry_run"
             case waitSeconds = "wait_seconds"
@@ -136,12 +137,14 @@ public enum CompileTool: MCPTool {
         let format = params.format
         let label = params.label
         let language = params.language
+        let version = params.version
         let allowStale = params.allowStale ?? false
         let dryRun = params.dryRun ?? false
         let task = Task {
             try await orch.compile(
                 format: format, label: label,
-                language: language, allowStale: allowStale, dryRun: dryRun)
+                language: language, allowStale: allowStale, dryRun: dryRun,
+                version: version)
         }
         do {
             let outcome = try await withTimeout(seconds: wait) { try await task.value }

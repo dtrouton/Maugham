@@ -40,6 +40,16 @@ final class CompileLanguageThreadingTests: XCTestCase {
             "es": .init(metadata: ["title": "Título ES", "author": "Autor ES"])
         ]
         try await stores.configStore.save(cfg)
+
+        // Edition identity (spec 2026-07-23): an es compile renders an EXISTING
+        // source version, so seed a source publication at 0.1. Format is PDF so
+        // it does NOT collide with the Rule 2 source-EPUB compile at the same
+        // version (the triple guard keys on format too).
+        try await stores.publicationStore.append(Publication(
+            publicationID: "pub-src", version: "0.1", label: nil, format: .pdf,
+            outputPath: "Exports/src.pdf", snapshotID: "snap-src", checkpointID: "",
+            republishedFrom: nil, compiledAt: Date(),
+            maughamVersion: "9.9.9", tectonicVersion: "0.15.0", language: nil))
     }
 
     override func tearDown() async throws {
@@ -187,7 +197,15 @@ final class CompileLanguageThreadingTests: XCTestCase {
 
     // MARK: - config-save pin: a language compile must NOT rewrite the shared config
 
-    func test_configSavePin_languageCompileLeavesBaseMetadataIntactBumpsVersion() async throws {
+    // Edition identity (spec 2026-07-23) flips half of this pin's original
+    // contract. Pre-v0.25.0 a language compile minted from next_version and
+    // BUMPED it; the spec makes a language edition a rendering OF an existing
+    // source version that never advances the counter. The base-metadata half of
+    // the pin (a Spanish compile must never persist Spanish metadata over the
+    // shared config) is unchanged and still asserted; the version assertion is
+    // inverted to "left untouched" with the spec cited. Renamed from the old
+    // `...BumpsVersion` accordingly.
+    func test_configSavePin_languageCompileLeavesBaseMetadataIntact_doesNotBumpVersion() async throws {
         let before = try await stores.configStore.load()!
         XCTAssertEqual(before.nextVersion, "0.1")
 
@@ -200,10 +218,11 @@ final class CompileLanguageThreadingTests: XCTestCase {
         XCTAssertEqual(after.metadata.language, "en")
         XCTAssertEqual(after.metadata.title, "Base Title")
         XCTAssertEqual(after.metadata.author, "Base Author")
-        // ...but the version was still bumped.
-        XCTAssertEqual(
-            after.nextVersion,
-            PublishConfigValidator.bumpedNextVersion(from: before.nextVersion))
+        // ...and next_version is NOT bumped: a language edition renders an
+        // existing source version and never advances the counter (spec
+        // 2026-07-23; source compiles remain the only bump site).
+        XCTAssertEqual(after.nextVersion, before.nextVersion,
+                       "a language edition must not bump next_version")
     }
 
     // MARK: - MCP validation: invalid language tag rejected

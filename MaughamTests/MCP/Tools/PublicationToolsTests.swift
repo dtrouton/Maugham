@@ -286,6 +286,15 @@ final class PublicationToolsTests: XCTestCase {
             rec, forDocId: item.id, deviceSlug: DeviceSlug.make(from: "test-mac"),
             in: projectURL)
 
+        // Edition identity (spec 2026-07-23): the es edition renders an EXISTING
+        // source version, so seed a source publication at 0.1 first. `load()`
+        // preserves append order, so the es edition remains `pubs.last` below.
+        try await stores.publicationStore.append(Publication(
+            publicationID: "pub-src", version: "0.1", label: nil, format: .epub,
+            outputPath: "Exports/src.epub", snapshotID: "snap-src", checkpointID: "",
+            republishedFrom: nil, compiledAt: Date(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0", language: nil))
+
         // 1. Gated "es" compile via the MCP tool. EPUB is pure Swift (no
         //    bundled tectonic) and lets this test inspect the actual body text.
         let compileData = try await CompileTool.handle(
