@@ -63,12 +63,13 @@ struct HelpClaudeDesktopSheet: View {
     }
 
     private var claudeCodeCLICommand: String {
-        let socket: String? = BuildVariant.current == .dev
-            ? BuildVariant.current.mcpSocketPath : nil
-        return ClaudeCodeSkillInstall.cliCommand(
+        // Parity with the Desktop JSON snippet (which always sets
+        // MAUGHAM_MCP_SOCKET): don't rely on the binary's compiled-in
+        // default matching the app's variant (2026-07-19 sweep W9).
+        ClaudeCodeSkillInstall.cliCommand(
             serverKey: BuildVariant.current.mcpServerKey,
             binaryPath: binaryPath,
-            socketPath: socket)
+            socketPath: BuildVariant.current.mcpSocketPath)
     }
 
     private var claudeCodeSection: some View {
@@ -102,6 +103,10 @@ struct HelpClaudeDesktopSheet: View {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(claudeCodeCLICommand, forType: .string)
                 cliCopied = true
+                Task {
+                    try? await Task.sleep(for: .seconds(2))
+                    cliCopied = false
+                }
             }
         }
     }
