@@ -188,4 +188,106 @@ final class StarterTemplateDefectProbeTests: XCTestCase {
         XCTAssertFalse(text.contains("QQRDCEM emtwo"),
                        "style-file \\RenewDocumentCommand of \\emph leaked past \\endgroup into the next piece")
     }
+
+    // MARK: - 4. Field-shaped six-piece style-scope escape (P0b)
+
+    /// The field-shaped reproduction of the *Playlist Volume One* defect-4:
+    /// in a six-piece compile, piece 2's per-piece style file did a
+    /// style-file-scope `\renewcommand{\textbf}` whose body uses `\marginpar` —
+    /// and piece 4 (fountain, WITH a title block) rendered its title block and
+    /// scene headings restyled by that renewal two pieces later, while a solo
+    /// compile of piece 4 was correct and begingroup/endgroup counts balanced.
+    ///
+    /// This test carries the exact triggering shape the field report described:
+    /// `\marginpar` in the renewal body, a fountain title block whose
+    /// `\Large\textbf{...}` title and `\scene{...}`
+    /// (= `\textbf{\MakeUppercase{...}}`) headings are the field's two visible
+    /// victims, and two trailing prose pieces using `**bold**`.
+    ///
+    /// **Outcome (2026-07-23): it does NOT reproduce** under the bundled
+    /// tectonic + the current starter templates — the renewal reverts cleanly
+    /// at the emitter's `\endgroup` (sentinel count stays 1). The field failure
+    /// remains unexplained; the leading unproven suspect is the field project's
+    /// fontspec custom-font environment (lazy bold/em family setup), which this
+    /// harness cannot reproduce because sandboxed tectonic resolves fonts only
+    /// from explicit file paths, not system names. The test is kept as a
+    /// permanent probe: if a future tectonic/kernel/fontspec change ever lets
+    /// this shape leak, it fails here loudly. The sanctioned fix either way is
+    /// the required `\pieceheading`-hook scoping pattern (see EMISSION.md).
+    ///
+    /// Detection: the renewal body prepends the sentinel `ZZLEAK`. In a
+    /// non-leaking world the sentinel appears exactly once (piece 2's own bold);
+    /// any leak into a later piece prints `ZZLEAK` next to that piece's title,
+    /// scene heading, or bold word.
+    func test_sixPiece_marginparRenewalOfTextbf_doesNotRestyleLaterFountainOrProse() async throws {
+        let piecesDir = projectURL.appendingPathComponent(".maugham/publish/pieces")
+        try FileManager.default.createDirectory(at: piecesDir, withIntermediateDirectories: true)
+        // Piece 2's style file: the field's triggering shape — a robust-command
+        // renewal at style-file scope whose body is a \marginpar.
+        let style = "\\renewcommand{\\textbf}[1]{\\marginpar{ZZLEAK #1}}"
+        try style.write(to: piecesDir.appendingPathComponent("tribute.tex"),
+                        atomically: true, encoding: .utf8)
+
+        // Piece 4 is fountain WITH a full title block (Title:/Credit:/Author:)
+        // plus a scene heading — the two field victims.
+        let fountainWithTitleBlock = """
+            Title: Distincttitleword
+            Credit: written by
+            Author: Distinctauthorword
+
+            INT. SCENEDISTINCT ROOM - DAY
+
+            A quiet action line.
+            """
+
+        let source = FixedSource(pieces: [
+            .init(pieceID: "p1", title: "Opener", mode: .prose,
+                  displayText: "Plain opening paragraph."),
+            .init(pieceID: "p2", title: "Tribute", mode: .prose,
+                  displayText: "Styled bold **boldtwoword** here."),
+            .init(pieceID: "p3", title: "Interlude", mode: .prose,
+                  displayText: "Another plain paragraph between."),
+            .init(pieceID: "p4", title: "A Little Soul", mode: .fountain,
+                  displayText: fountainWithTitleBlock),
+            .init(pieceID: "p5", title: "Fifth", mode: .prose,
+                  displayText: "Fifth piece bold **boldfiveword** here."),
+            .init(pieceID: "p6", title: "Sixth", mode: .prose,
+                  displayText: "Sixth piece bold **boldsixword** here."),
+        ])
+        let config = PublishConfig(
+            metadata: .init(title: "Six Piece Field Repro", author: "Tester"),
+            sections: ["p2": .init(styleFile: "tribute.tex")])
+
+        let (_, pdf) = try await compile(source: source, config: config)
+        let text = fullText(of: pdf)
+
+        // Sanity: the renewal fired inside its own piece — the sentinel is
+        // rendered somewhere. (In piece 2's own \marginpar the sentinel and its
+        // word are hyphenated across the narrow margin, so match the sentinel
+        // alone, not "ZZLEAK boldtwoword".)
+        XCTAssertTrue(text.contains("ZZLEAK"),
+                      "styled piece 2 must use the renewed \\textbf; PDF text:\n\(text.prefix(3000))")
+
+        // Whole-book invariant AND the detection: a leak restyles a later
+        // piece's `\textbf` into `\marginpar{ZZLEAK ...}`, printing the sentinel
+        // next to that piece's title / scene / bold word — so a leak raises the
+        // sentinel count above one. In a non-leaking world it appears exactly
+        // once (piece 2). This is the field's defect-4 pin.
+        let leakCount = text.components(separatedBy: "ZZLEAK").count - 1
+        XCTAssertEqual(leakCount, 1,
+            "style-file \\marginpar renewal of \\textbf must not escape piece 2's \\endgroup; "
+          + "found \(leakCount) ZZLEAK sentinel(s) across the book — a count above one means the "
+          + "renewal leaked into a later piece (title block / scene heading / bold). PDF text:\n\(text.prefix(3000))")
+
+        // Named victims, for a precise failure message if the count trips: the
+        // field's two visible casualties were piece 4's title block and scene
+        // heading; pieces 5-6's `**bold**` are the trailing prose.
+        XCTAssertFalse(text.contains("ZZLEAK Distinct"),
+                       "renewal leaked into piece 4's fountain title block (two pieces later) — "
+                     + "the field defect-4. PDF text:\n\(text.prefix(3000))")
+        XCTAssertFalse(text.contains("ZZLEAK boldfive"),
+                       "renewal leaked into piece 5's bold. PDF text:\n\(text.prefix(3000))")
+        XCTAssertFalse(text.contains("ZZLEAK boldsix"),
+                       "renewal leaked into piece 6's bold. PDF text:\n\(text.prefix(3000))")
+    }
 }

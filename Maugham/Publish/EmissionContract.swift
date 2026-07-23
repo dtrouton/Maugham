@@ -153,8 +153,28 @@ public enum EmissionContract {
     robust kernel commands like `\\textbf` — revert at the `\\endgroup` and \
     cannot restyle later pieces. What DOES escape the group: `\\global`-prefixed \
     definitions (never use them in a style file) and counter changes \
-    (`\\setcounter`/`\\addtocounter` — LaTeX counters are global). For \
-    heading-only styling, prefer renewing the `\\pieceheading` hook.
+    (`\\setcounter`/`\\addtocounter` — LaTeX counters are global).
+
+    **Required pattern for restyling a heading or a kernel command.** Do NOT \
+    renew a kernel command (`\\textbf`, `\\emph`, `\\scene`, …) at style-file \
+    top level to restyle a piece's headings. Put the renewal **inside the \
+    `\\pieceheading` hook** (or the piece environment's own body) so it is \
+    scoped to where it fires — e.g. `\\renewcommand{\\pieceheading}[1]{{\\bfseries\\Large #1}\\addcontentsline{toc}{section}{#1}}`. \
+    This is a **MUST**, not a preference, and it is what the Playlist templates \
+    use. Reason: a real six-piece field compile once had a piece-2 style file \
+    renew `\\textbf` to a `\\marginpar{...}` at style-file top level and the \
+    restyle bled into a piece **two sections later** (a fountain title block and \
+    its scene headings), even though a solo compile was correct and \
+    `begingroup`/`endgroup` counts in `body.tex` balanced. The isolated \
+    compile-probe reproduction of that exact shape does **not** leak under the \
+    bundled tectonic (the renewal reverts at `\\endgroup` as documented above), \
+    so the field mechanism is **unexplained** — the leading unproven suspect is \
+    fontspec's lazy bold/em family setup interacting with the deferred \
+    `\\marginpar` output routine. Because the field failure was real and its \
+    trigger is not understood, the hook-scoped pattern is mandatory: it is \
+    immune to the failure regardless of the mechanism, so top-level kernel-\
+    command renewals in style files are unsupported and may restyle unrelated \
+    pieces.
     """
 
     static let fontsConvention = """
