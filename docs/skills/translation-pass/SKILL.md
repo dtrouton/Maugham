@@ -55,8 +55,25 @@ is visible in any other language's edition.
    `<piece>.<lang>.tex` variant beside the base file — Maugham resolves it
    automatically when compiling with that language, falling back to the base
    file if the variant is absent. Ask the writer before assuming a variant is
-   needed; don't invent one to make a compile pass.
-8. **Don't guess at voice, register, or ambiguous terms.** Formality level,
+   needed; don't invent one to make a compile pass. The resolver's reach
+   stops at the template and per-piece style files themselves — it does not
+   follow `\input` lines inside them. If the base template inputs partials
+   (preamble/frontmatter/backmatter), a `frontmatter.<lang>.tex` sitting next
+   to the base file does nothing until a `template.<lang>.tex` exists whose
+   `\input` lines point at those `<lang>` partials — write the template
+   variant and everything else follows from it.
+8. **Literal-string style hooks are part of the translation contract, not
+   just the LaTeX.** A piece's style file can key special formatting off a
+   fixed string — a speaker-label probe that matches a character's dialogue
+   cue, say. A probe written against the source-language spelling silently
+   stops firing the moment that line is translated, with no error to flag
+   it. Check a piece's style file for this kind of hook before calling a
+   translation pass done, and update it to match the translator's actual
+   word choice, not a guessed cognate. The Playlist ES edition needed a
+   `Docto` stem probe (matching `Doctor:` and `Doctora:` both) because the
+   translator correctly rendered the character as female — "Doctora:" — and
+   a probe pinned to `Doctor:` alone would have missed her every time.
+9. **Don't guess at voice, register, or ambiguous terms.** Formality level,
    regional variants (`es` vs `es-mx`), a pun that doesn't survive translation
    — raise it with `add_query`, passing `language` so it's tagged as a
    question about this edition rather than a general manuscript query. The

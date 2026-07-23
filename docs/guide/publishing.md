@@ -21,3 +21,13 @@ The template, preamble, per-piece style files, and a small `config.json` live un
 ### Getting started with publishing
 
 Ask Claude: *"Set up publishing for this project."* It will scaffold the initial template and config, run a test compile, and show you the first page. From there it's an iterative conversation: describe the look you want, and Claude tunes the template until it's right.
+
+### Language editions
+
+Compiling with a `language` set produces a translated edition, resolving `template.<lang>.tex` and per-piece `<piece>.<lang>.tex` automatically when they exist and falling back to the base file otherwise. That resolution only covers the template and per-piece style files themselves — it doesn't follow `\input` lines inside them. If your template inputs partials (preamble, frontmatter, backmatter), the edition needs its own `template.<lang>.tex` whose `\input` lines point at the `<lang>` partial variants; the resolver picks the template variant, and everything else follows from it.
+
+Output filenames auto-suffix with the language (e.g. `-es`) unless `filename_template` already includes a `{language}` placeholder, in which case that placeholder is used instead (empty for the source-language edition) — put `{language}` in your template if you want control over where the language tag lands rather than a trailing auto-suffix.
+
+### Iterating on a subset of a book
+
+For a multi-piece collection, you don't have to recompile the whole thing to check one piece's typography. Turn off `sections.<id>.include` for the pieces you want to skip, then run `preview_compile` (pass `language` too, for a translated edition) to render just the included subset without touching the project's published version history — `compile`'s `dry_run` option is the companion check when you just want to know whether an edition's translation-coverage gate would pass, without producing output at all. `read_preview_page` closes the loop the same way `read_publication_page` does for a real Publication — Claude reads the rendered page directly rather than working blind. Once the subset looks right, turn the excluded sections back on and compile the full edition.

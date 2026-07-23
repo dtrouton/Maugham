@@ -125,4 +125,44 @@ final class PublishConfigTests: XCTestCase {
         XCTAssertEqual(back.sections["ab12"]?.styleFile, "tribute.tex")
         XCTAssertTrue(String(data: data, encoding: .utf8)!.contains("\"style_file\""))
     }
+
+    // MARK: - F1: per-section include flag
+
+    func test_section_include_decodesFalse() throws {
+        let json = "{\"include\": false}"
+        let section = try JSONDecoder().decode(PublishConfig.Section.self, from: Data(json.utf8))
+        XCTAssertFalse(section.include)
+    }
+
+    func test_section_include_absentDefaultsTrue() throws {
+        // Merge-patch survival: a partial section object with none of the
+        // fields present must decode `include` as true (ADR 0015 additive).
+        let json = "{\"title_override\": \"Opening\"}"
+        let section = try JSONDecoder().decode(PublishConfig.Section.self, from: Data(json.utf8))
+        XCTAssertTrue(section.include)
+    }
+
+    func test_section_include_roundTrips() throws {
+        var cfg = PublishConfig()
+        cfg.sections["ab12"] = .init(include: false)
+        let data = try JSONEncoder().encode(cfg)
+        XCTAssertTrue(String(data: data, encoding: .utf8)!.contains("\"include\""))
+        let back = try JSONDecoder().decode(PublishConfig.self, from: data)
+        XCTAssertEqual(back.sections["ab12"]?.include, false)
+    }
+
+    func test_excludedSectionIDs_computesFromIncludeFalse() throws {
+        var cfg = PublishConfig()
+        cfg.sections["keep"] = .init(include: true)
+        cfg.sections["drop"] = .init(include: false)
+        cfg.sections["deflt"] = .init()   // default true, no entry needed but explicit
+        XCTAssertEqual(cfg.excludedSectionIDs, ["drop"])
+    }
+
+    func test_excludedSectionIDs_emptyByDefault() throws {
+        var cfg = PublishConfig()
+        cfg.sections["a"] = .init(titleOverride: "X")
+        cfg.sections["b"] = .init(startOn: .recto)
+        XCTAssertTrue(cfg.excludedSectionIDs.isEmpty)
+    }
 }

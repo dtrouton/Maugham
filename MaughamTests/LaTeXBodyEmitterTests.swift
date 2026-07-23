@@ -66,7 +66,25 @@ final class LaTeXBodyEmitterTests: XCTestCase {
             ])
         ])
         let body = LaTeXBodyEmitter.emit(ast)
-        XCTAssertTrue(body.contains("a\\\\b"))
+        XCTAssertTrue(body.contains("a\\newline b"))
+    }
+
+    func testEmits_hardLineBreak_beforeBracketOrStar_noArgumentCapture() {
+        // A bare `\\` scans forward for `*` and `[...]`: text starting with `[`
+        // becomes its optional argument (compile failure "Missing number") and
+        // a leading `*` is swallowed as the starred form. `\newline` scans
+        // nothing.
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .paragraph([.text("a"), .lineBreak, .text("[x] bracketed")]),
+                .paragraph([.text("b"), .lineBreak, .text("*starred")]),
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("a\\newline [x] bracketed"))
+        XCTAssertTrue(body.contains("b\\newline *starred"))
+        XCTAssertFalse(body.contains("\\\\["))
+        XCTAssertFalse(body.contains("\\\\*"))
     }
 
     func testEmits_inlineWikiLink_command() {
@@ -176,9 +194,23 @@ final class LaTeXBodyEmitterTests: XCTestCase {
             ])
         ])
         let body = LaTeXBodyEmitter.emit(ast)
-        XCTAssertTrue(body.contains("*not em*\\\\50\\% off"))
+        XCTAssertTrue(body.contains("*not em*\\newline 50\\% off"))
         XCTAssertFalse(body.contains("\\texttt"))
         XCTAssertFalse(body.contains("\\emph"))
+    }
+
+    func testEmits_verbatim_lineStartingWithBracket_noArgumentCapture() {
+        // A fenced line beginning with `[` (e.g. TOML/INI headers) must not be
+        // captured as `\\`'s optional argument — that was a real compile
+        // failure ("Missing number, treated as zero").
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [
+                .prose(.verbatim(["[options]", "key = value"]))
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("[options]\\newline key = value"))
+        XCTAssertFalse(body.contains("\\\\["))
     }
 
     // MARK: - scene break + escaping
@@ -263,6 +295,105 @@ final class LaTeXBodyEmitterTests: XCTestCase {
         XCTAssertTrue(body.contains("\\end{center}"))
         // Its own page.
         XCTAssertTrue(body.contains("\\clearpage"))
+    }
+
+    func testEmits_fountainTitlePage_screenplayTitleBlockHook() {
+        // F6: the title block emits through the \screenplaytitleblock hook —
+        // declared once per fountain section (with the other fountain
+        // providecommands) and invoked with a single argument carrying all
+        // fields in DECLARED order, each escaped, so a style file can restyle
+        // the whole block.
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.titlePage([
+                    .init(key: "Title", value: "Good Luck Babe"),
+                    .init(key: "Author", value: "Chappell Roan"),
+                ]))
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertEqual(
+            body.components(separatedBy: "\\providecommand{\\screenplaytitleblock}").count - 1,
+            1, "the providecommand declaration must appear exactly once per fountain section")
+        XCTAssertTrue(body.contains(
+            "\\providecommand{\\screenplaytitleblock}[1]{\\begin{center}\\vspace*{1.5in}#1\\end{center}\\clearpage}"),
+            "default body must reproduce the pre-F6 hardcoded frame")
+        XCTAssertTrue(body.contains(
+            "\\screenplaytitleblock{{\\Large\\textbf{Good Luck Babe}}\\par\n\\vspace{1.5em}\nChappell Roan\\par}"),
+            "macro call must carry the fields in declared order; body:\n\(body)")
+    }
+
+    func testEmits_fountainTitlePage_screenplayTitleBlock_preservesDeclaredOrder() {
+        // The tokenizer preserves as-authored order (Credit before Title is
+        // legal); the pre-F6 emitter rendered in that order, so the hook call
+        // must too — the Title field keeps its typography but is NOT hoisted
+        // to the front.
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.titlePage([
+                    .init(key: "Credit", value: "written by"),
+                    .init(key: "Title", value: "The Play"),
+                    .init(key: "Author", value: "A. Writer"),
+                ]))
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains(
+            "\\screenplaytitleblock{written by\\par\n{\\Large\\textbf{The Play}}\\par\n\\vspace{1.5em}\nA. Writer\\par}"),
+            "Credit declared before Title must render before Title; body:\n\(body)")
+    }
+
+    func testEmits_fountainTitlePage_screenplayTitleBlock_escapesArgs() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.titlePage([
+                    .init(key: "Title", value: "100% Payback & Co."),
+                    .init(key: "Author", value: "A_B"),
+                ]))
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("100\\% Payback \\& Co."), "title field must be escaped")
+        XCTAssertTrue(body.contains("A\\_B\\par"), "other fields must be escaped")
+    }
+
+    func testEmits_fountainTitlePage_screenplayTitleBlock_noTitleField() {
+        // A title page with no "Title" key renders its fields plain (matches
+        // today's behavior: only "Title" was ever special-cased).
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.titlePage([
+                    .init(key: "Contact", value: "Agent Name"),
+                ]))
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("\\screenplaytitleblock{Agent Name\\par}"))
+    }
+
+    func testEmits_proseSection_screenplayTitleBlockNeverEmitted() {
+        // Prose sections don't declare fountain providecommands at all —
+        // \screenplaytitleblock is fountain-only vocabulary.
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [.paragraph("Hello.")])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertFalse(body.contains("screenplaytitleblock"))
+    }
+
+    func testEmits_fountainTitlePage_multilineField_noArgumentCapture() {
+        // Multiline title-page fields are joined by line breaks; a continuation
+        // line starting with `[` must not become `\\`'s optional argument.
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.titlePage([
+                    .init(key: "Contact", value: "Agent Name\n[c/o] The Agency"),
+                ]))
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("Agent Name\\newline [c/o] The Agency"))
+        XCTAssertFalse(body.contains("\\\\["))
     }
 
     func testEmits_dualDialogue_command() {

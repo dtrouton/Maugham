@@ -6,6 +6,11 @@ public struct CompileOrchestrator {
     public enum Outcome: Sendable {
         case completed(Publication, warnings: [TectonicLogParser.Diagnostic])
         case failed(errors: [TectonicLogParser.Diagnostic], logExcerpt: String)
+        /// F2 `dry_run`: the coverage gate (and the version-collision guard)
+        /// passed, but nothing was compiled, snapshotted, minted, or version-
+        /// bumped. Carries the same gate warnings a real compile would ride out
+        /// on its success path.
+        case dryRunPassed(warnings: [TectonicLogParser.Diagnostic])
     }
 
     public let projectURL: URL
@@ -41,7 +46,8 @@ public struct CompileOrchestrator {
         format: PublishConfig.Format,
         label: String?,
         language: String? = nil,
-        allowStale: Bool = false
+        allowStale: Bool = false,
+        dryRun: Bool = false
     ) async throws -> Outcome {
         let jobID = await jobManager.register(phase: .renderingBody)
 
@@ -75,8 +81,31 @@ public struct CompileOrchestrator {
         // frozen tree.
         let publishDir = projectURL.appendingPathComponent(
             ".maugham/publish", isDirectory: true)
+
+        // F5: EMISSION.md is app-owned and generated — refresh the project's
+        // copy on every compile (dry_run included: it still runs the
+        // pipeline's front half, and there's no reason to let the doc drift
+        // just because nothing got emitted) so it never misinforms an agent
+        // reading it as instructed. Unconditional overwrite of that ONE file;
+        // every other starter file (template.tex, preamble/partials,
+        // config.json, style files) is untouched. Runs after config load and
+        // BEFORE snapshot capture below, so a real compile's snapshot embeds
+        // the freshly-stamped copy.
+        try EmissionContract.renderProjectCopy(appVersion: maughamVersion)
+            .write(to: publishDir.appendingPathComponent("EMISSION.md"),
+                   atomically: true, encoding: .utf8)
+
         effective = LanguageSuffixedFile.resolvingStyleFiles(
             in: effective, language: language, publishDir: publishDir)
+
+        // F1: compute the excluded set from the EFFECTIVE config (after the
+        // language fold above, so a language edition can't diverge the subset),
+        // then wrap the live source so the emitters — and every downstream
+        // record derived from them — see only the included pieces. An empty
+        // excluded set is a pass-through.
+        let excludedSectionIDs = effective.excludedSectionIDs
+        let emitSource = IncludeFilteredASTSource(
+            base: astSource, excludedSectionIDs: excludedSectionIDs)
 
         // D3c: pre-compile collision guard. `PublishStarter.install` (D3a)
         // reconciles `next_version` past existing publications, but a writer
@@ -118,7 +147,8 @@ public struct CompileOrchestrator {
         var gateWarnings: [TectonicLogParser.Diagnostic] = []
         if let language, let source = astSource as? ProjectStoreASTSource {
             let report = await TranslationCoverage.check(
-                projectStore: source.projectStore, language: language)
+                projectStore: source.projectStore, language: language,
+                excludedSectionIDs: excludedSectionIDs)
             switch TranslationCoverage.applyGate(
                 report: report, language: language, allowStale: allowStale
             ) {
@@ -128,6 +158,20 @@ public struct CompileOrchestrator {
             case .passed(let warnings):
                 gateWarnings += warnings
             }
+        }
+
+        // F2 dry_run: short-circuit AFTER the version-collision guard and the
+        // coverage gate (both of which report a would-be failure with the
+        // standard `.failed` shape above) but BEFORE any mutation — no snapshot,
+        // no compile, no Publication, no event, no version bump, no output file.
+        // Returns the gate verdict (any allow_stale/fountain-drift warnings) so
+        // the caller can see exactly what a real compile would emit. The job
+        // terminates in the distinct `.dryRunPassed` state so a polled
+        // `compile_status` (wait_seconds:0 race) reports the dry-run outcome,
+        // not a completed job with an empty output path.
+        if dryRun {
+            await jobManager.completeDryRun(jobID: jobID, warnings: gateWarnings)
+            return .dryRunPassed(warnings: gateWarnings)
         }
 
         // Capture snapshot BEFORE compile so it reflects the source state used.
@@ -144,7 +188,7 @@ public struct CompileOrchestrator {
         switch format {
         case .pdf:
             let pdf = try PDFCompiler(
-                projectURL: projectURL, astSource: astSource,
+                projectURL: projectURL, astSource: emitSource,
                 config: effective, jobManager: jobManager,
                 maughamVersion: maughamVersion, jobID: jobID,
                 language: language)
@@ -156,7 +200,7 @@ public struct CompileOrchestrator {
 
         case .epub:
             let epub = EPUBCompiler(
-                projectURL: projectURL, astSource: astSource,
+                projectURL: projectURL, astSource: emitSource,
                 config: effective, jobManager: jobManager,
                 maughamVersion: maughamVersion,
                 tectonicVersion: tectonicVersion, jobID: jobID,

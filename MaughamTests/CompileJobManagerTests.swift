@@ -40,6 +40,19 @@ final class CompileJobManagerTests: XCTestCase {
         XCTAssertEqual(job?.status, .cancelled)
     }
 
+    // F2 review fix 1: dry_run terminates in its own state, is terminal, and
+    // cancels as already-completed.
+    func testCompleteDryRun_setsDistinctTerminalStatus() async {
+        let mgr = CompileJobManager()
+        let id = await mgr.register(phase: .renderingBody)
+        await mgr.completeDryRun(jobID: id, warnings: [])
+        let job = await mgr.get(jobID: id)
+        XCTAssertEqual(job?.status, .dryRunPassed(warnings: []))
+        XCTAssertEqual(job?.status.isTerminal, true)
+        let cancel = await mgr.cancel(jobID: id)
+        XCTAssertEqual(cancel, .alreadyCompleted)
+    }
+
     func testCancel_alreadyCompleted_returnsAlreadyCompleted() async {
         let mgr = CompileJobManager()
         let id = await mgr.register(phase: .compiling)

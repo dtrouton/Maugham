@@ -57,6 +57,17 @@ public actor CompileJobManager {
         jobs[jobID] = job
     }
 
+    /// F2: terminal state for a `dry_run` compile — gates passed, nothing
+    /// compiled. Kept distinct from `complete` so `compile_status` can report
+    /// `dry_run_passed` rather than a completed job with an empty output path.
+    public func completeDryRun(
+        jobID: String, warnings: [TectonicLogParser.Diagnostic]
+    ) {
+        guard var job = jobs[jobID] else { return }
+        job.status = .dryRunPassed(warnings: warnings)
+        jobs[jobID] = job
+    }
+
     public func fail(
         jobID: String,
         errors: [TectonicLogParser.Diagnostic],
@@ -71,9 +82,10 @@ public actor CompileJobManager {
     public func cancel(jobID: String) -> CancelResult {
         guard var job = jobs[jobID] else { return .notFound }
         switch job.status {
-        case .completed:    return .alreadyCompleted
-        case .failed:       return .alreadyFailed
-        case .cancelled:    return .cancelled
+        case .completed:     return .alreadyCompleted
+        case .dryRunPassed:  return .alreadyCompleted
+        case .failed:        return .alreadyFailed
+        case .cancelled:     return .cancelled
         case .inProgress:
             job.status = .cancelled
             jobs[jobID] = job

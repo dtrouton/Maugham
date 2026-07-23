@@ -116,9 +116,12 @@ public enum LaTeXBodyEmitter {
             }
             out.append("\\end{\(env)}")
         case .verbatim(let lines):
-            // A mangle guard, not code support: escaped text joined by `\\`
-            // in a plain paragraph — no `\texttt`, no monospace pretension.
-            out.append(lines.map(LaTeXEscape.escape).joined(separator: "\\\\"))
+            // A mangle guard, not code support: escaped text joined by
+            // `\newline` in a plain paragraph — no `\texttt`, no monospace
+            // pretension. `\newline`, never bare `\\`: `\\` scans forward for
+            // `*` and `[...]`, so a fenced line starting with `[` became its
+            // optional argument and killed the compile ("Missing number").
+            out.append(lines.map(LaTeXEscape.escape).joined(separator: "\\newline "))
             out.append("")   // blank line → \par, matching .paragraph
         }
     }
@@ -135,7 +138,10 @@ public enum LaTeXBodyEmitter {
             case .code(let s):      return "\\texttt{\(LaTeXEscape.escape(s))}"
             case .wikiLink(let target, let display):
                 return "\\wikilink{\(LaTeXEscape.escape(target))}{\(LaTeXEscape.escape(display))}"
-            case .lineBreak:        return "\\\\"
+            // `\newline`, not `\\`: a following `[` or `*` in the text would
+            // be captured as `\\`'s optional/star argument. Trailing space
+            // stops the control word absorbing a following letter.
+            case .lineBreak:        return "\\newline "
             }
         }.joined()
     }
@@ -164,10 +170,21 @@ public enum LaTeXBodyEmitter {
     /// defines one of these keeps its own definition — this is what lets
     /// the expanded vocabulary compile against templates authored before it
     /// existed.
+    ///
+    /// `\screenplaytitleblock` (F6) joins this group: it's the fountain title
+    /// page hook, `\screenplaytitleblock{body}`. The default body reproduces
+    /// the pre-F6 hardcoded frame exactly (centered, pushed down 1.5in, page
+    /// break after); the single argument carries the fields — in DECLARED
+    /// order, Title in `\Large\textbf`, everything else plain
+    /// `\par`-terminated. A per-piece style file can restyle it by defining
+    /// the macro in the style file itself — the emitted `\providecommand`
+    /// will then no-op (matching the `\lyricline` precedent documented in
+    /// EMISSION.md).
     private static let fountainProvidecommands: [String] = [
         "\\providecommand{\\lyricline}[1]{\\textit{#1}\\par}",
         "\\providecommand{\\centeredline}[1]{\\begin{center}#1\\end{center}}",
         "\\providecommand{\\scenenumber}[1]{\\hfill #1}",
+        "\\providecommand{\\screenplaytitleblock}[1]{\\begin{center}\\vspace*{1.5in}#1\\end{center}\\clearpage}",
     ]
 
     private static func emit(fountain: ProjectAST.FountainNode, into out: inout [String]) {
@@ -202,27 +219,54 @@ public enum LaTeXBodyEmitter {
 
     /// A Fountain title page, rendered on its own page (industry standard):
     /// the title pushed down and centered, supporting fields centered below
-    /// it, then a page break. Standard LaTeX only — no custom command — so it
-    /// compiles against any project's template.
+    /// it, then a page break.
+    ///
+    /// F6: emitted through the `\screenplaytitleblock{body}` hook (declared
+    /// in `fountainProvidecommands`) rather than inline
+    /// `\begin{center}…\end{center}` so a per-piece style file can restyle
+    /// the whole block — the field incident that motivated this had no
+    /// sanctioned hook to control a leaking title block (see EMISSION.md).
+    ///
+    /// Arity decision (documented per the task's judgment point): the AST's
+    /// `[TitleField]` is an ARBITRARY ordered list — the Fountain tokenizer
+    /// canonicalizes up to eight keys (Title, Credit, Author, Source, Draft
+    /// date, Contact, Copyright, Notes), passes unrecognized keys through
+    /// as-typed, and preserves as-authored declaration order (Credit before
+    /// Title is legal and preserved). The pre-F6 emitter rendered fields in
+    /// that DECLARED order, special-casing only "Title"'s typography — so
+    /// any multi-arg split that reassembles fields positionally (the plan's
+    /// sketched 4 named args, or a title/rest pair) changes rendering order
+    /// for pages not authored Title-first. The only shape that reproduces
+    /// today's output for ANY field set/order/count is a SINGLE argument:
+    /// all fields, declared order, each rendered exactly as today. That is
+    /// also what the motivating incident needed — whole-block restyling.
+    /// Per-field restyling (e.g. "Draft date" alone) would need a wider,
+    /// canonical-key-keyed surface; noted as a follow-up if a style ever
+    /// needs it.
     private static func emitTitlePage(_ fields: [ProjectAST.TitleField],
                                       into out: inout [String]) {
         func escapeMultiline(_ s: String) -> String {
+            // `\newline`, not `\\` — same `[`/`*` argument-capture hazard as
+            // the fence join above.
             s.split(separator: "\n", omittingEmptySubsequences: false)
                 .map { LaTeXEscape.escape(String($0)) }
-                .joined(separator: "\\\\")
+                .joined(separator: "\\newline ")
         }
-        out.append("\\begin{center}")
-        out.append("\\vspace*{1.5in}")
-        for field in fields {
+        // `\par` is a control WORD: with no separator after it, a following
+        // letter (e.g. a field starting "First...") is gobbled into the
+        // control sequence name itself ("\parFirst" — undefined control
+        // sequence, a hard compile failure). The original per-line `out`
+        // array had an implicit "\n" between fields (the array is later
+        // `.joined(separator: "\n")`); joining these fragments into a single
+        // macro-argument string must reproduce that separator explicitly.
+        let body = fields.map { field -> String in
             let value = escapeMultiline(field.value)
             if field.key == "Title" {
-                out.append("{\\Large\\textbf{\(value)}}\\par")
-                out.append("\\vspace{1.5em}")
+                return "{\\Large\\textbf{\(value)}}\\par\n\\vspace{1.5em}"
             } else {
-                out.append("\(value)\\par")
+                return "\(value)\\par"
             }
-        }
-        out.append("\\end{center}")
-        out.append("\\clearpage")
+        }.joined(separator: "\n")
+        out.append("\\screenplaytitleblock{\(body)}")
     }
 }

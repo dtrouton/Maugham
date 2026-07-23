@@ -40,6 +40,11 @@ enum CompileResponseEncoder {
             return try encodeCompleted(pub, warnings: warnings)
         case .failed(let errors, let log):
             return try encodeFailed(errors: errors, logExcerpt: log)
+        case .dryRunPassed(let warnings):
+            return try JSONSerialization.data(withJSONObject: [
+                "status": "dry_run_passed",
+                "warnings": warnings.map { encode(diag: $0) }
+            ], options: [.sortedKeys])
         }
     }
 
@@ -81,7 +86,7 @@ public enum CompileTool: MCPTool {
     public static let description =
     "Full PDF or EPUB compile. wait_seconds blocks up to that long for completion; if it elapses, returns {status: in_progress, job_id, phase}. On success creates a Publication record referencing the captured PublicationSnapshot (template + config + styles bytes, frozen at compile time). Note: the Publication.checkpoint_id field is reserved for a follow-up milestone — it's empty in v1, and reproducibility is via snapshot_id (which republish uses)."
     public static let inputSchemaJSON = """
-    {"type":"object","properties":{"project_id":{"type":"string"},"format":{"type":"string","enum":["pdf","epub"]},"label":{"type":"string"},"language":{"type":"string","description":"BCP-47-ish language tag (e.g. 'es') to compile a translated edition: applies language_overrides, sets dc:language / \\\\MaughamLanguage, and language-suffixes the output filename. Omit for the source-language edition."},"allow_stale":{"type":"boolean","default":false,"description":"Compile a translated edition even if some paragraphs are stale or missing, falling back to source text for those paragraphs (default false blocks the compile and reports the gap instead)."},"wait_seconds":{"type":"integer","default":60}},"required":["project_id","format"]}
+    {"type":"object","properties":{"project_id":{"type":"string"},"format":{"type":"string","enum":["pdf","epub"]},"label":{"type":"string"},"language":{"type":"string","description":"BCP-47-ish language tag (e.g. 'es') to compile a translated edition: applies language_overrides, sets dc:language / \\\\MaughamLanguage, and language-suffixes the output filename. Omit for the source-language edition."},"allow_stale":{"type":"boolean","default":false,"description":"Compile a translated edition even if some paragraphs are stale or missing, falling back to source text for those paragraphs (default false blocks the compile and reports the gap instead)."},"dry_run":{"type":"boolean","default":false,"description":"Run the version-collision guard and translation-coverage gate for this edition and report the verdict WITHOUT compiling: no output file, no Publication record, no version bump. Returns {status: dry_run_passed, warnings} when it would compile, or the same failed/gate-blocked shape a real compile returns. Answers 'would this edition compile pass for the currently included sections' without minting a throwaway Publication."},"wait_seconds":{"type":"integer","default":60}},"required":["project_id","format"]}
     """
 
     struct Params: Codable {
@@ -90,11 +95,13 @@ public enum CompileTool: MCPTool {
         let label: String?
         let language: String?
         let allowStale: Bool?
+        let dryRun: Bool?
         let waitSeconds: Int?
         enum CodingKeys: String, CodingKey {
             case projectID = "project_id"
             case format, label, language
             case allowStale = "allow_stale"
+            case dryRun = "dry_run"
             case waitSeconds = "wait_seconds"
         }
     }
@@ -130,10 +137,11 @@ public enum CompileTool: MCPTool {
         let label = params.label
         let language = params.language
         let allowStale = params.allowStale ?? false
+        let dryRun = params.dryRun ?? false
         let task = Task {
             try await orch.compile(
                 format: format, label: label,
-                language: language, allowStale: allowStale)
+                language: language, allowStale: allowStale, dryRun: dryRun)
         }
         do {
             let outcome = try await withTimeout(seconds: wait) { try await task.value }
@@ -167,21 +175,25 @@ public enum CompileTool: MCPTool {
 public enum PreviewCompileTool: MCPTool {
     public static let method = "preview_compile"
     public static let description =
-    "Fast subset compile. section_ids = list of piece IDs to include (omit for whole project). Does NOT create a Publication or bump version."
+    "Fast subset compile. section_ids = list of piece IDs to include (omit for whole project). language/allow_stale mirror compile: preview a translated edition (applies language_overrides + language-suffixed templates) behind the SAME coverage gate — the gate scopes to exactly the pieces this preview renders, so an exploratory preview of one section isn't blocked by other untranslated pieces. Does NOT create a Publication or bump version."
     public static let inputSchemaJSON = """
-    {"type":"object","properties":{"project_id":{"type":"string"},"format":{"type":"string","enum":["pdf","epub"]},"section_ids":{"type":"array","items":{"type":"string"}},"max_pages":{"type":"integer"},"wait_seconds":{"type":"integer","default":30}},"required":["project_id","format"]}
+    {"type":"object","properties":{"project_id":{"type":"string"},"format":{"type":"string","enum":["pdf","epub"]},"section_ids":{"type":"array","items":{"type":"string"}},"language":{"type":"string","description":"BCP-47-ish language tag (e.g. 'es') to preview a translated edition, applying language_overrides + language-suffixed templates and running the same coverage gate as compile. Omit for the source-language preview."},"allow_stale":{"type":"boolean","default":false,"description":"Preview a translated edition even if some paragraphs are stale or missing, falling back to source text (default false blocks and reports the gap, exactly like compile)."},"max_pages":{"type":"integer"},"wait_seconds":{"type":"integer","default":30}},"required":["project_id","format"]}
     """
 
     struct Params: Codable {
         let projectID: String
         let format: PublishConfig.Format
         let sectionIDs: [String]?
+        let language: String?
+        let allowStale: Bool?
         let maxPages: Int?
         let waitSeconds: Int?
         enum CodingKeys: String, CodingKey {
             case projectID = "project_id"
             case format
             case sectionIDs = "section_ids"
+            case language
+            case allowStale = "allow_stale"
             case maxPages = "max_pages"
             case waitSeconds = "wait_seconds"
         }
@@ -190,6 +202,10 @@ public enum PreviewCompileTool: MCPTool {
     @MainActor
     public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
         let params = try decodeParams(Params.self, from: paramsJSON)
+        if let language = params.language,
+           !TranslationRecord.isValidLanguageTag(language) {
+            throw MCPError.invalidArgument("invalid language tag: \(language)")
+        }
         let entry = try resolveProject(params.projectID, in: registry)
         let store = entry.store
         let projectURL = entry.url
@@ -197,20 +213,24 @@ public enum PreviewCompileTool: MCPTool {
             projectID: params.projectID, projectURL: projectURL)
         let preview = PreviewCompiler(
             projectURL: projectURL,
-            astSource: ProjectStoreASTSource(projectStore: store),
+            astSource: ProjectStoreASTSource(
+                projectStore: store,
+                language: params.language,
+                allowStale: params.allowStale ?? false),
             configStore: stores.configStore,
             jobManager: stores.jobManager,
             maughamVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0",
-            tectonicVersion: "0.15.0")
+            tectonicVersion: "0.15.0",
+            language: params.language,
+            allowStale: params.allowStale ?? false)
         let result = try await preview.preview(
             format: params.format,
             sectionIDs: params.sectionIDs,
             maxPages: params.maxPages)
         if !result.errors.isEmpty {
-            return try JSONSerialization.data(withJSONObject: [
-                "status": "failed",
-                "errors": result.errors.map { CompileResponseEncoder.encode(diag: $0) }
-            ], options: [.sortedKeys])
+            // Gate-block / compile-error parity with compile's `.failed` shape.
+            return try CompileResponseEncoder.encodeFailed(
+                errors: result.errors, logExcerpt: result.logExcerpt)
         }
         return try JSONSerialization.data(withJSONObject: [
             "status": "completed",
@@ -270,6 +290,13 @@ public enum CompileStatusTool: MCPTool {
         case .cancelled:
             return try JSONSerialization.data(withJSONObject: [
                 "status": "cancelled"
+            ], options: [.sortedKeys])
+        case .dryRunPassed(let warnings):
+            // F2: a polled dry_run job reports its actual outcome — the same
+            // shape the synchronous compile(dry_run:true) response carries.
+            return try JSONSerialization.data(withJSONObject: [
+                "status": "dry_run_passed",
+                "warnings": warnings.map { CompileResponseEncoder.encode(diag: $0) }
             ], options: [.sortedKeys])
         }
     }

@@ -68,11 +68,11 @@ final class TranslationStatusToolTests: XCTestCase {
     }
 
     private func seed(_ h: Harness, doc: Document, paragraphId: String,
-                      language: String, text: String) async throws {
+                      language: String, text: String, verbatim: Bool = false) async throws {
         let source = doc.paragraphs[paragraphId] ?? ""
         let record = TranslationRecord(
             paragraphId: paragraphId, language: language,
-            text: text, sourceHash: TranslationHash.hash(source), verbatim: false)
+            text: text, sourceHash: TranslationHash.hash(source), verbatim: verbatim)
         try await TranslationStore.append(
             record, forDocId: doc.docId,
             deviceSlug: DeviceSlug.make(from: MacDeviceID.current),
@@ -114,6 +114,27 @@ final class TranslationStatusToolTests: XCTestCase {
         // open_queries lands in Task 5; until then it is 0.
         XCTAssertEqual(byLang["es"]?.open_queries, 0)
         XCTAssertEqual(byLang["fr"]?.open_queries, 0)
+
+        await h.documentStore.close()
+    }
+
+    // MARK: - F8: verbatim count in the row
+
+    func test_translationStatus_verbatimCount() async throws {
+        let h = try await makeHarness()
+        let ids = h.doc1.sequence
+        try await seed(h, doc: h.doc1, paragraphId: ids[0], language: "es",
+                       text: h.doc1.paragraphs[ids[0]] ?? "", verbatim: true)
+        try await seed(h, doc: h.doc1, paragraphId: ids[1], language: "es", text: "b")
+
+        let result = try await status(h, [
+            "project_id": h.projectId,
+            "document_id": "doc-1"
+        ])
+        let byLang = Dictionary(uniqueKeysWithValues: result.rows.map { ($0.language, $0) })
+        XCTAssertEqual(byLang["es"]?.verbatim, 1,
+                       "one of the two translated paragraphs is verbatim")
+        XCTAssertEqual(byLang["es"]?.fresh, 2)
 
         await h.documentStore.close()
     }

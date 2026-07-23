@@ -16,8 +16,12 @@
 
 % Optional first arg `notoc` suppresses the ToC entry; the default `toc`
 % produces the normal heading + ToC entry.
+% \def, NOT \newcommand, for the comparison macro: \newcommand defines a
+% \long macro, \def\prose@arg{#1} a non-\long one, and \ifx compares the
+% \long prefix too — with \newcommand the branch NEVER matched, so every
+% piece silently took the notoc branch and the ToC stayed empty.
 \makeatletter
-\newcommand{\prose@toc}{toc}
+\def\prose@toc{toc}
 \newenvironment{prose}[2][toc]{%
   \def\prose@arg{#1}%
   \ifx\prose@arg\prose@toc \pieceheading{#2}\else \pieceheadingnotoc{#2}\fi
@@ -25,6 +29,8 @@
 \makeatother
 
 % A plain centered asterism. Claude can replace with an ornament/glyph,
-% a horizontal rule, blank space, anything.
+% a horizontal rule, blank space, anything. \centering stays inside the
+% braced group (with the \par that applies it) — unscoped it persists to
+% the end of the piece and centers every following paragraph.
 \newcommand{\scenebreak}{%
-  \par\vspace{1em}\centering * * *\vspace{1em}\par\noindent}
+  \par\vspace{1em}{\centering * * *\par}\vspace{1em}\noindent}

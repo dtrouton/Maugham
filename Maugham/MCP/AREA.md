@@ -6,7 +6,7 @@ The local MCP server that lets Claude Desktop read and contribute to projects. R
 
 The in-app MCP server: tool registration, JSON-RPC handling, the read/search/discover surface for projects, the `add_note` write path (research-only), the annotation layer (paragraph-anchored comments from Claude), and the bridge between Claude Desktop's stdio and Maugham's Unix socket.
 
-## Tool catalogue (51)
+## Tool catalogue (52)
 
 **Discovery / identity**
 - `list_projects` — enumerate all open Maugham projects
@@ -52,19 +52,20 @@ The in-app MCP server: tool registration, JSON-RPC handling, the read/search/dis
 
 **Publishing**
 - `initialize_publish_template` — scaffold a LaTeX/EPUB template for a project
-- `get_publish_config` — read publish config (`config.json`)
-- `set_publish_config` — write publish config fields
+- `get_publish_config` — read publish config (`config.json`); includes per-piece `sections.<docId>.include` (default true — set false to omit a piece from the edition, F1)
+- `set_publish_config` — write publish config fields (e.g. patch `sections.<docId>.include: false` to ship a subset edition — the excluded piece drops out of compile/republish output and the translation coverage gate)
 - `list_publish_files` — enumerate files under `.maugham/publish/`
 - `read_publish_file` — read a publish template or config file
 - `read_publish_image` — read a publish image with crop-on-demand
 - `write_publish_file` — write a template or config file
 - `delete_publish_file` — delete a publish file
-- `compile` — compile a project to PDF or EPUB via bundled tectonic
-- `preview_compile` — dry-run compile (no output written)
+- `compile` — compile a project to PDF or EPUB via bundled tectonic. `language`/`allow_stale` select a translated edition (behind the coverage gate); `dry_run: true` runs the version-collision guard + coverage gate and returns the verdict (`{status: dry_run_passed, warnings}` or the failed/gate-blocked shape) with NO output, NO Publication, NO version bump (F2)
+- `preview_compile` — fast subset compile, no output/Publication/version bump. `section_ids` scopes the pieces; `language`/`allow_stale` mirror compile to preview a translated edition behind the SAME coverage gate, scoped to exactly the pieces this preview renders (F2)
 - `compile_status` — poll an in-progress compile job
 - `compile_cancel` — cancel an in-progress compile job
 - `list_publications` — enumerate past publication outputs
 - `read_publication_page` — read a page from a compiled PDF
+- `read_preview_page` — rasterize a page of the LATEST preview PDF (newest `.pdf` by mtime in `.maugham/publish/build/preview/`), closing the visual loop for `preview_compile`. No id/version addressing — always reads whatever was previewed last (incl. a language edition, F2); response carries `preview_filename` + `preview_mtime` so staleness is self-evident. Fails loudly when no preview exists; EPUB previews error (PDF-only)
 - `republish` — re-run the last successful compile
 
 **Piece style**
@@ -72,9 +73,9 @@ The in-app MCP server: tool registration, JSON-RPC handling, the read/search/dis
 - `clear_piece_style` — remove per-piece style overrides
 
 **Translation**
-- `write_translation` — record per-paragraph translations of a document into a language, in a parallel translation layer (the manuscript is never mutated). Each entry supplies `text` or `verbatim: true` (copy source chrome unchanged); the server stamps each record with a hash of the current source paragraph for downstream staleness detection. All-or-nothing on unknown paragraph ids; non-verbatim entries surface structural-drift warnings. Reads current paragraph state via the shared `currentParagraphState` helper (open doc → live `Document`; closed → `DerivedManuscriptCache`, never the on-disk `.md`, tripwire 20).
+- `write_translation` — record per-paragraph translations of a document into a language, in a parallel translation layer (the manuscript is never mutated). Each entry supplies `text` or `verbatim: true` (copy source chrome unchanged); the server stamps each record with a hash of the current source paragraph for downstream staleness detection. All-or-nothing on unknown paragraph ids; non-verbatim entries surface structural-drift warnings plus an advisory (never blocking) when the translated text is identical to the source — a nudge to mark it `verbatim: true` instead. Reads current paragraph state via the shared `currentParagraphState` helper (open doc → live `Document`; closed → `DerivedManuscriptCache`, never the on-disk `.md`, tripwire 20).
 - `read_translation` — read a document's translation into a language, paragraph by paragraph in manuscript order; each entry pairs source with translated text and a freshness `status` (`fresh`/`stale`/`missing`). Unknown language reads as all-`missing` (not an error). Optional `status` filter narrows to matching entries (`status=stale`+`status=missing` = the retranslation worklist). Whole-doc payload, so it self-enforces the 900 KB `MCPResponseBudget`.
-- `translation_status` — summarise translation progress; with `document_id` one doc, without it every manuscript doc (skipping collection references, same walk as `ProjectStoreASTSource`). One row per (document, language) with `fresh`/`stale`/`missing`/`orphans` counts plus `open_queries` (unresolved translator questions for that language; wired in the annotation-language pass).
+- `translation_status` — summarise translation progress; with `document_id` one doc, without it every manuscript doc (skipping collection references, same walk as `ProjectStoreASTSource`). One row per (document, language) with `fresh`/`stale`/`missing`/`verbatim`/`orphans` counts plus `open_queries` (unresolved translator questions for that language; wired in the annotation-language pass).
 
 **Inbox / capture**
 - `list_inbox` — enumerate capture inbox entries (voice/text/photo); summaries include the phone's optional `palette_subject`/`sense` aim fields when present
@@ -87,8 +88,8 @@ A **separate** catalog, `TestMCPToolCatalog`, that mirrors `MCPToolCatalog`'s sh
 (`register(router:registry:)`) but is registered onto the **same dev-build Unix socket**
 only inside `#if MAUGHAM_DEV_BUILD` in `MaughamApp.registerTools` — absent from the stable
 binary entirely (enforced by `TripwireGrepTests.test_testMCPCatalog_registeredOnlyUnderDevFlag`).
-It exists for **Claude Code**, not Claude Desktop, and is not part of the production 51-tool
-count above — the "Tool catalogue (51)" heading is unaffected by these tools.
+It exists for **Claude Code**, not Claude Desktop, and is not part of the production 52-tool
+count above — the "Tool catalogue (52)" heading is unaffected by these tools.
 
 Purpose: let Claude Code drive the full create → edit → autosave → checkpoint → quit →
 relaunch → verify loop end to end without the owner acting as a human tester, so the
@@ -149,7 +150,7 @@ URI** (per the draft, names aren't unique identifiers) and fails loudly (protoco
 only — any other URI fails loudly too (Maugham's server has no general resources support).
 These three are **protocol methods**, registered directly on the router in
 `MaughamApp.registerTools` alongside `initialize`/`tools/list`/`tools/call` — not tools,
-so **the tool catalogue count stays 51** whether or not a connecting client speaks the
+so **the tool catalogue count stays 52** whether or not a connecting client speaks the
 extension.
 
 **Content source:** `docs/skills/<name>/SKILL.md` (agentskills.io flat-frontmatter format:

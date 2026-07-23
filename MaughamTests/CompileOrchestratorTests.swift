@@ -110,8 +110,8 @@ final class CompileOrchestratorTests: XCTestCase {
             XCTAssertFalse(errs.isEmpty, "expected structured error in errors[]")
             XCTAssertTrue(errs.contains { $0.message.contains("0.1") && $0.message.lowercased().contains("already exists") })
             XCTAssertTrue(log.contains("version_collision"))
-        case .completed:
-            XCTFail("expected .failed due to version collision; got .completed")
+        case .completed, .dryRunPassed:
+            XCTFail("expected .failed due to version collision; got \(result)")
         }
 
         // Verify no new Publication was minted.
@@ -119,5 +119,273 @@ final class CompileOrchestratorTests: XCTestCase {
         XCTAssertEqual(pubs.count, 1,
                        "collision guard must not append a colliding Publication")
         XCTAssertEqual(pubs.first?.publicationID, "pub-pre-existing")
+    }
+
+    // MARK: - F1: per-section include flag drops excluded pieces from output
+
+    /// Three pieces, the middle one excluded. The EPUB compile path writes
+    /// `build/body.xhtml` without tectonic, so the emitted body is directly
+    /// inspectable: the excluded piece must be absent, the other two present.
+    /// (The PDF/LaTeX format is covered by the ToC compile probe.)
+    func testCompile_epub_excludedSectionOmittedFromBody() async throws {
+        struct Src: ProjectASTBuilder.Source {
+            func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+                [.init(pieceID: "p1", title: "Alpha", mode: .prose, displayText: "First piece."),
+                 .init(pieceID: "p2", title: "Bravo", mode: .prose, displayText: "Middle piece."),
+                 .init(pieceID: "p3", title: "Charlie", mode: .prose, displayText: "Third piece.")]
+            }
+        }
+        let configStore = PublishConfigStore(projectURL: tmp)
+        var cfg = PublishConfig(metadata: .init(title: "Subset", author: "T"))
+        cfg.sections["p2"] = .init(include: false)
+        try await configStore.save(cfg)
+
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: Src(),
+            configStore: configStore,
+            publicationStore: PublicationStore(projectURL: tmp),
+            snapshotStore: PublicationSnapshotStore(projectURL: tmp),
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test",
+            tectonicVersion: "n/a")
+
+        let result = try await orch.compile(format: .epub, label: nil)
+        guard case .completed = result else {
+            return XCTFail("expected completed, got \(result)")
+        }
+
+        let body = try String(
+            contentsOf: tmp.appendingPathComponent(".maugham/publish/build/body.xhtml"),
+            encoding: .utf8)
+        XCTAssertTrue(body.contains("data-piece-id=\"p1\""), "included Alpha missing")
+        XCTAssertTrue(body.contains("data-piece-id=\"p3\""), "included Charlie missing")
+        XCTAssertFalse(body.contains("data-piece-id=\"p2\""), "excluded Bravo present")
+        XCTAssertFalse(body.contains("Middle piece."), "excluded body text present")
+    }
+
+    /// The wrapper the orchestrator uses is the emit contract for BOTH formats —
+    /// building the AST from it and emitting each body confirms the excluded
+    /// piece is gone from LaTeX and XHTML alike, cheaply and without tectonic.
+    func testIncludeFilteredASTSource_dropsExcluded_bothFormats() throws {
+        struct Src: ProjectASTBuilder.Source {
+            func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+                [.init(pieceID: "p1", title: "Keep One", mode: .prose, displayText: "Keep."),
+                 .init(pieceID: "p2", title: "Drop Two", mode: .prose, displayText: "Drop."),
+                 .init(pieceID: "p3", title: "Keep Three", mode: .prose, displayText: "Keep.")]
+            }
+        }
+        let filtered = IncludeFilteredASTSource(base: Src(), excludedSectionIDs: ["p2"])
+        XCTAssertEqual(filtered.orderedPieces().map(\.pieceID), ["p1", "p3"])
+
+        let ast = ProjectASTBuilder.build(from: filtered)
+        let latex = LaTeXBodyEmitter.emit(ast)
+        let xhtml = XHTMLBodyEmitter.emit(ast)
+        for body in [latex, xhtml] {
+            XCTAssertTrue(body.contains("Keep One"))
+            XCTAssertTrue(body.contains("Keep Three"))
+            XCTAssertFalse(body.contains("Drop Two"))
+        }
+    }
+
+    func testIncludeFilteredASTSource_emptyExcludedSet_isPassThrough() throws {
+        struct Src: ProjectASTBuilder.Source {
+            func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+                [.init(pieceID: "p1", title: "A", mode: .prose, displayText: "x"),
+                 .init(pieceID: "p2", title: "B", mode: .prose, displayText: "y")]
+            }
+        }
+        let filtered = IncludeFilteredASTSource(base: Src(), excludedSectionIDs: [])
+        XCTAssertEqual(filtered.orderedPieces().map(\.pieceID), ["p1", "p2"])
+    }
+
+    // MARK: - F2: dry_run runs the gates but mutates nothing
+
+    struct OneSrc: ProjectASTBuilder.Source {
+        func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+            [.init(pieceID: "p1", title: "C", mode: .prose, displayText: "Hi.")]
+        }
+    }
+
+    /// dry_run returns `.dryRunPassed` and leaves publications list, config
+    /// `nextVersion`, and the Exports output directory untouched. (No tectonic
+    /// needed — dry_run short-circuits before any compile.)
+    func testDryRun_pdf_noPublicationNoVersionBumpNoOutput() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(
+            metadata: .init(title: "Dry", author: "T")))
+
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: OneSrc(),
+            configStore: configStore,
+            publicationStore: PublicationStore(projectURL: tmp),
+            snapshotStore: PublicationSnapshotStore(projectURL: tmp),
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test",
+            tectonicVersion: "0.15.0")
+
+        let result = try await orch.compile(format: .pdf, label: nil, dryRun: true)
+        guard case .dryRunPassed(let warnings) = result else {
+            return XCTFail("expected .dryRunPassed, got \(result)")
+        }
+        XCTAssertTrue(warnings.isEmpty, "source-language dry_run has no gate warnings")
+
+        // No Publication minted.
+        let pubs = try await PublicationStore(projectURL: tmp).load()
+        XCTAssertTrue(pubs.isEmpty, "dry_run must not mint a Publication")
+        // Version not bumped.
+        let cfg = try await configStore.load()
+        XCTAssertEqual(cfg?.nextVersion, "0.1", "dry_run must not bump next_version")
+        // No Exports output directory created.
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: tmp.appendingPathComponent("Exports").path),
+            "dry_run must not write any output")
+    }
+
+    /// dry_run surfaces the version-collision it would hit (the guard runs
+    /// before the dry_run short-circuit) but still mutates nothing.
+    func testDryRun_reportsVersionCollisionWithoutMinting() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        var cfg = PublishConfig(metadata: .init(title: "Collide", author: "T"))
+        cfg.nextVersion = "0.1"
+        try await configStore.save(cfg)
+
+        let pubStore = PublicationStore(projectURL: tmp)
+        try await pubStore.append(Publication(
+            publicationID: "pub-pre-existing",
+            version: "0.1", label: nil, format: .pdf,
+            outputPath: "Exports/pre.pdf",
+            snapshotID: "snap-x", checkpointID: "",
+            republishedFrom: nil,
+            compiledAt: Date(),
+            maughamVersion: "0.0.0-test",
+            tectonicVersion: "0.15.0"))
+
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: OneSrc(),
+            configStore: configStore,
+            publicationStore: pubStore,
+            snapshotStore: PublicationSnapshotStore(projectURL: tmp),
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test",
+            tectonicVersion: "0.15.0")
+
+        let result = try await orch.compile(format: .pdf, label: nil, dryRun: true)
+        guard case .failed(let errs, let log) = result else {
+            return XCTFail("expected .failed from collision guard, got \(result)")
+        }
+        XCTAssertTrue(errs.contains { $0.message.lowercased().contains("already exists") })
+        XCTAssertTrue(log.contains("version_collision"))
+
+        // Still exactly the seeded Publication.
+        let pubs = try await pubStore.load()
+        XCTAssertEqual(pubs.count, 1)
+        XCTAssertEqual(pubs.first?.publicationID, "pub-pre-existing")
+    }
+
+    // MARK: - F5: EMISSION.md auto-refresh
+
+    /// User-owned starter files a compile's EMISSION.md refresh must never
+    /// touch, keyed by their `.maugham/publish/` filename (mirrors
+    /// `PublishStarter.files` minus EMISSION.md, which IS meant to change).
+    /// `config.json` is deliberately excluded here — a REAL (non-dry-run)
+    /// compile legitimately bumps `next_version` in it, orthogonal to F5;
+    /// `testCompile_dryRun_stillRefreshesEmissionDoc` below covers
+    /// `config.json` staying byte-identical under dry_run, where nothing
+    /// else mutates it.
+    private let userOwnedStarterFiles = [
+        "template.tex", "preamble.tex", "frontmatter.tex", "prose.tex",
+        "screenplay.tex", "backmatter.tex", "styles.css",
+    ]
+
+    /// A compile against a publish dir seeded with a stale EMISSION.md
+    /// leaves it byte-equal to `renderProjectCopy` for the CURRENT contract
+    /// (not the stale one), stamped with the app version the orchestrator
+    /// was constructed with — and every user-owned starter file is
+    /// byte-identical before and after. No tectonic needed: the EPUB path
+    /// writes `build/body.xhtml` directly.
+    func testCompile_refreshesStaleEmissionDoc_leavesUserFilesUntouched() async throws {
+        let publishDir = tmp.appendingPathComponent(".maugham/publish", isDirectory: true)
+        let emissionURL = publishDir.appendingPathComponent("EMISSION.md")
+        let stale = "# STALE EMISSION.md from a v0.23-era init\n\nOutdated contract text.\n"
+        try stale.write(to: emissionURL, atomically: true, encoding: .utf8)
+
+        var before: [String: Data] = [:]
+        for name in userOwnedStarterFiles {
+            before[name] = try Data(contentsOf: publishDir.appendingPathComponent(name))
+        }
+
+        struct Src: ProjectASTBuilder.Source {
+            func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+                [.init(pieceID: "p1", title: "F5", mode: .prose, displayText: "Body text.")]
+            }
+        }
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "F5", author: "T")))
+
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: Src(),
+            configStore: configStore,
+            publicationStore: PublicationStore(projectURL: tmp),
+            snapshotStore: PublicationSnapshotStore(projectURL: tmp),
+            jobManager: CompileJobManager(),
+            maughamVersion: "9.9.9-f5test",
+            tectonicVersion: "n/a")
+
+        let result = try await orch.compile(format: .epub, label: nil)
+        guard case .completed = result else {
+            return XCTFail("expected completed, got \(result)")
+        }
+
+        let refreshed = try String(contentsOf: emissionURL, encoding: .utf8)
+        XCTAssertEqual(refreshed, EmissionContract.renderProjectCopy(appVersion: "9.9.9-f5test"),
+                       "EMISSION.md must be refreshed to exactly the current contract")
+        XCTAssertTrue(refreshed.contains("9.9.9-f5test"),
+                      "refreshed EMISSION.md must carry the app-version stamp")
+        XCTAssertFalse(refreshed.contains("STALE EMISSION.md"),
+                       "stale content must be fully replaced, not appended to")
+
+        for name in userOwnedStarterFiles {
+            let after = try Data(contentsOf: publishDir.appendingPathComponent(name))
+            XCTAssertEqual(after, before[name], "\(name) must be byte-identical before/after compile")
+        }
+    }
+
+    /// dry_run still refreshes the doc (Task 6's chosen behavior: dry_run
+    /// runs the pipeline's front half, and there's no reason to let the
+    /// project's contract doc drift just because nothing was emitted). Also
+    /// covers `config.json` staying byte-identical (dry_run mutates nothing
+    /// else, so this pins the "config.json untouched" half of the F5
+    /// contract that the real-compile test above can't, since a real
+    /// compile legitimately bumps `next_version`).
+    func testCompile_dryRun_stillRefreshesEmissionDoc() async throws {
+        let publishDir = tmp.appendingPathComponent(".maugham/publish", isDirectory: true)
+        let emissionURL = publishDir.appendingPathComponent("EMISSION.md")
+        try "stale".write(to: emissionURL, atomically: true, encoding: .utf8)
+
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "F5dry", author: "T")))
+        let configBefore = try Data(contentsOf: publishDir.appendingPathComponent("config.json"))
+
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: OneSrc(),
+            configStore: configStore,
+            publicationStore: PublicationStore(projectURL: tmp),
+            snapshotStore: PublicationSnapshotStore(projectURL: tmp),
+            jobManager: CompileJobManager(),
+            maughamVersion: "9.9.9-f5dry",
+            tectonicVersion: "n/a")
+
+        let result = try await orch.compile(format: .pdf, label: nil, dryRun: true)
+        guard case .dryRunPassed = result else {
+            return XCTFail("expected .dryRunPassed, got \(result)")
+        }
+
+        let refreshed = try String(contentsOf: emissionURL, encoding: .utf8)
+        XCTAssertEqual(refreshed, EmissionContract.renderProjectCopy(appVersion: "9.9.9-f5dry"))
+
+        let configAfter = try Data(contentsOf: publishDir.appendingPathComponent("config.json"))
+        XCTAssertEqual(configAfter, configBefore,
+                       "dry_run must not touch config.json even though EMISSION.md refreshes")
     }
 }
