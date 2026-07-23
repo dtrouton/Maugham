@@ -39,6 +39,7 @@ public struct TranslatedDocument: Sendable {
     public var freshCount: Int { entries.lazy.filter { $0.status == .fresh }.count }
     public var staleCount: Int { entries.lazy.filter { $0.status == .stale }.count }
     public var missingCount: Int { entries.lazy.filter { $0.status == .missing }.count }
+    public var verbatimCount: Int { entries.lazy.filter { $0.verbatim }.count }
 }
 
 public enum TranslationDeriver {

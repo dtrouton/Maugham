@@ -242,6 +242,72 @@ final class WriteTranslationToolTests: XCTestCase {
         await h.documentStore.close()
     }
 
+    // MARK: - F8: equals-source advisory (non-verbatim entry whose text matches source)
+
+    func test_writeTranslation_equalsSourceAdvisory_firesForNonVerbatimMatch() async throws {
+        let h = try await makeHarness()
+        let pid = h.doc.sequence[1]  // "Second paragraph plain." — no bold to drift on
+        let src = h.doc.paragraphs[pid]!
+
+        let resultData = try await call(h, [
+            "project_id": h.projectId,
+            "document_id": h.doc.docId,
+            "language": "es",
+            "entries": [["paragraph_id": pid, "text": src]]
+        ])
+        let result = try JSONDecoder().decode(
+            WriteTranslationTool.Result.self, from: resultData)
+        XCTAssertEqual(result.written, 1, "advisory never blocks the write")
+        XCTAssertTrue(
+            result.warnings.contains(
+                "¶\(pid): translated text equals source — mark verbatim: true if deliberate"),
+            "got: \(result.warnings)")
+
+        // The write still lands.
+        let records = TranslationStore.loadMerged(
+            forDocId: h.doc.docId, language: "es", in: h.projectURL)
+        XCTAssertEqual(records.count, 1)
+        XCTAssertEqual(records[0].text, src)
+
+        await h.documentStore.close()
+    }
+
+    func test_writeTranslation_equalsSourceAdvisory_doesNotFireForVerbatimTrue() async throws {
+        let h = try await makeHarness()
+        let pid = h.doc.sequence[1]
+
+        let resultData = try await call(h, [
+            "project_id": h.projectId,
+            "document_id": h.doc.docId,
+            "language": "es",
+            "entries": [["paragraph_id": pid, "verbatim": true]]
+        ])
+        let result = try JSONDecoder().decode(
+            WriteTranslationTool.Result.self, from: resultData)
+        XCTAssertTrue(result.warnings.isEmpty,
+                      "verbatim: true entries are the deliberate case — no advisory: \(result.warnings)")
+
+        await h.documentStore.close()
+    }
+
+    func test_writeTranslation_equalsSourceAdvisory_doesNotFireForGenuineTranslation() async throws {
+        let h = try await makeHarness()
+        let pid = h.doc.sequence[1]
+
+        let resultData = try await call(h, [
+            "project_id": h.projectId,
+            "document_id": h.doc.docId,
+            "language": "es",
+            "entries": [["paragraph_id": pid, "text": "Segundo párrafo simple."]]
+        ])
+        let result = try JSONDecoder().decode(
+            WriteTranslationTool.Result.self, from: resultData)
+        XCTAssertTrue(result.warnings.isEmpty,
+                      "genuinely different translated text should not trigger the advisory: \(result.warnings)")
+
+        await h.documentStore.close()
+    }
+
     // MARK: - I1: write_translation posts maughamTranslationDidUpdate
 
     func test_writeTranslation_postsTranslationDidUpdateEvent() async throws {

@@ -38,6 +38,21 @@ final class TranslationDeriverTests: XCTestCase {
         XCTAssertEqual(doc.entries[2].sourceText, "Three")
     }
 
+    func test_verbatimCount_countsOnlyVerbatimEntries() {
+        let paragraphs = ["aaaa": "One", "bbbb": "Two", "cccc": "Three"]
+        let sequence = ["aaaa", "bbbb", "cccc"]
+        let records = [
+            TranslationRecord(paragraphId: "aaaa", language: "es", text: "One",
+                              sourceHash: TranslationHash.hash("One"), verbatim: true),
+            TranslationRecord(paragraphId: "bbbb", language: "es", text: "Dos",
+                              sourceHash: TranslationHash.hash("Two"), verbatim: false),
+            // "cccc" has no record at all → missing, not verbatim.
+        ]
+        let doc = TranslationDeriver.derive(records: records, sequence: sequence,
+                                            paragraphs: paragraphs, language: "es")
+        XCTAssertEqual(doc.verbatimCount, 1)
+    }
+
     func test_derive_blankSourceWithNoRecord_isFreshNotMissing() {
         // A whitespace-only source paragraph has nothing to translate, so a
         // missing record is not a gap (M1): it derives `.fresh`, the entry is

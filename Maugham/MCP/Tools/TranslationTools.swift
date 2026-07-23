@@ -64,8 +64,9 @@ public enum WriteTranslationTool: MCPTool {
         "can flag a translation as stale after the source is edited. Paragraph ids " +
         "come from read_document; every id must be current — an unknown id rejects " +
         "the whole batch (nothing is written). Non-verbatim entries are checked for " +
-        "structural drift (a dropped **bold** run, changed block shape) and any " +
-        "warnings are returned. " +
+        "structural drift (a dropped **bold** run, changed block shape) and, if the " +
+        "translated text is identical to the current source, a reminder to mark it " +
+        "`verbatim: true` instead — these are advisory only and never block the write. " +
         "See get_help topic 'translation-pass' for the translation workflow."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"},"document_id":{"type":"string"},"language":{"type":"string","description":"lowercase tag, e.g. es, pt-br"},"entries":{"type":"array","items":{"type":"object","properties":{"paragraph_id":{"type":"string"},"text":{"type":"string"},"verbatim":{"type":"boolean","description":"copy current source text as the translation (chrome idiom)"}},"required":["paragraph_id"]}}},"required":["project_id","document_id","language","entries"]}"#
@@ -132,6 +133,11 @@ public enum WriteTranslationTool: MCPTool {
             if !isVerbatim {
                 warnings.append(contentsOf: ConstructSkeleton.warnings(
                     source: source, translation: text, paragraphId: e.paragraph_id))
+                if text == source {
+                    warnings.append(
+                        "¶\(e.paragraph_id): translated text equals source — mark " +
+                        "verbatim: true if deliberate")
+                }
             }
         }
 
@@ -250,6 +256,7 @@ public enum TranslationStatusTool: MCPTool {
         public let fresh: Int
         public let stale: Int
         public let missing: Int
+        public let verbatim: Int
         public let orphans: Int
         public let open_queries: Int
     }
@@ -266,8 +273,10 @@ public enum TranslationStatusTool: MCPTool {
         "Summarise translation progress. With `document_id`, reports one document; " +
         "without it, walks every manuscript document in the project. Each row is one " +
         "(document, language) pair with paragraph counts by freshness — `fresh`, `stale`, " +
-        "`missing` — plus `orphans` (translations whose source paragraph was deleted) and " +
-        "`open_queries` (unresolved translator questions raised against that language). " +
+        "`missing` — plus `verbatim` (of the translated paragraphs, how many are copied " +
+        "unchanged from source rather than actually translated), `orphans` (translations " +
+        "whose source paragraph was deleted), and `open_queries` (unresolved translator " +
+        "questions raised against that language). " +
         "Use it to see how much of a book is translated and where retranslation is due. " +
         "See get_help topic 'translation-pass' for the translation workflow."
     public static let inputSchemaJSON =
@@ -327,6 +336,7 @@ public enum TranslationStatusTool: MCPTool {
                     fresh: derived.freshCount,
                     stale: derived.staleCount,
                     missing: derived.missingCount,
+                    verbatim: derived.verbatimCount,
                     orphans: derived.orphans.count,
                     open_queries: openQueries.filter { $0.language == language }.count))
             }
