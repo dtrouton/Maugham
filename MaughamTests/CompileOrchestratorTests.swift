@@ -451,6 +451,66 @@ final class CompileOrchestratorTests: XCTestCase {
                        "a language compile must not bump next_version")
     }
 
+    /// (a, republish-exclusion — T1 review) A republished SOURCE record
+    /// (`language == nil`, `republishedFrom` set, mangled `-r…` version) more
+    /// recent than the genuine source publication must NOT be the resolution
+    /// target: the edition mints at the ORIGINAL "0.1", not "0.1-rabcd".
+    func testEdition_languageWithoutVersion_ignoresRepublishedSourceRecords() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Ed", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+        try await seedSourcePublication(
+            pubStore, version: "0.1", format: .pdf,
+            compiledAt: Date(timeIntervalSinceNow: -1000))
+        // More-recent republished source record with a mangled version.
+        try await pubStore.append(Publication(
+            publicationID: "pub-repub", version: "0.1-rabcd", label: nil,
+            format: .pdf, outputPath: "Exports/repub.pdf",
+            snapshotID: "snap-src", checkpointID: "",
+            republishedFrom: "0.1", compiledAt: Date(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0",
+            language: nil))
+
+        let result = try await makeOrch(configStore, pubStore)
+            .compile(format: .epub, label: nil, language: "es")
+        guard case .completed(let pub, _) = result else {
+            return XCTFail("expected completed, got \(result)")
+        }
+        XCTAssertEqual(pub.version, "0.1",
+                       "edition must mint at the original source version, not the republished '-r…' one")
+        XCTAssertEqual(pub.language, "es")
+    }
+
+    /// (c, republish-exclusion — T1 review) Pinning a republished record's
+    /// mangled version is refused: the pinned-`version` branch validates
+    /// against ORIGINAL source records only (`republishedFrom == nil`) — the
+    /// same rule as latest-source resolution, closing the other door to a
+    /// mangled-version edition.
+    func testEdition_pinnedRepublishedVersion_refused() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Ed", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+        try await seedSourcePublication(pubStore, version: "0.1", format: .pdf)
+        try await pubStore.append(Publication(
+            publicationID: "pub-repub", version: "0.1-rabcd", label: nil,
+            format: .pdf, outputPath: "Exports/repub.pdf",
+            snapshotID: "snap-src", checkpointID: "",
+            republishedFrom: "0.1", compiledAt: Date(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0",
+            language: nil))
+
+        let result = try await makeOrch(configStore, pubStore)
+            .compile(format: .epub, label: nil, language: "es", version: "0.1-rabcd")
+        guard case .failed(let errs, let log) = result else {
+            return XCTFail("expected .failed, got \(result)")
+        }
+        XCTAssertTrue(errs.contains { $0.message.contains("no source v0.1-rabcd") },
+                      "got: \(errs.map(\.message))")
+        XCTAssertTrue(log.contains("no_source_version"))
+        let pubs = try await pubStore.load()
+        XCTAssertEqual(pubs.count, 2, "refusal must mint nothing")
+    }
+
     /// (a, latest-selection) With two source versions, a version-less language
     /// compile targets the most recent source publication by `compiledAt`.
     func testEdition_languageWithoutVersion_picksLatestSourceByCompiledAt() async throws {

@@ -141,8 +141,16 @@ public struct CompileOrchestrator {
             }
             effectiveVersion = config.nextVersion
         } else if let version {
+            // Original source records only (`republishedFrom == nil`): a
+            // republished source record carries a mangled `-r…` version, and
+            // letting a pin validate against one would mint the edition at
+            // that mangled version — the same family fragmentation the
+            // latest-source branch below guards against (T1 review). Pin the
+            // ORIGINAL version; the edition compiles the CURRENT manuscript
+            // either way (republish is the snapshot-reproduction path).
             guard existingPublications.contains(where: {
-                $0.language == nil && $0.version == version
+                $0.language == nil && $0.republishedFrom == nil
+                    && $0.version == version
             }) else {
                 let diag = TectonicLogParser.Diagnostic(
                     level: .error, file: nil, line: nil,
@@ -160,10 +168,15 @@ public struct CompileOrchestrator {
             }
             effectiveVersion = version
         } else {
-            // Latest source publication by compiledAt. (Republished source
-            // records carry a distinct `-r…` version; the pinned-`version`
-            // path gives the writer full control when that edge matters.)
-            let sources = existingPublications.filter { $0.language == nil }
+            // Latest ORIGINAL source publication by compiledAt. Republished
+            // source records (`republishedFrom != nil`, language == nil) are
+            // excluded: they carry a mangled `-r…` version, and if one were
+            // the most recent, resolving to it would mint the edition at that
+            // mangled version, fragmenting the (version, language, format)
+            // family (T1 review).
+            let sources = existingPublications.filter {
+                $0.language == nil && $0.republishedFrom == nil
+            }
             guard let latest = sources.max(by: { $0.compiledAt < $1.compiledAt }) else {
                 let diag = TectonicLogParser.Diagnostic(
                     level: .error, file: nil, line: nil,
