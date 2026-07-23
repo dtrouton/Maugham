@@ -13,6 +13,7 @@ struct HelpClaudeDesktopSheet: View {
     @State private var skillState: ClaudeCodeSkillInstall.State = .notInstalled
     @State private var skillError: String?
     @State private var cliCopied: Bool = false
+    @State private var confirmingSkillReplace = false
 
     private var binaryPath: String {
         Bundle.main.bundleURL
@@ -82,6 +83,13 @@ struct HelpClaudeDesktopSheet: View {
                 Text(skillError).font(.callout).foregroundStyle(.red)
             }
         }
+        .confirmationDialog(
+            "Replace the installed Maugham skill?",
+            isPresented: $confirmingSkillReplace) {
+            Button("Replace", role: .destructive) { installSkill() }
+        } message: {
+            Text("Hand edits to \(ClaudeCodeSkillInstall.defaultSkillURL.path) will be lost.")
+        }
     }
 
     private var claudeCodeCommandRow: some View {
@@ -113,6 +121,13 @@ struct HelpClaudeDesktopSheet: View {
                 Label("Maugham skill is out of date", systemImage: "exclamationmark.triangle")
                 Button("Update") { installSkill() }
             }
+        case .userModified:
+            HStack {
+                Label("Maugham skill has local edits", systemImage: "pencil")
+                Button("Replace…") { confirmingSkillReplace = true }
+            }
+            Text("The installed skill file differs from Maugham's template and doesn't carry the Maugham-managed marker. Replacing discards those edits.")
+                .font(.callout).foregroundStyle(.secondary)
         }
     }
 
