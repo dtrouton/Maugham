@@ -100,6 +100,7 @@ public enum EmissionContract {
         out += negativeSpace + "\n\n"
         out += styleFileContract + "\n\n"
         out += fontsConvention + "\n\n"
+        out += languageEditionContract + "\n\n"
         out += recoveryNote + "\n\n"
         out += epubIterationNote + "\n"
         return out
@@ -169,6 +170,25 @@ public enum EmissionContract {
     definitions (never use them in a style file) and counter changes \
     (`\\setcounter`/`\\addtocounter` — LaTeX counters are global).
 
+    **xparse declarations are global, unlike renewals.** `\\NewDocumentCommand`, \
+    `\\NewDocumentEnvironment`, and the wider xparse `\\Declare…`/`\\New…` family are \
+    *new-name* declarations, not renewals of an existing command — they take effect \
+    globally and **cross piece boundaries**, even when declared inside a style \
+    file's `\\begingroup`/`\\endgroup`. This is a different animal from the \
+    *renewal* scoping documented above (`\\renewcommand`, `\\RenewDocumentCommand`, \
+    `\\DeclareRobustCommand` of an already-existing name correctly revert at \
+    `\\endgroup`). Introducing a brand-new command from a per-piece style file \
+    risks a name collision that clobbers or shadows a later piece; declare shared \
+    vocabulary in `preamble.tex` instead, where its global lifetime is expected.
+
+    **Active-catcode tricks destabilize hyperref (field-verified).** Avoid \
+    `\\catcode`-based active-character tricks in style files (e.g. making a \
+    character active via `\\catcode\\`X=\\active`). hyperref's bookmark/anchor \
+    machinery re-scans the token stream across multiple passes, and active \
+    catcodes introduced mid-document destabilize that machinery in ways that are \
+    hard to predict or debug. Use source-level constructs — an ordinary macro \
+    invoked where you need the effect — instead of catcode reassignment.
+
     **Required pattern for restyling a heading or a kernel command.** Do NOT \
     renew a kernel command (`\\textbf`, `\\emph`, `\\scene`, …) at style-file \
     top level to restyle a piece's headings. Put the renewal **inside the \
@@ -225,6 +245,26 @@ public enum EmissionContract {
     The starter `preamble.tex` ships with a commented-out fontspec block that \
     includes this reminder. Uncomment it and set your filename; the `inputenc` \
     removal is the only other required change.
+    """
+
+    static let languageEditionContract = """
+    ## Language editions — template variants (F4)
+
+    The resolver auto-picks `template.<lang>.tex` and per-piece \
+    `<piece>.<lang>.tex` when compiling with a `language`, falling back to the \
+    base file when a variant is absent. That resolution covers **only** those \
+    two file kinds — it does not follow `\\input` lines inside them to \
+    auto-resolve arbitrary partials. This is deliberate: a project may `\\input` \
+    shared macros that must **not** vary by language, and auto-resolving every \
+    `\\input` would silently make them vary.
+
+    If your template inputs partials (`preamble.tex`, `frontmatter.tex`, \
+    `backmatter.tex`, or similar), the language edition needs its own \
+    `template.<lang>.tex` whose `\\input` lines point at language variants of \
+    those partials; the resolver picks the template variant, and everything \
+    else follows from it. A `frontmatter.<lang>.tex` sitting next to the base \
+    file does nothing on its own — nothing errors, the base file just keeps \
+    rendering — until a `template.<lang>.tex` `\\input`s it.
     """
 
     static let recoveryNote = """
