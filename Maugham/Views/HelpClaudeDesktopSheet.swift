@@ -13,6 +13,7 @@ struct HelpClaudeDesktopSheet: View {
     @State private var skillState: ClaudeCodeSkillInstall.State = .notInstalled
     @State private var skillError: String?
     @State private var cliCopied: Bool = false
+    @State private var confirmingSkillReplace = false
 
     private var binaryPath: String {
         Bundle.main.bundleURL
@@ -62,12 +63,13 @@ struct HelpClaudeDesktopSheet: View {
     }
 
     private var claudeCodeCLICommand: String {
-        let socket: String? = BuildVariant.current == .dev
-            ? BuildVariant.current.mcpSocketPath : nil
-        return ClaudeCodeSkillInstall.cliCommand(
+        // Parity with the Desktop JSON snippet (which always sets
+        // MAUGHAM_MCP_SOCKET): don't rely on the binary's compiled-in
+        // default matching the app's variant (2026-07-19 sweep W9).
+        ClaudeCodeSkillInstall.cliCommand(
             serverKey: BuildVariant.current.mcpServerKey,
             binaryPath: binaryPath,
-            socketPath: socket)
+            socketPath: BuildVariant.current.mcpSocketPath)
     }
 
     private var claudeCodeSection: some View {
@@ -82,6 +84,13 @@ struct HelpClaudeDesktopSheet: View {
                 Text(skillError).font(.callout).foregroundStyle(.red)
             }
         }
+        .confirmationDialog(
+            "Replace the installed Maugham skill?",
+            isPresented: $confirmingSkillReplace) {
+            Button("Replace", role: .destructive) { installSkill() }
+        } message: {
+            Text("Hand edits to \(ClaudeCodeSkillInstall.defaultSkillURL.path) will be lost.")
+        }
     }
 
     private var claudeCodeCommandRow: some View {
@@ -94,6 +103,10 @@ struct HelpClaudeDesktopSheet: View {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(claudeCodeCLICommand, forType: .string)
                 cliCopied = true
+                Task {
+                    try? await Task.sleep(for: .seconds(2))
+                    cliCopied = false
+                }
             }
         }
     }
@@ -113,6 +126,13 @@ struct HelpClaudeDesktopSheet: View {
                 Label("Maugham skill is out of date", systemImage: "exclamationmark.triangle")
                 Button("Update") { installSkill() }
             }
+        case .userModified:
+            HStack {
+                Label("Maugham skill has local edits", systemImage: "pencil")
+                Button("Replace…") { confirmingSkillReplace = true }
+            }
+            Text("The installed skill file differs from Maugham's template and doesn't carry the Maugham-managed marker. Replacing discards those edits.")
+                .font(.callout).foregroundStyle(.secondary)
         }
     }
 

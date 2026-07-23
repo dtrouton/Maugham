@@ -18,3 +18,5 @@ procedure instead of improvising:
 Hard rules that apply regardless of task: Claude never edits manuscript
 text directly (annotations and research only), and `get_help` without a
 topic lists Maugham's user documentation.
+
+<!-- maugham:managed — installed by Maugham. Hand edits are replaced when you click Update in Maugham's Claude setup sheet. -->

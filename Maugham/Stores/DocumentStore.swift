@@ -520,36 +520,54 @@ public final class DocumentStore {
         try FileManager.default.createDirectory(
             at: scratchDir, withIntermediateDirectories: true)
 
-        // Phase 1: move colliding items to scratch with unique names.
-        var scratchMap: [(scratchURL: URL, finalRelativePath: String)] = []
-        for step in plan.scratchSteps {
-            let oldURL = projectURL.appendingPathComponent(step.oldRelativePath)
-            let scratchURL = scratchDir.appendingPathComponent(UUID().uuidString)
-            try await coordinatedMove(from: oldURL, to: scratchURL)
-            scratchMap.append((scratchURL, step.newRelativePath))
+        // Every completed move in execution order, so a mid-plan throw can
+        // unwind: a half-executed plan otherwise strands files at new paths
+        // (or in scratch) while the caller's manifest rewrite — Phase 3 —
+        // never runs (2026-07-19 sweep W5).
+        var completed: [(from: URL, to: URL)] = []
+        defer {
+            // Best-effort cleanup of empty scratch dir (both exit paths).
+            if let contents = try? FileManager.default
+                .contentsOfDirectory(atPath: scratchDir.path),
+               contents.isEmpty {
+                try? FileManager.default.removeItem(at: scratchDir)
+            }
         }
+        do {
+            // Phase 1: move colliding items to scratch with unique names.
+            var scratchMap: [(scratchURL: URL, finalRelativePath: String)] = []
+            for step in plan.scratchSteps {
+                let oldURL = projectURL.appendingPathComponent(step.oldRelativePath)
+                let scratchURL = scratchDir.appendingPathComponent(UUID().uuidString)
+                try await coordinatedMove(from: oldURL, to: scratchURL)
+                completed.append((oldURL, scratchURL))
+                scratchMap.append((scratchURL, step.newRelativePath))
+            }
 
-        // Phase 2a: direct (non-colliding) renames.
-        for step in plan.directSteps {
-            let oldURL = projectURL.appendingPathComponent(step.oldRelativePath)
-            let newURL = projectURL.appendingPathComponent(step.newRelativePath)
-            try await coordinatedMove(from: oldURL, to: newURL)
-        }
+            // Phase 2a: direct (non-colliding) renames.
+            for step in plan.directSteps {
+                let oldURL = projectURL.appendingPathComponent(step.oldRelativePath)
+                let newURL = projectURL.appendingPathComponent(step.newRelativePath)
+                try await coordinatedMove(from: oldURL, to: newURL)
+                completed.append((oldURL, newURL))
+            }
 
-        // Phase 2b: scratch items to final destinations.
-        for entry in scratchMap {
-            let finalURL = projectURL.appendingPathComponent(entry.finalRelativePath)
-            try await coordinatedMove(from: entry.scratchURL, to: finalURL)
+            // Phase 2b: scratch items to final destinations.
+            for entry in scratchMap {
+                let finalURL = projectURL.appendingPathComponent(entry.finalRelativePath)
+                try await coordinatedMove(from: entry.scratchURL, to: finalURL)
+                completed.append((entry.scratchURL, finalURL))
+            }
+        } catch {
+            // Unwind in reverse, best-effort — a file the unwind can't
+            // restore is no worse off than before this change.
+            for (from, to) in completed.reversed() {
+                try? await coordinatedMove(from: to, to: from)
+            }
+            throw error
         }
 
         // Phase 3: caller saves the manifest.
-
-        // Best-effort cleanup of empty scratch dir.
-        if let contents = try? FileManager.default
-            .contentsOfDirectory(atPath: scratchDir.path),
-           contents.isEmpty {
-            try? FileManager.default.removeItem(at: scratchDir)
-        }
     }
 
     /// Relocate user-editable content whose move can't be expressed as a flat

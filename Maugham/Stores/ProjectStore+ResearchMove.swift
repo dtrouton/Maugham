@@ -194,29 +194,34 @@ extension ProjectStore {
             let leaf = (oldPath as NSString).lastPathComponent
             let oldFolder = (oldPath as NSString).deletingLastPathComponent
 
-            let dedupedLeaf = Self.researchDedupedFilename(
-                leaf, existing: existingNames + Array(claimed))
+            let oldStem = (leaf as NSString).deletingPathExtension
+            let oldAssetsRel = oldFolder.isEmpty
+                ? "\(oldStem)_assets" : "\(oldFolder)/\(oldStem)_assets"
+            let travelsWithAssets = item.type == .asset && item.kind == .document
+                && FileManager.default.fileExists(
+                    atPath: url.appendingPathComponent(oldAssetsRel).path)
+
+            // W2: a note that travels with `<stem>_assets` dedups the PAIR
+            // jointly — the plain per-leaf dedup misses an orphaned assets
+            // dir at the destination and throws mid-relocate.
+            let taken = Set(existingNames).union(claimed)
+            let dedupedLeaf = travelsWithAssets
+                ? Self.researchDedupedNotePair(leaf, taken: taken)
+                : Self.researchDedupedFilename(leaf, existing: Array(taken))
             claimed.insert(dedupedLeaf)
             let newPath = "\(dest.folder)/\(dedupedLeaf)"
             steps.append(.init(oldRelativePath: oldPath, newRelativePath: newPath))
 
-            // A markdown note travels with its sibling `<stem>_assets/` folder.
             var refRewrite: (String, String, String)? = nil
-            if item.type == .asset, item.kind == .document {
-                let oldStem = (leaf as NSString).deletingPathExtension
+            if travelsWithAssets {
                 let newStem = (dedupedLeaf as NSString).deletingPathExtension
-                let oldAssetsRel = oldFolder.isEmpty
-                    ? "\(oldStem)_assets" : "\(oldFolder)/\(oldStem)_assets"
-                if FileManager.default.fileExists(
-                    atPath: url.appendingPathComponent(oldAssetsRel).path) {
-                    let newAssetsLeaf = "\(newStem)_assets"
-                    claimed.insert(newAssetsLeaf)
-                    steps.append(.init(
-                        oldRelativePath: oldAssetsRel,
-                        newRelativePath: "\(dest.folder)/\(newAssetsLeaf)"))
-                    if oldStem != newStem {
-                        refRewrite = (oldStem, newStem, newPath)
-                    }
+                let newAssetsLeaf = "\(newStem)_assets"
+                claimed.insert(newAssetsLeaf)
+                steps.append(.init(
+                    oldRelativePath: oldAssetsRel,
+                    newRelativePath: "\(dest.folder)/\(newAssetsLeaf)"))
+                if oldStem != newStem {
+                    refRewrite = (oldStem, newStem, newPath)
                 }
             }
             pendings.append(Pending(
@@ -234,15 +239,10 @@ extension ProjectStore {
             // match; rewrite the note's ./<stem>_assets/ image refs.
             for pending in pendings {
                 guard let (oldStem, newStem, noteRelPath) = pending.refRewrite else { continue }
-                let noteURL = url.appendingPathComponent(noteRelPath)
-                if let content = try? String(contentsOf: noteURL, encoding: .utf8) {  // adr-0018-ok: research-note read, not manuscript
-                    let rewritten = content.replacingOccurrences(
-                        of: "./\(oldStem)_assets/", with: "./\(newStem)_assets/")
-                    if rewritten != content {
-                        try await documentStore.coordinatedWrite(
-                            text: rewritten, to: noteURL)
-                    }
-                }
+                await Self.rewriteAssetRefsBestEffort(
+                    oldStem: oldStem, newStem: newStem,
+                    noteURL: url.appendingPathComponent(noteRelPath),
+                    write: { try await documentStore.coordinatedWrite(text: $0, to: $1) })
             }
         }
 
@@ -277,5 +277,48 @@ extension ProjectStore {
 
         manifest.modified = Date()
         try await saveManifest()
+    }
+
+    /// Dedup a note leaf JOINTLY with its sibling `<stem>_assets` folder: the
+    /// chosen stem must be free for BOTH names. An orphaned `<stem>_assets`
+    /// at the destination with no matching note otherwise collides
+    /// mid-relocate (2026-07-19 sweep W2).
+    static func researchDedupedNotePair(
+        _ name: String, taken: Set<String>
+    ) -> String {
+        let stem = (name as NSString).deletingPathExtension
+        let ext = (name as NSString).pathExtension
+        func leaf(_ s: String) -> String { ext.isEmpty ? s : "\(s).\(ext)" }
+        if !taken.contains(leaf(stem)), !taken.contains("\(stem)_assets") {
+            return leaf(stem)
+        }
+        for n in 2...999 {
+            let candidate = "\(stem)-\(n)"
+            if !taken.contains(leaf(candidate)),
+               !taken.contains("\(candidate)_assets") {
+                return leaf(candidate)
+            }
+        }
+        return UUID().uuidString
+    }
+
+    /// Cosmetic post-move fix — MUST NOT abort the move. `relocate` has
+    /// already committed the FS state when this runs, so a failure here is
+    /// logged and swallowed to keep the manifest rewrite (Phase 4) alive
+    /// (2026-07-19 sweep W1). The non-throwing signature is deliberate.
+    static func rewriteAssetRefsBestEffort(
+        oldStem: String, newStem: String, noteURL: URL,
+        write: (String, URL) async throws -> Void
+    ) async {
+        guard let content = try? String(contentsOf: noteURL, encoding: .utf8) else { return }  // adr-0018-ok: research-note read, not manuscript
+        let rewritten = content.replacingOccurrences(
+            of: "./\(oldStem)_assets/", with: "./\(newStem)_assets/")
+        guard rewritten != content else { return }
+        do {
+            try await write(rewritten, noteURL)
+        } catch {
+            NSLog("moveResearchItems: asset-ref rewrite failed for %@ — refs stale, move intact: %@",
+                  noteURL.lastPathComponent, "\(error)")
+        }
     }
 }

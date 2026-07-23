@@ -119,15 +119,17 @@ enum ResearchSelectionSync {
     static func orderedSelection(
         _ selection: Set<String>, in research: [ResearchItem]
     ) -> [String] {
-        var ordered: [String] = []
-        func walk(_ items: [ResearchItem]) {
-            for item in items {
-                if selection.contains(item.id) { ordered.append(item.id) }
-                if let children = item.children { walk(children) }
-            }
-        }
-        walk(research)
-        return ordered
+        TreeWalk.collect(in: research, where: { selection.contains($0.id) })
+            .map(\.id)
+    }
+
+    /// Selection with ids that no longer exist in `research` dropped —
+    /// post-delete hygiene (2026-07-19 sweep W6): a stale id left behind
+    /// drives `previewId(for:)` to a ghost item in the single-preview pane.
+    static func pruned(
+        _ selection: Set<String>, in research: [ResearchItem]
+    ) -> Set<String> {
+        selection.intersection(TreeWalk.collectIds(in: research))
     }
 
     /// Standard Mac behavior: dragging a row inside the selection drags the

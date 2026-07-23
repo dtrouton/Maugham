@@ -28,6 +28,14 @@ final class ResearchSelectionTests: XCTestCase {
         XCTAssertEqual(ordered, ["a", "b", "c"])
     }
 
+    /// W6: ids deleted from the manifest must drop out of the selection so
+    /// `previewId(for:)` can't resolve to a ghost item.
+    func test_pruned_dropsStaleIds_keepsLive() {
+        let research = [note("a"), note("b")]
+        let pruned = ResearchSelectionSync.pruned(["a", "gone"], in: research)
+        XCTAssertEqual(pruned, ["a"])
+    }
+
     func test_expandedDragIds() {
         XCTAssertEqual(
             ResearchSelectionSync.expandedDragIds(

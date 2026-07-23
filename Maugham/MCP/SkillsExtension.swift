@@ -42,13 +42,17 @@ public enum SkillsExtension {
     // MARK: - skills/list
 
     static func handleList(paramsJSON: Data?, index: SkillIndex) throws -> Data {
-        let entries: [[String: Any]] = index.skills.map { skill in
+        let entries: [[String: Any]] = index.skills.compactMap { skill in
+            // A skill with no files can serve nothing — skip rather than
+            // crash the request (2026-07-19 sweep W8; unreachable for the
+            // static bundle, defensive for future dynamic sources).
+            guard let primary = skill.files.first else { return nil }
             let (frontmatter, _) = (try? SkillIndex.parseFrontmatter(
                 skill.raw, folderName: skill.name)) ?? ([:], "")
             return [
                 "name": skill.name,
                 "description": skill.description,
-                "uri": uri(for: skill, file: skill.files[0]),
+                "uri": uri(for: skill, file: primary),
                 "frontmatter": frontmatter,
                 "resources": skill.files.map { file in
                     ["uri": uri(for: skill, file: file),

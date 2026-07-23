@@ -21,25 +21,52 @@ final class ClaudeCodeSkillInstallTests: XCTestCase {
     }
 
     func test_install_thenCurrent_thenStale_thenUpdateRestores() throws {
-        try ClaudeCodeSkillInstall.install(installURL: url, template: "T v1")
-        XCTAssertEqual(ClaudeCodeSkillInstall.detect(installURL: url, template: "T v1"),
+        let t1 = "T v1\n\(ClaudeCodeSkillInstall.managedMarker) -->"
+        let t2 = "T v2\n\(ClaudeCodeSkillInstall.managedMarker) -->"
+        try ClaudeCodeSkillInstall.install(installURL: url, template: t1)
+        XCTAssertEqual(ClaudeCodeSkillInstall.detect(installURL: url, template: t1),
                        .installedCurrent)
         // App update ships new template → stale
-        XCTAssertEqual(ClaudeCodeSkillInstall.detect(installURL: url, template: "T v2"),
+        XCTAssertEqual(ClaudeCodeSkillInstall.detect(installURL: url, template: t2),
                        .stale)
-        try ClaudeCodeSkillInstall.install(installURL: url, template: "T v2")
-        XCTAssertEqual(ClaudeCodeSkillInstall.detect(installURL: url, template: "T v2"),
+        try ClaudeCodeSkillInstall.install(installURL: url, template: t2)
+        XCTAssertEqual(ClaudeCodeSkillInstall.detect(installURL: url, template: t2),
                        .installedCurrent)
-        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "T v2")
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), t2)
     }
 
-    func test_userEditedFile_readsAsStale_installOverwritesOnlyOnExplicitCall() throws {
+    func test_userEditedFile_readsAsUserModified_detectNeverWrites() throws {
         try ClaudeCodeSkillInstall.install(installURL: url, template: "T")
         try "user edited".write(to: url, atomically: true, encoding: .utf8)
         XCTAssertEqual(ClaudeCodeSkillInstall.detect(installURL: url, template: "T"),
-                       .stale)
+                       .userModified)
         // detect() must never write:
         XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "user edited")
+    }
+
+    func test_detect_markerDistinguishesStaleFromUserModified() throws {
+        let marked = "T v1\n\(ClaudeCodeSkillInstall.managedMarker) -->"
+        let newer  = "T v2\n\(ClaudeCodeSkillInstall.managedMarker) -->"
+        try ClaudeCodeSkillInstall.install(installURL: url, template: marked)
+        // App update ships a new template: file still Maugham-managed → stale.
+        XCTAssertEqual(ClaudeCodeSkillInstall.detect(installURL: url, template: newer), .stale)
+        // A hand-authored file without the marker must not be silently clobberable.
+        try "my own skill".write(to: url, atomically: true, encoding: .utf8)
+        XCTAssertEqual(ClaudeCodeSkillInstall.detect(installURL: url, template: newer), .userModified)
+    }
+
+    /// The real bundled template must carry the marker, or every install
+    /// would classify as userModified forever. Repo-relative read, same
+    /// technique as DocSyncTests (copy its repo-root discovery).
+    func test_bundledBootstrapTemplate_carriesManagedMarker() throws {
+        // Derive repo root from #filePath as DocSyncTests does.
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // MaughamTests
+            .deletingLastPathComponent()   // repo root
+        let template = try String(contentsOf: repoRoot
+            .appendingPathComponent("docs/skills/maugham-bootstrap/SKILL.md"),
+            encoding: .utf8)
+        XCTAssertTrue(template.contains(ClaudeCodeSkillInstall.managedMarker))
     }
 
     func test_cliCommand_stableAndDevShapes() {
