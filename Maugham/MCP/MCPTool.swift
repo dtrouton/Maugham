@@ -71,6 +71,7 @@ public enum MCPToolCatalog {
         CompileCancelTool.self,
         ListPublicationsTool.self,
         ReadPublicationPageTool.self,
+        ReadPreviewPageTool.self,
         RepublishTool.self,
         SetPieceStyleTool.self,
         ClearPieceStyleTool.self,

@@ -6,7 +6,7 @@ The local MCP server that lets Claude Desktop read and contribute to projects. R
 
 The in-app MCP server: tool registration, JSON-RPC handling, the read/search/discover surface for projects, the `add_note` write path (research-only), the annotation layer (paragraph-anchored comments from Claude), and the bridge between Claude Desktop's stdio and Maugham's Unix socket.
 
-## Tool catalogue (51)
+## Tool catalogue (52)
 
 **Discovery / identity**
 - `list_projects` — enumerate all open Maugham projects
@@ -65,6 +65,7 @@ The in-app MCP server: tool registration, JSON-RPC handling, the read/search/dis
 - `compile_cancel` — cancel an in-progress compile job
 - `list_publications` — enumerate past publication outputs
 - `read_publication_page` — read a page from a compiled PDF
+- `read_preview_page` — rasterize a page of the LATEST preview PDF (newest `.pdf` by mtime in `.maugham/publish/build/preview/`), closing the visual loop for `preview_compile`. No id/version addressing — always reads whatever was previewed last (incl. a language edition, F2); response carries `preview_filename` + `preview_mtime` so staleness is self-evident. Fails loudly when no preview exists; EPUB previews error (PDF-only)
 - `republish` — re-run the last successful compile
 
 **Piece style**
@@ -87,8 +88,8 @@ A **separate** catalog, `TestMCPToolCatalog`, that mirrors `MCPToolCatalog`'s sh
 (`register(router:registry:)`) but is registered onto the **same dev-build Unix socket**
 only inside `#if MAUGHAM_DEV_BUILD` in `MaughamApp.registerTools` — absent from the stable
 binary entirely (enforced by `TripwireGrepTests.test_testMCPCatalog_registeredOnlyUnderDevFlag`).
-It exists for **Claude Code**, not Claude Desktop, and is not part of the production 51-tool
-count above — the "Tool catalogue (51)" heading is unaffected by these tools.
+It exists for **Claude Code**, not Claude Desktop, and is not part of the production 52-tool
+count above — the "Tool catalogue (52)" heading is unaffected by these tools.
 
 Purpose: let Claude Code drive the full create → edit → autosave → checkpoint → quit →
 relaunch → verify loop end to end without the owner acting as a human tester, so the
@@ -149,7 +150,7 @@ URI** (per the draft, names aren't unique identifiers) and fails loudly (protoco
 only — any other URI fails loudly too (Maugham's server has no general resources support).
 These three are **protocol methods**, registered directly on the router in
 `MaughamApp.registerTools` alongside `initialize`/`tools/list`/`tools/call` — not tools,
-so **the tool catalogue count stays 51** whether or not a connecting client speaks the
+so **the tool catalogue count stays 52** whether or not a connecting client speaks the
 extension.
 
 **Content source:** `docs/skills/<name>/SKILL.md` (agentskills.io flat-frontmatter format:

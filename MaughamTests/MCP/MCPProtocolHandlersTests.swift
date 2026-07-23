@@ -54,7 +54,7 @@ final class MCPProtocolHandlersTests: XCTestCase {
             "delete_publish_file",
             "compile", "preview_compile",
             "compile_status", "compile_cancel",
-            "list_publications", "read_publication_page", "republish",
+            "list_publications", "read_publication_page", "read_preview_page", "republish",
             "read_translation", "write_translation", "translation_status",
             "set_piece_style", "clear_piece_style",
             "list_inbox", "read_inbox_entry", "promote_inbox_entry",
