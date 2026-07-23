@@ -692,6 +692,84 @@ final class ResearchMoveTests: XCTestCase {
                        "P lands before S1, not after it")
         await ds.close()
     }
+
+    // MARK: 2026-07-19 sweep W1/W2 — failure-path durability
+
+    /// W2: an orphaned `<stem>_assets/` at the destination (no matching note)
+    /// used to collide mid-relocate — the note + assets pair must dedup jointly.
+    func test_move_orphanAssetsAtDestination_dedupesNoteAndAssetsJointly() async throws {
+        let (url, store, ds, piece) = try await makeCollection()
+        let note = try await store.addResearchTextNote(parentId: nil, title: "Sarah")
+        // The note owns an assets folder + a relative image ref.
+        let assetsURL = url.appendingPathComponent("research/sarah_assets")
+        try FileManager.default.createDirectory(
+            at: assetsURL, withIntermediateDirectories: true)
+        try Data([0xFF]).write(to: assetsURL.appendingPathComponent("img.png"))
+        try await ds.coordinatedWrite(
+            text: "![img](./sarah_assets/img.png)",
+            to: url.appendingPathComponent("research/sarah.md"))
+        // Destination piece research holds an ORPHANED sarah_assets (no sarah.md).
+        let prefix = try XCTUnwrap(ProjectStore.pieceResearchPrefix(for: piece))
+        try FileManager.default.createDirectory(
+            at: url.appendingPathComponent(prefix).appendingPathComponent("sarah_assets"),
+            withIntermediateDirectories: true)
+
+        try await store.moveResearchItems(ids: [note.id], to: .piece(piece.id))
+
+        let moved = try XCTUnwrap(item(store, note.id))
+        XCTAssertTrue(moved.path!.hasSuffix("sarah-2.md"), "got \(moved.path!)")
+        let destFolder = (moved.path! as NSString).deletingLastPathComponent
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: url.appendingPathComponent("\(destFolder)/sarah-2_assets/img.png").path),
+            "assets folder must travel under the deduped stem")
+        let content = try String(  // adr-0018-ok: research-note read, not manuscript
+            contentsOf: url.appendingPathComponent(moved.path!), encoding: .utf8)
+        XCTAssertTrue(content.contains("./sarah-2_assets/"), "refs rewritten: \(content)")
+        await ds.close()
+    }
+
+    /// W2 unit: joint dedup must skip a stem whose `_assets` sibling is taken
+    /// even when the note leaf itself is free.
+    func test_researchDedupedNotePair_avoidsTakenAssetsSibling() {
+        XCTAssertEqual(
+            ProjectStore.researchDedupedNotePair("sarah.md", taken: ["sarah_assets"]),
+            "sarah-2.md")
+        XCTAssertEqual(
+            ProjectStore.researchDedupedNotePair("sarah.md", taken: []),
+            "sarah.md")
+        XCTAssertEqual(
+            ProjectStore.researchDedupedNotePair(
+                "sarah.md", taken: ["sarah.md", "sarah-2_assets"]),
+            "sarah-3.md")
+    }
+
+    /// W1: the post-relocate image-ref rewrite is cosmetic — a write failure
+    /// must NOT throw (the FS move already committed; the manifest rewrite
+    /// that follows must always run). The non-throwing signature is the pin.
+    func test_rewriteAssetRefsBestEffort_swallowsWriteFailure() async throws {
+        let noteURL = temp.url.appendingPathComponent("w1.md")
+        try "![i](./old_assets/i.png)".write(
+            to: noteURL, atomically: true, encoding: .utf8)
+        struct Boom: Error {}
+        await ProjectStore.rewriteAssetRefsBestEffort(
+            oldStem: "old", newStem: "new", noteURL: noteURL,
+            write: { _, _ in throw Boom() })
+        // No throw reached here; file keeps old refs (stale ref, intact move).
+        XCTAssertEqual(try String(contentsOf: noteURL, encoding: .utf8),
+                       "![i](./old_assets/i.png)")
+    }
+
+    /// W1 happy path through the same helper.
+    func test_rewriteAssetRefsBestEffort_rewritesViaWriter() async throws {
+        let noteURL = temp.url.appendingPathComponent("w1b.md")
+        try "![i](./old_assets/i.png)".write(
+            to: noteURL, atomically: true, encoding: .utf8)
+        var written: String?
+        await ProjectStore.rewriteAssetRefsBestEffort(
+            oldStem: "old", newStem: "new", noteURL: noteURL,
+            write: { text, _ in written = text })
+        XCTAssertEqual(written, "![i](./new_assets/i.png)")
+    }
 }
 
 func XCTAssertThrowsErrorAsync<T>(
