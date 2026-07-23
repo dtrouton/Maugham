@@ -22,11 +22,23 @@ The template, preamble, per-piece style files, and a small `config.json` live un
 
 Ask Claude: *"Set up publishing for this project."* It will scaffold the initial template and config, run a test compile, and show you the first page. From there it's an iterative conversation: describe the look you want, and Claude tunes the template until it's right.
 
-### Language editions
+### Language editions and version families
 
-Compiling with a `language` set produces a translated edition, resolving `template.<lang>.tex` and per-piece `<piece>.<lang>.tex` automatically when they exist and falling back to the base file otherwise. That resolution only covers the template and per-piece style files themselves — it doesn't follow `\input` lines inside them. If your template inputs partials (preamble, frontmatter, backmatter), the edition needs its own `template.<lang>.tex` whose `\input` lines point at the `<lang>` partial variants; the resolver picks the template variant, and everything else follows from it.
+A publication is identified by three dimensions: **version, language, and format** — so `1.0/en/pdf`, `1.0/es/pdf`, and `1.0/es/epub` coexist as one family.
 
-Output filenames auto-suffix with the language (e.g. `-es`) unless `filename_template` already includes a `{language}` placeholder, in which case that placeholder is used instead (empty for the source-language edition) — put `{language}` in your template if you want control over where the language tag lands rather than a trailing auto-suffix.
+**The source edition is the authority:** Compile your manuscript in the source language first (no `language` parameter). This is when `next_version` bumps — each source compile gets the next available version number. Once a source publication exists at `1.0`, you can compile translated editions of it.
+
+**Language editions are renderings of existing source versions:** `compile language:es` (without a `version` parameter) renders the latest source publication's version as a Spanish edition — it borrows that source's version number (e.g., `1.0`) as its identity. If you want to pair a translation with a *specific* earlier source version, pass `version: 1.0` alongside `language: es`. Importantly, language compiles never bump `next_version` — translations don't mint new versions, they render existing ones.
+
+The manuscript text in a language edition is the *current* text, not the frozen text from when the source version was compiled. If you need to reproduce a translation exactly as it was, use `republish` on that edition to recreate its output from the same snapshot. 
+
+**Failing-loudly:** If you try to compile a language edition but no source publication exists yet, it refuses with a clear message: *"compile the source edition first or pass version."*
+
+**Coverage gate:** Language editions are behind a translation-coverage gate: paragraphs that aren't yet translated (or are stale because the source changed) block the compile by default. `dry_run: true` answers "would this edition compile right now?" without producing output. If you want to publish a partial edition anyway (for a preview), pass `allow_stale: true` to override the gate.
+
+**Filenames and language tags:** Output filenames auto-suffix with the language (e.g. `-es`) unless your `filename_template` includes a `{language}` placeholder. If it does, that placeholder expands to the language tag for translations, and to nothing for the source edition. The template engine is smart about separators: if a placeholder expands to empty (the source case) and is immediately preceded by a separator like `-`, `_`, or `.`, that separator is dropped, so a single template `{title}-v{version}-{language}.{ext}` yields clean names like `Playlist-v1.0.pdf` and `Playlist-v1.0-es.pdf`.
+
+**Template variants by language:** Compiling with a `language` set resolves `template.<lang>.tex` and per-piece `<piece>.<lang>.tex` automatically when they exist, falling back to the base file otherwise. This resolution only covers the template and per-piece style files themselves — it doesn't follow `\input` lines inside them. If your template inputs partials (preamble, frontmatter, backmatter), the edition needs its own `template.<lang>.tex` whose `\input` lines point at the `<lang>` partial variants; the resolver picks the template variant, and everything else follows from it.
 
 ### Iterating on a subset of a book
 
