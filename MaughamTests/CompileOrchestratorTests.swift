@@ -507,6 +507,14 @@ final class CompileOrchestratorTests: XCTestCase {
         XCTAssertTrue(errs.contains { $0.message.contains("no source v0.1-rabcd") },
                       "got: \(errs.map(\.message))")
         XCTAssertTrue(log.contains("no_source_version"))
+        // T1 re-review: the record DOES exist (as a republished one), so the
+        // refusal must explain the republish-exclusion and name the original,
+        // pinnable version rather than claim nothing exists at that version.
+        let context = errs.flatMap(\.contextLines).joined(separator: "\n")
+        XCTAssertTrue(context.contains("republished record"),
+                      "context must explain the record is republished, got: \(context)")
+        XCTAssertTrue(context.contains("pin the original v0.1"),
+                      "context must name the original pinnable version, got: \(context)")
         let pubs = try await pubStore.load()
         XCTAssertEqual(pubs.count, 2, "refusal must mint nothing")
     }

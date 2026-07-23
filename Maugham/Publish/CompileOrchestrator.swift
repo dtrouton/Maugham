@@ -152,12 +152,25 @@ public struct CompileOrchestrator {
                 $0.language == nil && $0.republishedFrom == nil
                     && $0.version == version
             }) else {
+                // T1 re-review: when the pinned version exists ONLY as a
+                // republished record, "no publication exists at vX" would be
+                // literally false — explain the republish-exclusion and name
+                // the original, pinnable version instead.
+                let existenceLine: String
+                if let repub = existingPublications.first(where: {
+                    $0.language == nil && $0.republishedFrom != nil
+                        && $0.version == version
+                }), let original = repub.republishedFrom {
+                    existenceLine = "v\(version) is a republished record (republished_from: \(original)) — republished versions aren't pinnable as edition sources; pin the original v\(original), or use republish to reproduce the snapshot."
+                } else {
+                    existenceLine = "No source-language publication (language == nil) exists at v\(version)."
+                }
                 let diag = TectonicLogParser.Diagnostic(
                     level: .error, file: nil, line: nil,
                     message: "no source v\(version) to render in \(language!) — compile the source edition first, then render its edition.",
                     contextLines: [
                         "A language edition pins an EXISTING source publication's version.",
-                        "No source-language publication (language == nil) exists at v\(version)."
+                        existenceLine
                     ])
                 await jobManager.fail(
                     jobID: jobID, errors: [diag],
