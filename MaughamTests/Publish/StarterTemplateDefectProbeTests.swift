@@ -294,15 +294,16 @@ final class StarterTemplateDefectProbeTests: XCTestCase {
     // MARK: - 5. F6 title-block hook default-render equivalence
 
     /// F6 moved the fountain title block from hardcoded inline LaTeX to the
-    /// `\screenplaytitleblock{title}{rest}` hook (declared `\providecommand`,
+    /// `\screenplaytitleblock{body}` hook (declared `\providecommand`,
     /// default body reproduces the pre-F6 layout). This probe pins that the
-    /// DEFAULT (no style override) compiled PDF text is unchanged: the title,
-    /// every supporting field, and a following piece's content all still
-    /// appear, the title page still takes its own page, and no macro-call
-    /// syntax leaks into the visible text. Six fields (including a "Draft
-    /// date" declared out of the conventional Title-first position) exercise
-    /// the arity decision recorded on `emitTitlePage`: title is pulled out by
-    /// key, not position, so its rendering doesn't depend on being first.
+    /// DEFAULT (no style override) compiled PDF text is unchanged: every
+    /// field appears IN DECLARED ORDER, a following piece's content still
+    /// appears, the title page still takes its own page, and no macro-call
+    /// syntax leaks into the visible text. Five fields declared with Credit
+    /// BEFORE Title exercise the order-preservation contract recorded on
+    /// `emitTitlePage`: the hook must not hoist the Title field to the front
+    /// (that regression shipped in the first cut of F6 and was caught in
+    /// review precisely because this probe checked presence but not order).
     func test_titlePage_screenplayTitleBlockHook_defaultRenderUnchanged() async throws {
         let fountainWithTitleBlock = """
             Credit: written by
@@ -326,10 +327,27 @@ final class StarterTemplateDefectProbeTests: XCTestCase {
             config: PublishConfig(metadata: .init(title: "Title Block Probe", author: "Tester")))
         let text = fullText(of: pdf)
 
-        for expected in ["written by", "The Distinct Play", "First draft",
-                         "Distinct Author", "agent@example.com"] {
+        let declaredOrder = ["written by", "The Distinct Play", "First draft",
+                             "Distinct Author", "agent@example.com"]
+        for expected in declaredOrder {
             XCTAssertTrue(text.contains(expected),
                 "title-page field \"\(expected)\" missing from rendered PDF text:\n\(text.prefix(2000))")
+        }
+        // Relative order: the fields must render in DECLARED order — Credit
+        // ("written by") before Title, Title before Draft date, etc. A hook
+        // shape that reassembles fields positionally (e.g. hoisting Title
+        // first) passes the presence checks above but fails here.
+        let indices = declaredOrder.map { field -> String.Index in
+            guard let r = text.range(of: field) else {
+                XCTFail("field \"\(field)\" missing (already asserted above)")
+                return text.startIndex
+            }
+            return r.lowerBound
+        }
+        for i in 1..<indices.count {
+            XCTAssertLessThan(indices[i - 1], indices[i],
+                "title-page fields out of declared order: \"\(declaredOrder[i - 1])\" must "
+              + "render before \"\(declaredOrder[i])\". PDF text:\n\(text.prefix(2000))")
         }
         XCTAssertTrue(text.contains("Distinctive action line."),
                       "the screenplay body must still render after the title page")

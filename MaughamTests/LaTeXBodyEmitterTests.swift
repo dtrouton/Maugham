@@ -300,9 +300,9 @@ final class LaTeXBodyEmitterTests: XCTestCase {
     func testEmits_fountainTitlePage_screenplayTitleBlockHook() {
         // F6: the title block emits through the \screenplaytitleblock hook —
         // declared once per fountain section (with the other fountain
-        // providecommands) and invoked with the title rendering split from
-        // every other field, each escaped, so a style file can restyle the
-        // whole block.
+        // providecommands) and invoked with a single argument carrying all
+        // fields in DECLARED order, each escaped, so a style file can restyle
+        // the whole block.
         let ast = ProjectAST(sections: [
             .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
                 .fountain(.titlePage([
@@ -316,11 +316,31 @@ final class LaTeXBodyEmitterTests: XCTestCase {
             body.components(separatedBy: "\\providecommand{\\screenplaytitleblock}").count - 1,
             1, "the providecommand declaration must appear exactly once per fountain section")
         XCTAssertTrue(body.contains(
-            "\\providecommand{\\screenplaytitleblock}[2]{\\begin{center}\\vspace*{1.5in}#1#2\\end{center}\\clearpage}"),
-            "default body must reproduce the pre-F6 hardcoded layout")
+            "\\providecommand{\\screenplaytitleblock}[1]{\\begin{center}\\vspace*{1.5in}#1\\end{center}\\clearpage}"),
+            "default body must reproduce the pre-F6 hardcoded frame")
         XCTAssertTrue(body.contains(
-            "\\screenplaytitleblock{{\\Large\\textbf{Good Luck Babe}}\\par\\vspace{1.5em}}{Chappell Roan\\par}"),
-            "macro call must split title from the remaining fields; body:\n\(body)")
+            "\\screenplaytitleblock{{\\Large\\textbf{Good Luck Babe}}\\par\n\\vspace{1.5em}\nChappell Roan\\par}"),
+            "macro call must carry the fields in declared order; body:\n\(body)")
+    }
+
+    func testEmits_fountainTitlePage_screenplayTitleBlock_preservesDeclaredOrder() {
+        // The tokenizer preserves as-authored order (Credit before Title is
+        // legal); the pre-F6 emitter rendered in that order, so the hook call
+        // must too — the Title field keeps its typography but is NOT hoisted
+        // to the front.
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.titlePage([
+                    .init(key: "Credit", value: "written by"),
+                    .init(key: "Title", value: "The Play"),
+                    .init(key: "Author", value: "A. Writer"),
+                ]))
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains(
+            "\\screenplaytitleblock{written by\\par\n{\\Large\\textbf{The Play}}\\par\n\\vspace{1.5em}\nA. Writer\\par}"),
+            "Credit declared before Title must render before Title; body:\n\(body)")
     }
 
     func testEmits_fountainTitlePage_screenplayTitleBlock_escapesArgs() {
@@ -333,14 +353,13 @@ final class LaTeXBodyEmitterTests: XCTestCase {
             ])
         ])
         let body = LaTeXBodyEmitter.emit(ast)
-        XCTAssertTrue(body.contains("100\\% Payback \\& Co."), "title arg must be escaped")
-        XCTAssertTrue(body.contains("A\\_B\\par"), "rest arg must be escaped")
+        XCTAssertTrue(body.contains("100\\% Payback \\& Co."), "title field must be escaped")
+        XCTAssertTrue(body.contains("A\\_B\\par"), "other fields must be escaped")
     }
 
     func testEmits_fountainTitlePage_screenplayTitleBlock_noTitleField() {
-        // A title page with no "Title" key: the title arg is an empty group,
-        // the rest still renders (matches today's behavior: only "Title" was
-        // ever special-cased).
+        // A title page with no "Title" key renders its fields plain (matches
+        // today's behavior: only "Title" was ever special-cased).
         let ast = ProjectAST(sections: [
             .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
                 .fountain(.titlePage([
@@ -349,7 +368,7 @@ final class LaTeXBodyEmitterTests: XCTestCase {
             ])
         ])
         let body = LaTeXBodyEmitter.emit(ast)
-        XCTAssertTrue(body.contains("\\screenplaytitleblock{}{Agent Name\\par}"))
+        XCTAssertTrue(body.contains("\\screenplaytitleblock{Agent Name\\par}"))
     }
 
     func testEmits_proseSection_screenplayTitleBlockNeverEmitted() {

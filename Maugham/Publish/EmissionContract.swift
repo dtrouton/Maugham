@@ -191,10 +191,11 @@ public enum EmissionContract {
     pieces.
 
     **`\\screenplaytitleblock` (F6).** The fountain title block emits via \
-    `\\screenplaytitleblock{title}{rest}`, `\\providecommand`-declared per \
-    fountain section alongside `\\lyricline`/`\\centeredline`/`\\scenenumber` \
-    (default reproduces the classic centered title-page layout byte-for-byte). \
-    It is a sanctioned restyle hook, same class as `\\pieceheading` above — a \
+    `\\screenplaytitleblock{body}` (one argument: all title-page fields in \
+    declared order), `\\providecommand`-declared per fountain section \
+    alongside `\\lyricline`/`\\centeredline`/`\\scenenumber` (default \
+    reproduces the classic centered title-page layout byte-for-byte). It is \
+    a sanctioned restyle hook, same class as `\\pieceheading` above — a \
     dedicated per-purpose command, not a shared kernel one — so restyle it \
     directly rather than reaching into kernel commands to fake the effect.
     """
