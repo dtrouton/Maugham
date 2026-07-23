@@ -72,6 +72,8 @@ final class RepublisherTests: XCTestCase {
             XCTAssertEqual(pub.republishedFrom, "0.1")
         case .failed(let errors, let log):
             XCTFail("republish failed: errors=\(errors.map(\.message)) log=\(log.prefix(300))")
+        case .dryRunPassed:
+            XCTFail("republish never produces dry_run_passed")
         }
     }
 
@@ -134,6 +136,8 @@ final class RepublisherTests: XCTestCase {
                           "expected language-suffixed republish filename, got \(pub.outputPath)")
         case .failed(let errors, let log):
             XCTFail("republish failed: errors=\(errors.map(\.message)) log=\(log.prefix(300))")
+        case .dryRunPassed:
+            XCTFail("republish never produces dry_run_passed")
         }
     }
 
@@ -305,6 +309,8 @@ final class RepublisherTests: XCTestCase {
                 "expected language-suffixed republish filename, got \(pub.outputPath)")
         case .failed(let errors, let log):
             XCTFail("republish failed: errors=\(errors.map(\.message)) log=\(log.prefix(300))")
+        case .dryRunPassed:
+            XCTFail("republish never produces dry_run_passed")
         }
     }
 

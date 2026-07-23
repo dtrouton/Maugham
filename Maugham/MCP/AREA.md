@@ -59,8 +59,8 @@ The in-app MCP server: tool registration, JSON-RPC handling, the read/search/dis
 - `read_publish_image` — read a publish image with crop-on-demand
 - `write_publish_file` — write a template or config file
 - `delete_publish_file` — delete a publish file
-- `compile` — compile a project to PDF or EPUB via bundled tectonic
-- `preview_compile` — dry-run compile (no output written)
+- `compile` — compile a project to PDF or EPUB via bundled tectonic. `language`/`allow_stale` select a translated edition (behind the coverage gate); `dry_run: true` runs the version-collision guard + coverage gate and returns the verdict (`{status: dry_run_passed, warnings}` or the failed/gate-blocked shape) with NO output, NO Publication, NO version bump (F2)
+- `preview_compile` — fast subset compile, no output/Publication/version bump. `section_ids` scopes the pieces; `language`/`allow_stale` mirror compile to preview a translated edition behind the SAME coverage gate, scoped to exactly the pieces this preview renders (F2)
 - `compile_status` — poll an in-progress compile job
 - `compile_cancel` — cancel an in-progress compile job
 - `list_publications` — enumerate past publication outputs

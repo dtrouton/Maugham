@@ -390,6 +390,67 @@ final class TranslationCoverageGateTests: XCTestCase {
         XCTAssertFalse(excluded.isBlocked)
     }
 
+    // MARK: - F2: dry_run returns the gate verdict, mutating nothing
+
+    /// A stale/missing edition dry_run (no allow_stale) returns the same
+    /// `.failed` block a real compile would, and mints no Publication / doesn't
+    /// bump the version.
+    func test_dryRun_blockedGate_failsWithoutMinting() async throws {
+        let fx = try await makeCompileFixture(content: """
+        First paragraph.
+
+        Second paragraph.
+        """)
+        let ids = fx.doc.sequence
+        // p0 fresh, p1 missing.
+        try await writeTranslation(fx, paragraphID: ids[0], text: "Uno.",
+                                   sourceHash: sourceHash(fx, ids[0]))
+
+        let before = try await fx.stores.configStore.load()!
+        let outcome = try await orchestrator(fx, language: "es", allowStale: false)
+            .compile(format: .epub, label: nil, language: "es",
+                     allowStale: false, dryRun: true)
+        guard case .failed = outcome else {
+            return XCTFail("blocked dry_run must fail, got \(outcome)")
+        }
+        XCTAssertTrue(errors(outcome).map(\.message).joined().contains("¶\(ids[1])"))
+
+        let pubs = try await fx.stores.publicationStore.load()
+        XCTAssertTrue(pubs.isEmpty, "blocked dry_run must mint no Publication")
+        let after = try await fx.stores.configStore.load()!
+        XCTAssertEqual(after.nextVersion, before.nextVersion,
+                       "dry_run must not bump next_version")
+    }
+
+    /// A fully-fresh edition dry_run returns `.dryRunPassed` (the verdict a real
+    /// compile would have produced) without minting a Publication or bumping the
+    /// version.
+    func test_dryRun_freshGate_passesWithoutMinting() async throws {
+        let fx = try await makeCompileFixture(content: """
+        First paragraph.
+
+        Second paragraph.
+        """)
+        for id in fx.doc.sequence {
+            try await writeTranslation(fx, paragraphID: id, text: "traducción",
+                                       sourceHash: sourceHash(fx, id))
+        }
+
+        let before = try await fx.stores.configStore.load()!
+        let outcome = try await orchestrator(fx, language: "es", allowStale: false)
+            .compile(format: .epub, label: nil, language: "es",
+                     allowStale: false, dryRun: true)
+        guard case .dryRunPassed = outcome else {
+            return XCTFail("fresh dry_run must pass, got \(outcome)")
+        }
+
+        let pubs = try await fx.stores.publicationStore.load()
+        XCTAssertTrue(pubs.isEmpty, "passing dry_run must mint no Publication")
+        let after = try await fx.stores.configStore.load()!
+        XCTAssertEqual(after.nextVersion, before.nextVersion,
+                       "dry_run must not bump next_version")
+    }
+
     // MARK: - two-doc fixture (F1)
 
     private struct TwoDocFixture {

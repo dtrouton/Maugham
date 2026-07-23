@@ -110,8 +110,8 @@ final class CompileOrchestratorTests: XCTestCase {
             XCTAssertFalse(errs.isEmpty, "expected structured error in errors[]")
             XCTAssertTrue(errs.contains { $0.message.contains("0.1") && $0.message.lowercased().contains("already exists") })
             XCTAssertTrue(log.contains("version_collision"))
-        case .completed:
-            XCTFail("expected .failed due to version collision; got .completed")
+        case .completed, .dryRunPassed:
+            XCTFail("expected .failed due to version collision; got \(result)")
         }
 
         // Verify no new Publication was minted.
@@ -196,5 +196,90 @@ final class CompileOrchestratorTests: XCTestCase {
         }
         let filtered = IncludeFilteredASTSource(base: Src(), excludedSectionIDs: [])
         XCTAssertEqual(filtered.orderedPieces().map(\.pieceID), ["p1", "p2"])
+    }
+
+    // MARK: - F2: dry_run runs the gates but mutates nothing
+
+    struct OneSrc: ProjectASTBuilder.Source {
+        func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+            [.init(pieceID: "p1", title: "C", mode: .prose, displayText: "Hi.")]
+        }
+    }
+
+    /// dry_run returns `.dryRunPassed` and leaves publications list, config
+    /// `nextVersion`, and the Exports output directory untouched. (No tectonic
+    /// needed — dry_run short-circuits before any compile.)
+    func testDryRun_pdf_noPublicationNoVersionBumpNoOutput() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(
+            metadata: .init(title: "Dry", author: "T")))
+
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: OneSrc(),
+            configStore: configStore,
+            publicationStore: PublicationStore(projectURL: tmp),
+            snapshotStore: PublicationSnapshotStore(projectURL: tmp),
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test",
+            tectonicVersion: "0.15.0")
+
+        let result = try await orch.compile(format: .pdf, label: nil, dryRun: true)
+        guard case .dryRunPassed(let warnings) = result else {
+            return XCTFail("expected .dryRunPassed, got \(result)")
+        }
+        XCTAssertTrue(warnings.isEmpty, "source-language dry_run has no gate warnings")
+
+        // No Publication minted.
+        let pubs = try await PublicationStore(projectURL: tmp).load()
+        XCTAssertTrue(pubs.isEmpty, "dry_run must not mint a Publication")
+        // Version not bumped.
+        let cfg = try await configStore.load()
+        XCTAssertEqual(cfg?.nextVersion, "0.1", "dry_run must not bump next_version")
+        // No Exports output directory created.
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: tmp.appendingPathComponent("Exports").path),
+            "dry_run must not write any output")
+    }
+
+    /// dry_run surfaces the version-collision it would hit (the guard runs
+    /// before the dry_run short-circuit) but still mutates nothing.
+    func testDryRun_reportsVersionCollisionWithoutMinting() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        var cfg = PublishConfig(metadata: .init(title: "Collide", author: "T"))
+        cfg.nextVersion = "0.1"
+        try await configStore.save(cfg)
+
+        let pubStore = PublicationStore(projectURL: tmp)
+        try await pubStore.append(Publication(
+            publicationID: "pub-pre-existing",
+            version: "0.1", label: nil, format: .pdf,
+            outputPath: "Exports/pre.pdf",
+            snapshotID: "snap-x", checkpointID: "",
+            republishedFrom: nil,
+            compiledAt: Date(),
+            maughamVersion: "0.0.0-test",
+            tectonicVersion: "0.15.0"))
+
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: OneSrc(),
+            configStore: configStore,
+            publicationStore: pubStore,
+            snapshotStore: PublicationSnapshotStore(projectURL: tmp),
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test",
+            tectonicVersion: "0.15.0")
+
+        let result = try await orch.compile(format: .pdf, label: nil, dryRun: true)
+        guard case .failed(let errs, let log) = result else {
+            return XCTFail("expected .failed from collision guard, got \(result)")
+        }
+        XCTAssertTrue(errs.contains { $0.message.lowercased().contains("already exists") })
+        XCTAssertTrue(log.contains("version_collision"))
+
+        // Still exactly the seeded Publication.
+        let pubs = try await pubStore.load()
+        XCTAssertEqual(pubs.count, 1)
+        XCTAssertEqual(pubs.first?.publicationID, "pub-pre-existing")
     }
 }

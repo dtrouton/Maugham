@@ -191,4 +191,52 @@ final class CompileToolsTests: XCTestCase {
             XCTAssertEqual(payload.error, "unknown_project_id")
         }
     }
+
+    // F2: preview_compile validates `language` the same way compile does.
+    func testPreview_invalidLanguageTag_rejected() async throws {
+        await XCTAssertThrowsErrorAsync(
+            try await PreviewCompileTool.handle(
+                paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"pdf","language":"ES!"}"#.utf8),
+                registry: registry)
+        ) { error in
+            guard case MCPError.invalidArgument = error else {
+                return XCTFail("expected MCPError.invalidArgument, got \(error)")
+            }
+        }
+    }
+
+    // MARK: - F2: compile dry_run
+
+    /// dry_run returns `dry_run_passed` (no tectonic needed — it short-circuits
+    /// before compiling) and mints no Publication.
+    func testCompile_dryRun_returnsDryRunPassed_noPublication() async throws {
+        let data = try await CompileTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"pdf","dry_run":true}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(resp?["status"] as? String, "dry_run_passed",
+                       "unexpected response: \(resp ?? [:])")
+        XCTAssertNotNil(resp?["warnings"])
+
+        let stores = PublishingStores.sharedFor(projectID: pid, projectURL: projectURL)
+        let pubs = try await stores.publicationStore.load()
+        XCTAssertTrue(pubs.isEmpty, "dry_run must not mint a Publication")
+    }
+
+    // MARK: - F2: schema round-trip for the new params
+
+    func testSchema_compile_declaresDryRun() throws {
+        let obj = try JSONSerialization.jsonObject(
+            with: Data(CompileTool.inputSchemaJSON.utf8)) as? [String: Any]
+        let props = obj?["properties"] as? [String: Any]
+        XCTAssertNotNil(props?["dry_run"], "compile schema must declare dry_run")
+    }
+
+    func testSchema_preview_declaresLanguageAndAllowStale() throws {
+        let obj = try JSONSerialization.jsonObject(
+            with: Data(PreviewCompileTool.inputSchemaJSON.utf8)) as? [String: Any]
+        let props = obj?["properties"] as? [String: Any]
+        XCTAssertNotNil(props?["language"], "preview schema must declare language")
+        XCTAssertNotNil(props?["allow_stale"], "preview schema must declare allow_stale")
+    }
 }

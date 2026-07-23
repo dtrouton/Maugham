@@ -6,6 +6,11 @@ public struct CompileOrchestrator {
     public enum Outcome: Sendable {
         case completed(Publication, warnings: [TectonicLogParser.Diagnostic])
         case failed(errors: [TectonicLogParser.Diagnostic], logExcerpt: String)
+        /// F2 `dry_run`: the coverage gate (and the version-collision guard)
+        /// passed, but nothing was compiled, snapshotted, minted, or version-
+        /// bumped. Carries the same gate warnings a real compile would ride out
+        /// on its success path.
+        case dryRunPassed(warnings: [TectonicLogParser.Diagnostic])
     }
 
     public let projectURL: URL
@@ -41,7 +46,8 @@ public struct CompileOrchestrator {
         format: PublishConfig.Format,
         label: String?,
         language: String? = nil,
-        allowStale: Bool = false
+        allowStale: Bool = false,
+        dryRun: Bool = false
     ) async throws -> Outcome {
         let jobID = await jobManager.register(phase: .renderingBody)
 
@@ -138,6 +144,19 @@ public struct CompileOrchestrator {
             case .passed(let warnings):
                 gateWarnings += warnings
             }
+        }
+
+        // F2 dry_run: short-circuit AFTER the version-collision guard and the
+        // coverage gate (both of which report a would-be failure with the
+        // standard `.failed` shape above) but BEFORE any mutation — no snapshot,
+        // no compile, no Publication, no event, no version bump, no output file.
+        // Returns the gate verdict (any allow_stale/fountain-drift warnings) so
+        // the caller can see exactly what a real compile would emit. The job is
+        // closed cleanly with an empty output so it doesn't linger in-progress.
+        if dryRun {
+            await jobManager.complete(
+                jobID: jobID, outputPath: "", warnings: gateWarnings, errors: [])
+            return .dryRunPassed(warnings: gateWarnings)
         }
 
         // Capture snapshot BEFORE compile so it reflects the source state used.
