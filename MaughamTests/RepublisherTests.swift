@@ -100,12 +100,22 @@ final class RepublisherTests: XCTestCase {
         let configStore = PublishConfigStore(projectURL: tmp)
         try await configStore.save(PublishConfig(metadata: .init(title: "RepubLang", author: "T")))
 
-        // 1. Initial Spanish-edition compile creates v0.1 + a snapshot whose
+        // Edition identity (spec 2026-07-23): a language edition renders an
+        // EXISTING source version, so seed a source publication at 0.1 first —
+        // the es compile targets it rather than minting its own version.
+        let pubStore = PublicationStore(projectURL: tmp)
+        try await pubStore.append(Publication(
+            publicationID: "pub-src", version: "0.1", label: nil, format: .pdf,
+            outputPath: "Exports/src.pdf", snapshotID: "snap-src", checkpointID: "",
+            republishedFrom: nil, compiledAt: Date(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0", language: nil))
+
+        // 1. Initial Spanish-edition compile renders v0.1 + a snapshot whose
         //    Publication.language is "es".
         let orch = CompileOrchestrator(
             projectURL: tmp, astSource: Src(),
             configStore: configStore,
-            publicationStore: PublicationStore(projectURL: tmp),
+            publicationStore: pubStore,
             snapshotStore: PublicationSnapshotStore(projectURL: tmp),
             jobManager: CompileJobManager(),
             maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0")
@@ -198,10 +208,21 @@ final class RepublisherTests: XCTestCase {
                 in: projectURL)
         }
 
+        // Edition identity (spec 2026-07-23): every consumer of this fixture
+        // compiles a language ("es") edition, which now renders an EXISTING
+        // source version rather than minting its own. Seed a source publication
+        // at 0.1 so the es compile resolves to it.
+        let publicationStore = PublicationStore(projectURL: projectURL)
+        try await publicationStore.append(Publication(
+            publicationID: "pub-src", version: "0.1", label: nil, format: .epub,
+            outputPath: "Exports/src.epub", snapshotID: "snap-src", checkpointID: "",
+            republishedFrom: nil, compiledAt: Date(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0", language: nil))
+
         return GatedRepubFixture(
             projectURL: projectURL, item: item, doc: doc, store: store,
             configStore: configStore,
-            publicationStore: PublicationStore(projectURL: projectURL),
+            publicationStore: publicationStore,
             snapshotStore: PublicationSnapshotStore(projectURL: projectURL),
             jobManager: CompileJobManager())
     }
@@ -500,10 +521,20 @@ final class RepublisherTests: XCTestCase {
         try await fresh(ids[0], doc.paragraphs[ids[0]] ?? "")
         try await fresh(ids[1], "EL CAPITÁN\nPreparen a los hombres.")
 
+        // Edition identity (spec 2026-07-23): seed a source publication so the
+        // consumer's language ("es") compile renders it rather than minting a
+        // new version.
+        let publicationStore = PublicationStore(projectURL: projectURL)
+        try await publicationStore.append(Publication(
+            publicationID: "pub-src", version: "0.1", label: nil, format: .epub,
+            outputPath: "Exports/src.epub", snapshotID: "snap-src", checkpointID: "",
+            republishedFrom: nil, compiledAt: Date(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0", language: nil))
+
         return FountainRepubFixture(
             projectURL: projectURL, item: item, doc: doc, store: store,
             configStore: configStore,
-            publicationStore: PublicationStore(projectURL: projectURL),
+            publicationStore: publicationStore,
             snapshotStore: PublicationSnapshotStore(projectURL: projectURL),
             jobManager: CompileJobManager())
     }

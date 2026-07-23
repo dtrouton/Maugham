@@ -59,6 +59,11 @@ final class CompileToolsTests: XCTestCase {
     // Finding 3: `CompileResponseEncoder.encodeCompleted` surfaced `label`
     // but not `language`. A language compile's response must carry the tag
     // so callers (and republish flows) can see which edition was produced.
+    //
+    // Edition identity (spec 2026-07-23): a language edition now renders an
+    // EXISTING source version rather than minting its own, so seed a source
+    // publication first — without it the es compile fails loudly ("compile the
+    // source edition first"). The edition's version must equal the source's.
     func testCompile_pdf_language_completedSync_surfacesLanguageKey() async throws {
         let testBundlePath = Bundle(for: CompileToolsTests.self).bundlePath
         let appPath = testBundlePath.replacingOccurrences(
@@ -67,6 +72,13 @@ final class CompileToolsTests: XCTestCase {
             at: URL(fileURLWithPath: appPath))) != nil else {
             throw XCTSkip("tectonic binary not bundled in test host")
         }
+        let stores = PublishingStores.sharedFor(projectID: pid, projectURL: projectURL)
+        try await stores.publicationStore.append(Publication(
+            publicationID: "pub-src", version: "0.1", label: nil, format: .pdf,
+            outputPath: "Exports/src.pdf", snapshotID: "snap-src", checkpointID: "",
+            republishedFrom: nil, compiledAt: Date(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0", language: nil))
+
         let data = try await CompileTool.handle(
             paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"pdf","language":"es","wait_seconds":120}"#.utf8),
             registry: registry)
@@ -74,6 +86,40 @@ final class CompileToolsTests: XCTestCase {
         XCTAssertEqual(resp?["status"] as? String, "completed",
                        "unexpected response: \(resp ?? [:])")
         XCTAssertEqual(resp?["language"] as? String, "es")
+        XCTAssertEqual(resp?["version"] as? String, "0.1",
+                       "es edition renders the source version, not a new one")
+    }
+
+    // Edition identity (spec 2026-07-23): tool-level refusal shapes. These fail
+    // during version resolution / the collision guard — BEFORE any tectonic
+    // compile — so they're deterministic without a bundled tectonic.
+
+    /// A `language` compile with no source publication surfaces the standard
+    /// failed shape naming the remedy.
+    func testCompile_language_noSourcePublication_returnsFailed() async throws {
+        let data = try await CompileTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"epub","language":"es","wait_seconds":1}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(resp?["status"] as? String, "failed",
+                       "unexpected response: \(resp ?? [:])")
+        let errors = resp?["errors"] as? [[String: Any]]
+        let message = (errors ?? []).compactMap { $0["message"] as? String }.joined()
+        XCTAssertTrue(message.contains("compile the source edition first"),
+                      "got: \(message)")
+    }
+
+    /// `version:` without `language:` is refused at the tool boundary too.
+    func testCompile_versionWithoutLanguage_returnsFailed() async throws {
+        let data = try await CompileTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"epub","version":"0.1","wait_seconds":1}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(resp?["status"] as? String, "failed",
+                       "unexpected response: \(resp ?? [:])")
+        let errors = resp?["errors"] as? [[String: Any]]
+        let message = (errors ?? []).compactMap { $0["message"] as? String }.joined()
+        XCTAssertTrue(message.contains("requires a language"), "got: \(message)")
     }
 
     func testCompile_returnsJobID_whenWaitExpired() async throws {
@@ -309,6 +355,14 @@ final class CompileToolsTests: XCTestCase {
             with: Data(CompileTool.inputSchemaJSON.utf8)) as? [String: Any]
         let props = obj?["properties"] as? [String: Any]
         XCTAssertNotNil(props?["dry_run"], "compile schema must declare dry_run")
+    }
+
+    // Edition identity (spec 2026-07-23): the pinned-version param is advertised.
+    func testSchema_compile_declaresVersion() throws {
+        let obj = try JSONSerialization.jsonObject(
+            with: Data(CompileTool.inputSchemaJSON.utf8)) as? [String: Any]
+        let props = obj?["properties"] as? [String: Any]
+        XCTAssertNotNil(props?["version"], "compile schema must declare version")
     }
 
     func testSchema_preview_declaresLanguageAndAllowStale() throws {

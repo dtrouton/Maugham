@@ -71,8 +71,25 @@ final class TranslationCoverageGateTests: XCTestCase {
         cfg.languageOverrides = ["es": .init(metadata: ["title": "Título"])]
         try await stores.configStore.save(cfg)
 
+        // Edition identity (spec 2026-07-23): an es compile renders an EXISTING
+        // source version, so seed a source publication at 0.1 — without it the
+        // language compile fails during version resolution BEFORE the coverage
+        // gate these scenarios exercise.
+        try await stores.publicationStore.append(seedSourcePublication())
+
         return CompileFixture(
             store: store, docID: item.id, doc: doc, stores: stores, projectURL: projectURL)
+    }
+
+    /// A source-language Publication (language == nil) at v0.1 — the source
+    /// version an `es` edition renders. Format is irrelevant to the resolution
+    /// (it only checks language == nil at the version).
+    private func seedSourcePublication() -> Publication {
+        Publication(
+            publicationID: "pub-src", version: "0.1", label: nil, format: .epub,
+            outputPath: "Exports/src.epub", snapshotID: "snap-src", checkpointID: "",
+            republishedFrom: nil, compiledAt: Date(),
+            maughamVersion: "9.9.9", tectonicVersion: "0.15.0", language: nil)
     }
 
     private func orchestrator(_ fx: CompileFixture, language: String, allowStale: Bool)
@@ -415,8 +432,13 @@ final class TranslationCoverageGateTests: XCTestCase {
         }
         XCTAssertTrue(errors(outcome).map(\.message).joined().contains("¶\(ids[1])"))
 
+        // Only the seeded source publication remains — the blocked dry_run
+        // minted no NEW (es) Publication (spec 2026-07-23 seeding).
         let pubs = try await fx.stores.publicationStore.load()
-        XCTAssertTrue(pubs.isEmpty, "blocked dry_run must mint no Publication")
+        XCTAssertEqual(pubs.count, 1,
+                       "only the seeded source publication may remain: \(pubs)")
+        XCTAssertNil(pubs.first?.language,
+                     "the sole remaining publication is the seeded source (language == nil)")
         let after = try await fx.stores.configStore.load()!
         XCTAssertEqual(after.nextVersion, before.nextVersion,
                        "dry_run must not bump next_version")
@@ -444,8 +466,13 @@ final class TranslationCoverageGateTests: XCTestCase {
             return XCTFail("fresh dry_run must pass, got \(outcome)")
         }
 
+        // Only the seeded source publication remains — the passing dry_run
+        // minted no NEW (es) Publication (spec 2026-07-23 seeding).
         let pubs = try await fx.stores.publicationStore.load()
-        XCTAssertTrue(pubs.isEmpty, "passing dry_run must mint no Publication")
+        XCTAssertEqual(pubs.count, 1,
+                       "only the seeded source publication may remain: \(pubs)")
+        XCTAssertNil(pubs.first?.language,
+                     "the sole remaining publication is the seeded source (language == nil)")
         let after = try await fx.stores.configStore.load()!
         XCTAssertEqual(after.nextVersion, before.nextVersion,
                        "dry_run must not bump next_version")
@@ -503,6 +530,11 @@ final class TranslationCoverageGateTests: XCTestCase {
         cfg.metadata.language = "en"
         cfg.languageOverrides = ["es": .init(metadata: ["title": "Título"])]
         try await stores.configStore.save(cfg)
+
+        // Edition identity (spec 2026-07-23): seed a source publication so the
+        // es compile resolves to it rather than failing loudly (see
+        // `makeCompileFixture`).
+        try await stores.publicationStore.append(seedSourcePublication())
 
         return TwoDocFixture(
             store: store, docA: (idA, docA), docB: (idB, docB),

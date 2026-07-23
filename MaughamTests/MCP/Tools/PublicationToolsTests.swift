@@ -286,6 +286,15 @@ final class PublicationToolsTests: XCTestCase {
             rec, forDocId: item.id, deviceSlug: DeviceSlug.make(from: "test-mac"),
             in: projectURL)
 
+        // Edition identity (spec 2026-07-23): the es edition renders an EXISTING
+        // source version, so seed a source publication at 0.1 first. `load()`
+        // preserves append order, so the es edition remains `pubs.last` below.
+        try await stores.publicationStore.append(Publication(
+            publicationID: "pub-src", version: "0.1", label: nil, format: .epub,
+            outputPath: "Exports/src.epub", snapshotID: "snap-src", checkpointID: "",
+            republishedFrom: nil, compiledAt: Date(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0", language: nil))
+
         // 1. Gated "es" compile via the MCP tool. EPUB is pure Swift (no
         //    bundled tectonic) and lets this test inspect the actual body text.
         let compileData = try await CompileTool.handle(
@@ -462,6 +471,173 @@ final class PublicationToolsTests: XCTestCase {
         } catch let MCPError.invalidArgument(msg) {
             XCTAssertTrue(msg.lowercased().contains("publication_id")
                           || msg.lowercased().contains("version"))
+        }
+    }
+
+    // MARK: - Edition identity (spec 2026-07-23): language filter + disambiguation
+
+    /// Seeds a source (`language: nil`) publication and an "es" edition
+    /// sharing the SAME version, appended source-first — mirrors
+    /// `seedCollidingPublications` but the two family members differ by
+    /// `language`, not by `compiledAt` order, so tests can prove `language`
+    /// (not just append order) drives resolution.
+    private func seedLanguageFamily() async throws -> (source: Publication, es: Publication) {
+        let stores = PublishingStores.sharedFor(
+            projectID: pid!, projectURL: projectURL)
+        let source = Publication(
+            publicationID: "pub-source-test",
+            version: "1.0", label: nil, format: .pdf,
+            outputPath: "Exports/source.pdf",
+            snapshotID: "snap-source", checkpointID: "",
+            republishedFrom: nil,
+            compiledAt: Date(timeIntervalSinceNow: -3600),
+            maughamVersion: "0.0.0-test",
+            tectonicVersion: "0.15.0",
+            language: nil)
+        let es = Publication(
+            publicationID: "pub-es-test",
+            version: "1.0", label: nil, format: .pdf,
+            outputPath: "Exports/es.pdf",
+            snapshotID: "snap-es", checkpointID: "",
+            republishedFrom: nil,
+            compiledAt: Date(),
+            maughamVersion: "0.0.0-test",
+            tectonicVersion: "0.15.0",
+            language: "es")
+        try await stores.publicationStore.append(source)
+        try await stores.publicationStore.append(es)
+        return (source, es)
+    }
+
+    func testList_rowsSurfaceLanguage_nullForSource() async throws {
+        let (source, _) = try await seedLanguageFamily()
+        let data = try await ListPublicationsTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","publication_id":"\#(source.publicationID)"}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        let pubs = resp["publications"] as? [[String: Any]] ?? []
+        XCTAssertEqual(pubs.count, 1)
+        // Every row must carry an explicit "language" key, not merely omit
+        // it — nil surfaces as JSON null, not a missing key.
+        XCTAssertTrue(pubs.first?["language"] is NSNull,
+                      "expected explicit null for the source row, got: \(String(describing: pubs.first?["language"]))")
+    }
+
+    func testList_rowsSurfaceLanguage_tagForEdition() async throws {
+        let (_, es) = try await seedLanguageFamily()
+        let data = try await ListPublicationsTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","publication_id":"\#(es.publicationID)"}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        let pubs = resp["publications"] as? [[String: Any]] ?? []
+        XCTAssertEqual(pubs.count, 1)
+        XCTAssertEqual(pubs.first?["language"] as? String, "es")
+    }
+
+    func testList_filtersByLanguage_exactTag() async throws {
+        _ = try await seedLanguageFamily()
+        let data = try await ListPublicationsTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","language":"es"}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        let pubs = resp["publications"] as? [[String: Any]] ?? []
+        XCTAssertEqual(pubs.count, 1)
+        XCTAssertEqual(pubs.first?["language"] as? String, "es")
+    }
+
+    func testList_filtersByLanguage_sourceSentinelSelectsNilRows() async throws {
+        _ = try await seedLanguageFamily()
+        let data = try await ListPublicationsTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","language":"source"}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        let pubs = resp["publications"] as? [[String: Any]] ?? []
+        XCTAssertEqual(pubs.count, 1)
+        XCTAssertTrue(pubs.first?["language"] is NSNull,
+                      "\"source\" sentinel must select the language==nil row")
+    }
+
+    func testReadPage_versionAndLanguage_resolvesEditionFamilyMember() async throws {
+        _ = try await seedLanguageFamily()
+        do {
+            _ = try await ReadPublicationPageTool.handle(
+                paramsJSON: Data(#"{"project_id":"\#(pid!)","version":"1.0","language":"es","page_number":1}"#.utf8),
+                registry: registry)
+            XCTFail("expected throw — fixture has no PDF on disk")
+        } catch let MCPError.internalError(msg) {
+            XCTAssertTrue(msg.contains("es.pdf"),
+                          "expected error to reference es.pdf (the es edition's outputPath), got: \(msg)")
+            XCTAssertFalse(msg.contains("source.pdf"))
+        }
+    }
+
+    func testReadPage_versionAndLanguageSource_resolvesSourceFamilyMember() async throws {
+        _ = try await seedLanguageFamily()
+        do {
+            _ = try await ReadPublicationPageTool.handle(
+                paramsJSON: Data(#"{"project_id":"\#(pid!)","version":"1.0","language":"source","page_number":1}"#.utf8),
+                registry: registry)
+            XCTFail("expected throw — fixture has no PDF on disk")
+        } catch let MCPError.internalError(msg) {
+            XCTAssertTrue(msg.contains("source.pdf"),
+                          "expected error to reference source.pdf (the source edition's outputPath), got: \(msg)")
+            XCTAssertFalse(msg.contains("es.pdf"))
+        }
+    }
+
+    func testReadPage_versionAndLanguage_noMatchingMember_throws() async throws {
+        _ = try await seedLanguageFamily()
+        do {
+            _ = try await ReadPublicationPageTool.handle(
+                paramsJSON: Data(#"{"project_id":"\#(pid!)","version":"1.0","language":"fr","page_number":1}"#.utf8),
+                registry: registry)
+            XCTFail("expected throw — no fr edition at version 1.0")
+        } catch let MCPError.invalidArgument(msg) {
+            XCTAssertTrue(msg.contains("1.0"))
+            XCTAssertTrue(msg.contains("fr"))
+        }
+    }
+
+    func testReadPage_versionOnly_ignoresLanguage_firstWriteWins() async throws {
+        // Documented behavior preserved: omitting `language` on a version
+        // shared across a family still resolves via first-write-wins
+        // (source was appended first in seedLanguageFamily), NOT some
+        // implicit "prefer source" rule.
+        _ = try await seedLanguageFamily()
+        do {
+            _ = try await ReadPublicationPageTool.handle(
+                paramsJSON: Data(#"{"project_id":"\#(pid!)","version":"1.0","page_number":1}"#.utf8),
+                registry: registry)
+            XCTFail("expected throw — fixture has no PDF on disk")
+        } catch let MCPError.internalError(msg) {
+            XCTAssertTrue(msg.contains("source.pdf"),
+                          "expected first-write-wins to resolve to the source edition, got: \(msg)")
+        }
+    }
+
+    func testReadPage_publicationIDAndLanguageDisagree_throws() async throws {
+        let (source, _) = try await seedLanguageFamily()
+        do {
+            _ = try await ReadPublicationPageTool.handle(
+                paramsJSON: Data(#"{"project_id":"\#(pid!)","publication_id":"\#(source.publicationID)","language":"es","page_number":1}"#.utf8),
+                registry: registry)
+            XCTFail("expected throw — publication_id is the source (language=nil), not 'es'")
+        } catch let MCPError.invalidArgument(msg) {
+            XCTAssertTrue(msg.contains("es"))
+        }
+    }
+
+    func testReadPage_publicationIDAndLanguageAgree_addressingSucceeds() async throws {
+        let (_, es) = try await seedLanguageFamily()
+        do {
+            _ = try await ReadPublicationPageTool.handle(
+                paramsJSON: Data(#"{"project_id":"\#(pid!)","publication_id":"\#(es.publicationID)","language":"es","page_number":1}"#.utf8),
+                registry: registry)
+            XCTFail("expected throw — fixture has no PDF on disk")
+        } catch let MCPError.internalError(msg) {
+            // Reaching the PDF-open attempt (rather than an invalidArgument
+            // disagreement error) proves agreement was accepted.
+            XCTAssertTrue(msg.contains("es.pdf"))
         }
     }
 }

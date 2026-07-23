@@ -123,15 +123,20 @@ final class TranslationFlowTests: XCTestCase {
 
     /// Drive the real `compile` MCP handler and return the decoded response
     /// object. EPUB completes synchronously within the default wait; PDF may
-    /// too (or the caller guards on tectonic).
+    /// too (or the caller guards on tectonic). `language == nil` compiles the
+    /// SOURCE edition (no `language` param); any other value compiles that
+    /// language edition, which — per docs/superpowers/specs/2026-07-23-edition-identity.md —
+    /// targets an existing source publication's version and never bumps
+    /// next_version.
     private func compile(
-        _ h: Harness, format: String
+        _ h: Harness, format: String, language: String? = "es"
     ) async throws -> [String: Any] {
-        let data = try JSONSerialization.data(withJSONObject: [
+        var params: [String: Any] = [
             "project_id": h.projectId,
-            "format": format,
-            "language": "es"
-        ])
+            "format": format
+        ]
+        if let language { params["language"] = language }
+        let data = try JSONSerialization.data(withJSONObject: params)
         let out = try await CompileTool.handle(paramsJSON: data, registry: h.registry)
         return try XCTUnwrap(
             JSONSerialization.jsonObject(with: out) as? [String: Any])
@@ -166,6 +171,19 @@ final class TranslationFlowTests: XCTestCase {
         XCTAssertEqual(fresh.fresh, 3, "all three paragraphs fresh: \(fresh)")
         XCTAssertEqual(fresh.stale, 0)
         XCTAssertEqual(fresh.missing, 0)
+
+        // Compile the SOURCE edition first. Per the edition-identity change
+        // (docs/superpowers/specs/2026-07-23-edition-identity.md), a language
+        // edition is a rendering OF an existing source publication's version;
+        // an es compile with no prior source publication now refuses loudly
+        // (at version resolution, BEFORE the coverage gate). Establish the
+        // source at next_version ("0.1") so the es editions below resolve to
+        // it. EPUB is pure Swift, so this always runs; it also fixes the source
+        // version the es editions inherit (C1 regression: v0.1, not the bumped
+        // next_version). Source compiles bump next_version 0.1→0.2.
+        let source = try await compile(h, format: "epub", language: nil)
+        XCTAssertEqual(source["status"] as? String, "completed",
+                       "source compile must succeed to seed the edition family: \(source)")
 
         // Edit ¶0 through the op-log path. The record's stamped sourceHash no
         // longer matches the live source, so it becomes stale.
@@ -211,6 +229,13 @@ final class TranslationFlowTests: XCTestCase {
         let outputPath = try XCTUnwrap(done["output_path"] as? String)
         XCTAssertTrue(outputPath.hasSuffix("-es.epub"),
                       "output filename must carry the language: \(outputPath)")
+        // C1: the edition's filename derives from the SOURCE version it targets
+        // (v0.1), NOT the bumped next_version (v0.2) the source compile left in
+        // config. Before C1 the filename rendered config.nextVersion.
+        XCTAssertTrue(outputPath.contains("v0.1"),
+                      "edition filename must carry the source version v0.1, not the bumped next_version: \(outputPath)")
+        XCTAssertFalse(outputPath.contains("v0.2"),
+                       "edition filename must not carry the bumped next_version: \(outputPath)")
 
         // Publication.language, asserted on the persisted typed record.
         let pubs = try await h.stores.publicationStore.load()
@@ -240,10 +265,18 @@ final class TranslationFlowTests: XCTestCase {
         let outputPath = try XCTUnwrap(done["output_path"] as? String)
         XCTAssertTrue(outputPath.hasSuffix("-es.pdf"),
                       "PDF filename must carry the language: \(outputPath)")
+        // C1: the language-suffixed filename derives from the SOURCE version
+        // (v0.1), not the bumped next_version (v0.2) the source compile left.
+        XCTAssertTrue(outputPath.contains("v0.1"),
+                      "PDF edition filename must carry the source version v0.1: \(outputPath)")
+        XCTAssertFalse(outputPath.contains("v0.2"),
+                       "PDF edition filename must not carry the bumped next_version: \(outputPath)")
 
         let pubs = try await h.stores.publicationStore.load()
         let esPub = try XCTUnwrap(pubs.first { $0.language == "es" })
         XCTAssertEqual(esPub.language, "es")
+        XCTAssertEqual(esPub.version, "0.1",
+                       "es Publication record must pin the source version 0.1")
 
         // metadata.tex (written before tectonic runs) carries \MaughamLanguage.
         let metaTex = try String(

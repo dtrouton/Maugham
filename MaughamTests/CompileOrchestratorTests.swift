@@ -388,4 +388,407 @@ final class CompileOrchestratorTests: XCTestCase {
         XCTAssertEqual(configAfter, configBefore,
                        "dry_run must not touch config.json even though EMISSION.md refreshes")
     }
+
+    // MARK: - Edition identity: (version, language, format) (spec 2026-07-23)
+    //
+    // A Publication is keyed on the triple. A language edition renders an
+    // EXISTING source version rather than minting its own; source-only compiles
+    // bump next_version. These are the orchestrator-level pins for the behavior
+    // change from v0.25.0 (where a language compile minted from next_version and
+    // bumped it). All use the plain `OneSrc` source, so the translation coverage
+    // gate — which only runs against a `ProjectStoreASTSource` — is skipped and
+    // the version-resolution logic is exercised in isolation.
+
+    /// Seed a source-language Publication (language == nil) directly, so a
+    /// language edition has an existing source version to render.
+    private func seedSourcePublication(
+        _ store: PublicationStore,
+        version: String = "0.1",
+        format: PublishConfig.Format = .pdf,
+        compiledAt: Date = Date()
+    ) async throws {
+        try await store.append(Publication(
+            publicationID: "pub-src-\(version)-\(format.rawValue)",
+            version: version, label: nil, format: format,
+            outputPath: "Exports/src-\(version).\(format.rawValue)",
+            snapshotID: "snap-src", checkpointID: "",
+            republishedFrom: nil, compiledAt: compiledAt,
+            maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0",
+            language: nil))
+    }
+
+    private func makeOrch(
+        _ configStore: PublishConfigStore, _ pubStore: PublicationStore
+    ) -> CompileOrchestrator {
+        CompileOrchestrator(
+            projectURL: tmp, astSource: OneSrc(),
+            configStore: configStore,
+            publicationStore: pubStore,
+            snapshotStore: PublicationSnapshotStore(projectURL: tmp),
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test",
+            tectonicVersion: "n/a")
+    }
+
+    /// (a) A source pdf@0.1 exists → `compile(language:"es")` (no version) mints
+    /// version "0.1" + language "es" and leaves next_version unbumped.
+    func testEdition_languageWithoutVersion_mintsAtLatestSourceVersion_noBump() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Ed", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+        try await seedSourcePublication(pubStore, version: "0.1", format: .pdf)
+
+        let result = try await makeOrch(configStore, pubStore)
+            .compile(format: .epub, label: nil, language: "es")
+        guard case .completed(let pub, _) = result else {
+            return XCTFail("expected completed, got \(result)")
+        }
+        XCTAssertEqual(pub.version, "0.1", "es edition renders the source version, not a new one")
+        XCTAssertEqual(pub.language, "es")
+
+        let cfg = try await configStore.load()
+        XCTAssertEqual(cfg?.nextVersion, "0.1",
+                       "a language compile must not bump next_version")
+    }
+
+    /// (a, republish-exclusion — T1 review) A republished SOURCE record
+    /// (`language == nil`, `republishedFrom` set, mangled `-r…` version) more
+    /// recent than the genuine source publication must NOT be the resolution
+    /// target: the edition mints at the ORIGINAL "0.1", not "0.1-rabcd".
+    func testEdition_languageWithoutVersion_ignoresRepublishedSourceRecords() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Ed", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+        try await seedSourcePublication(
+            pubStore, version: "0.1", format: .pdf,
+            compiledAt: Date(timeIntervalSinceNow: -1000))
+        // More-recent republished source record with a mangled version.
+        try await pubStore.append(Publication(
+            publicationID: "pub-repub", version: "0.1-rabcd", label: nil,
+            format: .pdf, outputPath: "Exports/repub.pdf",
+            snapshotID: "snap-src", checkpointID: "",
+            republishedFrom: "0.1", compiledAt: Date(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0",
+            language: nil))
+
+        let result = try await makeOrch(configStore, pubStore)
+            .compile(format: .epub, label: nil, language: "es")
+        guard case .completed(let pub, _) = result else {
+            return XCTFail("expected completed, got \(result)")
+        }
+        XCTAssertEqual(pub.version, "0.1",
+                       "edition must mint at the original source version, not the republished '-r…' one")
+        XCTAssertEqual(pub.language, "es")
+    }
+
+    /// (c, republish-exclusion — T1 review) Pinning a republished record's
+    /// mangled version is refused: the pinned-`version` branch validates
+    /// against ORIGINAL source records only (`republishedFrom == nil`) — the
+    /// same rule as latest-source resolution, closing the other door to a
+    /// mangled-version edition.
+    func testEdition_pinnedRepublishedVersion_refused() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Ed", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+        try await seedSourcePublication(pubStore, version: "0.1", format: .pdf)
+        try await pubStore.append(Publication(
+            publicationID: "pub-repub", version: "0.1-rabcd", label: nil,
+            format: .pdf, outputPath: "Exports/repub.pdf",
+            snapshotID: "snap-src", checkpointID: "",
+            republishedFrom: "0.1", compiledAt: Date(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0",
+            language: nil))
+
+        let result = try await makeOrch(configStore, pubStore)
+            .compile(format: .epub, label: nil, language: "es", version: "0.1-rabcd")
+        guard case .failed(let errs, let log) = result else {
+            return XCTFail("expected .failed, got \(result)")
+        }
+        XCTAssertTrue(errs.contains { $0.message.contains("no source v0.1-rabcd") },
+                      "got: \(errs.map(\.message))")
+        XCTAssertTrue(log.contains("no_source_version"))
+        // T1 re-review: the record DOES exist (as a republished one), so the
+        // refusal must explain the republish-exclusion and name the original,
+        // pinnable version rather than claim nothing exists at that version.
+        let context = errs.flatMap(\.contextLines).joined(separator: "\n")
+        XCTAssertTrue(context.contains("republished record"),
+                      "context must explain the record is republished, got: \(context)")
+        XCTAssertTrue(context.contains("pin the original v0.1"),
+                      "context must name the original pinnable version, got: \(context)")
+        let pubs = try await pubStore.load()
+        XCTAssertEqual(pubs.count, 2, "refusal must mint nothing")
+    }
+
+    /// (a, latest-selection) With two source versions, a version-less language
+    /// compile targets the most recent source publication by `compiledAt`.
+    func testEdition_languageWithoutVersion_picksLatestSourceByCompiledAt() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Ed", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+        try await seedSourcePublication(
+            pubStore, version: "0.1", format: .pdf,
+            compiledAt: Date(timeIntervalSinceNow: -1000))
+        try await seedSourcePublication(
+            pubStore, version: "0.2", format: .pdf, compiledAt: Date())
+
+        let result = try await makeOrch(configStore, pubStore)
+            .compile(format: .epub, label: nil, language: "es")
+        guard case .completed(let pub, _) = result else {
+            return XCTFail("expected completed, got \(result)")
+        }
+        XCTAssertEqual(pub.version, "0.2", "must pick the latest source version")
+    }
+
+    /// (b) No source publication → a language compile fails loudly and mints
+    /// nothing; the message tells the writer to compile the source edition first.
+    func testEdition_languageWithoutSourcePublication_failsLoudly() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Ed", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+
+        let result = try await makeOrch(configStore, pubStore)
+            .compile(format: .epub, label: nil, language: "es")
+        guard case .failed(let errs, let log) = result else {
+            return XCTFail("expected .failed, got \(result)")
+        }
+        XCTAssertTrue(errs.contains { $0.message.contains("compile the source edition first") },
+                      "message must name the remedy, got: \(errs.map(\.message))")
+        XCTAssertTrue(log.contains("no_source_publication"))
+        let pubs = try await pubStore.load()
+        XCTAssertTrue(pubs.isEmpty, "no Publication may be minted on the loud failure")
+    }
+
+    /// (c) A pinned `version` + `language` mints the family member; repeating the
+    /// exact (version, language, format) triple collides with a refusal naming
+    /// version AND language (AND format).
+    func testEdition_pinnedVersion_mintsThenExactTripleCollides() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Ed", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+        try await seedSourcePublication(pubStore, version: "0.1", format: .pdf)
+        let orch = makeOrch(configStore, pubStore)
+
+        let first = try await orch.compile(
+            format: .epub, label: nil, language: "es", version: "0.1")
+        guard case .completed(let pub, _) = first else {
+            return XCTFail("expected completed, got \(first)")
+        }
+        XCTAssertEqual(pub.version, "0.1")
+        XCTAssertEqual(pub.language, "es")
+
+        // Repeat the exact triple → collision.
+        let dupe = try await orch.compile(
+            format: .epub, label: nil, language: "es", version: "0.1")
+        guard case .failed(let errs, let log) = dupe else {
+            return XCTFail("expected collision .failed, got \(dupe)")
+        }
+        let message = errs.map(\.message).joined()
+        XCTAssertTrue(message.contains("0.1"), "collision must name the version: \(message)")
+        XCTAssertTrue(message.contains("es"), "collision must name the language: \(message)")
+        XCTAssertTrue(message.contains("epub"), "collision must name the format: \(message)")
+        XCTAssertTrue(log.contains("version_collision"))
+
+        let pubs = try await pubStore.load()
+        XCTAssertEqual(pubs.count, 2, "seed + one es edition; the dupe minted nothing")
+    }
+
+    /// (d) A source compile at a manually-set next_version colliding with an
+    /// EXISTING source version+format still refuses — the exact-triple guard is
+    /// not weakened for a same-(version, language, format) source match.
+    func testEdition_sourceCompile_exactTripleCollision_refuses() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        var cfg = PublishConfig(metadata: .init(title: "Ed", author: "T"))
+        cfg.nextVersion = "0.1"
+        try await configStore.save(cfg)
+        let pubStore = PublicationStore(projectURL: tmp)
+        try await seedSourcePublication(pubStore, version: "0.1", format: .epub)
+
+        let result = try await makeOrch(configStore, pubStore)
+            .compile(format: .epub, label: nil)
+        guard case .failed(let errs, let log) = result else {
+            return XCTFail("expected .failed, got \(result)")
+        }
+        XCTAssertTrue(errs.contains {
+            $0.message.contains("0.1") && $0.message.lowercased().contains("already exists") })
+        XCTAssertTrue(log.contains("version_collision"))
+        let pubs = try await pubStore.load()
+        XCTAssertEqual(pubs.count, 1, "collision guard must not mint")
+    }
+
+    /// (d, weaker-for-format) The triple guard is strictly weaker than the old
+    /// version-only guard: a DIFFERENT format at the same source version is
+    /// permitted, deliberately completing a family at a manually-set version.
+    func testEdition_sourceCompile_differentFormatSameVersion_permitted() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        var cfg = PublishConfig(metadata: .init(title: "Ed", author: "T"))
+        cfg.nextVersion = "0.1"
+        try await configStore.save(cfg)
+        let pubStore = PublicationStore(projectURL: tmp)
+        try await seedSourcePublication(pubStore, version: "0.1", format: .pdf)
+
+        // Source epub at 0.1 — different format from the seeded pdf → no collision.
+        let result = try await makeOrch(configStore, pubStore)
+            .compile(format: .epub, label: nil)
+        guard case .completed(let pub, _) = result else {
+            return XCTFail("expected completed (weaker guard), got \(result)")
+        }
+        XCTAssertEqual(pub.version, "0.1")
+        XCTAssertNil(pub.language)
+        // A source compile still bumps next_version.
+        let after = try await configStore.load()
+        XCTAssertEqual(after?.nextVersion, "0.2")
+    }
+
+    /// (e) `version:` without `language:` is refused — source versions come from
+    /// next_version, never a pinned version.
+    func testEdition_versionWithoutLanguage_refused() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Ed", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+
+        let result = try await makeOrch(configStore, pubStore)
+            .compile(format: .epub, label: nil, version: "0.1")
+        guard case .failed(let errs, let log) = result else {
+            return XCTFail("expected .failed, got \(result)")
+        }
+        XCTAssertTrue(errs.contains { $0.message.contains("requires a language") },
+                      "got: \(errs.map(\.message))")
+        XCTAssertTrue(log.contains("version_without_language"))
+        let pubs = try await pubStore.load()
+        XCTAssertTrue(pubs.isEmpty)
+    }
+
+    /// (f) dry_run runs the identical resolution + guard. A valid pinned edition
+    /// passes the dry run and mutates nothing.
+    func testEdition_dryRun_pinnedVersion_validates_zeroMutation() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Ed", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+        try await seedSourcePublication(pubStore, version: "0.1", format: .pdf)
+
+        let result = try await makeOrch(configStore, pubStore)
+            .compile(format: .epub, label: nil, language: "es",
+                     dryRun: true, version: "0.1")
+        guard case .dryRunPassed = result else {
+            return XCTFail("expected .dryRunPassed, got \(result)")
+        }
+        let pubs = try await pubStore.load()
+        XCTAssertEqual(pubs.count, 1, "dry_run must not mint (only the seed remains)")
+        let cfg = try await configStore.load()
+        XCTAssertEqual(cfg?.nextVersion, "0.1", "dry_run must not bump next_version")
+    }
+
+    /// (f) The same dry_run resolution refuses an invalid pin (no source at that
+    /// version) and still mutates nothing.
+    func testEdition_dryRun_missingSourceVersion_refuses_zeroMutation() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Ed", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+
+        let result = try await makeOrch(configStore, pubStore)
+            .compile(format: .epub, label: nil, language: "es",
+                     dryRun: true, version: "0.2")
+        guard case .failed(let errs, let log) = result else {
+            return XCTFail("expected .failed from resolution, got \(result)")
+        }
+        XCTAssertTrue(errs.contains { $0.message.contains("no source v0.2") },
+                      "got: \(errs.map(\.message))")
+        XCTAssertTrue(log.contains("no_source_version"))
+        let pubs = try await pubStore.load()
+        XCTAssertTrue(pubs.isEmpty, "dry_run refusal must mint nothing")
+    }
+
+    /// (g) End-to-end edition pair: a source compile bumps next_version; a
+    /// language edition of that source version leaves next_version untouched.
+    /// EPUB path is tectonic-free.
+    func testEdition_sourceBumps_languageEditionDoesNot_endToEnd() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Ed", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+        let orch = makeOrch(configStore, pubStore)
+
+        // Source edition: mints 0.1, bumps next_version to 0.2.
+        let source = try await orch.compile(format: .epub, label: nil)
+        guard case .completed(let sourcePub, _) = source else {
+            return XCTFail("source compile failed: \(source)")
+        }
+        XCTAssertEqual(sourcePub.version, "0.1")
+        XCTAssertNil(sourcePub.language)
+        let afterSource = try await configStore.load()
+        XCTAssertEqual(afterSource?.nextVersion, "0.2", "source compile bumps next_version")
+
+        // Language edition of that source: renders 0.1, next_version stays 0.2.
+        let edition = try await orch.compile(format: .epub, label: nil, language: "es")
+        guard case .completed(let editionPub, _) = edition else {
+            return XCTFail("edition compile failed: \(edition)")
+        }
+        XCTAssertEqual(editionPub.version, "0.1", "es edition renders the source version")
+        XCTAssertEqual(editionPub.language, "es")
+        let afterEdition = try await configStore.load()
+        XCTAssertEqual(afterEdition?.nextVersion, "0.2",
+                       "a language edition must not advance next_version")
+
+        let pubs = try await pubStore.load()
+        XCTAssertEqual(pubs.count, 2, "one source + one language edition")
+    }
+
+    // MARK: - C1: the RESOLVED edition version reaches the compiled OUTPUT
+    //
+    // The edition-effective config threads `effectiveVersion` into
+    // `effective.nextVersion` so the filename `{version}` token, the PDF
+    // `\MaughamVersion`, and the EPUB metadata render the version the edition
+    // TARGETS — not the (possibly-bumped) `config.nextVersion`. Before the fix,
+    // an edition compiled after the source bump shipped under the wrong version.
+
+    /// (C1-1) Source at 0.1, next_version manually advanced to 0.5, then a
+    /// version-less es edition. The es edition renders the SOURCE version 0.1,
+    /// so its output filename must carry "v0.1" — NOT "v0.5" (the pre-fix bug,
+    /// where the filename rendered config.nextVersion).
+    func testC1_editionOutputFilename_usesResolvedSourceVersion_notNextVersion() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        var cfg = PublishConfig(metadata: .init(title: "Ed", author: "T"))
+        cfg.nextVersion = "0.5"
+        try await configStore.save(cfg)
+        let pubStore = PublicationStore(projectURL: tmp)
+        try await seedSourcePublication(pubStore, version: "0.1", format: .pdf)
+
+        let result = try await makeOrch(configStore, pubStore)
+            .compile(format: .epub, label: nil, language: "es")
+        guard case .completed(let pub, _) = result else {
+            return XCTFail("expected completed, got \(result)")
+        }
+        XCTAssertEqual(pub.version, "0.1")
+        XCTAssertTrue(pub.outputPath.contains("v0.1"),
+                      "edition filename must render the resolved source version: \(pub.outputPath)")
+        XCTAssertFalse(pub.outputPath.contains("v0.5"),
+                       "edition filename must not render the bumped next_version: \(pub.outputPath)")
+    }
+
+    /// (C1-2) Two pinned es editions at DIFFERENT source versions must produce
+    /// DISTINCT output filenames. Both pass the (version, language, format)
+    /// collision guard (versions differ), so before the C1 fix both rendered
+    /// config.nextVersion into the SAME filename — silently clobbering each
+    /// other's output while the two records pointed at one path.
+    func testC1_twoPinnedEditionsAtDifferentVersions_distinctOutputPaths() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Ed", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+        try await seedSourcePublication(pubStore, version: "1.0", format: .epub)
+        try await seedSourcePublication(pubStore, version: "1.1", format: .epub)
+        let orch = makeOrch(configStore, pubStore)
+
+        let a = try await orch.compile(
+            format: .epub, label: nil, language: "es", version: "1.0")
+        let b = try await orch.compile(
+            format: .epub, label: nil, language: "es", version: "1.1")
+        guard case .completed(let pubA, _) = a, case .completed(let pubB, _) = b else {
+            return XCTFail("both pinned editions must complete; got \(a) / \(b)")
+        }
+        XCTAssertEqual(pubA.version, "1.0")
+        XCTAssertEqual(pubB.version, "1.1")
+        XCTAssertNotEqual(pubA.outputPath, pubB.outputPath,
+                          "distinct pinned versions must not share an output path (clobber): \(pubA.outputPath)")
+        XCTAssertTrue(pubA.outputPath.contains("v1.0"), pubA.outputPath)
+        XCTAssertTrue(pubB.outputPath.contains("v1.1"), pubB.outputPath)
+    }
 }

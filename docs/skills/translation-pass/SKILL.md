@@ -10,6 +10,13 @@ manuscript. Every translated paragraph lives in a parallel layer keyed to the
 source text; the manuscript itself never changes, and nothing you write here
 is visible in any other language's edition.
 
+**An edition is a rendering of an existing source version.** Ask Claude to compile
+the source manuscript first (no `language` parameter) — that's when the version number
+is minted. Then compile the edition by specifying the language (e.g., `language:es`);
+it borrows the source version's number as its identity. If the source isn't yet published,
+the edition compile will refuse loudly. Use `dry_run: true` to check whether the edition
+would pass the translation-coverage gate before committing to a full compile.
+
 ## What matters, in order
 
 1. **Coverage is derived, never assumed.** `translation_status` tells you how
