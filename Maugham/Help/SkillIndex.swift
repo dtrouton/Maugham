@@ -41,7 +41,8 @@ struct SkillIndex {
     let skills: [Skill]
     let bootstrapTemplate: Skill?
 
-    private init(skills: [Skill], bootstrapTemplate: Skill?) {
+    /// Internal (not private) so tests can assemble synthetic indexes.
+    init(skills: [Skill], bootstrapTemplate: Skill?) {
         self.skills = skills
         self.bootstrapTemplate = bootstrapTemplate
     }

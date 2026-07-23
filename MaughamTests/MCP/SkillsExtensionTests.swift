@@ -171,4 +171,15 @@ final class SkillsExtensionTests: XCTestCase {
                        "blob must round-trip the exact bytes")
         XCTAssertEqual(content["mimeType"] as? String, "application/octet-stream")
     }
+
+    /// W8: a skill with no files can serve nothing — skip it rather than
+    /// crash on `files[0]`. Unreachable for the static bundle; defensive.
+    func test_list_skipsSkillWithNoFiles_defensive() throws {
+        let ghost = SkillIndex.Skill(
+            name: "ghost", description: "d", body: "",
+            raw: "---\nname: ghost\ndescription: d\n---\n", files: [])
+        let index = SkillIndex(skills: [ghost], bootstrapTemplate: nil)
+        let obj = try json(try SkillsExtension.handleList(paramsJSON: nil, index: index))
+        XCTAssertEqual((obj["skills"] as? [[String: Any]])?.count, 0)
+    }
 }
