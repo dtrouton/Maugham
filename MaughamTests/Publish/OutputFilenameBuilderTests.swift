@@ -103,4 +103,89 @@ final class OutputFilenameBuilderTests: XCTestCase {
         XCTAssertTrue(name.contains("firstdraft"),
                       "expected sanitized label, got: \(name)")
     }
+
+    // MARK: - {language} token: F7 residue — dangling separator cleanup
+    //
+    // When {language} expands empty (source-language compile), one
+    // separator character immediately preceding the token must be dropped
+    // so the source and translated editions both render clean names from
+    // ONE template. When language is present, the separator stays.
+
+    private func makeConfigWithLanguageTemplate(separator: String) -> PublishConfig {
+        var cfg = makeConfig(title: "T")
+        cfg.outputs.filenameTemplate = "{title}-v{version}\(separator){language}.{ext}"
+        return cfg
+    }
+
+    func testLanguageToken_hyphenSeparator_sourceDropsIt() {
+        let cfg = makeConfigWithLanguageTemplate(separator: "-")
+        let name = OutputFilenameBuilder.make(
+            config: cfg, format: .pdf, label: nil, language: nil)
+        XCTAssertEqual(name, "T-v0.1.pdf")
+    }
+
+    func testLanguageToken_hyphenSeparator_languagePresentKeepsIt() {
+        let cfg = makeConfigWithLanguageTemplate(separator: "-")
+        let name = OutputFilenameBuilder.make(
+            config: cfg, format: .pdf, label: nil, language: "es")
+        XCTAssertEqual(name, "T-v0.1-es.pdf")
+    }
+
+    func testLanguageToken_underscoreSeparator_sourceDropsIt() {
+        let cfg = makeConfigWithLanguageTemplate(separator: "_")
+        let name = OutputFilenameBuilder.make(
+            config: cfg, format: .pdf, label: nil, language: nil)
+        XCTAssertEqual(name, "T-v0.1.pdf")
+    }
+
+    func testLanguageToken_underscoreSeparator_languagePresentKeepsIt() {
+        let cfg = makeConfigWithLanguageTemplate(separator: "_")
+        let name = OutputFilenameBuilder.make(
+            config: cfg, format: .pdf, label: nil, language: "es")
+        XCTAssertEqual(name, "T-v0.1_es.pdf")
+    }
+
+    func testLanguageToken_dotSeparator_sourceDropsIt() {
+        let cfg = makeConfigWithLanguageTemplate(separator: ".")
+        let name = OutputFilenameBuilder.make(
+            config: cfg, format: .pdf, label: nil, language: nil)
+        XCTAssertEqual(name, "T-v0.1.pdf")
+    }
+
+    func testLanguageToken_dotSeparator_languagePresentKeepsIt() {
+        let cfg = makeConfigWithLanguageTemplate(separator: ".")
+        let name = OutputFilenameBuilder.make(
+            config: cfg, format: .pdf, label: nil, language: "es")
+        XCTAssertEqual(name, "T-v0.1.es.pdf")
+    }
+
+    func testLanguageToken_noPrecedingSeparator_emptyReplacementUnchanged() {
+        // No separator immediately before {language} — plain empty
+        // replacement, as today. "v0.1" + "" + ".pdf" == "v0.1.pdf".
+        var cfg = makeConfig(title: "T")
+        cfg.outputs.filenameTemplate = "{title}-v{version}{language}.{ext}"
+        let name = OutputFilenameBuilder.make(
+            config: cfg, format: .pdf, label: nil, language: nil)
+        XCTAssertEqual(name, "T-v0.1.pdf")
+    }
+
+    func testLanguageToken_noPrecedingSeparator_languagePresentAppendsPlainly() {
+        var cfg = makeConfig(title: "T")
+        cfg.outputs.filenameTemplate = "{title}-v{version}{language}.{ext}"
+        let name = OutputFilenameBuilder.make(
+            config: cfg, format: .pdf, label: nil, language: "es")
+        XCTAssertEqual(name, "T-v0.1es.pdf")
+    }
+
+    // MARK: - existing-behavior pin: no-token template + language → auto-suffix
+
+    func testNoLanguageToken_languagePresent_autoSuffixUnchanged() {
+        // Template has no {language} token at all — the collision guard
+        // appends "-<language>" before the extension. This is existing
+        // behavior (shipped v0.24.0) and must not regress.
+        let cfg = makeConfig(title: "T")
+        let name = OutputFilenameBuilder.make(
+            config: cfg, format: .pdf, label: nil, language: "es")
+        XCTAssertEqual(name, "T-v0.1-es.pdf")
+    }
 }

@@ -26,7 +26,23 @@ enum OutputFilenameBuilder {
         }
         let labelSuffix = label.map { "-\(sanitizeForFilesystem($0))" } ?? ""
         let template = config.outputs.filenameTemplate
-        var name = template
+
+        // F7 residue: when {language} expands empty (source-language
+        // compile), a separator immediately preceding the token would
+        // otherwise dangle (e.g. "T-v0.1-.pdf"). Strip one `-`/`_`/`.`
+        // right before the token before the generic replacement runs. A
+        // token with no preceding separator falls through to the plain
+        // empty replacement below, unchanged from today. When language IS
+        // present, the separator is meaningful and stays.
+        var workingTemplate = template
+        if language == nil || language?.isEmpty == true {
+            for separator in ["-", "_", "."] {
+                workingTemplate = workingTemplate.replacingOccurrences(
+                    of: "\(separator){language}", with: "{language}")
+            }
+        }
+
+        var name = workingTemplate
             .replacingOccurrences(of: "{title}",        with: title)
             .replacingOccurrences(of: "{version}",      with: config.nextVersion)
             .replacingOccurrences(of: "{label_suffix}", with: labelSuffix)
