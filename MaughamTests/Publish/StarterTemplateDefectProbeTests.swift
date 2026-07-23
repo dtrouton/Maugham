@@ -290,4 +290,58 @@ final class StarterTemplateDefectProbeTests: XCTestCase {
         XCTAssertFalse(text.contains("ZZLEAK boldsix"),
                        "renewal leaked into piece 6's bold. PDF text:\n\(text.prefix(3000))")
     }
+
+    // MARK: - 5. F6 title-block hook default-render equivalence
+
+    /// F6 moved the fountain title block from hardcoded inline LaTeX to the
+    /// `\screenplaytitleblock{title}{rest}` hook (declared `\providecommand`,
+    /// default body reproduces the pre-F6 layout). This probe pins that the
+    /// DEFAULT (no style override) compiled PDF text is unchanged: the title,
+    /// every supporting field, and a following piece's content all still
+    /// appear, the title page still takes its own page, and no macro-call
+    /// syntax leaks into the visible text. Six fields (including a "Draft
+    /// date" declared out of the conventional Title-first position) exercise
+    /// the arity decision recorded on `emitTitlePage`: title is pulled out by
+    /// key, not position, so its rendering doesn't depend on being first.
+    func test_titlePage_screenplayTitleBlockHook_defaultRenderUnchanged() async throws {
+        let fountainWithTitleBlock = """
+            Credit: written by
+            Title: The Distinct Play
+            Draft date: First draft
+            Author: Distinct Author
+            Contact: agent@example.com
+
+            INT. HOUSE - DAY
+
+            Distinctive action line.
+            """
+        let source = FixedSource(pieces: [
+            .init(pieceID: "p1", title: "Title Card", mode: .fountain,
+                  displayText: fountainWithTitleBlock),
+            .init(pieceID: "p2", title: "After", mode: .prose,
+                  displayText: "Prose piece right after the screenplay."),
+        ])
+        let (_, pdf) = try await compile(
+            source: source,
+            config: PublishConfig(metadata: .init(title: "Title Block Probe", author: "Tester")))
+        let text = fullText(of: pdf)
+
+        for expected in ["written by", "The Distinct Play", "First draft",
+                         "Distinct Author", "agent@example.com"] {
+            XCTAssertTrue(text.contains(expected),
+                "title-page field \"\(expected)\" missing from rendered PDF text:\n\(text.prefix(2000))")
+        }
+        XCTAssertTrue(text.contains("Distinctive action line."),
+                      "the screenplay body must still render after the title page")
+        XCTAssertTrue(text.contains("Prose piece right after the screenplay."),
+                      "a following piece must still render after the fountain piece's title page")
+        XCTAssertGreaterThanOrEqual(pdf.pageCount, 2,
+            "the title page must still take its own page (\\clearpage), not share with the body")
+
+        // No macro-call syntax should ever reach the rendered text — a
+        // regression here would mean the hook call itself is leaking as
+        // literal text instead of compiling.
+        XCTAssertFalse(text.contains("screenplaytitleblock"),
+                       "the macro name must never appear in rendered PDF text")
+    }
 }

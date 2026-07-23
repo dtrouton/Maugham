@@ -170,10 +170,18 @@ public enum LaTeXBodyEmitter {
     /// defines one of these keeps its own definition — this is what lets
     /// the expanded vocabulary compile against templates authored before it
     /// existed.
+    ///
+    /// `\screenplaytitleblock` (F6) joins this group: it's the fountain title
+    /// page hook, `\screenplaytitleblock{title}{rest}`. The default body
+    /// reproduces the pre-F6 hardcoded layout exactly (centered, title in
+    /// `\Large\textbf`, everything else plain `\par`-terminated). A per-piece
+    /// style file can `\newcommand`/`\RenewDocumentCommand` it, same
+    /// sanctioned-hook discipline as `\pieceheading` (EMISSION.md).
     private static let fountainProvidecommands: [String] = [
         "\\providecommand{\\lyricline}[1]{\\textit{#1}\\par}",
         "\\providecommand{\\centeredline}[1]{\\begin{center}#1\\end{center}}",
         "\\providecommand{\\scenenumber}[1]{\\hfill #1}",
+        "\\providecommand{\\screenplaytitleblock}[2]{\\begin{center}\\vspace*{1.5in}#1#2\\end{center}\\clearpage}",
     ]
 
     private static func emit(fountain: ProjectAST.FountainNode, into out: inout [String]) {
@@ -208,8 +216,36 @@ public enum LaTeXBodyEmitter {
 
     /// A Fountain title page, rendered on its own page (industry standard):
     /// the title pushed down and centered, supporting fields centered below
-    /// it, then a page break. Standard LaTeX only — no custom command — so it
-    /// compiles against any project's template.
+    /// it, then a page break.
+    ///
+    /// F6: emitted through the `\screenplaytitleblock{title}{rest}` hook
+    /// (declared in `fountainProvidecommands`) rather than inline
+    /// `\begin{center}…\end{center}` so a per-piece style file can restyle
+    /// the whole block — the field incident that motivated this had no
+    /// sanctioned hook to control a leaking title block (see EMISSION.md).
+    ///
+    /// Arity decision (documented per the task's judgment point): the AST's
+    /// `[TitleField]` is an ARBITRARY ordered list — the Fountain tokenizer
+    /// canonicalizes up to eight keys (Title, Credit, Author, Source, Draft
+    /// date, Contact, Copyright, Notes) and passes unrecognized keys through
+    /// as-typed, so a screenplay's title page routinely carries more than
+    /// the plan's originally-sketched 4 named fields (title/credit/author/
+    /// notes). The CURRENT emitter (pre-F6) only ever special-cases "Title"
+    /// — every other key renders identically (plain, centered, `\par`) — so
+    /// a 4-named-arg macro that singles out credit/author/notes specifically
+    /// wouldn't match what's actually emitted today, and reassembling named
+    /// fields in a fixed position would risk reordering a title page whose
+    /// keys aren't declared in the conventional Title-first order (rare, but
+    /// not ruled out by the model). Choosing 2 args — `title` (the Title
+    /// field's rendering, empty if absent) and `rest` (every other field,
+    /// each rendered exactly as today, in original declaration order,
+    /// concatenated) — is the arity that provably reproduces today's output
+    /// byte-for-byte for ANY field set/order/count, while still giving style
+    /// files a real hook to restyle the block's shape (spacing, title
+    /// emphasis, or replace the whole layout). It does not give per-field
+    /// (e.g. "Draft date" alone) restyling — that would need a wider,
+    /// canonical-key-keyed surface, which is a bigger change than this task
+    /// scopes; noted as a follow-up if a style ever needs it.
     private static func emitTitlePage(_ fields: [ProjectAST.TitleField],
                                       into out: inout [String]) {
         func escapeMultiline(_ s: String) -> String {
@@ -219,18 +255,21 @@ public enum LaTeXBodyEmitter {
                 .map { LaTeXEscape.escape(String($0)) }
                 .joined(separator: "\\newline ")
         }
-        out.append("\\begin{center}")
-        out.append("\\vspace*{1.5in}")
-        for field in fields {
-            let value = escapeMultiline(field.value)
-            if field.key == "Title" {
-                out.append("{\\Large\\textbf{\(value)}}\\par")
-                out.append("\\vspace{1.5em}")
-            } else {
-                out.append("\(value)\\par")
-            }
-        }
-        out.append("\\end{center}")
-        out.append("\\clearpage")
+        // `\par` is a control WORD: with no separator after it, a following
+        // letter (e.g. a field starting "First...") is gobbled into the
+        // control sequence name itself ("\parFirst" — undefined control
+        // sequence, a hard compile failure). The original per-line `out`
+        // array had an implicit "\n" between fields (the array is later
+        // `.joined(separator: "\n")`); joining these fragments into single
+        // macro-argument strings must reproduce that separator explicitly.
+        let titleArg = fields
+            .filter { $0.key == "Title" }
+            .map { "{\\Large\\textbf{\(escapeMultiline($0.value))}}\\par\\vspace{1.5em}" }
+            .joined(separator: "\n")
+        let restArg = fields
+            .filter { $0.key != "Title" }
+            .map { "\(escapeMultiline($0.value))\\par" }
+            .joined(separator: "\n")
+        out.append("\\screenplaytitleblock{\(titleArg)}{\(restArg)}")
     }
 }

@@ -297,6 +297,71 @@ final class LaTeXBodyEmitterTests: XCTestCase {
         XCTAssertTrue(body.contains("\\clearpage"))
     }
 
+    func testEmits_fountainTitlePage_screenplayTitleBlockHook() {
+        // F6: the title block emits through the \screenplaytitleblock hook —
+        // declared once per fountain section (with the other fountain
+        // providecommands) and invoked with the title rendering split from
+        // every other field, each escaped, so a style file can restyle the
+        // whole block.
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.titlePage([
+                    .init(key: "Title", value: "Good Luck Babe"),
+                    .init(key: "Author", value: "Chappell Roan"),
+                ]))
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertEqual(
+            body.components(separatedBy: "\\providecommand{\\screenplaytitleblock}").count - 1,
+            1, "the providecommand declaration must appear exactly once per fountain section")
+        XCTAssertTrue(body.contains(
+            "\\providecommand{\\screenplaytitleblock}[2]{\\begin{center}\\vspace*{1.5in}#1#2\\end{center}\\clearpage}"),
+            "default body must reproduce the pre-F6 hardcoded layout")
+        XCTAssertTrue(body.contains(
+            "\\screenplaytitleblock{{\\Large\\textbf{Good Luck Babe}}\\par\\vspace{1.5em}}{Chappell Roan\\par}"),
+            "macro call must split title from the remaining fields; body:\n\(body)")
+    }
+
+    func testEmits_fountainTitlePage_screenplayTitleBlock_escapesArgs() {
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.titlePage([
+                    .init(key: "Title", value: "100% Payback & Co."),
+                    .init(key: "Author", value: "A_B"),
+                ]))
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("100\\% Payback \\& Co."), "title arg must be escaped")
+        XCTAssertTrue(body.contains("A\\_B\\par"), "rest arg must be escaped")
+    }
+
+    func testEmits_fountainTitlePage_screenplayTitleBlock_noTitleField() {
+        // A title page with no "Title" key: the title arg is an empty group,
+        // the rest still renders (matches today's behavior: only "Title" was
+        // ever special-cased).
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .fountain, nodes: [
+                .fountain(.titlePage([
+                    .init(key: "Contact", value: "Agent Name"),
+                ]))
+            ])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertTrue(body.contains("\\screenplaytitleblock{}{Agent Name\\par}"))
+    }
+
+    func testEmits_proseSection_screenplayTitleBlockNeverEmitted() {
+        // Prose sections don't declare fountain providecommands at all —
+        // \screenplaytitleblock is fountain-only vocabulary.
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "T", mode: .prose, nodes: [.paragraph("Hello.")])
+        ])
+        let body = LaTeXBodyEmitter.emit(ast)
+        XCTAssertFalse(body.contains("screenplaytitleblock"))
+    }
+
     func testEmits_fountainTitlePage_multilineField_noArgumentCapture() {
         // Multiline title-page fields are joined by line breaks; a continuation
         // line starting with `[` must not become `\\`'s optional argument.

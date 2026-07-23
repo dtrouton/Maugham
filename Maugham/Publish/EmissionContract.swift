@@ -49,6 +49,8 @@ public enum EmissionContract {
         .init(label: "Page break (===)", source: "==="),
         .init(label: "Boneyard omitted", source: "/* gone */\n\nKept."),
         .init(label: "Note omitted", source: "Before [[skip me]] after."),
+        .init(label: "Title page (F6: emits via \\screenplaytitleblock)",
+              source: "Title: The Play\nAuthor: A. Writer\n\nINT. HOUSE - DAY\n\nAction."),
     ]
 
     /// Render the `body.tex` the emitter actually produces for a prose snippet.
@@ -187,6 +189,14 @@ public enum EmissionContract {
     immune to the failure regardless of the mechanism, so top-level kernel-\
     command renewals in style files are unsupported and may restyle unrelated \
     pieces.
+
+    **`\\screenplaytitleblock` (F6).** The fountain title block emits via \
+    `\\screenplaytitleblock{title}{rest}`, `\\providecommand`-declared per \
+    fountain section alongside `\\lyricline`/`\\centeredline`/`\\scenenumber` \
+    (default reproduces the classic centered title-page layout byte-for-byte). \
+    It is a sanctioned restyle hook, same class as `\\pieceheading` above — a \
+    dedicated per-purpose command, not a shared kernel one — so restyle it \
+    directly rather than reaching into kernel commands to fake the effect.
     """
 
     static let fontsConvention = """
