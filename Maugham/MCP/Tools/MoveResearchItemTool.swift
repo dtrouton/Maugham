@@ -5,9 +5,11 @@ import MaughamCore
 /// target_document_id)` — move research items (including whole groups)
 /// between shared research, a research group, and a collection piece's
 /// research folder. Exactly one target must be given; unknown ids fail
-/// loudly. Cross-scope moves clean up explicit links (into a piece: the
-/// now-redundant link is dropped; out of a piece: an explicit link is added
-/// so the association survives). Wraps `ProjectStore.moveResearchItems`.
+/// loudly. Cross-scope moves never touch explicit links — association is
+/// containment-based: a manual link goes dormant while contained and
+/// resurfaces on move-out; a containment-only association severs on move-out
+/// (see the Phase 4 comment in ProjectStore+ResearchMove.swift). Wraps
+/// `ProjectStore.moveResearchItems`.
 public enum MoveResearchItemTool: MCPTool {
     public static let method = "move_research_item"
     public static let description =

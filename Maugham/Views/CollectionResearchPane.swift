@@ -461,7 +461,7 @@ struct CollectionResearchPane: View {
     /// sibling list, or (`.middle` on a group) moves into that group. Across
     /// sections (Shared ↔ piece, piece ↔ piece) it becomes a scope move via the
     /// batch mover, which relocates the file and rewrites the manifest path
-    /// (Task 3 also cleans up any now-orphaned links); role-bearing items refuse
+    /// (links are untouched — association is containment-based; see ProjectStore+ResearchMove); role-bearing items refuse
     /// the cross-scope move with a thrown error, surfaced via `pendingError`.
     ///
     /// Section membership is resolved via the item's ROOT ancestor path
