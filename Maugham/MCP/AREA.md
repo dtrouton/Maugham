@@ -63,8 +63,8 @@ The in-app MCP server: tool registration, JSON-RPC handling, the read/search/dis
 - `preview_compile` — fast subset compile, no output/Publication/version bump. `section_ids` scopes the pieces; `language`/`allow_stale` mirror compile to preview a translated edition behind the SAME coverage gate, scoped to exactly the pieces this preview renders (F2)
 - `compile_status` — poll an in-progress compile job
 - `compile_cancel` — cancel an in-progress compile job
-- `list_publications` — enumerate past publication outputs
-- `read_publication_page` — read a page from a compiled PDF
+- `list_publications` — enumerate past publication outputs; optional `language` filter (exact tag, e.g. `"es"`; sentinel `"source"` selects the untagged source-language rows) — every row surfaces `language` explicitly (`null` for source), so a version's language family (spec 2026-07-23) can be enumerated with one call
+- `read_publication_page` — read a page from a compiled PDF; optional `language` disambiguates a `version` shared across a language family (exact tag or the `"source"` sentinel); with `publication_id` it must agree with that publication's language, mirroring the existing `publication_id`+`version` agreement rule
 - `read_preview_page` — rasterize a page of the LATEST preview PDF (newest `.pdf` by mtime in `.maugham/publish/build/preview/`), closing the visual loop for `preview_compile`. No id/version addressing — always reads whatever was previewed last (incl. a language edition, F2); response carries `preview_filename` + `preview_mtime` so staleness is self-evident. Fails loudly when no preview exists; EPUB previews error (PDF-only)
 - `republish` — re-run the last successful compile
 
