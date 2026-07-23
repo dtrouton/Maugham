@@ -45,8 +45,17 @@ public struct PreviewCompiler {
             sanitizeSpaces: true,
             formatsEnabled: config.outputs.formatsEnabled)
 
-        let filteredSrc = FilteredASTSource(
-            base: astSource, sectionIDs: sectionIDs)
+        // F1: an omitted `section_ids` means "all *included* sections" — drop
+        // any piece whose config section carries `include == false`. An explicit
+        // `section_ids` is an exploratory override: honored verbatim, so it may
+        // name an excluded section (preview is for looking, not shipping).
+        let filteredSrc: ProjectASTBuilder.Source
+        if let sectionIDs {
+            filteredSrc = FilteredASTSource(base: astSource, sectionIDs: sectionIDs)
+        } else {
+            filteredSrc = IncludeFilteredASTSource(
+                base: astSource, excludedSectionIDs: config.excludedSectionIDs)
+        }
 
         switch format {
         case .pdf:
@@ -72,7 +81,8 @@ public struct PreviewCompiler {
     }
 }
 
-/// Wraps another `ProjectASTBuilder.Source`, filtering to a subset of pieces.
+/// Wraps another `ProjectASTBuilder.Source`, filtering to a subset of pieces
+/// (an allowlist: keeps only pieces named in `sectionIDs`; nil/empty ⇒ all).
 private struct FilteredASTSource: ProjectASTBuilder.Source {
     let base: ProjectASTBuilder.Source
     let sectionIDs: [String]?
@@ -81,5 +91,21 @@ private struct FilteredASTSource: ProjectASTBuilder.Source {
         guard let ids = sectionIDs, !ids.isEmpty else { return all }
         let set = Set(ids)
         return all.filter { set.contains($0.pieceID) }
+    }
+}
+
+/// F1: wraps any `ProjectASTBuilder.Source`, dropping pieces whose id is in the
+/// excluded set (a denylist — the complement of `FilteredASTSource`). This is
+/// how a subset edition becomes first-class: `CompileOrchestrator`/`Republisher`
+/// wrap their live source with the effective config's `excludedSectionIDs`, so
+/// the emitters (both formats) and every downstream record see only the included
+/// pieces. An empty excluded set is a pass-through.
+struct IncludeFilteredASTSource: ProjectASTBuilder.Source {
+    let base: ProjectASTBuilder.Source
+    let excludedSectionIDs: Set<String>
+    func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+        let all = base.orderedPieces()
+        guard !excludedSectionIDs.isEmpty else { return all }
+        return all.filter { !excludedSectionIDs.contains($0.pieceID) }
     }
 }

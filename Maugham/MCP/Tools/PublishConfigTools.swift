@@ -3,7 +3,7 @@ import Foundation
 public enum GetPublishConfigTool: MCPTool {
     public static let method = "get_publish_config"
     public static let description =
-    "Return the project's current PublishConfig as JSON. Response includes a `source` discriminator: \"persisted\" means the config was read from .maugham/publish/config.json; \"defaults\" means the file doesn't exist yet and the returned shape is the bundled default — a preview of what initialize_publish_template will write. Tools that need to know whether a project is configured should branch on `source`."
+    "Return the project's current PublishConfig as JSON. Response includes a `source` discriminator: \"persisted\" means the config was read from .maugham/publish/config.json; \"defaults\" means the file doesn't exist yet and the returned shape is the bundled default — a preview of what initialize_publish_template will write. Tools that need to know whether a project is configured should branch on `source`. Per-piece `sections.<docId>.include` (default true) controls whether that piece ships in the compiled edition: set it false to omit a piece from compile/republish output and from the translation coverage gate, letting a subset (e.g. one volume) ship as a first-class Publication."
     public static let inputSchemaJSON = """
     {"type":"object","properties":{"project_id":{"type":"string"}},"required":["project_id"]}
     """
@@ -35,7 +35,7 @@ public enum GetPublishConfigTool: MCPTool {
 public enum SetPublishConfigTool: MCPTool {
     public static let method = "set_publish_config"
     public static let description =
-    "Apply a JSON Merge Patch (RFC 7396) to the project's PublishConfig. null values delete keys, objects merge recursively, all else replaces. Validates the merged result; if errors exist, returns them and does NOT persist."
+    "Apply a JSON Merge Patch (RFC 7396) to the project's PublishConfig. null values delete keys, objects merge recursively, all else replaces. Validates the merged result; if errors exist, returns them and does NOT persist. To ship a subset edition, patch `sections.<docId>.include` to false for each piece to omit — excluded pieces are dropped from compile/republish output and from the translation coverage gate (default true, so an absent flag keeps a piece included)."
     public static let inputSchemaJSON = """
     {"type":"object","properties":{
        "project_id":{"type":"string"},

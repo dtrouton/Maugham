@@ -42,7 +42,11 @@ enum TranslationCoverage {
         var isBlocked: Bool { gaps.contains { !$0.stale.isEmpty || !$0.missing.isEmpty } }
     }
 
-    static func check(projectStore: ProjectStore, language: String) -> Report {
+    static func check(
+        projectStore: ProjectStore,
+        language: String,
+        excludedSectionIDs: Set<String> = []
+    ) -> Report {
         let docs = ProjectStore.collectDocuments(in: projectStore.manifest.structure)
         var gaps: [Report.PieceGap] = []
         var driftWarnings: [String] = []
@@ -51,6 +55,10 @@ enum TranslationCoverage {
 
         for item in docs {
             if item.pieceKind == .reference { continue }
+            // F1: an excluded piece isn't in this edition, so its untranslated
+            // paragraphs must neither raise gaps NOR count toward the zero-layer
+            // guard's denominator — an all-excluded-but-translated book passes.
+            if excludedSectionIDs.contains(item.id) { continue }
             guard let path = item.path else { continue }
 
             let (sequence, paragraphs) = sourceSplit(

@@ -90,6 +90,21 @@ final class TranslationCoverageGateTests: XCTestCase {
             tectonicVersion: "0.15.0")
     }
 
+    private func orchestrator(_ fx: TwoDocFixture, language: String, allowStale: Bool)
+        -> CompileOrchestrator
+    {
+        CompileOrchestrator(
+            projectURL: fx.projectURL,
+            astSource: ProjectStoreASTSource(
+                projectStore: fx.store, language: language, allowStale: allowStale),
+            configStore: fx.stores.configStore,
+            publicationStore: fx.stores.publicationStore,
+            snapshotStore: fx.stores.snapshotStore,
+            jobManager: fx.stores.jobManager,
+            maughamVersion: "9.9.9",
+            tectonicVersion: "0.15.0")
+    }
+
     private func writeTranslation(
         _ fx: CompileFixture, paragraphID: String, text: String?,
         sourceHash: String, verbatim: Bool = false
@@ -308,6 +323,129 @@ final class TranslationCoverageGateTests: XCTestCase {
             "the whitespace-only paragraph must never appear, got \(gap.missing)")
         XCTAssertFalse(gap.stale.contains(blankID), "whitespace-only paragraph must never be stale")
         XCTAssertFalse(gap.missing.contains(blankID), "whitespace-only paragraph must never be missing")
+    }
+
+    // MARK: - Scenario 7: F1 — excluded untranslated stub doesn't gate
+
+    /// A two-piece book: piece A fully translated, piece B an untranslated stub.
+    /// Un-excluded, B blocks the edition (and with A carrying records the
+    /// zero-layer guard is quiet, so B surfaces as a plain missing gap). Marking
+    /// B `include: false` must make the gate pass clean — B produces no gaps and
+    /// does NOT feed the zero-layer denominator (this is the ES-edition unlock:
+    /// the stub drafts stop blocking the compile).
+    func test_excludedUntranslatedStub_passesGate() async throws {
+        let fx = try await makeTwoDocFixture(
+            a: "Alpha paragraph.", b: "Bravo stub paragraph.")
+        // Fully translate every paragraph of A; leave B entirely untranslated.
+        for id in fx.docA.doc.sequence {
+            let rec = TranslationRecord(
+                paragraphId: id, language: "es", text: "Alfa.",
+                sourceHash: TranslationHash.hash(fx.docA.doc.paragraphs[id] ?? ""),
+                verbatim: false)
+            try await TranslationStore.append(
+                rec, forDocId: fx.docA.id, deviceSlug: DeviceSlug.make(from: "test-mac"),
+                in: fx.projectURL)
+        }
+
+        // Without exclusion, B blocks.
+        let blocked = TranslationCoverage.check(projectStore: fx.store, language: "es")
+        XCTAssertNil(blocked.zeroLayerError, "A carries records, so zero-layer is quiet")
+        XCTAssertTrue(blocked.isBlocked, "the untranslated stub B must block un-excluded")
+
+        // With B excluded, the gate is clean.
+        let clean = TranslationCoverage.check(
+            projectStore: fx.store, language: "es", excludedSectionIDs: [fx.docB.id])
+        XCTAssertNil(clean.zeroLayerError)
+        XCTAssertFalse(clean.isBlocked,
+            "an excluded untranslated stub must not produce gaps")
+        XCTAssertTrue(clean.gaps.isEmpty, "no gaps expected once B is excluded")
+
+        // End-to-end: config excludes B, the strict (no allow_stale) es compile
+        // completes — the whole point of F1 for translated subset editions.
+        var cfg = try await fx.stores.configStore.load() ?? PublishConfig()
+        cfg.sections[fx.docB.id] = .init(include: false)
+        try await fx.stores.configStore.save(cfg)
+
+        let outcome = try await orchestrator(fx, language: "es", allowStale: false)
+            .compile(format: .epub, label: nil, language: "es", allowStale: false)
+        guard case .completed = outcome else {
+            return XCTFail("excluded-stub es compile must complete strictly, got \(outcome)")
+        }
+    }
+
+    /// The all-excluded-except-translated case in isolation: a single
+    /// untranslated doc, excluded, must not fire the zero-layer guard (its
+    /// paragraphs are outside the edition, so they can't demand a layer).
+    func test_excludedOnlyDoc_doesNotFireZeroLayer() async throws {
+        let fx = try await makeCompileFixture(content: "Sole untranslated paragraph.")
+        // No records for "es" anywhere.
+        let unexcluded = TranslationCoverage.check(projectStore: fx.store, language: "es")
+        XCTAssertNotNil(unexcluded.zeroLayerError,
+            "un-excluded untranslated doc must fire zero-layer")
+
+        let excluded = TranslationCoverage.check(
+            projectStore: fx.store, language: "es", excludedSectionIDs: [fx.docID])
+        XCTAssertNil(excluded.zeroLayerError,
+            "an excluded doc must not feed the zero-layer denominator")
+        XCTAssertFalse(excluded.isBlocked)
+    }
+
+    // MARK: - two-doc fixture (F1)
+
+    private struct TwoDocFixture {
+        let store: ProjectStore
+        let docA: (id: String, doc: Document)
+        let docB: (id: String, doc: Document)
+        let stores: PublishingStores
+        let projectURL: URL
+    }
+
+    /// Hand-built two-piece novel project (A then B), each loaded through
+    /// `Document.load` so Bootstrap mints real anchors, wired with a base + `es`
+    /// publish config. Mirrors `makeCompileFixture` but with two pieces so an
+    /// exclusion can be observed relative to a translated sibling.
+    private func makeTwoDocFixture(a: String, b: String) async throws -> TwoDocFixture {
+        let projectDir = tmp.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(
+            at: projectDir.appendingPathComponent("manuscript"),
+            withIntermediateDirectories: true)
+        let pathA = "manuscript/a.md"
+        let pathB = "manuscript/b.md"
+        let idA = "doc-a"
+        let idB = "doc-b"
+        try a.write(to: projectDir.appendingPathComponent(pathA), atomically: true, encoding: .utf8)
+        try b.write(to: projectDir.appendingPathComponent(pathB), atomically: true, encoding: .utf8)
+
+        let itemA = StructureItem(id: idA, title: "A", type: .document, path: pathA)
+        let itemB = StructureItem(id: idB, title: "B", type: .document, path: pathB)
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A",
+            created: Date(), modified: Date(), structure: [itemA, itemB], research: [])
+        let enc = JSONEncoder(); enc.dateEncodingStrategy = .iso8601
+        try enc.encode(manifest).write(
+            to: projectDir.appendingPathComponent(ProjectManifest.fileName))
+
+        let store = try await ProjectStore.load(from: projectDir)
+        let docA = try await Document.load(
+            url: projectDir.appendingPathComponent(pathA),
+            device: "test", session: "s", presenter: nil)
+        let docB = try await Document.load(
+            url: projectDir.appendingPathComponent(pathB),
+            device: "test", session: "s", presenter: nil)
+
+        let pid = ProjectIdentifier.id(for: projectDir)
+        PublishingStores._resetForTesting()
+        let stores = PublishingStores.sharedFor(projectID: pid, projectURL: projectDir)
+        var cfg = try await stores.configStore.load() ?? PublishConfig()
+        cfg.metadata.title = "Base"
+        cfg.metadata.author = "Auth"
+        cfg.metadata.language = "en"
+        cfg.languageOverrides = ["es": .init(metadata: ["title": "Título"])]
+        try await stores.configStore.save(cfg)
+
+        return TwoDocFixture(
+            store: store, docA: (idA, docA), docB: (idB, docB),
+            stores: stores, projectURL: projectDir)
     }
 
     // MARK: - fountain fixture (check-level, no compile)

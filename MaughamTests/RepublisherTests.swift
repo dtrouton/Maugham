@@ -370,6 +370,66 @@ final class RepublisherTests: XCTestCase {
         XCTAssertTrue(message.lowercased().contains("fallback"), message)
     }
 
+    // MARK: - F1: republish reproduces the snapshot's included subset
+
+    /// The `include` flags live in `PublishConfig`, which is already snapshotted,
+    /// so a subset compiled once reproduces the SAME subset on republish for
+    /// free. Pin both halves: (1) the snapshot round-trips the exclusion, and
+    /// (2) republish wraps the live source with the snapshot's excluded set and
+    /// completes. The initial EPUB compile's durable `build/body.xhtml` proves
+    /// the excluded piece was actually dropped from the emitted body.
+    func testRepublish_reproducesSnapshotSubset() async throws {
+        struct Src: ProjectASTBuilder.Source {
+            func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+                [.init(pieceID: "p1", title: "Alpha", mode: .prose, displayText: "First."),
+                 .init(pieceID: "p2", title: "Bravo", mode: .prose, displayText: "Middle."),
+                 .init(pieceID: "p3", title: "Charlie", mode: .prose, displayText: "Third.")]
+            }
+        }
+        let configStore = PublishConfigStore(projectURL: tmp)
+        var cfg = PublishConfig(metadata: .init(title: "RepubSubset", author: "T"))
+        cfg.sections["p2"] = .init(include: false)
+        try await configStore.save(cfg)
+
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: Src(),
+            configStore: configStore,
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let initial = try await orch.compile(format: .epub, label: nil)
+        guard case .completed(let initialPub, _) = initial else {
+            return XCTFail("initial subset compile failed: \(initial)")
+        }
+
+        // The emitted body dropped the excluded piece.
+        let body = try String(
+            contentsOf: tmp.appendingPathComponent(".maugham/publish/build/body.xhtml"),
+            encoding: .utf8)
+        XCTAssertFalse(body.contains("data-piece-id=\"p2\""),
+                       "excluded piece must be absent from the initial compile body")
+
+        // The snapshot froze the include flag — republish reads it back.
+        let snap = try snapStore.load(id: initialPub.snapshotID)
+        XCTAssertEqual(snap.config.excludedSectionIDs, ["p2"],
+                       "snapshot must round-trip the include=false flag")
+
+        let r = Republisher(
+            projectURL: tmp, astSource: Src(),
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let outcome = try await r.republish(
+            snapshotID: initialPub.snapshotID, format: .epub, label: nil)
+        guard case .completed(let pub, _) = outcome else {
+            return XCTFail("subset republish failed: \(outcome)")
+        }
+        XCTAssertEqual(pub.republishedFrom, "0.1")
+    }
+
     // MARK: - F1 round 5: republish surfaces fountain drift warnings too
 
     private struct FountainRepubFixture {

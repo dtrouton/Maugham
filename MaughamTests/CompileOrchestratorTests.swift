@@ -120,4 +120,81 @@ final class CompileOrchestratorTests: XCTestCase {
                        "collision guard must not append a colliding Publication")
         XCTAssertEqual(pubs.first?.publicationID, "pub-pre-existing")
     }
+
+    // MARK: - F1: per-section include flag drops excluded pieces from output
+
+    /// Three pieces, the middle one excluded. The EPUB compile path writes
+    /// `build/body.xhtml` without tectonic, so the emitted body is directly
+    /// inspectable: the excluded piece must be absent, the other two present.
+    /// (The PDF/LaTeX format is covered by the ToC compile probe.)
+    func testCompile_epub_excludedSectionOmittedFromBody() async throws {
+        struct Src: ProjectASTBuilder.Source {
+            func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+                [.init(pieceID: "p1", title: "Alpha", mode: .prose, displayText: "First piece."),
+                 .init(pieceID: "p2", title: "Bravo", mode: .prose, displayText: "Middle piece."),
+                 .init(pieceID: "p3", title: "Charlie", mode: .prose, displayText: "Third piece.")]
+            }
+        }
+        let configStore = PublishConfigStore(projectURL: tmp)
+        var cfg = PublishConfig(metadata: .init(title: "Subset", author: "T"))
+        cfg.sections["p2"] = .init(include: false)
+        try await configStore.save(cfg)
+
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: Src(),
+            configStore: configStore,
+            publicationStore: PublicationStore(projectURL: tmp),
+            snapshotStore: PublicationSnapshotStore(projectURL: tmp),
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test",
+            tectonicVersion: "n/a")
+
+        let result = try await orch.compile(format: .epub, label: nil)
+        guard case .completed = result else {
+            return XCTFail("expected completed, got \(result)")
+        }
+
+        let body = try String(
+            contentsOf: tmp.appendingPathComponent(".maugham/publish/build/body.xhtml"),
+            encoding: .utf8)
+        XCTAssertTrue(body.contains("data-piece-id=\"p1\""), "included Alpha missing")
+        XCTAssertTrue(body.contains("data-piece-id=\"p3\""), "included Charlie missing")
+        XCTAssertFalse(body.contains("data-piece-id=\"p2\""), "excluded Bravo present")
+        XCTAssertFalse(body.contains("Middle piece."), "excluded body text present")
+    }
+
+    /// The wrapper the orchestrator uses is the emit contract for BOTH formats —
+    /// building the AST from it and emitting each body confirms the excluded
+    /// piece is gone from LaTeX and XHTML alike, cheaply and without tectonic.
+    func testIncludeFilteredASTSource_dropsExcluded_bothFormats() throws {
+        struct Src: ProjectASTBuilder.Source {
+            func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+                [.init(pieceID: "p1", title: "Keep One", mode: .prose, displayText: "Keep."),
+                 .init(pieceID: "p2", title: "Drop Two", mode: .prose, displayText: "Drop."),
+                 .init(pieceID: "p3", title: "Keep Three", mode: .prose, displayText: "Keep.")]
+            }
+        }
+        let filtered = IncludeFilteredASTSource(base: Src(), excludedSectionIDs: ["p2"])
+        XCTAssertEqual(filtered.orderedPieces().map(\.pieceID), ["p1", "p3"])
+
+        let ast = ProjectASTBuilder.build(from: filtered)
+        let latex = LaTeXBodyEmitter.emit(ast)
+        let xhtml = XHTMLBodyEmitter.emit(ast)
+        for body in [latex, xhtml] {
+            XCTAssertTrue(body.contains("Keep One"))
+            XCTAssertTrue(body.contains("Keep Three"))
+            XCTAssertFalse(body.contains("Drop Two"))
+        }
+    }
+
+    func testIncludeFilteredASTSource_emptyExcludedSet_isPassThrough() throws {
+        struct Src: ProjectASTBuilder.Source {
+            func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+                [.init(pieceID: "p1", title: "A", mode: .prose, displayText: "x"),
+                 .init(pieceID: "p2", title: "B", mode: .prose, displayText: "y")]
+            }
+        }
+        let filtered = IncludeFilteredASTSource(base: Src(), excludedSectionIDs: [])
+        XCTAssertEqual(filtered.orderedPieces().map(\.pieceID), ["p1", "p2"])
+    }
 }

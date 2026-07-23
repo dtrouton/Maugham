@@ -78,6 +78,15 @@ public struct CompileOrchestrator {
         effective = LanguageSuffixedFile.resolvingStyleFiles(
             in: effective, language: language, publishDir: publishDir)
 
+        // F1: compute the excluded set from the EFFECTIVE config (after the
+        // language fold above, so a language edition can't diverge the subset),
+        // then wrap the live source so the emitters — and every downstream
+        // record derived from them — see only the included pieces. An empty
+        // excluded set is a pass-through.
+        let excludedSectionIDs = effective.excludedSectionIDs
+        let emitSource = IncludeFilteredASTSource(
+            base: astSource, excludedSectionIDs: excludedSectionIDs)
+
         // D3c: pre-compile collision guard. `PublishStarter.install` (D3a)
         // reconciles `next_version` past existing publications, but a writer
         // can still manually set it backward via set_publish_config. Refuse
@@ -118,7 +127,8 @@ public struct CompileOrchestrator {
         var gateWarnings: [TectonicLogParser.Diagnostic] = []
         if let language, let source = astSource as? ProjectStoreASTSource {
             let report = await TranslationCoverage.check(
-                projectStore: source.projectStore, language: language)
+                projectStore: source.projectStore, language: language,
+                excludedSectionIDs: excludedSectionIDs)
             switch TranslationCoverage.applyGate(
                 report: report, language: language, allowStale: allowStale
             ) {
@@ -144,7 +154,7 @@ public struct CompileOrchestrator {
         switch format {
         case .pdf:
             let pdf = try PDFCompiler(
-                projectURL: projectURL, astSource: astSource,
+                projectURL: projectURL, astSource: emitSource,
                 config: effective, jobManager: jobManager,
                 maughamVersion: maughamVersion, jobID: jobID,
                 language: language)
@@ -156,7 +166,7 @@ public struct CompileOrchestrator {
 
         case .epub:
             let epub = EPUBCompiler(
-                projectURL: projectURL, astSource: astSource,
+                projectURL: projectURL, astSource: emitSource,
                 config: effective, jobManager: jobManager,
                 maughamVersion: maughamVersion,
                 tectonicVersion: tectonicVersion, jobID: jobID,

@@ -52,8 +52,8 @@ The in-app MCP server: tool registration, JSON-RPC handling, the read/search/dis
 
 **Publishing**
 - `initialize_publish_template` — scaffold a LaTeX/EPUB template for a project
-- `get_publish_config` — read publish config (`config.json`)
-- `set_publish_config` — write publish config fields
+- `get_publish_config` — read publish config (`config.json`); includes per-piece `sections.<docId>.include` (default true — set false to omit a piece from the edition, F1)
+- `set_publish_config` — write publish config fields (e.g. patch `sections.<docId>.include: false` to ship a subset edition — the excluded piece drops out of compile/republish output and the translation coverage gate)
 - `list_publish_files` — enumerate files under `.maugham/publish/`
 - `read_publish_file` — read a publish template or config file
 - `read_publish_image` — read a publish image with crop-on-demand

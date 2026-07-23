@@ -85,6 +85,14 @@ public struct Republisher {
         // this field existed (ADR 0015 additive default).
         let allowStale = prior?.allowStale ?? false
 
+        // F1: reproduce the historical subset. The snapshot's config is already
+        // language-effective (Task 7 Rule 1), so its `include` flags are exactly
+        // those the original compile used — wrap the live source with the same
+        // excluded set. An empty set is a pass-through (pre-F1 snapshots).
+        let excludedSectionIDs = snap.config.excludedSectionIDs
+        let emitSource = IncludeFilteredASTSource(
+            base: astSource, excludedSectionIDs: excludedSectionIDs)
+
         let jobID = await jobManager.register(phase: .renderingBody)
 
         // Task 9 F1: the snapshot freezes config/templates only — `astSource`
@@ -100,7 +108,8 @@ public struct Republisher {
         var gateWarnings: [TectonicLogParser.Diagnostic] = []
         if let language, let source = astSource as? ProjectStoreASTSource {
             let report = await TranslationCoverage.check(
-                projectStore: source.projectStore, language: language)
+                projectStore: source.projectStore, language: language,
+                excludedSectionIDs: excludedSectionIDs)
             switch TranslationCoverage.applyGate(
                 report: report, language: language, allowStale: allowStale
             ) {
@@ -120,7 +129,7 @@ public struct Republisher {
         switch format {
         case .pdf:
             let pdf = try PDFCompiler(
-                projectURL: stage, astSource: astSource,
+                projectURL: stage, astSource: emitSource,
                 config: snap.config, jobManager: jobManager,
                 maughamVersion: maughamVersion, jobID: jobID,
                 language: language)
@@ -131,7 +140,7 @@ public struct Republisher {
             logExcerpt = r.logExcerpt
         case .epub:
             let e = EPUBCompiler(
-                projectURL: stage, astSource: astSource,
+                projectURL: stage, astSource: emitSource,
                 config: snap.config, jobManager: jobManager,
                 maughamVersion: maughamVersion,
                 tectonicVersion: tectonicVersion, jobID: jobID,

@@ -162,17 +162,24 @@ public struct PublishConfig: Codable, Equatable, Sendable {
         public var startOn: StartOn
         public var includeInToc: Bool
         public var styleFile: String?
+        /// F1: when `false`, this piece is excluded from the compiled edition —
+        /// not emitted (both formats), not gated by translation coverage, and
+        /// dropped from `preview_compile`'s default (no-`section_ids`) subset.
+        /// Default `true` (absent ⇒ included, ADR 0015 additive-optional).
+        public var include: Bool
 
         public init(
             titleOverride: String? = nil,
             startOn: StartOn = .any,
             includeInToc: Bool = true,
-            styleFile: String? = nil
+            styleFile: String? = nil,
+            include: Bool = true
         ) {
             self.titleOverride = titleOverride
             self.startOn = startOn
             self.includeInToc = includeInToc
             self.styleFile = styleFile
+            self.include = include
         }
 
         public func encode(to encoder: Encoder) throws {
@@ -181,6 +188,7 @@ public struct PublishConfig: Codable, Equatable, Sendable {
             try c.encode(startOn, forKey: .startOn)
             try c.encode(includeInToc, forKey: .includeInToc)
             try c.encodeAlways(styleFile, forKey: .styleFile)
+            try c.encode(include, forKey: .include)
         }
 
         // Custom decode so a PARTIAL section survives RFC-7396 merge-patch.
@@ -197,6 +205,7 @@ public struct PublishConfig: Codable, Equatable, Sendable {
             self.startOn = try c.decodeIfPresent(StartOn.self, forKey: .startOn) ?? .any
             self.includeInToc = try c.decodeIfPresent(Bool.self, forKey: .includeInToc) ?? true
             self.styleFile = try c.decodeIfPresent(String.self, forKey: .styleFile)
+            self.include = try c.decodeIfPresent(Bool.self, forKey: .include) ?? true
         }
 
         enum CodingKeys: String, CodingKey {
@@ -204,6 +213,7 @@ public struct PublishConfig: Codable, Equatable, Sendable {
             case startOn = "start_on"
             case includeInToc = "include_in_toc"
             case styleFile = "style_file"
+            case include
         }
     }
 
@@ -282,6 +292,14 @@ public struct PublishConfig: Codable, Equatable, Sendable {
         self.nextVersion = nextVersion
         self.activeLabelHint = activeLabelHint
         self.languageOverrides = languageOverrides
+    }
+
+    /// F1: the piece ids whose section carries `include == false`. These are
+    /// dropped from the emitted edition, excluded from the translation coverage
+    /// gate, and subtracted from `preview_compile`'s default subset. A piece
+    /// with no section entry defaults to included, so it never appears here.
+    public var excludedSectionIDs: Set<String> {
+        Set(sections.filter { !$0.value.include }.keys)
     }
 
     /// The metadata that should drive an edition compiled for `language`.
