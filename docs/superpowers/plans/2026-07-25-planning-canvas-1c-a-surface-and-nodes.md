@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- **This slice is SCRAPS ONLY.** Spec §8A.1 gives *item* nodes (research notes, palette cards, images dragged in from the binder) to a separate plan, **1C-d**. In 1C-a:
+- **This slice is SCRAPS ONLY — and that is a *slice* boundary, never a milestone one.** Spec §8A.1 gives *item* nodes (research notes, palette cards, images dragged in from the binder) to a separate plan, **1C-d**, and says in the same breath that **images are in scope for milestone M1C, not deferred past it**: M1C is not finished without them, and *no plan may cite §8A.1 as authorising their omission from the milestone* — this one included. What 1C-a defers is the order of work, not the work. Task 17 records the boundary in the ADR so it stays a decision rather than becoming an accident. In 1C-a:
   - The `CanvasNodeKind.item(referenceId:)` case and the `CanvasNodeID.item(_:)` id spelling **stay** in the model and the codec — plans 1C-b and 1C-c already consume them and must not break.
   - An item node **renders as a placeholder card** carrying its reference id. That is the finished behaviour *for this slice*; 1C-d replaces it with the real title, kind glyph and thumbnail.
   - **Do not build:** a drop target, `CanvasItemPresentation` or any title/thumbnail resolution, any image decoding, downsampling or cache, any `.draggable`/`.dropDestination`/`DropClassification` wiring. If a task seems to need one of these, it belongs to 1C-d — stop and say so rather than inventing it.
@@ -21,8 +21,8 @@
 - **`ProjectWindow.body`'s expression budget is zero.** No new top-level modifier. The canvas reaches the centre column by adding `case canvas` to `BinderSegment` and to `Persona.binderSegments(for:)` — `ProjectWindow.existingEditorSwitch` already routes on `binderSegment`.
 - **`BinderSegmentPicker` requires uniform `Image` children** — every `BinderSegment` must return an SF Symbol from `pickerSymbolName`. Mixed `Image`/`Text` in that `ForEach` shipped smoke defect C on 2026-07-25.
 - **Never `.scaleEffect` for zoom.** It scales rendered output (blurry text), reports unscaled geometry, and breaks `NSCursor` tracking (spec §7A.1).
-- **Seeded irregularity must be stable** — derived from the node id, never random per frame (spec §7.2). It applies to the card's **chrome only**, never to its text (Task 7 explains why).
-- **No raw `maugham.*` `NotificationCenter` post or subscription outside `MaughamEvent`** (tripwire 21). Nothing in this plan needs one. AppKit's own lifecycle notifications (`NSApplication.willTerminateNotification`) are not `maugham.*` and are permitted.
+- **Seeded irregularity must be stable** — derived from the node id, never random per frame (spec §7.2). It applies to the **whole card**, chrome and text together. The card that takes focus **animates to level over ~120 ms and settles back on blur** (spec §7A.5) — the snap is the focus affordance, and it is what lets the editor always mount axis-aligned. Task 7 owns the interpolated value; Task 10 owns the clock that drives it.
+- **`NotificationCenter` (tripwire 21).** The *subscribe* patterns in `TripwireGrepTests` are scoped to `.maugham` names, so observing `NSApplication.willTerminateNotification` needs no annotation. **The *post* pattern is NOT scoped**: `TripwireGrepTests.adr0021PostPattern` is the bare string `NotificationCenter\.default\.post\(`, and `MaughamTests/` is one of the scanned directories. So any `NotificationCenter.default.post(` this plan writes — including the one in Task 5's test — must carry `// adr-0021-ok: <reason>` **on the line where the call starts**, or `test_noRawMaughamPostsOrSubscriptionsOutsideWrapper` fails. No `maugham.*` post or subscription outside `MaughamEvent` at all; nothing here needs one.
 - **`ContentUnavailableView` needs `.frame(maxWidth: .infinity, maxHeight: .infinity)`** and the enclosing `VStack` needs `alignment: .top` (tripwire 15 — recurred 4+ times).
 - **`Maugham.xcodeproj/` is generated and gitignored.** Never `git add` anything under it. A `project.pbxproj` in a diff is a red flag.
 - **Every Step 2 begins with `./gen.sh &&`.** `MaughamTests/Canvas/` is a new directory: until `./gen.sh` runs, the new test file is not in the project at all, and `-only-testing MaughamTests/<Class>` then runs **zero** tests and reports **success** — a green RED step, which is worse than no RED step.
@@ -35,7 +35,7 @@
 
 **Who owns the scene.** In 1C-a, `CanvasView` owns `scene`, `scraps`, `layouts`, `camera`, `editingNodeID` and `caretIndex` as `@State`. **1C-b Task 4 introduces `@Observable final class CanvasModel` and moves `scene`, `scraps`, selection, the `CanvasStore` and the undo manager into it**, because the region inspector in the right-hand column needs the same scene the canvas draws. `camera`, `layouts`, `editingNodeID` and `caretIndex` stay in `CanvasView` — they are properties of one *view* of the canvas. That move is expected, planned, and is 1C-b's work, not 1C-a's. Do not build `CanvasModel` here.
 
-**Where undo lives.** `CanvasUndo` is built in **1C-a Task 13**, snapshot-based, and 1C-b Task 4 rebinds it to `CanvasModel` without changing the class. Task 13 states the reasoning in full.
+**Where undo lives.** `CanvasUndo` is built in **1C-a Task 15**, snapshot-based, and 1C-b Task 4 rebinds it to `CanvasModel` without changing the class. Task 15 states the reasoning in full.
 
 **Three spellings 1C-b's Interfaces block currently gets wrong** (its text was written against an earlier draft of this plan). Whoever executes 1C-b should reconcile against *this* file, which is the source of truth for 1C-a's API:
 
@@ -65,10 +65,10 @@
 | `Maugham/Canvas/CanvasSceneCodec.swift` | `Codable` shape + schema version for `.maugham/canvas.json` |
 | `Maugham/Canvas/CanvasStore.swift` | Owns disk I/O for both `canvas.json` and `canvas.md`; debounced autosave; quit flush |
 | `Maugham/Canvas/CanvasEventView.swift` | `NSViewRepresentable` overriding `scrollWheel`/`magnify`/mouse |
-| `Maugham/Canvas/CanvasRenderer.swift` | The draw pass: culling, seeded chrome rotation, card drawing |
+| `Maugham/Canvas/CanvasRenderer.swift` | The draw pass: culling, seeded rotation, focus-straighten interpolation (`CanvasFocusStraighten`), card drawing |
 | `Maugham/Canvas/CanvasGround.metal` | `[[stitchable]]` grain shader, sampled in content space |
 | `Maugham/Canvas/CanvasGround.swift` | The Metal-shader ground, as a sibling layer beneath content |
-| `Maugham/Canvas/ScrapEditorHost.swift` | `ScrapEditorContainer` + `ScrapEditorHost` — one `NSTextView`, bounds-scaled by zoom |
+| `Maugham/Canvas/ScrapEditorHost.swift` | `ScrapEditorContainer` + `ScrapEditorHost` + `ScrapEditorGeometry` — one `NSTextView`, bounds-scaled by zoom |
 | `Maugham/Canvas/CanvasView.swift` | Composes ground + `Canvas` + event view + editor host |
 | `Maugham/Canvas/CanvasInteraction.swift` | Drag/resize/create state machine + `CanvasMomentum` |
 | `Maugham/Canvas/CanvasAccessibility.swift` | The AX mirror of the scene graph (spec §7A.6) |
@@ -504,6 +504,15 @@ final class ScrapTextTests: XCTestCase {
         XCTAssertEqual(ScrapText.parse(ScrapText.render(scraps)), scraps)
     }
 
+    func test_roundTrip_preservesTextThatAlreadyBeginsWithSpaceThenHashes() {
+        // The escape adds ONE space to any line that reads as a heading once its
+        // leading spaces are stripped, and the unescape removes exactly one from
+        // the same class of line. A naive `hasPrefix(" ## ")` unescape eats a
+        // space the writer typed.
+        let scraps = [CanvasNodeID("s1"): " ## indented on purpose\n\nbody"]
+        XCTAssertEqual(ScrapText.parse(ScrapText.render(scraps)), scraps)
+    }
+
     func test_roundTrip_preservesAnEmptyScrap() {
         // A freshly created scrap has no text yet and must still round-trip,
         // or double-click-then-quit loses the node's very existence.
@@ -539,15 +548,25 @@ public enum ScrapText {
     /// A scrap body line that would otherwise read as a scrap heading gets one
     /// space of indent on the way out, removed on the way in. Without this, a
     /// scrap whose text begins "## something" splits into two scraps on reload.
+    ///
+    /// The test is "does it read as a heading once its leading spaces are
+    /// stripped", NOT "does it start with `## `". Both halves use the same test,
+    /// so the pair is a bijection on every input. Keying the unescape on the
+    /// literal `" ## "` instead would eat a space the writer typed, silently, on
+    /// the one line where they had already indented a heading themselves.
+    private static func readsAsHeading(_ line: some StringProtocol) -> Bool {
+        line.drop(while: { $0 == " " }).hasPrefix("## ")
+    }
+
     private static func escape(_ body: String) -> String {
         body.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { $0.hasPrefix("## ") ? " " + $0 : String($0) }
+            .map { readsAsHeading($0) ? " " + $0 : String($0) }
             .joined(separator: "\n")
     }
 
     private static func unescape(_ body: String) -> String {
         body.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { $0.hasPrefix(" ## ") ? String($0.dropFirst()) : String($0) }
+            .map { $0.hasPrefix(" ") && readsAsHeading($0) ? String($0.dropFirst()) : String($0) }
             .joined(separator: "\n")
     }
 
@@ -600,7 +619,7 @@ public enum ScrapText {
 - [ ] **Step 4: Run the tests**
 
 Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/ScrapTextTests CODE_SIGNING_ALLOWED=NO`
-Expected: PASS, 7 tests.
+Expected: PASS, 8 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -711,13 +730,17 @@ final class ScrapLayoutTests: XCTestCase {
         XCTAssertFalse(l.debugWidthTracksTextView)
     }
 
-    func test_mountedEditorHasZeroInsetAndAllowsUndo() {
+    func test_mountedEditorHasZeroInsetAndLeavesUndoToTheCanvas() {
         let l = layout()
         let editor = l.makeEditor(frame: CGRect(x: 0, y: 0, width: 240, height: 100))
         XCTAssertEqual(editor.textContainerInset, .zero,
                        "a non-zero inset shifts edited text against drawn text")
-        XCTAssertTrue(editor.allowsUndo,
-                      "the canvas undo manager needs the text view to register typing")
+        XCTAssertFalse(editor.allowsUndo,
+                       "with allowsUndo the text view registers its OWN step on the "
+                       + "shared canvas manager and the canvas snapshot registers a "
+                       + "second one covering the same change — one keystroke, two "
+                       + "steps, and the text view's step targets an NSTextStorage "
+                       + "the next rebuildLayouts() orphans (Task 15)")
     }
 
     func test_measuredHeightIsPositiveAndGrowsAsWidthShrinks() {
@@ -874,10 +897,16 @@ final class ScrapLayout {
         tv.drawsBackground = false
         tv.isHorizontallyResizable = false
         tv.isVerticallyResizable = false
-        // The canvas undo manager reaches the text view through the responder
-        // chain (`ScrapEditorContainer.undoManager`), but only if the view
-        // registers its typing at all.
-        tv.allowsUndo = true
+        // DELIBERATELY false. The canvas undo manager reaches this view through
+        // the responder chain (`ScrapEditorContainer.undoManager`), so ⌘Z while
+        // editing runs the CANVAS stack. If the view also registered its own
+        // typing steps on that same manager, every keystroke would land twice:
+        // the writer's ⌘Z would run the canvas snapshot (reverting the edit),
+        // and the text view's queued step would still be sitting there pointed
+        // at an `NSTextStorage` that `rebuildLayouts()` has since replaced — so
+        // the second ⌘Z would appear to do nothing. Snapshots own scrap text;
+        // Task 15 states the decision and its cost in full.
+        tv.allowsUndo = false
         return tv
     }
 
@@ -939,7 +968,7 @@ final class ScrapLayout {
 - [ ] **Step 4: Run the tests**
 
 Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/ScrapLayoutTests CODE_SIGNING_ALLOWED=NO`
-Expected: PASS, 9 tests.
+Expected: PASS, 8 tests.
 
 - [ ] **Step 5: Falsify the pin**
 
@@ -1165,11 +1194,16 @@ git commit -m "feat(canvas): camera — pan, clamped zoom-to-cursor, inverse-tra
     - `func save(scene: CanvasScene, scraps: [CanvasNodeID: String])`
     - `func scheduleSave(scene: CanvasScene, scraps: [CanvasNodeID: String])`
     - `func flush()` — **no arguments**; writes whatever `scheduleSave` last queued
+    - `var beforeFlush: (() -> Void)?` — the owner's last chance to fold live editor text into the payload
     - `var hasPendingWrite: Bool` — test seam
 
 Schema evolution follows ADR 0015: unknown enum cases decode to a sentinel or are dropped; a newer `schemaVersion` degrades to empty rather than throwing.
 
 **Why `flush()` takes no arguments.** The store keeps the last debounced payload so the flush path has something to write without a caller who still remembers it. That is what makes the app-quit hook possible: `CanvasStore` observes `NSApplication.willTerminateNotification` itself and flushes. `.onDisappear` alone does **not** cover quit — the previous shape's doc comment claimed it did.
+
+**Why `queue:` is `nil` and not `.main`.** `addObserver(forName:object:queue:using:)` runs the block **synchronously on the posting thread only when `queue` is nil**. With `.main` the block is *enqueued*, and during `willTerminateNotification` that hop may never run before the process exits — which defeats the entire reason `flush()` became argument-free. It also breaks the test below, which asserts `hasPendingWrite == false` on the same turn as the post.
+
+**Why `beforeFlush` exists.** The words a writer has just typed live in the mounted editor's `NSTextStorage` until something pulls them into the model. `CanvasView` does that on every keystroke, but the flush path must not *depend* on that having happened — so the store gives the owner one synchronous call immediately before it writes. Task 10 binds it to `syncActiveEdit`. A `beforeFlush` that calls `scheduleSave` cannot recurse: `scheduleSave` only posts a work item, and `flush` cancels it on the next line.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1308,14 +1342,34 @@ final class CanvasStoreTests: XCTestCase {
 
     /// `.onDisappear` does not fire on app quit. The store owns the quit hook
     /// itself so no caller has to remember.
+    ///
+    /// This asserts on the SAME TURN as the post, which only holds because the
+    /// observer is registered with `queue: nil` — the block then runs
+    /// synchronously on the posting thread. With `queue: .main` it is enqueued
+    /// instead, this test fails, and at real quit time the hop may never run.
     func test_appTerminationFlushesThePendingWrite() {
         let store = CanvasStore(projectRoot: root)
         store.scheduleSave(scene: sampleScene(), scraps: [CanvasNodeID("s1"): "quit me"])
-        NotificationCenter.default.post(name: NSApplication.willTerminateNotification,
-                                        object: NSApplication.shared)
+        NotificationCenter.default.post(   // adr-0021-ok: AppKit lifecycle notification, not a maugham.* event
+            name: NSApplication.willTerminateNotification, object: NSApplication.shared)
         XCTAssertFalse(store.hasPendingWrite)
         XCTAssertEqual(CanvasStore(projectRoot: root).load().scraps[CanvasNodeID("s1")],
                        "quit me")
+    }
+
+    /// C5's last line of defence. The words the writer just typed live in the
+    /// mounted editor until something pulls them into the model; the store gives
+    /// its owner one synchronous call to do that before it writes.
+    func test_beforeFlushCanReplaceThePayloadOnItsWayOut() {
+        let store = CanvasStore(projectRoot: root)
+        store.scheduleSave(scene: sampleScene(), scraps: [CanvasNodeID("s1"): "stale"])
+        store.beforeFlush = { [weak store] in
+            store?.scheduleSave(scene: self.sampleScene(),
+                                scraps: [CanvasNodeID("s1"): "what the writer actually typed"])
+        }
+        store.flush()
+        XCTAssertEqual(CanvasStore(projectRoot: root).load().scraps[CanvasNodeID("s1")],
+                       "what the writer actually typed")
     }
 }
 ```
@@ -1418,6 +1472,13 @@ final class CanvasStore {
     private var pendingPayload: (scene: CanvasScene, scraps: [CanvasNodeID: String])?
     private var terminationObserver: NSObjectProtocol?
 
+    /// The owner's last chance to fold live editor text into the payload before
+    /// it is written. `CanvasView` binds this to `syncActiveEdit`, so a quit
+    /// mid-sentence writes the sentence. Calling `scheduleSave` from here is
+    /// safe and is the intended use — it only queues, and `flush` cancels the
+    /// queue on the very next line.
+    var beforeFlush: (() -> Void)?
+
     /// Matches `DocumentStore`'s autosave debounce, so canvas edits and
     /// manuscript edits settle on the same rhythm.
     private let debounceInterval: TimeInterval = 0.75
@@ -1428,9 +1489,14 @@ final class CanvasStore {
         // exactly long enough to lose the writer's last drag. This is an AppKit
         // lifecycle notification, not a `maugham.*` one, so it is outside
         // `MaughamEvent`'s remit (tripwire 21).
+        //
+        // `queue: nil` is REQUIRED, not a default. With a queue the block is
+        // enqueued rather than run on the posting thread, and during termination
+        // the hop may never run — which is precisely the write this observer
+        // exists to guarantee.
         terminationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification,
-            object: nil, queue: .main
+            object: nil, queue: nil
         ) { [weak self] _ in
             self?.flush()
         }
@@ -1440,9 +1506,10 @@ final class CanvasStore {
         if let terminationObserver {
             NotificationCenter.default.removeObserver(terminationObserver)
         }
-        // A store going away with an unwritten drag is the same data loss as a
-        // quit. Write it out rather than cancelling it.
-        flush()
+        // Deliberately NOT flushing here. Every real path is already covered —
+        // the debounce timer, `CanvasView.onDisappear`, and app termination —
+        // and a `deinit` write lands wherever the store happens to die, which in
+        // tests is a temp directory `tearDown` has already removed.
     }
 
     var hasPendingWrite: Bool { pendingPayload != nil }
@@ -1482,10 +1549,12 @@ final class CanvasStore {
     }
 
     /// Write whatever `scheduleSave` last queued, now. Called from the debounce
-    /// timer, from `CanvasView.onDisappear`, from app termination, and from
-    /// `deinit`. A no-op when nothing is pending — it must never stamp an empty
-    /// canvas over a real one.
+    /// timer, from `CanvasView.onDisappear`, and from app termination. A no-op
+    /// when nothing is pending — it must never stamp an empty canvas over a real
+    /// one.
     func flush() {
+        // The owner's last chance to fold live editor text into the payload.
+        beforeFlush?()
         pendingSave?.cancel()
         pendingSave = nil
         guard let payload = pendingPayload else { return }
@@ -1510,7 +1579,12 @@ final class CanvasStore {
 - [ ] **Step 5: Run the tests**
 
 Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasStoreTests CODE_SIGNING_ALLOWED=NO`
-Expected: PASS, 11 tests.
+Expected: PASS, 12 tests.
+
+Also run the tripwire suite — this task is the one that writes a `NotificationCenter.default.post(` into `MaughamTests/`, and the ADR 0021 post pattern is unconditional:
+
+Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/TripwireGrepTests CODE_SIGNING_ALLOWED=NO`
+Expected: PASS. If `test_noRawMaughamPostsOrSubscriptionsOutsideWrapper` fails, the `// adr-0021-ok:` annotation is missing or is on the wrong line — it must be on the line where the call *starts*.
 
 - [ ] **Step 6: Commit**
 
@@ -1530,7 +1604,7 @@ git commit -m "feat(canvas): sidecar + canvas.md persistence, argument-free flus
 **Interfaces:**
 - **Consumes:** `CanvasCamera` (Task 4).
 - **Produces:**
-  - `enum CanvasDragPhase: Equatable, Sendable` — `case began`, `case changed`, `case ended`. **This is the only drag vocabulary in the plan.** Tasks 9 and 11 use exactly these names; there is no `DragPhase`, no `onDragBegan`/`onDragChanged`/`onDragEnded` triple.
+  - `enum CanvasDragPhase: Equatable, Sendable` — `case began`, `case changed`, `case ended`. **This is the only drag vocabulary in the plan.** Tasks 10 and 13 use exactly these names; there is no `DragPhase`, no `onDragBegan`/`onDragChanged`/`onDragEnded` triple.
   - `final class CanvasEventNSView: NSView` — `var camera: CanvasCamera`, `var canvasUndoManager: UndoManager?`, `var onCameraChange: ((CanvasCamera) -> Void)?`, `var onClick: ((CGPoint, Int) -> Void)?` (view point, click count), `var onDrag: ((CGPoint, CanvasDragPhase) -> Void)?` (view point, phase); testable seams `applyScroll(deltaX:deltaY:precise:)`, `applyMagnify(magnification:at:)`, `applyMouseDown(at:clickCount:)`, `applyMouseDragged(to:)`, `applyMouseUp(at:)`.
   - `struct CanvasEventView: NSViewRepresentable` — `@Binding var camera: CanvasCamera`, `var onClick: (CGPoint, Int) -> Void`, `var onDrag: (CGPoint, CanvasDragPhase) -> Void`, `var undoManager: UndoManager?`.
 
@@ -1538,7 +1612,7 @@ SwiftUI cannot supply any of this: it exposes no scroll-wheel API on macOS, `Mag
 
 The event logic lives in plain methods on the `NSView` so it can be tested without synthesizing `NSEvent`s. **The spike learned this the hard way:** synthesized-event harnesses failed their own controls twice, and `NSTextView.mouseDown` runs a modal tracking loop that deadlocks a post-then-pump harness.
 
-**This view is NOT frontmost.** Task 9 places it *beneath* the mounted scrap editor so the editor receives clicks natively (caret placement, drag-select, double-click-word). `mouseDown` therefore does not call `super` — nothing behind it wants the event, and `NSResponder.mouseDown`'s default is to pass up the chain, which would hand canvas clicks to the window.
+**This view is NOT frontmost.** Task 10 places it *beneath* the mounted scrap editor so the editor receives clicks natively (caret placement, drag-select, double-click-word). `mouseDown` therefore does not call `super` — nothing behind it wants the event, and `NSResponder.mouseDown`'s default is to pass up the chain, which would hand canvas clicks to the window.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1811,7 +1885,7 @@ struct CanvasEventView: NSViewRepresentable {
 - [ ] **Step 4: Run the tests**
 
 Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasEventViewTests CODE_SIGNING_ALLOWED=NO`
-Expected: PASS, 11 tests.
+Expected: PASS, 10 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -1833,16 +1907,32 @@ editor so AppKit gives the writer caret placement and word selection."
 
 **Interfaces:**
 - **Consumes:** `CanvasScene`, `CanvasNode`, `CanvasNodeID`, `CanvasNodeKind`, `CanvasCardMetrics` (Task 1); `ScrapLayout` (Task 3); `CanvasCamera` (Task 4).
-- **Produces:** `enum CanvasRenderer` with
-  - `static func seededRotation(for id: CanvasNodeID) -> Angle`
-  - `static func visibleNodes(in scene: CanvasScene, camera: CanvasCamera, viewSize: CGSize) -> [CanvasNode]`
-  - `static func placeholderLabel(forReference referenceId: String) -> String`
-  - `static let resizeHandleSize: CGFloat`
-  - `static func draw(scene: CanvasScene, camera: CanvasCamera, viewSize: CGSize, layouts: [CanvasNodeID: ScrapLayout], editingNodeID: CanvasNodeID?, into cx: inout GraphicsContext)` — **`editingNodeID:` is part of the signature.** Task 9 passes it; while a scrap's editor is live the editor *is* the visible text, so drawing it too would double-draw (spec §7A.2, the Excalidraw rule).
+- **Produces:**
+  - `struct CanvasFocusStraighten: Equatable` — `static let secondsToLevel: TimeInterval`, `private(set) var focusedNodeID: CanvasNodeID?`, `var isSettled: Bool`, `func progress(for id: CanvasNodeID) -> CGFloat`, `mutating func focus(_ id: CanvasNodeID?)`, `@discardableResult mutating func step(elapsed: TimeInterval) -> Bool`.
+  - `enum CanvasRenderer` with
+    - `static func seededRotation(for id: CanvasNodeID) -> Angle`
+    - `static func drawnAngle(for id: CanvasNodeID, straighten: CanvasFocusStraighten) -> Angle`
+    - `static func localPoint(_ contentPoint: CGPoint, inCard frame: CGRect, angle: Angle) -> CGPoint`
+    - `static func visibleNodes(in scene: CanvasScene, camera: CanvasCamera, viewSize: CGSize) -> [CanvasNode]`
+    - `static func placeholderLabel(forReference referenceId: String) -> String`
+    - `static let resizeHandleSize: CGFloat`
+    - `static func draw(scene: CanvasScene, camera: CanvasCamera, viewSize: CGSize, layouts: [CanvasNodeID: ScrapLayout], editingNodeID: CanvasNodeID?, straighten: CanvasFocusStraighten, into cx: inout GraphicsContext)` — **`editingNodeID:` suppresses that node's TEXT only.** Task 10 passes it; while a scrap's editor is live the editor *is* the visible text, so drawing it too would double-draw (spec §7A.2, the Excalidraw rule). Its **card is still drawn** — §7A.5 makes the focused card the only square one on the canvas, and there is nothing to be square if the card vanishes.
 
 **Two decisions this task makes, both load-bearing.**
 
-1. **Seeded rotation applies to the card's CHROME ONLY — never to its text.** §7.2 asks for a seeded fraction of a degree so everything reads as *put down* rather than snapped to a grid. But the mounted `NSTextView` is a real view: rotating it would mean `.rotationEffect`, which renders through a transform and blurs the glyphs — and *not* rotating it while the drawn text is rotated means the text visibly swings straight the instant the writer clicks in. That is the §7A.2 jump arriving by a route the spec did not anticipate. So the card's shape, shadow, border and resize handle rotate; the text inside draws axis-aligned at `CanvasCardMetrics.textOrigin(inCard:)`. At ≤0.6° the card edge carries the whole effect and the text lands on identical pixels drawn or edited. Record this as a deviation in the ADR (Task 15).
+1. **The seeded rotation applies to the WHOLE card, and the focused card animates to level.** This is spec §7A.5, and it is a decision, not a compromise — record it as such in the ADR (Task 17).
+
+   §7.2 asks for a seeded fraction of a degree so everything reads as *put down* rather than snapped to a grid. §7A.5 resolves what happens when the writer clicks into one: **the entire card — chrome and text together — animates to level over ~120 ms, and settles back to its seeded angle on blur.** The card being edited is therefore the only square one on the canvas, which is a "this one is live" signal that costs nothing because everything else stays tilted.
+
+   Three things follow, and each of them makes the rest of the plan *simpler*:
+
+   - **The editor always mounts axis-aligned.** `.rotationEffect` never arises, so §7A.2's glyph-origin pin compares two unrotated layouts. The rotation never participates in the agreement the spike measured.
+   - **The caret index is resolved at click time, in the card's local unrotated space** (§7A.5 requirement 1) — `localPoint(_:inCard:angle:)` is that inverse transform, and it is pure. Straightening first would move the click point out from under the cursor, and the caret would land somewhere the writer did not aim.
+   - **Animate, never snap** (§7A.5 requirement 2). An instant jump reads as a rendering bug. The straighten fraction is a value the renderer interpolates — the same per-frame shape as Task 13's momentum decay, driven off the same `TimelineView` clock, so there is no new machinery.
+
+   **Do not repeat the old justification.** An earlier draft claimed a mounted `NSTextView` "cannot be rotated". That is false: `NSView.frameRotation` rotates a real view and renders it crisply. The reason the editor mounts level is §7A.5's design — the straightening *is* the focus affordance — not an AppKit limitation. Writing the false version down again would invite someone to "fix" it.
+
+   Hit testing (`CanvasScene.topmostNode(at:)`) stays on the **unrotated** rect. At ≤0.6° the worst-case discrepancy is under 3 pt at a card corner, which is outside the region a writer aims at; a rotated hit test would buy nothing and would have to be kept in sync with the animation.
 
 2. **The renderer derives no scale of its own.** Spike requirement 3 says draw at the window's true `backingScaleFactor` × camera zoom, and warns that computing that scale by hand "is exactly the 'text jumps' failure dressed up as a measurement artifact". `GraphicsContext.withCGContext` already hands over a context at backing scale, under the CTM we set from the camera — so the correct implementation is to touch neither. A test greps `Maugham/Canvas/` for the tempting spellings.
 
@@ -1875,6 +1965,80 @@ final class CanvasRendererTests: XCTestCase {
             let d = CanvasRenderer.seededRotation(for: CanvasNodeID("node-\(i)")).degrees
             XCTAssertLessThan(abs(d), 1.0, "§7.2 says a seeded FRACTION of a degree")
         }
+    }
+
+    // MARK: - §7A.5, focus straightens the card
+
+    func test_anUnfocusedCardIsDrawnAtItsFullSeededAngle() {
+        let straighten = CanvasFocusStraighten()
+        XCTAssertEqual(CanvasRenderer.drawnAngle(for: CanvasNodeID("s1"), straighten: straighten).degrees,
+                       CanvasRenderer.seededRotation(for: CanvasNodeID("s1")).degrees,
+                       accuracy: 1e-12)
+    }
+
+    func test_theFocusedCardEndsUpExactlyLevel() {
+        var straighten = CanvasFocusStraighten()
+        straighten.focus(CanvasNodeID("s1"))
+        while straighten.step(elapsed: 1.0 / 60) { }
+        XCTAssertEqual(CanvasRenderer.drawnAngle(for: CanvasNodeID("s1"), straighten: straighten).degrees,
+                       0, accuracy: 1e-12,
+                       "the editor mounts on this card — anything but level and the "
+                       + "glyph-origin pin is comparing a rotated layout to a flat one")
+    }
+
+    /// §7A.5 requirement 2: an instant jump reads as a rendering bug.
+    func test_straighteningIsAnimatedRatherThanSnapped() {
+        var straighten = CanvasFocusStraighten()
+        straighten.focus(CanvasNodeID("s1"))
+        XCTAssertTrue(straighten.step(elapsed: 1.0 / 60), "still animating after one frame")
+        let p = straighten.progress(for: CanvasNodeID("s1"))
+        XCTAssertGreaterThan(p, 0)
+        XCTAssertLessThan(p, 1, "one frame must not complete the straighten")
+    }
+
+    func test_straighteningTakesAboutTheSpecifiedTime() {
+        var straighten = CanvasFocusStraighten()
+        straighten.focus(CanvasNodeID("s1"))
+        var elapsed: TimeInterval = 0
+        while straighten.step(elapsed: 1.0 / 60) { elapsed += 1.0 / 60 }
+        XCTAssertEqual(elapsed, CanvasFocusStraighten.secondsToLevel, accuracy: 1.0 / 30,
+                       "~120ms reads as the card responding; much longer reads as lag")
+    }
+
+    func test_blurSettlesTheCardBackToItsSeededAngle() {
+        var straighten = CanvasFocusStraighten()
+        straighten.focus(CanvasNodeID("s1"))
+        while straighten.step(elapsed: 1.0 / 60) { }
+        straighten.focus(nil)
+        XCTAssertFalse(straighten.isSettled, "blur must animate back, not snap back")
+        while straighten.step(elapsed: 1.0 / 60) { }
+        XCTAssertEqual(CanvasRenderer.drawnAngle(for: CanvasNodeID("s1"), straighten: straighten).degrees,
+                       CanvasRenderer.seededRotation(for: CanvasNodeID("s1")).degrees,
+                       accuracy: 1e-12)
+        XCTAssertTrue(straighten.isSettled, "a settled canvas must pause its clock")
+    }
+
+    /// §7A.5 requirement 1: resolve the caret in the card's own unrotated space,
+    /// at click time. Straightening first moves the click point out from under
+    /// the cursor.
+    func test_localPointInvertsTheCardsRotation() {
+        let frame = CGRect(x: 100, y: 100, width: 240, height: 80)
+        let angle = Angle.degrees(0.6)
+        let centre = CGPoint(x: frame.midX, y: frame.midY)
+        XCTAssertEqual(CanvasRenderer.localPoint(centre, inCard: frame, angle: angle).x,
+                       centre.x, accuracy: 1e-9, "the centre is the fixed point")
+        XCTAssertEqual(CanvasRenderer.localPoint(centre, inCard: frame, angle: angle).y,
+                       centre.y, accuracy: 1e-9)
+
+        // A corner of the drawn (rotated) card maps back onto the corner of the
+        // unrotated one.
+        let corner = CGPoint(x: frame.maxX, y: frame.maxY)
+        let rotated = CGPoint(
+            x: centre.x + (corner.x - centre.x) * cos(angle.radians) - (corner.y - centre.y) * sin(angle.radians),
+            y: centre.y + (corner.x - centre.x) * sin(angle.radians) + (corner.y - centre.y) * cos(angle.radians))
+        let back = CanvasRenderer.localPoint(rotated, inCard: frame, angle: angle)
+        XCTAssertEqual(back.x, corner.x, accuracy: 1e-6)
+        XCTAssertEqual(back.y, corner.y, accuracy: 1e-6)
     }
 
     func test_visibleNodes_cullsOffscreenNodes() {
@@ -1973,6 +2137,67 @@ Expected: FAIL — `cannot find 'CanvasRenderer' in scope`.
 ```swift
 import SwiftUI
 
+/// How level each card is drawn, per spec §7A.5.
+///
+/// **The card that takes focus animates to level over ~120 ms, and settles back
+/// to its seeded angle on blur. That is the focus affordance** — the card being
+/// edited is the only square one on the canvas, and everything else stays
+/// tilted, so the signal costs nothing.
+///
+/// It is a plain interpolated value stepped once per frame, NOT `withAnimation`:
+/// a model value read inside a `Canvas` draw closure is not in SwiftUI's
+/// animation graph and would jump straight to its final value. `CanvasView`
+/// drives `step(elapsed:)` from the same `TimelineView` that drives
+/// `CanvasMomentum` — the same per-frame shape, so no new machinery.
+///
+/// Two cards can be in flight at once: the one being left settles back while the
+/// one being entered straightens. Hence a dictionary rather than a single value.
+/// Entries at zero are dropped, so `isSettled` is cheap and an idle canvas pauses
+/// its clock.
+struct CanvasFocusStraighten: Equatable {
+
+    /// §7A.5: "over ~120 ms". Long enough to read as the card responding, short
+    /// enough that the beat before the caret appears reads as responsiveness
+    /// rather than lag.
+    static let secondsToLevel: TimeInterval = 0.12
+
+    private(set) var focusedNodeID: CanvasNodeID?
+    private var progressByNode: [CanvasNodeID: CGFloat] = [:]
+
+    /// True when nothing is animating — the clock may be paused.
+    var isSettled: Bool { progressByNode.isEmpty || progressByNode.allSatisfy { $0.value >= 1 } }
+
+    /// 0 = the card's full seeded angle, 1 = level.
+    func progress(for id: CanvasNodeID) -> CGFloat { progressByNode[id] ?? 0 }
+
+    mutating func focus(_ id: CanvasNodeID?) {
+        guard id != focusedNodeID else { return }
+        focusedNodeID = id
+        if let id, progressByNode[id] == nil { progressByNode[id] = 0 }
+    }
+
+    /// Advance one frame. Returns `true` while anything is still moving.
+    @discardableResult
+    mutating func step(elapsed: TimeInterval) -> Bool {
+        let delta = CGFloat(elapsed / Self.secondsToLevel)
+        var moving = false
+        for (id, current) in progressByNode {
+            let target: CGFloat = (id == focusedNodeID) ? 1 : 0
+            if abs(target - current) <= delta {
+                if target == 0 {
+                    progressByNode.removeValue(forKey: id)
+                } else {
+                    progressByNode[id] = target
+                }
+            } else {
+                progressByNode[id] = current + (target > current ? delta : -delta)
+                moving = true
+            }
+        }
+        return moving
+    }
+}
+
 /// The draw pass. Everything on the canvas is drawn — there are ~2 views on
 /// screen rather than 300 (spec §7A.1), which is what keeps the surface out of
 /// the macOS 15 `_hitTestForEvent` regression and away from SwiftUI's missing
@@ -2014,6 +2239,30 @@ enum CanvasRenderer {
         return .degrees((unit * 2 - 1) * 0.6)
     }
 
+    /// The angle a card is ACTUALLY drawn at right now: its seeded angle, scaled
+    /// down toward zero as it straightens (spec §7A.5). At full straighten it is
+    /// exactly level, which is what lets the editor mount axis-aligned and the
+    /// §7A.2 glyph-origin pin compare two unrotated layouts.
+    static func drawnAngle(for id: CanvasNodeID, straighten: CanvasFocusStraighten) -> Angle {
+        .degrees(seededRotation(for: id).degrees * (1 - Double(straighten.progress(for: id))))
+    }
+
+    /// Map a canvas-space point into a card's own unrotated space — the inverse
+    /// of the rotation `drawCard` applies about the card's centre.
+    ///
+    /// §7A.5 requirement 1: resolve the caret index at CLICK TIME in this space,
+    /// then animate, then mount with the target already known. Straightening
+    /// first would move the click point out from under the cursor and the caret
+    /// would land somewhere the writer did not aim.
+    static func localPoint(_ contentPoint: CGPoint, inCard frame: CGRect, angle: Angle) -> CGPoint {
+        let centre = CGPoint(x: frame.midX, y: frame.midY)
+        let dx = contentPoint.x - centre.x
+        let dy = contentPoint.y - centre.y
+        let c = cos(-angle.radians), s = sin(-angle.radians)
+        return CGPoint(x: centre.x + dx * c - dy * s,
+                       y: centre.y + dx * s + dy * c)
+    }
+
     /// Virtualisation, entire (spec §7A.1): an intersection test in the draw
     /// loop. No `ForEach` identity to preserve, so culling cannot destroy focus
     /// or an in-progress edit.
@@ -2031,21 +2280,28 @@ enum CanvasRenderer {
 
     /// Draw every visible node under the camera's CTM.
     ///
-    /// `editingNodeID` is skipped entirely: while a scrap's editor is live, the
-    /// editor IS the visible text, so drawing it too would double-draw (spec
-    /// §7A.2, the rule borrowed from Excalidraw).
+    /// `editingNodeID` suppresses that node's TEXT only: while a scrap's editor
+    /// is live the editor IS the visible text, so drawing it too would
+    /// double-draw (spec §7A.2, the rule borrowed from Excalidraw). Its CARD is
+    /// still drawn — §7A.5 makes the focused card the only square one on the
+    /// canvas, and there is nothing to be square if the card disappears the
+    /// moment it is clicked.
     static func draw(scene: CanvasScene,
                      camera: CanvasCamera,
                      viewSize: CGSize,
                      layouts: [CanvasNodeID: ScrapLayout],
                      editingNodeID: CanvasNodeID?,
+                     straighten: CanvasFocusStraighten,
                      into cx: inout GraphicsContext) {
         cx.translateBy(x: camera.pan.x, y: camera.pan.y)
         cx.scaleBy(x: camera.zoom, y: camera.zoom)
 
         for node in visibleNodes(in: scene, camera: camera, viewSize: viewSize) {
-            guard node.id != editingNodeID, let frame = node.frame else { continue }
-            drawCard(node, frame: frame, layout: layouts[node.id], into: &cx)
+            guard let frame = node.frame else { continue }
+            drawCard(node, frame: frame,
+                     layout: node.id == editingNodeID ? nil : layouts[node.id],
+                     angle: drawnAngle(for: node.id, straighten: straighten),
+                     into: &cx)
         }
     }
 
@@ -2053,48 +2309,48 @@ enum CanvasRenderer {
     /// real/manufactured line runs between the ground and the cards, not through
     /// each card — so no paper fibre here.
     ///
-    /// The seeded rotation is applied to the card's CHROME only. The text draws
-    /// axis-aligned, because the mounted `NSTextView` cannot be rotated without
-    /// `.rotationEffect` (which blurs it) and a card whose drawn text is rotated
-    /// while its edited text is not swings straight on every click — the §7A.2
-    /// jump by another route. At ≤0.6° the card edge carries the whole effect.
+    /// The rotation applies to the WHOLE card, chrome and text together (spec
+    /// §7A.5). `angle` is already interpolated by `CanvasFocusStraighten`, so the
+    /// focused card arrives here at 0° and the editor mounts on an axis-aligned
+    /// card. A `nil` layout means "the editor is drawing this scrap's text".
     private static func drawCard(_ node: CanvasNode,
                                  frame: CGRect,
                                  layout: ScrapLayout?,
+                                 angle: Angle,
                                  into cx: inout GraphicsContext) {
         let shape = Path(roundedRect: frame, cornerRadius: 3)
 
-        var chrome = cx
+        var card = cx
         // Rotate about the card's own centre, not the canvas origin.
-        chrome.translateBy(x: frame.midX, y: frame.midY)
-        chrome.rotate(by: seededRotation(for: node.id))
-        chrome.translateBy(x: -frame.midX, y: -frame.midY)
+        card.translateBy(x: frame.midX, y: frame.midY)
+        card.rotate(by: angle)
+        card.translateBy(x: -frame.midX, y: -frame.midY)
 
         // Light falls from one corner (§7.1) — a single soft drop, not a glow.
-        chrome.drawLayer { shadow in
+        card.drawLayer { shadow in
             shadow.addFilter(.shadow(color: .black.opacity(0.18), radius: 3, x: 1, y: 2))
             shadow.fill(shape, with: .color(.white))
         }
-        chrome.fill(shape, with: .color(Color(nsColor: .textBackgroundColor)))
+        card.fill(shape, with: .color(Color(nsColor: .textBackgroundColor)))
 
         switch node.kind {
         case .scrap:
-            chrome.stroke(shape, with: .color(Color(nsColor: .separatorColor)), lineWidth: 0.5)
+            card.stroke(shape, with: .color(Color(nsColor: .separatorColor)), lineWidth: 0.5)
         case .item:
             // A placeholder reads as unfinished on purpose — 1C-d fills it in.
-            chrome.stroke(shape, with: .color(Color(nsColor: .separatorColor)),
-                          style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+            card.stroke(shape, with: .color(Color(nsColor: .separatorColor)),
+                        style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
         }
 
-        chrome.fill(resizeHandle(in: frame),
-                    with: .color(Color(nsColor: .separatorColor).opacity(0.8)))
+        card.fill(resizeHandle(in: frame),
+                  with: .color(Color(nsColor: .separatorColor).opacity(0.8)))
 
-        // TEXT: unrotated, clipped to the unrotated card. See the doc above.
         switch node.kind {
         case .scrap:
+            // nil = this scrap's editor is mounted and IS its visible text.
             guard let layout else { return }
             let origin = CanvasCardMetrics.textOrigin(inCard: frame)
-            cx.drawLayer { inner in
+            card.drawLayer { inner in
                 inner.clip(to: shape)
                 inner.withCGContext { cg in
                     cg.saveGState()
@@ -2104,11 +2360,11 @@ enum CanvasRenderer {
                 }
             }
         case .item(let referenceId):
-            var text = cx.resolve(
+            var text = card.resolve(
                 Text(placeholderLabel(forReference: referenceId))
                     .font(.system(size: 11)))
             text.shading = .color(Color(nsColor: .secondaryLabelColor))
-            cx.draw(text, at: CanvasCardMetrics.textOrigin(inCard: frame), anchor: .topLeading)
+            card.draw(text, at: CanvasCardMetrics.textOrigin(inCard: frame), anchor: .topLeading)
         }
     }
 
@@ -2128,17 +2384,19 @@ enum CanvasRenderer {
 - [ ] **Step 4: Run the tests**
 
 Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasRendererTests CODE_SIGNING_ALLOWED=NO`
-Expected: PASS, 8 tests.
+Expected: PASS, 14 tests.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add Maugham/Canvas/CanvasRenderer.swift MaughamTests/Canvas/CanvasRendererTests.swift project.yml
-git commit -m "feat(canvas): draw pass — viewport culling, seeded chrome rotation, item placeholders
+git commit -m "feat(canvas): draw pass — viewport culling, focus-straighten rotation, item placeholders
 
-Rotation is applied to the card's chrome only: a rotated drawn glyph run
-against an unrotatable NSTextView is the 7A.2 jump by another route.
-Pins that no file in Maugham/Canvas derives a raster scale of its own."
+The whole card carries its seeded angle, and the card that takes focus
+animates to level over ~120ms and settles back on blur (spec 7A.5). The
+editor therefore always mounts axis-aligned, so the 7A.2 glyph-origin pin
+compares two unrotated layouts. Pins that no file in Maugham/Canvas
+derives a raster scale of its own."
 ```
 
 ---
@@ -2158,7 +2416,7 @@ Pins that no file in Maugham/Canvas derives a raster scale of its own."
 
 **The seam is `[String]` hex, not `[Color]`.** `PaletteCard.swatches` is `[String]` of `"#RRGGBB"`; `MaughamCore`'s `PaletteCard.color(fromHex:)` is the one parser. Typing the seam `[Color]` would have forced a second conversion site and hidden malformed hexes behind a silent `.clear`.
 
-**Hard constraint (spec §7A.4):** a shader applied *over* a subtree containing an `NSViewRepresentable` logs a warning and renders a placeholder. The ground must be a **sibling layer beneath** the content, never an overlay across it. Task 9 composes it that way; this task must not introduce an overlay.
+**Hard constraint (spec §7A.4):** a shader applied *over* a subtree containing an `NSViewRepresentable` logs a warning and renders a placeholder. The ground must be a **sibling layer beneath** the content, never an overlay across it. Task 10 composes it that way; this task must not introduce an overlay.
 
 **`.drawingGroup()` is deliberately absent.** An earlier draft carried one with the comment "keeps the grain off the content subtree" — which was wrong twice: the isolation comes from the ground being a ZStack *sibling*, and `.drawingGroup()` would add an offscreen render target on every pan for a subtree that is already one GPU-filled rectangle. Do not add it back.
 
@@ -2430,34 +2688,29 @@ with pan/zoom/grainScale uniforms, pinned by a library-resolution test."
 
 ---
 
-### Task 9: The canvas view and the focused editor
+### Task 9: The mounted scrap editor
 
 **Files:**
 - Create: `Maugham/Canvas/ScrapEditorHost.swift`
-- Create: `Maugham/Canvas/CanvasView.swift`
 - Test: `MaughamTests/Canvas/ScrapEditorHostTests.swift`
-- Test: `MaughamTests/Canvas/CanvasCompositionTests.swift`
 
 **Interfaces:**
-- **Consumes:** everything from Tasks 1–8.
+- **Consumes:** `ScrapLayout` (Task 3); `CanvasCamera` (Task 4).
 - **Produces:**
-  - `final class ScrapEditorContainer: NSView` — `private(set) var textView: NSTextView?`, `var canvasUndoManager: UndoManager?`, `var onScroll: ((CGFloat, CGFloat, Bool) -> Void)?`, `var onMagnify: ((CGFloat, CGPoint) -> Void)?`, `@discardableResult func mount(layout: ScrapLayout, unscaledSize: CGSize, zoom: CGFloat) -> Bool` (returns `true` when the editor was built or rebuilt), `func requestFocus(caretIndex: Int?)`, `func unmount()`.
-  - `struct ScrapEditorHost: NSViewRepresentable` — `let layout: ScrapLayout`, `let unscaledSize: CGSize`, `let zoom: CGFloat`, `let caretIndex: Int?`, `let undoManager: UndoManager?`, `let onScroll: (CGFloat, CGFloat, Bool) -> Void`, `let onMagnify: (CGFloat, CGPoint) -> Void`. **The parameter is `unscaledSize: CGSize`, not `frame: CGRect`** — the host owns the size, `CanvasView` owns the position.
-  - `struct CanvasView: View` — `let projectRoot: URL`, `let paletteSwatchHexes: () -> [String]`.
+  - `final class ScrapEditorContainer: NSView, NSTextViewDelegate` — `private(set) var textView: NSTextView?`, `var canvasUndoManager: UndoManager?`, `var onScroll: ((CGFloat, CGFloat, Bool) -> Void)?`, `var onMagnify: ((CGFloat, CGPoint) -> Void)?`, `var onTextChanged: (() -> Void)?`, `@discardableResult func mount(layout: ScrapLayout, unscaledSize: CGSize, zoom: CGFloat) -> Bool` (returns `true` when the editor was built or rebuilt), `func requestFocus(caretIndex: Int?)`, `func unmount()`; testable seams `applyScroll(deltaX:deltaY:precise:)`, `applyMagnify(magnification:atEditorPoint:)`.
+  - `struct ScrapEditorHost: NSViewRepresentable` — `let layout: ScrapLayout`, `let unscaledSize: CGSize`, `let zoom: CGFloat`, `let caretIndex: Int?`, `let undoManager: UndoManager?`, `let onScroll: (CGFloat, CGFloat, Bool) -> Void`, `let onMagnify: (CGFloat, CGPoint) -> Void`, `let onTextChanged: () -> Void`. **The parameter is `unscaledSize: CGSize`, not `frame: CGRect`** — the host owns the size, `CanvasView` owns the position.
+  - `enum ScrapEditorGeometry` — `static func viewPoint(fromEditorPoint: CGPoint, textOrigin: CGPoint, camera: CanvasCamera) -> CGPoint`.
 
-**Three defects this task exists to not have.** Each is a "typing does nothing" smoke failure and none of them is caught by a test that only counts subviews.
+**Four defects this task exists to not have.** Each is a smoke failure a writer meets in the first minute, and none is caught by a test that counts subviews.
 
-1. **Layer order.** The ZStack is `CanvasGround` → `Canvas` → `CanvasEventView` → `ScrapEditorHost`. The **editor is frontmost**. If the event view were in front it would eat click-to-place-caret, drag-select and double-click-word — the headline interaction — while every test still passed. Ground and `Canvas` take `.allowsHitTesting(false)` so the event view reaches everything the editor does not cover. The editor container forwards `scrollWheel`/`magnify` back to the camera so panning and zooming still work with the pointer over the focused scrap.
-2. **First responder.** `makeNSView` runs *before* the view is in a window, so `tv.window` is `nil` and `tv.window?.makeFirstResponder(tv)` is a silent no-op. Focus is therefore **requested** and claimed again from `viewDidMoveToWindow`.
-3. **Rebinding.** `mount` must rebuild the text view when the *layout identity* changes, not merely when there is no text view. Creating it only `if textView == nil` means clicking from scrap A to scrap B keeps editing A — and a test that counts subviews passes anyway.
+1. **First responder.** `makeNSView` runs *before* the view is in a window, so `tv.window` is `nil` and `tv.window?.makeFirstResponder(tv)` is a silent no-op. Focus is therefore **requested** and claimed again from `viewDidMoveToWindow`.
+2. **Rebinding.** `mount` must rebuild the text view when the *layout identity* changes, not merely when there is no text view. Creating it only `if textView == nil` means clicking from scrap A to scrap B keeps editing A — and a test that counts subviews passes anyway.
+3. **The writer's words never leave the editor.** Typing mutates the shared `NSTextStorage` inside `ScrapLayout`. If nothing tells the canvas that happened, `scraps[id]` still holds the text as it was *before* the writer typed — so the debounced payload is stale, the drawn card never grows, and **double-click empty space → type a sentence → ⌘Q → relaunch leaves an empty scrap.** That is the product constitution's must #1, *the words are safe*, failing on the very first interaction. The container is therefore the text view's `NSTextViewDelegate` and reports every change through `onTextChanged`; Task 10 folds it into the model on the spot.
+4. **The pinch anchor is in the wrong space.** `magnify(with:)` converts `event.locationInWindow` into the **container's** bounds — the scrap's own unzoomed text box. Handing that straight to `camera.zoom(to:anchoringViewPoint:)`, which expects canvas view space, zooms about a point the writer never touched. (`CanvasEventNSView` is correct only because its space *is* canvas space.) So this file forwards a point in its own space, says so in the name (`atEditorPoint:`), and `ScrapEditorGeometry.viewPoint` is the one place that maps it — through `CanvasCamera`'s existing transform, because the focused card is level (§7A.5) and the editor's space is therefore content space translated to the card's text origin.
 
 **Zoomed editing uses bounds scaling** — the spike's Q4. Grow the container's `frame` by zoom, hold its `bounds` at the unzoomed size. Coordinates round-trip correctly at every zoom tested (1×–3×) and AppKit re-rasterises, so text stays crisp. Crucially it involves **no re-layout**, so Task 3's proven drawn/edited agreement carries over unchanged. Do not reach for `.scaleEffect`, and do not re-lay-out the editor at a scaled font size.
 
-**A note on `@State` and reference types.** `layouts` holds `ScrapLayout` *objects*. Typing mutates the object in place, so SwiftUI sees no `@State` change and the `Canvas` never redraws. `CanvasView` therefore carries a `revision` counter, read **in `body`** (not inside the draw closure — a `@State` read only registers a dependency during body evaluation) and bumped by every path that mutates a layout or the scene in place.
-
-**Interaction is deliberately incomplete here.** `onDrag` is wired to a stub with a one-line comment; Task 11 fills it in. `undoManager` is `nil`; Task 13 fills it in. Do not invent either.
-
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Write the failing test**
 
 `MaughamTests/Canvas/ScrapEditorHostTests.swift`:
 
@@ -2535,7 +2788,7 @@ final class ScrapEditorHostTests: XCTestCase {
         XCTAssertEqual(container.subviews.count, 1)
     }
 
-    /// C9. Counting subviews is not enough: an editor still bound to the FIRST
+    /// Counting subviews is not enough: an editor still bound to the FIRST
     /// scrap while the writer types into the second is invisible to a count.
     func test_remountingADifferentLayoutRebindsTheEditorToTheNewScrap() {
         let container = ScrapEditorContainer(frame: .zero)
@@ -2557,7 +2810,7 @@ final class ScrapEditorHostTests: XCTestCase {
         XCTAssertFalse(first.text.hasPrefix("Z"))
     }
 
-    /// C8, second defect. `makeNSView` runs before the view is in a window, so
+    /// `makeNSView` runs before the view is in a window, so
     /// `tv.window` is nil and makeFirstResponder is a silent no-op.
     func test_focusRequestedBeforeMountIsClaimedOnceTheViewEntersAWindow() {
         let container = ScrapEditorContainer(frame: CGRect(origin: .zero, size: size))
@@ -2590,6 +2843,33 @@ final class ScrapEditorHostTests: XCTestCase {
         XCTAssertEqual(container.textView?.selectedRange().location, 5)
     }
 
+    /// C5. Typing mutates the shared NSTextStorage in place. If nothing reports
+    /// that, `scraps[id]` keeps the text as it was BEFORE the writer typed — the
+    /// debounced payload is stale, the drawn card never grows, and quitting
+    /// without clicking away leaves an empty scrap on disk.
+    func test_typingReportsItselfSoTheCanvasCanFoldItIntoTheModel() {
+        let container = ScrapEditorContainer(frame: .zero)
+        var changes = 0
+        container.onTextChanged = { changes += 1 }
+        let l = layout("before")
+        container.mount(layout: l, unscaledSize: size, zoom: 1)
+        host(container)
+
+        container.textView?.setSelectedRange(NSRange(location: 0, length: 0))
+        container.textView?.insertText("Z", replacementRange: NSRange(location: 0, length: 0))
+        XCTAssertGreaterThan(changes, 0,
+                             "nothing told the canvas the writer typed — the words "
+                             + "live only in the NSTextStorage and are lost on quit")
+        XCTAssertTrue(l.text.hasPrefix("Z"))
+    }
+
+    func test_mountSetsTheContainerAsTheTextViewsDelegate() {
+        let container = ScrapEditorContainer(frame: .zero)
+        container.mount(layout: layout(), unscaledSize: size, zoom: 1)
+        XCTAssertTrue(container.textView?.delegate === container,
+                      "without the delegate there is no textDidChange and C5 returns")
+    }
+
     /// The editor is frontmost, so it gets the scroll wheel while the writer is
     /// editing. Without forwarding, panning dies wherever the scrap is.
     func test_theContainerForwardsScrollAndMagnifyToTheCamera() {
@@ -2599,9 +2879,36 @@ final class ScrapEditorHostTests: XCTestCase {
         container.onScroll = { _, dy, _ in scrolls.append(dy) }
         container.onMagnify = { m, _ in magnifications.append(m) }
         container.applyScroll(deltaX: 0, deltaY: 12, precise: true)
-        container.applyMagnify(magnification: 0.25, at: .zero)
+        container.applyMagnify(magnification: 0.25, atEditorPoint: .zero)
         XCTAssertEqual(scrolls, [12])
         XCTAssertEqual(magnifications, [0.25])
+    }
+
+    /// I7. The container's bounds are the scrap's own UNZOOMED text box, so the
+    /// point it forwards is not canvas space and must not be scaled on the way
+    /// out either — `ScrapEditorGeometry` is the one place that maps it.
+    func test_theForwardedMagnifyPointStaysInTheEditorsOwnUnzoomedSpace() {
+        let container = ScrapEditorContainer(frame: .zero)
+        container.mount(layout: layout(), unscaledSize: size, zoom: 2)
+        var points: [CGPoint] = []
+        container.onMagnify = { _, p in points.append(p) }
+        container.applyMagnify(magnification: 0.1, atEditorPoint: CGPoint(x: 10, y: 20))
+        XCTAssertEqual(points, [CGPoint(x: 10, y: 20)],
+                       "the container must not pre-apply zoom — bounds are unzoomed")
+    }
+
+    /// The mapping the composed view uses. Anchoring the pinch on the raw
+    /// editor point instead zooms about a point the writer never touched.
+    func test_editorPointsMapIntoCanvasViewSpaceThroughTheCamera() {
+        var camera = CanvasCamera()
+        camera.zoom = 2
+        camera.pan = CGPoint(x: 50, y: 30)
+        let mapped = ScrapEditorGeometry.viewPoint(fromEditorPoint: CGPoint(x: 10, y: 10),
+                                                   textOrigin: CGPoint(x: 100, y: 100),
+                                                   camera: camera)
+        // content (110,110) -> view (50 + 220, 30 + 220)
+        XCTAssertEqual(mapped.x, 270, accuracy: 0.0001)
+        XCTAssertEqual(mapped.y, 250, accuracy: 0.0001)
     }
 
     func test_theMountedEditorUsesTheCanvasUndoManager() {
@@ -2611,8 +2918,11 @@ final class ScrapEditorHostTests: XCTestCase {
         container.mount(layout: layout(), unscaledSize: size, zoom: 1)
         host(container)
         XCTAssertTrue(container.textView?.undoManager === manager,
-                      "typing and dragging must land on ONE stack in the order "
-                      + "they happened")
+                      "⌘Z while a scrap is focused must run the CANVAS stack — the "
+                      + "text view has allowsUndo == false and owns no stack of "
+                      + "its own (Task 15)")
+        XCTAssertFalse(container.textView?.allowsUndo == true,
+                       "one change, one step: see ScrapLayout.makeEditor")
     }
 
     /// Spec §7A.6: the mounted editor must stay reachable by VoiceOver. It is a
@@ -2627,77 +2937,9 @@ final class ScrapEditorHostTests: XCTestCase {
 }
 ```
 
-`MaughamTests/Canvas/CanvasCompositionTests.swift`:
+- [ ] **Step 2: Run the test to verify it fails**
 
-```swift
-import XCTest
-@testable import Maugham
-
-/// C8, first defect. There is no runtime hook that reports a SwiftUI ZStack's
-/// z-order, and the failure it guards against — the event view eating
-/// click-to-place-caret — is invisible to every other test in this plan while
-/// being the first thing a writer hits. So it is pinned at the source, the way
-/// `TripwireGrepTests` pins its rules.
-final class CanvasCompositionTests: XCTestCase {
-
-    private func canvasViewSource() throws -> String {
-        try String(contentsOf: URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()    // MaughamTests/Canvas
-            .deletingLastPathComponent()    // MaughamTests
-            .deletingLastPathComponent()    // repo root
-            .appendingPathComponent("Maugham/Canvas/CanvasView.swift"), encoding: .utf8)
-    }
-
-    /// Two assertions, because either alone is fakeable: the ZStack must place
-    /// `mountedEditor` after `CanvasEventView`, and `mountedEditor` must be the
-    /// thing that builds a `ScrapEditorHost`.
-    func test_theMountedEditorIsInFrontOfTheEventView() throws {
-        let src = try canvasViewSource()
-        let event = try XCTUnwrap(src.range(of: "CanvasEventView("),
-                                  "CanvasView no longer composes CanvasEventView")
-        let slot = try XCTUnwrap(src.range(of: "mountedEditor"),
-                                 "CanvasView no longer composes mountedEditor")
-        XCTAssertTrue(event.lowerBound < slot.lowerBound,
-                      "the event view is in FRONT of the mounted editor, so it eats "
-                      + "click-to-place-caret, drag-select and double-click-word — "
-                      + "the writer sees 'typing does nothing'")
-
-        let declaration = try XCTUnwrap(src.range(of: "private var mountedEditor"))
-        let host = try XCTUnwrap(src.range(of: "ScrapEditorHost("),
-                                 "CanvasView no longer composes ScrapEditorHost")
-        XCTAssertTrue(declaration.lowerBound < host.lowerBound,
-                      "the editor must be built inside `mountedEditor`, or the "
-                      + "z-order assertion above is checking the wrong symbol")
-    }
-
-    func test_theGroundAndTheDrawnLayerDoNotHitTest() throws {
-        let src = try canvasViewSource()
-        let ground = try XCTUnwrap(src.range(of: "CanvasGround("))
-        let canvas = try XCTUnwrap(src.range(of: "Canvas {"))
-        let event = try XCTUnwrap(src.range(of: "CanvasEventView("))
-        XCTAssertTrue(ground.lowerBound < canvas.lowerBound,
-                      "the shader ground must be BENEATH the content (spec §7A.4)")
-        XCTAssertTrue(canvas.lowerBound < event.lowerBound)
-        let beforeEvents = String(src[src.startIndex..<event.lowerBound])
-        XCTAssertEqual(
-            beforeEvents.components(separatedBy: ".allowsHitTesting(false)").count - 1, 2,
-            "both the ground and the drawn layer must opt out of hit testing, or "
-            + "clicks never reach the event view")
-    }
-
-    func test_theCanvasIsNotHiddenFromAccessibility() throws {
-        let src = try canvasViewSource()
-        XCTAssertFalse(src.contains("accessibilityHidden(true)"))
-        XCTAssertFalse(src.contains("accessibilityElement(children: .ignore)"),
-                       "spec §7A.6: we own the canvas AX tree — ignoring children "
-                       + "throws away the mounted editor with it")
-    }
-}
-```
-
-- [ ] **Step 2: Run tests to verify they fail**
-
-Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/ScrapEditorHostTests -only-testing MaughamTests/CanvasCompositionTests CODE_SIGNING_ALLOWED=NO`
+Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/ScrapEditorHostTests CODE_SIGNING_ALLOWED=NO`
 Expected: FAIL — `cannot find 'ScrapEditorContainer' in scope`.
 
 - [ ] **Step 3: Write the editor host**
@@ -2727,7 +2969,7 @@ import SwiftUI
 /// own caret placement, drag-select and double-click-word. The cost is that it
 /// also receives scroll and magnify while a scrap is focused, so it forwards
 /// both back to the camera.
-final class ScrapEditorContainer: NSView {
+final class ScrapEditorContainer: NSView, NSTextViewDelegate {
 
     private(set) var textView: NSTextView?
     /// Identity of the layout the current text view is bound to. Rebinding is
@@ -2740,14 +2982,28 @@ final class ScrapEditorContainer: NSView {
 
     var canvasUndoManager: UndoManager?
     var onScroll: ((CGFloat, CGFloat, Bool) -> Void)?
+    /// (magnification delta, point in THIS view's own unzoomed space). NOT
+    /// canvas space — see `applyMagnify`.
     var onMagnify: ((CGFloat, CGPoint) -> Void)?
+    /// Fired on every change the writer makes. The canvas folds the text into
+    /// its model on the spot; without this the words live only in the shared
+    /// `NSTextStorage` and are lost on quit (C5).
+    var onTextChanged: (() -> Void)?
 
     override var isFlipped: Bool { true }
 
     /// `NSTextView` asks its delegate, then walks the responder chain. This
-    /// container is its superview, so returning the canvas manager here puts
-    /// typing and geometry on ONE undo stack in the order they happened.
+    /// container is its superview, so returning the canvas manager here is what
+    /// makes ⌘Z-while-editing run the canvas stack. The text view itself has
+    /// `allowsUndo == false` and registers nothing, so there is exactly one
+    /// stack and exactly one step per change (Task 15).
     override var undoManager: UndoManager? { canvasUndoManager ?? super.undoManager }
+
+    // MARK: - NSTextViewDelegate
+
+    func textDidChange(_ notification: Notification) {
+        onTextChanged?()
+    }
 
     /// Returns `true` when the editor was built or rebuilt.
     @discardableResult
@@ -2755,8 +3011,12 @@ final class ScrapEditorContainer: NSView {
         let identity = ObjectIdentifier(layout)
         var rebuilt = false
         if mountedLayout != identity {
+            textView?.delegate = nil
             textView?.removeFromSuperview()
             let tv = layout.makeEditor(frame: CGRect(origin: .zero, size: unscaledSize))
+            // Without this there is no `textDidChange`, and the writer's words
+            // never reach the model (C5).
+            tv.delegate = self
             addSubview(tv)
             textView = tv
             mountedLayout = identity
@@ -2801,6 +3061,7 @@ final class ScrapEditorContainer: NSView {
     }
 
     func unmount() {
+        textView?.delegate = nil
         textView?.removeFromSuperview()
         textView = nil
         mountedLayout = nil
@@ -2814,7 +3075,14 @@ final class ScrapEditorContainer: NSView {
         onScroll?(deltaX, deltaY, precise)
     }
 
-    func applyMagnify(magnification: CGFloat, at point: CGPoint) {
+    /// `editorPoint` is in THIS view's own coordinate space — the scrap's
+    /// unzoomed text box, because bounds scaling holds `bounds` at the unzoomed
+    /// size. It is NOT canvas space, and handing it straight to
+    /// `CanvasCamera.zoom(to:anchoringViewPoint:)` — which expects canvas space
+    /// — zooms about a point the writer never touched. `CanvasEventNSView` gets
+    /// away with the identical code only because ITS space is canvas space. The
+    /// one place that maps between them is `ScrapEditorGeometry.viewPoint`.
+    func applyMagnify(magnification: CGFloat, atEditorPoint point: CGPoint) {
         onMagnify?(magnification, point)
     }
 
@@ -2826,7 +3094,23 @@ final class ScrapEditorContainer: NSView {
 
     override func magnify(with event: NSEvent) {
         applyMagnify(magnification: event.magnification,
-                     at: convert(event.locationInWindow, from: nil))
+                     atEditorPoint: convert(event.locationInWindow, from: nil))
+    }
+}
+
+/// The one place a point in the mounted editor's space becomes a point in canvas
+/// VIEW space.
+///
+/// The editor's space is content space translated to the card's text origin —
+/// exactly, and with no rotation term, because the focused card animates to
+/// level before the editor mounts (spec §7A.5). So the mapping is a translation
+/// followed by the camera's own transform, with nothing bespoke to keep in sync.
+enum ScrapEditorGeometry {
+    static func viewPoint(fromEditorPoint point: CGPoint,
+                          textOrigin: CGPoint,
+                          camera: CanvasCamera) -> CGPoint {
+        camera.viewPoint(fromContent: CGPoint(x: textOrigin.x + point.x,
+                                              y: textOrigin.y + point.y))
     }
 }
 
@@ -2843,7 +3127,12 @@ struct ScrapEditorHost: NSViewRepresentable {
     let caretIndex: Int?
     let undoManager: UndoManager?
     let onScroll: (CGFloat, CGFloat, Bool) -> Void
+    /// (magnification delta, point in the EDITOR's own unzoomed space). The
+    /// caller maps it with `ScrapEditorGeometry.viewPoint`.
     let onMagnify: (CGFloat, CGPoint) -> Void
+    /// Every change the writer makes, so the canvas can fold it into the model
+    /// immediately (C5). Not debounced here — the store already debounces.
+    let onTextChanged: () -> Void
 
     func makeNSView(context: Context) -> ScrapEditorContainer {
         let c = ScrapEditorContainer(frame: .zero)
@@ -2871,11 +3160,158 @@ struct ScrapEditorHost: NSViewRepresentable {
         c.canvasUndoManager = undoManager
         c.onScroll = onScroll
         c.onMagnify = onMagnify
+        c.onTextChanged = onTextChanged
     }
 }
 ```
 
-- [ ] **Step 4: Write the composed view**
+- [ ] **Step 4: Run the tests and a Release build**
+
+Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/ScrapEditorHostTests CODE_SIGNING_ALLOWED=NO`
+Expected: PASS, 15 tests.
+
+Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham -configuration Release build CODE_SIGNING_ALLOWED=NO`
+Expected: BUILD SUCCEEDED. **A Debug pass is not evidence** — the Release type-check budget is stricter, and v0.8.0 shipped a Release-only failure this way.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add Maugham/Canvas/ScrapEditorHost.swift MaughamTests/Canvas/ScrapEditorHostTests.swift project.yml
+git commit -m "feat(canvas): one bounds-scaled NSTextView mounted on the focused scrap
+
+Focus is requested and claimed on viewDidMoveToWindow (makeNSView has no
+window yet); mount rebinds on layout identity, not on textView == nil;
+the container is the text view's delegate so every keystroke reaches the
+model rather than living only in the shared NSTextStorage; and the pinch
+anchor it forwards is named for the space it is actually in."
+```
+
+---
+
+### Task 10: The composed canvas view
+
+**Files:**
+- Create: `Maugham/Canvas/CanvasView.swift`
+- Test: `MaughamTests/Canvas/CanvasCompositionTests.swift`
+
+**Interfaces:**
+- **Consumes:** everything from Tasks 1–9.
+- **Produces:** `struct CanvasView: View` — `let projectRoot: URL`, `let paletteSwatchHexes: () -> [String]`.
+
+**Layer order is the defect this task exists to not have.** The ZStack is `CanvasGround` → `Canvas` → `CanvasEventView` → `ScrapEditorHost`, and the **editor is frontmost**. If the event view were in front it would eat click-to-place-caret, drag-select and double-click-word — the headline interaction — while every test still passed. Ground and `Canvas` opt out of hit testing so the event view reaches everything the editor does not cover. The editor container forwards `scrollWheel`/`magnify` back to the camera so panning and zooming still work with the pointer over the focused scrap.
+
+**The words are safe, and that is not the same as "there is a save path".** Typing mutates the `NSTextStorage` inside `ScrapLayout`; nothing else knows until this view is told. So there are three commit points, and all three are required:
+
+- **while typing** — `onTextChanged` → `syncActiveEdit()`, every keystroke. This is also what makes the drawn card grow as the text wraps to a new line;
+- **on `.onDisappear`** — sync, then flush;
+- **immediately before the store writes** — `CanvasStore.beforeFlush`, which covers app quit without this view having to observe termination itself.
+
+`syncActiveEdit()` carries no undo step. `commitActiveEdit()` is the *undo boundary* and is called only when focus leaves a scrap; Task 15 gives it the gesture bracket. Keeping them separate is what stops one ⌘Z per keystroke.
+
+**A note on `@State` and reference types.** `layouts` holds `ScrapLayout` *objects*. Typing mutates the object in place, so SwiftUI sees no `@State` change and the `Canvas` never redraws. `CanvasView` therefore carries a `revision` counter, read **in `body`** (not inside the draw closure — a `@State` read only registers a dependency during body evaluation) and bumped by every path that mutates a layout or the scene in place.
+
+**The straighten clock lives here.** Spec §7A.5's focused card animates to level over ~120 ms, and `CanvasFocusStraighten` (Task 7) is stepped once per frame from a `TimelineView(.animation(paused:))`. Task 13 adds momentum to the *same* timeline and widens the pause condition; do not create a second one.
+
+**No `GeometryReader`.** `Canvas`'s own `size` parameter already supplies the viewport the renderer culls against, and the `.position` calls that place the mounted editor resolve in the ZStack's space. A `GeometryReader` whose proxy nothing reads is a second layout pass for nothing.
+
+**Interaction is deliberately incomplete here.** `onDrag` is wired to a stub with a one-line comment; Task 13 fills it in. `undoManager` is `nil`; Task 15 fills it in. Do not invent either.
+
+- [ ] **Step 1: Write the failing test**
+
+`MaughamTests/Canvas/CanvasCompositionTests.swift`:
+
+```swift
+import XCTest
+@testable import Maugham
+
+/// There is no runtime hook that reports a SwiftUI ZStack's z-order, and the
+/// failure it guards against — the event view eating click-to-place-caret — is
+/// invisible to every other test in this plan while being the first thing a
+/// writer hits. So it is pinned at the source, the way `TripwireGrepTests` pins
+/// its rules.
+final class CanvasCompositionTests: XCTestCase {
+
+    private func canvasViewSource() throws -> String {
+        try String(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()    // MaughamTests/Canvas
+            .deletingLastPathComponent()    // MaughamTests
+            .deletingLastPathComponent()    // repo root
+            .appendingPathComponent("Maugham/Canvas/CanvasView.swift"), encoding: .utf8)
+    }
+
+    /// Comment lines are excluded, exactly as
+    /// `CanvasRendererTests.test_noFileInTheCanvasAreaDerivesItsOwnRasterScale`
+    /// does it. A doc comment that NAMES a modifier is documentation; only code
+    /// counts. Without this the file's own layer-order comment is scanned as if
+    /// it were source and the count is whatever the prose happens to say.
+    private func codeOnly(_ source: String) -> String {
+        source.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+    }
+
+    /// Two assertions, because either alone is fakeable: the ZStack must place
+    /// `mountedEditor` after `CanvasEventView`, and `mountedEditor` must be the
+    /// thing that builds a `ScrapEditorHost`.
+    func test_theMountedEditorIsInFrontOfTheEventView() throws {
+        let src = codeOnly(try canvasViewSource())
+        let event = try XCTUnwrap(src.range(of: "CanvasEventView("),
+                                  "CanvasView no longer composes CanvasEventView")
+        let slot = try XCTUnwrap(src.range(of: "mountedEditor"),
+                                 "CanvasView no longer composes mountedEditor")
+        XCTAssertTrue(event.lowerBound < slot.lowerBound,
+                      "the event view is in FRONT of the mounted editor, so it eats "
+                      + "click-to-place-caret, drag-select and double-click-word — "
+                      + "the writer sees 'typing does nothing'")
+
+        let declaration = try XCTUnwrap(src.range(of: "private var mountedEditor"))
+        let host = try XCTUnwrap(src.range(of: "ScrapEditorHost("),
+                                 "CanvasView no longer composes ScrapEditorHost")
+        XCTAssertTrue(declaration.lowerBound < host.lowerBound,
+                      "the editor must be built inside `mountedEditor`, or the "
+                      + "z-order assertion above is checking the wrong symbol")
+    }
+
+    func test_theGroundAndTheDrawnLayerDoNotHitTest() throws {
+        let src = codeOnly(try canvasViewSource())
+        let ground = try XCTUnwrap(src.range(of: "CanvasGround("))
+        let canvas = try XCTUnwrap(src.range(of: "Canvas {"))
+        let event = try XCTUnwrap(src.range(of: "CanvasEventView("))
+        XCTAssertTrue(ground.lowerBound < canvas.lowerBound,
+                      "the shader ground must be BENEATH the content (spec §7A.4)")
+        XCTAssertTrue(canvas.lowerBound < event.lowerBound)
+        let beforeEvents = String(src[src.startIndex..<event.lowerBound])
+        XCTAssertEqual(
+            beforeEvents.components(separatedBy: ".allowsHitTesting(false)").count - 1, 2,
+            "both the ground and the drawn layer must opt out of hit testing, or "
+            + "clicks never reach the event view")
+    }
+
+    /// I7. The editor forwards a point in its OWN unzoomed space; anchoring the
+    /// pinch on it directly zooms about a point the writer never touched.
+    func test_theFocusedEditorsPinchAnchorGoesThroughTheGeometryMapper() throws {
+        let src = codeOnly(try canvasViewSource())
+        XCTAssertTrue(src.contains("ScrapEditorGeometry.viewPoint"),
+                      "onMagnify hands back an EDITOR-space point — it must be "
+                      + "mapped into canvas space before it anchors a zoom")
+    }
+
+    func test_theCanvasIsNotHiddenFromAccessibility() throws {
+        let src = try canvasViewSource()
+        XCTAssertFalse(src.contains("accessibilityHidden(true)"))
+        XCTAssertFalse(src.contains("accessibilityElement(children: .ignore)"),
+                       "spec §7A.6: we own the canvas AX tree — ignoring children "
+                       + "throws away the mounted editor with it")
+    }
+}
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasCompositionTests CODE_SIGNING_ALLOWED=NO`
+Expected: FAIL — no `Maugham/Canvas/CanvasView.swift` to read.
+
+- [ ] **Step 3: Write the composed view**
 
 `Maugham/Canvas/CanvasView.swift`:
 
@@ -2887,8 +3323,8 @@ import SwiftUI
 ///
 /// LAYER ORDER IS A HARD CONSTRAINT, not a preference:
 ///
-///   1. `CanvasGround`      — shader, `.allowsHitTesting(false)`
-///   2. `Canvas`            — drawn nodes, `.allowsHitTesting(false)`
+///   1. `CanvasGround`      — shader, hit testing off
+///   2. `Canvas`            — drawn nodes, hit testing off
 ///   3. `CanvasEventView`   — camera + pointer
 ///   4. `ScrapEditorHost`   — the one live editor, FRONTMOST
 ///
@@ -2898,7 +3334,9 @@ import SwiftUI
 /// because that is the only way the writer gets AppKit's own click-to-place-caret,
 /// drag-select and double-click-word; with the order reversed the event view
 /// swallows all three and the surface reads as "typing does nothing".
-/// `CanvasCompositionTests` pins both.
+/// `CanvasCompositionTests` pins both — and deliberately does NOT count the
+/// modifier names written out in this comment, which is why they are described
+/// here rather than spelled.
 struct CanvasView: View {
     let projectRoot: URL
     /// Deferred on purpose: `ProjectStore.paletteSwatchHexes()` reads every
@@ -2914,6 +3352,8 @@ struct CanvasView: View {
     @State private var caretIndex: Int?
     @State private var wash: [Color] = []
     @State private var store: CanvasStore?
+    /// §7A.5: the focused card animates to level and settles back on blur.
+    @State private var straighten = CanvasFocusStraighten()
 
     /// `layouts` holds ScrapLayout REFERENCES. Typing mutates the object in
     /// place, so `@State` observes no change and the `Canvas` never redraws.
@@ -2929,37 +3369,51 @@ struct CanvasView: View {
         // Read here, not in the closure — see `revision`.
         let drawRevision = revision
 
-        GeometryReader { geo in
-            ZStack {
-                CanvasGround(camera: camera, wash: wash)
-                    .allowsHitTesting(false)
+        // No GeometryReader: `Canvas`'s own `size` is the viewport the renderer
+        // culls against, and `.position` below resolves in this ZStack's space.
+        ZStack {
+            CanvasGround(camera: camera, wash: wash)
+                .allowsHitTesting(false)
 
+            // The clock §7A.5's straightening runs on. Paused the moment nothing
+            // is animating, so an idle canvas costs nothing. Task 13 adds
+            // momentum to THIS timeline — do not create a second one.
+            TimelineView(.animation(paused: straighten.isSettled)) { context in
                 Canvas { cx, size in
                     _ = drawRevision
                     CanvasRenderer.draw(scene: scene, camera: camera, viewSize: size,
                                         layouts: layouts, editingNodeID: editingNodeID,
-                                        into: &cx)
+                                        straighten: straighten, into: &cx)
                 }
                 .allowsHitTesting(false)
-
-                CanvasEventView(
-                    camera: $camera,
-                    onClick: { viewPoint, clickCount in
-                        handleClick(at: camera.contentPoint(fromView: viewPoint),
-                                    clickCount: clickCount)
-                    },
-                    // Task 11 drives CanvasInteraction from this. Until then a
-                    // drag is a no-op, deliberately — not a forgotten stub.
-                    onDrag: { _, _ in },
-                    // Task 13 supplies the canvas undo manager.
-                    undoManager: nil)
-
-                mountedEditor
+                .onChange(of: context.date) { previous, now in
+                    straighten.step(elapsed: now.timeIntervalSince(previous))
+                    revision += 1
+                }
             }
-            .onAppear { load() }
-            .onDisappear { store?.flush() }
+
+            CanvasEventView(
+                camera: $camera,
+                onClick: { viewPoint, clickCount in
+                    handleClick(at: camera.contentPoint(fromView: viewPoint),
+                                clickCount: clickCount)
+                },
+                // Task 13 drives CanvasInteraction from this. Until then a drag
+                // is a no-op, deliberately — not a forgotten stub.
+                onDrag: { _, _ in },
+                // Task 15 supplies the canvas undo manager.
+                undoManager: nil)
+
+            mountedEditor
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear { load() }
+        .onDisappear {
+            // Fold the live editor's text in BEFORE the write, or a persona
+            // switch mid-sentence loses the sentence.
+            syncActiveEdit()
+            store?.flush()
+        }
     }
 
     /// Frontmost. Present only while a scrap is being edited.
@@ -2971,21 +3425,30 @@ struct CanvasView: View {
            let layout = layouts[id],
            let frame = node.frame {
             let textSize = CanvasCardMetrics.textSize(inCard: frame)
-            let viewOrigin = camera.viewPoint(fromContent:
-                CanvasCardMetrics.textOrigin(inCard: frame))
+            let textOrigin = CanvasCardMetrics.textOrigin(inCard: frame)
+            let viewOrigin = camera.viewPoint(fromContent: textOrigin)
             ScrapEditorHost(layout: layout,
                             unscaledSize: textSize,
                             zoom: camera.zoom,
                             caretIndex: caretIndex,
-                            undoManager: nil,          // Task 13
+                            undoManager: nil,          // Task 15
                             onScroll: { dx, dy, precise in
                                 let factor: CGFloat = precise ? 1 : 8
                                 camera.panBy(CGSize(width: dx * factor, height: dy * factor))
                             },
-                            onMagnify: { magnification, point in
+                            onMagnify: { magnification, editorPoint in
+                                // The container hands back a point in the
+                                // EDITOR's own unzoomed space. Anchoring the
+                                // zoom on it directly would zoom about a point
+                                // the writer never touched.
+                                let anchor = ScrapEditorGeometry.viewPoint(
+                                    fromEditorPoint: editorPoint,
+                                    textOrigin: textOrigin,
+                                    camera: camera)
                                 camera.zoom(to: camera.zoom * (1 + magnification),
-                                            anchoringViewPoint: point)
-                            })
+                                            anchoringViewPoint: anchor)
+                            },
+                            onTextChanged: { syncActiveEdit() })
                 .frame(width: textSize.width * camera.zoom,
                        height: textSize.height * camera.zoom)
                 .position(x: viewOrigin.x + textSize.width * camera.zoom / 2,
@@ -2997,6 +3460,10 @@ struct CanvasView: View {
 
     private func load() {
         let s = CanvasStore(projectRoot: projectRoot)
+        // The store's own quit hook writes whatever was last queued; this makes
+        // sure what was last queued includes the sentence the writer is halfway
+        // through. `.onDisappear` does not fire on ⌘Q.
+        s.beforeFlush = { syncActiveEdit() }
         store = s
         let loaded = s.load()
         scene = loaded.scene
@@ -3037,20 +3504,40 @@ struct CanvasView: View {
         revision += 1
     }
 
-    /// Pull the live text out of the editing scrap's layout and back into the
-    /// model, then re-measure it. Called before focus moves and before a save.
-    private func commitActiveEdit() {
+    // MARK: - The writer's words
+
+    /// Fold the live editor's text back into the model and re-measure the card.
+    ///
+    /// **Called on EVERY keystroke** (`ScrapEditorHost.onTextChanged`), from
+    /// `.onDisappear`, and from `CanvasStore.beforeFlush`. Typing mutates the
+    /// `NSTextStorage` inside `ScrapLayout` in place; until this runs, `scraps`
+    /// still holds the text as it was before the writer typed, the queued save
+    /// payload is stale, and the drawn card never grows past the height it had
+    /// when it was last measured. Quit at that moment and the scrap comes back
+    /// empty — the words are safe is the one promise this surface cannot break.
+    ///
+    /// Carries NO undo step, deliberately: `commitActiveEdit` is the undo
+    /// boundary, and pushing a step here would mean one ⌘Z per keystroke.
+    private func syncActiveEdit() {
         guard let id = editingNodeID, let layout = layouts[id] else { return }
+        guard scraps[id] != layout.text else { return }
         scraps[id] = layout.text
         scene.setCachedHeight(
             CanvasCardMetrics.cardHeight(forTextHeight: layout.measuredHeight), for: id)
         revision += 1
+        store?.scheduleSave(scene: scene, scraps: scraps)
+    }
+
+    /// The undo boundary: focus is leaving the scrap. Task 15 closes the "Edit
+    /// Scrap" gesture here; until then it is the same work as `syncActiveEdit`.
+    private func commitActiveEdit() {
+        syncActiveEdit()
     }
 
     // MARK: - Clicks
 
     /// Single click: leave whatever was being edited. Double click: enter the
-    /// scrap under the pointer (Task 11 adds "or make one here").
+    /// scrap under the pointer (Task 13 adds "or make one here").
     ///
     /// The single/double split is the standard canvas idiom, and it is what lets
     /// a single click start a DRAG while the editor is unmounted — with the
@@ -3065,63 +3552,76 @@ struct CanvasView: View {
               let frame = node.frame else {
             editingNodeID = nil
             caretIndex = nil
+            straighten.focus(nil)
             store?.scheduleSave(scene: scene, scraps: scraps)
             return
         }
 
+        // §7A.5 requirement 1: resolve the caret in the card's LOCAL, UNROTATED
+        // space at CLICK TIME — before the card straightens. Straightening first
+        // moves the click point out from under the cursor, and the caret lands
+        // somewhere the writer did not aim.
+        let angle = CanvasRenderer.drawnAngle(for: node.id, straighten: straighten)
+        let local = CanvasRenderer.localPoint(contentPoint, inCard: frame, angle: angle)
         let textOrigin = CanvasCardMetrics.textOrigin(inCard: frame)
-        editingNodeID = node.id
         caretIndex = layout.characterIndex(
-            at: CGPoint(x: contentPoint.x - textOrigin.x, y: contentPoint.y - textOrigin.y))
+            at: CGPoint(x: local.x - textOrigin.x, y: local.y - textOrigin.y))
+
+        editingNodeID = node.id
+        // Now animate. The editor mounts on a card that is already level.
+        straighten.focus(node.id)
         store?.scheduleSave(scene: scene, scraps: scraps)
     }
 }
 ```
 
-- [ ] **Step 5: Run the tests and a Release build**
+- [ ] **Step 4: Run the tests and a Release build**
 
-Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/ScrapEditorHostTests -only-testing MaughamTests/CanvasCompositionTests CODE_SIGNING_ALLOWED=NO`
-Expected: PASS, 11 + 3 tests.
+Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasCompositionTests -only-testing MaughamTests/ScrapEditorHostTests CODE_SIGNING_ALLOWED=NO`
+Expected: PASS, 4 + 15 tests.
 
 Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham -configuration Release build CODE_SIGNING_ALLOWED=NO`
 Expected: BUILD SUCCEEDED. **A Debug pass is not evidence** — the Release type-check budget is stricter, and v0.8.0 shipped a Release-only failure this way.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add Maugham/Canvas/ScrapEditorHost.swift Maugham/Canvas/CanvasView.swift MaughamTests/Canvas/ScrapEditorHostTests.swift MaughamTests/Canvas/CanvasCompositionTests.swift project.yml
-git commit -m "feat(canvas): composed surface + one bounds-scaled editor on the focused scrap
+git add Maugham/Canvas/CanvasView.swift MaughamTests/Canvas/CanvasCompositionTests.swift project.yml
+git commit -m "feat(canvas): the composed canvas surface
 
 Editor frontmost so AppKit supplies caret placement and word selection;
-focus is requested and claimed on viewDidMoveToWindow (makeNSView has no
-window yet); mount rebinds on layout identity, not on textView == nil."
+the ground is a sibling beneath, never an overlay. Every keystroke is
+folded into the model on the spot and again before any write, so a quit
+mid-sentence keeps the sentence. The focused card straightens to level
+over ~120ms on the same timeline the momentum coast will use (7A.5), and
+the caret is resolved in the card's unrotated space before it animates."
 ```
 
 ---
 
-### Task 10: Wire the canvas into the Plan persona
+### Task 11: The `canvas` binder segment and the switches it forces
+
+This task makes the segment **exist and be routed everywhere**. Task 12 makes Plan *offer* it. Splitting there is deliberate: adding the case forces seven exhaustive switches at once and the tree does not compile until all seven are handled, so they belong together; changing Plan's segment list breaks two long-standing assertions in an existing test file and belongs on its own.
 
 **Files:**
 - Modify: `Maugham/Models/BinderSegment.swift` (add `case canvas`; conform to `CaseIterable`)
-- Modify: `Maugham/Models/Persona.swift` (Plan's `binderSegments(for:)` and the doc comment above it)
 - Modify: `Maugham/Views/ProjectWindow.swift` (`existingEditorSwitch` ~line 847, `existingInspectorSwitch` ~line 1018, `shouldShowStatusFooter` ~line 787)
 - Modify: `Maugham/Views/BinderPaneToggle.swift` (the `switch segment` at **line 28**)
 - Modify: `Maugham/Views/CollectionBinderPaneToggle.swift` (the `switch segment` at **line 36**)
 - Modify: `Maugham/Stores/ProjectStore+Palette.swift` (add `paletteSwatchHexes()`)
-- Modify: `MaughamTests/PersonaBinderSegmentTests.swift` (**two assertions change**, two arrays become `allCases`)
-- Modify: `MaughamTests/PersonaMemoryTests.swift` (two arrays become `allCases`)
+- Modify: `MaughamTests/PersonaBinderSegmentTests.swift` (two hardcoded arrays become `allCases`)
+- Modify: `MaughamTests/PersonaMemoryTests.swift` (two hardcoded arrays become `allCases`)
 - Test: `MaughamTests/Canvas/CanvasSegmentTests.swift`
 
 **Interfaces:**
-- **Consumes:** `CanvasView(projectRoot:paletteSwatchHexes:)` (Task 9); `CanvasGroundPalette` (Task 8).
+- **Consumes:** `CanvasView(projectRoot:paletteSwatchHexes:)` (Task 10); `CanvasGroundPalette` (Task 8).
 - **Produces:**
   - `BinderSegment.canvas`, and `BinderSegment: CaseIterable`.
-  - `Persona.plan.binderSegments(for:) == [.canvas, .research, .palette]` for every project type, so `Persona.plan.binderHome(for:) == .canvas`.
   - `ProjectStore.paletteSwatchHexes() -> [String]`.
 
-**No new top-level modifier.** `ProjectWindow.existingEditorSwitch` already routes the centre column on `binderSegment`, so adding `case canvas` puts the canvas there. Adding the case makes the compiler enumerate every exhaustive switch over `BinderSegment` — that is the mechanism, and it is why this is one task rather than a hunt.
+**No new top-level modifier.** `ProjectWindow.existingEditorSwitch` already routes the centre column on `binderSegment`, so adding `case canvas` puts the canvas there. Adding the case makes the compiler enumerate every exhaustive switch over `BinderSegment` — that is the mechanism, and it is why the seven sites are one task rather than a hunt.
 
-**The five exhaustive switches, named.** Do not go looking; these are all of them, verified against the tree on 2026-07-25:
+**The seven exhaustive switches, named.** Do not go looking; these are all of them, verified against the tree on 2026-07-25:
 
 | Site | File:line | What `.canvas` returns |
 |---|---|---|
@@ -3135,13 +3635,10 @@ window yet); mount rebinds on layout identity, not on textView == nil."
 
 **What the binder shows under the canvas segment: the research tree.** Spec §10 left this open and now records the answer. Umbrella §6.3 gives Plan a Left surface of "Research tree", and spec §8A.1 *depends* on it — dragging a research item onto the canvas (1C-d) requires the tree to be beside it. So `.canvas` and `.research` render the same left pane; the picker distinguishes them and the centre column is what actually differs. That is deliberate, not an oversight, and the arms carry a comment saying so.
 
-**Two existing test assertions break and are fixed in this task**, not left for the full-suite run to discover:
-
-- `MaughamTests/PersonaBinderSegmentTests.swift:6-8` — `test_planPersona_leadsWithResearch` asserts `Persona.plan.binderHome(for: .novel) == .research`.
-- `MaughamTests/PersonaBinderSegmentTests.swift:53-57` — `test_planPersona_exactSegments` asserts `Persona.plan.binderSegments(for: .novel) == [.research, .palette]`.
+**No persona offers `.canvas` yet, so nothing in `PersonaBinderSegmentTests` changes value.** That is Task 12's job. The segment is reachable by the compiler and by `UIState`, but not yet by a writer.
 
 **Four hardcoded `[BinderSegment]` arrays would silently under-test the new case.** Rather than adding `.canvas` to each and leaving the drift class open, make `BinderSegment: CaseIterable` and replace all four with `BinderSegment.allCases`:
-`PersonaBinderSegmentTests.swift:122`, `:132`, `PersonaMemoryTests.swift:74`, `:132`.
+`PersonaBinderSegmentTests.swift:122`, `:132`, `PersonaMemoryTests.swift:74`, `:132`. All four are generic loops over `binderSegments`/`isTransient`/`binderHome`, so they strengthen rather than break — but run them and confirm, don't assume.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -3153,30 +3650,6 @@ import XCTest
 import MaughamCore
 
 final class CanvasSegmentTests: XCTestCase {
-
-    func test_planOffersTheCanvasFirstOnEveryProjectType() {
-        for type in [ProjectType.novel, .screenplay, .collection] {
-            let segments = Persona.plan.binderSegments(for: type)
-            XCTAssertEqual(segments.first, .canvas,
-                           "Plan's centre column is the canvas (umbrella §6.3) — \(type)")
-            XCTAssertEqual(Persona.plan.binderHome(for: type), .canvas)
-        }
-    }
-
-    func test_planStillOffersResearchAndPalette() {
-        let segments = Persona.plan.binderSegments(for: .novel)
-        XCTAssertTrue(segments.contains(.research))
-        XCTAssertTrue(segments.contains(.palette))
-    }
-
-    func test_noOtherPersonaOffersTheCanvas() {
-        for persona in [Persona.author, .review, .publish] {
-            for type in [ProjectType.novel, .screenplay, .collection] {
-                XCTAssertFalse(persona.binderSegments(for: type).contains(.canvas),
-                               "\(persona) must not offer the canvas")
-            }
-        }
-    }
 
     /// The picker renders uniform `Image` children only. A segment with no
     /// symbol is smoke defect C (2026-07-25) waiting to happen again.
@@ -3200,14 +3673,6 @@ final class CanvasSegmentTests: XCTestCase {
     /// carried across a persona switch the way Find and Trash are.
     func test_canvasIsNotTransient() {
         XCTAssertFalse(BinderSegment.canvas.isTransient)
-    }
-
-    func test_switchingAwayFromPlanLeavesTheCanvas() {
-        // Author does not offer .canvas, so a coerced segment must land on
-        // Author's own home rather than stranding the writer on a blank column.
-        let author = Persona.author.binderSegments(for: .novel)
-        XCTAssertFalse(author.contains(.canvas))
-        XCTAssertEqual(Persona.author.binderHome(for: .novel), .manuscript)
     }
 
     func test_canvasSurvivesAUIStateRoundTrip() throws {
@@ -3240,10 +3705,10 @@ final class CanvasSegmentTests: XCTestCase {
                       "CollectionBinderPaneToggle must render CollectionResearchPane for .canvas")
     }
 
-    func test_paletteSwatchHexesFlattensEveryCardsSwatches() throws {
-        // ProjectStore is exercised end to end elsewhere; this only pins that
-        // the accessor exists and returns hex strings, which is the seam
-        // CanvasGroundPalette parses.
+    /// The seam between the store and the ground: the store vends hex strings
+    /// and `CanvasGroundPalette` is the one parser. (`ProjectStore` itself is
+    /// exercised end to end elsewhere; this pins the shape of what it hands over.)
+    func test_theGroundAcceptsTheHexesTheStoreVends() throws {
         let hexes: [String] = CanvasGroundPalette.validHexes(["#8A6F4D", "#2F3B4C"])
         XCTAssertEqual(hexes, ["#8A6F4D", "#2F3B4C"])
     }
@@ -3272,7 +3737,7 @@ public enum BinderSegment: String, Codable, Equatable, Sendable, CaseIterable {
     case find
 ```
 
-`CaseIterable` is not decoration: four test files held hardcoded `[BinderSegment]` arrays that would each have silently skipped the new case. Step 6 replaces them.
+`CaseIterable` is not decoration: two test files held four hardcoded `[BinderSegment]` arrays that would each have silently skipped the new case. Step 5 replaces them.
 
 `isTransient` — `.canvas` joins the non-transient list:
 ```swift
@@ -3297,36 +3762,7 @@ xcodebuild -project Maugham.xcodeproj -scheme Maugham build CODE_SIGNING_ALLOWED
 ```
 Expected: `ProjectWindow.existingEditorSwitch`, `ProjectWindow.existingInspectorSwitch`, `BinderPaneToggle`, `CollectionBinderPaneToggle`. If a fifth appears, stop and report it — the table above claims to be complete.
 
-- [ ] **Step 4: Put the canvas in Plan's list**
-
-In `Maugham/Models/Persona.swift`, replace Plan's `case .plan:` arm in `binderSegments(for:)`:
-
-```swift
-        case .plan:
-            // §6.3 gives Plan a canvas centre column, so the canvas leads and is
-            // therefore `binderHome` — entering Plan lands on it. Research and
-            // Palette follow: Research is §6.3's Left surface, and the binder is
-            // where a palette card is picked.
-            //
-            // The manuscript segment stays deliberately ABSENT, for the reason
-            // recorded before the canvas existed: the coercion rule keeps any
-            // segment the destination offers, so including it would let a writer
-            // entering Plan from the manuscript simply stay on it and never see
-            // the planning surfaces at all. Not a gate — a forced navigation
-            // still selects the manuscript segment and `visibleSegments`
-            // renders it, and ⌘2 is one keystroke away.
-            return [.canvas, .research, .palette]
-```
-
-Update the doc comment above `binderSegments(for:)`: the sentence reading
-
-> Two of those four surfaces do not exist yet (M1C builds the canvas, M1D the editions list)
-
-becomes
-
-> One of those four surfaces does not exist yet (M1D builds the editions list).
-
-- [ ] **Step 5: Route the four view switches**
+- [ ] **Step 4: Route the four view switches**
 
 `ProjectWindow.existingEditorSwitch` — note `store.url`, which is what `ProjectStore` actually exposes (`Maugham/Stores/ProjectStore.swift:68`, `public let url: URL`). There is no `rootURL`:
 
@@ -3385,9 +3821,163 @@ Add `paletteSwatchHexes()` to `Maugham/Stores/ProjectStore+Palette.swift`, besid
     }
 ```
 
-- [ ] **Step 6: Update the tests this task breaks**
+- [ ] **Step 5: Replace the four hardcoded segment arrays**
 
-`MaughamTests/PersonaBinderSegmentTests.swift` — the two Plan assertions:
+```swift
+// PersonaBinderSegmentTests.swift:122 and :132
+        let all = BinderSegment.allCases
+// PersonaMemoryTests.swift:74
+        let all = BinderSegment.allCases
+// PersonaMemoryTests.swift:132
+        let allBinder = BinderSegment.allCases
+```
+
+All four are generic loops over `binderSegments`/`isTransient`/`binderHome`, so they strengthen rather than break — but run them and confirm, don't assume.
+
+- [ ] **Step 6: Check the footer guard the compiler cannot see**
+
+`ProjectWindow.swift:787-791` reads:
+
+```swift
+        guard binderSegment == .manuscript || binderSegment == .scenes else {
+```
+
+This is an `==` comparison, so adding the case does **not** flag it. The behaviour is already correct — the word-count footer should not show on the canvas — so leave it. Add a comment so the next reader knows it was considered rather than missed:
+
+```swift
+        // `.canvas` is deliberately absent: the footer reports manuscript
+        // metrics, and readiness stays silent about the canvas (umbrella §7, §9).
+        guard binderSegment == .manuscript || binderSegment == .scenes else {
+```
+
+- [ ] **Step 7: Run the tests and a Release build**
+
+Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasSegmentTests -only-testing MaughamTests/PersonaBinderSegmentTests -only-testing MaughamTests/PersonaMemoryTests CODE_SIGNING_ALLOWED=NO`
+Expected: PASS, 6 tests in `CanvasSegmentTests`. The two persona suites must be **unchanged in outcome** — no persona offers `.canvas` yet, so if either goes red the case leaked into a persona list ahead of Task 12.
+
+Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham -configuration Release build CODE_SIGNING_ALLOWED=NO`
+Expected: BUILD SUCCEEDED.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add Maugham/Models/BinderSegment.swift \
+        Maugham/Views/ProjectWindow.swift Maugham/Views/BinderPaneToggle.swift \
+        Maugham/Views/CollectionBinderPaneToggle.swift \
+        Maugham/Stores/ProjectStore+Palette.swift \
+        MaughamTests/Canvas/CanvasSegmentTests.swift \
+        MaughamTests/PersonaBinderSegmentTests.swift MaughamTests/PersonaMemoryTests.swift
+git commit -m "feat(canvas): BinderSegment.canvas, routed through all seven switches
+
+No new top-level modifier — existingEditorSwitch already routes the
+centre column on binderSegment. Resolves spec 10's open question about
+the left column: both binder toggles show the research tree under the
+canvas segment, which is what 8A.1's drag-in route will need.
+BinderSegment gains CaseIterable so the four hardcoded segment arrays in
+the persona tests cannot miss a case again. No persona offers the segment
+yet; that is Task 12."
+```
+
+---
+
+### Task 12: Plan leads with the canvas
+
+**Files:**
+- Modify: `Maugham/Models/Persona.swift` (Plan's `binderSegments(for:)` and the doc comment above it)
+- Modify: `MaughamTests/PersonaBinderSegmentTests.swift` (**two assertions change**)
+- Test: `MaughamTests/Canvas/CanvasPersonaTests.swift`
+
+**Interfaces:**
+- **Consumes:** `BinderSegment.canvas` (Task 11).
+- **Produces:** `Persona.plan.binderSegments(for:) == [.canvas, .research, .palette]` for every project type, so `Persona.plan.binderHome(for:) == .canvas`.
+
+**Two existing assertions break and are fixed here**, not left for the full-suite run to discover:
+
+- `MaughamTests/PersonaBinderSegmentTests.swift:6-8` — `test_planPersona_leadsWithResearch` asserts `Persona.plan.binderHome(for: .novel) == .research`.
+- `MaughamTests/PersonaBinderSegmentTests.swift:53-57` — `test_planPersona_exactSegments` asserts `Persona.plan.binderSegments(for: .novel) == [.research, .palette]`.
+
+- [ ] **Step 1: Write the failing test**
+
+`MaughamTests/Canvas/CanvasPersonaTests.swift`:
+
+```swift
+import XCTest
+@testable import Maugham
+import MaughamCore
+
+final class CanvasPersonaTests: XCTestCase {
+
+    func test_planOffersTheCanvasFirstOnEveryProjectType() {
+        for type in [ProjectType.novel, .screenplay, .collection] {
+            let segments = Persona.plan.binderSegments(for: type)
+            XCTAssertEqual(segments.first, .canvas,
+                           "Plan's centre column is the canvas (umbrella §6.3) — \(type)")
+            XCTAssertEqual(Persona.plan.binderHome(for: type), .canvas)
+        }
+    }
+
+    func test_planStillOffersResearchAndPalette() {
+        let segments = Persona.plan.binderSegments(for: .novel)
+        XCTAssertTrue(segments.contains(.research))
+        XCTAssertTrue(segments.contains(.palette))
+    }
+
+    func test_noOtherPersonaOffersTheCanvas() {
+        for persona in [Persona.author, .review, .publish] {
+            for type in [ProjectType.novel, .screenplay, .collection] {
+                XCTAssertFalse(persona.binderSegments(for: type).contains(.canvas),
+                               "\(persona) must not offer the canvas")
+            }
+        }
+    }
+
+    func test_switchingAwayFromPlanLeavesTheCanvas() {
+        // Author does not offer .canvas, so a coerced segment must land on
+        // Author's own home rather than stranding the writer on a blank column.
+        let author = Persona.author.binderSegments(for: .novel)
+        XCTAssertFalse(author.contains(.canvas))
+        XCTAssertEqual(Persona.author.binderHome(for: .novel), .manuscript)
+    }
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasPersonaTests CODE_SIGNING_ALLOWED=NO`
+Expected: FAIL — Plan's first segment is `.research`.
+
+- [ ] **Step 3: Put the canvas in Plan's list**
+
+In `Maugham/Models/Persona.swift`, replace Plan's `case .plan:` arm in `binderSegments(for:)`:
+
+```swift
+        case .plan:
+            // §6.3 gives Plan a canvas centre column, so the canvas leads and is
+            // therefore `binderHome` — entering Plan lands on it. Research and
+            // Palette follow: Research is §6.3's Left surface, and the binder is
+            // where a palette card is picked.
+            //
+            // The manuscript segment stays deliberately ABSENT, for the reason
+            // recorded before the canvas existed: the coercion rule keeps any
+            // segment the destination offers, so including it would let a writer
+            // entering Plan from the manuscript simply stay on it and never see
+            // the planning surfaces at all. Not a gate — a forced navigation
+            // still selects the manuscript segment and `visibleSegments`
+            // renders it, and ⌘2 is one keystroke away.
+            return [.canvas, .research, .palette]
+```
+
+Update the doc comment above `binderSegments(for:)`: the sentence reading
+
+> Two of those four surfaces do not exist yet (M1C builds the canvas, M1D the editions list)
+
+becomes
+
+> One of those four surfaces does not exist yet (M1D builds the editions list).
+
+- [ ] **Step 4: Update the two assertions this task breaks**
+
+`MaughamTests/PersonaBinderSegmentTests.swift`:
 
 ```swift
     func test_planPersona_leadsWithTheCanvas() {
@@ -3408,39 +3998,10 @@ Add `paletteSwatchHexes()` to `Maugham/Stores/ProjectStore+Palette.swift`, besid
     }
 ```
 
-Then replace all four hardcoded arrays with `BinderSegment.allCases`:
-
-```swift
-// PersonaBinderSegmentTests.swift:122 and :132
-        let all = BinderSegment.allCases
-// PersonaMemoryTests.swift:74
-        let all = BinderSegment.allCases
-// PersonaMemoryTests.swift:132
-        let allBinder = BinderSegment.allCases
-```
-
-All four are generic loops over `binderSegments`/`isTransient`/`binderHome`, so they strengthen rather than break — but run them and confirm, don't assume.
-
-- [ ] **Step 7: Check the footer guard the compiler cannot see**
-
-`ProjectWindow.swift:787-791` reads:
-
-```swift
-        guard binderSegment == .manuscript || binderSegment == .scenes else {
-```
-
-This is an `==` comparison, so adding the case does **not** flag it. The behaviour is already correct — the word-count footer should not show on the canvas — so leave it. Add a comment so the next reader knows it was considered rather than missed:
-
-```swift
-        // `.canvas` is deliberately absent: the footer reports manuscript
-        // metrics, and readiness stays silent about the canvas (umbrella §7, §9).
-        guard binderSegment == .manuscript || binderSegment == .scenes else {
-```
-
-- [ ] **Step 8: Run the full suite and a Release build**
+- [ ] **Step 5: Run both full suites and a Release build**
 
 Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test CODE_SIGNING_ALLOWED=NO`
-Expected: the whole Mac suite green, including the updated `PersonaBinderSegmentTests` and `PersonaMemoryTests`. Integration failures only surface in the FULL suite — the edition-identity milestone learned this the expensive way; do not call this task done off a filtered run.
+Expected: the whole Mac suite green, including `CanvasPersonaTests` (4 tests) and the updated `PersonaBinderSegmentTests` and `PersonaMemoryTests`. Integration failures only surface in the FULL suite — the edition-identity milestone learned this the expensive way; do not call this task done off a filtered run.
 
 Run: `xcodebuild -project Maugham.xcodeproj -scheme MaughamPhone -destination 'platform=iOS Simulator,name=iPhone 17' test CODE_SIGNING_ALLOWED=NO`
 Expected: green — this confirms nothing leaked into MaughamCore, since M1C is Mac-only by design.
@@ -3448,29 +4009,21 @@ Expected: green — this confirms nothing leaked into MaughamCore, since M1C is 
 Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham -configuration Release build CODE_SIGNING_ALLOWED=NO`
 Expected: BUILD SUCCEEDED.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add Maugham/Models/BinderSegment.swift Maugham/Models/Persona.swift \
-        Maugham/Views/ProjectWindow.swift Maugham/Views/BinderPaneToggle.swift \
-        Maugham/Views/CollectionBinderPaneToggle.swift \
-        Maugham/Stores/ProjectStore+Palette.swift \
-        MaughamTests/Canvas/CanvasSegmentTests.swift \
-        MaughamTests/PersonaBinderSegmentTests.swift MaughamTests/PersonaMemoryTests.swift
+git add Maugham/Models/Persona.swift \
+        MaughamTests/Canvas/CanvasPersonaTests.swift \
+        MaughamTests/PersonaBinderSegmentTests.swift
 git commit -m "feat(canvas): Plan's centre column is the canvas
 
-Adds BinderSegment.canvas at the head of Plan's segment list, so it is
-also Plan's binderHome. No new top-level modifier — existingEditorSwitch
-already routes on binderSegment. Resolves spec 10's open question about
-the left column: both binder toggles show the research tree under the
-canvas segment, which is what 8A.1's drag-in route will need.
-BinderSegment gains CaseIterable so the four hardcoded segment arrays in
-the persona tests cannot miss a case again."
+The canvas leads Plan's segment list and is therefore Plan's binderHome,
+so entering Plan lands on it. No other persona offers it."
 ```
 
 ---
 
-### Task 11: Create, move, resize — and momentum
+### Task 13: Create, move, resize — and momentum
 
 **Files:**
 - Create: `Maugham/Canvas/CanvasInteraction.swift`
@@ -3486,7 +4039,9 @@ the persona tests cannot miss a case again."
   - `struct CanvasInteraction` — `static let minimumScrapWidth: CGFloat`, `static let defaultScrapWidth: CGFloat`, `var isActive: Bool`, `var activeNodeID: CanvasNodeID?`, `var isResizing: Bool`, `mutating func begin(at: CGPoint, in: CanvasScene)`, `mutating func beginResize(_: CanvasNodeID, at: CGPoint, in: CanvasScene)`, `mutating func update(to: CGPoint, in: inout CanvasScene)`, `@discardableResult mutating func end() -> (id: CanvasNodeID, velocity: CGSize)?`, `static func createScrap(at: CGPoint, in: inout CanvasScene) -> CanvasNodeID`.
   - `struct CanvasMomentum: Equatable` — `static let decayPerFrame: CGFloat`, `static let restSpeed: CGFloat`, `static let maximumLaunchSpeed: CGFloat`, `private(set) var nodeID: CanvasNodeID?`, `private(set) var velocity: CGSize`, `var isAtRest: Bool`, `mutating func launch(_: CanvasNodeID, velocity: CGSize)`, `mutating func stop()`, `@discardableResult mutating func step(_ scene: inout CanvasScene) -> Bool`.
 
-**Momentum, built rather than described.** §7.3 says cards carry momentum and come to rest rather than snapping, and calls it "where tools actually acquire feel". The mechanism is a **velocity term plus an explicit per-frame decay the renderer reads** — not `withAnimation`. `withAnimation` interpolates `Animatable` values through the SwiftUI view graph; a plain model value read inside a `Canvas` draw closure is not in that graph and would simply jump to its final value. So `CanvasView` wraps the drawn layer in `TimelineView(.animation(paused: momentum.isAtRest))` and steps the model once per tick.
+**Momentum, built rather than described.** §7.3 says cards carry momentum and come to rest rather than snapping, and calls it "where tools actually acquire feel". The mechanism is a **velocity term plus an explicit per-frame decay the renderer reads** — not `withAnimation`. `withAnimation` interpolates `Animatable` values through the SwiftUI view graph; a plain model value read inside a `Canvas` draw closure is not in that graph and would simply jump to its final value.
+
+**Task 10 already built the clock** — the `TimelineView(.animation(paused:))` §7A.5's straightening runs on. This task **widens its pause condition and steps a second model in the same tick**. Do not add a second `TimelineView`: two animation timelines over one `Canvas` is two redraw sources fighting for the same frame.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -3902,39 +4457,43 @@ Three edits to `Maugham/Canvas/CanvasView.swift`.
     @State private var momentum = CanvasMomentum()
 ```
 
-**(b)** Wrap the drawn layer in a timeline so momentum has a clock, and replace the `onDrag` stub. The `Canvas` block from Task 9 becomes:
+**(b)** Widen the existing timeline's pause condition, step momentum in the same tick, and replace the `onDrag` stub. Task 10's `TimelineView` block becomes:
 
 ```swift
-                // The clock momentum coasts on. Paused when nothing is moving,
-                // so an idle canvas costs nothing. `withAnimation` cannot do
-                // this: a plain model value read inside a Canvas draw closure is
-                // not in the SwiftUI animation graph (see CanvasMomentum).
-                TimelineView(.animation(paused: momentum.isAtRest)) { context in
-                    Canvas { cx, size in
-                        _ = drawRevision
-                        CanvasRenderer.draw(scene: scene, camera: camera, viewSize: size,
-                                            layouts: layouts, editingNodeID: editingNodeID,
-                                            into: &cx)
-                    }
-                    .allowsHitTesting(false)
-                    .onChange(of: context.date) { _, _ in
-                        if !momentum.step(&scene) {
-                            store?.scheduleSave(scene: scene, scraps: scraps)
-                        }
-                        revision += 1
-                    }
+            // ONE clock, two interpolated models: §7A.5's straightening and
+            // §7.3's coast. Paused only when BOTH are settled, so an idle canvas
+            // costs nothing. `withAnimation` cannot do either job — a plain model
+            // value read inside a Canvas draw closure is not in the SwiftUI
+            // animation graph (see CanvasMomentum).
+            TimelineView(.animation(paused: straighten.isSettled && momentum.isAtRest)) { context in
+                Canvas { cx, size in
+                    _ = drawRevision
+                    CanvasRenderer.draw(scene: scene, camera: camera, viewSize: size,
+                                        layouts: layouts, editingNodeID: editingNodeID,
+                                        straighten: straighten, into: &cx)
                 }
+                .allowsHitTesting(false)
+                .onChange(of: context.date) { previous, now in
+                    straighten.step(elapsed: now.timeIntervalSince(previous))
+                    // Guarded on `isAtRest` so a tick that exists only to
+                    // straighten a card does not reset the save debounce.
+                    if !momentum.isAtRest, !momentum.step(&scene) {
+                        store?.scheduleSave(scene: scene, scraps: scraps)
+                    }
+                    revision += 1
+                }
+            }
 
-                CanvasEventView(
-                    camera: $camera,
-                    onClick: { viewPoint, clickCount in
-                        handleClick(at: camera.contentPoint(fromView: viewPoint),
-                                    clickCount: clickCount)
-                    },
-                    onDrag: { viewPoint, phase in
-                        handleDrag(at: camera.contentPoint(fromView: viewPoint), phase: phase)
-                    },
-                    undoManager: nil)      // Task 13
+            CanvasEventView(
+                camera: $camera,
+                onClick: { viewPoint, clickCount in
+                    handleClick(at: camera.contentPoint(fromView: viewPoint),
+                                clickCount: clickCount)
+                },
+                onDrag: { viewPoint, phase in
+                    handleDrag(at: camera.contentPoint(fromView: viewPoint), phase: phase)
+                },
+                undoManager: nil)      // Task 15
 ```
 
 **(c)** `handleClick` grows the create path, and `handleDrag` arrives:
@@ -3946,6 +4505,7 @@ Three edits to `Maugham/Canvas/CanvasView.swift`.
         guard clickCount >= 2 else {
             editingNodeID = nil
             caretIndex = nil
+            straighten.focus(nil)
             store?.scheduleSave(scene: scene, scraps: scraps)
             return
         }
@@ -3955,11 +4515,15 @@ Three edits to `Maugham/Canvas/CanvasView.swift`.
            case .scrap = node.kind,
            let layout = layouts[node.id],
            let frame = node.frame {
+            // §7A.5 requirement 1 — caret first, in the card's unrotated space,
+            // THEN animate. See Task 10.
+            let angle = CanvasRenderer.drawnAngle(for: node.id, straighten: straighten)
+            let local = CanvasRenderer.localPoint(contentPoint, inCard: frame, angle: angle)
             let textOrigin = CanvasCardMetrics.textOrigin(inCard: frame)
-            editingNodeID = node.id
             caretIndex = layout.characterIndex(
-                at: CGPoint(x: contentPoint.x - textOrigin.x,
-                            y: contentPoint.y - textOrigin.y))
+                at: CGPoint(x: local.x - textOrigin.x, y: local.y - textOrigin.y))
+            editingNodeID = node.id
+            straighten.focus(node.id)
         } else if scene.topmostNode(at: contentPoint) == nil {
             let id = CanvasInteraction.createScrap(at: contentPoint, in: &scene)
             scraps[id] = ""
@@ -3968,6 +4532,7 @@ Three edits to `Maugham/Canvas/CanvasView.swift`.
             rebuildLayouts()
             editingNodeID = id
             caretIndex = 0
+            straighten.focus(id)
         }
         store?.scheduleSave(scene: scene, scraps: scraps)
     }
@@ -4025,7 +4590,7 @@ inside a Canvas draw closure."
 
 ---
 
-### Task 12: The accessibility layer — resolving spec §7A.6
+### Task 14: The accessibility layer — resolving spec §7A.6
 
 **Files:**
 - Create: `Maugham/Canvas/CanvasAccessibility.swift`
@@ -4038,16 +4603,17 @@ inside a Canvas draw closure."
 - **Consumes:** `CanvasScene`, `CanvasNode`, `CanvasNodeID`, `CanvasNodeKind` (Task 1); `CanvasCamera` (Task 4); `CanvasRenderer.placeholderLabel(forReference:)` (Task 7).
 - **Produces:**
   - `enum CanvasAXRole: String, Equatable, Sendable` — `case scrap`, `case item`.
-  - `struct CanvasAXElement: Equatable, Identifiable` — `let id: CanvasNodeID`, `let role: CanvasAXRole`, `let label: String`, `let value: String`, `let frame: CGRect` (VIEW coordinates).
-  - `enum CanvasAccessibility` — `static let canvasLabel: String`, `static let emptyCanvasValue: String`, `static let emptyScrapValue: String`, `static func elements(scene:scraps:camera:) -> [CanvasAXElement]`, `static func summary(scene:) -> String`.
+  - `struct CanvasAXElement: Equatable, Identifiable` — `let id: CanvasNodeID`, `let role: CanvasAXRole`, `let label: String`, `let value: String`, `let contentFrame: CGRect` (CONTENT coordinates), `func viewFrame(in camera: CanvasCamera) -> CGRect`.
+  - `enum CanvasAccessibility` — `static let canvasLabel: String`, `static let emptyCanvasValue: String`, `static let emptyScrapValue: String`, `static func elements(scene:scraps:) -> [CanvasAXElement]`, `static func summary(scene:) -> String`.
 
-**Three decisions, each stated rather than hedged.**
+**Four decisions, each stated rather than hedged.**
 
-1. **Every node is in the tree, not just the visible ones.** Culling is a *drawing* optimisation; a node you cannot see is still a node you must be able to reach, and a VoiceOver user navigates the canvas by walking its elements, not by panning first. Frames are still in view coordinates, so an offscreen element's rect is offscreen — that is honest, and it is what lets an assistive client scroll to it.
+1. **Every node is in the tree, not just the visible ones.** Culling is a *drawing* optimisation; a node you cannot see is still a node you must be able to reach, and a VoiceOver user navigates the canvas by walking its elements, not by panning first. An offscreen element's rect resolves offscreen — that is honest, and it is what lets an assistive client scroll to it.
 2. **Reading order is rows top-to-bottom, then left-to-right within a row** — not z-order, which is a drawing concern and would read a canvas out in the order the writer happened to touch it. Rows are banded so cards that are roughly level read as one row.
-3. **The mounted editor stays a real `NSTextView`** and is therefore natively accessible — IME, caret, spell-check, selection, all of it. That is the entire reason for the one-real-editor-on-focus rule (§7A.6 quotes the W3C list of what drawing text forfeits). The AX work here is to *not hide it*: no `.accessibilityElement(children: .ignore)` on the stack, no `.accessibilityHidden(true)`. `CanvasCompositionTests` (Task 9) already pins that; `ScrapEditorHostTests` pins the container side.
+3. **The mounted editor stays a real `NSTextView`** and is therefore natively accessible — IME, caret, spell-check, selection, all of it. That is the entire reason for the one-real-editor-on-focus rule (§7A.6 quotes the W3C list of what drawing text forfeits). The AX work here is to *not hide it*: no `.accessibilityElement(children: .ignore)` on the stack, no `.accessibilityHidden(true)`. `CanvasCompositionTests` (Task 10) already pins that; `ScrapEditorHostTests` pins the container side.
+4. **The element list is CAMERA-INDEPENDENT and is not rebuilt during `body`.** Building it sorts the whole scene and copies every scrap's text. `body` runs on every scroll event, every drag frame and every momentum tick — so building it there is work proportional to the *scene*, inside the loop Task 16 asserts is proportional to the *viewport*, at the 2,000-node bound this plan supports. Two things fix it and both are required: elements carry **content**-space frames, so panning and zooming — the commonest per-frame path, and the one the macOS 15 `_hitTestForEvent` regression punishes — change nothing about them; and the list is rebuilt in an `.onChange(of: revision)`, not inline in `body`. The camera is applied per element, as arithmetic, where the element is positioned.
 
-The SwiftUI mechanism is `View.accessibilityChildren(children:)` (macOS 12+), which replaces a view's accessibility children with synthetic elements laid out in its own coordinate space — exactly the Figma shape §7A.6 names.
+The SwiftUI mechanism is `View.accessibilityChildren(children:)` (**macOS 13+**, not 12 — the deployment target is 14, so no availability guard is needed either way), which replaces a view's accessibility children with synthetic elements laid out in its own coordinate space — exactly the Figma shape §7A.6 names.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -4079,8 +4645,7 @@ final class CanvasAccessibilityTests: XCTestCase {
     ]
 
     func test_everyNodeIsAnAccessibilityElement() {
-        let elements = CanvasAccessibility.elements(scene: sampleScene(), scraps: scraps,
-                                                    camera: CanvasCamera())
+        let elements = CanvasAccessibility.elements(scene: sampleScene(), scraps: scraps)
         XCTAssertEqual(elements.count, 4)
     }
 
@@ -4089,22 +4654,19 @@ final class CanvasAccessibilityTests: XCTestCase {
     func test_offscreenNodesAreStillInTheTree() {
         var scene = sampleScene()
         scene.insert(scrapNode("far", x: 90_000, y: 90_000))
-        let elements = CanvasAccessibility.elements(scene: scene, scraps: scraps,
-                                                    camera: CanvasCamera())
+        let elements = CanvasAccessibility.elements(scene: scene, scraps: scraps)
         XCTAssertTrue(elements.contains { $0.id == CanvasNodeID("far") })
     }
 
     func test_readingOrderIsRowsThenColumns() {
-        let ids = CanvasAccessibility.elements(scene: sampleScene(), scraps: scraps,
-                                               camera: CanvasCamera()).map(\.id.raw)
+        let ids = CanvasAccessibility.elements(scene: sampleScene(), scraps: scraps).map(\.id.raw)
         XCTAssertEqual(ids, ["s1", "s2", "s3", "item:r-9"],
                        "roughly-level cards must read left to right as one row, "
                        + "not in the order the writer happened to touch them")
     }
 
     func test_aScrapCarriesItsTextAsItsValue() {
-        let element = CanvasAccessibility.elements(scene: sampleScene(), scraps: scraps,
-                                                   camera: CanvasCamera())
+        let element = CanvasAccessibility.elements(scene: sampleScene(), scraps: scraps)
             .first { $0.id == CanvasNodeID("s1") }
         XCTAssertEqual(element?.role, .scrap)
         XCTAssertEqual(element?.value, "The falls at night.")
@@ -4112,42 +4674,46 @@ final class CanvasAccessibilityTests: XCTestCase {
     }
 
     func test_anEmptyScrapSaysSoRatherThanReadingAsBlank() {
-        let element = CanvasAccessibility.elements(scene: sampleScene(), scraps: scraps,
-                                                   camera: CanvasCamera())
+        let element = CanvasAccessibility.elements(scene: sampleScene(), scraps: scraps)
             .first { $0.id == CanvasNodeID("s3") }
         XCTAssertEqual(element?.value, CanvasAccessibility.emptyScrapValue)
         XCTAssertFalse(CanvasAccessibility.emptyScrapValue.isEmpty)
     }
 
     func test_anItemNodeIsLabelledAsAReference() {
-        let element = CanvasAccessibility.elements(scene: sampleScene(), scraps: scraps,
-                                                   camera: CanvasCamera())
+        let element = CanvasAccessibility.elements(scene: sampleScene(), scraps: scraps)
             .first { $0.id == .item("r-9") }
         XCTAssertEqual(element?.role, .item)
         XCTAssertTrue(element?.value.contains("r-9") == true)
     }
 
     /// Frames are in VIEW coordinates, so an assistive client can point at them.
-    func test_framesFollowTheCamera() {
+    func test_elementsAreCameraIndependentAndResolveThroughTheCamera() throws {
+        let element = try XCTUnwrap(
+            CanvasAccessibility.elements(scene: sampleScene(), scraps: scraps)
+                .first { $0.id == CanvasNodeID("s1") })
+        XCTAssertEqual(element.contentFrame, CGRect(x: 0, y: 0, width: 240, height: 80),
+                       "elements must not depend on the camera — otherwise every "
+                       + "scroll event rebuilds a scene-proportional list inside a "
+                       + "per-frame loop")
+
         var camera = CanvasCamera()
         camera.zoom = 2
         camera.pan = CGPoint(x: 50, y: 30)
-        let element = CanvasAccessibility.elements(scene: sampleScene(), scraps: scraps,
-                                                   camera: camera)
-            .first { $0.id == CanvasNodeID("s1") }
-        XCTAssertEqual(element?.frame, CGRect(x: 50, y: 30, width: 480, height: 160))
+        XCTAssertEqual(element.viewFrame(in: camera),
+                       CGRect(x: 50, y: 30, width: 480, height: 160),
+                       "an assistive client points at VIEW coordinates")
     }
 
     func test_anUnmeasuredNodeIsStillReachable() {
         var scene = CanvasScene()
         scene.insert(CanvasNode(id: CanvasNodeID("new"), kind: .scrap,
                                 origin: .zero, width: 240))   // no cachedHeight
-        let elements = CanvasAccessibility.elements(scene: scene, scraps: [:],
-                                                    camera: CanvasCamera())
+        let elements = CanvasAccessibility.elements(scene: scene, scraps: [:])
         XCTAssertEqual(elements.count, 1,
                        "a scrap the writer just made must not be unreachable "
                        + "until it happens to be measured")
-        XCTAssertGreaterThan(elements[0].frame.height, 0)
+        XCTAssertGreaterThan(elements[0].contentFrame.height, 0)
     }
 
     func test_anEmptyCanvasAnnouncesItselfRatherThanBeingSilent() {
@@ -4169,6 +4735,26 @@ final class CanvasAccessibilityTests: XCTestCase {
                       "spec §7A.6: drawn content has no AX tree and we own one — "
                       + "CanvasAccessibility exists but CanvasView never installs it")
         XCTAssertTrue(source.contains("CanvasAccessibility.elements"))
+    }
+
+    /// The tree must be rebuilt on a state change, never inside `body`. `body`
+    /// runs per scroll event, per drag frame and per momentum tick; building a
+    /// scene-proportional list there is exactly the work Task 16 asserts stays
+    /// proportional to the viewport.
+    func test_theTreeIsBuiltOnChangeRatherThanInsideBody() throws {
+        let source = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Maugham/Canvas/CanvasView.swift"),
+            encoding: .utf8)
+        let build = try XCTUnwrap(source.range(of: "CanvasAccessibility.elements"))
+        let onChange = try XCTUnwrap(source.range(of: ".onChange(of: revision"),
+                                     "the AX tree must be rebuilt from an onChange")
+        XCTAssertTrue(onChange.lowerBound < build.lowerBound,
+                      "CanvasAccessibility.elements is being called before the "
+                      + "onChange that should own it — i.e. inside body")
     }
 }
 ```
@@ -4197,8 +4783,19 @@ struct CanvasAXElement: Equatable, Identifiable {
     /// label carries the kind and the value carries the words.
     let label: String
     let value: String
-    /// VIEW coordinates, so an assistive client can point at it.
-    let frame: CGRect
+    /// CONTENT coordinates, deliberately: an element that carried view
+    /// coordinates would be invalidated by every pan and zoom, so the whole list
+    /// would be rebuilt on every scroll event — scene-proportional work inside a
+    /// per-frame loop. The camera is applied at the point of use instead.
+    let contentFrame: CGRect
+
+    /// Where an assistive client should point, right now.
+    func viewFrame(in camera: CanvasCamera) -> CGRect {
+        let origin = camera.viewPoint(fromContent: contentFrame.origin)
+        return CGRect(x: origin.x, y: origin.y,
+                      width: contentFrame.width * camera.zoom,
+                      height: contentFrame.height * camera.zoom)
+    }
 }
 
 /// The canvas's accessibility tree.
@@ -4219,6 +4816,9 @@ struct CanvasAXElement: Equatable, Identifiable {
 ///    That is the whole point of the one-real-editor-on-focus rule: drawing text
 ///    forfeits IME, caret placement, spell-check, selection and
 ///    magnification-follows-caret. Nothing here may hide it.
+/// 4. **Nothing here depends on the camera**, so panning and zooming — the
+///    commonest per-frame path — cannot invalidate the list. `CanvasView`
+///    rebuilds it from an `.onChange(of: revision)`, never inside `body`.
 enum CanvasAccessibility {
 
     static let canvasLabel = "Planning canvas"
@@ -4232,8 +4832,7 @@ enum CanvasAccessibility {
     private static let unmeasuredHeight: CGFloat = 40
 
     static func elements(scene: CanvasScene,
-                         scraps: [CanvasNodeID: String],
-                         camera: CanvasCamera) -> [CanvasAXElement] {
+                         scraps: [CanvasNodeID: String]) -> [CanvasAXElement] {
         scene.nodes
             .sorted { a, b in
                 let bandA = (a.origin.y / rowBand).rounded(.down)
@@ -4243,11 +4842,9 @@ enum CanvasAccessibility {
                 return a.id.raw < b.id.raw
             }
             .map { node in
-                let height = node.cachedHeight ?? unmeasuredHeight
-                let viewOrigin = camera.viewPoint(fromContent: node.origin)
-                let frame = CGRect(x: viewOrigin.x, y: viewOrigin.y,
-                                   width: node.width * camera.zoom,
-                                   height: height * camera.zoom)
+                let frame = CGRect(origin: node.origin,
+                                   size: CGSize(width: node.width,
+                                                height: node.cachedHeight ?? unmeasuredHeight))
                 switch node.kind {
                 case .scrap:
                     let text = scraps[node.id] ?? ""
@@ -4255,13 +4852,13 @@ enum CanvasAccessibility {
                         id: node.id, role: .scrap,
                         label: "Scrap",
                         value: text.isEmpty ? emptyScrapValue : text,
-                        frame: frame)
+                        contentFrame: frame)
                 case .item(let referenceId):
                     return CanvasAXElement(
                         id: node.id, role: .item,
                         label: "Reference",
                         value: CanvasRenderer.placeholderLabel(forReference: referenceId),
-                        frame: frame)
+                        contentFrame: frame)
                 }
             }
     }
@@ -4279,34 +4876,48 @@ enum CanvasAccessibility {
 
 Two edits to `Maugham/Canvas/CanvasView.swift`.
 
-**(a)** Compute the elements alongside `drawRevision` at the top of `body`, so the `@State` reads register:
+**(a)** Hold the tree in `@State` and rebuild it **only when the scene changes** — never inline in `body`:
 
 ```swift
-        let drawRevision = revision
-        let axElements = CanvasAccessibility.elements(scene: scene, scraps: scraps,
-                                                      camera: camera)
+    /// Rebuilt from `.onChange(of: revision)`, deliberately NOT computed in
+    /// `body`. Building it sorts the whole scene and copies every scrap's text;
+    /// `body` runs on every scroll event, every drag frame and every momentum
+    /// tick, so computing it there is scene-proportional work inside the loop
+    /// Task 16 asserts is viewport-proportional. The elements carry CONTENT
+    /// frames, so a pan or a zoom does not invalidate them at all.
+    @State private var axElements: [CanvasAXElement] = []
+```
+
+and on the ZStack, beside `.onAppear`:
+
+```swift
+        .onChange(of: revision, initial: true) { _, _ in
+            axElements = CanvasAccessibility.elements(scene: scene, scraps: scraps)
+        }
 ```
 
 **(b)** Attach them to the drawn layer — the `Canvas` inside the `TimelineView`, immediately after `.allowsHitTesting(false)`:
 
 ```swift
-                    .accessibilityLabel(CanvasAccessibility.canvasLabel)
-                    .accessibilityValue(CanvasAccessibility.summary(scene: scene))
-                    .accessibilityChildren {
-                        // Spec §7A.6: drawn content has no AX tree, so we build
-                        // one. These are synthetic elements laid out in the
-                        // Canvas's own coordinate space — the mounted editor is
-                        // a real NSTextView and is exposed on its own.
-                        ForEach(axElements) { element in
-                            Color.clear
-                                .frame(width: max(1, element.frame.width),
-                                       height: max(1, element.frame.height))
-                                .position(x: element.frame.midX, y: element.frame.midY)
-                                .accessibilityElement()
-                                .accessibilityLabel(element.label)
-                                .accessibilityValue(element.value)
-                        }
+                .accessibilityLabel(CanvasAccessibility.canvasLabel)
+                .accessibilityValue(CanvasAccessibility.summary(scene: scene))
+                .accessibilityChildren {
+                    // Spec §7A.6: drawn content has no AX tree, so we build one.
+                    // These are synthetic elements laid out in the Canvas's own
+                    // coordinate space — the mounted editor is a real NSTextView
+                    // and is exposed on its own. The camera is applied HERE, per
+                    // element, so the cached list stays camera-independent.
+                    ForEach(axElements) { element in
+                        let frame = element.viewFrame(in: camera)
+                        Color.clear
+                            .frame(width: max(1, frame.width),
+                                   height: max(1, frame.height))
+                            .position(x: frame.midX, y: frame.midY)
+                            .accessibilityElement()
+                            .accessibilityLabel(element.label)
+                            .accessibilityValue(element.value)
                     }
+                }
 ```
 
 Do **not** add `.accessibilityElement(children: .ignore)` or `.accessibilityHidden(true)` anywhere in this file — either would throw the mounted editor away with the drawn nodes. `CanvasCompositionTests` fails if you do.
@@ -4314,7 +4925,7 @@ Do **not** add `.accessibilityElement(children: .ignore)` or `.accessibilityHidd
 - [ ] **Step 5: Run the tests and a Release build**
 
 Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasAccessibilityTests -only-testing MaughamTests/CanvasCompositionTests CODE_SIGNING_ALLOWED=NO`
-Expected: PASS, 11 + 3 tests.
+Expected: PASS, 11 + 4 tests.
 
 Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham -configuration Release build CODE_SIGNING_ALLOWED=NO`
 Expected: BUILD SUCCEEDED.
@@ -4334,7 +4945,7 @@ stays natively accessible because nothing hides it."
 
 ---
 
-### Task 13: Undo — resolving spec §10
+### Task 15: Undo — resolving spec §10
 
 **Files:**
 - Create: `Maugham/Canvas/CanvasUndo.swift`
@@ -4352,11 +4963,16 @@ stays natively accessible because nothing hides it."
 
 **Where undo lives, across the three plans.** `CanvasUndo` is built here, in 1C-a, and **1C-b Task 4 rebinds it to `CanvasModel` without changing the class**. That is why the state is reached through two closures rather than being owned: in 1C-a the owner is `CanvasView`'s `@State`, in 1C-b it is `CanvasModel`. Only the closures get rebound. 1C-a ships a canvas a writer drags scraps around on, so it ships with ⌘Z.
 
-**The subtlety:** scrap text and scrap geometry must share one stack. The mounted `NSTextView` brings its own undo manager, and if it stays separate then ⌘Z after typing-then-dragging undoes the drag while the writer expects the typing. Task 9's `ScrapEditorContainer.undoManager` override already routes the text view to whichever manager it is handed; this task hands it the canvas one.
+**5. Scrap TEXT is a snapshot too, and the mounted editor registers nothing.** `ScrapLayout.makeEditor` sets `allowsUndo = false` (Task 3). This is a decision with a cost, and both halves need stating.
 
-**`UndoManager.groupsByEvent` — the thing that makes the tests raise if you skip it.** It defaults to `true`, which installs a run-loop observer that opens an implicit top-level group per event and closes it at end of event. Calling `undo()` synchronously, outside a run loop, while that implicit group is open raises `NSInternalInconsistencyException` ("undo was called with too many nested undo groups"). **Every test in this file therefore sets `undo.groupsByEvent = false`.**
+The alternative — letting the text view register its own typing steps on the shared manager while `CanvasUndo` *also* snapshots the text — puts **one change on the stack twice**. After typing and clicking out, ⌘Z runs the canvas snapshot and reverts everything; the text view's queued step is still there, pointed at an `NSTextStorage` that `rebuildLayouts()` has since replaced, so the *second* ⌘Z appears to do nothing. "One stack in the order they happened" would be false in the one way a writer notices.
 
-Production keeps the default `true`, and that is safe *because every record is bracketed synchronously inside one event*: `beginGesture` → mutate → `endGesture` all run inside the same mouse-up handler, so our group never spans an event boundary. Keeping `true` in production is what lets the mounted `NSTextView` coalesce typing per event, which is the behaviour a writer expects from ⌘Z in a text field.
+So the canvas owns text undo, and the boundary is **focus**: `beginGesture("Edit Scrap")` when a scrap takes focus, `endGesture()` when focus leaves. The cost: undo granularity inside a scrap is the whole visit, not the word — type three sentences into a scrap and one ⌘Z takes all three (and one ⌘⇧Z brings them back). For a scrap, which is a thought fragment rather than a chapter, that is the right grain; it is also why `syncActiveEdit` deliberately carries no undo step, because one per keystroke is the other failure.
+
+**`UndoManager.groupsByEvent`, and why `beginGesture` opens no group.** It defaults to `true`, which installs a run-loop observer that opens an implicit top-level group per event and closes it at end of event. Two things follow:
+
+- Calling `undo()` synchronously, outside a run loop, while that implicit group is open raises `NSInternalInconsistencyException` ("undo was called with too many nested undo groups"). **Every test in this file therefore sets `undo.groupsByEvent = false`.**
+- An explicit group of ours **cannot span an event boundary** — and an "Edit Scrap" gesture spans as many events as the writer types keystrokes. So `beginGesture` takes a *snapshot* and nothing else; `endGesture` opens the group, registers, sets the action name and closes the group, all synchronously in one event. That also disposes of the empty-group problem: `UndoManager` pushes a closed group whether or not anything was registered inside it, so opening one at `beginGesture` would leave a step behind after a gesture that changed nothing — and ⌘Z after a stray click would then undo the writer's last *real* edit while appearing to do nothing.
 
 **Interfaces:**
 - **Consumes:** `CanvasScene`, `CanvasNodeID` (Task 1).
@@ -4557,6 +5173,65 @@ final class CanvasUndoTests: XCTestCase {
         XCTAssertFalse(undo.isInGesture)
     }
 
+    // MARK: - ⌘Z with a live editor
+
+    private func layout(_ text: String) -> ScrapLayout {
+        ScrapLayout(text: text, width: 240,
+                    font: NSFont(name: "Iowan Old Style", size: 13) ?? .systemFont(ofSize: 13))
+    }
+
+    @discardableResult
+    private func host(_ view: NSView) -> NSWindow {
+        let frame = CGRect(x: 0, y: 0, width: 240, height: 100)
+        let window = NSWindow(contentRect: frame, styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.contentView = NSView(frame: frame)
+        window.contentView?.addSubview(view)
+        view.layoutSubtreeIfNeeded()
+        windows.append(window)
+        return window
+    }
+    private var windows: [NSWindow] = []
+    override func tearDown() { windows.removeAll(); super.tearDown() }
+
+    /// I10. The mounted editor must not put its own step on the shared manager:
+    /// one change would land twice, and the text view's copy would target an
+    /// NSTextStorage that the snapshot's `rebuildLayouts()` has replaced — so the
+    /// second ⌘Z would appear to do nothing.
+    func test_typingIntoTheMountedEditorRegistersNothingOfItsOwn() {
+        let m = manager()
+        let container = ScrapEditorContainer(frame: .zero)
+        container.canvasUndoManager = m
+        container.mount(layout: layout("before"), unscaledSize: CGSize(width: 240, height: 100),
+                        zoom: 1)
+        host(container)
+
+        container.textView?.setSelectedRange(NSRange(location: 0, length: 0))
+        container.textView?.insertText("Z", replacementRange: NSRange(location: 0, length: 0))
+
+        XCTAssertFalse(m.canUndo,
+                       "the text view registered a step of its own — with the "
+                       + "canvas snapshot that is one change on the stack twice")
+    }
+
+    /// The whole shape, end to end: focus opens the gesture, typing runs through
+    /// the shared stack, blur closes it, one ⌘Z takes the visit back.
+    func test_oneUndoAfterTypingRestoresTheTextTheWriterStartedWith() {
+        let box = boxWithScrap()
+        let m = manager()
+        let undo = CanvasUndo(undoManager: m)
+        wire(undo, to: box)
+
+        undo.beginGesture("Edit Scrap")                       // focus in
+        box.scraps[CanvasNodeID("a")] = "The falls at noon."   // several keystrokes
+        box.scraps[CanvasNodeID("a")] = "The falls at noon, and the ponchos."
+        undo.endGesture()                                     // focus out
+
+        m.undo()
+        XCTAssertEqual(box.scraps[CanvasNodeID("a")], "The falls at night.")
+        XCTAssertFalse(m.canUndo, "a visit to a scrap is ONE step, not one per keystroke")
+    }
+
     func test_anUnwiredRecorderRecordsNothingRatherThanCrashing() {
         let m = manager()
         let undo = CanvasUndo(undoManager: m)   // no readSnapshot / applySnapshot
@@ -4598,21 +5273,32 @@ import AppKit
 /// owner changes between plans: `CanvasView`'s `@State` in 1C-a, `CanvasModel`
 /// in 1C-b Task 4. Only the closures get rebound; this class does not change.
 ///
-/// **Scrap TEXT and scrap GEOMETRY share ONE stack.** The mounted `NSTextView`
-/// brings its own undo manager, and if it stays separate then ⌘Z after
-/// typing-then-dragging undoes the drag while the writer is expecting the
-/// typing. `CanvasView` hands this manager to `ScrapEditorHost`, whose container
-/// vends it down the responder chain, so both land on one stack in the order
-/// they happened.
+/// **Scrap TEXT and scrap GEOMETRY share ONE stack, and only this class writes
+/// to it.** The mounted `NSTextView` has `allowsUndo == false` (see
+/// `ScrapLayout.makeEditor`) and registers nothing; `CanvasView` hands this
+/// manager to `ScrapEditorHost`, whose container vends it down the responder
+/// chain, so ⌘Z while a scrap is focused runs the canvas stack. If the text view
+/// registered too, one change would land twice — and its copy would target an
+/// `NSTextStorage` that the snapshot's `rebuildLayouts()` has replaced, so the
+/// second ⌘Z would appear to do nothing. The cost is stated in the task: undo
+/// granularity inside a scrap is the whole visit, not the word.
 ///
-/// **`groupsByEvent` stays at its default `true` in production.** It installs a
-/// run-loop observer that opens an implicit top-level group per event; every
-/// gesture here is bracketed synchronously inside ONE event (begin → mutate →
-/// end all run in the same mouse-up handler), so our group never spans an event
-/// boundary, and keeping the default is what lets the mounted `NSTextView`
-/// coalesce typing the way a writer expects. **Tests must set it to `false`**:
-/// calling `undo()` synchronously outside a run loop while the implicit group is
-/// open raises `NSInternalInconsistencyException`.
+/// **`beginGesture` opens NO `UndoManager` group**, and that is deliberate twice
+/// over:
+///
+/// - `groupsByEvent` defaults to `true` and installs a run-loop observer that
+///   opens an implicit top-level group per event. An explicit group of ours
+///   cannot span an event boundary — and an "Edit Scrap" gesture spans as many
+///   events as the writer types keystrokes.
+/// - `UndoManager` pushes a closed group whether or not anything was registered
+///   inside it. Opening one at `beginGesture` would leave a step behind after a
+///   gesture that changed nothing, and ⌘Z after a stray click would undo the
+///   writer's last REAL edit while appearing to do nothing.
+///
+/// So `beginGesture` takes a snapshot, and `endGesture` opens/registers/names/
+/// closes synchronously inside one event. **Tests must set `groupsByEvent` to
+/// `false`**: calling `undo()` synchronously outside a run loop while the
+/// implicit group is open raises `NSInternalInconsistencyException`.
 ///
 /// **Camera changes are NOT undoable** — panning and zooming are navigation, and
 /// undoing a pan would be baffling.
@@ -4628,6 +5314,7 @@ final class CanvasUndo {
     private let undoManager: UndoManager
     private var depth = 0
     private var snapshotAtGestureStart: Snapshot?
+    private var gestureName = ""
 
     init(undoManager: UndoManager) {
         self.undoManager = undoManager
@@ -4635,34 +5322,34 @@ final class CanvasUndo {
 
     var isInGesture: Bool { depth > 0 }
 
-    /// Open a gesture. Nested calls are absorbed — a gesture arriving mid-gesture
-    /// (a drag interrupted by a keystroke path) must not open a second group and
-    /// leave the manager unbalanced.
+    /// Open a gesture: take a snapshot, remember the name. **No `UndoManager`
+    /// call happens here** — see the class doc. Nested calls are absorbed, so a
+    /// gesture arriving mid-gesture cannot leave the manager unbalanced.
     func beginGesture(_ name: String) {
         depth += 1
         guard depth == 1 else { return }
         snapshotAtGestureStart = readSnapshot?()
-        undoManager.beginUndoGrouping()
-        undoManager.setActionName(name)
+        gestureName = name
     }
 
     /// Close the gesture, registering an undo only if the state actually moved.
-    /// A drag that starts and ends on the same pixel must not push a step —
-    /// otherwise ⌘Z after a stray click undoes the writer's last REAL edit while
-    /// appearing to do nothing.
+    /// The group is opened HERE and closed on the next line, so it never spans an
+    /// event boundary and an unchanged gesture pushes nothing at all.
     func endGesture() {
         guard depth > 0 else { return }
         depth -= 1
         guard depth == 0 else { return }
 
-        defer { snapshotAtGestureStart = nil }
-        guard let before = snapshotAtGestureStart, let now = readSnapshot() else {
-            undoManager.endUndoGrouping()
-            return
+        defer {
+            snapshotAtGestureStart = nil
+            gestureName = ""
         }
-        if before.scene != now.scene || before.scraps != now.scraps {
-            register(before)
-        }
+        guard let before = snapshotAtGestureStart, let now = readSnapshot?() else { return }
+        guard before.scene != now.scene || before.scraps != now.scraps else { return }
+
+        undoManager.beginUndoGrouping()
+        register(before)
+        undoManager.setActionName(gestureName)
         undoManager.endUndoGrouping()
     }
 
@@ -4683,7 +5370,9 @@ final class CanvasUndo {
     /// undo, so the redo is one step too.
     private func register(_ snapshot: Snapshot) {
         undoManager.registerUndo(withTarget: self) { target in
-            guard let current = target.readSnapshot() else { return }
+            // `readSnapshot` is OPTIONAL — an unwired recorder must record
+            // nothing rather than trap.
+            guard let current = target.readSnapshot?() else { return }
             target.register(current)
             target.applySnapshot?(snapshot)
         }
@@ -4719,7 +5408,7 @@ Four edits to `Maugham/Canvas/CanvasView.swift`.
         undo = recorder
 ```
 
-**(c)** Replace the two `undoManager: nil` placeholders from Task 9 with `undoManager: undoManager` — in `CanvasEventView(...)` and in `ScrapEditorHost(...)`. The event view vends it to the responder chain so ⌘Z works with nothing focused; the editor container vends it to the text view so typing lands on the same stack.
+**(c)** Replace the two `undoManager: nil` placeholders from Tasks 10 and 13 with `undoManager: undoManager` — in `CanvasEventView(...)` and in `ScrapEditorHost(...)`. The event view vends it to the responder chain so ⌘Z works with nothing focused; the editor container vends it to the text view so ⌘Z *while editing* runs the same stack (the text view registers nothing of its own — `allowsUndo == false`).
 
 **(d)** Bracket every mutating gesture. In `handleDrag`:
 
@@ -4750,7 +5439,31 @@ Four edits to `Maugham/Canvas/CanvasView.swift`.
 
 Momentum's coast is deliberately **inside** no gesture: it is the tail of the drag the writer already made, and the undo snapshot taken at `.began` predates it, so one ⌘Z returns the card to where it started rather than to where it stopped skating.
 
-In `handleClick`, wrap the create path:
+**(e)** Make a visit to a scrap one undo step. The gesture opens when the scrap takes focus and closes when focus leaves — it must NOT open and close around each keystroke, because `syncActiveEdit` runs on every one of them.
+
+`commitActiveEdit` becomes the closing half:
+
+```swift
+    /// The undo boundary: focus is leaving the scrap. `syncActiveEdit` has
+    /// already folded the text in (on every keystroke); this closes the gesture
+    /// that `handleClick` opened when the scrap took focus, which pushes ONE
+    /// step for the whole visit. `endGesture` registers nothing if the text is
+    /// unchanged, so clicking in and straight back out leaves no step behind.
+    private func commitActiveEdit() {
+        syncActiveEdit()
+        undo?.endGesture()
+    }
+```
+
+and both focus-in paths in `handleClick` open it — the existing scrap:
+
+```swift
+            editingNodeID = node.id
+            straighten.focus(node.id)
+            undo?.beginGesture("Edit Scrap")
+```
+
+and the create path, where the creation itself is its own step first:
 
 ```swift
         } else if scene.topmostNode(at: contentPoint) == nil {
@@ -4762,26 +5475,18 @@ In `handleClick`, wrap the create path:
             rebuildLayouts()
             editingNodeID = id
             caretIndex = 0
+            straighten.focus(id)
+            // Whatever the writer now types is a second, separate step.
+            undo?.beginGesture("Edit Scrap")
         }
 ```
 
-And in `commitActiveEdit`, so a text change is a step:
-
-```swift
-    private func commitActiveEdit() {
-        guard let id = editingNodeID, let layout = layouts[id] else { return }
-        guard scraps[id] != layout.text else { return }
-        undo?.mutate("Edit Scrap") { scraps[id] = layout.text }
-        scene.setCachedHeight(
-            CanvasCardMetrics.cardHeight(forTextHeight: layout.measuredHeight), for: id)
-        revision += 1
-    }
-```
+`.onDisappear` keeps calling `syncActiveEdit()` rather than `commitActiveEdit()`: the words must be written, but there is no writer left to press ⌘Z at teardown, and closing a gesture during a view's disappear is the kind of state mutation SwiftUI is entitled to complain about.
 
 - [ ] **Step 5: Run the tests and a Release build**
 
 Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasUndoTests CODE_SIGNING_ALLOWED=NO`
-Expected: PASS, 11 tests.
+Expected: PASS, 13 tests.
 
 Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham -configuration Release build CODE_SIGNING_ALLOWED=NO`
 Expected: BUILD SUCCEEDED.
@@ -4798,19 +5503,20 @@ not op-log compensating ops — canvas state is derived (8) and putting it
 in the op log would stop it being derived. Snapshots rather than
 per-property inverses, so 1C-b's region drags need no new machinery. The
 state is reached through two closures, so 1C-b Task 4 can move ownership
-to CanvasModel without touching this class."
+to CanvasModel without touching this class. The mounted NSTextView has
+allowsUndo == false and registers nothing, so one change is one step."
 ```
 
 ---
 
-### Task 14: Performance bounds — resolving spec §10
+### Task 16: Performance bounds — resolving spec §10
 
 **Files:**
 - Test: `MaughamTests/Canvas/CanvasPerformanceProbeTests.swift`
 
 **Interfaces:**
 - **Consumes:** `CanvasScene`, `CanvasNode`, `CanvasNodeID` (Task 1); `CanvasCamera` (Task 4); `CanvasRenderer.visibleNodes(in:camera:viewSize:)` (Task 7).
-- **Produces:** `CanvasPerformanceProbeTests.supportedNodeCount = 2_000`, the number Task 15's AREA.md records. No production code.
+- **Produces:** `CanvasPerformanceProbeTests.supportedNodeCount = 2_000`, the number Task 17's AREA.md records. No production code.
 
 **Spec §10 left this open:** *"Performance bounds. What node count must stay smooth. §7A.1 settles how it virtualises; the open part is the number."*
 
@@ -4954,7 +5660,7 @@ Expected: PASS, 6 tests. Record the three `[probe]` figures in the task report �
 
 - [ ] **Step 3: Commit**
 
-The supported-node-count line goes into `Maugham/Canvas/AREA.md`, which **Task 15 creates** — so it is written there, not here, and this commit touches only the test file.
+The supported-node-count line goes into `Maugham/Canvas/AREA.md`, which **Task 17 creates** — so it is written there, not here, and this commit touches only the test file.
 
 ```bash
 git add MaughamTests/Canvas/CanvasPerformanceProbeTests.swift project.yml
@@ -4969,7 +5675,7 @@ unpassable in an earlier draft."
 
 ---
 
-### Task 15: Docs, AREA.md and the ADR
+### Task 17: Docs, AREA.md and the ADR
 
 **Files:**
 - Create: `Maugham/Canvas/AREA.md`
@@ -4980,7 +5686,7 @@ unpassable in an earlier draft."
 - Modify: `docs/roadmap.md`, `docs/problem-map.md`
 
 **Interfaces:**
-- **Consumes:** every symbol built in Tasks 1–14; `CanvasPerformanceProbeTests.supportedNodeCount` (Task 14) as the number AREA.md records.
+- **Consumes:** every symbol built in Tasks 1–16; `CanvasPerformanceProbeTests.supportedNodeCount` (Task 16) as the number AREA.md records.
 - **Produces:** documentation only. No Swift.
 
 Rule 10 of the default workflow: when a roadmap item flips •→✓, sweep sibling docs for now-false claims **in the same commit**. Rule 7: help/docs describe what *ships* — so the guide says the canvas draws scraps, and says nothing about dragging research in, which is 1C-d.
@@ -4992,20 +5698,23 @@ Cover, at minimum, each of these — a bullet per line, with the symptom named w
 - **The architecture in three sentences, and why the alternative lost.** Link `docs/superpowers/notes/2026-07-25-canvas-rendering-spike.md`. Someone will propose `NSScrollView` again; the note is the answer.
 - **The three `ScrapLayout` requirements, verbatim, with the symptom each produces when broken.** The `attributedString` one especially: it fails silently and looks like a UI bug rather than a wiring bug.
 - **Card metrics live in `CanvasCardMetrics` and nowhere else.** A second spelling of the inset puts drawn text and edited text on different rects — the §7A.2 jump by the back door.
-- **Seeded rotation is chrome-only.** Rotating the text would mean rotating an `NSTextView`, which means `.rotationEffect`, which blurs; not rotating the editor while the drawing is rotated makes the text swing straight on every click. Recorded as a deviation from §7.2 in ADR 0026.
+- **The whole card carries its seeded angle, and focus straightens it** (§7A.5). The focused card animates to level over ~120 ms and settles back on blur; that is the focus affordance, and it is why the editor always mounts axis-aligned and the §7A.2 pin compares two unrotated layouts. The caret index is resolved in the card's unrotated space *before* the animation starts, or the click point moves out from under the cursor. **Do not write down the old claim that an `NSTextView` cannot be rotated** — `NSView.frameRotation` rotates a real view and renders it crisply; the reason the editor is level is the design, not AppKit.
 - **Layer order: ground → drawn → events → editor (frontmost).** With the event view in front, click-to-place-caret, drag-select and double-click-word all die and the surface reads as "typing does nothing". `CanvasCompositionTests` pins it.
 - **Ground beneath, never an overlay**, and what happens if you get it wrong (a placeholder render, plus a console warning).
 - **The mounted editor's focus is requested, not taken** — `makeNSView` has no window yet, so `makeFirstResponder` there is a silent no-op.
 - **`mount` rebinds on layout identity, not on `textView == nil`** — otherwise clicking from scrap A to scrap B keeps editing A, and a subview count cannot tell.
 - **Bounds scaling for the zoomed editor**; never `.scaleEffect`; never re-layout.
 - **`layouts` holds reference types in `@State`.** Typing mutates in place, so the `Canvas` will not redraw without the `revision` counter — and `revision` must be read in `body`, not inside the draw closure.
+- **The writer's words leave the editor on every keystroke.** `ScrapEditorContainer` is the text view's delegate; `textDidChange` → `syncActiveEdit()` → model + debounced save. Named symptom if it is ever removed: type into a new scrap, quit without clicking away, and the scrap comes back empty — plus the card never grows while you type. Three commit points, all required: on change, on `.onDisappear`, and via `CanvasStore.beforeFlush`.
 - **`canvas.json` is derived and deletable; `canvas.md` is content and is not.**
-- **`CanvasStore.flush()` takes no arguments** and covers app quit via `NSApplication.willTerminateNotification`, because `.onDisappear` does not fire on quit.
-- **Undo is snapshot-based and canvas-scoped**, and reaches state through two closures so 1C-b can move ownership to `CanvasModel`. Tests must set `groupsByEvent = false`; production must not.
-- **We own the accessibility tree** (§7A.6) — every node, all of them, rows-then-columns; never `.accessibilityElement(children: .ignore)` on the stack.
+- **`CanvasStore.flush()` takes no arguments** and covers app quit via `NSApplication.willTerminateNotification`, because `.onDisappear` does not fire on quit. The observer takes `queue: nil` — with a queue the block is enqueued and the hop may never run before the process exits.
+- **A `NotificationCenter.default.post(` anywhere in this area or its tests needs `// adr-0021-ok:`** on the line the call starts. The ADR 0021 post pattern is unconditional; only the *subscribe* patterns are scoped to `.maugham` names.
+- **Undo is snapshot-based and canvas-scoped**, and reaches state through two closures so 1C-b can move ownership to `CanvasModel`. `beginGesture` opens no `UndoManager` group — a group cannot span an event boundary (and an "Edit Scrap" gesture spans as many events as keystrokes), and a closed empty group still pushes a step. Tests must set `groupsByEvent = false`; production must not.
+- **The mounted editor has `allowsUndo = false`.** Snapshots own scrap text. If the text view registered too, one change would land on the stack twice, and its copy would target an `NSTextStorage` that `rebuildLayouts()` has replaced — so the second ⌘Z would appear to do nothing. The accepted cost: undo granularity inside a scrap is the whole visit, not the word.
+- **We own the accessibility tree** (§7A.6) — every node, all of them, rows-then-columns; never `.accessibilityElement(children: .ignore)` on the stack. Elements carry **content**-space frames and are rebuilt from `.onChange(of: revision)`, never inside `body`: `body` runs per scroll event, per drag frame and per momentum tick, and building the tree there is scene-proportional work inside a viewport-proportional loop.
 - **Supported scale: 2,000 nodes.** Not a hard cap — nothing enforces it — but the number the culling probe defends. Above it, expect the draw pass rather than the culling to become the limit. tldraw caps at 4,000; Excalidraw degrades near 5,000.
 - **The test-harness note:** `NSTextView.mouseDown` runs a modal event-tracking loop, so a post-then-pump harness deadlocks. Post both mouseDown and mouseUp before pumping — and every negative result needs a control that passed.
-- **What 1C-a deliberately does not do:** item nodes render as placeholders; the drop target, image handling and title resolution are 1C-d; regions are 1C-b; lines and promotion are 1C-c.
+- **What 1C-a deliberately does not do:** item nodes render as placeholders; the drop target, image handling and title resolution are 1C-d; regions are 1C-b; lines and promotion are 1C-c. **This is a slice boundary, not a milestone one** — spec §8A.1 puts images inside M1C, and nothing here may be cited as authorising their omission from it.
 
 - [ ] **Step 2: Write ADR 0026**
 
@@ -5015,28 +5724,30 @@ Check the highest existing ADR number first — 0025 is the persona shell, so 00
 ls docs/adr/ | sort | tail -3
 ```
 
-The ADR records, with the spike's measurements as evidence:
+The ADR records, with the spike's measurements as evidence. **Every one of these is a decision, not a deviation** — 1C-a takes no deviations from the spec:
 
 1. **A drawn canvas over hosted views**, and the disqualification of `NSScrollView` magnification (SwiftUI content reports the same `.global` frame at every zoom; above ~2× clicks stop registering entirely).
 2. **The shared-TextKit rule** — one layout stack for drawn and edited text — and the three requirements it comes with.
 3. **Scrap text in `canvas.md`, layout in `.maugham/canvas.json`**, and why the split is the point.
-4. **Seeded rotation applied to card chrome only** — a deviation from §7.2's literal reading, taken to protect §7A.2's guarantee.
-5. **Undo is a canvas-scoped snapshot `UndoManager`, not op-log compensating ops**, because canvas state is derived (§8) and op-logging it would stop it being derived.
+4. **The whole card carries its seeded angle; focus straightens it over ~120 ms** (spec §7A.5). Record why this makes §7A.2 *easier*: the editor always mounts axis-aligned, so the glyph-origin pin compares two unrotated layouts and `.rotationEffect` never arises. Record the caret rule — resolved in the card's unrotated space at click time, before the animation — and record that the animation is interpolated per frame on the same clock as §7.3's momentum. **Do not restate the earlier, false claim that an `NSTextView` cannot be rotated**; `NSView.frameRotation` does exactly that, crisply.
+5. **Undo is a canvas-scoped snapshot `UndoManager`, not op-log compensating ops**, because canvas state is derived (§8) and op-logging it would stop it being derived. Record the second half too: the mounted editor has `allowsUndo = false`, so one change is one step, at the cost of per-visit rather than per-word granularity inside a scrap.
 6. **We own the canvas accessibility tree**, resolving §7A.6's "not optional in a writing tool".
+7. **1C-a ships scraps only; item nodes are placeholders and belong to 1C-d.** Record it as a decision about the *order of work*, with the boundary stated explicitly: spec §8A.1 places images **inside milestone M1C**, so this is a slice boundary and never a licence to ship M1C without them. Record what 1C-d owes: the drop target, `DropClassification` for browser drags, a `CGImageSource` thumbnail path and a bounded cache keyed by path (tripwire 22).
 
-Cite the constitution principles by name, per CLAUDE.md.
+Cite the constitution principles by name, per CLAUDE.md — including **must #1, *the words are safe***, which is the principle the three commit points in `CanvasView` exist to satisfy.
 
 Add the row to `docs/adr/README.md`.
 
 - [ ] **Step 3: Add the tripwires**
 
-Add to CLAUDE.md's tripwire table (numbers follow the highest currently present — 24 at time of writing, so 25–27):
+Add to CLAUDE.md's tripwire table (numbers follow the highest currently present — 24 at time of writing, so 25–28):
 
 | # | Rule | Why (1 clause) | Enforced / more |
 |---|---|---|---|
 | 25 | No `NSScrollView.magnification` under SwiftUI content, and no `.scaleEffect` for canvas zoom | SwiftUI's coordinate space is unaware of magnification — same `.global` frame at every zoom, and above ~2× clicks stop registering entirely (measured, macOS 26.5.2); `.scaleEffect` blurs text and breaks `NSCursor` tracking | `docs/superpowers/notes/2026-07-25-canvas-rendering-spike.md`; `CanvasCameraTests` |
 | 26 | `NSTextContentStorage.textStorage = NSTextStorage(...)`, never `.attributedString =` | With `attributedString` the scrap renders perfectly and silently swallows every keystroke — `textStorage` nil, `string` empty, `insertText` a no-op | `ScrapLayoutTests.test_mountedEditorActuallyEditsTheSharedStack` |
 | 27 | The canvas's mounted editor stays the FRONTMOST layer, and its focus is *requested* not taken | An event view in front eats click-to-place-caret, drag-select and double-click-word; `makeFirstResponder` in `makeNSView` runs with a nil window and is a silent no-op — both read as "typing does nothing" and neither is visible to a subview count | `CanvasCompositionTests`; `ScrapEditorHostTests` |
+| 28 | Text living in a shared `NSTextStorage` must be folded into the model on `textDidChange`, not only at a focus boundary | The debounced payload is whatever was queued *before* the writer typed, so type-then-quit writes an empty scrap and the drawn card never grows — the words are safe (constitution must #1) failing on the first interaction | `ScrapEditorHostTests.test_typingReportsItselfSoTheCanvasCanFoldItIntoTheModel`; `CanvasStoreTests.test_beforeFlushCanReplaceThePayloadOnItsWayOut` |
 
 - [ ] **Step 4: Update the per-area table**
 
@@ -5051,7 +5762,7 @@ grep -rn -i "canvas" docs/roadmap.md docs/problem-map.md docs/guide/ CLAUDE.md d
 ```
 
 Known targets:
-- `Persona.swift`'s `binderSegments(for:)` doc comment said "M1C builds the canvas" — Task 10 already fixed that; confirm.
+- `Persona.swift`'s `binderSegments(for:)` doc comment said "M1C builds the canvas" — Task 12 already fixed that; confirm.
 - `docs/adr/0025-persona-shell.md` for the same forward reference.
 - The guide's persona topic, which currently tells writers Plan offers Research and Palette. It now offers Canvas, Research and Palette, and the canvas is the centre column. **Describe only what ships** (rule 7): scraps, drag, resize, zoom, undo. Not regions, not lines, not promotion, not dragging research in.
 - `docs/roadmap.md` — flip the 1C-a item and leave 1C-b/1C-c/1C-d as open.
@@ -5083,7 +5794,7 @@ git commit -m "docs(canvas): AREA.md, ADR 0026, three tripwires, guide and roadm
 
 ## Whole-slice verification
 
-After Task 15, before 1C-b:
+After Task 17, before 1C-b:
 
 - [ ] Full Mac suite green (`xcodebuild … -scheme Maugham test`)
 - [ ] Full phone suite green — confirms nothing leaked into MaughamCore
@@ -5095,14 +5806,17 @@ After Task 15, before 1C-b:
 
 - [ ] New project → ⌘1 (Plan) → the canvas fills the centre column and the binder shows the **research tree**.
 - [ ] **Double-click empty space → type a sentence.** If nothing appears, the editor is not first responder or the event view is in front of it — both were live defects.
+- [ ] **Now quit with ⌘Q without clicking away first.** Relaunch, reopen: **the sentence is there.** This is the one that fails if the writer's words only ever live in the editor's `NSTextStorage`, and it is the product constitution's must #1. Do not substitute "click away, then quit" — that is a different path and it passes when this one does not.
+- [ ] Keep typing past the end of the first line. **The card grows** as the text wraps. If it does not, nothing is re-measuring while you type — and the same gap is what loses the words above.
 - [ ] Click away, then **double-click back into the middle of a word**. The caret lands where you aimed, and **the text does not move by a hair** on focus or on blur. The tests assert glyph geometry; only your eye catches a jump inside their tolerance. This is the §7A.2 failure the whole architecture exists to prevent.
+- [ ] Watch the card as you click into it: it **animates to level over about a tenth of a second** and settles back to its angle when you click away (§7A.5). An instant jump reads as a rendering bug; more than about a fifth of a second reads as lag. The beat between the click and the caret is the thing to feel for.
 - [ ] Double-click into a *second* scrap. You must be editing the second one — an editor still bound to the first is invisible to every automated check.
 - [ ] **Pan the canvas. The grain must not crawl.** If the texture slides under the cards, the shader is sampling screen space instead of content space (§7A.4).
 - [ ] Zoom in to ~3× and back out. Text stays crisp at every step; the point under the pointer stays under the pointer.
-- [ ] Scroll and pinch **with the pointer over a focused scrap** — the canvas must still pan and zoom.
+- [ ] Scroll and pinch **with the pointer over a focused scrap** — the canvas must still pan and zoom, and the pinch must zoom about **the point under your fingers**, not somewhere else on the canvas.
 - [ ] Drag a scrap and let go with some speed: it **carries and comes to rest** rather than stopping dead (§7.3).
 - [ ] **⌘Z once undoes the whole drag**, not one frame of it, and returns the card to where the drag started, not to where it stopped coasting.
-- [ ] Type, then drag, then ⌘Z twice: the drag comes back first, then the typing.
+- [ ] Type, then drag, then ⌘Z twice: the drag comes back first, then the typing. **Then press ⌘Z a third time** — it must either undo something real or do nothing because the stack is empty. A ⌘Z that visibly does nothing while the stack still says it can undo is the double-registration defect (I10) returning.
 - [ ] Drag a scrap's bottom-right corner: it rewraps, and stays clickable afterwards.
 - [ ] Turn on VoiceOver, focus the canvas, and walk it: each scrap announces itself with its text, and entering one lands you in a real text field.
 - [ ] Quit with ⌘Q **within a second of the last drag**, relaunch, reopen: the scrap is where you left it, with its words. (This is the path `.onDisappear` alone does not cover.)
