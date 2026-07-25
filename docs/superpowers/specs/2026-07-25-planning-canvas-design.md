@@ -116,7 +116,7 @@ A line costs nothing to draw and nothing to be wrong about, which is what thinki
 |---|---|
 | A scrap | a research note, a palette card, or an intent statement |
 | A region | a palette card, or a piece binding |
-| A line | a `[[wiki-link]]`, when both ends are text |
+| A line | a `[[wiki-link]]`, when both ends have themselves been promoted |
 
 ### 6.1 Rules
 
@@ -124,6 +124,8 @@ A line costs nothing to draw and nothing to be wrong about, which is what thinki
 - **Previewable.** The writer sees what will be produced, and where, before committing — Scrivener's Commit is the model: a named command with a stated rule and a predictable outcome.
 - **Allowed to be lossy, and that is a feature.** Promoting a region need not preserve its lines or its layout. The spatial work was thinking; it earned its keep by producing the artifact. Scapple → Scrivener keeps nodes and drops connections, deliberately.
 - **May suggest, must never impose.** Promoting a region may *offer* to link its text members to the artifact it produced — "these six scraps are in 'Act II fog' — promote as a note, link them, or just keep the label?" That sits squarely inside Shipman & Marshall's licence **because the writer sees the inference and can decline it**. The same inference applied silently is forbidden: membership is n-ary and vague, wiki-links are binary and specific, and the silent conversion manufactures precision the writer never claimed — into a layer with backlinks and rename propagation, where it is expensive to undo.
+- **A line only promotes once its ends exist.** `[[X]]` resolves against the manifest — documents and research items — and a scrap is in neither, so promoting a line between two unpromoted scraps would write a link that resolves to nothing. That is the *manufactures precision the writer never claimed* failure this section forbids, arriving through the one row that looked safest. So `.wikiLink` is offered only when both endpoints carry a promoted item, and the refusal has to teach the precedence rather than merely decline: the durable layer is reached by promoting the things first.
+
 - **Promotion is never required.** The canvas must be completely usable by a writer who never promotes anything. Readiness counts promoted artifacts and stays silent about the canvas (umbrella §7, §9).
 
 ---
