@@ -6,6 +6,9 @@ struct DetailPaneToggle<Inspector: View>: View {
     @Binding var outlineLayout: OutlineLayout
     @Binding var selectedItemId: String?
     let activeManuscriptItemId: String?
+    /// The window's working mode. Decides which segments the picker offers —
+    /// see `visibleSegments(persona:hideOutline:)`.
+    let persona: Persona
     let hideOutline: Bool
     // History pane props — optional so callers that don't need history can omit them.
     let projectURL: URL?
@@ -36,6 +39,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         outlineLayout: Binding<OutlineLayout>,
         selectedItemId: Binding<String?>,
         activeManuscriptItemId: String?,
+        persona: Persona = .default,
         hideOutline: Bool = false,
         projectURL: URL? = nil,
         activeDocId: String? = nil,
@@ -52,6 +56,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         self._outlineLayout = outlineLayout
         self._selectedItemId = selectedItemId
         self.activeManuscriptItemId = activeManuscriptItemId
+        self.persona = persona
         self.hideOutline = hideOutline
         self.projectURL = projectURL
         self.activeDocId = activeDocId
@@ -81,11 +86,48 @@ struct DetailPaneToggle<Inspector: View>: View {
             await store.documentStore?.inboxStore.refresh()
         }
         .onAppear {
-            // If we land on outline in a hide-outline context, coerce to inspector.
-            if hideOutline && segment == .outline {
-                segment = .inspector
-            }
+            coerceSegmentIntoView(of: persona)
         }
+        // Belt to `PersonaModifier`'s braces: that modifier already runs
+        // `Persona.coerce(_:)` on a persona change, but it cannot see
+        // `hideOutline` — a collection project drops `.outline` from the
+        // picker after the registry has had its say. This is the only place
+        // both facts are known.
+        .onChange(of: persona) { _, newPersona in
+            coerceSegmentIntoView(of: newPersona)
+        }
+    }
+
+    /// Pull `segment` onto a pane this picker actually offers. No-op when it
+    /// already is one, so it never fights a deliberate selection.
+    private func coerceSegmentIntoView(of persona: Persona) {
+        let visible = Self.visibleSegments(persona: persona, hideOutline: hideOutline)
+        if !visible.contains(segment) {
+            segment = visible.first ?? persona.defaultPane
+        }
+    }
+
+    // MARK: - Which segments this persona offers
+
+    /// The segments this picker shows, in order. Ordering comes from the
+    /// persona registry, not from `DetailSegment.allCases` — so adding a case
+    /// to the enum does not silently change any picker.
+    static func visibleSegments(persona: Persona, hideOutline: Bool) -> [DetailSegment] {
+        persona.panes.filter { !(hideOutline && $0 == .outline) }
+    }
+
+    /// How many segment-widths to shift the inbox unread badge left from the
+    /// trailing edge, or nil when this persona has no inbox.
+    ///
+    /// SwiftUI's segmented Picker cannot badge a segment directly, so the
+    /// badge is overlaid top-trailing and shifted. This was previously the
+    /// hardcoded literal 2 ("inbox is third-to-last"), which silently moved
+    /// the badge onto the wrong tab when translation was added. Under personas
+    /// the picker length varies, so it must be derived.
+    static func badgeOffsetSegments(persona: Persona, hideOutline: Bool = false) -> Int? {
+        let segments = visibleSegments(persona: persona, hideOutline: hideOutline)
+        guard let index = segments.firstIndex(of: .inbox) else { return nil }
+        return segments.count - 1 - index
     }
 
     /// New (`.new`) inbox captures awaiting triage — drives the picker badge.
@@ -101,52 +143,31 @@ struct DetailPaneToggle<Inspector: View>: View {
     @ViewBuilder
     private var segmentPicker: some View {
         Picker("Right pane", selection: $segment) {
-            Image(systemName: "info.circle")
-                .tag(DetailSegment.inspector)
-                .help("Inspector — document metadata, tags, links (⌘⌥I)")
-            Image(systemName: "text.bubble")
-                .tag(DetailSegment.annotations)
-                .help("Annotations — review Claude's comments and suggested edits (⌘⌥A)")
-            Image(systemName: "doc.text.magnifyingglass")
-                .tag(DetailSegment.research)
-                .help("Research — this document's own and linked research (⌘⌥R)")
-            if !hideOutline {
-                Image(systemName: "list.bullet.indent")
-                    .tag(DetailSegment.outline)
-                    .help("Outline — table or corkboard structure view (⌘⌥O)")
+            ForEach(Self.visibleSegments(persona: persona, hideOutline: hideOutline), id: \.self) { seg in
+                Image(systemName: seg.systemImageName)
+                    .tag(seg)
+                    .help(seg.helpText)
             }
-            Image(systemName: "clock.arrow.circlepath")
-                .tag(DetailSegment.history)
-                .help("History — read-only timeline of edits, annotations, and checkpoints (⌘⌥H)")
-            Image(systemName: "checklist.checked")
-                .tag(DetailSegment.tasks)
-                .help("Tasks — todos in this document and across the project (⌘⌥T)")
-            Image(systemName: "tray")
-                .tag(DetailSegment.inbox)
-                .help("Inbox — triage captures from MaughamPhone (⌘⌥B)")
-            Image(systemName: "paintpalette")
-                .tag(DetailSegment.palette)
-                .help("Palette Card (⌘⌥P)")
-            Image(systemName: "character.book.closed")
-                .tag(DetailSegment.translation)
-                .help("Translation — source text and translator queries (⌘⌥L)")
         }
         .pickerStyle(.segmented)
         .labelsHidden()
         // Unread badge over the inbox segment. SwiftUI's segmented Picker can't
         // badge a segment directly, so we overlay top-trailing and shift left by
-        // TWO equal-width segments: inbox is the THIRD-to-last tab (palette
-        // and translation follow it). Anchored on the bare picker (before
-        // padding) so the width the GeometryReader measures divides evenly across
-        // the segments. Hidden at zero; capped at 99+.
+        // however many equal-width segments sit to the right of inbox in THIS
+        // persona's picker — derived, never a literal (see
+        // `badgeOffsetSegments`). Anchored on the bare picker (before padding)
+        // so the width the GeometryReader measures divides evenly across the
+        // segments. Hidden at zero, and absent entirely in personas without an
+        // inbox; capped at 99+.
         .overlay(alignment: .topTrailing) {
-            if inboxCount > 0 {
+            if inboxCount > 0,
+               let shift = Self.badgeOffsetSegments(persona: persona, hideOutline: hideOutline) {
                 GeometryReader { geo in
-                    let segmentCount = hideOutline ? 8 : 9
-                    let segmentWidth = geo.size.width / CGFloat(segmentCount)
+                    let segmentCount = Self.visibleSegments(persona: persona, hideOutline: hideOutline).count
+                    let segmentWidth = geo.size.width / CGFloat(max(segmentCount, 1))
                     inboxBadge
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                        .offset(x: -2 * segmentWidth)
+                        .offset(x: -CGFloat(shift) * segmentWidth)
                 }
             }
         }

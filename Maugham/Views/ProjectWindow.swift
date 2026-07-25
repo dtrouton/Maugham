@@ -910,6 +910,7 @@ struct ProjectWindow: View {
             outlineLayout: $outlineLayout,
             selectedItemId: $selectedItemId,
             activeManuscriptItemId: selectedItemId,
+            persona: persona,
             hideOutline: store.manifest.type == .collection,
             projectURL: store.url,
             activeDocId: selectedItemId ?? "__no-selection__",
