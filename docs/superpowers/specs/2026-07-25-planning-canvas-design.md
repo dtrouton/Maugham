@@ -235,9 +235,51 @@ Membership is **stored**, never recomputed from coordinates at read time (§4.2)
 
 ---
 
+## 8A. Getting things onto the canvas
+
+*Added 2026-07-25 after the plan review. Three routes, in descending order of how often a writer will use them.*
+
+### 8A.1 Drag in from research
+
+The binder is beside the canvas in the Plan persona, and its research tree is the natural source. **Dropping a research item onto the canvas creates an item node** (§3.1) — the file is untouched, the canvas holds only its position.
+
+- **Internal drags** carry the item id and follow the app's established `.draggable(id)` / `.dropDestination(for: String.self)` pattern.
+- **External drags** — a photo from Finder or a browser — route through `DropClassification`. Browser image drags carry rendered bitmaps rather than file URLs, so `.dropDestination(for: URL.self)` silently rejects them; do not hand-roll this.
+
+**Images are therefore in scope for the first slice, not deferred.** The canvas is the first surface in Maugham with an unbounded image count, and no image cache or real downsampling exists anywhere in the app today — the palette wall's helper decodes at full size then redraws. Image nodes need a `CGImageSource` thumbnail path and a bounded cache **keyed by path, not id** (tripwire 22).
+
+### 8A.2 Paper → photo → Claude → canvas
+
+The writer draws on actual paper, photographs it, and it lands in Maugham — through the phone Capture inbox, or dropped straight onto the canvas. **Claude reads the image over MCP and adds what it finds to the canvas as nodes.**
+
+This is a new MCP surface: the canvas gains a small write path alongside its read tool. It is the first time Claude creates canvas content.
+
+**Constitutionally this is permitted, and the reasoning must be recorded rather than assumed.** Must-not #1 forbids AI originating *manuscript* text; the canvas is a planning surface in the parallel plane, exactly where Claude already writes annotations, translations and palette material. Nothing Claude puts on the canvas is manuscript, and nothing reaches the manuscript except through promotion (§6), which is a deliberate writer act.
+
+**Two constraints follow, and both are load-bearing:**
+
+1. **Claude-created nodes must be visibly marked as such.** The writer must be able to tell at a glance what they wrote from what was read off a photograph. Reuse the annotation layer's provenance shape rather than inventing one.
+
+2. **The reproduction corollary applies in full.** Must-not #1's corollary treats transcription as the disguised authoring case — *"a confident fabrication in a reproduction channel wears the writer's own voice and invites acceptance instead of scrutiny"* — and requires that the reproduction and its source be checkable side by side. So: **the photo stays on the canvas, and what Claude derives from it is visibly tied to it.** A region containing both the image and its derived scraps is the natural form, and it means "what was read off this page" is answerable by looking. Derived nodes must never be placed loose where their origin is unrecoverable.
+
+No accept/reject queue is needed. The canvas is scratch by construction — the writer moves, edits, deletes or promotes Claude's nodes exactly as they would their own. The marking is what makes that a real choice.
+
+### 8A.3 Collapse to the canvas
+
+A writer will want the canvas at full width with everything else out of the way.
+
+**This is a deliberate toggle, never automatic on entering the persona.** Auto-collapsing would fight §8A.1 — you need the binder open to drag research in, and only then do you want it gone. Note the palette wall *does* hide the inspector automatically on entry (`PaletteSegmentModifier`); the canvas deliberately does not follow that precedent, for this reason.
+
+**Reuse `⌘\` rather than adding a key.** Focus mode already hides the titlebar, traffic lights, persona bar and status footer. On the canvas it additionally collapses both side columns. That extends existing muscle memory instead of teaching a new gesture, and the exit is the key the writer already knows.
+
+Two hazards, both already scarred into this file:
+
+- `PersonaModifier.clearsPaletteStash` exists because `PaletteSegmentModifier`'s `.onChange` fires in a *later* update pass and would otherwise restore stashed inspector visibility over a persona switch's force-open. Any canvas column-collapse that stashes state inherits this exact ordering hazard and must extend the predicate rather than defer a pass (tripwire 2).
+- Column visibility must not add an expression to `ProjectWindow.body` (§7A / zero budget).
+
 ## 9. Out of scope
 
-- **Phone.** The canvas is Mac-only. `Packages/MaughamCore` and `MaughamPhone` are untouched, exactly as 1B was.
+- **Phone.** The canvas is Mac-only. `Packages/MaughamCore` and `MaughamPhone` are untouched, exactly as 1B was. (Note §8A.2's photo route *starts* on the phone via the existing Capture inbox — no new phone code.)
 - **Typed edges** (§5), and **automatic linking** (§6.1).
 - **Canvas-as-a-file** — no user-facing `.canvas` documents to name and file; one canvas per project (§2).
 - **Nested regions.** Possible later; not needed for the bridge, and Milanote's board-in-board model is a different product shape.
@@ -252,4 +294,7 @@ Membership is **stored**, never recomputed from coordinates at read time (§4.2)
 - **Performance bounds.** What node count must stay smooth. §7A.1 settles *how* it virtualises (viewport intersection in the draw loop); the open part is the number. `TypingLatencyProbeTests` is the precedent for a fixture-gated probe rather than a wall-clock assertion. For reference, tldraw ships a hard 4,000-shape cap and freezes zoom level above 500 shapes; Excalidraw degrades around 5,000.
 - **Collapsing a region to a tile** — needed for crowding at Playlist scale, but is it v1?
 - **Whether the canvas replaces the Corkboard's freeform mode** if one is ever added, or stays deliberately separate (§2).
+- **What the binder shows when Canvas is the selected segment.** Adding `case canvas` to `BinderSegment` breaks two exhaustive left-column routers (`BinderPaneToggle`, `CollectionBinderPaneToggle`), and this design only ever describes the canvas as the *centre* column. Provisional answer: the research tree, matching umbrella §6.3's "Plan Left = Research tree" — which §8A.1 now depends on, since dragging research in requires it to be there.
+- **The shape of the MCP canvas write surface** (§8A.2) — one tool or several, and how a region is addressed when Claude groups a photo with what it read.
+- **Accessibility.** §7A.6 states we own the AX tree and calls it not optional in a writing tool. No plan currently carries it. Either it becomes a task or that claim is softened — it must not lapse silently.
 - **Undo.** Canvas edits are sidecar state, not op-log ops. Whether ⌘Z spans them, and if so how, given ADR 0023's op-log-backed model.
