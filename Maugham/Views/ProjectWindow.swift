@@ -288,9 +288,11 @@ struct ProjectWindow: View {
             applyNoChrome: { applyNoChrome() }))
         .modifier(PersonaModifier(persona: $persona,
                                   detailSegment: $detailSegment,
+                                  binderSegment: $binderSegment,
                                   showInspector: $showInspector,
                                   window: window,
-                                  documentStore: documentStore))
+                                  documentStore: documentStore,
+                                  projectType: store?.manifest.type ?? .novel))
         .sheet(isPresented: $showingSyntaxHelp) {
             SyntaxHelpSheet(mode: currentSyntaxHelpMode)
         }
@@ -662,7 +664,8 @@ struct ProjectWindow: View {
                 renamingItemId: $pendingPieceRenameId,
                 activePiece: activePiece(in: store),
                 onAddSharedNote: { Task { try? await addSharedNoteAction(store: store) } },
-                onAddPieceNote: { Task { try? await addPieceNoteAction(store: store) } }
+                onAddPieceNote: { Task { try? await addPieceNoteAction(store: store) } },
+                persona: persona
             )
         } else {
             BinderPaneToggle(
@@ -673,7 +676,8 @@ struct ProjectWindow: View {
                 selectedPaletteCardId: $selectedPaletteCardId,
                 projectType: store.manifest.type,
                 lastParsedScript: lastParsedScript,
-                findActive: $findActive)
+                findActive: $findActive,
+                persona: persona)
         }
     }
 
@@ -1359,18 +1363,38 @@ private struct FocusPostureModifier: ViewModifier {
 struct PersonaModifier: ViewModifier {
     @Binding var persona: Persona
     @Binding var detailSegment: DetailSegment
+    @Binding var binderSegment: BinderSegment
     @Binding var showInspector: Bool
     let window: NSWindow?
     let documentStore: DocumentStore?
+    /// Decides the binder's document home — a screenplay has no Manuscript
+    /// segment. Read from the manifest at the call site; `.novel` while the
+    /// project is still loading, when there is no binder to coerce anyway.
+    let projectType: ProjectType
 
     struct Change: Equatable {
         let persona: Persona
         let segment: DetailSegment
+        let binderSegment: BinderSegment
     }
 
-    /// Pure core, so the coercion is testable without SwiftUI.
-    static func applyPersonaChange(to persona: Persona, currentSegment: DetailSegment) -> Change {
-        Change(persona: persona, segment: persona.coerce(currentSegment))
+    /// Pure core, so both coercions are testable without SwiftUI. This is the
+    /// ONE place a persona change moves the left column — the binder toggles
+    /// only render.
+    static func applyPersonaChange(to persona: Persona,
+                                   currentSegment: DetailSegment,
+                                   currentBinderSegment: BinderSegment,
+                                   projectType: ProjectType) -> Change {
+        let allowed = persona.binderSegments(for: projectType)
+        // .trash and .find are transient and persona-independent — a writer
+        // mid-search should not be yanked out of it by switching persona.
+        let keepBinder = allowed.contains(currentBinderSegment)
+            || currentBinderSegment == .trash
+            || currentBinderSegment == .find
+        return Change(persona: persona,
+                      segment: persona.coerce(currentSegment),
+                      binderSegment: keepBinder ? currentBinderSegment
+                                                : persona.binderHome(for: projectType))
     }
 
     static func persona(fromPayload raw: String?) -> Persona? {
@@ -1383,9 +1407,13 @@ struct PersonaModifier: ViewModifier {
             .onKeyWindowCommand(.maughamSetPersona, window: window) { note in
                 guard let next = Self.persona(fromPayload: note.userInfo?["persona"] as? String)
                 else { return }
-                let change = Self.applyPersonaChange(to: next, currentSegment: detailSegment)
+                let change = Self.applyPersonaChange(to: next,
+                                                     currentSegment: detailSegment,
+                                                     currentBinderSegment: binderSegment,
+                                                     projectType: projectType)
                 persona = change.persona
                 detailSegment = change.segment
+                binderSegment = change.binderSegment
                 showInspector = true
                 documentStore?.updateUIState { $0.persona = change.persona }
             }

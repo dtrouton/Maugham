@@ -22,3 +22,29 @@ public enum BinderSegment: String, Codable, Equatable, Sendable {
         projectType == .screenplay ? .scenes : .manuscript
     }
 }
+
+// MARK: - Picker labelling
+
+public extension BinderSegment {
+    /// A collection's manuscript segment is labelled "Pieces"; every other
+    /// project type calls it "Manuscript". Lives beside the case so the two
+    /// binder toggles cannot label the same segment differently.
+    func displayName(for projectType: ProjectType) -> String {
+        switch self {
+        case .manuscript: return projectType == .collection ? "Pieces" : "Manuscript"
+        case .research: return "Research"
+        case .palette: return "Palette"
+        case .scenes: return "Scenes"
+        case .trash: return "Trash"
+        case .find: return "Find"
+        }
+    }
+
+    /// SF Symbol to render instead of `displayName(for:)` in the binder
+    /// picker, or nil for the text-labelled segments. Only Palette is an icon
+    /// — it is the narrow one, and the picker is a 240pt column. Keeping this
+    /// beside the case is what lets both toggles share one `ForEach`.
+    var pickerSymbolName: String? {
+        self == .palette ? "paintpalette" : nil
+    }
+}

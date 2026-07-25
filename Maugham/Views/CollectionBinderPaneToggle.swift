@@ -15,24 +15,22 @@ struct CollectionBinderPaneToggle: View {
     let activePiece: StructureItem?
     let onAddSharedNote: () -> Void
     let onAddPieceNote: () -> Void
+    /// The window's working mode — decides which segments the picker offers.
+    /// Coercion onto this persona's list happens once, centrally, in
+    /// `PersonaModifier`; this view only renders.
+    let persona: Persona
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("Segment", selection: $segment) {
-                Text("Pieces").tag(BinderSegment.manuscript)
-                Text("Research").tag(BinderSegment.research)
-                Image(systemName: "paintpalette").tag(BinderSegment.palette).help("Palette")
-                if !store.trashEntries.isEmpty {
-                    Text("Trash").tag(BinderSegment.trash)
-                }
-                if findActive {
-                    Text("Find").tag(BinderSegment.find)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            // `.collection` is a constant here rather than a property: this
+            // toggle exists only for collection projects, and passing it is
+            // what makes the manuscript segment read "Pieces".
+            BinderSegmentPicker(
+                segment: $segment,
+                persona: persona,
+                projectType: .collection,
+                hasTrash: !store.trashEntries.isEmpty,
+                findActive: findActive)
             Divider()
             Group {
                 switch segment {

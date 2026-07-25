@@ -10,29 +10,19 @@ struct BinderPaneToggle: View {
     let projectType: ProjectType
     let lastParsedScript: FountainScript?
     @Binding var findActive: Bool
+    /// The window's working mode — decides which segments the picker offers.
+    /// Coercion onto this persona's list happens once, centrally, in
+    /// `PersonaModifier`; this view only renders.
+    let persona: Persona
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("Segment", selection: $segment) {
-                if projectType == .screenplay {
-                    Text("Scenes").tag(BinderSegment.scenes)
-                    Text("Research").tag(BinderSegment.research)
-                } else {
-                    Text("Manuscript").tag(BinderSegment.manuscript)
-                    Text("Research").tag(BinderSegment.research)
-                }
-                Image(systemName: "paintpalette").tag(BinderSegment.palette).help("Palette")
-                if !store.trashEntries.isEmpty {
-                    Text("Trash").tag(BinderSegment.trash)
-                }
-                if findActive {
-                    Text("Find").tag(BinderSegment.find)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            BinderSegmentPicker(
+                segment: $segment,
+                persona: persona,
+                projectType: projectType,
+                hasTrash: !store.trashEntries.isEmpty,
+                findActive: findActive)
             Divider()
             Group {
                 switch segment {

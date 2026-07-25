@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// The window's current working mode. Four optional lenses over one project —
 /// never gates. Every persona is reachable at any time regardless of project
@@ -118,5 +119,74 @@ public extension Persona {
     /// (2026-07-02 smoke finding).
     func coerce(_ segment: DetailSegment) -> DetailSegment {
         panes.contains(segment) ? segment : defaultPane
+    }
+}
+
+// MARK: - Left column
+
+public extension Persona {
+    /// Binder segments this persona offers, in picker order. The first is the
+    /// persona's `binderHome` — where entering the persona lands. `.trash` and
+    /// `.find` stay conditional on their existing runtime predicates and are
+    /// appended by `BinderSegmentPicker`, not listed here: they are transient
+    /// states, not persona surfaces.
+    ///
+    /// Manuscript-shaped entries go through `BinderSegment.documentHome(for:)`
+    /// and NEVER name `.manuscript` directly — a screenplay binder has no
+    /// Manuscript segment (the Scenes segment IS the slugline navigator inside
+    /// the single `.fountain`), and forcing `.manuscript` on one drops the
+    /// writer into a one-row `BinderView` (2026-07-02 smoke finding).
+    /// `PersonaBinderSegmentTests.test_screenplayPersonasNeverOfferManuscript`
+    /// pins that.
+    ///
+    /// Reconciled against the three-column table in §6.3 of
+    /// `docs/superpowers/specs/2026-07-25-mode-based-ux-redesign-design.md`,
+    /// which gives each persona a Left surface: Plan "Research tree", Author
+    /// "Binder", Review "Pieces by review state", Publish "Editions". Two of
+    /// those four surfaces do not exist yet (M1C builds the canvas, M1D the
+    /// editions list), so the deviations are recorded at their cases below.
+    func binderSegments(for projectType: ProjectType) -> [BinderSegment] {
+        let home = BinderSegment.documentHome(for: projectType)
+        switch self {
+        case .plan:
+            // §6.3 Left = "Research tree", so Research leads. Palette joins it:
+            // it is a Plan primary in the same section's pane matrix, and the
+            // binder is where a palette card is picked.
+            //
+            // The manuscript segment is deliberately ABSENT — including it
+            // would defeat the point, because the coercion rule below (and in
+            // the right pane) keeps any segment the destination offers, so a
+            // writer entering Plan from the manuscript would simply stay on
+            // it and never see the research tree. Not a gate: a forced
+            // navigation (wiki-link, MCP note banner) still selects the
+            // manuscript segment and `BinderSegmentPicker.visibleSegments`
+            // renders it, and ⌘2 is one keystroke away.
+            return [.research, .palette]
+        case .author:
+            // §6.3 Left = "Binder". Exactly today's segment list, in today's
+            // order — the default persona must look unchanged to an upgrading
+            // writer.
+            return [home, .research, .palette]
+        case .review:
+            // DELIBERATE DEVIATION: §6.3 Left = "Pieces by review state",
+            // which is not built. The ordinary binder stands in, and Palette
+            // drops out — it is a making surface, not an adjudicating one.
+            return [home, .research]
+        case .publish:
+            // DELIBERATE DEVIATION: §6.3 Left = "Editions", which M1D builds.
+            // Until then the binder stands in, plus Research so the picker is
+            // a choice rather than a single button reading as broken chrome —
+            // the same reasoning recorded at `.publish`'s `.inspector` pane.
+            return [home, .research]
+        }
+    }
+
+    /// Where this persona lands when entered. Always the head of its own
+    /// segment list, so the offered set and the landing spot cannot disagree;
+    /// `PersonaBinderSegmentTests.test_everyPersonaBinderHome_isAmongItsOwnSegments`
+    /// pins that for every persona × project type.
+    func binderHome(for projectType: ProjectType) -> BinderSegment {
+        // `binderSegments` is never empty — every case above returns ≥2.
+        binderSegments(for: projectType).first ?? BinderSegment.documentHome(for: projectType)
     }
 }
