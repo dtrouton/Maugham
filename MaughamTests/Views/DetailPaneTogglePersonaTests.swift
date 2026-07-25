@@ -48,4 +48,59 @@ final class DetailPaneTogglePersonaTests: XCTestCase {
         // inbox is still second from the end.
         XCTAssertEqual(DetailPaneToggle<AnyView>.badgeOffsetSegments(persona: .plan, hideOutline: true), 1)
     }
+
+    // MARK: - The picker always shows its active segment
+
+    /// The nine ⌘⌥-letter pane shortcuts fire in every persona, so a writer in
+    /// Author can land on Annotations. The pane content is right; without this
+    /// the picker rendered with nothing selected.
+    func test_visibleSegments_includeASelectionThisPersonaDoesNotRegister() {
+        let segments = DetailPaneToggle<AnyView>.visibleSegments(
+            persona: .author, hideOutline: false, including: .annotations)
+        XCTAssertTrue(segments.contains(.annotations))
+        // Appended, not woven into registry order — the persona's own ordering
+        // stays put and the addition reads as transient.
+        XCTAssertEqual(Array(segments.dropLast()), Persona.author.panes)
+        XCTAssertEqual(segments.last, .annotations)
+    }
+
+    /// The translation-review force-set (`ProjectWindow` sets
+    /// `detailSegment = .translation`) has the same shape.
+    func test_visibleSegments_includeTranslationWhenForcedOutsideItsPersonas() {
+        let segments = DetailPaneToggle<AnyView>.visibleSegments(
+            persona: .author, hideOutline: false, including: .translation)
+        XCTAssertTrue(segments.contains(.translation))
+    }
+
+    func test_visibleSegments_doNotDuplicateASelectionThePersonaRegisters() {
+        let segments = DetailPaneToggle<AnyView>.visibleSegments(
+            persona: .author, hideOutline: false, including: .tasks)
+        XCTAssertEqual(segments, Persona.author.panes)
+        XCTAssertEqual(segments.filter { $0 == .tasks }.count, 1)
+    }
+
+    /// The whole point of deriving the offset: an appended out-of-persona
+    /// segment lengthens the picker, and a badge computed from the shorter
+    /// list would land one tab to the right of the inbox.
+    func test_badgeOffset_staysOnTheInboxWhenAnOutOfPersonaSegmentIsAppended() {
+        let segments = DetailPaneToggle<AnyView>.visibleSegments(
+            persona: .plan, hideOutline: false, including: .annotations)
+        let shift = DetailPaneToggle<AnyView>.badgeOffsetSegments(
+            persona: .plan, hideOutline: false, including: .annotations)
+        // Plan gained a sixth segment, so inbox is now third from the end.
+        XCTAssertEqual(segments.count, Persona.plan.panes.count + 1)
+        XCTAssertEqual(shift, 2)
+        // Assert the landing, not the arithmetic: shifting `shift` segments
+        // left from the trailing edge must arrive at the inbox.
+        XCTAssertEqual(segments[segments.count - 1 - (shift ?? -1)], .inbox)
+    }
+
+    /// `hideOutline` still wins over the selection: a collection project has
+    /// no outline pane, and appending it would render a tab whose content
+    /// falls through to the inspector.
+    func test_visibleSegments_doNotAppendOutlineWhenItIsHidden() {
+        let segments = DetailPaneToggle<AnyView>.visibleSegments(
+            persona: .publish, hideOutline: true, including: .outline)
+        XCTAssertFalse(segments.contains(.outline))
+    }
 }

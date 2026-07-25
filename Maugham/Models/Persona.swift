@@ -75,7 +75,13 @@ public extension Persona {
         case .author:
             return [.inspector, .outline, .research, .tasks, .palette]
         case .review:
-            return [.annotations, .history, .inspector, .outline, .tasks]
+            // Order follows the review workflow: adjudicate notes, see what
+            // changed, check the translated edition, then the supporting
+            // lenses. Translation and Palette are ○ in the design's pane ×
+            // persona matrix (§6.3) — reviewing a translated edition IS a
+            // review activity, and `ProjectWindow` force-sets
+            // `detailSegment = .translation` on entering translation review.
+            return [.annotations, .history, .translation, .inspector, .outline, .tasks, .palette]
         case .publish:
             // Thin until M1D gives Publishing its own surfaces (editions,
             // config, visual language). Translation is genuinely its work

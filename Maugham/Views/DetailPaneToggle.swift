@@ -100,6 +100,11 @@ struct DetailPaneToggle<Inspector: View>: View {
 
     /// Pull `segment` onto a pane this picker actually offers. No-op when it
     /// already is one, so it never fights a deliberate selection.
+    ///
+    /// Deliberately asks for the persona's OWN list (no `including:`) — the
+    /// selection-carrying list contains `segment` by construction, so passing
+    /// it here would make every coercion a no-op and a collection project
+    /// would sit on `.outline` forever.
     private func coerceSegmentIntoView(of persona: Persona) {
         let visible = Self.visibleSegments(persona: persona, hideOutline: hideOutline)
         if !visible.contains(segment) {
@@ -112,8 +117,28 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// The segments this picker shows, in order. Ordering comes from the
     /// persona registry, not from `DetailSegment.allCases` — so adding a case
     /// to the enum does not silently change any picker.
-    static func visibleSegments(persona: Persona, hideOutline: Bool) -> [DetailSegment] {
-        persona.panes.filter { !(hideOutline && $0 == .outline) }
+    ///
+    /// `selected`, when supplied and not already registered, is **appended**.
+    /// Personas are lenses, not gates: the nine `⌘⌥`-letter pane shortcuts fire
+    /// in every persona, and `ProjectWindow` force-sets `.translation` on
+    /// entering translation review — without this the picker would render with
+    /// nothing selected while the pane below it showed the right content.
+    /// Appending (rather than inserting in registry order) keeps the persona's
+    /// own ordering stable and makes the addition read as transient.
+    /// `hideOutline` still wins: a collection project has no outline pane to
+    /// show, so an out-of-persona `.outline` selection is not appended either.
+    static func visibleSegments(
+        persona: Persona,
+        hideOutline: Bool,
+        including selected: DetailSegment? = nil
+    ) -> [DetailSegment] {
+        var segments = persona.panes.filter { !(hideOutline && $0 == .outline) }
+        if let selected,
+           !segments.contains(selected),
+           !(hideOutline && selected == .outline) {
+            segments.append(selected)
+        }
+        return segments
     }
 
     /// How many segment-widths to shift the inbox unread badge left from the
@@ -123,9 +148,15 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// badge is overlaid top-trailing and shifted. This was previously the
     /// hardcoded literal 2 ("inbox is third-to-last"), which silently moved
     /// the badge onto the wrong tab when translation was added. Under personas
-    /// the picker length varies, so it must be derived.
-    static func badgeOffsetSegments(persona: Persona, hideOutline: Bool = false) -> Int? {
-        let segments = visibleSegments(persona: persona, hideOutline: hideOutline)
+    /// the picker length varies, so it must be derived — and it must be
+    /// derived from the SAME list the picker renders, `including:` and all,
+    /// or an appended out-of-persona segment slides the badge one tab over.
+    static func badgeOffsetSegments(
+        persona: Persona,
+        hideOutline: Bool = false,
+        including selected: DetailSegment? = nil
+    ) -> Int? {
+        let segments = visibleSegments(persona: persona, hideOutline: hideOutline, including: selected)
         guard let index = segments.firstIndex(of: .inbox) else { return nil }
         return segments.count - 1 - index
     }
@@ -140,10 +171,16 @@ struct DetailPaneToggle<Inspector: View>: View {
 
     // MARK: - Picker
 
+    /// The one list this picker renders — segment order, badge offset and
+    /// badge width all derive from it, so they cannot disagree.
+    private var pickerSegments: [DetailSegment] {
+        Self.visibleSegments(persona: persona, hideOutline: hideOutline, including: segment)
+    }
+
     @ViewBuilder
     private var segmentPicker: some View {
         Picker("Right pane", selection: $segment) {
-            ForEach(Self.visibleSegments(persona: persona, hideOutline: hideOutline), id: \.self) { seg in
+            ForEach(pickerSegments, id: \.self) { seg in
                 Image(systemName: seg.systemImageName)
                     .tag(seg)
                     .help(seg.helpText)
@@ -161,10 +198,10 @@ struct DetailPaneToggle<Inspector: View>: View {
         // inbox; capped at 99+.
         .overlay(alignment: .topTrailing) {
             if inboxCount > 0,
-               let shift = Self.badgeOffsetSegments(persona: persona, hideOutline: hideOutline) {
+               let shift = Self.badgeOffsetSegments(
+                persona: persona, hideOutline: hideOutline, including: segment) {
                 GeometryReader { geo in
-                    let segmentCount = Self.visibleSegments(persona: persona, hideOutline: hideOutline).count
-                    let segmentWidth = geo.size.width / CGFloat(max(segmentCount, 1))
+                    let segmentWidth = geo.size.width / CGFloat(max(pickerSegments.count, 1))
                     inboxBadge
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                         .offset(x: -CGFloat(shift) * segmentWidth)

@@ -43,6 +43,16 @@ final class PersonaPaneRegistryTests: XCTestCase {
         XCTAssertEqual(Persona.review.defaultPane, .annotations)
     }
 
+    /// Both were ○ in the design's pane × persona matrix (§6.3) and both were
+    /// dropped when the registry was first written. Translation is the
+    /// consequential one: reviewing a translated edition is a review activity,
+    /// and `ProjectWindow` force-sets `detailSegment = .translation` when the
+    /// writer enters translation review.
+    func test_reviewPersona_offersTranslationAndPalette() {
+        XCTAssertTrue(Persona.review.panes.contains(.translation))
+        XCTAssertTrue(Persona.review.panes.contains(.palette))
+    }
+
     func test_inboxIsPlanningOnly() {
         // Phone captures are raw planning material. They previously sat
         // between Tasks and Palette, which is why the segment needed an
