@@ -183,7 +183,7 @@ struct MaughamApp: App {
                 Button("Toggle Review Mode") {
                     MaughamEvent.post(.maughamToggleReviewMode, to: .keyWindow)
                 }
-                .keyboardShortcut("r", modifiers: [.command, .option])
+                .keyboardShortcut("r", modifiers: [.command, .option, .shift])
                 FocusedTranslationReviewButton()
                 Button("Toggle Full-Screen Focus") {
                     MaughamEvent.post(.maughamToggleFullScreen, to: .keyWindow)
@@ -192,28 +192,36 @@ struct MaughamApp: App {
                 Button("Toggle Inspector") {
                     MaughamEvent.post(.maughamToggleInspector, to: .keyWindow)
                 }
-                .keyboardShortcut("i", modifiers: [.command, .option])
+                .keyboardShortcut("0", modifiers: [.command, .option])
                 Button("Toggle Research Preview") {
                     MaughamEvent.post(.maughamToggleResearchPreview, to: .keyWindow)
                 }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
                 Divider()
-                Button("Inspector") {
-                    MaughamEvent.post(.maughamSetDetailSegment, to: .keyWindow, payload: ["segment": "inspector"])
-                }
-                .keyboardShortcut("1", modifiers: [.command, .option])
-                Button("Research") {
-                    MaughamEvent.post(.maughamSetDetailSegment, to: .keyWindow, payload: ["segment": "research"])
-                }
-                .keyboardShortcut("2", modifiers: [.command, .option])
-                Button("Outline") {
-                    MaughamEvent.post(.maughamSetDetailSegment, to: .keyWindow, payload: ["segment": "outline"])
-                }
-                .keyboardShortcut("3", modifiers: [.command, .option])
-                Button("Annotations") {
-                    MaughamEvent.post(.maughamSetDetailSegment, to: .keyWindow, payload: ["segment": "annotations"])
-                }
-                .keyboardShortcut("a", modifiers: [.command, .option])
+
+                // Right-pane segments. All nine are declared here rather than
+                // on the Picker in DetailPaneToggle, so every one reveals a
+                // hidden inspector column (SessionAndNavigationModifier sets
+                // showInspector = true). Splitting these across two dispatch
+                // paths meant ⌘⌥4–8 silently no-opped with the column closed.
+                Button("Inspector") { postSegment(.inspector) }
+                    .keyboardShortcut("i", modifiers: [.command, .option])
+                Button("Research") { postSegment(.research) }
+                    .keyboardShortcut("r", modifiers: [.command, .option])
+                Button("Outline") { postSegment(.outline) }
+                    .keyboardShortcut("o", modifiers: [.command, .option])
+                Button("Annotations") { postSegment(.annotations) }
+                    .keyboardShortcut("a", modifiers: [.command, .option])
+                Button("History") { postSegment(.history) }
+                    .keyboardShortcut("h", modifiers: [.command, .option])
+                Button("Tasks") { postSegment(.tasks) }
+                    .keyboardShortcut("t", modifiers: [.command, .option])
+                Button("Inbox") { postSegment(.inbox) }
+                    .keyboardShortcut("b", modifiers: [.command, .option])
+                Button("Palette") { postSegment(.palette) }
+                    .keyboardShortcut("p", modifiers: [.command, .option])
+                Button("Translation") { postSegment(.translation) }
+                    .keyboardShortcut("l", modifiers: [.command, .option])
                 #if MAUGHAM_DEV_BUILD
                 // Scene-storage spike instrument (ADR 0021): logs how many
                 // EditorCoordinators are still alive. Close a project window,
@@ -307,6 +315,14 @@ struct MaughamApp: App {
             AcknowledgementsWindow()
         }
         .windowResizability(.contentMinSize)
+    }
+
+    /// One spelling of the segment post, so the nine menu items can't drift
+    /// apart. `.keyWindow` scope: only the focused project window responds.
+    private func postSegment(_ segment: DetailSegment) {
+        MaughamEvent.post(.maughamSetDetailSegment,
+                          to: .keyWindow,
+                          payload: ["segment": segment.rawValue])
     }
 
     @MainActor

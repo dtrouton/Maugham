@@ -104,13 +104,17 @@ final class DocSyncTests: XCTestCase {
 
     /// Enumerates `.keyboardShortcut("N", modifiers: [.command, .option])`
     /// occurrences in a source string, returning each as a `⌘⌥N` token.
+    /// Uppercased: `KeyEquivalent` source literals for letters are lowercase
+    /// (`"i"`, `"r"`, …, matching the pre-existing `"a"` for Annotations),
+    /// but every doc/cheatsheet in this repo displays the macOS-conventional
+    /// uppercase letter (`⌘⌥I`, `⌘N`, …) — digits pass through unaffected.
     static func extractCommandOptionShortcutTokens(from sourceText: String) -> [String] {
         guard let regex = try? NSRegularExpression(
             pattern: #"\.keyboardShortcut\("([^"]+)",\s*modifiers:\s*\[\.command,\s*\.option\]\)"#
         ) else { return [] }
         let ns = sourceText as NSString
         let matches = regex.matches(in: sourceText, range: NSRange(location: 0, length: ns.length))
-        return matches.map { "⌘⌥" + ns.substring(with: $0.range(at: 1)) }
+        return matches.map { "⌘⌥" + ns.substring(with: $0.range(at: 1)).uppercased() }
     }
 
     /// Returns the subset of `tokens` that do NOT appear anywhere in `docText`.
@@ -118,19 +122,34 @@ final class DocSyncTests: XCTestCase {
         tokens.filter { !docText.contains($0) }
     }
 
-    func test_detailPaneToggleShortcutsDocumentedInReferenceMd() throws {
-        let sourceText = try readFile("Maugham/Views/DetailPaneToggle.swift")
+    /// After the keyspace-migration task, `DetailPaneToggle.swift` declares no
+    /// shortcuts at all — the View menu in `MaughamApp.swift` owns every pane
+    /// shortcut (⌘⌥-letter) as the sole dispatch path, so that's the file this
+    /// guard now reads from.
+    func test_paneShortcutsDocumentedInReferenceMd() throws {
+        let sourceText = try readFile("Maugham/MaughamApp.swift")
         let tokens = Self.extractCommandOptionShortcutTokens(from: sourceText)
         guard !tokens.isEmpty else {
             XCTFail("No .keyboardShortcut(\"N\", modifiers: [.command, .option]) occurrences found in "
-                + "DetailPaneToggle.swift — source structure changed? (regex may need updating)")
+                + "MaughamApp.swift — source structure changed? (regex may need updating)")
             return
         }
+        // Anti-vacuity: a regex that matches nothing would make this whole
+        // test pass without asserting anything, which is worse than deleting
+        // it — the very failure mode this repoint exists to avoid. Assert a
+        // floor, not equality: MaughamApp.swift also carries non-pane ⌘⌥
+        // bindings (⌘⌥0 inspector column, ⌘⌥F find in project, ⌘⌥Z restore),
+        // so the count is more than the nine panes. ⌘⌥⇧R does not match: its
+        // modifier list is [.command, .option, .shift].
+        XCTAssertGreaterThanOrEqual(tokens.count, DetailSegment.allCases.count,
+                                    "extracted \(tokens.count) ⌘⌥ shortcuts — expected at least "
+                                    + "one per DetailSegment case; a regex that matches nothing "
+                                    + "makes this whole test vacuous")
 
         let referenceMd = try readFile("docs/guide/reference.md")
         let missing = Self.missingTokens(tokens, in: referenceMd)
         XCTAssertTrue(missing.isEmpty,
-            "DetailPaneToggle.swift defines keyboard shortcut(s) \(missing) that are not documented "
+            "MaughamApp.swift defines keyboard shortcut(s) \(missing) that are not documented "
             + "in docs/guide/reference.md's shortcut table. Found tokens: \(tokens).")
     }
 

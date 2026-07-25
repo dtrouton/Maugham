@@ -103,45 +103,40 @@ struct DetailPaneToggle<Inspector: View>: View {
         Picker("Right pane", selection: $segment) {
             Image(systemName: "info.circle")
                 .tag(DetailSegment.inspector)
-                .help("Inspector — document metadata, tags, links (⌘⌥1)")
+                .help("Inspector — document metadata, tags, links (⌘⌥I)")
             Image(systemName: "text.bubble")
                 .tag(DetailSegment.annotations)
                 .help("Annotations — review Claude's comments and suggested edits (⌘⌥A)")
             Image(systemName: "doc.text.magnifyingglass")
                 .tag(DetailSegment.research)
-                .help("Research — this document's own and linked research (⌘⌥2)")
+                .help("Research — this document's own and linked research (⌘⌥R)")
             if !hideOutline {
                 Image(systemName: "list.bullet.indent")
                     .tag(DetailSegment.outline)
-                    .help("Outline — table or corkboard structure view (⌘⌥3)")
+                    .help("Outline — table or corkboard structure view (⌘⌥O)")
             }
             Image(systemName: "clock.arrow.circlepath")
                 .tag(DetailSegment.history)
-                .help("History — read-only timeline of edits, annotations, and checkpoints (⌘⌥4)")
-                .keyboardShortcut("4", modifiers: [.command, .option])
+                .help("History — read-only timeline of edits, annotations, and checkpoints (⌘⌥H)")
             Image(systemName: "checklist.checked")
                 .tag(DetailSegment.tasks)
-                .help("Tasks — todos in this document and across the project (⌘⌥5)")
-                .keyboardShortcut("5", modifiers: [.command, .option])
+                .help("Tasks — todos in this document and across the project (⌘⌥T)")
             Image(systemName: "tray")
                 .tag(DetailSegment.inbox)
-                .help("Inbox — triage captures from MaughamPhone (⌘⌥6)")
-                .keyboardShortcut("6", modifiers: [.command, .option])
+                .help("Inbox — triage captures from MaughamPhone (⌘⌥B)")
             Image(systemName: "paintpalette")
                 .tag(DetailSegment.palette)
-                .help("Palette Card (⌘⌥7)")
-                .keyboardShortcut("7", modifiers: [.command, .option])
+                .help("Palette Card (⌘⌥P)")
             Image(systemName: "character.book.closed")
                 .tag(DetailSegment.translation)
-                .help("Translation — source text and translator queries (⌘⌥8)")
-                .keyboardShortcut("8", modifiers: [.command, .option])
+                .help("Translation — source text and translator queries (⌘⌥L)")
         }
         .pickerStyle(.segmented)
         .labelsHidden()
         // Unread badge over the inbox segment. SwiftUI's segmented Picker can't
         // badge a segment directly, so we overlay top-trailing and shift left by
-        // TWO equal-width segments: inbox is the THIRD-to-last tab (palette, ⌘⌥7,
-        // and translation, ⌘⌥8, follow it). Anchored on the bare picker (before
+        // TWO equal-width segments: inbox is the THIRD-to-last tab (palette
+        // and translation follow it). Anchored on the bare picker (before
         // padding) so the width the GeometryReader measures divides evenly across
         // the segments. Hidden at zero; capped at 99+.
         .overlay(alignment: .topTrailing) {
@@ -169,7 +164,7 @@ struct DetailPaneToggle<Inspector: View>: View {
             .padding(.trailing, 10)
             .padding(.top, 2)
             .allowsHitTesting(false)
-            .help("\(inboxCount) new capture\(inboxCount == 1 ? "" : "s") in the inbox (⌘⌥6)")
+            .help("\(inboxCount) new capture\(inboxCount == 1 ? "" : "s") in the inbox (⌘⌥B)")
     }
 
     // MARK: - Content routing
