@@ -29,6 +29,7 @@ Everything in 1C-a's Global Constraints still applies. In addition:
 - `./gen.sh` after adding ANY new file — `Maugham.xcodeproj/` is generated from `project.yml`. **Never commit anything under `Maugham.xcodeproj/`**; a `project.pbxproj` in a diff is a red flag.
 - Run `xcodebuild` in the **foreground**.
 - `-only-testing` takes `MaughamTests/<ClassName>` — **never a folder path**. A folder path silently runs zero tests (translation-layer milestone lesson).
+- **Every Step 2 begins with `./gen.sh &&`**, including the RED runs. Each task in this slice adds a brand-new test file, and until `./gen.sh` has run that file is not in the project at all — `-only-testing MaughamTests/<Class>` then runs **zero** tests and reports **success**. A green RED step is worse than no RED step, because it tells you the test failed for the reason you expected when in fact it never ran.
 - **Release build after anything touching a view.** The Release type-check budget is stricter than Debug; v0.8.0 shipped a Release-only failure that passed Debug.
 - **No raw `NotificationCenter` post or subscription** — every `maugham.*` event goes through `MaughamEvent` with a declared scope (tripwire 21, ADR 0021). This slice adds no events; do not add one.
 - Tests that cross the `.md` ↔ op-log boundary need alphabet-restricted paragraph ids (tripwire 8). This slice touches neither, so it does not apply — noted so you don't go looking.
@@ -46,7 +47,27 @@ So, precisely:
 
 ### Peer files from 1C-a you may assume exist
 
-`Maugham/Canvas/CanvasInteraction.swift` is a real file containing `struct CanvasInteraction` (1C-a Task 11 commits to the peer file). `Maugham/Canvas/CanvasEventView.swift` contains `struct CanvasEventView` and `final class CanvasEventNSView`. `Maugham/Canvas/CanvasView.swift` contains `struct CanvasView`. If any is missing, 1C-a is not merged and this slice cannot start.
+`Maugham/Canvas/CanvasInteraction.swift` is a real file containing `struct CanvasInteraction` (1C-a **Task 13** commits to the peer file, and says so because two plans list it). `Maugham/Canvas/CanvasEventView.swift` contains `struct CanvasEventView` and `final class CanvasEventNSView`. `Maugham/Canvas/CanvasView.swift` contains `struct CanvasView`. `Maugham/Canvas/CanvasUndo.swift` contains `final class CanvasUndo` and `enum ScrapUndoBeat` (1C-a **Task 15**). `Maugham/Canvas/CanvasRenderer.swift` contains `enum CanvasRenderer` and `struct CanvasFocusStraighten` (1C-a Task 7). If any is missing, 1C-a is not merged and this slice cannot start.
+
+### The 1C-a spellings this plan builds on — reconcile against 1C-a, not against memory
+
+This plan was first drafted against an earlier 1C-a. 1C-a has since been through three fix rounds and one interaction change, and the list below is the result of sweeping this plan against **1C-a as committed**. It is repeated here in one block because every one of these has a tempting wrong spelling, and because 1C-a's own "Cross-plan contract" section names only the first three.
+
+| symbol | 1C-a ships | the wrong spelling to watch for |
+|---|---|---|
+| `CanvasStore.flush()` | **no arguments** — writes whatever `scheduleSave` last queued, and covers ⌘Q via `NSApplication.willTerminateNotification` | `flush(scene:scraps:)`. Use `save(scene:scraps:)` when you have a payload in hand and want it written now. |
+| `CanvasStore.beforeFlush: (() -> Void)?` | the owner's last synchronous chance to fold the live editor's text into the payload. 1C-a's `CanvasView.load()` sets it to `syncActiveEdit` | dropping it. Task 4 moves the store into `CanvasModel`, so the model must forward this or ⌘Q loses the sentence in flight. |
+| `CanvasView.paletteSwatchHexes` | `() -> [String]` — a **closure**, deferred on purpose because `ProjectStore.paletteSwatchHexes()` reads every palette card off disk and `ProjectWindow.body` must not do file I/O per render | `[String]`, or `paletteSwatchColors: [Color]`. |
+| `ProjectStore.paletteSwatchHexes() -> [String]` | added by 1C-a **Task 11** | Task 10; `[Color]`. |
+| `CanvasEventView` | `@Binding var camera`, `onClick: (CGPoint, Int) -> Void` (view point, **click count**), `onDrag: (CGPoint, CanvasDragPhase) -> Void` (view point, **phase — one point, not two**), `undoManager: UndoManager?` | `onClick: (CGPoint) -> Void`; a three-argument `onDrag`; the type name `DragPhase`. 1C-a says outright: "This is the only drag vocabulary in the plan… there is no `DragPhase`." Dropping `undoManager:` kills ⌘Z from the responder chain. |
+| `CanvasRenderer.draw` | `draw(scene:camera:viewSize:layouts:visibleEditorNodeID:straighten:into:)` | `editingNodeID:`; an inline `seededRotation`; omitting `straighten:`. See Task 5. |
+| `CanvasUndo` (1C-a **Task 15**) | snapshot-based; state reached through `readSnapshot`/`applySnapshot` closures **precisely so 1C-b can move ownership to `CanvasModel` without touching the class** | Task 13; re-implementing snapshots inside `CanvasModel`. See Task 4. |
+| `CanvasScene` | `nodes` (sorted, allocates), `unorderedNodes`, `count`; `topmostNode(at:)` and `nodes(intersecting:)` **filter first and order the survivors** | calling `nodes` on a per-frame or per-`body` path. |
+| `CanvasView` counters | `revision` (redraw, ticks every animation frame) **and** `sceneRevision` (structural; the accessibility tree is keyed on it and `CanvasAccessibilityTests` greps the source for `.onChange(of: sceneRevision`) | one counter; keying anything scene-proportional on `revision`. |
+| the editor's three states | `editingNodeID` (the writer is editing it), `mountedEditorNodeID` (its editor **exists** and takes keystrokes, from the click), `visibleEditorNodeID` (its editor **is the visible text**, from `straighten.isLevel`) | merging any two of them. 1C-a records that this failed twice, in opposite directions. |
+| card rotation | `CanvasRenderer.drawnAngle(for:straighten:)` → `CanvasRenderer.cardTransform(inCard:angle:)`, concatenated onto a **copy** of the context inside `drawCard`. A grep test forbids `rotate(by:)`/`rotationEffect` anywhere in `Maugham/Canvas/` | `cx.rotate(by: seededRotation(for:))` inline in `draw`. |
+
+**Tests in this slice that call `undoManager.undo()` must set `groupsByEvent = false` first.** `UndoManager` defaults it to `true`, which installs a run-loop observer that opens an implicit top-level group per event; calling `undo()` synchronously outside a run loop while that group is open raises `NSInternalInconsistencyException`. 1C-a's `CanvasUndoTests` does this in every test and production keeps the default. Three test classes here need it: `CanvasModelTests`, `CanvasRegionInteractionTests`, `RegionBindingTests`.
 
 ## Why membership is explicit — read this before touching `CanvasRegion`
 
@@ -66,7 +87,7 @@ So: if you find yourself writing `if region.frame.contains(node.origin)` anywher
 |---|---|
 | `Maugham/Canvas/CanvasRegion.swift` | `CanvasRegion` — id, label, frame, membership sets, optional piece binding |
 | `Maugham/Canvas/CanvasMembership.swift` | The membership rules: home vs appearance, the invariants, the mutations |
-| `Maugham/Canvas/CanvasModel.swift` | The one owner of scene + scraps + selection + undo + the store. The seam between `CanvasView` and `RegionInspector`. |
+| `Maugham/Canvas/CanvasModel.swift` | The one owner of scene + scraps + selection + the store, and the host of 1C-a's `CanvasUndo` (rebound, not reimplemented). The seam between `CanvasView` and `RegionInspector`. |
 | `Maugham/Canvas/RegionBinding.swift` | Region → piece binding rules |
 | `Maugham/Canvas/RegionInspector.swift` | Label, collapse, piece binding, lives-here/appears-here lists |
 | `Maugham/Canvas/CanvasScene.swift` | *Modify* — regions join the scene |
@@ -149,7 +170,7 @@ final class CanvasRegionTests: XCTestCase {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasRegionTests CODE_SIGNING_ALLOWED=NO`
+Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasRegionTests CODE_SIGNING_ALLOWED=NO`
 Expected: FAIL — `cannot find 'CanvasRegion' in scope`.
 
 - [ ] **Step 3: Write the implementation**
@@ -257,7 +278,7 @@ git commit -m "feat(canvas): region model — home members, appearances, optiona
 
 **Interfaces:**
 - Consumes: `CanvasRegion`, `CanvasScene`.
-- Produces: `enum CanvasMembership` with `static func join(_ node:home:in:)`, `static func addAppearance(_ node:to:in:)`, `static func leave(_ node:from:in:)`, `static func homeRegion(of:in:) -> CanvasRegionID?`, `static func appearanceRegions(of:in:) -> [CanvasRegionID]`, `static func nodesTravelling(withRegion:in:) -> Set<CanvasNodeID>`; and `CanvasScene.regions`, `region(_:)`, `region(at:)`, `insertRegion(_:)`, `removeRegion(_:)`, `updateRegion(_:_:)`, `setRegionFrame(_:for:)`.
+- Produces: `enum CanvasMembership` with `static func join(_ node:home:in:)`, `static func addAppearance(_ node:to:in:)`, `static func leave(_ node:from:in:)`, `static func homeRegion(of:in:) -> CanvasRegionID?`, `static func appearanceRegions(of:in:) -> [CanvasRegionID]`, `static func nodesTravelling(withRegion:in:) -> Set<CanvasNodeID>`; and `CanvasScene.regions`, `unorderedRegions`, `region(_:)`, `region(at:)`, `insertRegion(_:)`, `removeRegion(_:)`, `updateRegion(_:_:)`, `setRegionFrame(_:for:)`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -398,7 +419,7 @@ final class CanvasMembershipTests: XCTestCase {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasMembershipTests CODE_SIGNING_ALLOWED=NO`
+Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasMembershipTests CODE_SIGNING_ALLOWED=NO`
 Expected: FAIL — `cannot find 'CanvasMembership' in scope`.
 
 - [ ] **Step 3: Extend `CanvasScene` with regions**
@@ -410,9 +431,20 @@ Add to `Maugham/Canvas/CanvasScene.swift`:
 
     /// Regions in a stable order. Drawn BENEATH nodes, so a region never
     /// occludes the cards it holds.
+    ///
+    /// **This sorts on every access**, exactly as `nodes` does. Use it where the
+    /// order is load-bearing — the sidecar's on-disk order, appearance-chip
+    /// stacking, `joinTarget`'s tie-break — and `unorderedRegions` everywhere
+    /// else. Scenes hold far fewer regions than nodes, so this is a convention
+    /// kept for the same reason 1C-a keeps it, not a measured hot spot.
     public var regions: [CanvasRegion] {
         regionsByID.values.sorted { $0.id.raw < $1.id.raw }
     }
+
+    /// Every region, no defined order — the sibling of `unorderedNodes`. For
+    /// membership lookups and per-frame culling, where the answer is a set or a
+    /// filter and the sort would be pure waste.
+    public var unorderedRegions: [CanvasRegion] { Array(regionsByID.values) }
 
     public func region(_ id: CanvasRegionID) -> CanvasRegion? { regionsByID[id] }
 
@@ -445,7 +477,7 @@ Add to `Maugham/Canvas/CanvasScene.swift`:
     }
 ```
 
-and extend `remove(_ id: CanvasNodeID)` so a deleted node cannot leave a dangling membership:
+and **extend** 1C-a's `remove(_ id: CanvasNodeID)` — do not replace its body, append to it — so a deleted node cannot leave a dangling membership. 1C-a's body is `byID[id] = nil`; the method becomes:
 
 ```swift
     public mutating func remove(_ id: CanvasNodeID) {
@@ -490,7 +522,9 @@ enum CanvasMembership {
     static func join(_ node: CanvasNodeID,
                      home region: CanvasRegionID,
                      in scene: inout CanvasScene) {
-        for r in scene.regions where r.id != region {
+        // `unorderedRegions`, not `regions` — this is a sweep over all of them
+        // and the sort would buy nothing.
+        for r in scene.unorderedRegions where r.id != region {
             scene.updateRegion(r.id) { $0.homeMembers.remove(node) }
         }
         scene.updateRegion(region) {
@@ -520,10 +554,14 @@ enum CanvasMembership {
         }
     }
 
+    /// A node lives in at most one region, so the first match IS the answer and
+    /// the order it was found in cannot matter — `unorderedRegions`.
     static func homeRegion(of node: CanvasNodeID, in scene: CanvasScene) -> CanvasRegionID? {
-        scene.regions.first { $0.livesHere(node) }?.id
+        scene.unorderedRegions.first { $0.livesHere(node) }?.id
     }
 
+    /// Sorted, because this one is read straight into the inspector's list and a
+    /// list that reshuffles between reads is a list a writer cannot use.
     static func appearanceRegions(of node: CanvasNodeID, in scene: CanvasScene) -> [CanvasRegionID] {
         scene.regions.filter { $0.appearsHere(node) }.map(\.id)
     }
@@ -672,7 +710,7 @@ final class CanvasRegionCodecTests: XCTestCase {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasRegionCodecTests CODE_SIGNING_ALLOWED=NO`
+Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasRegionCodecTests CODE_SIGNING_ALLOWED=NO`
 Expected: FAIL — no `regions` on the DTO.
 
 - [ ] **Step 3: Extend the codec**
@@ -706,7 +744,7 @@ In `CanvasSceneDTO`'s `scene` computed property, after nodes are built:
         // membership naming a node that is not in the file would render a chip
         // for nothing and, if the region is bound, hand the compiler a phantom
         // reference.
-        let present = Set(s.nodes.map(\.id))
+        let present = Set(s.unorderedNodes.map(\.id))
         var claimedHomes: Set<CanvasNodeID> = []
 
         for dto in regions ?? [] {
@@ -757,13 +795,24 @@ git commit -m "feat(canvas): persist regions, sidecar schema 1→2, loader enfor
 - Test: `MaughamTests/Canvas/CanvasModelTests.swift`
 
 **Interfaces:**
-- Consumes: `CanvasScene`, `CanvasRegion`, `CanvasRegionID`, `CanvasNodeID`, `CanvasMembership` (Tasks 1–2); `CanvasStore` (1C-a Task 5) with `init(projectRoot: URL)`, `load() -> (scene: CanvasScene, scraps: [CanvasNodeID: String])`, `scheduleSave(scene:scraps:)`, `flush()`; `CanvasCamera`, `ScrapLayout`, `CanvasRenderer`, `CanvasEventView`, `ScrapEditorHost`, `CanvasGround`, `CanvasGroundPalette` (1C-a); `CanvasUndo` (1C-a Task 13) with `init(undoManager: UndoManager)`, `beginGesture(_:)`, `endGesture()`; `ProjectStore.url` (the project root — `Maugham/Stores/ProjectStore.swift:68`) and `ProjectStore.paletteSwatchHexes() -> [String]` (added by 1C-a Task 10).
-- Produces: `@Observable final class CanvasModel` with `private(set) var scene: CanvasScene`, `private(set) var scraps: [CanvasNodeID: String]`, `var selectedRegionID: CanvasRegionID?`, `let undoManager: UndoManager`, `func load(projectRoot: URL)`, `func flush()`, `func withScene(persist:_:)`, `func setScrapText(_:for:)`, `func beginGesture(_:)`, `func endGesture()`, `func mutate(_:_:)`, `func deleteSelectedRegion()`.
-- Changes `CanvasView`'s initialiser to `CanvasView(model: CanvasModel, projectRoot: URL, paletteSwatchHexes: [String])`.
+- Consumes: `CanvasScene`, `CanvasRegion`, `CanvasRegionID`, `CanvasNodeID`, `CanvasMembership` (Tasks 1–2); `CanvasStore` (1C-a Task 5) with `init(projectRoot: URL)`, `load() -> (scene: CanvasScene, scraps: [CanvasNodeID: String])`, `save(scene:scraps:)`, `scheduleSave(scene:scraps:)`, **`flush()` — no arguments**, `var beforeFlush: (() -> Void)?`; `CanvasCamera`, `ScrapLayout`, `CanvasRenderer`, `CanvasFocusStraighten`, `CanvasEventView`, `ScrapEditorHost`, `CanvasGround`, `CanvasGroundPalette`, `CanvasInteraction`, `CanvasMomentum` (1C-a); `CanvasUndo` (1C-a **Task 15**) with `typealias Snapshot = (scene: CanvasScene, scraps: [CanvasNodeID: String])`, `init(undoManager: UndoManager)`, `var readSnapshot: (() -> Snapshot)?`, `var applySnapshot: ((Snapshot) -> Void)?`, `beginGesture(_:)`, `endGesture()`, `breakGesture()`, `mutate(_:_:)`, `noteCameraChanged()`, `var isInGesture: Bool`; `ProjectStore.url` (the project root — `Maugham/Stores/ProjectStore.swift:68`) and `ProjectStore.paletteSwatchHexes() -> [String]` (added by 1C-a **Task 11**).
+- Produces: `@Observable final class CanvasModel` with `private(set) var scene: CanvasScene`, `private(set) var scraps: [CanvasNodeID: String]`, `var selectedRegionID: CanvasRegionID?`, `var selectedRegion: CanvasRegion?`, `let undoManager: UndoManager`, `let undo: CanvasUndo`, `private(set) var sceneRevision: Int`, `var beforeFlush: (() -> Void)?`, `func load(projectRoot: URL)`, `func flush()`, `func withScene(persist:_:)`, `func setScrapText(_:for:)`, `func rewriteScraps(_:)`, `func beginGesture(_:)`, `func endGesture()`, `func breakGesture()`, `func mutate(_:_:)`, `func deleteSelectedRegion()`.
+- Changes `CanvasView`'s initialiser to `CanvasView(model: CanvasModel, projectRoot: URL, paletteSwatchHexes: () -> [String])` — **the hex closure, kept exactly as 1C-a spells it**: `ProjectStore.paletteSwatchHexes()` reads every palette card off disk, and calling it eagerly inside `ProjectWindow.body` would do file I/O per render.
 
-**Why this task exists.** Three surfaces need the same scene: the drawn canvas, the region gestures, and the inspector in the right-hand column. In 1C-a the scene is `@State` inside `CanvasView`, which means nothing outside that view can see it or change it — an inspector handed a `ProjectStore` could not edit a region label, because region labels do not live in the manifest. So the scene, the scrap text, the selection, the sidecar store and the undo manager move to **one reference type owned by `ProjectWindow`** and passed to both views. Camera, layouts, `editingNodeID` and `caretIndex` stay in `CanvasView`: they are properties of one view of the canvas, and the inspector has no business with them.
+**Why this task exists.** Three surfaces need the same scene: the drawn canvas, the region gestures, and the inspector in the right-hand column. In 1C-a the scene is `@State` inside `CanvasView`, which means nothing outside that view can see it or change it — an inspector handed a `ProjectStore` could not edit a region label, because region labels do not live in the manifest. So the scene, the scrap text, the selection, the sidecar store and the undo recorder move to **one reference type owned by `ProjectWindow`** and passed to both views. Camera, layouts, `editingNodeID`, `caretIndex`, `straighten`, `interaction`, `momentum`, `wash` and both revision counters stay in `CanvasView`: they are properties of one view of the canvas, and the inspector has no business with them.
 
-**Undo is snapshot-based here**, and shares `CanvasUndo`'s `UndoManager` instance so ⌘Z runs in chronological order across scrap text, scrap geometry and regions. A region drag mutates a region frame *and* every resident's origin; recording per-property inverses for that is how you get a half-undone drag. One snapshot per gesture is smaller, exactly correct, and cheap — `CanvasScene` is a value type and the scenes in play are hundreds of nodes, not millions.
+**`CanvasModel` does not reimplement undo — it rebinds `CanvasUndo`.** This is the single most important thing to get right in this task, and it is the thing an earlier draft of this plan got wrong. 1C-a Task 15 builds `CanvasUndo` snapshot-based *and reaches its state through two closures — `readSnapshot` and `applySnapshot` — for exactly this reason*: "in 1C-a the owner is `CanvasView`'s `@State`, in 1C-b it is `CanvasModel`. Only the closures get rebound." So `CanvasModel` **owns a `CanvasUndo`, points its two closures at itself, and forwards `beginGesture`/`endGesture`/`breakGesture`/`mutate`.** It writes no `registerUndo` of its own.
+
+Four behaviours come free that a hand-rolled duplicate would have to re-earn, and three of them are subtle enough that a duplicate would ship without them:
+
+- **`beginGesture` opens no `UndoManager` group.** A group cannot span an event boundary, and an "Edit Scrap" gesture spans as many events as the writer types keystrokes; `endGesture` opens, registers, names and closes synchronously in one event. A `registerUndo` at mutation time — which is what the duplicate did — also pushes a step for a gesture that changed nothing.
+- **`breakGesture()`** is what gives a long visit to a scrap more than one ⌘Z (a finished sentence, or `ScrapUndoBeat.idleSeconds` of stillness). A duplicate without it silently coarsens undo inside every scrap.
+- **Nesting is absorbed** via a depth counter, so a gesture arriving mid-gesture cannot leave the manager unbalanced. Task 6 relies on this.
+- **An undo serviced while a gesture is open re-baselines that gesture.** Without it: type in A, click into B, ⌘Z, type in B, click out — and the next ⌘Z resurrects A's discarded text.
+
+**Why snapshots at all**, restated because it is 1C-b's requirement that drove 1C-a's choice: a region drag mutates a region frame *and* every resident's origin, and recording per-property inverses for that is how you get a half-undone drag. One snapshot per gesture is exactly correct and cheap — `CanvasScene` is a value type and the scenes in play are hundreds of nodes, not millions.
+
+**`sceneRevision` lives in both places, and that is deliberate.** 1C-a keys the accessibility tree on `CanvasView`'s `@State sceneRevision`, and `CanvasAccessibilityTests` greps the source for the literal `.onChange(of: sceneRevision` — so that property must keep its name and its home. But the inspector mutates the scene from the *other* column and cannot reach a view's `@State`. So the model carries its own structural counter and `CanvasView` mirrors it in one line (Step 4). Renaming either counter breaks a source-grep test in 1C-a.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -785,6 +834,13 @@ final class CanvasModelTests: XCTestCase {
 
     private func loadedModel() -> CanvasModel {
         let model = CanvasModel()
+        // `groupsByEvent` defaults to TRUE, which installs a run-loop observer
+        // that opens an implicit top-level group per event. Calling `undo()`
+        // synchronously outside a run loop while that group is open raises
+        // NSInternalInconsistencyException. 1C-a's CanvasUndoTests does the same
+        // in every test; production keeps the default, safely, because every
+        // gesture registers inside one event.
+        model.undoManager.groupsByEvent = false
         model.load(projectRoot: root)
         model.withScene { s in
             var n = CanvasNode(id: CanvasNodeID("a"), kind: .scrap,
@@ -881,6 +937,56 @@ final class CanvasModelTests: XCTestCase {
         XCTAssertEqual(model.scene.node(CanvasNodeID("a"))?.cachedHeight, 140)
     }
 
+    /// The model FORWARDS to `CanvasUndo` rather than re-implementing it, so
+    /// `breakGesture` has to reach the writer through the model. Without this,
+    /// 1C-a's per-sentence granularity inside a scrap is silently lost the
+    /// moment ownership moves here.
+    func test_breakingAGestureSplitsItIntoTwoUndoSteps() {
+        let model = loadedModel()
+        model.beginGesture("Move Region")
+        model.withScene { $0.setRegionFrame(CGRect(x: 100, y: 0, width: 600, height: 400),
+                                            for: CanvasRegionID("r1")) }
+        model.breakGesture()
+        model.withScene { $0.setRegionFrame(CGRect(x: 200, y: 0, width: 600, height: 400),
+                                            for: CanvasRegionID("r1")) }
+        model.endGesture()
+
+        model.undoManager.undo()
+        XCTAssertEqual(model.scene.region(CanvasRegionID("r1"))?.frame.origin,
+                       CGPoint(x: 100, y: 0), "one ⌘Z goes back to the break, not to the start")
+        model.undoManager.undo()
+        XCTAssertEqual(model.scene.region(CanvasRegionID("r1"))?.frame.origin, .zero)
+    }
+
+    /// A gesture opened inside a gesture must not unbalance the recorder —
+    /// Task 6 leans on this when a region drag is bracketed around an
+    /// interaction that brackets itself.
+    func test_nestedGesturesCollapseIntoOneStep() {
+        let model = loadedModel()
+        model.beginGesture("Move Region")
+        model.beginGesture("Move Region")
+        model.withScene { $0.setRegionFrame(CGRect(x: 50, y: 0, width: 600, height: 400),
+                                            for: CanvasRegionID("r1")) }
+        model.endGesture()
+        XCTAssertTrue(model.undo.isInGesture, "the outer bracket is still open")
+        model.endGesture()
+
+        model.undoManager.undo()
+        XCTAssertEqual(model.scene.region(CanvasRegionID("r1"))?.frame.origin, .zero)
+        XCTAssertFalse(model.undoManager.canUndo)
+    }
+
+    /// The store's quit hook is the only thing that runs on ⌘Q — `.onDisappear`
+    /// does not fire. `CanvasView` sets this to `syncActiveEdit`, so a model
+    /// that swallowed it would lose the sentence the writer is halfway through.
+    func test_beforeFlushReachesTheStore() {
+        let model = loadedModel()
+        var called = false
+        model.beforeFlush = { called = true }
+        model.flush()
+        XCTAssertTrue(called)
+    }
+
     func test_deletingTheSelectedRegionClearsTheSelectionKeepsTheNodesAndUndoes() {
         let model = loadedModel()
         model.mutate("Join Region") {
@@ -913,7 +1019,7 @@ final class CanvasModelTests: XCTestCase {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasModelTests CODE_SIGNING_ALLOWED=NO`
+Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasModelTests CODE_SIGNING_ALLOWED=NO`
 Expected: FAIL — `cannot find 'CanvasModel' in scope`.
 
 - [ ] **Step 3: Write the model**
@@ -932,14 +1038,24 @@ import Observation
 /// reference to both.
 ///
 /// What lives here: the scene (nodes AND regions), the scrap text, the region
-/// selection, the sidecar store, and the undo stack. What deliberately does
-/// NOT: the camera, the `ScrapLayout` cache, `editingNodeID` and `caretIndex` —
+/// selection, the sidecar store, and the undo recorder. What deliberately does
+/// NOT: the camera, the `ScrapLayout` cache, `editingNodeID`, `caretIndex`,
+/// `straighten`, `interaction`, `momentum`, `wash` and the redraw counter —
 /// those are properties of ONE view of the canvas, and the inspector has no
 /// business with them.
 ///
 /// Mutation goes through exactly one door (`withScene`), so persistence and
 /// undo cannot be forgotten at a call site. `scene` is `private(set)` to keep
 /// that door the only one.
+///
+/// **Undo is `CanvasUndo` (1C-a Task 15), rebound — not reimplemented.** That
+/// class already reaches its state through `readSnapshot`/`applySnapshot`
+/// closures precisely so ownership could move here; 1C-a says so at Task 15.
+/// This type points those closures at itself and forwards the four gesture
+/// methods. Writing a second snapshot mechanism here would lose `breakGesture`
+/// (per-sentence granularity inside a scrap), the deferred `beginUndoGrouping`
+/// (a group cannot span an event boundary), the nesting depth counter, and the
+/// re-baseline of an open gesture when a ⌘Z is serviced mid-visit.
 @Observable
 final class CanvasModel {
 
@@ -955,22 +1071,45 @@ final class CanvasModel {
         selectedRegionID.flatMap { scene.region($0) }
     }
 
-    /// ONE manager for the whole canvas. `CanvasView` builds its `CanvasUndo`
-    /// (1C-a Task 13) over this same instance, so ⌘Z walks scrap text, scrap
-    /// geometry and region edits in the order they actually happened. Two
-    /// managers would give the writer two half-histories.
+    /// The STRUCTURAL counter, mirroring 1C-a's `CanvasView.sceneRevision`.
+    /// Bumped by every persisting mutation and by every snapshot application.
+    /// `CanvasView` mirrors it into its own `@State sceneRevision` in one line,
+    /// so the accessibility tree also tracks edits made from the inspector —
+    /// which is in the other column and cannot reach a view's `@State`. The
+    /// view's property keeps its name because `CanvasAccessibilityTests` greps
+    /// the source for `.onChange(of: sceneRevision`.
+    private(set) var sceneRevision = 0
+
+    /// ONE manager for the whole canvas, so ⌘Z walks scrap text, scrap geometry
+    /// and region edits in the order they actually happened. Two managers would
+    /// give the writer two half-histories.
     let undoManager = UndoManager()
+
+    /// 1C-a's recorder, owned here and wired to this object in `init`.
+    let undo: CanvasUndo
+
+    /// Forwarded to `CanvasStore.beforeFlush`. `CanvasView` sets it to
+    /// `syncActiveEdit` so the words in the mounted editor reach the payload
+    /// before it is written — the only hook that covers ⌘Q, because
+    /// `.onDisappear` does not fire on quit. Held here rather than set on the
+    /// store directly because the store is created in `load`, which may run
+    /// after the view has appeared.
+    var beforeFlush: (() -> Void)?
 
     private var store: CanvasStore?
     /// Keyed on the project PATH, not on an id — tripwire 22's shape: an
     /// id-keyed reload survives a rename and shows stale content.
     private var loadedRoot: URL?
-    private var gestureSnapshot: Snapshot?
-    private var gestureName: String?
 
-    private struct Snapshot: Equatable {
-        var scene: CanvasScene
-        var scraps: [CanvasNodeID: String]
+    init() {
+        undo = CanvasUndo(undoManager: undoManager)
+        undo.readSnapshot = { [unowned self] in (self.scene, self.scraps) }
+        undo.applySnapshot = { [unowned self] snapshot in
+            self.scene = snapshot.scene
+            self.scraps = snapshot.scraps
+            self.sceneRevision += 1
+            self.store?.scheduleSave(scene: self.scene, scraps: self.scraps)
+        }
     }
 
     // MARK: - Lifecycle
@@ -981,25 +1120,35 @@ final class CanvasModel {
     func load(projectRoot: URL) {
         guard loadedRoot != projectRoot else { return }
         let s = CanvasStore(projectRoot: projectRoot)
+        s.beforeFlush = { [weak self] in self?.beforeFlush?() }
         let loaded = s.load()
         store = s
         loadedRoot = projectRoot
         scene = loaded.scene
         scraps = loaded.scraps
+        sceneRevision += 1
     }
 
     /// Write any debounced save now. `CanvasView.onDisappear` calls this — the
     /// canvas cleans up after itself rather than adding a line to
     /// `ProjectWindow.body`'s scorch block, which has no expression budget.
-    func flush() { store?.flush(scene: scene, scraps: scraps) }
+    ///
+    /// **`CanvasStore.flush()` takes no arguments** (1C-a Task 5): the store
+    /// keeps the last debounced payload so it can also flush from its own
+    /// `NSApplication.willTerminateNotification` observer, where there is no
+    /// caller left holding one. Passing a payload here would not compile.
+    func flush() { store?.flush() }
 
     // MARK: - Mutation
 
     /// The one door. `persist: false` is for derived bookkeeping — measured
-    /// heights — which must neither hit the disk nor enter the undo stack.
+    /// heights — which must neither hit the disk, enter the undo stack, nor
+    /// stale the accessibility tree.
     func withScene(persist: Bool = true, _ mutate: (inout CanvasScene) -> Void) {
         mutate(&scene)
-        if persist { store?.scheduleSave(scene: scene, scraps: scraps) }
+        guard persist else { return }
+        sceneRevision += 1
+        store?.scheduleSave(scene: scene, scraps: scraps)
     }
 
     func setScrapText(_ text: String, for id: CanvasNodeID) {
@@ -1007,52 +1156,23 @@ final class CanvasModel {
         store?.scheduleSave(scene: scene, scraps: scraps)
     }
 
-    // MARK: - Undo
-
-    /// Open a gesture. A drag emits a frame per tick; the snapshot is taken
-    /// once here and the inverse registered once in `endGesture`, so ⌘Z undoes
-    /// the gesture rather than one tick of it.
-    func beginGesture(_ name: String) {
-        guard gestureSnapshot == nil else { return }
-        gestureSnapshot = Snapshot(scene: scene, scraps: scraps)
-        gestureName = name
-    }
-
-    func endGesture() {
-        guard let before = gestureSnapshot, let name = gestureName else { return }
-        gestureSnapshot = nil
-        gestureName = nil
-        // A click that moved nothing must not push a step: ⌘Z after a stray
-        // click would otherwise appear to do nothing while eating the writer's
-        // previous real edit.
-        guard before != Snapshot(scene: scene, scraps: scraps) else { return }
-        register(undoTo: before, name: name)
+    /// Replace the whole scrap map — the shape `CanvasView.rebuildLayouts` needs
+    /// after it prunes layouts for nodes that no longer exist. Deliberately not
+    /// a `private(set)` bypass: it goes through the same save path.
+    func rewriteScraps(_ scraps: [CanvasNodeID: String]) {
+        self.scraps = scraps
         store?.scheduleSave(scene: scene, scraps: scraps)
     }
+
+    // MARK: - Undo (forwarded to CanvasUndo — see the type doc)
+
+    func beginGesture(_ name: String) { undo.beginGesture(name) }
+    func endGesture() { undo.endGesture() }
+    func breakGesture() { undo.breakGesture() }
 
     /// One-shot edit: a gesture with no dragging in the middle.
     func mutate(_ name: String, _ body: (inout CanvasScene) -> Void) {
-        beginGesture(name)
-        withScene(body)
-        endGesture()
-    }
-
-    private func register(undoTo snapshot: Snapshot, name: String) {
-        undoManager.registerUndo(withTarget: self) { model in
-            model.restore(snapshot, name: name)
-        }
-        undoManager.setActionName(name)
-    }
-
-    /// Applying a snapshot registers its own inverse, which is what makes redo
-    /// fall out for free: `UndoManager` routes a registration made while
-    /// undoing onto the redo stack.
-    private func restore(_ snapshot: Snapshot, name: String) {
-        let inverse = Snapshot(scene: scene, scraps: scraps)
-        scene = snapshot.scene
-        scraps = snapshot.scraps
-        register(undoTo: inverse, name: name)
-        store?.scheduleSave(scene: scene, scraps: scraps)
+        undo.mutate(name) { withScene(body) }
     }
 
     // MARK: - Region commands
@@ -1067,92 +1187,99 @@ final class CanvasModel {
 }
 ```
 
+**On `[unowned self]` in the two closures.** `CanvasModel` owns `undo`, and `undo` holds the closures — a reference cycle either way round. `unowned` is correct rather than `weak` because the recorder cannot outlive the model that owns it, and 1C-a's `CanvasUndo` treats a nil `readSnapshot` as "record nothing" rather than as an error, which would silently disable undo if this were `weak` and the optional chain ever short-circuited.
+
 - [ ] **Step 4: Move `CanvasView` onto the model**
 
-`CanvasView` keeps the camera, the layout cache and the editing focus; it gives up the scene, the scraps and the store. Apply exactly this rule to the file 1C-a left behind: **`scene`, `scraps` and `store` stop being `@State` and become reads of `model`; `camera`, `layouts`, `editingNodeID` and `caretIndex` stay `@State`.**
+**This is a delta, not a rewrite.** 1C-a's `CanvasView` is the product of seventeen tasks — the straighten clock, the mount/visibility split, momentum, the two counters, the three commit points, the undo brackets. Re-typing the file from the fragments below would silently delete most of it. Change only what the list names; leave every other line of 1C-a's `CanvasView` exactly as it stands.
 
-Replace the property block and the three methods that touched the moved state:
+**(a) The property block.** Six properties move to the model; everything else stays. Delete `@State private var scene`, `@State private var scraps`, `@State private var store`, `@State private var undoManager`, `@State private var undo`; **keep** `camera`, `layouts`, `editingNodeID`, `caretIndex`, `wash`, `straighten`, `revision`, `sceneRevision`, `lastKeystrokeAt`, `interaction`, `momentum` and `scrapFont`.
 
 ```swift
 struct CanvasView: View {
     /// Owned by `ProjectWindow` and shared with `RegionInspector` — see
-    /// `CanvasModel`. Not `@State`: this view is one of two readers.
+    /// `CanvasModel`. Not `@State`: this view is one of two readers, and
+    /// `@Observable` gives it the redraws for free.
     let model: CanvasModel
     let projectRoot: URL
-    let paletteSwatchHexes: [String]
-
-    @State private var camera = CanvasCamera()
-    @State private var layouts: [CanvasNodeID: ScrapLayout] = [:]
-    @State private var editingNodeID: CanvasNodeID?
-    @State private var caretIndex: Int?
-    @State private var interaction = CanvasInteraction()
-
-    private let scrapFont = NSFont(name: "Iowan Old Style", size: 13)
-        ?? .systemFont(ofSize: 13)
+    /// Still the deferred closure 1C-a ships — `ProjectStore.paletteSwatchHexes()`
+    /// reads every palette card off disk and must not run per render.
+    let paletteSwatchHexes: () -> [String]
 ```
 
-In `body`, the `Canvas` draw call reads the model (Task 5 amends its argument list), the editor host reads `model.scene`, and the lifecycle hooks become:
+**(b) Every read of the moved state gains a `model.` prefix**, mechanically: `scene` → `model.scene`, `scraps` → `model.scraps`, `store?.scheduleSave(scene: scene, scraps: scraps)` → `model.withScene { }`'s own save or `model.setScrapText(_:for:)`, `store?.flush()` → `model.flush()`, `undoManager` → `model.undoManager`, `undo?.x()` → `model.x()` (the optional goes away — the recorder is built in `CanvasModel.init`, so there is no window in which it is nil). **Every mutation of `scene` moves inside a `model.withScene { }` closure**, because `model.scene` is `private(set)`.
+
+**(c) `load()` shrinks to the two things the view still owns**, and the `beforeFlush` hook is re-pointed at the model:
 
 ```swift
-            .onAppear { model.load(projectRoot: projectRoot) ; rebuildLayouts() }
-            .onDisappear { model.flush() }
-```
-
-`load(viewSize:)` from 1C-a is replaced by that one line — the store lives in the model now. `rebuildLayouts` and `handleClick` become:
-
-```swift
-    /// Build a layout per scrap and fill in the derived heights the model needs
-    /// for hit testing and culling. Measurement is bookkeeping, so it goes
-    /// through `persist: false` — it must not schedule a write or land on the
-    /// undo stack.
-    private func rebuildLayouts() {
-        var built: [CanvasNodeID: ScrapLayout] = [:]
-        for node in model.scene.nodes {
-            guard case .scrap = node.kind else { continue }
-            built[node.id] = ScrapLayout(text: model.scraps[node.id] ?? "",
-                                         width: node.width, font: scrapFont)
-        }
-        layouts = built
-        model.withScene(persist: false) { scene in
-            for (id, layout) in built { scene.setCachedHeight(layout.measuredHeight, for: id) }
-        }
+    private func load() {
+        // The store lives in the model now, and it is the model that holds the
+        // quit hook — `.onDisappear` does not fire on ⌘Q, and the sentence the
+        // writer is halfway through lives in the editor's NSTextStorage until
+        // `syncActiveEdit` folds it in.
+        model.beforeFlush = { syncActiveEdit() }
+        model.load(projectRoot: projectRoot)
+        wash = CanvasGroundPalette.wash(fromHex: paletteSwatchHexes())
+        rebuildLayouts()
     }
+```
 
-    private func handleClick(at contentPoint: CGPoint) {
-        // Commit any in-flight edit before moving focus, so the drawn text the
-        // renderer picks up is current.
-        if let editing = editingNodeID, let layout = layouts[editing] {
-            model.setScrapText(layout.text, for: editing)
-            model.withScene(persist: false) {
-                $0.setCachedHeight(layout.measuredHeight, for: editing)
+`.onAppear { load() }` and `.onDisappear { syncActiveEdit(); model.flush() }` keep 1C-a's shape.
+
+**(d) `rebuildLayouts` keeps all of 1C-a's behaviour** — reusing an existing layout when the text is unchanged (replacing it would tear the mounted editor's `NSTextStorage` out from under the writer, Task 9's rebinding path), `CanvasCardMetrics.textWidth(forCardWidth:)` for the text box, `CanvasCardMetrics.cardHeight(forTextHeight:)` for the card, the orphan prune, and both counter bumps. Only the state reads change, and the height write goes through `persist: false` because measuring is bookkeeping:
+
+```swift
+    private func rebuildLayouts() {
+        var measured: [CanvasNodeID: CGFloat] = [:]
+        for node in model.scene.unorderedNodes {
+            guard case .scrap = node.kind else { continue }
+            let text = model.scraps[node.id] ?? ""
+            let textWidth = CanvasCardMetrics.textWidth(forCardWidth: node.width)
+            let layout: ScrapLayout
+            if let existing = layouts[node.id], existing.text == text {
+                existing.setWidth(textWidth)
+                layout = existing
+            } else {
+                layout = ScrapLayout(text: text, width: textWidth, font: scrapFont)
+                layouts[node.id] = layout
             }
+            measured[node.id] = CanvasCardMetrics.cardHeight(forTextHeight: layout.measuredHeight)
         }
+        layouts = layouts.filter { model.scene.node($0.key) != nil }
+        // Measured heights are DERIVED — they must not schedule a write and must
+        // not land on the undo stack.
+        model.withScene(persist: false) { scene in
+            for (id, height) in measured { scene.setCachedHeight(height, for: id) }
+        }
+        revision += 1
+        sceneRevision += 1
+    }
+```
 
-        guard let node = model.scene.topmostNode(at: contentPoint),
-              case .scrap = node.kind,
-              let layout = layouts[node.id],
-              let frame = node.frame else {
+**(e) `handleClick(at:clickCount:)` keeps its whole 1C-a body** — the `commitActiveEdit()` first line, the `clickCount >= 2` gate, the caret resolved in the card's unrotated space via `drawnAngle`/`localPoint`, `straighten.focus(_:)`, the double-click-on-empty create path, and both `beginGesture("Edit Scrap")` brackets. **One line is added**, in the single-click arm:
+
+```swift
+        guard clickCount >= 2 else {
             editingNodeID = nil
             caretIndex = nil
-            // A click on empty canvas clears the region selection; a click on
-            // a region's chrome sets it (Task 6).
+            straighten.focus(nil)
+            // A click on empty canvas clears the region selection; a click on a
+            // region's chrome sets it (Task 6, on drag-began).
             model.selectedRegionID = nil
             return
         }
-
-        editingNodeID = node.id
-        caretIndex = layout.characterIndex(
-            at: CGPoint(x: contentPoint.x - frame.minX, y: contentPoint.y - frame.minY))
-    }
 ```
 
-Finally, `CanvasUndo` must be built over the model's manager, not a private one:
+**(f) Mirror the model's structural counter**, so the accessibility tree also tracks edits made from the inspector in the other column. One modifier beside the existing lifecycle hooks:
 
 ```swift
-    private var undo: CanvasUndo { CanvasUndo(undoManager: model.undoManager) }
+            // The inspector mutates the scene from the detail column and cannot
+            // reach this view's @State. `sceneRevision` keeps its name here
+            // because `CanvasAccessibilityTests` greps the source for it.
+            .onChange(of: model.sceneRevision) { _, _ in sceneRevision += 1 }
 ```
 
-**Do not** leave a second `UndoManager` anywhere in the canvas. Two stacks means ⌘Z shows the writer two half-histories.
+**Do not** leave a second `UndoManager` or a second `CanvasUndo` anywhere in the canvas. In particular, **`CanvasUndo` must not be a computed property** — `var undo: CanvasUndo { CanvasUndo(undoManager: model.undoManager) }` mints a fresh recorder on every access, so `beginGesture` and `endGesture` land on different objects and every gesture's snapshot is thrown away. The one instance is `model.undo`, built in `CanvasModel.init`, and the view reaches it only through the four forwarding methods.
 
 - [ ] **Step 5: Give `ProjectWindow` the model**
 
@@ -1164,24 +1291,27 @@ One stored property beside the existing `@State` block (a stored property is not
     @State private var canvas = CanvasModel()
 ```
 
-And the `.canvas` arm of `existingEditorSwitch` — still one expression — becomes:
+And the `.canvas` arm of `existingEditorSwitch` — still one expression — gains `model:` and **keeps 1C-a's closure spelling of the palette argument**:
 
 ```swift
         case .canvas:
             CanvasView(model: canvas,
                        projectRoot: store.url,
-                       paletteSwatchHexes: store.paletteSwatchHexes())
+                       paletteSwatchHexes: { store.paletteSwatchHexes() })
 ```
 
-`ProjectStore.url` is the project root (`ProjectStore.swift:68`). Leave the `.canvas` inspector arm as 1C-a's placeholder for now — Task 7 replaces it.
+The braces are not decoration: `paletteSwatchHexes` is `() -> [String]`, and calling it eagerly here would read every palette card off disk on every `ProjectWindow` render. `ProjectStore.url` is the project root (`ProjectStore.swift:68`). Leave the `.canvas` inspector arm as 1C-a's placeholder for now — Task 7 replaces it.
 
 - [ ] **Step 6: Run the tests and a Release build**
 
 Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasModelTests CODE_SIGNING_ALLOWED=NO`
-Expected: PASS, 10 tests.
+Expected: PASS, 14 tests.
 
 Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasUndoTests CODE_SIGNING_ALLOWED=NO`
-Expected: PASS — 1C-a's undo tests are untouched by this refactor.
+Expected: PASS — 1C-a's undo tests exercise `CanvasUndo` directly and must survive the rebinding untouched. **If any of them fails, `CanvasModel` has changed the class rather than rebinding it** — that is the failure this task is most likely to produce, so read the failure rather than adjusting the test.
+
+Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasCompositionTests -only-testing MaughamTests/CanvasAccessibilityTests CODE_SIGNING_ALLOWED=NO`
+Expected: PASS. Both are **source-grep** tests over `CanvasView.swift` — layer order, and `.onChange(of: sceneRevision` keyed on the structural counter rather than the redraw one. A refactor that renames either counter or reorders the ZStack fails here and nowhere else.
 
 Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham -configuration Release build CODE_SIGNING_ALLOWED=NO`
 Expected: BUILD SUCCEEDED. **A Debug pass is not evidence** — this task touches `ProjectWindow.swift`.
@@ -1208,9 +1338,17 @@ snapshot-per-gesture over the same UndoManager CanvasUndo uses."
 - Test: `MaughamTests/Canvas/CanvasRegionRenderTests.swift`
 
 **Interfaces:**
-- Consumes: `CanvasScene`, `CanvasRegion`, `CanvasRegionID`, `CanvasMembership` (Tasks 1–2); `CanvasModel` (Task 4); `CanvasCamera` (1C-a Task 4) with `pan: CGPoint`, `zoom: CGFloat`, `visibleContentRect(viewSize:) -> CGRect`; `CanvasRenderer` (1C-a Task 7) — an `enum` with `static func seededRotation(for:) -> Angle`, `static func visibleNodes(in:camera:viewSize:) -> [CanvasNode]`, `static func draw(scene:camera:viewSize:layouts:editingNodeID:into:)` and `private static func drawCard(...)`; `ScrapLayout` (1C-a Task 3); `CanvasItemPresentation` (1C-a Task 12 — the per-item title/glyph the view resolves from the project store; it carries a `title`).
-- Produces on `CanvasRenderer`: `static let regionLayerDepth/nodeLayerDepth`, `static func visibleRegions(in:camera:viewSize:)`, `struct Tether`, `static func tethers(in:)`, `struct AppearanceChip` (`node`, `region`, `homeRegion`, `frame`), `static let chipHeight`, `static func appearanceChips(in:)`, `static func homeAnchor(of:in:)`, `static func chipTitle(for:scraps:presentations:)`, `static func regionStroke(isSelected:)`, and `static func visibleNodes(in:camera:viewSize:hidingCollapsedResidents:)`.
-- Amends `CanvasRenderer.draw` to `draw(scene:camera:viewSize:layouts:presentations:scraps:selectedRegionID:editingNodeID:into:)`.
+- Consumes: `CanvasScene`, `CanvasRegion`, `CanvasRegionID`, `CanvasMembership` (Tasks 1–2); `CanvasModel` (Task 4); `CanvasCamera` (1C-a Task 4) with `pan: CGPoint`, `zoom: CGFloat`, `visibleContentRect(viewSize:) -> CGRect`; `ScrapLayout` (1C-a Task 3); `CanvasFocusStraighten` (1C-a Task 7); `CanvasRenderer` (1C-a Task 7) — an `enum` with `static func seededRotation(for:) -> Angle`, `static func drawnAngle(for:straighten:) -> Angle`, `static func cardTransform(inCard:angle:) -> CGAffineTransform`, `static func localPoint(_:inCard:angle:) -> CGPoint`, `static func visibleNodes(in:camera:viewSize:) -> [CanvasNode]`, `static func placeholderLabel(forReference:) -> String`, `static func drawsOwnText(_:visibleEditorNodeID:) -> Bool`, `static func draw(scene:camera:viewSize:layouts:visibleEditorNodeID:straighten:into:)`, and `private static func drawCard(_:frame:layout:angle:into:)`.
+- Produces on `CanvasRenderer`: `static let regionLayerDepth/nodeLayerDepth`, `static func visibleRegions(in:camera:viewSize:)`, `struct Tether`, `static func tethers(in:)`, `struct AppearanceChip` (`node`, `region`, `homeRegion`, `frame`), `static let chipHeight`, `static func appearanceChips(in:)`, `static func homeAnchor(of:in:)`, `static func chipTitle(for:in:scraps:)`, `static func regionStroke(isSelected:)`, and `static func visibleNodes(in:camera:viewSize:hidingCollapsedResidents:)`.
+- Amends `CanvasRenderer.draw` to `draw(scene:camera:viewSize:layouts:scraps:selectedRegionID:visibleEditorNodeID:straighten:into:)` — **two parameters added to 1C-a's five; none renamed, none removed.**
+
+**Three things about 1C-a's `draw` that this task must not undo.** Its signature went through a fix round after this plan's first draft, and each change was made for a named defect:
+
+1. **The suppression parameter is `visibleEditorNodeID:`, not `editingNodeID:`.** 1C-a keeps three states apart — `editingNodeID` (the writer is editing it), `mountedEditorNodeID` (its editor exists and takes keystrokes, from the click), `visibleEditorNodeID` (its editor *is* the visible text, from `straighten.isLevel`). For the ~120 ms of the straighten the editor exists and is invisible, and the renderer must **keep drawing that card's text** — it is live text, off the same `NSTextStorage` the invisible editor is mutating. 1C-a records that the `editingNodeID:` spelling blanked it from frame one, so the glyphs vanished and reappeared straight. That is the §7A.2 jump arriving by §7A.5's own route.
+2. **The parameter suppresses the node's TEXT, never its CARD.** 1C-a's loop calls `drawCard` unconditionally and passes `layout: nil` when `drawsOwnText` is false. A `continue` would make the focused card disappear the moment it is clicked — and §7A.5's whole affordance is that the focused card is the only square one on the canvas, which needs a card to be square.
+3. **The card's rotation comes from `drawnAngle(for:straighten:)` through `cardTransform(inCard:angle:)`,** applied to a *copy* of the context inside `drawCard`. There is no inline `cx.rotate(by: seededRotation(...))` in `draw` any more, and a grep test in 1C-a forbids `rotate(by:)` and `rotationEffect` anywhere in `Maugham/Canvas/` — one definition of the rotation, used forwards by the draw pass and inverted by the caret hit test, because a flipped convention doubles the caret error rather than removing it and a round-trip test passes either way.
+
+**Regions, tethers and chips draw in canvas space, outside the card transform — and that is exactly right, not a shortcut.** `cardTransform` is concatenated onto a *local copy* of the context inside `drawCard`, so it never leaks into the passes around it. A region is not a card and has no seeded angle: it is a wash with a label, drawn under the camera CTM alone. The two places this could have gone wrong are the two anchors, and both are safe **because the card's rotation fixes its own centre**: `cardTransform` translates to `(midX, midY)`, rotates, and translates back, so a card's midpoint maps to itself at any angle. `tethers(in:)` and `homeAnchor(of:in:)` both anchor on `frame.midX/midY`, so a tether meets a tilted card at precisely the point it meets an untilted one, and no straighten value can make the line drift off its card. Anchoring on a corner instead would need the transform applied and would visibly slide during the 120 ms straighten. **Do not anchor a tether or a hairline on anything but a midpoint without also applying `cardTransform`.**
 
 **Spec §4.3 is a rendering requirement here:** *"An appearance must not render identically to the thing itself — otherwise the copy problem returns visually and you cannot tell which is real. An appearance reads as a reference: smaller, or a chip carrying the title with a hairline to its home. Any region should answer 'which of these live here and which are visiting' at a glance."*
 
@@ -1279,6 +1417,35 @@ final class CanvasRegionRenderTests: XCTestCase {
         XCTAssertTrue(CanvasRenderer.tethers(in: s).isEmpty)
     }
 
+    /// A collapsed region hides its residents, so a tether to one would be a
+    /// line running to a card that is not drawn.
+    func test_aCollapsedRegionDrawsNoTethers() {
+        var s = scene()
+        CanvasMembership.join(CanvasNodeID("a"), home: CanvasRegionID("r1"), in: &s)
+        s.move(CanvasNodeID("a"), to: CGPoint(x: 5000, y: 5000))
+        XCTAssertEqual(CanvasRenderer.tethers(in: s).count, 1)
+        s.updateRegion(CanvasRegionID("r1")) { $0.isCollapsed = true }
+        XCTAssertTrue(CanvasRenderer.tethers(in: s).isEmpty,
+                      "a tether to a hidden card is a line to nowhere")
+    }
+
+    /// The tether anchors on the card's CENTRE, which is the fixed point of
+    /// `cardTransform` — so §7A.5's straighten cannot slide the line off its
+    /// card during the 120ms animation.
+    func test_aTetherAnchorsOnTheRotationFixedPoint() {
+        var s = scene()
+        CanvasMembership.join(CanvasNodeID("a"), home: CanvasRegionID("r1"), in: &s)
+        s.move(CanvasNodeID("a"), to: CGPoint(x: 5000, y: 5000))
+        let tether = CanvasRenderer.tethers(in: s).first!
+        let frame = s.node(CanvasNodeID("a"))!.frame!
+        let centre = CGPoint(x: frame.midX, y: frame.midY)
+        XCTAssertEqual(tether.from, centre)
+        let tilted = CanvasRenderer.cardTransform(
+            inCard: frame, angle: CanvasRenderer.seededRotation(for: CanvasNodeID("a")))
+        XCTAssertEqual(centre.applying(tilted).x, centre.x, accuracy: 0.0001)
+        XCTAssertEqual(centre.applying(tilted).y, centre.y, accuracy: 0.0001)
+    }
+
     /// §4.3: an appearance must NOT render identically to the thing itself.
     func test_appearancesRenderAsChipsNotAsCards() {
         var s = scene()
@@ -1321,26 +1488,29 @@ final class CanvasRegionRenderTests: XCTestCase {
 
     func test_aChipTitleForAScrapIsItsFirstLine() {
         let title = CanvasRenderer.chipTitle(
-            for: CanvasNodeID("a"),
-            scraps: [CanvasNodeID("a"): "The falls at night.\nSodium light on the spray."],
-            presentations: [:])
+            for: CanvasNodeID("a"), in: scene(),
+            scraps: [CanvasNodeID("a"): "The falls at night.\nSodium light on the spray."])
         XCTAssertEqual(title, "The falls at night.")
     }
 
     func test_anEmptyScrapStillGetsAReadableChipTitle() {
-        XCTAssertEqual(CanvasRenderer.chipTitle(for: CanvasNodeID("a"),
-                                                scraps: [CanvasNodeID("a"): "   "],
-                                                presentations: [:]),
+        XCTAssertEqual(CanvasRenderer.chipTitle(for: CanvasNodeID("a"), in: scene(),
+                                                scraps: [CanvasNodeID("a"): "   "]),
                        "Untitled")
     }
 
-    func test_aChipTitleForAnItemComesFromItsPresentation() {
-        let id = CanvasNodeID.item("r-9")
-        let title = CanvasRenderer.chipTitle(
-            for: id, scraps: [:],
-            presentations: [id: CanvasItemPresentation(title: "Street photo",
-                                                       symbolName: "photo")])
-        XCTAssertEqual(title, "Street photo")
+    /// An item node's chip reads the SAME placeholder its card reads, so a chip
+    /// and its card can never disagree about what the thing is called. 1C-a
+    /// draws item cards as `Item · <referenceId>`; when 1C-d resolves real
+    /// titles it changes `placeholderLabel` and both surfaces follow.
+    func test_aChipTitleForAnItemMatchesTheLabelItsCardDraws() {
+        var s = scene()
+        var item = CanvasNode(id: CanvasNodeID.item("r-9"), kind: .item(referenceId: "r-9"),
+                              origin: CGPoint(x: 300, y: 50), width: 240)
+        item.cachedHeight = 60
+        s.insert(item)
+        XCTAssertEqual(CanvasRenderer.chipTitle(for: CanvasNodeID.item("r-9"), in: s, scraps: [:]),
+                       CanvasRenderer.placeholderLabel(forReference: "r-9"))
     }
 
     func test_collapsedRegionHidesItsResidentsButKeepsThem() {
@@ -1362,11 +1532,13 @@ final class CanvasRegionRenderTests: XCTestCase {
 }
 ```
 
-`CanvasItemPresentation` comes from 1C-a Task 12 and carries a `title`. If its memberwise initialiser takes fields beyond `title` and `symbolName`, fill them in — the assertion is about the title.
+**There is no `CanvasItemPresentation` in this slice, and that is a constraint, not an oversight.** An earlier draft of this plan had `chipTitle` take a `presentations: [CanvasNodeID: CanvasItemPresentation]` map and cited 1C-a Task 12 as its source. 1C-a's Global Constraints forbid building that type outright — "**Do not build:** a drop target, `CanvasItemPresentation` or any title/thumbnail resolution… If a task seems to need one of these, it belongs to **1C-d**" — so the citation named a type 1C-a never ships.
+
+Regions do not genuinely need it, which is why this task drops the dependency rather than deferring to 1C-d. A chip names a node that is already on the canvas, and 1C-a gives every node kind a name: a scrap's is its first line, an item's is `CanvasRenderer.placeholderLabel(forReference:)`, which is the same string that node's *card* draws. So `chipTitle(for:in:scraps:)` takes the scene, switches on the node's kind, and needs nothing from the project store. That also means 1C-b can be executed against 1C-a alone, with 1C-d in either order — and when 1C-d resolves real titles it changes one function and both the card and the chip follow, which is a stronger guarantee than passing the same map to two call sites.
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasRegionRenderTests CODE_SIGNING_ALLOWED=NO`
+Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasRegionRenderTests CODE_SIGNING_ALLOWED=NO`
 Expected: FAIL — `type 'CanvasRenderer' has no member 'visibleRegions'`.
 
 - [ ] **Step 3: Add the region-drawing surface to `CanvasRenderer`**
@@ -1378,11 +1550,14 @@ Expected: FAIL — `type 'CanvasRenderer' has no member 'visibleRegions'`.
     static let regionLayerDepth = 0
     static let nodeLayerDepth = 1
 
+    /// `unorderedRegions`, not `regions` — this runs once per frame and the
+    /// survivors all get drawn, so the sort would buy nothing. Same reasoning as
+    /// 1C-a's `visibleNodes`.
     static func visibleRegions(in scene: CanvasScene,
                                camera: CanvasCamera,
                                viewSize: CGSize) -> [CanvasRegion] {
         let viewport = camera.visibleContentRect(viewSize: viewSize)
-        return scene.regions.filter { $0.frame.intersects(viewport) }
+        return scene.unorderedRegions.filter { $0.frame.intersects(viewport) }
     }
 
     static func regionStroke(isSelected: Bool) -> (width: CGFloat, opacity: Double) {
@@ -1407,9 +1582,19 @@ Expected: FAIL — `type 'CanvasRenderer' has no member 'visibleRegions'`.
     /// by a pixel still reads as being in the region; drawing it a full line to
     /// the region's centre would be the same one-pixel nonsense the design
     /// cites against Obsidian, inverted.
+    ///
+    /// Both endpoints are MIDPOINTS, and that is load-bearing rather than
+    /// convenient: a card's midpoint is the fixed point of
+    /// `cardTransform(inCard:angle:)`, so the line meets a tilted card at
+    /// exactly the point it meets an untilted one and §7A.5's straighten cannot
+    /// slide it. A corner anchor would need the transform applied here and would
+    /// drift visibly through the 120 ms animation.
     static func tethers(in scene: CanvasScene) -> [Tether] {
-        scene.regions.flatMap { region -> [Tether] in
-            region.homeMembers.sorted { $0.raw < $1.raw }.compactMap { nodeID in
+        scene.unorderedRegions.flatMap { region -> [Tether] in
+            // A collapsed region's residents are not drawn, so a tether to one
+            // would be a line running to nothing.
+            guard !region.isCollapsed else { return [] }
+            return region.homeMembers.sorted { $0.raw < $1.raw }.compactMap { nodeID in
                 guard let frame = scene.node(nodeID)?.frame,
                       !region.frame.intersects(frame) else { return nil }
                 return Tether(node: nodeID, region: region.id,
@@ -1464,10 +1649,20 @@ Expected: FAIL — `type 'CanvasRenderer' has no member 'visibleRegions'`.
 
     /// What a chip says. Pure, so the "which of these are visiting" reading is
     /// testable without a window.
+    ///
+    /// An item node's chip reads `placeholderLabel(forReference:)` — the SAME
+    /// function its card reads — so a chip and its card cannot disagree about
+    /// what the thing is called. This is deliberately not a
+    /// `[CanvasNodeID: CanvasItemPresentation]` map: that type belongs to 1C-d,
+    /// 1C-a's Global Constraints forbid building it, and routing both surfaces
+    /// through one function is the stronger guarantee anyway. When 1C-d resolves
+    /// real titles it replaces `placeholderLabel` and both follow.
     static func chipTitle(for id: CanvasNodeID,
-                          scraps: [CanvasNodeID: String],
-                          presentations: [CanvasNodeID: CanvasItemPresentation]) -> String {
-        if let presentation = presentations[id] { return presentation.title }
+                          in scene: CanvasScene,
+                          scraps: [CanvasNodeID: String]) -> String {
+        if case .item(let referenceId)? = scene.node(id)?.kind {
+            return placeholderLabel(forReference: referenceId)
+        }
         let firstLine = (scraps[id] ?? "")
             .split(separator: "\n", omittingEmptySubsequences: true)
             .first.map(String.init) ?? ""
@@ -1483,16 +1678,18 @@ Expected: FAIL — `type 'CanvasRenderer' has no member 'visibleRegions'`.
                              hidingCollapsedResidents: Bool) -> [CanvasNode] {
         let visible = visibleNodes(in: scene, camera: camera, viewSize: viewSize)
         guard hidingCollapsedResidents else { return visible }
-        let hidden = scene.regions
+        let hidden = scene.unorderedRegions
             .filter(\.isCollapsed)
             .reduce(into: Set<CanvasNodeID>()) { $0.formUnion($1.homeMembers) }
         return visible.filter { !hidden.contains($0.id) }
     }
 ```
 
-- [ ] **Step 4: Amend `draw` — the signature and the whole body**
+- [ ] **Step 4: Amend `draw` — two new parameters, and the node pass left alone**
 
-1C-a's `draw` takes `layouts:` and `editingNodeID:`, and its Task 12 adds `presentations:` for item titles. Two arguments join them: `scraps:`, because a chip shows its subject's first line, and `selectedRegionID:`, because the selection ring is drawn, not a view overlay. Keep the parameter order below; if the merged 1C-a signature spells `presentations:` differently, keep the merged spelling and add the two new parameters in the same positions.
+1C-a's `draw` takes `scene:camera:viewSize:layouts:visibleEditorNodeID:straighten:into:`. **Two arguments join them and none are renamed or removed:** `scraps:`, because a chip shows its subject's first line, and `selectedRegionID:`, because the selection ring is drawn rather than being a view overlay. They go in the positions below.
+
+The **node pass is 1C-a's, unchanged in every respect but one** — the loop is now fed by the collapse-aware overload. Do not reintroduce the inline rotation or the `continue`: `drawCard` is called for every visible node and receives `angle:` from `drawnAngle(for:straighten:)`, and a suppressed node gets `layout: nil` rather than being skipped. Both were fixed in 1C-a for named defects (see the Interfaces block above); re-typing the older shape here would undo both.
 
 ```swift
     /// Draw the whole scene under the camera's CTM, in four passes:
@@ -1500,17 +1697,24 @@ Expected: FAIL — `type 'CanvasRenderer' has no member 'visibleRegions'`.
     /// never occlude the cards it holds (`regionLayerDepth < nodeLayerDepth`),
     /// and a chip must never be hidden behind the card it references.
     ///
-    /// `editingNodeID` is skipped: while a scrap's editor is live, the editor IS
-    /// the visible text, so drawing it too would double-draw (spec §7A.2, the
-    /// rule borrowed from Excalidraw).
+    /// Regions, tethers and chips are drawn in CANVAS space, under the camera
+    /// CTM alone. The card rotation lives on a local copy of the context inside
+    /// `drawCard` and never leaks out here — a region is not a card and carries
+    /// no seeded angle. Every anchor a tether or hairline lands on is a card
+    /// MIDPOINT, which is `cardTransform`'s fixed point, so none of them move
+    /// as a card straightens.
+    ///
+    /// `visibleEditorNodeID` suppresses that node's TEXT only — its card is
+    /// still drawn. See `drawsOwnText`, and 1C-a Task 7 for why this is neither
+    /// `editingNodeID` nor `mountedEditorNodeID`.
     static func draw(scene: CanvasScene,
                      camera: CanvasCamera,
                      viewSize: CGSize,
                      layouts: [CanvasNodeID: ScrapLayout],
-                     presentations: [CanvasNodeID: CanvasItemPresentation],
                      scraps: [CanvasNodeID: String],
                      selectedRegionID: CanvasRegionID?,
-                     editingNodeID: CanvasNodeID?,
+                     visibleEditorNodeID: CanvasNodeID?,
+                     straighten: CanvasFocusStraighten,
                      into cx: inout GraphicsContext) {
         cx.translateBy(x: camera.pan.x, y: camera.pan.y)
         cx.scaleBy(x: camera.zoom, y: camera.zoom)
@@ -1531,27 +1735,23 @@ Expected: FAIL — `type 'CanvasRenderer' has no member 'visibleRegions'`.
                       lineWidth: 0.5)
         }
 
-        // 3. Nodes. Residents of a collapsed region are hidden — a view state,
-        //    never a membership change.
+        // 3. Nodes — 1C-a's pass, with the collapse-aware culling overload.
+        //    Residents of a collapsed region are hidden: a view state, never a
+        //    membership change.
         for node in visibleNodes(in: scene, camera: camera, viewSize: viewSize,
                                  hidingCollapsedResidents: true) {
-            guard node.id != editingNodeID, let frame = node.frame else { continue }
-
-            var layer = cx
-            // Rotate about the card's own centre, not the canvas origin.
-            layer.translateBy(x: frame.midX, y: frame.midY)
-            layer.rotate(by: seededRotation(for: node.id))
-            layer.translateBy(x: -frame.midX, y: -frame.midY)
-
-            drawCard(node, frame: frame, layout: layouts[node.id],
-                     presentation: presentations[node.id], into: &layer)
+            guard let frame = node.frame else { continue }
+            let ownText = drawsOwnText(node.id, visibleEditorNodeID: visibleEditorNodeID)
+            drawCard(node, frame: frame,
+                     layout: ownText ? layouts[node.id] : nil,
+                     angle: drawnAngle(for: node.id, straighten: straighten),
+                     into: &cx)
         }
 
         // 4. Chips last, on top of the region they annotate.
         for chip in appearanceChips(in: scene) {
             drawChip(chip,
-                     title: chipTitle(for: chip.node, scraps: scraps,
-                                      presentations: presentations),
+                     title: chipTitle(for: chip.node, in: scene, scraps: scraps),
                      anchor: homeAnchor(of: chip, in: scene),
                      into: &cx)
         }
@@ -1610,28 +1810,30 @@ Expected: FAIL — `type 'CanvasRenderer' has no member 'visibleRegions'`.
 
 - [ ] **Step 5: Update the one call site**
 
-In `CanvasView.body`:
+Inside the `TimelineView(.animation(paused:))` block in `CanvasView.body` — the clock 1C-a Task 10 built and Task 13 widened. The `_ = drawRevision` line and the `.onChange(of: context.date)` stepping stay exactly as they are; only the argument list grows:
 
 ```swift
                 Canvas { cx, size in
+                    _ = drawRevision
                     CanvasRenderer.draw(scene: model.scene, camera: camera, viewSize: size,
-                                        layouts: layouts, presentations: presentations,
+                                        layouts: layouts,
                                         scraps: model.scraps,
                                         selectedRegionID: model.selectedRegionID,
-                                        editingNodeID: editingNodeID,
+                                        visibleEditorNodeID: visibleEditorNodeID,
+                                        straighten: straighten,
                                         into: &cx)
                 }
 ```
 
-`presentations` is the `[CanvasNodeID: CanvasItemPresentation]` map `CanvasView` already resolves for item nodes (1C-a Task 12). No new resolution work: the chip reads the same map the card does, which is why a chip and its card can never disagree about a title.
+`visibleEditorNodeID` is 1C-a's computed property (`editingNodeID` **and** `straighten.isLevel(id)`) — the same one property that gates `ScrapEditorHost`'s visibility, so the drawn text and the editor cannot flip on different frames. Do not substitute `editingNodeID` or `mountedEditorNodeID` here.
 
 - [ ] **Step 6: Run the tests and a Release build**
 
 Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasRegionRenderTests CODE_SIGNING_ALLOWED=NO`
-Expected: PASS, 13 tests.
+Expected: PASS, 15 tests.
 
 Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasRendererTests CODE_SIGNING_ALLOWED=NO`
-Expected: PASS — 1C-a's renderer tests must survive the signature change.
+Expected: PASS, 21 tests — 1C-a's renderer tests must survive the signature change untouched. They cover the straighten, `drawsOwnText`, `cardTransform` against literal trigonometry, and the grep that forbids a second rotation or a hand-derived raster scale anywhere in `Maugham/Canvas/`. **If the grep test fails, this task reintroduced `rotate(by:)` in `draw`** — fix the draw pass, not the test.
 
 Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham -configuration Release build CODE_SIGNING_ALLOWED=NO`
 Expected: BUILD SUCCEEDED.
@@ -1658,11 +1860,16 @@ overhanging the boundary is not lassoed to the region centre."
 - Test: `MaughamTests/Canvas/CanvasRegionInteractionTests.swift`
 
 **Interfaces:**
-- Consumes: `CanvasScene`, `CanvasRegion`, `CanvasRegionID`, `CanvasMembership` (Tasks 1–2); `CanvasModel` with `withScene(persist:_:)`, `beginGesture(_:)`, `endGesture()`, `deleteSelectedRegion()`, `selectedRegionID` (Task 4); `CanvasInteraction` (1C-a Task 11) — a `struct` with `private enum Mode`, `private var mode: Mode`, `static let minimumScrapWidth/defaultScrapWidth`, `mutating func begin(at:in:)`, `beginResize(_:at:in:)`, `update(to:in:)`, `end()`, `static func createScrap(at:in:)`; `CanvasEventView` (1C-a Task 6) taking `camera: Binding<CanvasCamera>`, `onClick: (CGPoint) -> Void`, `onDrag: (CGPoint, CGPoint, DragPhase) -> Void`.
+- Consumes: `CanvasScene`, `CanvasRegion`, `CanvasRegionID`, `CanvasMembership` (Tasks 1–2); `CanvasModel` with `withScene(persist:_:)`, `beginGesture(_:)`, `endGesture()`, `deleteSelectedRegion()`, `selectedRegionID` (Task 4); `CanvasInteraction` (1C-a **Task 13**) — a `struct` with `private enum Mode`, `private var mode: Mode`, `static let minimumScrapWidth/defaultScrapWidth`, `var isActive: Bool`, `var activeNodeID: CanvasNodeID?`, `var isResizing: Bool`, `mutating func begin(at:in:)`, `beginResize(_:at:in:)`, `update(to:in:)`, `@discardableResult mutating func end() -> (id: CanvasNodeID, velocity: CGSize)?`, `static func createScrap(at:in:) -> CanvasNodeID`; `CanvasMomentum` (1C-a Task 13); `CanvasDragPhase` (1C-a Task 6) — `case began/changed/ended`, **the only drag vocabulary in the slice**; `CanvasEventView` (1C-a Task 6) taking `camera: Binding<CanvasCamera>`, `onClick: (CGPoint, Int) -> Void`, `onDrag: (CGPoint, CanvasDragPhase) -> Void`, `undoManager: UndoManager?`.
 - Produces on `CanvasInteraction`: `static let minimumRegionSide/regionChromeHeight/regionResizeHandleSide`, `enum RegionHit`, `static func regionHit(at:in:)`, `static func joinTarget(for:in:)`, `mutating func beginRegionDrag(_:at:in:)`, `mutating func beginRegionResize(_:at:in:)`, `mutating func endDrag(in:)`, `static func createRegion(from:to:in:) -> CanvasRegionID?`.
 - Produces on `CanvasEventNSView`/`CanvasEventView`: `onDeleteKey: (() -> Void)?`.
+- Produces on `CanvasView`: `@State private var regionDrawStart: CGPoint?`.
 
-**Undo is not optional here.** This task adds three mutating gestures and one destructive one. 1C-a Task 13 established that every gesture is bracketed; a region drag that moved eleven cards and cannot be taken back is exactly how a spatial surface loses a writer's trust, and a ⌘Z that instead undoes the *previous* scrap edit is worse than none. Every gesture in Step 5 is wrapped in `model.beginGesture`/`model.endGesture`, which is the snapshot mechanism from Task 4 — **do not also wrap it in `CanvasUndo.beginGesture`.** One gesture, one mechanism; nesting the two produces a group containing a snapshot and gives you two ⌘Z presses for one drag.
+**`CanvasEventView`'s callbacks are 1C-a's, and one of them forces a new piece of view state.** `onDrag` is `(CGPoint, CanvasDragPhase) -> Void` — **one** point and a phase, not a start-and-current pair, and the phase type is `CanvasDragPhase`; 1C-a states flatly that "there is no `DragPhase`". So a ⌥-drag that draws a region cannot read its start point out of the `.ended` callback: the view has to remember where the press landed. That is `regionDrawStart`, set at `.began` and consumed at `.ended`. And `undoManager:` must keep being passed — it is what vends the canvas undo stack to the responder chain, so ⌘Z works with nothing focused.
+
+**Undo is not optional here.** This task adds three mutating gestures and one destructive one. 1C-a **Task 15** established that every gesture is bracketed; a region drag that moved eleven cards and cannot be taken back is exactly how a spatial surface loses a writer's trust, and a ⌘Z that instead undoes the *previous* scrap edit is worse than none.
+
+**There is exactly one undo mechanism, and `model.beginGesture` *is* `CanvasUndo.beginGesture`.** Task 4 makes `CanvasModel` a forwarder onto 1C-a's recorder rather than a second implementation, so the two are the same call and there is nothing to nest by accident. Region gestures therefore **extend 1C-a's existing brackets in `handleDrag`** rather than adding a parallel set: `.began` opens one gesture with the right name, `.ended` closes it, and `CanvasUndo`'s depth counter absorbs any re-entry. Do not open a second bracket around an interaction that is already inside one, and do not reach past the model to `model.undo` — the four forwarding methods are the whole surface.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1807,6 +2014,19 @@ final class CanvasRegionInteractionTests: XCTestCase {
                       + "removal is its own explicit act (§4.2)")
     }
 
+    /// `endDrag` must leave the mode alone so the `end()` that follows still
+    /// reports the flick §7.3's momentum is launched from. Clearing it here
+    /// kills momentum on every card, silently, with no other test noticing.
+    func test_theJoinDoesNotConsumeTheDragThatMomentumNeeds() {
+        var s = scene()
+        var i = CanvasInteraction()
+        i.begin(at: CGPoint(x: 110, y: 110), in: s)
+        i.update(to: CGPoint(x: 310, y: 210), in: &s)
+        i.endDrag(in: &s)
+        XCTAssertTrue(i.isActive, "endDrag reports the join; end() ends the drag")
+        XCTAssertNotNil(i.end(), "the flick must survive the join")
+    }
+
     func test_endingARegionDragNeverJoinsAnything() {
         var s = scene()
         var i = CanvasInteraction()
@@ -1847,9 +2067,17 @@ final class CanvasRegionInteractionTests: XCTestCase {
 
     // MARK: - Undo
 
-    func test_aRegionDragIsOneUndoStepAndRestoresItsResidents() {
+    /// `groupsByEvent` must be off in any test that calls `undo()` synchronously
+    /// — see 1C-a's CanvasUndoTests and this plan's Global Constraints.
+    private func undoableModel() -> CanvasModel {
         let model = CanvasModel()
+        model.undoManager.groupsByEvent = false
         model.withScene { $0 = self.scene() }
+        return model
+    }
+
+    func test_aRegionDragIsOneUndoStepAndRestoresItsResidents() {
+        let model = undoableModel()
         model.mutate("Join Region") {
             CanvasMembership.join(CanvasNodeID("a"), home: CanvasRegionID("r1"), in: &$0)
         }
@@ -1870,13 +2098,13 @@ final class CanvasRegionInteractionTests: XCTestCase {
     }
 
     func test_undoingADropToJoinTakesTheMembershipBackToo() {
-        let model = CanvasModel()
-        model.withScene { $0 = self.scene() }
+        let model = undoableModel()
         var i = CanvasInteraction()
         model.beginGesture("Move Scrap")
         i.begin(at: CGPoint(x: 110, y: 110), in: model.scene)
         model.withScene { i.update(to: CGPoint(x: 310, y: 210), in: &$0) }
         model.withScene { i.endDrag(in: &$0) }
+        i.end()
         model.endGesture()
         XCTAssertTrue(model.scene.region(CanvasRegionID("r1"))!.livesHere(CanvasNodeID("a")))
 
@@ -1889,7 +2117,7 @@ final class CanvasRegionInteractionTests: XCTestCase {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasRegionInteractionTests CODE_SIGNING_ALLOWED=NO`
+Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasRegionInteractionTests CODE_SIGNING_ALLOWED=NO`
 Expected: FAIL — no `beginRegionDrag`.
 
 - [ ] **Step 3: Extend `CanvasInteraction`**
@@ -2030,8 +2258,14 @@ Add the drop and the create:
     ///
     /// Region drags fall through untouched: moving a region must not absorb
     /// whatever it happens to land on.
+    ///
+    /// **This does NOT reset `mode`, and must be called BEFORE `end()`.**
+    /// 1C-a's `end()` is what clears the mode, and it returns the flick velocity
+    /// §7.3's momentum is launched from. An earlier draft cleared the mode here
+    /// with a `defer`, so the `end()` that followed saw `.idle`, returned nil,
+    /// and every card stopped dead where the writer released it — momentum
+    /// silently gone, with no test failing.
     mutating func endDrag(in scene: inout CanvasScene) {
-        defer { mode = .idle }
         guard case .moving(let nodeID, _) = mode,
               let frame = scene.node(nodeID)?.frame,
               let target = joinTarget(for: frame, in: scene) else { return }
@@ -2063,15 +2297,18 @@ Add the drop and the create:
 
 - [ ] **Step 4: Add the delete key to `CanvasEventView`**
 
-In `Maugham/Canvas/CanvasEventView.swift`, on `CanvasEventNSView`:
+In `Maugham/Canvas/CanvasEventView.swift`, on `CanvasEventNSView`. **1C-a already declares `override var acceptsFirstResponder: Bool { true }` — do not add a second one**, the file will not compile:
 
 ```swift
-    /// ⌫ deletes the selected REGION. Nodes have their own delete path
-    /// (1C-a Task 12) — this callback only fires when the canvas has a region
-    /// selected, which `CanvasView` decides.
+    /// ⌫ deletes the selected REGION, and nothing else. **1C-a ships no node
+    /// delete path at all** — a scrap is removed by emptying it, and there is no
+    /// key handler for nodes to collide with. Deleting item nodes belongs to
+    /// 1C-d. This callback is a no-op unless a region is selected, which
+    /// `CanvasView` decides via `deleteSelectedRegion()`.
+    ///
+    /// A focused scrap's editor is frontmost and first responder, so a ⌫ typed
+    /// inside a scrap never reaches this view.
     var onDeleteKey: (() -> Void)?
-
-    override var acceptsFirstResponder: Bool { true }
 
     override func keyDown(with event: NSEvent) {
         // 51 = delete, 117 = forward delete.
@@ -2083,89 +2320,124 @@ In `Maugham/Canvas/CanvasEventView.swift`, on `CanvasEventNSView`:
     }
 ```
 
-and pass it through `CanvasEventView` alongside `onClick`/`onDrag`, wiring it in `makeNSView`/`updateNSView` exactly as those two are wired.
+and pass it through `CanvasEventView` alongside `onClick`/`onDrag`/`undoManager`, wiring it in `wire(_:)` exactly as those are wired.
 
 - [ ] **Step 5: Route the gestures in `CanvasView`**
+
+This **extends 1C-a's `handleDrag(at:phase:)`** — one method, one `switch` over `CanvasDragPhase`. Do not split it into three; the event view has one callback and the existing brackets, guards, momentum and counter bumps all live in this switch.
 
 Hit order is **resize handle → card → region chrome → empty canvas**, and it is a decision, not an accident: a card lying under a region's label bar must still be pickable, because the card is the thing the writer is looking at.
 
 ```swift
     /// ⌥-drag on empty canvas draws a region. Read from `NSEvent` rather than
     /// threaded through the event view's callbacks: modifier state at press
-    /// time is exactly what `NSEvent.modifierFlags` reports, and widening the
-    /// callback signature would touch every call site for one Bool.
+    /// time is exactly what `NSEvent.modifierFlags` reports, and widening
+    /// `onDrag` would break 1C-a's "one drag vocabulary" for one Bool.
     private var isDrawingRegionGesture: Bool {
         NSEvent.modifierFlags.contains(.option)
     }
 
-    private func handleDragBegan(from contentPoint: CGPoint) {
-        if case .resizeHandle(let id)? = CanvasInteraction.regionHit(at: contentPoint,
-                                                                    in: model.scene) {
-            model.selectedRegionID = id
-            model.beginGesture("Resize Region")
-            interaction.beginRegionResize(id, at: contentPoint, in: model.scene)
-        } else if model.scene.topmostNode(at: contentPoint) != nil {
-            model.beginGesture("Move Scrap")
-            interaction.begin(at: contentPoint, in: model.scene)
-        } else if case .chrome(let id)? = CanvasInteraction.regionHit(at: contentPoint,
-                                                                     in: model.scene) {
-            model.selectedRegionID = id
-            model.beginGesture("Move Region")
-            interaction.beginRegionDrag(id, at: contentPoint, in: model.scene)
-        } else if isDrawingRegionGesture {
-            model.beginGesture("Draw Region")
-        }
-        // A plain drag on empty canvas is a pan, which the event view handles.
-    }
+    private func handleDrag(at contentPoint: CGPoint, phase: CanvasDragPhase) {
+        switch phase {
+        case .began:
+            // 1C-a's guard: a focused scrap owns its own mouse, because the
+            // editor is in front of the event view.
+            guard editingNodeID == nil else { return }
+            momentum.stop()
 
-    private func handleDragChanged(to contentPoint: CGPoint) {
-        model.withScene { interaction.update(to: contentPoint, in: &$0) }
-    }
-
-    private func handleDragEnded(from start: CGPoint, to end: CGPoint) {
-        if interaction.isActive {
-            // The one membership-changing gesture, and only for node drags —
-            // `endDrag` ignores region modes.
-            model.withScene { interaction.endDrag(in: &$0) }
-        } else if isDrawingRegionGesture {
-            model.withScene { scene in
-                if let id = CanvasInteraction.createRegion(from: start, to: end, in: &scene) {
-                    model.selectedRegionID = id
+            if case .resizeHandle(let id)? = CanvasInteraction.regionHit(at: contentPoint,
+                                                                        in: model.scene) {
+                model.selectedRegionID = id
+                model.beginGesture("Resize Region")
+                interaction.beginRegionResize(id, at: contentPoint, in: model.scene)
+            } else if model.scene.topmostNode(at: contentPoint) != nil {
+                interaction.begin(at: contentPoint, in: model.scene)
+                if interaction.isActive {
+                    model.beginGesture(interaction.isResizing ? "Resize Scrap" : "Move Scrap")
                 }
+            } else if case .chrome(let id)? = CanvasInteraction.regionHit(at: contentPoint,
+                                                                         in: model.scene) {
+                model.selectedRegionID = id
+                model.beginGesture("Move Region")
+                interaction.beginRegionDrag(id, at: contentPoint, in: model.scene)
+            } else if isDrawingRegionGesture {
+                // `onDrag` reports ONE point per call, so the press point has to
+                // be remembered here — `createRegion` needs both corners.
+                regionDrawStart = contentPoint
+                model.beginGesture("Draw Region")
             }
+            // A plain drag on empty canvas does nothing; panning is the scroll
+            // wheel, which the event view handles without reaching this method.
+
+        case .changed:
+            guard interaction.isActive else { return }
+            model.withScene { interaction.update(to: contentPoint, in: &$0) }
+            revision += 1
+
+        case .ended:
+            if interaction.isActive {
+                let wasResizing = interaction.isResizing
+                // The one membership-changing gesture, and only for node drags —
+                // `endDrag` ignores region modes. It runs BEFORE `end()`, which
+                // is what clears the mode and returns the flick.
+                model.withScene { interaction.endDrag(in: &$0) }
+                let flick = interaction.end()
+                if wasResizing {
+                    rebuildLayouts()          // bumps sceneRevision itself
+                } else if let flick {
+                    momentum.launch(flick.id, velocity: flick.velocity)
+                }
+            } else if let start = regionDrawStart {
+                model.withScene { scene in
+                    if let id = CanvasInteraction.createRegion(from: start, to: contentPoint,
+                                                               in: &scene) {
+                        model.selectedRegionID = id
+                    }
+                }
+                interaction.end()
+            } else {
+                interaction.end()
+            }
+            regionDrawStart = nil
+            // A gesture that changed nothing registers no step — CanvasUndo
+            // diffs the snapshot before it registers.
+            model.endGesture()
+            sceneRevision += 1
+            revision += 1
         }
-        interaction.end()
-        model.endGesture()   // a gesture that changed nothing pushes no undo step
     }
 ```
 
-and the event view gains the delete hook:
+Note that the region-draw branch is gated on `regionDrawStart` rather than on re-reading `isDrawingRegionGesture`: the modifier is sampled once at press time, so releasing ⌥ mid-drag cannot abandon a region the writer is halfway through drawing.
+
+The event view keeps 1C-a's argument list and gains the delete hook:
 
 ```swift
                 CanvasEventView(
                     camera: $camera,
-                    onClick: { handleClick(at: camera.contentPoint(fromView: $0)) },
-                    onDrag: { start, current, phase in
-                        let from = camera.contentPoint(fromView: start)
-                        let to = camera.contentPoint(fromView: current)
-                        switch phase {
-                        case .began: handleDragBegan(from: from)
-                        case .changed: handleDragChanged(to: to)
-                        case .ended: handleDragEnded(from: from, to: to)
-                        }
+                    onClick: { viewPoint, clickCount in
+                        handleClick(at: camera.contentPoint(fromView: viewPoint),
+                                    clickCount: clickCount)
                     },
+                    onDrag: { viewPoint, phase in
+                        handleDrag(at: camera.contentPoint(fromView: viewPoint), phase: phase)
+                    },
+                    // Task 15 of 1C-a filled this in; it vends the canvas undo
+                    // stack to the responder chain so ⌘Z works with nothing
+                    // focused. Dropping it here would silently kill that.
+                    undoManager: model.undoManager,
                     onDeleteKey: { model.deleteSelectedRegion() })
 ```
 
-Selecting a region on a chrome press (above) and clearing it on an empty click (Task 4's `handleClick`) are the whole selection model. There is no marquee.
+Selecting a region on a chrome press (above) and clearing it on a single click (Task 4's one added line in `handleClick`) are the whole selection model. There is no marquee.
 
 - [ ] **Step 6: Run the tests and a Release build**
 
 Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasRegionInteractionTests CODE_SIGNING_ALLOWED=NO`
-Expected: PASS, 16 tests.
+Expected: PASS, 17 tests.
 
-Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasInteractionTests CODE_SIGNING_ALLOWED=NO`
-Expected: PASS — 1C-a's scrap gestures are unchanged by the new `Mode` cases.
+Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasInteractionTests -only-testing MaughamTests/CanvasMomentumTests -only-testing MaughamTests/CanvasEventViewTests CODE_SIGNING_ALLOWED=NO`
+Expected: PASS, 13 + 7 + 10 tests — 1C-a's scrap gestures, its momentum decay and its input vocabulary are all unchanged by the new `Mode` cases and the new callback. **`CanvasMomentumTests` passing is not enough on its own**: it exercises `CanvasMomentum` directly, and the way this task can kill momentum is by consuming the drag before `interaction.end()` sees it. `test_theJoinDoesNotConsumeTheDragThatMomentumNeeds` is the one that catches that.
 
 Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham -configuration Release build CODE_SIGNING_ALLOWED=NO`
 Expected: BUILD SUCCEEDED.
@@ -2192,7 +2464,7 @@ still join. Every gesture is bracketed by CanvasModel's snapshot undo."
 - Test: `MaughamTests/Canvas/RegionBindingTests.swift`
 
 **Interfaces:**
-- Consumes: `CanvasRegion`, `CanvasRegionID`, `CanvasScene.updateRegion(_:_:)`, `CanvasMembership.leave(_:from:in:)` (Tasks 1–2); `CanvasModel` with `scene`, `scraps`, `selectedRegion`, `selectedRegionID`, `mutate(_:_:)`, `deleteSelectedRegion()`, `flush()` (Task 4); `CanvasRenderer.chipTitle(for:scraps:presentations:)` (Task 5); `ProjectStore.manifest.structure: [StructureItem]` (`id`, `title`, `type == .document`) and `TreeWalk.collect(in:where:)`.
+- Consumes: `CanvasRegion`, `CanvasRegionID`, `CanvasScene.updateRegion(_:_:)`, `CanvasMembership.leave(_:from:in:)` (Tasks 1–2); `CanvasModel` with `scene`, `scraps`, `selectedRegion`, `selectedRegionID`, `mutate(_:_:)`, `deleteSelectedRegion()`, `flush()` (Task 4); `CanvasRenderer.chipTitle(for:in:scraps:)` (Task 5); `ProjectStore.manifest.structure: [StructureItem]` (`id`, `title`, `type == .document`) and `MaughamCore`'s `TreeWalk.collect(in:where:)`.
 - Produces: `enum RegionBinding` with `static func bind(_:toPiece:in:)`, `unbind(_:in:)`, `references(forPiece:in:) -> Set<CanvasNodeID>`, `boundPiece(of:in:) -> String?`; `struct RegionInspector: View` with `init(model: CanvasModel, regionID: CanvasRegionID, pieces: [PieceChoice])`, nested `struct PieceChoice: Identifiable, Hashable` (`id: String`, `title: String`), and the commit methods `commitLabel(_:)`, `commitBinding(_:)`, `commitCollapsed(_:)`, `remove(_:)`, `deleteRegion()`.
 
 CLAUDE.md rule 8: every new data type needs a UI surface for inspection and action. Two types land here — the binding and `isCollapsed` — and **both get a control in this inspector**. `isCollapsed` was the one at risk: Task 5 renders it and the codec round-trips it, but nothing except a test could ever set it. A schema field only a test can reach is a field that rots, so it gets a disclosure toggle rather than being dropped; the spec asks for collapsing twice (§7, §10) and the render work is already done.
@@ -2231,6 +2503,9 @@ final class RegionBindingTests: XCTestCase {
 
     private func inspector() -> (CanvasModel, RegionInspector) {
         let model = CanvasModel()
+        // Required by any test that calls `undo()` synchronously — see the
+        // Global Constraints and 1C-a's CanvasUndoTests.
+        model.undoManager.groupsByEvent = false
         model.load(projectRoot: root)
         model.withScene { $0 = self.scene() }
         model.selectedRegionID = CanvasRegionID("r1")
@@ -2349,7 +2624,7 @@ final class RegionBindingTests: XCTestCase {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/RegionBindingTests CODE_SIGNING_ALLOWED=NO`
+Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/RegionBindingTests CODE_SIGNING_ALLOWED=NO`
 Expected: FAIL — `cannot find 'RegionBinding' in scope`.
 
 - [ ] **Step 3: Write the binding rules**
@@ -2480,8 +2755,8 @@ struct RegionInspector: View {
     private func membershipRows(_ ids: Set<CanvasNodeID>) -> some View {
         ForEach(ids.sorted { $0.raw < $1.raw }, id: \.raw) { id in
             HStack {
-                Text(CanvasRenderer.chipTitle(for: id, scraps: model.scraps,
-                                              presentations: [:]))
+                Text(CanvasRenderer.chipTitle(for: id, in: model.scene,
+                                              scraps: model.scraps))
                     .lineLimit(1)
                 Spacer()
                 Button {
@@ -2591,13 +2866,13 @@ ones the tests drive, so the detail-column-to-disk path is pinned."
 ### Task 8: Docs
 
 **Files:**
-- Modify: `Maugham/Canvas/AREA.md` (created by 1C-a Task 15)
-- Modify: `docs/adr/0026-planning-canvas-rendering.md` (created by 1C-a Task 15)
+- Modify: `Maugham/Canvas/AREA.md` (created by 1C-a **Task 17**)
+- Modify: `docs/adr/0026-planning-canvas-rendering.md` (created by 1C-a **Task 17**)
 - Modify: `CLAUDE.md` (tripwire table)
 - Modify: `docs/guide/` (the topic covering personas), `docs/roadmap.md`, `docs/problem-map.md`
 
 **Interfaces:**
-- Consumes: everything Tasks 1–7 shipped, plus `Maugham/Canvas/AREA.md` and `docs/adr/0026-planning-canvas-rendering.md` from 1C-a Task 15.
+- Consumes: everything Tasks 1–7 shipped, plus `Maugham/Canvas/AREA.md` and `docs/adr/0026-planning-canvas-rendering.md` from 1C-a **Task 17**.
 - Produces: no code. Doc-sync tests must stay green.
 
 **ADR decision, made here so no one has to relitigate it:** this slice **amends ADR 0026** with a "Membership" section. It does **not** mint a new ADR number. Membership is part of the same canvas-architecture decision the ADR already records, and 1C-c is being written in parallel — an unplanned number in this slice would collide with it. If 1C-c wants its own ADR for promotion, it takes the next free number; this slice takes none.
@@ -2608,7 +2883,12 @@ Add a "Membership" section covering: explicit-only; the three tools that got it 
 
 State plainly: **if you are about to write `region.frame.contains(node.origin)` near membership, you are reintroducing the bug class this design exists to eliminate.**
 
-Add a "Who owns what" paragraph, because it is the question the next reader will have: `CanvasModel` owns scene, scraps, selection, the store and the undo stack, and is owned by `ProjectWindow` because two columns read it; `CanvasView` owns camera, layouts and editing focus, because those belong to one view of the canvas.
+Add a "Who owns what" paragraph, because it is the question the next reader will have: `CanvasModel` owns scene, scraps, selection, the store and the undo stack, and is owned by `ProjectWindow` because two columns read it; `CanvasView` owns camera, layouts, editing focus, the straighten, momentum and both revision counters, because those belong to one *view* of the canvas.
+
+Two sentences of that paragraph are load-bearing and should be written as rules, not as description:
+
+- **`CanvasModel` hosts `CanvasUndo`; it does not reimplement it.** 1C-a built the recorder to reach its state through `readSnapshot`/`applySnapshot` closures *specifically* so ownership could move here, and the model's gesture methods are four forwards. A second snapshot mechanism silently loses `breakGesture` (per-sentence ⌘Z inside a scrap), the deferred `beginUndoGrouping` (a group cannot span an event boundary), the nesting depth counter, and the mid-gesture re-baseline. **Named symptom for the last one:** type in A, click into B, ⌘Z, type in B, click out — and the next ⌘Z resurrects A's discarded text.
+- **`sceneRevision` exists in two places on purpose.** `CanvasView`'s `@State` copy keeps its name because `CanvasAccessibilityTests` greps the source for `.onChange(of: sceneRevision`; the model's copy exists because the inspector mutates the scene from the other column and cannot reach a view's `@State`. The view mirrors the model's in one `.onChange`. Neither may be keyed on `revision`, which ticks at 60–120 Hz through every drag, coast and straighten.
 
 - [ ] **Step 2: Amend ADR 0026**
 
@@ -2616,11 +2896,11 @@ Add a section recording: membership is stored and geometry never changes it (wit
 
 - [ ] **Step 3: Add the tripwire**
 
-Add to CLAUDE.md's tripwire table (1C-a Task 15 adds 25 and 26; this is 27):
+Add to CLAUDE.md's tripwire table. **1C-a Task 17 adds three — 25, 26 and 27 — so this slice's is 28.** Check the table before writing the row rather than trusting this number: if 1C-c merged first it may have taken 28, and a duplicate tripwire number is worse than a gap.
 
 | # | Rule | Why | Enforced |
 |---|---|---|---|
-| 27 | Canvas membership is never derived from geometry — not on move, not on resize, not on region creation. Drop-to-join targets by greatest overlap and is the ONLY gesture that changes it | Obsidian, tldraw (#6017) and Scapple each ship a distinct bug from the geometry→membership transition rule; tldraw's persists *despite* explicit storage | `CanvasMembershipTests` (the firewall tests were falsified by introducing the tldraw ejection bug); `CanvasRegionInteractionTests` |
+| 28 | Canvas membership is never derived from geometry — not on move, not on resize, not on region creation. Drop-to-join targets by greatest overlap and is the ONLY gesture that changes it | Obsidian, tldraw (#6017) and Scapple each ship a distinct bug from the geometry→membership transition rule; tldraw's persists *despite* explicit storage | `CanvasMembershipTests` (the firewall tests were falsified by introducing the tldraw ejection bug); `CanvasRegionInteractionTests` |
 
 - [ ] **Step 4: Sweep the guide**
 
@@ -2656,9 +2936,11 @@ git commit -m "docs(canvas): membership rules, geometry tripwire 27, ADR 0026 am
 ## Whole-slice verification
 
 - [ ] Full Mac suite, full phone suite, Release build — all green
-- [ ] **Whole-branch review** of the 1C-b diff. Per-task reviews cannot see emergent interactions; the T5×T6 precedent on the unified-undo milestone is why this is not optional. Look especially at the Task 4 refactor's blast radius across 1C-a's `CanvasView`.
+- [ ] **Whole-branch review** of the 1C-b diff. Per-task reviews cannot see emergent interactions; the T5×T6 precedent on the unified-undo milestone is why this is not optional. Look especially at the Task 4 refactor's blast radius across 1C-a's `CanvasView` — read the `CanvasView.swift` diff line by line and confirm that **nothing 1C-a shipped was deleted**: the straighten clock and its timeline, `mountedEditorNodeID`/`visibleEditorNodeID`, momentum, `revision` and `sceneRevision`, `lastKeystrokeAt`, all three commit points (`onTextChanged`, `.onDisappear`, `beforeFlush`), and every `beginGesture`/`endGesture`/`breakGesture` bracket. Tasks 4 and 6 both rewrite parts of that file and each can plausibly land green while having quietly dropped one of them.
+- [ ] `git diff --stat` on `Maugham/Canvas/CanvasView.swift` is a *small* number. A large one means the file was retyped rather than edited.
 - [ ] `git status` shows nothing under `Maugham.xcodeproj/`
 - [ ] Smoke: draw a region with ⌥-drag over two existing cards → confirm it absorbed neither → drag one card in → drag the region by its label bar → the resident travels, the other card does not → **⌘Z once puts the whole drag back** → resize the region from its corner until it is tiny → the resident is still a member → drag the resident far outside → a tether draws → cite a second card as an appearance → it renders as a chip, visibly not a card, hairlined to its home → select the region → rename it in the inspector → collapse it → its residents vanish and the label says how many → bind it to a piece → press ⌫ → the region goes, the cards stay → ⌘Z → it comes back with its membership → quit and reopen → everything survives
+- [ ] Smoke: **the 1C-a behaviours Task 4 and Task 6 could have broken, none of which a region test would notice** — flick a card and let go: it coasts and comes to rest rather than stopping dead (momentum survived the drop-to-join) → double-click a scrap: it straightens over a beat and the text does not blink or jump as the editor takes over → double-click empty canvas and type immediately: the first characters are all there → type two sentences into a scrap, then ⌘Z twice: it takes back a sentence at a time, not the whole visit → type a sentence and ⌘Q without clicking away, then reopen: the sentence is there
 
 **Do not push or tag.**
 
