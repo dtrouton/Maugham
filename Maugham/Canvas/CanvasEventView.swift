@@ -71,6 +71,14 @@ final class CanvasEventNSView: NSView {
     }
 
     func applyMouseDown(at point: CGPoint, clickCount: Int) {
+        // Both callbacks fire on every mouse-down, with onClick strictly before onDrag(.began).
+        // A zero-distance drag (mouseDown → mouseUp with no mouseDragged) emits .began then .ended
+        // with no .changed. AppKit delivers clickCount: 1 on the first mouse-down of a double-click,
+        // so a drag session opens before the second click arrives. Task 13's gesture state machine
+        // and Task 15's undo grouping depend on this ordering: onClick sets state that onDrag(.began)
+        // observes within the same call, so Task 13's guard on editingNodeID sees the updated value
+        // (set by onClick's handleClick) before .began fires for that same mouseDown. This is a
+        // contract, not an incidental detail — do not reorder these calls.
         isDragging = true
         onClick?(point, clickCount)
         onDrag?(point, .began)

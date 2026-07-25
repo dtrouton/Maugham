@@ -93,6 +93,18 @@ final class CanvasEventViewTests: XCTestCase {
         XCTAssertEqual(counts, [1, 2])
     }
 
+    func test_onClickFiresBeforeOnDragBegan() {
+        let v = view()
+        var events: [String] = []
+        v.onClick = { _, _ in events.append("click") }
+        v.onDrag = { _, phase in if phase == .began { events.append("dragBegan") } }
+        v.applyMouseDown(at: .zero, clickCount: 1)
+        XCTAssertEqual(events, ["click", "dragBegan"],
+                      "onClick must fire before onDrag(.began) in the same mouseDown; "
+                      + "Task 13's gesture state machine depends on onClick setting editingNodeID "
+                      + "before onDrag(.began) observes it")
+    }
+
     /// ⌘Z on the canvas reaches `CanvasUndo` through the responder chain:
     /// `NSWindow.undo(_:)` asks the first responder for its `undoManager`.
     func test_theViewVendsTheCanvasUndoManagerToTheResponderChain() {
