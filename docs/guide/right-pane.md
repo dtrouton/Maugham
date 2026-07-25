@@ -1,12 +1,23 @@
 # Inspector, Research & Outline
 
-The right column has nine modes: Inspector, Research, and Outline (covered on this page), plus Tasks, Annotations, History, Inbox, Palette, and Translation (each covered elsewhere — see the pointers at the bottom of this page). Switch with the numbered/lettered shortcuts below or the small picker at the top of the pane.
+The right column has nine modes: Inspector, Research, and Outline (covered on this page), plus Tasks, Annotations, History, Inbox, Palette, and Translation (each covered elsewhere — see the pointers at the bottom of this page). Switch with the lettered shortcuts below or the small picker at the top of the pane.
 
-### Inspector mode (⌘⌥1)
+### Panes are grouped by persona
 
-Default. Shows metadata for whatever's selected in the binder.
+Each of the four personas (⌘1 Plan, ⌘2 Author, ⌘3 Review, ⌘4 Publish — see [Getting Started → Personas](getting-started.md#personas)) offers its own subset of these nine modes in the picker, in an order suited to that persona's work. A shortcut still opens its pane from any persona — it reveals the right column if it's hidden and switches to it — even one the current persona doesn't lead with:
 
-### Research mode (⌘⌥2)
+- **Plan** — Research, Outline, Palette, Inbox, Tasks, Inspector.
+- **Author** — Inspector, Outline, Research, Tasks, Palette.
+- **Review** — Annotations, History, Translation, Inspector, Outline, Tasks, Palette.
+- **Publish** — Translation, Inspector.
+
+Switching persona while sitting on a pane the destination doesn't offer falls back to that persona's default rather than blanking the pane.
+
+### Inspector mode (⌘⌥I)
+
+Default in Author. Shows metadata for whatever's selected in the binder.
+
+### Research mode (⌘⌥R)
 
 Shows research for the current manuscript document in up to two sections:
 
@@ -19,14 +30,14 @@ The **+** button offers **Link Research…**, a picker sheet offering everything
 
 Unlink: × on a row in **Linked**. Items in the automatic section have no × — untangle those by editing the piece/project structure itself, not the link.
 
-### Outline mode (⌘⌥3)
+### Outline mode (⌘⌥O)
 
 Either a **table** view (Title / Status / Synopsis / Words) or a **cards** view (corkboard with synopses). Toggle between the two with the small picker in the pane header. Click a row or card → editor jumps to that document.
 
 Layout choice persists per project.
 
-⌘⌥I toggles the whole right pane visibility.
+⌘⌥0 toggles the whole right pane visibility.
 
-The right pane also has a **Tasks** mode (⌘⌥5) — see [Tasks & To-Dos](tasks.md) — and an **Annotations** mode (⌘⌥A) — see [Annotations & Suggestions](annotations-and-suggestions.md).
+The right pane also has a **Tasks** mode (⌘⌥T) — see [Tasks & To-Dos](tasks.md) — and an **Annotations** mode (⌘⌥A) — see [Annotations & Suggestions](annotations-and-suggestions.md).
 
-It also has a **History** mode (⌘⌥4) — a read-only timeline of edits, annotations, and checkpoints, with a scrubber for time-travel — an **Inbox** mode (⌘⌥6) — triage text/audio/photo captures from MaughamPhone, see [The Sense Pass](sense-pass.md) — a **Palette** mode (⌘⌥7) — a card for the sensory palette wall, also covered there — and a **Translation** mode (⌘⌥8) — the selected paragraph's source text and any open translator queries, active while reviewing a translation, see [Translating Your Manuscript](translation-review.md).
+It also has a **History** mode (⌘⌥H) — a read-only timeline of edits, annotations, and checkpoints, with a scrubber for time-travel — an **Inbox** mode (⌘⌥B) — triage text/audio/photo captures from MaughamPhone, see [The Sense Pass](sense-pass.md) — a **Palette** mode (⌘⌥P) — a card for the sensory palette wall, also covered there — and a **Translation** mode (⌘⌥L) — the selected paragraph's source text and any open translator queries, active while reviewing a translation, see [Translating Your Manuscript](translation-review.md).

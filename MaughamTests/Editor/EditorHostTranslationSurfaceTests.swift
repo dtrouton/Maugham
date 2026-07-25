@@ -3,7 +3,7 @@ import MaughamCore
 @testable import Maugham
 
 /// I2: the read-only translation review plane is built anchor-free. EditorHost
-/// derives the surface buffer, the badge ranges, and the ⌘⌥8 pane from ONE set
+/// derives the surface buffer, the badge ranges, and the ⌘⌥L pane from ONE set
 /// of per-paragraph entry texts (`EditorHost.reviewBadgeEntries`), stripping
 /// inline task anchors at that single point. These tests pin the anchor-free
 /// rendering without an AppKit surface (mirrors `TranslationBadgeMappingTests`).

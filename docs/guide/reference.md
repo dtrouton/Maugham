@@ -22,13 +22,19 @@ The ones you'll use most:
 | `⌘⌥Z` | Restore last deleted item |
 | `⌘\\` | Toggle focus mode |
 | `⌘⇧F` | Toggle full-screen focus |
-| `⌘⌥I` | Toggle Inspector pane |
-| `⌘⌥1` / `⌘⌥2` / `⌘⌥3` | Right pane: Inspector / Research / Outline |
-| `⌘⌥4` | History pane |
-| `⌘⌥5` | Tasks pane |
-| `⌘⌥6` | Inbox pane |
-| `⌘⌥7` | Palette pane |
-| `⌘⌥8` | Translation pane |
+| `⌘1` | Plan mode |
+| `⌘2` | Author mode |
+| `⌘3` | Review mode |
+| `⌘4` | Publish mode |
+| `⌘⌥I` | Inspector pane |
+| `⌘⌥R` | Research pane |
+| `⌘⌥O` | Outline pane |
+| `⌘⌥H` | History pane |
+| `⌘⌥T` | Tasks pane |
+| `⌘⌥B` | Inbox pane |
+| `⌘⌥P` | Palette pane |
+| `⌘⌥L` | Translation pane |
+| `⌘⌥0` | Toggle inspector column |
 | `⌘⇧P` | Toggle Research preview |
 | `⌘/` | Syntax + keyboard reference |
 

@@ -48,7 +48,7 @@ enum TranslationReviewPaneLogic {
     }
 }
 
-/// The right-pane Translation segment (⌘⌥8). While translation review is
+/// The right-pane Translation segment (⌘⌥L). While translation review is
 /// engaged, it shows the selected paragraph's SOURCE text (read-only, serif)
 /// with a freshness chip, and the open translator queries for the active
 /// language — each with a Reply that folds the writer's answer back into the

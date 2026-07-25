@@ -26,7 +26,7 @@ Click an item to see its metadata:
 - **Links** — other documents you've explicitly linked to this one; add or remove from the **+** button.
 - **Linked from** — backlinks: documents that wiki-link to this one.
 
-Research association isn't shown here — see the Research mode (⌘⌥2) in [Inspector, Research & Outline](right-pane.md) for the research linked to (or automatically owned by) this document.
+Research association isn't shown here — see the Research mode (⌘⌥R) in [Inspector, Research & Outline](right-pane.md) for the research linked to (or automatically owned by) this document.
 
 ### Wiki links
 

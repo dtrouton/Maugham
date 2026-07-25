@@ -26,7 +26,7 @@ source language; paragraphs whose source has been edited since they were
 translated show an amber stale badge, so you always know whether what you're
 reading matches the current draft.
 
-### The Translation pane (⌘⌥8)
+### The Translation pane (⌘⌥L)
 
 While reviewing a translation, the right pane's Translation mode shows the
 selected paragraph's original source text with a freshness chip (fresh /

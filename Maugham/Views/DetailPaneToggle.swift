@@ -6,6 +6,9 @@ struct DetailPaneToggle<Inspector: View>: View {
     @Binding var outlineLayout: OutlineLayout
     @Binding var selectedItemId: String?
     let activeManuscriptItemId: String?
+    /// The window's working mode. Decides which segments the picker offers —
+    /// see `visibleSegments(persona:hideOutline:)`.
+    let persona: Persona
     let hideOutline: Bool
     // History pane props — optional so callers that don't need history can omit them.
     let projectURL: URL?
@@ -36,6 +39,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         outlineLayout: Binding<OutlineLayout>,
         selectedItemId: Binding<String?>,
         activeManuscriptItemId: String?,
+        persona: Persona = .default,
         hideOutline: Bool = false,
         projectURL: URL? = nil,
         activeDocId: String? = nil,
@@ -52,6 +56,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         self._outlineLayout = outlineLayout
         self._selectedItemId = selectedItemId
         self.activeManuscriptItemId = activeManuscriptItemId
+        self.persona = persona
         self.hideOutline = hideOutline
         self.projectURL = projectURL
         self.activeDocId = activeDocId
@@ -72,6 +77,17 @@ struct DetailPaneToggle<Inspector: View>: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onChange(of: segment) { _, newValue in
+            // A ⌘⌥-letter shortcut can select a segment this picker cannot
+            // render — `.outline` on a collection project is the only one
+            // (`visibleSegments` refuses to append it), and it left the
+            // picker with nothing highlighted. Snap onto a segment the
+            // picker actually shows; the snap re-enters here and persists.
+            let snapped = Self.snappedSelection(
+                newValue, in: pickerSegments, fallback: persona.defaultPane)
+            guard snapped == newValue else {
+                segment = snapped
+                return
+            }
             store.documentStore?.updateUIState { $0.detailSegment = newValue }
         }
         .task {
@@ -80,12 +96,149 @@ struct DetailPaneToggle<Inspector: View>: View {
             // changes (.inbox arm) keep it fresh thereafter.
             await store.documentStore?.inboxStore.refresh()
         }
+        // MOUNT, not a persona change — snaps against the SELECTION-CARRYING
+        // list, so an out-of-persona pane the writer just asked for survives.
+        // See "Two snaps, two lists" below; this is NOT `coerceSegmentIntoView`.
         .onAppear {
-            // If we land on outline in a hide-outline context, coerce to inspector.
-            if hideOutline && segment == .outline {
-                segment = .inspector
-            }
+            snapSegmentIntoPicker()
         }
+        // Belt to `PersonaModifier`'s braces: that modifier already runs
+        // `Persona.coerce(_:)` on a persona change, but it cannot see
+        // `hideOutline` — a collection project drops `.outline` from the
+        // picker after the registry has had its say. This is the only place
+        // both facts are known.
+        .onChange(of: persona) { _, newPersona in
+            coerceSegmentIntoView(of: newPersona)
+        }
+    }
+
+    // MARK: - Two snaps, two lists — do not conflate them
+
+    // `segment` is pulled onto a renderable pane from two places, and they
+    // consult DIFFERENT lists on purpose. Which list a coercion consults has
+    // now been wrong three times on this branch, so the split is spelled out:
+    //
+    // - `snapSegmentIntoPicker()` uses the SELECTION-CARRYING list
+    //   (`pickerSegments` = `visibleSegments(including: segment)`). It keeps
+    //   whatever is selected, because an out-of-persona segment is appended
+    //   and rendered — personas are lenses, not gates. The only value it ever
+    //   moves is `.outline` on a collection project, which
+    //   `visibleSegments(including:)` refuses to append.
+    //   Callers: `.onAppear` and `.onChange(of: segment)`.
+    //
+    // - `coerceSegmentIntoView(of:)` uses the persona's BARE registry list.
+    //   It deliberately DROPS an out-of-persona segment, because on a persona
+    //   change coercion is the intent.
+    //   Caller: `.onChange(of: persona)`, and only that.
+
+    /// Snap `segment` onto something the picker renders, honouring an
+    /// out-of-persona selection (it is appended, so it is in the list).
+    ///
+    /// `.onAppear` must use this rather than `coerceSegmentIntoView(of:)`:
+    /// this view mounts conditionally on `showInspector`, so a `⌘⌥`-letter
+    /// shortcut that reveals a hidden column (`showInspector = true` then
+    /// `detailSegment = seg`, `SessionAndNavigationModifier`) mounts it FRESH
+    /// with the requested segment already in place. `.onChange(of: segment)`
+    /// cannot fire — the change predates the mount — but `.onAppear` does.
+    /// Coercing here threw the requested pane away and persisted the wrong
+    /// one to `UIState` (whole-branch review, Critical 1).
+    private func snapSegmentIntoPicker() {
+        let snapped = Self.mountSelection(
+            segment, persona: persona, hideOutline: hideOutline)
+        if snapped != segment { segment = snapped }
+    }
+
+    /// The selection a freshly-mounted picker must carry, given the segment
+    /// already in place. Split out as a pure static so a test can pin the
+    /// LIST CHOICE — `including: current`, the selection-carrying list — and
+    /// not merely the snap. Swapping this to the bare registry list is the
+    /// Critical 1 regression, and
+    /// `DetailPaneTogglePersonaTests.test_mountSelection_keepsAnOutOfRegistrySegment`
+    /// fails when it happens.
+    static func mountSelection(
+        _ current: DetailSegment,
+        persona: Persona,
+        hideOutline: Bool
+    ) -> DetailSegment {
+        let carrying = visibleSegments(
+            persona: persona, hideOutline: hideOutline, including: current)
+        return snappedSelection(current, in: carrying, fallback: persona.defaultPane)
+    }
+
+    /// Pull `segment` onto a pane this persona registers. No-op when it
+    /// already is one, so it never fights a deliberate selection.
+    ///
+    /// Deliberately asks for the persona's OWN list (no `including:`) — the
+    /// selection-carrying list contains `segment` by construction, so passing
+    /// it here would make every coercion a no-op and a collection project
+    /// would sit on `.outline` forever.
+    private func coerceSegmentIntoView(of persona: Persona) {
+        let visible = Self.visibleSegments(persona: persona, hideOutline: hideOutline)
+        let coerced = Self.snappedSelection(segment, in: visible, fallback: persona.defaultPane)
+        if coerced != segment { segment = coerced }
+    }
+
+    // MARK: - Which segments this persona offers
+
+    /// The segments this picker shows, in order. Ordering comes from the
+    /// persona registry, not from `DetailSegment.allCases` — so adding a case
+    /// to the enum does not silently change any picker.
+    ///
+    /// `selected`, when supplied and not already registered, is **appended**.
+    /// Personas are lenses, not gates: the nine `⌘⌥`-letter pane shortcuts fire
+    /// in every persona, and `ProjectWindow` force-sets `.translation` on
+    /// entering translation review — without this the picker would render with
+    /// nothing selected while the pane below it showed the right content.
+    /// Appending (rather than inserting in registry order) keeps the persona's
+    /// own ordering stable and makes the addition read as transient.
+    /// `hideOutline` still wins: a collection project has no outline pane to
+    /// show, so an out-of-persona `.outline` selection is not appended either.
+    static func visibleSegments(
+        persona: Persona,
+        hideOutline: Bool,
+        including selected: DetailSegment? = nil
+    ) -> [DetailSegment] {
+        var segments = persona.panes.filter { !(hideOutline && $0 == .outline) }
+        if let selected,
+           !segments.contains(selected),
+           !(hideOutline && selected == .outline) {
+            segments.append(selected)
+        }
+        return segments
+    }
+
+    /// How many segment-widths to shift the inbox unread badge left from the
+    /// trailing edge of `segments`, or nil when that list has no inbox.
+    ///
+    /// SwiftUI's segmented Picker cannot badge a segment directly, so the
+    /// badge is overlaid top-trailing and shifted. This was previously the
+    /// hardcoded literal 2 ("inbox is third-to-last"), which silently moved
+    /// the badge onto the wrong tab when translation was added.
+    ///
+    /// Takes the rendered list itself rather than the three arguments the
+    /// list is derived from: the caller passes `pickerSegments`, the same
+    /// value `ForEach` walks, so badge and picker cannot be computed from
+    /// different lists. Re-deriving here was how the literal-drift bug got
+    /// back in one level up.
+    static func badgeOffset(in segments: [DetailSegment]) -> Int? {
+        guard let index = segments.firstIndex(of: .inbox) else { return nil }
+        return segments.count - 1 - index
+    }
+
+    /// The selection the picker should carry, given a proposed one and the
+    /// list the picker renders. Everything the picker can show is returned
+    /// unchanged — personas are lenses, not gates, so an out-of-persona
+    /// segment reached by shortcut stays selected (it is appended by
+    /// `visibleSegments(including:)`). The one segment that cannot be
+    /// appended is `.outline` on a collection project, whose content falls
+    /// through to the inspector; a picker showing nothing selected is the
+    /// state this snaps out of.
+    static func snappedSelection(
+        _ proposed: DetailSegment,
+        in segments: [DetailSegment],
+        fallback: DetailSegment
+    ) -> DetailSegment {
+        segments.contains(proposed) ? proposed : (segments.first ?? fallback)
     }
 
     /// New (`.new`) inbox captures awaiting triage — drives the picker badge.
@@ -98,60 +251,39 @@ struct DetailPaneToggle<Inspector: View>: View {
 
     // MARK: - Picker
 
+    /// The one list this picker renders — segment order, badge offset and
+    /// badge width all derive from it, so they cannot disagree.
+    private var pickerSegments: [DetailSegment] {
+        Self.visibleSegments(persona: persona, hideOutline: hideOutline, including: segment)
+    }
+
     @ViewBuilder
     private var segmentPicker: some View {
         Picker("Right pane", selection: $segment) {
-            Image(systemName: "info.circle")
-                .tag(DetailSegment.inspector)
-                .help("Inspector — document metadata, tags, links (⌘⌥1)")
-            Image(systemName: "text.bubble")
-                .tag(DetailSegment.annotations)
-                .help("Annotations — review Claude's comments and suggested edits (⌘⌥A)")
-            Image(systemName: "doc.text.magnifyingglass")
-                .tag(DetailSegment.research)
-                .help("Research — this document's own and linked research (⌘⌥2)")
-            if !hideOutline {
-                Image(systemName: "list.bullet.indent")
-                    .tag(DetailSegment.outline)
-                    .help("Outline — table or corkboard structure view (⌘⌥3)")
+            ForEach(pickerSegments, id: \.self) { seg in
+                Image(systemName: seg.systemImageName)
+                    .tag(seg)
+                    .help(seg.helpText)
             }
-            Image(systemName: "clock.arrow.circlepath")
-                .tag(DetailSegment.history)
-                .help("History — read-only timeline of edits, annotations, and checkpoints (⌘⌥4)")
-                .keyboardShortcut("4", modifiers: [.command, .option])
-            Image(systemName: "checklist.checked")
-                .tag(DetailSegment.tasks)
-                .help("Tasks — todos in this document and across the project (⌘⌥5)")
-                .keyboardShortcut("5", modifiers: [.command, .option])
-            Image(systemName: "tray")
-                .tag(DetailSegment.inbox)
-                .help("Inbox — triage captures from MaughamPhone (⌘⌥6)")
-                .keyboardShortcut("6", modifiers: [.command, .option])
-            Image(systemName: "paintpalette")
-                .tag(DetailSegment.palette)
-                .help("Palette Card (⌘⌥7)")
-                .keyboardShortcut("7", modifiers: [.command, .option])
-            Image(systemName: "character.book.closed")
-                .tag(DetailSegment.translation)
-                .help("Translation — source text and translator queries (⌘⌥8)")
-                .keyboardShortcut("8", modifiers: [.command, .option])
         }
         .pickerStyle(.segmented)
         .labelsHidden()
         // Unread badge over the inbox segment. SwiftUI's segmented Picker can't
         // badge a segment directly, so we overlay top-trailing and shift left by
-        // TWO equal-width segments: inbox is the THIRD-to-last tab (palette, ⌘⌥7,
-        // and translation, ⌘⌥8, follow it). Anchored on the bare picker (before
-        // padding) so the width the GeometryReader measures divides evenly across
-        // the segments. Hidden at zero; capped at 99+.
+        // however many equal-width segments sit to the right of inbox in THIS
+        // persona's picker — derived from `pickerSegments` itself, never a
+        // literal and never a re-derivation (see `badgeOffset(in:)`).
+        // Anchored on the bare picker (before padding)
+        // so the width the GeometryReader measures divides evenly across the
+        // segments. Hidden at zero, and absent entirely in personas without an
+        // inbox; capped at 99+.
         .overlay(alignment: .topTrailing) {
-            if inboxCount > 0 {
+            if inboxCount > 0, let shift = Self.badgeOffset(in: pickerSegments) {
                 GeometryReader { geo in
-                    let segmentCount = hideOutline ? 8 : 9
-                    let segmentWidth = geo.size.width / CGFloat(segmentCount)
+                    let segmentWidth = geo.size.width / CGFloat(max(pickerSegments.count, 1))
                     inboxBadge
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                        .offset(x: -2 * segmentWidth)
+                        .offset(x: -CGFloat(shift) * segmentWidth)
                 }
             }
         }
@@ -169,7 +301,7 @@ struct DetailPaneToggle<Inspector: View>: View {
             .padding(.trailing, 10)
             .padding(.top, 2)
             .allowsHitTesting(false)
-            .help("\(inboxCount) new capture\(inboxCount == 1 ? "" : "s") in the inbox (⌘⌥6)")
+            .help("\(inboxCount) new capture\(inboxCount == 1 ? "" : "s") in the inbox (⌘⌥B)")
     }
 
     // MARK: - Content routing

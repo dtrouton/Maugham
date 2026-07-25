@@ -1225,6 +1225,164 @@ final class TripwireGrepTests: XCTestCase {
             "Self-check: the XCTAssertNil-guarded rejection literal must NOT fire.")
     }
 
+    // MARK: - Segmented-picker child uniformity (2026-07-25 smoke, defect C)
+
+    /// A segmented `Picker` whose `ForEach` emits more than one KIND of child
+    /// is a shipped-bug shape. The `if let symbol { Image } else { Text }`
+    /// spelling makes a `_ConditionalContent` whose branch is cached per
+    /// position; the picker updates its `NSSegmentedControl` in place, so the
+    /// first list reshape (a persona change) leaves stale branches on the wrong
+    /// indices — the binder rendered `Pieces | 🎨Research | 🎨`, and a persona
+    /// with no Palette segment showed a palette icon that selected Research.
+    ///
+    /// Both binder toggles share `BinderSegmentPicker`, and the right pane's
+    /// picker has the same shape, so both files are checked: inside the
+    /// `ForEach` that feeds a `Picker`, there must be no branch.
+    func test_segmentedPickerForEachBodiesHaveNoConditionalChildren() throws {
+        for relative in ["Views/BinderSegmentPicker.swift", "Views/DetailPaneToggle.swift"] {
+            let content = try String(
+                contentsOf: sourceDir.appendingPathComponent(relative), encoding: .utf8)
+            let lines = content.components(separatedBy: .newlines)
+            var insidePicker = false
+            var insideForEach = false
+            var depth = 0
+            for (i, raw) in lines.enumerated() {
+                let line = raw.trimmingCharacters(in: .whitespaces)
+                // Skip doc comments — they discuss the very shape we ban.
+                if line.hasPrefix("//") || line.hasPrefix("///") { continue }
+                if line.contains("Picker(") { insidePicker = true; depth = 0 }
+                guard insidePicker else { continue }
+                if insideForEach {
+                    XCTAssertFalse(
+                        line.hasPrefix("if ") || line.hasPrefix("} else")
+                            || line.hasPrefix("else ") || line.contains(" ? ") ,
+                        "\(relative):\(i + 1) — a segmented Picker's ForEach body must emit ONE "
+                        + "kind of child. A conditional here is _ConditionalContent, whose branch "
+                        + "is cached per position; the first list reshape puts a stale child on "
+                        + "the wrong segment (2026-07-25 smoke, defect C). Move the variation "
+                        + "INSIDE one child expression, or change every segment together.")
+                }
+                if line.contains("ForEach(") { insideForEach = true; depth = 0 }
+                depth += line.filter { $0 == "{" }.count - line.filter { $0 == "}" }.count
+                if insideForEach && depth <= 0 { insideForEach = false; insidePicker = false }
+            }
+        }
+    }
+
+    // MARK: - Coercion call-site census (persona pane-selection wiring)
+
+    /// Recurrence-tripper: DetailPaneToggle has two critical segment-snapping call
+    /// sites that MUST consult different `visibleSegments` lists — swapping them is
+    /// a shipped-bug shape (happened 3 times on this branch, Critical at merge gate).
+    /// The distinction:
+    ///   - `.onAppear` calls `snapSegmentIntoPicker()`, which calls `mountSelection()`
+    ///     and MUST eventually consult `visibleSegments(..., including:)` — the
+    ///     selection-carrying list. This preserves out-of-persona pane selections
+    ///     reached via ⌘⌥ shortcuts, even when the current persona doesn't register them.
+    ///   - `.onChange(of: persona)` calls `coerceSegmentIntoView(of:)`, which MUST
+    ///     consult `visibleSegments(persona:, hideOutline:)` WITHOUT `including:` —
+    ///     the bare registry. On persona change, coercion is the intent and an
+    ///     out-of-persona pane is deliberately dropped.
+    /// If those function calls are swapped between the two event handlers, the suite
+    /// still passes because the tests pin the pure functions, not the wiring. A census
+    /// (plus a plainly-written failure message) is the only guard.
+    func test_coercionCallSitesCensus() throws {
+        let fileURL = sourceDir.appendingPathComponent("Views/DetailPaneToggle.swift")
+        let content = try String(contentsOf: fileURL, encoding: .utf8)
+
+        // Check 1: `.onAppear` MUST call `snapSegmentIntoPicker()`
+        guard let onAppearRange = content.range(of: ".onAppear") else {
+            XCTFail("Could not find .onAppear in DetailPaneToggle.swift")
+            return
+        }
+        let afterOnAppear = content[onAppearRange.lowerBound...]
+        let nextModifierEnd = afterOnAppear.range(of: "}")?.lowerBound ?? afterOnAppear.endIndex
+        let onAppearBody = String(afterOnAppear[..<nextModifierEnd])
+        let onAppearHasSnapSegmentIntoPicker = onAppearBody.contains("snapSegmentIntoPicker()")
+        XCTAssertTrue(onAppearHasSnapSegmentIntoPicker,
+            ".onAppear MUST call snapSegmentIntoPicker() (which uses the selection-carrying list). "
+            + "If this is false, the event handler may have been rewired to call coerceSegmentIntoView "
+            + "instead (which uses the bare registry). Swapping these is a Critical shipped-bug shape.")
+
+        // Check 2: `.onChange(of: persona)` MUST call `coerceSegmentIntoView(`
+        guard let onPersonaChangeRange = content.range(of: ".onChange(of: persona)") else {
+            XCTFail("Could not find .onChange(of: persona) in DetailPaneToggle.swift")
+            return
+        }
+        let afterPersonaChange = content[onPersonaChangeRange.lowerBound...]
+        let personaModifierEnd = afterPersonaChange.range(of: "}")?.lowerBound ?? afterPersonaChange.endIndex
+        let onPersonaChangeBody = String(afterPersonaChange[..<personaModifierEnd])
+        let onPersonaChangeHasCoerce = onPersonaChangeBody.contains("coerceSegmentIntoView(")
+        XCTAssertTrue(onPersonaChangeHasCoerce,
+            ".onChange(of: persona) MUST call coerceSegmentIntoView() (which uses the bare registry). "
+            + "If this is false, the event handler may have been rewired to call snapSegmentIntoPicker "
+            + "instead (which uses the selection-carrying list). Swapping these is a Critical shipped-bug shape.")
+    }
+
+    /// Self-check: prove the census FIRES when the two call sites are swapped
+    /// (the real defect this test guards against). Plants a synthetic file with
+    /// the calls reversed and confirms the test fails with useful guidance.
+    func test_coercionCallSitesCensusFiresOnPlantedSwap() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-coercion-swapped-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        // Plant a synthetic file with the call sites swapped (the bug)
+        let planted = tmp.appendingPathComponent("DetailPaneToggle.swift")
+        try """
+        struct DetailPaneToggle<Inspector: View>: View {
+            func snapSegmentIntoPicker() {
+                // WRONG: calling with bare list instead of including:
+                let snapped = Self.mountSelection(segment, persona: persona, hideOutline: hideOutline)
+                if snapped != segment { segment = snapped }
+            }
+
+            private func coerceSegmentIntoView(of persona: Persona) {
+                // WRONG: calling with including: instead of bare list
+                let visible = Self.visibleSegments(persona: persona, hideOutline: hideOutline, including: segment)
+                let coerced = Self.snappedSelection(segment, in: visible, fallback: persona.defaultPane)
+                if coerced != segment { segment = coerced }
+            }
+
+            static func mountSelection(
+                _ current: DetailSegment,
+                persona: Persona,
+                hideOutline: Bool
+            ) -> DetailSegment {
+                let carrying = visibleSegments(
+                    persona: persona, hideOutline: hideOutline, including: current)
+                return snappedSelection(current, in: carrying, fallback: persona.defaultPane)
+            }
+        }
+        """.write(to: planted, atomically: true, encoding: .utf8)
+
+        // Run the census check
+        let content = try String(contentsOf: planted, encoding: .utf8)
+        let lines = content.split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+
+        var visibleSegmentsCalls: [(line: Int, text: String, hasIncluding: Bool)] = []
+        for (i, line) in lines.enumerated() {
+            if line.contains("visibleSegments(") {
+                let hasIncluding = line.contains("including:") ||
+                    (i + 1 < lines.count && lines[i + 1].contains("including:"))
+                visibleSegmentsCalls.append((line: i + 1, text: line.trimmingCharacters(in: .whitespaces), hasIncluding: hasIncluding))
+            }
+        }
+
+        // With the swapped calls, we should have:
+        // - Line with "WRONG: calling with including:" in coerceSegmentIntoView = 1 (with including)
+        // - Line in mountSelection inside the let carrying statement = 1 (with including)
+        // Total = 2, but count of "with including" should still be 2, which violates the census
+        let withIncluding = visibleSegmentsCalls.filter { $0.hasIncluding }
+        XCTAssertEqual(withIncluding.count, 2,
+            "Self-check: with the swapped call sites, there should be TWO calls "
+            + "with 'including:', which violates the census. The test should fail "
+            + "when this happens. Got \(withIncluding.count) calls with including.")
+    }
+
     /// Self-check: prove the guard FIRES on a planted bare `ParagraphID.mint()`
     /// call and does NOT fire on the safe `ParagraphID.mintUnique(excluding:)`
     /// sibling.
