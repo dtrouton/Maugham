@@ -93,6 +93,8 @@ Follow this without asking — the user has answered these questions enough time
 8. **Every new data type needs a UI surface for inspection/action.** MCP access alone is not enough.
 9. **Whole-branch review before merge** — after per-task reviews, one review of the full branch diff; per-task reviews cannot see emergent interactions (T5×T6 precedent).
 10. When a roadmap item flips •→✓, sweep sibling docs (CLAUDE.md, AREA.md, guide) for now-false claims in the same commit.
+11. **Build the first plan of a multi-plan milestone before writing the rest.** Plans written against an API that does not exist yet drift against imaginary Swift, and no compiler can catch it — M1C's four canvas plans cost four review rounds and five fix rounds, and three separate times one plan would have deleted a day's work from another. Re-derive the remaining plans against the built code; they get shorter. See `memory/feedback_plan_detail_and_sequencing.md`.
+12. **Cap a plan at ~10 tasks; past that, split it.** M1C's 15-task plan needed four fix rounds; the three written under the cap needed one each — same authors, same standards, same day. Relatedly: a plan must never restate another plan's API (a copy drifts); point at the defining task instead.
 
 ## Per-area pointers
 
