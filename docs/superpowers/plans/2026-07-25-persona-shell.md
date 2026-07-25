@@ -642,7 +642,16 @@ Then in `MaughamTests/GuideMarkdownViewTests.swift:130`, update the literal to t
 Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test CODE_SIGNING_ALLOWED=NO -only-testing:MaughamTests/PersonaKeyspaceTests -only-testing:MaughamTests/DocSyncTests -only-testing:MaughamTests/GuideMarkdownViewTests -only-testing:MaughamTests/KeyboardShortcutsTests`
 Expected: PASS.
 
-Note `DocSyncTests.test_detailPaneToggleShortcutsDocumentedInReferenceMd` extracts `⌘⌥`-shortcuts from `DetailPaneToggle.swift` — after Step 5 that file declares none, so the test passes vacuously. That is correct: the menu now owns them, and `PersonaKeyspaceTests.test_everyDetailSegmentHasAMenuShortcut` is the replacement guard.
+**`DocSyncTests.test_detailPaneToggleShortcutsDocumentedInReferenceMd` must be repointed, not left to pass vacuously.** It extracts `⌘⌥`-shortcuts from `DetailPaneToggle.swift`, which after Step 5 declares none — so it would pass while asserting nothing, which is worse than deleting it. The guard is still wanted; only its source file moved. In `MaughamTests/DocSyncTests.swift`, change the file it reads from `Maugham/Views/DetailPaneToggle.swift` to `Maugham/MaughamApp.swift`, rename the method to `test_paneShortcutsDocumentedInReferenceMd`, and update its doc comment to say the View menu now owns every pane shortcut. The existing regex (`\.keyboardShortcut\("([^"]+)",\s*modifiers:\s*\[\.command,\s*\.option\]\)`) already matches letters and needs no change.
+
+Add an anti-vacuity guard, since the whole point of this edit is that a guard which extracts nothing passes silently. Note `MaughamApp.swift` also carries non-pane `⌘⌥` bindings (`⌘⌥0` inspector column, `⌘⌥F` find in project, `⌘⌥Z` restore), so the count is *more* than the nine panes — assert a floor, not equality. `⌘⌥⇧R` does not match: its modifier list is `[.command, .option, .shift]`.
+
+```swift
+        XCTAssertGreaterThanOrEqual(shortcuts.count, DetailSegment.allCases.count,
+                                    "extracted \(shortcuts.count) ⌘⌥ shortcuts — expected at least "
+                                    + "one per DetailSegment case; a regex that matches nothing "
+                                    + "makes this whole test vacuous")
+```
 
 - [ ] **Step 9: Full suite + Release build**
 
@@ -899,9 +908,11 @@ import SwiftUI
 /// The four-persona switcher. Lives in the window's top safe-area inset via
 /// TopChromeModifier, so ProjectWindow.body's modifier chain is untouched.
 ///
-/// Buttons mutate state through `onSelect` rather than posting a `.keyWindow`
-/// event, because a `.keyWindow` post originating from chrome inside a
-/// presented sheet or dialog is dropped — the dialog's own window is key.
+/// Clicking a segment posts `.maughamSetPersona` exactly as ⌘1–4 do, so there
+/// is ONE code path that changes persona and applies the segment coercions —
+/// `PersonaModifier`. The bar deliberately holds no mutation logic of its own.
+/// (The `.keyWindow` scope is safe here: the bar is window chrome, never
+/// inside a sheet or confirmationDialog, so the receiving window is key.)
 struct PersonaBar: View {
     let persona: Persona
     let onSelect: (Persona) -> Void
@@ -977,7 +988,7 @@ In `Maugham/Views/ProjectWindow.swift`, extend `TopChromeModifier` (lines 366–
     }
 ```
 
-Update the call site at line 159:
+Update the call site at line 159. The closure only posts — it must NOT duplicate the mutation block from `PersonaModifier.body`, which already handles this event:
 
 ```swift
         .modifier(TopChromeModifier(
@@ -985,13 +996,13 @@ Update the call site at line 159:
             persona: persona,
             isNoChromeOn: isNoChromeOn,
             onSelectPersona: { next in
-                let change = PersonaModifier.applyPersonaChange(to: next, currentSegment: detailSegment)
-                persona = change.persona
-                detailSegment = change.segment
-                showInspector = true
-                documentStore?.updateUIState { $0.persona = change.persona }
+                MaughamEvent.post(.maughamSetPersona,
+                                  to: .keyWindow,
+                                  payload: ["persona": next.rawValue])
             }))
 ```
+
+One code path for persona changes, whether they arrive from ⌘1–4 or from a click. Duplicating the coercion logic here is how the two drift.
 
 - [ ] **Step 6: Full suite + Release build**
 
