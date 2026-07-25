@@ -17,7 +17,7 @@ Select several items (⌘-click) to work on them together. Right-click a selecti
 
 ### Capture inbox
 
-Voice/text/photo captures from the iPhone companion app land in the Mac's capture inbox (⌘⌥6). Right-click an entry to promote it into research — three destinations:
+Voice/text/photo captures from the iPhone companion app land in the Mac's capture inbox (⌘⌥B). Right-click an entry to promote it into research — three destinations:
 
 - **Promote to Research** — shared project research, unscoped.
 - **Promote to Research for "…"** — the currently active document; only appears when one's open and it's a valid target (a chapter in a novel, or a loose piece in a collection — not a referenced piece; in short-story and screenplay projects any open manuscript document qualifies, and promotion there files into shared research).

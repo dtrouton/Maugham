@@ -435,7 +435,7 @@ struct EditorHost: View {
 
     /// Build the per-paragraph review entries from a derived translation. This
     /// is the ONE place the review plane's text is constructed — the surface
-    /// buffer (`translatedSurfaceText`), the badge ranges, and the ⌘⌥8 pane all
+    /// buffer (`translatedSurfaceText`), the badge ranges, and the ⌘⌥L pane all
     /// derive from these entry texts, so stripping inline task anchors here
     /// keeps them byte-consistent and anchor-free. A `missing` paragraph falls
     /// back to its source text, which can carry `<!--t-XXXX-->` anchors; without

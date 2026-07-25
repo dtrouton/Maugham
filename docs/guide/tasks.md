@@ -10,9 +10,9 @@ Click the bracket to toggle between open and done. The underlying text flips bet
 
 Screenplays support a second syntax: `[[todo: ...]]` boneyards inside Fountain notes.
 
-### The Tasks pane (⌘⌥5)
+### The Tasks pane (⌘⌥T)
 
-Press **⌘⌥5** to open the Tasks pane in the right column (or click the checklist icon in the pane picker).
+Press **⌘⌥T** to open the Tasks pane in the right column (or click the checklist icon in the pane picker).
 
 The pane has two scopes, toggled by the **Doc / Project** picker at the top:
 

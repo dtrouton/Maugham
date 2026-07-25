@@ -18,3 +18,7 @@ The project opens in a three-pane window:
 - **Inspector** (right) — metadata for the selected item (synopsis, status, tags, word target, linked research).
 
 Type a sentence. Quit Maugham (⌘Q). Relaunch. Your project is in Open Recent, and your sentence is still there. That's the autosave-and-iCloud loop you'll rely on every day.
+
+### Personas
+
+A persona bar sits above the three panes: **Plan** (⌘1), **Author** (⌘2), **Review** (⌘3), **Publish** (⌘4). Each reconfigures all three columns around one stage of the work — Plan surfaces research and outline tools, Author is the default writing layout above, Review leads with Annotations, Publish leads with Translation. Nothing is required or gated: every persona is one keystroke away at any time, on any project, and switching never disables or hides your manuscript — it just changes which companion panes are offered. The bar hides along with the rest of the window chrome in focus mode (⌘\\). Each window remembers its own persona per project, so two windows on the same project can sit in different personas at once. See [Inspector, Research & Outline](right-pane.md) for which right-pane modes each persona offers.

@@ -375,10 +375,12 @@ struct ProjectWindow: View {
         }
     }
 
-    /// The top banners (software-update + backups-paused) and the focused project
-    /// URL, pulled off `body` into a modifier so `ProjectWindow.body` stays under
-    /// the SwiftUI type-checker's ceiling — the Release optimizer is stricter than
-    /// Debug, so adding these inline built locally but failed the Release CI build.
+    /// The persona bar, the top banners (software-update + backups-paused), and
+    /// the focused project URL, pulled off `body` into a modifier so
+    /// `ProjectWindow.body` stays under the SwiftUI type-checker's ceiling — the
+    /// Release optimizer is stricter than Debug, so adding these inline built
+    /// locally but failed the Release CI build. The persona bar renders first
+    /// (topmost) and hides in `⌘\` focus mode via `PersonaBar.isVisible`.
     private struct TopChromeModifier: ViewModifier {
         let projectURL: URL
         let persona: Persona

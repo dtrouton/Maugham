@@ -17,13 +17,13 @@ story is not "missing" sensory detail.
    swatches with the colour picker or sample them straight off a reference
    image with the eyedropper, and add sensory notes tagged sight / sound /
    smell / touch / taste (or left untagged). Keep a card open beside the
-   editor with ⌘⌥7 while you draft.
+   editor with ⌘⌥P while you draft.
 
    **From your phone:** the palette's most natural moment often happens away
    from the desk. Aim a capture at a palette subject from the Capture tab —
    photo, voice, or text, with an optional sense tag — before or after the
    card exists; aiming is never required. Back at your Mac, promote aimed
-   captures into cards from the Inbox pane (⌘⌥6): text and audio land as
+   captures into cards from the Inbox pane (⌘⌥B): text and audio land as
    sense-tagged notes, photos land in the card's image well. Browse existing
    cards and the project's craft intent from the phone's Read tab, and triage
    sense-pass annotations from the Annotations tab, same as any other note.
