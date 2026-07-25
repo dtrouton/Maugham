@@ -12,13 +12,13 @@
 
 Everything in 1C-a's and 1C-b's Global Constraints still applies. In addition:
 
-- **The canvas NEVER writes to a research note, palette card or image** (spec §3.1, §8). An item node holds a reference and a position. Deleting an item node removes it *from the canvas*, never from the project — so tripwire 14 is satisfied by the canvas never moving or deleting user content at all, not by routing through the typed mover. Task 6 pins that with a grep.
+- **The canvas NEVER writes to a research note, palette card or image** (spec §3.1, §8). An item node holds a reference and a position. Deleting an item node removes it *from the canvas*, never from the project — so tripwire 14 is satisfied by the canvas never moving or deleting user content at all, not by routing through the typed mover. Task 8 pins that with a grep.
 - **External drops become research assets first.** A photo dropped on the canvas is imported through `ProjectStore.importResearchFiles` and *then* referenced by a node. There is no canvas-owned image store, no copy under `.maugham/`, and no node that references a file the research tree does not know about.
-- **Never `.dropDestination(for: URL.self)`.** Browser image drags carry rendered bitmaps rather than file URLs and that modifier silently rejects them (CoreTransferable error 0, recorded in `Maugham/Views/DropClassification.swift`'s doc comment). `[.fileURL, .image]` providers plus `DropClassification` is the only external-drop route. Task 5 pins it with a grep.
+- **Never `.dropDestination(for: URL.self)`.** Browser image drags carry rendered bitmaps rather than file URLs and that modifier silently rejects them (CoreTransferable error 0, recorded in `Maugham/Views/DropClassification.swift`'s doc comment). `[.fileURL, .image]` providers plus `DropClassification` is the only external-drop route. Task 7 pins it with a grep.
 - **The image cache is keyed by PATH, never by id** (tripwire 22 — an id-keyed reload survives a rename and shows stale content; it has bitten twice, once in the palette rename-revert instance). `CanvasImageCache`'s only accessors take a path `String`; there is no id-keyed overload to reach for.
-- **No image I/O in `body`.** `PaletteWallView`'s discipline is the pattern: load once in `.task(id: store.manifest.modified)`, tiles do no I/O in `body` (tripwire 4). Its `downscaled` helper is **not** the pattern — it decodes at full size and then redraws, so peak memory is the original's. Do not copy it, do not call it.
-- **`ProjectWindow.body`'s expression budget is ZERO.** It is at 28 chained expressions; eleven extracted `ViewModifier`s exist solely to buy expressions back and the ceiling has been hit twice, once passing Debug and failing Release CI. Task 7 spends exactly one expression (a `columnVisibility:` argument) and buys three back first. Adding a `@State` property is free — a stored property is not a body expression. Task 7 adds two.
-- **Tripwire 2 forbids flag-based loop guards.** Task 7's column stash inherits `PersonaModifier.clearsPaletteStash`'s exact ordering hazard and **extends that predicate** rather than deferring a pass.
+- **No image I/O in `body`.** `PaletteWallView`'s discipline is the pattern: load once in a `.task(id:)` keyed on what can change, tiles do no I/O in `body` (tripwire 4). The canvas's id is richer than the palette wall's `store.manifest.modified`, because a drop changes what must be resolved without changing the manifest — Task 5. Its `downscaled` helper is **not** the pattern — it decodes at full size and then redraws, so peak memory is the original's. Do not copy it, do not call it.
+- **`ProjectWindow.body`'s expression budget is ZERO, and it is counted PER TYPE-CHECK UNIT.** `body`'s outer chain — the modifiers on the `Group`, `.frame(minWidth:)` through `.preferredColorScheme` — is **28** chained expressions, and eleven extracted `ViewModifier`s exist solely to buy expressions back there; the ceiling has been hit twice, once passing Debug and failing Release CI. The `NavigationSplitView` inside the `if let store, let documentStore` branch (`ProjectWindow.swift:95–109`) is a **separate** expression that the type-checker solves on its own, and it carries **6** chained modifiers. Buying an expression back in one unit does not pay for spending one in the other. Task 9 therefore spends *both* of its expressions inside the inner branch and leaves the outer chain at 28 — which is what §8A.3's "column visibility must not add an expression to `ProjectWindow.body`" actually requires. Adding a `@State` property is free — a stored property is not a body expression. Task 9 adds two.
+- **Tripwire 2 forbids flag-based loop guards.** Task 9's column stash inherits `PersonaModifier.clearsPaletteStash`'s exact ordering hazard and **extends that predicate** rather than deferring a pass.
 - **`ContentUnavailableView` needs `.frame(maxWidth: .infinity, maxHeight: .infinity)` within 4 lines** and its enclosing `VStack` needs `alignment: .top` (tripwire 15, recurred 4+ times). This plan adds none; noted so a "helpful" empty state does not arrive unframed.
 - **No raw `NotificationCenter.default.post(`** without `// adr-0021-ok: <reason>` on the line where the call *starts*. The pattern is unscoped and `MaughamTests/` is scanned. This plan writes none.
 - **Mac-only.** `Packages/MaughamCore` and `MaughamPhone` are untouched (spec §9). No file in this plan may live under either.
@@ -26,11 +26,12 @@ Everything in 1C-a's and 1C-b's Global Constraints still applies. In addition:
 - **`Maugham.xcodeproj/` is generated and gitignored.** Never `git add` anything under it. A `project.pbxproj` in a diff is a red flag. `project.yml`'s `sources:` is a whole-directory glob over `Maugham` and `MaughamTests`, so new files need only `./gen.sh`, never a `project.yml` edit.
 - **Every Step 2 begins with `./gen.sh &&`.** Until `./gen.sh` runs, a new test file is not in the project at all, and `-only-testing MaughamTests/<Class>` then runs **zero** tests and reports **success** — a green RED step, which is worse than no RED step.
 - `-only-testing` takes `MaughamTests/<ClassName>`, **never a folder path**. A folder path runs zero tests and reports success.
-- Run `xcodebuild` in the **foreground** (timeout 600000). **Any task touching a view needs a Release build before it is called done** — the Release type-check budget is stricter than Debug and v0.8.0 shipped a Release-only failure this way. That is Tasks 3, 4, 5, 6 and 7.
+- Run `xcodebuild` in the **foreground** (timeout 600000). **Any task touching a view needs a Release build before it is called done** — the Release type-check budget is stricter than Debug and v0.8.0 shipped a Release-only failure this way. That is Tasks 3, 4, 5, 6, 7, 8 and 9.
+- **Every test class in this plan is `@MainActor`**, matching the 225 test files that already are. `CanvasImageCache` and `CanvasModel` are `@MainActor` types; a non-isolated `XCTestCase` touching them is a warning today and an error when strict concurrency lands.
 
-## What you inherit, and the three places the predecessors disagree
+## What you inherit, and the four places the predecessors disagree
 
-1C-a is the source of truth for its own API; its "Cross-plan contract" section says so, and lists three spellings 1C-b's Interfaces blocks get wrong. **Two more are load-bearing here**, and the pre-state this plan assumes is stated exactly so nothing has to be guessed.
+1C-a is the source of truth for its own API; its "Cross-plan contract" section says so, and lists three spellings 1C-b's Interfaces blocks get wrong. **Three more are load-bearing here**, and the pre-state this plan assumes is stated exactly so nothing has to be guessed.
 
 **Verified against 1C-a Task 1, Task 4, Task 5, Task 7, Task 10, Task 13, Task 14 and 1C-b Tasks 1, 2, 4, 6 — these exist and this plan consumes them at these spellings:**
 
@@ -42,13 +43,15 @@ Everything in 1C-a's and 1C-b's Global Constraints still applies. In addition:
 | `CanvasCardMetrics` | `static let inset: CGFloat = 10`, `textWidth(forCardWidth:)`, `cardHeight(forTextHeight:)`, `textOrigin(inCard:)`, `textSize(inCard:)` | 1C-a T1 |
 | `CanvasScene` | `nodes`, `unorderedNodes`, `count`, `node(_:)`, `insert(_:)`, `remove(_:)`, `move(_:to:)`, `setCachedHeight(_:for:)`, `topmostNode(at:)`, `nodes(intersecting:)`, `topZ` | 1C-a T1 |
 | `CanvasCamera` | `contentPoint(fromView:) -> CGPoint`, `viewPoint(fromContent:)`, `visibleContentRect(viewSize:)` | 1C-a T4 |
-| `CanvasRenderer` | `enum`; `seededRotation(for:)`, `drawnAngle(for:straighten:)`, `cardTransform(inCard:angle:)`, `localPoint(_:inCard:angle:)`, `visibleNodes(in:camera:viewSize:)`, `placeholderLabel(forReference:)`, `resizeHandleSize`, `draw(...)`, `private drawCard(_:frame:layout:angle:into:)` | 1C-a T7 |
+| `CanvasRenderer` | `enum`; `seededRotation(for:)`, `drawnAngle(for:straighten:)`, `cardTransform(inCard:angle:)`, `localPoint(_:inCard:angle:)`, `visibleNodes(in:camera:viewSize:)` and `visibleNodes(in:camera:viewSize:hidingCollapsedResidents:)`, `placeholderLabel(forReference:)`, `drawsOwnText(_:visibleEditorNodeID:)`, `resizeHandleSize`, `chipTitle(for:in:scraps:)` (**not** `private`, and it takes the scene — `RegionInspector` calls it), `draw(...)`, `private drawCard(_:frame:layout:angle:into:)` | 1C-a T7, 1C-b T5 |
 | `CanvasAccessibility` | `elements(scene:scraps:) -> [CanvasAXElement]`, `summary(scene:)`; `CanvasAXElement(id:role:label:value:contentFrame:)`, `CanvasAXRole.scrap` / `.item` | 1C-a T14 |
 | `CanvasInteraction` | `defaultScrapWidth`, `joinTarget(for frame: CGRect, in: CanvasScene) -> CanvasRegion?` | 1C-a T13, 1C-b T6 |
 | `CanvasMembership` | `join(_:home:in:)`, `leave(_:from:in:)`, `homeRegion(of:in:) -> CanvasRegionID?`, `appearanceRegions(of:in:) -> [CanvasRegionID]` | 1C-b T2 |
 | `CanvasModel` | `@Observable final class`; `private(set) var scene`, `private(set) var scraps`, `var selectedRegionID`, `let undoManager`, `load(projectRoot:)`, `flush()`, `withScene(persist:_:)`, `setScrapText(_:for:)`, `beginGesture(_:)`, `endGesture()`, `mutate(_ name:_ body:)`, `deleteSelectedRegion()` | 1C-b T4 |
 | `CanvasEventView` / `CanvasEventNSView` | `onDeleteKey: (() -> Void)?` | 1C-b T6 |
-| `CanvasView` | `init(model:projectRoot:paletteSwatchHexes:)` with `paletteSwatchHexes: [String]`; `@State camera`, `layouts`, `editingNodeID`, `caretIndex`, `interaction`, `revision`, `sceneRevision`, `straighten`; `mountedEditorNodeID` computed | 1C-b T4 |
+| `CanvasView` | `init(model:projectRoot:paletteSwatchHexes:)` with **`paletteSwatchHexes: () -> [String]` — a closure**, called at the call site as `paletteSwatchHexes: { store.paletteSwatchHexes() }`; `@State camera`, `layouts`, `editingNodeID`, `caretIndex`, `interaction`, `revision`, `sceneRevision`, `straighten`; `mountedEditorNodeID` **and** `visibleEditorNodeID` computed | 1C-a T10, 1C-b T4 |
+| `RegionInspector` | `init(model:regionID:pieces:)`; its `membershipRows` calls `CanvasRenderer.chipTitle(for:in:scraps:)` | 1C-b T7 |
+| `ScrapLayout` | `makeEditor(frame:) -> NSTextView` — it builds the one editor the canvas ever mounts, as a **plain `NSTextView`**; there is no subclass yet | 1C-a T3 |
 | `ProjectStore` | `let url: URL` (the project root), `var manifest: ProjectManifest`, `manifest.research: [ResearchItem]`, `importResearchFiles(_:toParentId:) async throws -> [ResearchItem]`, `paletteSwatchHexes() -> [String]` | existing + 1C-a T11 |
 | `TreeWalk.find(id:in:)` | `public static func find<N: TreeNode>(id: String, in nodes: [N]) -> N?`; `ResearchItem: TreeNode` | `Packages/MaughamCore/Sources/MaughamCore/TreeNode.swift:16` |
 | `DropClassification` | `action(hasFileURL:canLoadImage:) -> DropAction`, `fileURLs(from: [NSItemProvider]) async -> [URL]` | `Maugham/Views/DropClassification.swift` |
@@ -56,7 +59,7 @@ Everything in 1C-a's and 1C-b's Global Constraints still applies. In addition:
 
 **Disagreement 1 — `CanvasItemPresentation` does not exist when this plan starts.** 1C-b's Task 5 Interfaces block cites "`CanvasItemPresentation` (1C-a Task 12 — the per-item title/glyph the view resolves from the project store)". 1C-a's Global Constraints say the opposite, in terms: *"Do not build: a drop target, `CanvasItemPresentation` or any title/thumbnail resolution…"*, and its Task 12 is "Plan leads with the canvas", which touches only `Persona.swift`. 1C-a is the declared source of truth for reconciliation, so **1C-b ships without `presentations:`**. This plan creates the type (Task 1) and threads it (Task 3).
 
-**Disagreement 2 — the merged `CanvasRenderer.draw` signature.** 1C-b's Task 5 writes `draw(scene:camera:viewSize:layouts:presentations:scraps:selectedRegionID:editingNodeID:into:)` and does the card rotation inline; 1C-a's Task 7 ships `mountedEditorNodeID:` and `straighten:` and does the rotation through `drawnAngle`/`cardTransform`. 1C-b's own Step 4 instruction resolves it — *"if the merged 1C-a signature spells `presentations:` differently, keep the merged spelling"* — so **the pre-state this plan assumes is:**
+**Disagreement 2 — the merged `CanvasRenderer.draw` signature.** An early draft of 1C-b wrote `draw(scene:camera:viewSize:layouts:presentations:scraps:selectedRegionID:editingNodeID:into:)` and did the card rotation inline; 1C-a's Task 7 ships `visibleEditorNodeID:` and `straighten:` and does the rotation through `drawnAngle`/`cardTransform`. 1C-a is the declared source of truth, and 1C-b's reconciliation table agrees with it, so **the pre-state this plan assumes is:**
 
 ```swift
 static func draw(scene: CanvasScene,
@@ -65,33 +68,48 @@ static func draw(scene: CanvasScene,
                  layouts: [CanvasNodeID: ScrapLayout],
                  scraps: [CanvasNodeID: String],
                  selectedRegionID: CanvasRegionID?,
-                 mountedEditorNodeID: CanvasNodeID?,
+                 visibleEditorNodeID: CanvasNodeID?,
                  straighten: CanvasFocusStraighten,
                  into cx: inout GraphicsContext)
 ```
 
-with `private static func drawCard(_ node: CanvasNode, frame: CGRect, layout: ScrapLayout?, angle: Angle, into cx: inout GraphicsContext)` and `private static func chipTitle(for:scraps:)`.
+with `private static func drawCard(_ node: CanvasNode, frame: CGRect, layout: ScrapLayout?, angle: Angle, into cx: inout GraphicsContext)`, and `static func chipTitle(for id: CanvasNodeID, in scene: CanvasScene, scraps: [CanvasNodeID: String]) -> String` — **internal, not `private`**, because `RegionInspector.membershipRows` calls it.
 
-**Task 3 Step 0 verifies this by grep and STOPS if it does not hold** — it does not guess. If `presentations:` is already present, 1C-b was executed against its own text rather than the reconciliation, and that must be reported before any code is written.
+Inside `draw`, the node loop culls through `visibleNodes(in:camera:viewSize:hidingCollapsedResidents: true)` — `hidingCollapsedResidents:` is an argument to *that* call, **not a parameter of `draw`**. Nothing in this plan touches it.
+
+**Task 3 Step 0 verifies all of this by grep and STOPS if it does not hold** — it does not guess. If `presentations:` is already present, 1C-b was executed against an early draft rather than the reconciliation, and that must be reported before any code is written.
 
 **Disagreement 3 — `CanvasUndo`'s task number.** 1C-b calls it "1C-a Task 13"; 1C-a builds it in Task 15. Immaterial here: this plan uses `CanvasModel.mutate(_:_:)` for every mutation and never touches `CanvasUndo` directly. 1C-b's Task 6 states the rule this plan obeys — *"One gesture, one mechanism; nesting the two produces a group containing a snapshot and gives you two ⌘Z presses for one drag."*
+
+**Disagreement 4 — `mountedEditorNodeID` is NOT the text-suppression parameter, and this is the seam that keeps drifting.** An earlier draft of *this* plan spelled `draw`'s suppression parameter `mountedEditorNodeID:` and gated `layout:` on `node.id == mountedEditorNodeID`. That is a different concept, and the difference is visible:
+
+| property | means | derived from |
+|---|---|---|
+| `mountedEditorNodeID` | the editor **exists** — in the hierarchy, first responder, taking keystrokes | `editingNodeID`, from the click |
+| `visibleEditorNodeID` | the editor **is the visible text** | `editingNodeID` **and** `straighten.isLevel(id)` |
+
+Suppressing drawn text on `mounted` blanks the clicked card for the ~120 ms of the straighten, while the still-invisible editor draws nothing in its place — the glyphs vanish and reappear straight, which is spec §7A.2's jump arriving by §7A.5's own route. 1C-a records this failing twice, in opposite directions (blanking on the click; and deferring the *mount* to `isLevel`, which loses the writer's first characters), and 1C-b's reconciliation table names the spelling explicitly. It drifted anyway.
+
+**So this plan makes it a test rather than a fourth comment.** Task 3 adds `CanvasEditorIdentifierCensusTests`: a census of every production mention of `mountedEditorNodeID` under `Maugham/Canvas/`, sanctioning exactly two line shapes — the property's own declaration and the editor-mount gate — and failing on any third, with a self-check that plants an offender and proves the census fires. Recorded failing twice in implementation, named in two plans' reconciliation notes, and drifted again in a third — prose has had its chances; a census does not need one.
 
 ## File Structure
 
 | File | Responsibility |
 |---|---|
 | `Maugham/Views/ResearchGlyph.swift` | *Create* — the SF Symbol for a research item, in one place |
-| `Maugham/Views/ResearchRow.swift` | *Modify* — `kindIconName` delegates to `ResearchGlyph` |
-| `Maugham/Canvas/CanvasItemPresentation.swift` | *Create* — `CanvasItemPresentation`, `CanvasItemResolver` |
+| `Maugham/Views/ResearchRow.swift` | *Modify* — the row's `icon` reads `ResearchGlyph`; the local switch and the hardcoded `"folder"` both go |
+| `Maugham/Canvas/CanvasItemPresentation.swift` | *Create* (Task 1) — `CanvasItemPresentation`, `CanvasItemResolver`; *Modify* (Task 5) — `CanvasItemContentTrigger` |
 | `Maugham/Canvas/CanvasImageCache.swift` | *Create* — `CanvasThumbnailDecoder`, `CanvasImageCache` |
-| `Maugham/Canvas/CanvasItemNode.swift` | *Create* (Task 3) — item-card geometry: width, heights, the fitted thumbnail rect |
+| `Maugham/Canvas/CanvasItemNode.swift` | *Create* (Task 3) — item-card geometry: width, heights, the title rect, the fitted thumbnail rect |
 | `Maugham/Canvas/CanvasDrop.swift` | *Create* — `CanvasDropRouter`, `CanvasDropPlacement` |
 | `Maugham/Canvas/CanvasFocusColumns.swift` | *Create* — `CanvasColumnStash`, `CanvasFocusColumns` (spec §8A.3) |
-| `Maugham/Canvas/CanvasRenderer.swift` | *Modify* — item cards draw for real; the node selection ring |
-| `Maugham/Canvas/CanvasAccessibility.swift` | *Modify* — AX reads the resolved title, not the placeholder |
-| `Maugham/Canvas/CanvasModel.swift` | *Modify* — the image cache, node selection, canvas-only node removal |
-| `Maugham/Canvas/CanvasView.swift` | *Modify* — resolve presentations + thumbnails; two drop destinations; selection |
-| `Maugham/Canvas/ScrapEditorHost.swift` | *Modify* — the mounted text view stops claiming drops |
+| `Maugham/Canvas/CanvasRenderer.swift` | *Modify* (Task 3) — item cards draw for real; the node selection ring; `chipTitle` reads the resolved title |
+| `Maugham/Canvas/RegionInspector.swift` | *Modify* (Task 3) — its `chipTitle` call site takes the new argument |
+| `Maugham/Canvas/CanvasAccessibility.swift` | *Modify* (Task 4) — AX reads the resolved title, not the placeholder |
+| `Maugham/Canvas/CanvasModel.swift` | *Modify* — resolved presentations, the image cache, node selection, canvas-only node removal |
+| `Maugham/Canvas/CanvasView.swift` | *Modify* — one load pass for presentations + thumbnails; two drop destinations; selection |
+| `Maugham/Canvas/ScrapEditorHost.swift` | *Modify* (Task 6) — `ScrapTextView`, the subclass that durably refuses drags |
+| `Maugham/Canvas/ScrapLayout.swift` | *Modify* (Task 6) — `makeEditor` builds a `ScrapTextView` |
 | `Maugham/Views/ProjectWindow.swift` | *Modify* — `store:` into `CanvasView`; `columnVisibility`; `ProjectOverlaysModifier`; `clearsColumnStash` |
 | `Maugham/Canvas/AREA.md` | *Modify* — items, images, drops, the cache bound |
 | `docs/adr/0026-planning-canvas-rendering.md` | *Modify* — the item-node decisions |
@@ -118,7 +136,9 @@ with `private static func drawCard(_ node: CanvasNode, frame: CGRect, layout: Sc
 
 **A dangling reference resolves to a visible "missing" card, never to a crash and never to a blank.** A writer can delete a research note that a canvas node points at. The node stays — deleting the note is not a statement about the canvas — and it reads as unresolved, carrying the reference id so the writer can tell *which* thing went. That is the fix-shape this codebase already prefers (fail loudly rather than silently no-op; see `project_publishing_namespace_footgun`). `CanvasRenderer.placeholderLabel(forReference:)` is reused verbatim as that label — it already exists, its 1C-a test already asserts it contains the reference id, and one spelling is better than two.
 
-**Why `ResearchGlyph` exists.** `ResearchRow.kindIconName` is the app's existing kind→symbol mapping and it is `private`. An item card must show the same glyph the binder shows for the same note, or the writer cannot tell that the card *is* the note. Copying the switch is how the two drift; extracting it is fifteen lines. `ResearchRow`'s `icon` view is untouched — only the string it reads moves.
+**Why `ResearchGlyph` exists.** `ResearchRow.kindIconName` is the app's existing kind→symbol mapping and it is `private`. An item card must show the same glyph the binder shows for the same note, or the writer cannot tell that the card *is* the note. Copying the switch is how the two drift; extracting it is fifteen lines.
+
+**The group glyph moves too.** `ResearchRow.icon` does not read `kindIconName` for a group — it hardcodes `Image(systemName: "folder")` at `ResearchRow.swift:95`, in an arm that is otherwise byte-identical to the asset arm. Leaving that behind would mean extracting the map and still shipping a second spelling of the very glyph `ResearchGlyph.groupSymbolName` exists to own, which is precisely the drift this task is here to stop. The two arms collapse into one and `kindIconName` goes away entirely.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -129,6 +149,7 @@ import XCTest
 import MaughamCore
 @testable import Maugham
 
+@MainActor
 final class CanvasItemPresentationTests: XCTestCase {
 
     private func asset(_ id: String,
@@ -168,6 +189,26 @@ final class CanvasItemPresentationTests: XCTestCase {
         XCTAssertEqual(ResearchGlyph.symbolName(for: group), ResearchGlyph.groupSymbolName)
         XCTAssertEqual(ResearchGlyph.groupSymbolName, "folder")
     }
+
+    /// `ResearchRow.icon` hardcoded `"folder"` in its group arm. Extracting the
+    /// map and leaving that behind would ship a second spelling of the one glyph
+    /// this type exists to own — the exact drift the extraction prevents.
+    func test_theBinderRowNoLongerSpellsAnySymbolItself() throws {
+        let source = try String(
+            contentsOf: Self.repoRoot.appendingPathComponent("Maugham/Views/ResearchRow.swift"),
+            encoding: .utf8)
+        XCTAssertFalse(source.contains("\"folder\""),
+                       "the group glyph belongs to ResearchGlyph.groupSymbolName")
+        XCTAssertFalse(source.contains("kindIconName"),
+                       "the local kind→symbol switch is gone, not merely bypassed")
+    }
+
+    /// `#filePath` is `…/MaughamTests/Canvas/CanvasItemPresentationTests.swift`,
+    /// so three deletions reach the repo root.
+    private static let repoRoot: URL = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
 
     // MARK: - Resolving one reference
 
@@ -311,11 +352,17 @@ enum ResearchGlyph {
 }
 ```
 
-`Maugham/Views/ResearchRow.swift` — replace the body of `kindIconName` (its six-case switch) with the delegation, leaving the `icon` view and everything else untouched:
+`Maugham/Views/ResearchRow.swift` — **delete `kindIconName` entirely** (its six-case switch, `ResearchRow.swift:105–114`) and collapse `icon`'s two arms, which differ only in the symbol name. That takes the hardcoded `"folder"` at `:95` with it; everything else in the file is untouched.
 
 ```swift
-    private var kindIconName: String { ResearchGlyph.symbolName(forKind: item.kind) }
+    private var icon: some View {
+        Image(systemName: ResearchGlyph.symbolName(for: item))
+            .imageScale(.small)
+            .foregroundStyle(.secondary)
+    }
 ```
+
+The `@ViewBuilder` attribute on `icon` goes with the `if`/`else`: one expression does not need it.
 
 `Maugham/Canvas/CanvasItemPresentation.swift`:
 
@@ -387,10 +434,13 @@ enum CanvasItemResolver {
 - [ ] **Step 4: Run the tests**
 
 Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasItemPresentationTests CODE_SIGNING_ALLOWED=NO`
-Expected: PASS, 12 tests.
+Expected: PASS, 13 tests.
 
 Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasRendererTests CODE_SIGNING_ALLOWED=NO`
 Expected: PASS — `placeholderLabel` gains a second consumer and its 1C-a test must still hold.
+
+Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/ResearchKindInferenceTests -only-testing MaughamTests/ResearchItemTests CODE_SIGNING_ALLOWED=NO`
+Expected: PASS — the kind→glyph map moved file; the kinds themselves did not.
 
 - [ ] **Step 5: Commit**
 
@@ -431,7 +481,7 @@ Three option keys are load-bearing and each is there for a reason:
 - `kCGImageSourceCreateThumbnailWithTransform: true` — without it, a photograph shot in portrait on a phone draws on its side, because the EXIF orientation is never applied.
 - `kCGImageSourceShouldCacheImmediately: true` — decode happens here, on the loading pass, rather than lazily on the first draw, which would put a file read inside the `Canvas` draw closure.
 
-`kCGImageSourceShouldCache: false` on the *source* keeps ImageIO from holding a second decoded copy alongside the one we asked for.
+There is deliberately **no source-options dictionary**. `kCGImageSourceShouldCache` is scoped to `CGImageSourceCopyPropertiesAtIndex` / `CGImageSourceCreateImageAtIndex` / `CGImageSourceCreateThumbnailAtIndex`, not to `CGImageSourceCreateWithURL`, so passing it there buys nothing and documents a guarantee ImageIO never made. `kCGImageSourceShouldCacheImmediately` in the thumbnail options is the key that actually controls when the one decode happens; adding `ShouldCache: false` beside it would contradict it.
 
 **The cache is keyed on the file PATH, never on a node id — tripwire 22, which has bitten twice, once in the palette rename-revert instance.** An item node's id is `item:<referenceId>` and survives a rename of the thing it points at; the file behind it does not. Keying on the id means a renamed research image keeps serving the picture that used to be at the old path — the exact "id-keyed reload survives a rename and shows stale content" failure. The type is the enforcement: `image(forPath:)` and `insert(_:forPath:)` are the only accessors and both take a path `String`. There is no id-keyed overload to reach for, and the resolver in Task 1 hands out `relativePath` rather than an id for precisely this reason.
 
@@ -448,6 +498,7 @@ import XCTest
 import AppKit
 @testable import Maugham
 
+@MainActor
 final class CanvasImageCacheTests: XCTestCase {
 
     private var dir: URL!
@@ -643,10 +694,10 @@ enum CanvasThumbnailDecoder {
 
     static func thumbnail(atFileURL url: URL, maxPixelSize: Int) -> CGImage? {
         guard maxPixelSize > 0 else { return nil }
-        // `ShouldCache: false` on the SOURCE: we want exactly one decoded copy,
-        // the one asked for below, not ImageIO holding a second.
-        let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions) else {
+        // No source options. `kCGImageSourceShouldCache` is scoped to the
+        // per-image calls below, not to source creation, so passing it here
+        // would document a guarantee ImageIO never made.
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
             return nil
         }
         let options: [CFString: Any] = [
@@ -781,39 +832,61 @@ rather than re-decoded on every pass forever."
 
 ---
 
-### Task 3: Item cards draw for real — geometry, thumbnails, and the selection ring
+### Task 3: Item cards draw for real — geometry, the renderer and the selection ring
 
 **Files:**
 - Create: `Maugham/Canvas/CanvasItemNode.swift`
 - Modify: `Maugham/Canvas/CanvasRenderer.swift`
-- Modify: `Maugham/Canvas/CanvasAccessibility.swift`
 - Modify: `Maugham/Canvas/CanvasModel.swift`
 - Modify: `Maugham/Canvas/CanvasView.swift`
+- Modify: `Maugham/Canvas/RegionInspector.swift`
 - Test: `MaughamTests/Canvas/CanvasItemNodeTests.swift`
+- Test: `MaughamTests/Canvas/CanvasEditorIdentifierCensusTests.swift`
+- Test (call sites only): `MaughamTests/Canvas/CanvasRegionRenderTests.swift`
 
 **Interfaces:**
-- **Consumes:** `CanvasCardMetrics.inset` / `textWidth(forCardWidth:)` / `cardHeight(forTextHeight:)` / `textOrigin(inCard:)` (1C-a T1); `CanvasNode`, `CanvasNodeID`, `CanvasNodeKind`, `CanvasScene` (1C-a T1); `CanvasRenderer.drawnAngle(for:straighten:)` / `cardTransform(inCard:angle:)` / `visibleNodes(in:camera:viewSize:)` / `placeholderLabel(forReference:)` (1C-a T7); `CanvasAccessibility.elements(scene:scraps:)` (1C-a T14); `CanvasItemPresentation`, `CanvasItemResolver.presentations(for:in:)` (Task 1); `CanvasImageCache`, `CanvasThumbnailDecoder.thumbnail(atFileURL:maxPixelSize:)` (Task 2); `CanvasModel.scene` / `scraps` (1C-b T4); `ProjectStore.url` / `manifest.research` / `manifest.modified`.
+- **Consumes:** `CanvasCardMetrics.inset` / `textWidth(forCardWidth:)` / `cardHeight(forTextHeight:)` / `textOrigin(inCard:)` (1C-a T1); `CanvasNode`, `CanvasNodeID`, `CanvasNodeKind`, `CanvasScene` (1C-a T1); `CanvasRenderer.drawnAngle(for:straighten:)` / `cardTransform(inCard:angle:)` / `visibleNodes(in:camera:viewSize:hidingCollapsedResidents:)` / `drawsOwnText(_:visibleEditorNodeID:)` / `placeholderLabel(forReference:)` (1C-a T7, 1C-b T5); `CanvasItemPresentation`, `CanvasItemResolver.missingSymbolName` (Task 1); `CanvasModel.scene` / `scraps` / `selectedRegionID` (1C-b T4); `CanvasView.visibleEditorNodeID` (1C-a T10).
 - **Produces:**
-  - `enum CanvasItemNode` — `static let defaultWidth: CGFloat`, `static let titleRowHeight: CGFloat`, `static let thumbnailBoxHeight: CGFloat`, `static let thumbnailMaxPixelSize: Int`, `static func height(showsThumbnail: Bool) -> CGFloat`, `static func make(referenceId: String, at origin: CGPoint, z: Int, showsThumbnail: Bool) -> CanvasNode`, `static func thumbnailBox(inCard frame: CGRect) -> CGRect`, `static func fittedRect(imageSize: CGSize, in box: CGRect) -> CGRect`.
-  - On `CanvasRenderer`: `static let selectionRingWidth: CGFloat`, and the amended `draw` / `drawCard` signatures below.
-  - On `CanvasAccessibility`: `elements(scene:scraps:presentations:)`.
-  - On `CanvasModel`: `@ObservationIgnored let imageCache: CanvasImageCache`, `var selectedNodeID: CanvasNodeID?`.
-  - On `CanvasView`: `let store: ProjectStore`, `@State private var presentations`, `@State private var thumbnails`, `private func reloadItemContent()`.
+  - `enum CanvasItemNode` — `static let defaultWidth: CGFloat`, `titleRowHeight: CGFloat`, `titleGlyphColumn: CGFloat`, `thumbnailBoxHeight: CGFloat`, `thumbnailMaxPixelSize: Int`; `static func height(showsThumbnail: Bool) -> CGFloat`, `make(referenceId:at:z:showsThumbnail:) -> CanvasNode`, `thumbnailBox(inCard:) -> CGRect`, `titleRect(inCard:) -> CGRect`, `fittedRect(imageSize:in:) -> CGRect`.
+  - On `CanvasRenderer`: `static let selectionRingWidth: CGFloat`; `draw` gains `presentations:`, `thumbnails:` and `selectedNodeID:`; `drawCard` gains `presentation:`, `thumbnail:` and `isSelected:`; `chipTitle` gains `presentations:`.
+  - On `CanvasModel`: `var itemPresentations: [CanvasNodeID: CanvasItemPresentation]`, `var selectedNodeID: CanvasNodeID?`.
+  - On `CanvasView`: `@State private var thumbnails: [CanvasNodeID: CGImage]`.
+
+**A scrap's height is derived from its text; an item card's cannot be.** There is no text to measure, so the height is a constant chosen by whether there is a picture to show — and it must be set when the node is made, because a node with no `cachedHeight` has no `frame` and is invisible to hit testing (1C-a Task 1). Both the draw pass and the drop handler size an item card, so the geometry lives in one place for the same reason `CanvasCardMetrics` does: two spellings put the thumbnail on a different rect from the card it sits in.
+
+**A dashed border stops meaning "not built yet" and starts meaning "this reference no longer resolves".** 1C-a dashed *every* item card because every item card was a placeholder. After this task a resolved reference is a real thing on the canvas and reads as one, and the dash is reserved for the case a writer actually needs to see. Task 10 records the change of meaning, because a future reader will otherwise assume the old one.
+
+**This task declares the two maps and wires the call sites; Task 5 fills them.** `CanvasModel.itemPresentations` and `CanvasView.thumbnails` are empty when this task lands, and an empty presentations map draws exactly what 1C-a drew — an unresolved card. That is not a placeholder to come back to: the wiring is final, the argument names are final, and the only thing missing is the data, which arrives in Task 5 with nothing here to revisit.
+
+**`itemPresentations` lives on the model, not in `CanvasView`'s `@State`.** `RegionInspector.membershipRows` calls `chipTitle` too, and the detail column cannot see the centre column's view state. A card, its appearance chip and the inspector's list of what lives in a region must not disagree about what a thing is called (spec §4.3), and one map read by all three is the only shape that guarantees it.
+
+**The suppression parameter is `visibleEditorNodeID:` and nothing in this task may change that.** See "Disagreement 4" above: `mountedEditorNodeID` says the editor *exists*, `visibleEditorNodeID` says it *is the visible text*, and gating drawn text on the first blanks the card for the whole straighten. This task adds `CanvasEditorIdentifierCensusTests` so the next drift fails a test rather than a review.
 
 - [ ] **Step 0: Verify the pre-state, and STOP if it does not hold**
 
 ```bash
-grep -n "static func draw(" -A 10 Maugham/Canvas/CanvasRenderer.swift
-grep -n "static func drawCard\|private static func drawCard" -A 6 Maugham/Canvas/CanvasRenderer.swift
-grep -n "presentations" Maugham/Canvas/CanvasRenderer.swift Maugham/Canvas/CanvasView.swift
-grep -n "static func elements" -A 3 Maugham/Canvas/CanvasAccessibility.swift
+grep -n "static func draw(" -A 12 Maugham/Canvas/CanvasRenderer.swift
+grep -n "drawCard(" -A 6 Maugham/Canvas/CanvasRenderer.swift
+grep -n "chipTitle" Maugham/Canvas/CanvasRenderer.swift Maugham/Canvas/RegionInspector.swift
+grep -rn "visibleEditorNodeID\|mountedEditorNodeID" Maugham/Canvas/
+grep -n "hidingCollapsedResidents" Maugham/Canvas/CanvasRenderer.swift
+grep -rn "presentations" Maugham/Canvas/
+grep -n "paletteSwatchHexes" Maugham/Canvas/CanvasView.swift Maugham/Views/ProjectWindow.swift
 ```
 
-Expected: `draw(scene:camera:viewSize:layouts:scraps:selectedRegionID:mountedEditorNodeID:straighten:into:)`, `drawCard(_:frame:layout:angle:into:)`, **zero** hits for `presentations`, and `elements(scene:scraps:)`.
+Expected, and what a mismatch means — **report, do not guess**:
 
-**If `presentations` already appears**, 1C-b was executed against its own Interfaces block rather than against 1C-a's reconciliation (see "Disagreement 1" at the top of this plan). Stop and report it — do not guess which half survived.
+| grep | expected | if it differs |
+|---|---|---|
+| `draw(` | `draw(scene:camera:viewSize:layouts:scraps:selectedRegionID:visibleEditorNodeID:straighten:into:)` | a `mountedEditorNodeID:` or `editingNodeID:` parameter means 1C-b shipped the seam 1C-a records failing twice. **Stop and report**; do not "fix it while you are here", because the editor's own visibility is derived from the same property and may have gone with it. |
+| `drawCard(` | `private static func drawCard(_:frame:layout:angle:into:)`, called with `layout: ownText ? layouts[node.id] : nil` | a `continue` that skips the focused node means the card vanishes on click, not just its text (§7A.5 needs a card to straighten). Report. |
+| `chipTitle` | `static func chipTitle(for:in:scraps:)` on the renderer, one call inside `draw`'s chip pass, one in `RegionInspector.membershipRows` | if it is `private`, `RegionInspector` cannot be calling it and 1C-b's Task 7 shipped something else — read that file before touching this one. |
+| `visibleEditorNodeID` / `mountedEditorNodeID` | both exist in `CanvasView`; `visibleEditorNodeID` is what reaches `CanvasRenderer.draw` and `ScrapEditorHost(isEditorVisible:)`; `mountedEditorNodeID` appears only in its own declaration and the `if let id = mountedEditorNodeID` mount gate | any other mention of `mountedEditorNodeID` is the drift this task's census exists to stop. Report it and fix it as part of Step 4 rather than adding a second wrong spelling. |
+| `hidingCollapsedResidents` | present exactly once, as an **argument** in `draw`'s culling call — `visibleNodes(in:camera:viewSize:hidingCollapsedResidents: true)` | it is not a parameter of `draw`; if it has become one, 1C-b restructured the pass and Step 4's diff must be re-read against the real code. |
+| `presentations` | **zero** hits anywhere under `Maugham/Canvas/` | 1C-b was executed against an early draft rather than the reconciliation (see "Disagreement 1"). Stop and report — do not guess which half survived. |
+| `paletteSwatchHexes` | `let paletteSwatchHexes: () -> [String]` in `CanvasView`, called at the `ProjectWindow` call site as `paletteSwatchHexes: { store.paletteSwatchHexes() }` | an eager `[String]` means `ProjectWindow.body` reads every palette card off disk per render (tripwire 4). Report it; Task 5 touches that call site and must not make it worse. |
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing tests**
 
 `MaughamTests/Canvas/CanvasItemNodeTests.swift`:
 
@@ -823,6 +896,7 @@ import SwiftUI
 import MaughamCore
 @testable import Maugham
 
+@MainActor
 final class CanvasItemNodeTests: XCTestCase {
 
     // MARK: - Card geometry
@@ -865,6 +939,19 @@ final class CanvasItemNodeTests: XCTestCase {
                        CGRect(x: 110, y: 210, width: 180, height: 130))
     }
 
+    /// The title is drawn with `draw(_:in:)`, so the rect IS the clip. `Text`
+    /// has no `lineLimit` — that is a `View` modifier — and a resolved text
+    /// drawn into a rect is bounded by it.
+    func test_theTitleRectIsOneRowTallAndClearsTheGlyphColumn() {
+        let card = CGRect(x: 100, y: 200, width: 200, height: 172)
+        // x: 100 + 10 inset + 16 glyph column = 126.
+        // y: 372 (maxY) - 10 inset - 22 row = 340.
+        // width: 180 content - 16 glyph column = 164.
+        XCTAssertEqual(CanvasItemNode.titleGlyphColumn, 16)
+        XCTAssertEqual(CanvasItemNode.titleRect(inCard: card),
+                       CGRect(x: 126, y: 340, width: 164, height: 22))
+    }
+
     // MARK: - Aspect fit
 
     func test_aWideImageIsPillarboxedAndCentredVertically() {
@@ -902,41 +989,6 @@ final class CanvasItemNodeTests: XCTestCase {
                        + "48 MiB budget is stated in")
     }
 
-    // MARK: - The accessibility tree reads the resolved title
-
-    func test_anItemNodeAnnouncesItsRealTitleRatherThanItsReferenceID() {
-        var scene = CanvasScene()
-        scene.insert(CanvasItemNode.make(referenceId: "r-photo", at: .zero,
-                                         z: 0, showsThumbnail: true))
-        let presentations: [CanvasNodeID: CanvasItemPresentation] = [
-            .item("r-photo"): CanvasItemPresentation(
-                title: "Falls, evening", symbolName: "photo",
-                relativePath: "research/falls.jpg", isMissing: false, showsThumbnail: true)
-        ]
-        let elements = CanvasAccessibility.elements(
-            scene: scene, scraps: [:], presentations: presentations)
-        XCTAssertEqual(elements.count, 1)
-        XCTAssertEqual(elements[0].role, .item)
-        XCTAssertEqual(elements[0].value, "Falls, evening",
-                       "an assistive client must hear what the writer sees, not "
-                       + "an internal id")
-    }
-
-    /// §7A.6: we own the AX tree, and "unresolved" is information a screen
-    /// reader user needs as much as a sighted one.
-    func test_aMissingReferenceStillAnnouncesItselfWithItsReferenceID() {
-        var scene = CanvasScene()
-        scene.insert(CanvasItemNode.make(referenceId: "r-gone", at: .zero,
-                                         z: 0, showsThumbnail: false))
-        let elements = CanvasAccessibility.elements(
-            scene: scene, scraps: [:], presentations: [:])
-        XCTAssertEqual(elements.count, 1)
-        XCTAssertEqual(elements[0].value,
-                       CanvasRenderer.placeholderLabel(forReference: "r-gone"),
-                       "an unresolved presentation must fall back to the same "
-                       + "label the card draws, not to an empty string")
-    }
-
     // MARK: - The selection ring
 
     func test_theSelectionRingIsDrawnAtAStatedWidth() {
@@ -944,13 +996,163 @@ final class CanvasItemNodeTests: XCTestCase {
                              "a selection that deletes on backspace must be "
                              + "visible before the writer presses it")
     }
+
+    // MARK: - A chip and its card agree about the title
+
+    private func sceneWithAnItemAndAScrap() -> CanvasScene {
+        var scene = CanvasScene()
+        scene.insert(CanvasItemNode.make(referenceId: "r-photo", at: .zero,
+                                         z: 0, showsThumbnail: true))
+        scene.insert(CanvasNode(id: CanvasNodeID("s1"), kind: .scrap,
+                                origin: CGPoint(x: 400, y: 0), width: 240,
+                                cachedHeight: 80))
+        return scene
+    }
+
+    private let falls = CanvasItemPresentation(
+        title: "Falls, evening", symbolName: "photo",
+        relativePath: "research/falls.jpg", isMissing: false, showsThumbnail: true)
+
+    func test_aChipReadsTheSameResolvedTitleTheCardDraws() {
+        XCTAssertEqual(
+            CanvasRenderer.chipTitle(for: .item("r-photo"),
+                                     in: sceneWithAnItemAndAScrap(),
+                                     scraps: [:],
+                                     presentations: [.item("r-photo"): falls]),
+            "Falls, evening",
+            "one map, read by the card, the chip and the region inspector — so "
+            + "they cannot disagree about what a thing is called (§4.3)")
+    }
+
+    func test_anUnresolvedChipFallsBackToThePlaceholderTheCardFallsBackTo() {
+        XCTAssertEqual(
+            CanvasRenderer.chipTitle(for: .item("r-photo"),
+                                     in: sceneWithAnItemAndAScrap(),
+                                     scraps: [:], presentations: [:]),
+            CanvasRenderer.placeholderLabel(forReference: "r-photo"))
+    }
+
+    func test_aScrapChipIsStillItsFirstLine() {
+        XCTAssertEqual(
+            CanvasRenderer.chipTitle(for: CanvasNodeID("s1"),
+                                     in: sceneWithAnItemAndAScrap(),
+                                     scraps: [CanvasNodeID("s1"): "The doctor arrives\nlate"],
+                                     presentations: [.item("r-photo"): falls]),
+            "The doctor arrives",
+            "1C-b's scrap arm is untouched by the new argument")
+    }
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+`MaughamTests/Canvas/CanvasEditorIdentifierCensusTests.swift`:
 
-Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasItemNodeTests CODE_SIGNING_ALLOWED=NO`
+```swift
+import XCTest
+
+/// Tripwire — 1C-a's rule 27, made enforceable.
+///
+/// Drawn-text suppression is gated on `visibleEditorNodeID` (the editor IS the
+/// visible text) and NEVER on `mountedEditorNodeID` (the editor merely EXISTS).
+/// Gating on the mounted one blanks the clicked card for the ~120 ms of the
+/// straighten, while the still-invisible editor draws nothing in its place.
+///
+/// A CENSUS, not an allow/deny grep, and the difference is the whole point:
+/// `mountedEditorNodeID` is a real symbol with two sanctioned uses, so a
+/// forbidden-token grep cannot be written. This enumerates every production
+/// mention and fails on any it does not recognise — the same shape as
+/// `TripwireGrepTests.test_applyExternalTextHasExactlyOneProductionCallSite`.
+@MainActor
+final class CanvasEditorIdentifierCensusTests: XCTestCase {
+
+    /// The two line shapes allowed to mention the mounted identifier: the
+    /// property's own declaration, and the gate deciding whether the editor view
+    /// is in the hierarchy at all (both 1C-a Task 10).
+    private static let sanctionedShapes = [
+        "private var mountedEditorNodeID",
+        "if let id = mountedEditorNodeID",
+    ]
+
+    private func unsanctionedMentions(under dir: URL) throws -> [String] {
+        var found: [String] = []
+        let files = try FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: nil)
+        for file in files.sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
+        where file.pathExtension == "swift" {
+            let text = try String(contentsOf: file, encoding: .utf8)
+            for (i, line) in text.components(separatedBy: .newlines).enumerated() {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                guard trimmed.contains("mountedEditorNodeID") else { continue }
+                // Prose may name it — the two properties have to be explained
+                // somewhere, and that somewhere is a comment.
+                guard !trimmed.hasPrefix("//") else { continue }
+                guard !Self.sanctionedShapes.contains(where: { trimmed.contains($0) }) else {
+                    continue
+                }
+                found.append("\(file.lastPathComponent):\(i + 1)  \(trimmed)")
+            }
+        }
+        return found
+    }
+
+    func test_drawnTextSuppressionIsNeverGatedOnTheMountedEditor() throws {
+        let mentions = try unsanctionedMentions(
+            under: Self.repoRoot.appendingPathComponent("Maugham/Canvas", isDirectory: true))
+        XCTAssertTrue(mentions.isEmpty,
+            "`mountedEditorNodeID` means the editor EXISTS, from the click. "
+            + "`visibleEditorNodeID` means it IS the visible text, from "
+            + "straighten.isLevel. Suppressing a card's drawn text on the "
+            + "mounted one blanks it for the whole straighten while the "
+            + "invisible editor draws nothing in its place — §7A.2's jump by "
+            + "§7A.5's own route. 1C-a records this failing twice in opposite "
+            + "directions and two plans documented it by name, and it drifted "
+            + "again anyway. If a new use is genuinely correct, add its line "
+            + "shape to `sanctionedShapes` with a reason. Found:\n"
+            + mentions.joined(separator: "\n"))
+    }
+
+    /// Self-check: prove the census FIRES on a planted offender. A scan that
+    /// silently matched nothing would pass for the wrong reason forever.
+    func test_theCensusFiresOnAPlantedSuppressionGate() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("canvas-mounted-census-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        // A comment naming mountedEditorNodeID is prose, not a gate.
+        private var mountedEditorNodeID: CanvasNodeID? { editingNodeID }
+        if let id = mountedEditorNodeID, let node = scene.node(id) { }
+        """.write(to: tmp.appendingPathComponent("Sanctioned.swift"),
+                  atomically: true, encoding: .utf8)
+        XCTAssertTrue(try unsanctionedMentions(under: tmp).isEmpty,
+                      "the declaration, the mount gate and prose are all allowed")
+
+        try """
+        drawCard(node, frame: frame,
+                 layout: node.id == mountedEditorNodeID ? nil : layouts[node.id],
+                 into: &cx)
+        """.write(to: tmp.appendingPathComponent("Offender.swift"),
+                  atomically: true, encoding: .utf8)
+        XCTAssertEqual(try unsanctionedMentions(under: tmp).count, 1,
+                       "a suppression gate on the mounted identifier must be reported")
+    }
+
+    /// `#filePath` is `…/MaughamTests/Canvas/CanvasEditorIdentifierCensusTests.swift`,
+    /// so three deletions reach the repo root.
+    private static let repoRoot: URL = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+}
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasItemNodeTests -only-testing MaughamTests/CanvasEditorIdentifierCensusTests CODE_SIGNING_ALLOWED=NO`
 Expected: FAIL — `cannot find 'CanvasItemNode' in scope`.
+
+`CanvasEditorIdentifierCensusTests` may pass on the first run, and that is the correct result: it asserts a property the pre-state already has. It is here to fail on the *next* change, and Step 0's `visibleEditorNodeID` grep is what confirms the pre-state today.
 
 - [ ] **Step 3: Write `CanvasItemNode`**
 
@@ -974,6 +1176,9 @@ enum CanvasItemNode {
     static let defaultWidth: CGFloat = 200
     static let titleRowHeight: CGFloat = 22
     static let thumbnailBoxHeight: CGFloat = 130
+
+    /// The glyph and the gap after it, before the title starts.
+    static let titleGlyphColumn: CGFloat = 16
 
     /// 512 x 512 x 4 = 1 MiB, which is the unit `CanvasImageCache`'s 48 MiB
     /// budget is stated in. Larger than the 180 x 130 pt box on purpose: the
@@ -1009,6 +1214,21 @@ enum CanvasItemNode {
                       height: thumbnailBoxHeight)
     }
 
+    /// Where the title is drawn, and therefore what it is clipped to.
+    ///
+    /// `GraphicsContext.draw(_:in:)` bounds resolved text by the rect it is
+    /// given, which is how a long title stops at the edge of the card instead of
+    /// running off it. There is no `lineLimit` to reach for: that is a `View`
+    /// modifier, and `Text` — which is what a `GraphicsContext` resolves — does
+    /// not have one.
+    static func titleRect(inCard frame: CGRect) -> CGRect {
+        CGRect(x: frame.minX + CanvasCardMetrics.inset + titleGlyphColumn,
+               y: frame.maxY - CanvasCardMetrics.inset - titleRowHeight,
+               width: max(0, CanvasCardMetrics.textWidth(forCardWidth: frame.width)
+                             - titleGlyphColumn),
+               height: titleRowHeight)
+    }
+
     /// Aspect-fit, centred. Never fills: a cropped photograph on a planning
     /// surface hides the part the writer put it there for.
     static func fittedRect(imageSize: CGSize, in box: CGRect) -> CGRect {
@@ -1028,12 +1248,12 @@ enum CanvasItemNode {
 In `Maugham/Canvas/CanvasRenderer.swift`, add the constant beside `resizeHandleSize`:
 
 ```swift
-    /// The ring around the selected node. Backspace deletes it (Task 6), so the
+    /// The ring around the selected node. Backspace deletes it (Task 8), so the
     /// selection has to be visible before the writer presses the key.
     static let selectionRingWidth: CGFloat = 2
 ```
 
-Extend `draw`'s parameter list with `presentations:`, `thumbnails:` and `selectedNodeID:`, keeping every existing parameter at its existing spelling and position:
+Extend `draw`'s parameter list with `presentations:`, `thumbnails:` and `selectedNodeID:`. **Every existing parameter keeps its existing spelling and position** — `visibleEditorNodeID:` in particular:
 
 ```swift
     static func draw(scene: CanvasScene,
@@ -1045,40 +1265,53 @@ Extend `draw`'s parameter list with `presentations:`, `thumbnails:` and `selecte
                      scraps: [CanvasNodeID: String],
                      selectedRegionID: CanvasRegionID?,
                      selectedNodeID: CanvasNodeID?,
-                     mountedEditorNodeID: CanvasNodeID?,
+                     visibleEditorNodeID: CanvasNodeID?,
                      straighten: CanvasFocusStraighten,
                      into cx: inout GraphicsContext) {
 ```
 
-In the node pass, forward the three new values into `drawCard` — leave the culling call, the `hidingCollapsedResidents:` argument and the `angle:` computation exactly as 1C-b left them:
+In the node pass, forward the three new values. The culling call, the `hidingCollapsedResidents:` argument, the `drawsOwnText` line and the `angle:` computation are 1C-b's and are **untouched**:
 
 ```swift
+        for node in visibleNodes(in: scene, camera: camera, viewSize: viewSize,
+                                 hidingCollapsedResidents: true) {
+            guard let frame = node.frame else { continue }
+            let ownText = drawsOwnText(node.id, visibleEditorNodeID: visibleEditorNodeID)
             drawCard(node, frame: frame,
-                     layout: node.id == mountedEditorNodeID ? nil : layouts[node.id],
+                     layout: ownText ? layouts[node.id] : nil,
                      presentation: presentations[node.id],
                      thumbnail: thumbnails[node.id],
                      isSelected: node.id == selectedNodeID,
                      angle: drawnAngle(for: node.id, straighten: straighten),
                      into: &cx)
+        }
 ```
 
-`chipTitle(for:scraps:)` gains the same map so a chip and the card it references cannot disagree about a title (spec §4.3):
+`chipTitle` gains the same map, so a chip and the card it references cannot disagree about a title (spec §4.3). It keeps 1C-b's spelling in every other respect — it takes the scene, and it is **not** `private`, because `RegionInspector` calls it:
 
 ```swift
-    /// An appearance chip shows its subject's title. For a scrap that is the
-    /// first line of its text; for an item it is the SAME resolved title the
-    /// card draws — read from one map, so the two cannot disagree.
-    private static func chipTitle(for node: CanvasNodeID,
-                                  scraps: [CanvasNodeID: String],
-                                  presentations: [CanvasNodeID: CanvasItemPresentation]) -> String {
-        if let presentation = presentations[node] { return presentation.title }
-        return (scraps[node] ?? "").split(separator: "\n").first.map(String.init) ?? ""
+    static func chipTitle(for id: CanvasNodeID,
+                          in scene: CanvasScene,
+                          scraps: [CanvasNodeID: String],
+                          presentations: [CanvasNodeID: CanvasItemPresentation]) -> String {
+        if case .item(let referenceId)? = scene.node(id)?.kind {
+            // The SAME resolved title the card draws, read from the same map.
+            // Unresolved falls back to what the card falls back to — 1C-b's
+            // note said this would become one function when 1C-d resolved real
+            // titles, and this is that.
+            return presentations[id]?.title ?? placeholderLabel(forReference: referenceId)
+        }
+        let firstLine = (scraps[id] ?? "")
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .first.map(String.init) ?? ""
+        let trimmed = firstLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Untitled" : String(trimmed.prefix(48))
     }
 ```
 
-and its one call site inside `draw`'s chip pass gains `presentations: presentations`.
+Its call site inside `draw`'s chip pass gains `presentations: presentations`.
 
-Then replace `drawCard`'s signature and its `.item` arms. Everything before the first `switch node.kind` — the shape, the `card.transform` concatenation, the shadow layer and the fill — is 1C-a's and is untouched:
+Then `drawCard`'s signature and its `.item` arms. Everything before the first `switch node.kind` — the shape, the `card.transform` concatenation, the shadow layer and the fill — is 1C-a's and is untouched:
 
 ```swift
     private static func drawCard(_ node: CanvasNode,
@@ -1134,33 +1367,227 @@ and the content switch's `.item` arm:
                 let size = CGSize(width: CGFloat(thumbnail.width),
                                   height: CGFloat(thumbnail.height))
                 // `decorative:` — no accessibility label, because the AX layer
-                // announces this node itself (Task 3, Step 5). `scale: 1`: the
-                // thumbnail is already in pixels and the CTM does the rest.
+                // announces this node itself (Task 4). `scale: 1`: the thumbnail
+                // is already in pixels and the CTM does the rest.
                 let picture = card.resolve(Image(decorative: thumbnail, scale: 1))
                 card.draw(picture, in: CanvasItemNode.fittedRect(imageSize: size, in: box))
             }
 
-            let titleY = frame.maxY - CanvasCardMetrics.inset - CanvasItemNode.titleRowHeight / 2
+            let titleRect = CanvasItemNode.titleRect(inCard: frame)
+            let titleMidY = titleRect.midY
+
+            // `Text(Image(...))`, not `Image(...).font(...)`. `GraphicsContext`
+            // resolves exactly three things — a `Shading`, an `Image` and a
+            // `Text` — and `Image` has no `font` member, so `.font` on an image
+            // is the generic `View` modifier and yields a `ModifiedContent` no
+            // overload accepts. `Text` has an image initialiser and its `.font`
+            // returns a `Text`, so the symbol stays resolvable.
             var glyph = card.resolve(
-                Image(systemName: presentation.symbolName).font(.system(size: 10)))
+                Text(Image(systemName: presentation.symbolName)).font(.system(size: 10)))
             glyph.shading = .color(Color(nsColor: .secondaryLabelColor))
             card.draw(glyph,
-                      at: CGPoint(x: frame.minX + CanvasCardMetrics.inset, y: titleY),
+                      at: CGPoint(x: frame.minX + CanvasCardMetrics.inset, y: titleMidY),
                       anchor: .leading)
 
+            // No `.lineLimit(1)`: `Text` does not have one — it is a `View`
+            // modifier — and it is not needed, because `draw(_:in:)` bounds the
+            // text by the rect. `CanvasItemNode.titleRect` is one row tall, so a
+            // title too long for the card stops at the card.
             var title = card.resolve(
-                Text(presentation.title).font(.system(size: 11)).lineLimit(1))
+                Text(presentation.title).font(.system(size: 11)))
             title.shading = .color(Color(nsColor: presentation.isMissing
                                             ? .tertiaryLabelColor : .labelColor))
-            card.draw(title,
-                      at: CGPoint(x: frame.minX + CanvasCardMetrics.inset + 16, y: titleY),
-                      anchor: .leading)
+            card.draw(title, in: titleRect)
         }
 ```
 
-- [ ] **Step 5: Amend the accessibility tree**
+- [ ] **Step 5: Declare the two maps and wire the call sites**
 
-In `Maugham/Canvas/CanvasAccessibility.swift`, `elements` takes the same map and the `.item` arm reads it. Only the signature and that arm change; the reading-order sort and the `unmeasuredHeight` fallback are 1C-a's:
+`Maugham/Canvas/CanvasModel.swift` — two stored properties:
+
+```swift
+    /// What each item node draws, RESOLVED from the manifest and never persisted
+    /// (spec §3.1). Task 5's load pass fills it; until then it is empty, which
+    /// draws exactly what 1C-a drew — an unresolved card, not a blank one.
+    ///
+    /// On the MODEL rather than in `CanvasView`'s `@State` because
+    /// `RegionInspector` reads the same map from the detail column, which cannot
+    /// see the centre column's view state. The card, its appearance chip and the
+    /// inspector's membership list must not disagree about a title (§4.3), and
+    /// one map read by all three is the only shape that guarantees it.
+    var itemPresentations: [CanvasNodeID: CanvasItemPresentation] = [:]
+
+    /// The node the writer has selected. Task 8 removes it on ⌫ — from the
+    /// canvas only, never from the project.
+    var selectedNodeID: CanvasNodeID?
+```
+
+`Maugham/Canvas/CanvasView.swift` — one `@State` map, and the draw call site:
+
+```swift
+    /// The image cache's per-pass projection, filled by Task 5's load pass.
+    /// View state rather than model state, deliberately: the cache is
+    /// authoritative and bounded, this map holds only what it had at the last
+    /// pass, and it dies with the view rather than pinning `CGImage`s the budget
+    /// has already declined to keep.
+    @State private var thumbnails: [CanvasNodeID: CGImage] = [:]
+```
+
+```swift
+                    CanvasRenderer.draw(scene: model.scene, camera: camera, viewSize: size,
+                                        layouts: layouts,
+                                        presentations: model.itemPresentations,
+                                        thumbnails: thumbnails,
+                                        scraps: model.scraps,
+                                        selectedRegionID: model.selectedRegionID,
+                                        selectedNodeID: model.selectedNodeID,
+                                        visibleEditorNodeID: visibleEditorNodeID,
+                                        straighten: straighten, into: &cx)
+```
+
+`Maugham/Canvas/RegionInspector.swift` — `membershipRows`' one call site. **This file is why the plan lists it:** adding a parameter to `chipTitle` breaks it, and a task that changes a signature owns every call site of it.
+
+```swift
+                Text(CanvasRenderer.chipTitle(for: id, in: model.scene,
+                                              scraps: model.scraps,
+                                              presentations: model.itemPresentations))
+```
+
+- [ ] **Step 6: Run the tests and a Release build**
+
+Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasItemNodeTests -only-testing MaughamTests/CanvasEditorIdentifierCensusTests CODE_SIGNING_ALLOWED=NO`
+Expected: PASS, 15 + 2 tests.
+
+Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasRendererTests CODE_SIGNING_ALLOWED=NO`
+Expected: PASS — 1C-a's renderer tests, including `drawsOwnText` and the no-second-rotation grep, must survive the signature change untouched.
+
+Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasRegionRenderTests CODE_SIGNING_ALLOWED=NO`
+Expected: PASS — 1C-b's chip and draw tests; update those call sites with `presentations: [:]`, `thumbnails: [:]`, `selectedNodeID: nil`.
+
+Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasCompositionTests -only-testing MaughamTests/RegionBindingTests CODE_SIGNING_ALLOWED=NO`
+Expected: PASS — the composition tests grep `CanvasView.swift` for `visibleEditorNodeID: visibleEditorNodeID`, which this task preserves; `RegionBindingTests` builds a `RegionInspector` and must survive its new argument.
+
+Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham -configuration Release build CODE_SIGNING_ALLOWED=NO`
+Expected: BUILD SUCCEEDED.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add Maugham/Canvas/CanvasItemNode.swift Maugham/Canvas/CanvasRenderer.swift \
+        Maugham/Canvas/CanvasModel.swift Maugham/Canvas/CanvasView.swift \
+        Maugham/Canvas/RegionInspector.swift \
+        MaughamTests/Canvas/CanvasItemNodeTests.swift \
+        MaughamTests/Canvas/CanvasEditorIdentifierCensusTests.swift \
+        MaughamTests/Canvas/CanvasRegionRenderTests.swift
+git commit -m "feat(canvas): item cards draw a title, glyph, thumbnail and selection ring
+
+Replaces 1C-a's dashed placeholder. A dashed border now MEANS something —
+this reference no longer resolves — rather than meaning the slice had not
+been built. chipTitle reads the same resolved map the card does, so a
+card, its appearance chip and the region inspector's membership list
+cannot disagree about a title (4.3); the map lives on the model because
+the detail column cannot see the centre column's view state.
+
+Adds CanvasEditorIdentifierCensusTests: drawn-text suppression is gated
+on visibleEditorNodeID (the editor IS the visible text) and never on
+mountedEditorNodeID (it merely EXISTS). 1C-a records that seam failing
+twice in opposite directions and two plans documented it by name, and it
+drifted again anyway — so it is a census with a self-check now, not one
+more comment."
+```
+
+---
+
+### Task 4: The accessibility tree reads the resolved title
+
+**Files:**
+- Modify: `Maugham/Canvas/CanvasAccessibility.swift`
+- Modify: `Maugham/Canvas/CanvasView.swift`
+- Test: `MaughamTests/Canvas/CanvasItemAccessibilityTests.swift`
+- Test (call sites only): `MaughamTests/Canvas/CanvasAccessibilityTests.swift`
+
+**Interfaces:**
+- **Consumes:** `CanvasAccessibility.elements(scene:scraps:)`, `CanvasAXElement`, `CanvasAXRole` (1C-a T14); `CanvasRenderer.placeholderLabel(forReference:)` (1C-a T7); `CanvasItemPresentation` (Task 1); `CanvasItemNode.make(...)` (Task 3); `CanvasModel.itemPresentations` (Task 3).
+- **Produces:** `CanvasAccessibility.elements(scene:scraps:presentations:)`.
+
+**Spec §7A.6: drawn content has no accessibility tree, so we build one — and it must say what the writer sees.** An item card that announces `item:r-photo` to VoiceOver while showing "Falls, evening" is not an accessible card; it is an internal identifier read aloud. This is a separate task from Task 3 because it is a separate contract with a separate consumer: the renderer's job is pixels, this is the synthetic tree an assistive client walks, and they fail differently.
+
+**An unresolved reference must still announce itself.** Falling back to an empty string would make a missing card silent as well as blank — "unresolved" is information a screen-reader user needs as much as a sighted one, so the fallback is the same label the card draws.
+
+**The tree is rebuilt from `sceneRevision`, and a manifest change does not move it.** 1C-a keys the rebuild on `.onChange(of: sceneRevision, initial: true)` precisely so it is not scene-proportional work at frame rate (tripwire: 1C-a's rule 30). Resolved titles arriving is a change to what the cards *say*, so Task 5's load pass bumps `sceneRevision` after it assigns — stated here because this task is the one that makes it necessary, and pinned by a test there.
+
+- [ ] **Step 1: Write the failing test**
+
+`MaughamTests/Canvas/CanvasItemAccessibilityTests.swift`:
+
+```swift
+import XCTest
+import MaughamCore
+@testable import Maugham
+
+@MainActor
+final class CanvasItemAccessibilityTests: XCTestCase {
+
+    private func sceneWithOneItem(reference: String, showsThumbnail: Bool) -> CanvasScene {
+        var scene = CanvasScene()
+        scene.insert(CanvasItemNode.make(referenceId: reference, at: .zero,
+                                         z: 0, showsThumbnail: showsThumbnail))
+        return scene
+    }
+
+    func test_anItemNodeAnnouncesItsRealTitleRatherThanItsReferenceID() {
+        let presentations: [CanvasNodeID: CanvasItemPresentation] = [
+            .item("r-photo"): CanvasItemPresentation(
+                title: "Falls, evening", symbolName: "photo",
+                relativePath: "research/falls.jpg", isMissing: false, showsThumbnail: true)
+        ]
+        let elements = CanvasAccessibility.elements(
+            scene: sceneWithOneItem(reference: "r-photo", showsThumbnail: true),
+            scraps: [:], presentations: presentations)
+        XCTAssertEqual(elements.count, 1)
+        XCTAssertEqual(elements[0].role, .item)
+        XCTAssertEqual(elements[0].value, "Falls, evening",
+                       "an assistive client must hear what the writer sees, not "
+                       + "an internal id")
+    }
+
+    /// §7A.6: we own the AX tree, and "unresolved" is information a screen
+    /// reader user needs as much as a sighted one.
+    func test_aMissingReferenceStillAnnouncesItselfWithItsReferenceID() {
+        let elements = CanvasAccessibility.elements(
+            scene: sceneWithOneItem(reference: "r-gone", showsThumbnail: false),
+            scraps: [:], presentations: [:])
+        XCTAssertEqual(elements.count, 1)
+        XCTAssertEqual(elements[0].value,
+                       CanvasRenderer.placeholderLabel(forReference: "r-gone"),
+                       "an unresolved presentation must fall back to the same "
+                       + "label the card draws, not to an empty string")
+    }
+
+    func test_aScrapIsUnaffectedByThePresentationsMap() {
+        var scene = CanvasScene()
+        scene.insert(CanvasNode(id: CanvasNodeID("s1"), kind: .scrap,
+                                origin: .zero, width: 240, cachedHeight: 80))
+        let elements = CanvasAccessibility.elements(
+            scene: scene, scraps: [CanvasNodeID("s1"): "The doctor arrives"],
+            presentations: [.item("r-photo"): CanvasItemPresentation(
+                title: "Falls, evening", symbolName: "photo", relativePath: nil,
+                isMissing: false, showsThumbnail: false)])
+        XCTAssertEqual(elements.count, 1)
+        XCTAssertEqual(elements[0].role, .scrap)
+        XCTAssertEqual(elements[0].value, "The doctor arrives")
+    }
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasItemAccessibilityTests CODE_SIGNING_ALLOWED=NO`
+Expected: FAIL — `extra argument 'presentations' in call`.
+
+- [ ] **Step 3: Amend the accessibility tree**
+
+In `Maugham/Canvas/CanvasAccessibility.swift`, `elements` takes the map and the `.item` arm reads it. Only the signature and that arm change; the reading-order sort and the `unmeasuredHeight` fallback are 1C-a's:
 
 ```swift
     static func elements(scene: CanvasScene,
@@ -1183,82 +1610,252 @@ In `Maugham/Canvas/CanvasAccessibility.swift`, `elements` takes the same map and
                         contentFrame: frame)
 ```
 
-- [ ] **Step 6: Load the content once, and pass it in**
+`Maugham/Canvas/CanvasView.swift` — the one rebuild site, 1C-a's `.onChange(of: sceneRevision, initial: true)`:
 
-`Maugham/Canvas/CanvasModel.swift` — two stored properties. `@ObservationIgnored` on the cache: it is internal machinery whose mutation must not invalidate a view, and the decode pass bumps `CanvasView.revision` explicitly when new pictures land.
+```swift
+            axElements = CanvasAccessibility.elements(scene: model.scene,
+                                                      scraps: model.scraps,
+                                                      presentations: model.itemPresentations)
+```
+
+Nothing else moves: the rebuild stays keyed on `sceneRevision` and never on `revision` (1C-a's rule 30 — `revision` ticks on every animation frame).
+
+- [ ] **Step 4: Run the tests and a Release build**
+
+Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasItemAccessibilityTests CODE_SIGNING_ALLOWED=NO`
+Expected: PASS, 3 tests.
+
+Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasAccessibilityTests -only-testing MaughamTests/CanvasCompositionTests CODE_SIGNING_ALLOWED=NO`
+Expected: PASS — 1C-a's AX tests call `elements(scene:scraps:)`; update those call sites with `presentations: [:]`, which is the correct value for a scrap-only scene. The composition tests grep for the `CanvasAccessibility.elements` call and for the rebuild NOT being keyed on `revision`; both still hold.
+
+Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham -configuration Release build CODE_SIGNING_ALLOWED=NO`
+Expected: BUILD SUCCEEDED.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add Maugham/Canvas/CanvasAccessibility.swift Maugham/Canvas/CanvasView.swift \
+        MaughamTests/Canvas/CanvasItemAccessibilityTests.swift \
+        MaughamTests/Canvas/CanvasAccessibilityTests.swift
+git commit -m "feat(canvas): the accessibility tree announces an item's real title
+
+Spec 7A.6: drawn content has no AX tree, so we build one — and a card
+that announces item:r-photo while showing 'Falls, evening' is an internal
+identifier read aloud, not an accessible card. An unresolved reference
+falls back to the same label the card draws rather than to an empty
+string, because a missing card must not be silent as well as blank.
+
+The rebuild stays keyed on sceneRevision, never on the per-frame redraw
+counter."
+```
+
+---
+
+### Task 5: Resolve and decode once — the item-content load pass
+
+**Files:**
+- Modify: `Maugham/Canvas/CanvasItemPresentation.swift`
+- Modify: `Maugham/Canvas/CanvasModel.swift`
+- Modify: `Maugham/Canvas/CanvasView.swift`
+- Modify: `Maugham/Views/ProjectWindow.swift`
+- Test: `MaughamTests/Canvas/CanvasItemContentTriggerTests.swift`
+
+**Interfaces:**
+- **Consumes:** `CanvasItemResolver.presentations(for:in:)` (Task 1); `CanvasImageCache`, `CanvasThumbnailDecoder.thumbnail(atFileURL:maxPixelSize:)` (Task 2); `CanvasItemNode.thumbnailMaxPixelSize` (Task 3); `CanvasModel.itemPresentations` / `scene` (Task 3); `CanvasView.revision` / `sceneRevision` (1C-a T10); `ProjectStore.url` / `manifest.research` / `manifest.modified`.
+- **Produces:**
+  - `struct CanvasItemContentTrigger: Equatable` — `var manifestModified: Date`, `var localRevision: Int`.
+  - On `CanvasModel`: `@ObservationIgnored let imageCache: CanvasImageCache`.
+  - On `CanvasView`: `let store: ProjectStore`, `@State private var itemContentRevision: Int`, `private var itemContentTrigger: CanvasItemContentTrigger`, `private func reloadItemContent() async`, and the one `.task(id:)` that runs it.
+
+**One runner, one trigger — and this is the correctness argument, not a tidiness one.** `reloadItemContent` resolves every item node, `await`s between decodes, and then **wholesale-assigns** the result. Two overlapping runs therefore race: a run that started before a drop can finish after it and overwrite the map with one that is missing the nodes the drop just added — after which nothing re-triggers, because the manifest never changed, and the new cards stay unresolved until something unrelated happens. So there is exactly **one** `.task(id:)`, its id carries *both* reasons to reload, and a drop bumps the id rather than starting a second task. SwiftUI cancels the in-flight task when the id changes; the pass checks `Task.isCancelled` before every assignment so a cancelled run cannot write a stale map on its way out.
+
+**The manifest is not enough on its own.** A rename, an import or a delete in the research tree moves `manifest.modified`. An internal drag from the binder does not touch the manifest at all — it only adds a node — so `localRevision` is the second half, and neither half is sufficient. `CanvasItemContentTriggerTests` pins both directions.
+
+**Nothing here happens in `body`.** `PaletteWallView`'s discipline is the pattern: load once per change, tiles do no I/O in `body` (tripwire 4). Its `downscaled` helper is **not** the pattern — see `CanvasThumbnailDecoder`.
+
+**The cache lives on the model, the projection lives in the view.** Re-entering the Plan persona destroys and rebuilds `CanvasView`; the model survives, so the pictures survive with it and are not re-decoded. The `thumbnails` map (Task 3) is only what the cache had at the last pass.
+
+**Two counters are bumped, for two different consumers.** `sceneRevision` after the presentations land, because 1C-a rebuilds the accessibility tree from it and a manifest change does not otherwise move it — without this, an assistive client keeps hearing placeholder labels after a rename. `revision` after the thumbnails land, because that is the redraw counter and the drawn output is now stale. Bumping `revision` for the AX tree instead would be 1C-a's rule 30 exactly: scene-proportional work keyed on a per-frame counter.
+
+- [ ] **Step 1: Write the failing test**
+
+`MaughamTests/Canvas/CanvasItemContentTriggerTests.swift`:
+
+```swift
+import XCTest
+@testable import Maugham
+
+@MainActor
+final class CanvasItemContentTriggerTests: XCTestCase {
+
+    private let noon = Date(timeIntervalSince1970: 1_800_000_000)
+
+    /// The internal-drop case, which is the whole reason the trigger has a
+    /// second half: adding a node from the binder does not touch the manifest,
+    /// so a trigger made only of `manifest.modified` never re-fires and the new
+    /// cards stay unresolved until something unrelated changes.
+    func test_aDropChangesTheTriggerEvenThoughTheManifestDidNot() {
+        XCTAssertNotEqual(
+            CanvasItemContentTrigger(manifestModified: noon, localRevision: 0),
+            CanvasItemContentTrigger(manifestModified: noon, localRevision: 1))
+    }
+
+    /// The external case: a rename or an import moves the manifest and must
+    /// re-resolve even though the canvas did nothing.
+    func test_aManifestChangeAloneChangesTheTrigger() {
+        XCTAssertNotEqual(
+            CanvasItemContentTrigger(manifestModified: noon, localRevision: 3),
+            CanvasItemContentTrigger(manifestModified: noon.addingTimeInterval(1),
+                                     localRevision: 3))
+    }
+
+    /// `.task(id:)` re-runs on every INEQUALITY, so an unstable trigger would
+    /// re-decode on every body pass.
+    func test_anUnchangedManifestAndRevisionDoNotRetrigger() {
+        XCTAssertEqual(
+            CanvasItemContentTrigger(manifestModified: noon, localRevision: 3),
+            CanvasItemContentTrigger(manifestModified: noon, localRevision: 3))
+    }
+
+    /// The race, stated as a census over the source: `reloadItemContent`
+    /// wholesale-assigns, so a second runner started from a drop handler could
+    /// finish AFTER the one the trigger started and overwrite the map with a
+    /// stale one — with nothing left to re-trigger it. There is exactly one
+    /// runner, and it is a `.task(id:)`.
+    func test_thereIsExactlyOneRunnerOfTheLoadPass() throws {
+        let source = try String(
+            contentsOf: Self.repoRoot.appendingPathComponent("Maugham/Canvas/CanvasView.swift"),
+            encoding: .utf8)
+        let callSites = source
+            .components(separatedBy: .newlines)
+            .enumerated()
+            .filter { $0.element.contains("reloadItemContent()") }
+            .filter { !$0.element.contains("private func") }
+            .map { "\($0.offset + 1)  \($0.element.trimmingCharacters(in: .whitespaces))" }
+
+        XCTAssertEqual(callSites.count, 1,
+            "exactly one caller — the `.task(id: itemContentTrigger)`. A second "
+            + "runner (typically `Task { await reloadItemContent() }` in a drop "
+            + "handler) races the first: both assign the resolved map wholesale, "
+            + "and the older one finishing last wins with a map missing the "
+            + "nodes the drop just added. Bump `itemContentRevision` instead. "
+            + "Found:\n" + callSites.joined(separator: "\n"))
+        XCTAssertTrue(callSites[0].contains(".task(id: itemContentTrigger)"),
+                      "the one caller is the trigger-keyed task")
+    }
+
+    private static let repoRoot: URL = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasItemContentTriggerTests CODE_SIGNING_ALLOWED=NO`
+Expected: FAIL — `cannot find 'CanvasItemContentTrigger' in scope`.
+
+- [ ] **Step 3: The trigger**
+
+`Maugham/Canvas/CanvasItemPresentation.swift`, beside the resolver that produces what it reloads:
+
+```swift
+/// What makes the canvas re-resolve item content, and the id of the ONE
+/// `.task(id:)` that does it.
+///
+/// Two halves, both required and neither sufficient. `manifestModified` moves
+/// when a research item is renamed, imported or deleted. `localRevision` moves
+/// when a drop adds a node **without** touching the manifest — an internal drag
+/// from the binder changes nothing on disk, so a manifest-only trigger would
+/// never re-fire and the new cards would stay unresolved until something
+/// unrelated happened.
+///
+/// It is one id rather than two tasks because the load pass wholesale-assigns
+/// its result: two runners race, and the one that started earlier finishing
+/// later wins with a stale map.
+struct CanvasItemContentTrigger: Equatable {
+    var manifestModified: Date
+    var localRevision: Int
+}
+```
+
+- [ ] **Step 4: The load pass**
+
+`Maugham/Canvas/CanvasModel.swift` — the cache:
 
 ```swift
     /// Bounded, path-keyed (tripwire 22). Lives on the MODEL rather than the
     /// view so re-entering the Plan persona does not re-decode every photograph
     /// on the canvas — `CanvasView` is destroyed and rebuilt on every segment
     /// switch, the model is not.
+    ///
+    /// `@ObservationIgnored`: it is internal machinery whose mutation must not
+    /// invalidate a view. The load pass bumps `CanvasView.revision` explicitly
+    /// when new pictures land.
     @ObservationIgnored let imageCache = CanvasImageCache()
-
-    /// The node the writer has selected. Task 6 deletes it on ⌫ — from the
-    /// canvas only, never from the project.
-    var selectedNodeID: CanvasNodeID?
 ```
 
-`Maugham/Canvas/CanvasView.swift` — one new stored property and two `@State` maps:
+`Maugham/Canvas/CanvasView.swift` — the store, the local counter, the trigger, and the pass:
 
 ```swift
-    /// Read for `manifest.research` (title/glyph/path resolution) and `url`
-    /// (the project root the relative paths resolve against). Held, not copied:
-    /// the resolution runs on `.task(id: store.manifest.modified)`, never in
-    /// `body` (tripwire 4).
+    /// Read for `manifest.research` (title/glyph/path resolution) and `url` (the
+    /// project root the relative paths resolve against). Held, not copied: the
+    /// resolution runs on the item-content task, never in `body` (tripwire 4).
     let store: ProjectStore
 ```
 
 ```swift
-    @State private var presentations: [CanvasNodeID: CanvasItemPresentation] = [:]
-    /// The cache's per-pass projection. The cache is authoritative and bounded;
-    /// this map holds only what it currently has, so an evicted image simply is
-    /// not drawn until the next pass rather than pinning memory the budget
-    /// already declined to spend.
-    @State private var thumbnails: [CanvasNodeID: CGImage] = [:]
+    /// Bumped by anything that changes what item content the canvas needs
+    /// WITHOUT changing the manifest — i.e. a drop (Task 6).
+    @State private var itemContentRevision = 0
+
+    /// The id of the one task that resolves and decodes item content.
+    private var itemContentTrigger: CanvasItemContentTrigger {
+        CanvasItemContentTrigger(manifestModified: store.manifest.modified,
+                                 localRevision: itemContentRevision)
+    }
 ```
 
-The draw call gains the three arguments:
+Chained on the ZStack, after the existing `.onAppear`/`.onDisappear`:
 
 ```swift
-                    CanvasRenderer.draw(scene: model.scene, camera: camera, viewSize: size,
-                                        layouts: layouts,
-                                        presentations: presentations,
-                                        thumbnails: thumbnails,
-                                        scraps: model.scraps,
-                                        selectedRegionID: model.selectedRegionID,
-                                        selectedNodeID: model.selectedNodeID,
-                                        mountedEditorNodeID: mountedEditorNodeID,
-                                        straighten: straighten, into: &cx)
-```
-
-and the accessibility call site gains `presentations: presentations`.
-
-The loading pass, chained after the existing `.onAppear`/`.onDisappear` on the ZStack:
-
-```swift
-        .task(id: store.manifest.modified) { await reloadItemContent() }
+        .task(id: itemContentTrigger) { await reloadItemContent() }
 ```
 
 ```swift
     /// Resolve every item node's title/glyph/path and decode any thumbnails the
     /// cache does not already hold.
     ///
-    /// `PaletteWallView`'s discipline: load once per manifest change, tiles do
-    /// no I/O in `body` (tripwire 4). Its `downscaled` helper is NOT the
-    /// pattern — see `CanvasThumbnailDecoder`.
+    /// `PaletteWallView`'s discipline: load once per change, tiles do no I/O in
+    /// `body` (tripwire 4). Its `downscaled` helper is NOT the pattern — see
+    /// `CanvasThumbnailDecoder`.
     ///
     /// `await Task.yield()` between decodes so a canvas holding many
     /// photographs stays responsive while the first paint fills in. The cost is
     /// bounded and one-off: the cache is keyed by path and survives the view, so
-    /// this runs on open and on a manifest change, not on every pan.
+    /// this runs on open and on a change to the trigger, not on every pan.
+    ///
+    /// Every assignment is preceded by a cancellation check. SwiftUI cancels
+    /// this task when the trigger changes, and cancellation is cooperative — a
+    /// run that keeps going would assign its now-stale map after the newer run
+    /// had already written the correct one.
     private func reloadItemContent() async {
         let resolved = CanvasItemResolver.presentations(
             for: model.scene, in: store.manifest.research)
-        presentations = resolved
+        guard !Task.isCancelled else { return }
+        model.itemPresentations = resolved
+        // The accessibility tree reads these titles and is rebuilt from
+        // `sceneRevision` (1C-a Task 14), which a manifest change does not
+        // otherwise move — without this an assistive client keeps hearing
+        // placeholder labels after a rename. NOT `revision`: that is the
+        // per-frame redraw counter, and scene-proportional work keyed on it is
+        // the defect 1C-a's rule 30 records.
+        sceneRevision += 1
 
         var built: [CanvasNodeID: CGImage] = [:]
         for (nodeID, presentation) in resolved {
+            guard !Task.isCancelled else { return }
             guard presentation.showsThumbnail, let relative = presentation.relativePath else {
                 continue
             }
@@ -1275,84 +1872,84 @@ The loading pass, chained after the existing `.onAppear`/`.onDisappear` on the Z
             model.imageCache.insert(decoded, forPath: url.path)
             built[nodeID] = decoded
         }
+        guard !Task.isCancelled else { return }
         thumbnails = built
         // The pictures are new; the drawn output is stale. `revision` is the
-        // redraw counter — `sceneRevision` is structural and nothing about the
-        // scene's shape changed here.
+        // redraw counter, which is exactly what this is.
         revision += 1
     }
 ```
 
-`Maugham/Views/ProjectWindow.swift` — the `.canvas` arm of `existingEditorSwitch` gains one argument and stays a single expression:
+`Maugham/Views/ProjectWindow.swift` — the `.canvas` arm of `existingEditorSwitch` gains one argument and stays a single expression. **`paletteSwatchHexes` keeps its braces**: it is `() -> [String]`, and calling it eagerly here would read every palette card off disk on every render of `ProjectWindow.body` (tripwire 4). Removing the braces is a file-I/O-per-render regression, not a simplification.
 
 ```swift
         case .canvas:
             CanvasView(model: canvas,
                        store: store,
                        projectRoot: store.url,
-                       paletteSwatchHexes: store.paletteSwatchHexes())
+                       paletteSwatchHexes: { store.paletteSwatchHexes() })
 ```
 
-- [ ] **Step 7: Run the tests and a Release build**
+- [ ] **Step 5: Run the tests and a Release build**
 
-Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasItemNodeTests CODE_SIGNING_ALLOWED=NO`
-Expected: PASS, 13 tests.
+Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasItemContentTriggerTests CODE_SIGNING_ALLOWED=NO`
+Expected: PASS, 4 tests.
 
-Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasRendererTests CODE_SIGNING_ALLOWED=NO`
-Expected: PASS — 1C-a's renderer tests must survive the signature change.
-
-Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasAccessibilityTests CODE_SIGNING_ALLOWED=NO`
-Expected: PASS — 1C-a's AX tests call `elements(scene:scraps:)`; update those call sites with `presentations: [:]`, which is the correct value for a scrap-only scene.
-
-Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasRegionRenderTests CODE_SIGNING_ALLOWED=NO`
-Expected: PASS — 1C-b's chip tests call `chipTitle`/`draw`; update those call sites with `presentations: [:]`, `thumbnails: [:]`, `selectedNodeID: nil`.
+Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasCompositionTests -only-testing MaughamTests/CanvasSegmentTests CODE_SIGNING_ALLOWED=NO`
+Expected: PASS — 1C-a's layer-order pins must survive a new modifier on the ZStack and a new argument at the `ProjectWindow` call site.
 
 Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham -configuration Release build CODE_SIGNING_ALLOWED=NO`
 Expected: BUILD SUCCEEDED.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add Maugham/Canvas/CanvasItemNode.swift Maugham/Canvas/CanvasRenderer.swift \
-        Maugham/Canvas/CanvasAccessibility.swift Maugham/Canvas/CanvasModel.swift \
+git add Maugham/Canvas/CanvasItemPresentation.swift Maugham/Canvas/CanvasModel.swift \
         Maugham/Canvas/CanvasView.swift Maugham/Views/ProjectWindow.swift \
-        MaughamTests/Canvas/CanvasItemNodeTests.swift \
-        MaughamTests/Canvas/CanvasAccessibilityTests.swift \
-        MaughamTests/Canvas/CanvasRegionRenderTests.swift
-git commit -m "feat(canvas): item cards draw their real title, glyph and thumbnail
+        MaughamTests/Canvas/CanvasItemContentTriggerTests.swift
+git commit -m "feat(canvas): one task resolves titles and decodes thumbnails
 
-Replaces 1C-a's dashed placeholder. A dashed border now MEANS something —
-this reference no longer resolves — rather than meaning the slice had not
-been built. Titles resolve from the manifest on .task(id: manifest.modified)
-and thumbnails decode at target size into the model-owned path-keyed
-cache, so re-entering the Plan persona re-uses the pictures instead of
-re-decoding them. Nothing does image I/O in body (tripwire 4).
+Titles resolve from the manifest and thumbnails decode at target size
+into the model-owned, path-keyed cache, so re-entering the Plan persona
+re-uses the pictures instead of re-decoding them. Nothing does image I/O
+in body (tripwire 4).
 
-The accessibility tree reads the resolved title too: an assistive client
-hears what the writer sees, and an unresolved card falls back to the same
-label it draws rather than going silent as well as blank."
+ONE runner, on a trigger carrying both reasons to reload: the manifest
+timestamp, and a local counter a drop bumps because an internal drag
+changes nothing on disk. The pass wholesale-assigns, so two runners race
+— the earlier one finishing later would overwrite with a map missing the
+nodes a drop had just added, and nothing would re-trigger. A source
+census keeps it to one, and every assignment checks for cancellation.
+
+sceneRevision is bumped when the titles land (the AX tree is rebuilt from
+it and a manifest change does not otherwise move it); revision when the
+pictures do."
 ```
 
 ---
 
-### Task 4: Drag research onto the canvas — spec §8A.1
+### Task 6: Drag research onto the canvas — spec §8A.1
 
 **Files:**
 - Create: `Maugham/Canvas/CanvasDrop.swift`
 - Modify: `Maugham/Canvas/CanvasView.swift`
 - Modify: `Maugham/Canvas/ScrapEditorHost.swift`
+- Modify: `Maugham/Canvas/ScrapLayout.swift`
 - Test: `MaughamTests/Canvas/CanvasDropTests.swift`
 
 **Interfaces:**
-- **Consumes:** `CanvasScene.node(_:)` / `insert(_:)` / `move(_:to:)` / `topZ` (1C-a T1); `CanvasCamera.contentPoint(fromView:)` (1C-a T4); `CanvasItemNode.make(referenceId:at:z:showsThumbnail:)` (Task 3); `CanvasItemResolver.presentation(forReference:in:)` (Task 1); `CanvasModel.mutate(_:_:)` / `scene` (1C-b T4); `CanvasInteraction.joinTarget(for:in:) -> CanvasRegion?` and `CanvasMembership.join(_:home:in:)` (1C-b T2/T6); `TreeWalk.find(id:in:)`, `ResearchItem`.
+- **Consumes:** `CanvasScene.node(_:)` / `insert(_:)` / `move(_:to:)` / `topZ` (1C-a T1); `CanvasCamera.contentPoint(fromView:)` (1C-a T4); `CanvasItemNode.make(referenceId:at:z:showsThumbnail:)` (Task 3); `CanvasItemResolver.presentation(forReference:in:)` (Task 1); `CanvasView.itemContentRevision` (Task 5); `CanvasModel.mutate(_:_:)` / `scene` (1C-b T4); `CanvasInteraction.joinTarget(for:in:) -> CanvasRegion?` and `CanvasMembership.join(_:home:in:)` (1C-b T2/T6); `TreeWalk.find(id:in:)`, `ResearchItem`.
 - **Produces:**
   - `enum CanvasDropRouter` — `static func acceptedReferenceIDs(_ ids: [String], in research: [ResearchItem]) -> [String]`.
   - `enum CanvasDropPlacement` — `static let cascadeStep: CGFloat`, `static func points(count: Int, at origin: CGPoint) -> [CGPoint]`.
   - On `CanvasView`: `private func addItemNodes(referenceIds: [String], at contentPoint: CGPoint)`, and the `.dropDestination(for: String.self)` modifier.
+  - `final class ScrapTextView: NSTextView` — `override var acceptableDragTypes: [NSPasteboard.PasteboardType]`.
 
 **The binder is already beside the canvas and its rows are already draggable.** 1C-a Task 11 folds `.canvas` into `BinderPaneToggle`'s and `CollectionBinderPaneToggle`'s `.research` arms, so the Plan persona's left column *is* the research tree (spec §10's provisional answer, which §8A.1 depends on). `ResearchRow` already carries `.draggable(item.id)` publishing a plain `String` (`ResearchRow.swift:64`). So the drag source needs nothing: this task builds only the destination, and it uses the app's established pairing — `.dropDestination(for: String.self)` followed by `.onDrop(of: [.fileURL, .image])` — in the same order `ResearchRow.swift:69–88` ships it. That order is not a guess; it is the one combination in this codebase already known to let both an internal id drag and an external file drag land on one view.
 
-**The file on disk is untouched.** Dropping creates a node holding a reference and a position (spec §3.1). Nothing is copied, nothing is written to the research note, and the manifest does not change — which is exactly why `addItemNodes` calls `reloadItemContent()` itself rather than waiting for `.task(id: store.manifest.modified)` to re-fire, since on an internal drop it never will.
+**The file on disk is untouched.** Dropping creates a node holding a reference and a position (spec §3.1). Nothing is copied, nothing is written to the research note, and the manifest does not change — which is exactly why `addItemNodes` bumps `itemContentRevision`: the load pass's trigger carries the manifest timestamp, and on an internal drop that never moves, so without the bump the new cards would draw unresolved until something unrelated happened.
+
+**It bumps the trigger; it does not start a second task.** `Task { await reloadItemContent() }` here would race the `.task(id:)` runner — both wholesale-assign the resolved map, and a run that started *before* the drop can finish *after* it and overwrite with a map missing the very nodes just added, with nothing left to re-trigger. Bumping the id makes SwiftUI cancel the in-flight run and start one, which is the only shape with no interleaving to reason about. `CanvasItemContentTriggerTests.test_thereIsExactlyOneRunnerOfTheLoadPass` (Task 5) is what keeps it that way.
 
 **An id that does not name a research item is refused.** `BinderRow` and `PieceRow` publish document and piece ids through the same `.draggable(String)` channel, and a Finder drag often carries the filename as plain text. Accepting any string would mint an item node pointing at nothing, which resolves to a permanent "missing" card the writer never asked for. `acceptedReferenceIDs` filters against the actual research tree and the handler returns `false` when nothing survives, so an unrecognised drag is declined rather than absorbed.
 
@@ -1360,7 +1957,9 @@ label it draws rather than going silent as well as blank."
 
 **Landing on a region joins it, and that is §4.2's deliberate act.** Dropping a node onto a region adds it; geometry never does. A drag from the binder to a spot inside "Act II fog" is as deliberate as dragging a card there from elsewhere on the canvas, so it goes through the same `CanvasInteraction.joinTarget` + `CanvasMembership.join` pair 1C-b already uses for the canvas-internal case, rather than a second rule.
 
-**The mounted scrap editor stops claiming drops.** `NSTextView` registers for dragged types by default, so a research item dropped exactly on the one focused scrap would be delivered to the text view and inserted as text — a drop that behaves differently on one card than on the rest of the surface, which is a smoke report waiting to happen. `unregisterDraggedTypes()` on the scrap text view makes the canvas's drop semantics uniform. Nothing is lost: only one editor is ever mounted, so there is no cross-scrap text drag to preserve.
+**The mounted scrap editor stops claiming drops — durably, which `unregisterDraggedTypes()` is not.** `NSTextView` registers for dragged types by default, so a research item dropped exactly on the one focused scrap would be delivered to the text view and inserted as text: a drop that behaves differently on one card than on the rest of the surface, which is a smoke report waiting to happen.
+
+A one-shot `unregisterDraggedTypes()` call does not hold. `NSTextView.updateDragTypeRegistration` is invoked *automatically* whenever the view's editable or rich-text state changes, and it re-registers from `acceptableDragTypes` — so the call is silently undone at a moment nothing in this plan controls. The durable fix is to override the source of truth. 1C-a builds the editor as a plain `NSTextView` in `ScrapLayout.makeEditor`, so this task introduces the one-line subclass that override needs. Nothing is lost: only one editor is ever mounted, so there is no cross-scrap text drag to preserve.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1368,9 +1967,11 @@ label it draws rather than going silent as well as blank."
 
 ```swift
 import XCTest
+import AppKit
 import MaughamCore
 @testable import Maugham
 
+@MainActor
 final class CanvasDropTests: XCTestCase {
 
     private func tree() -> [ResearchItem] {
@@ -1477,6 +2078,29 @@ final class CanvasDropTests: XCTestCase {
                        + "nothing leaves them dragging at a card that is "
                        + "somewhere off-screen with no feedback")
     }
+
+    // MARK: - The mounted editor does not claim the drop
+
+    /// `unregisterDraggedTypes()` is a one-shot that AppKit undoes:
+    /// `updateDragTypeRegistration` runs automatically whenever the editable or
+    /// rich-text state changes and re-registers from `acceptableDragTypes`. This
+    /// test is the difference between the two fixes — it toggles exactly the
+    /// state that triggers the refresh.
+    func test_theScrapEditorRefusesDragsEvenAfterAppKitRefreshesItsRegistration() {
+        let editor = ScrapTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 60))
+        XCTAssertTrue(editor.acceptableDragTypes.isEmpty,
+                      "the canvas owns drops (spec §8A.1); the one mounted "
+                      + "editor must not be a drag destination")
+        XCTAssertTrue(editor.registeredDraggedTypes.isEmpty)
+
+        editor.isEditable = false
+        editor.isEditable = true
+        editor.isRichText = true
+        XCTAssertTrue(editor.registeredDraggedTypes.isEmpty,
+                      "AppKit re-registers from acceptableDragTypes on every "
+                      + "editable/rich-text change — which is why the override "
+                      + "is on that property and not a call at mount time")
+    }
 }
 ```
 
@@ -1527,7 +2151,7 @@ enum CanvasDropPlacement {
 
 - [ ] **Step 4: Wire the drop destination**
 
-`Maugham/Canvas/CanvasView.swift` — chained on the ZStack, immediately after `.task(id: store.manifest.modified)`. `.dropDestination(for: String.self)` comes FIRST and `.onDrop(of: [.fileURL, .image])` (Task 5) second, matching `ResearchRow.swift:69–88` — the one ordering in this codebase already known to let both an internal id drag and an external file drag land on one view:
+`Maugham/Canvas/CanvasView.swift` — chained on the ZStack, immediately after `.task(id: itemContentTrigger)`. `.dropDestination(for: String.self)` comes FIRST and `.onDrop(of: [.fileURL, .image])` (Task 7) second, matching `ResearchRow.swift:69–88` — the one ordering in this codebase already known to let both an internal id drag and an external file drag land on one view:
 
 ```swift
         // `location` is in this view's local space, which is the same space
@@ -1582,32 +2206,57 @@ enum CanvasDropPlacement {
         }
 
         sceneRevision += 1
-        // An internal drop does not touch the manifest, so
-        // `.task(id: store.manifest.modified)` will never re-fire for it. The
-        // new cards would draw as unresolved until something else changed.
-        Task { await reloadItemContent() }
+        // An internal drop does not touch the manifest, so the load pass's
+        // trigger would never move on its own and the new cards would draw
+        // unresolved until something else changed. Bumping the trigger — rather
+        // than starting a second `Task` — means SwiftUI cancels any run still in
+        // flight and starts exactly one: two runners both assign the resolved
+        // map wholesale, and the older finishing later wins with a map missing
+        // these very nodes (Task 5).
+        itemContentRevision += 1
     }
 ```
 
-`Maugham/Canvas/ScrapEditorHost.swift` — one line where the `NSTextView` is configured, beside 1C-a's `allowsUndo = false`:
+`Maugham/Canvas/ScrapEditorHost.swift` — the subclass, beside `ScrapEditorContainer`:
 
 ```swift
-        // The canvas owns drops (spec §8A.1). `NSTextView` registers for dragged
-        // types by default, so a research item dropped exactly on the one
-        // focused scrap would be inserted as text — a drop that behaves
-        // differently on one card than on the rest of the surface. Nothing is
-        // lost: only one editor is ever mounted, so there is no cross-scrap
-        // text drag to preserve.
-        textView.unregisterDraggedTypes()
+/// The one `NSTextView` the canvas ever mounts, with drag destination turned
+/// off at the source.
+///
+/// The canvas owns drops (spec §8A.1): a research item dropped exactly on the
+/// focused scrap must land on the canvas like every other drop, not be inserted
+/// into that scrap as text.
+///
+/// **`unregisterDraggedTypes()` at mount time does not hold.**
+/// `NSTextView.updateDragTypeRegistration` is invoked automatically whenever the
+/// view's editable or rich-text state changes, and it re-registers from
+/// `acceptableDragTypes` — silently undoing a one-shot call at a moment nothing
+/// here controls. Overriding `acceptableDragTypes` overrides what the refresh
+/// reads, so the refresh is harmless. (Overriding `updateDragTypeRegistration()`
+/// to do nothing works too; this is the smaller surface.)
+///
+/// Nothing is lost: only one editor is ever mounted, so there is no cross-scrap
+/// text drag to preserve.
+final class ScrapTextView: NSTextView {
+    override var acceptableDragTypes: [NSPasteboard.PasteboardType] { [] }
+}
 ```
+
+`Maugham/Canvas/ScrapLayout.swift` — `makeEditor`'s first line, and nothing else in that method:
+
+```swift
+        let tv = ScrapTextView(frame: frame, textContainer: container)
+```
+
+The return type stays `NSTextView`: no caller needs to know, and `ScrapEditorContainer.textView` keeps its existing type.
 
 - [ ] **Step 5: Run the tests and a Release build**
 
 Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasDropTests CODE_SIGNING_ALLOWED=NO`
-Expected: PASS, 12 tests.
+Expected: PASS, 13 tests.
 
-Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasCompositionTests CODE_SIGNING_ALLOWED=NO`
-Expected: PASS — 1C-a's layer-order pins must survive two new modifiers on the ZStack.
+Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasCompositionTests -only-testing MaughamTests/ScrapEditorHostTests -only-testing MaughamTests/ScrapLayoutTests CODE_SIGNING_ALLOWED=NO`
+Expected: PASS — 1C-a's layer-order pins must survive a new modifier on the ZStack, and its editor tests must survive the text view becoming a subclass.
 
 Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham -configuration Release build CODE_SIGNING_ALLOWED=NO`
 Expected: BUILD SUCCEEDED.
@@ -1616,7 +2265,8 @@ Expected: BUILD SUCCEEDED.
 
 ```bash
 git add Maugham/Canvas/CanvasDrop.swift Maugham/Canvas/CanvasView.swift \
-        Maugham/Canvas/ScrapEditorHost.swift MaughamTests/Canvas/CanvasDropTests.swift
+        Maugham/Canvas/ScrapEditorHost.swift Maugham/Canvas/ScrapLayout.swift \
+        MaughamTests/Canvas/CanvasDropTests.swift
 git commit -m "feat(canvas): drop a research item onto the canvas (spec 8A.1)
 
 The binder is already beside the canvas and ResearchRow is already
@@ -1633,29 +2283,32 @@ id is derived from the reference. Landing on a region joins it through
 the same joinTarget/join pair as an internal drag — 4.2's deliberate act,
 not a second rule.
 
-The mounted scrap editor unregisters its dragged types so the canvas's
-drop behaviour is uniform instead of differing on the one focused card."
+The mounted scrap editor is now a ScrapTextView overriding
+acceptableDragTypes, so the canvas's drop behaviour is uniform instead of
+differing on the one focused card. Not unregisterDraggedTypes():
+updateDragTypeRegistration re-registers from acceptableDragTypes on every
+editable/rich-text change, so the one-shot call is silently undone."
 ```
 
 ---
 
-### Task 5: Photographs from Finder and the browser — spec §8A.1's external route
+### Task 7: Photographs from Finder and the browser — spec §8A.1's external route
 
 **Files:**
 - Modify: `Maugham/Canvas/CanvasView.swift`
 - Test: `MaughamTests/Canvas/CanvasExternalDropTests.swift`
 
 **Interfaces:**
-- **Consumes:** `DropClassification.action(hasFileURL:canLoadImage:) -> DropAction` and `DropClassification.fileURLs(from: [NSItemProvider]) async -> [URL]` (`Maugham/Views/DropClassification.swift`); `ProjectStore.importResearchFiles(_:toParentId:) async throws -> [ResearchItem]`; `CanvasView.addItemNodes(referenceIds:at:)` and `reloadItemContent()` (Task 4 / Task 3); `CanvasCamera.contentPoint(fromView:)`.
+- **Consumes:** `DropClassification.action(hasFileURL:canLoadImage:) -> DropAction` and `DropClassification.fileURLs(from: [NSItemProvider]) async -> [URL]` (`Maugham/Views/DropClassification.swift`); `ProjectStore.importResearchFiles(_:toParentId:) async throws -> [ResearchItem]`; `CanvasView.addItemNodes(referenceIds:at:)` and `itemContentRevision` (Task 6 / Task 5); `CanvasCamera.contentPoint(fromView:)`.
 - **Produces:** on `CanvasView`, `private func importExternalDrop(_ providers: [NSItemProvider], at contentPoint: CGPoint) async` and the `.onDrop(of: [.fileURL, .image], isTargeted: nil)` modifier.
 
 **Do not hand-roll this.** `.dropDestination(for: URL.self)` silently rejects a browser image drag: those carry a rendered bitmap rather than a file URL, and CoreTransferable fails with error 0 and no diagnostic. That is recorded in `DropClassification`'s own doc comment, the canonical fix landed for the palette well in `d55891c`, and all three Research zones plus `PaletteCardEditor` already route through it. The canvas is the fifth adopter and adds no classification logic of its own — `DropClassification.fileURLs(from:)` already turns Finder file URLs into themselves and browser bitmaps into a temp PNG, and returns nothing for a remote-URL-only drag because we never fetch over the network.
 
 **An external photo becomes a real research asset first and an item node second.** This is the load-bearing decision of the task and it follows straight from §3.1: items on the canvas are *things that already exist*, and the file on disk is the truth. So the import goes through `ProjectStore.importResearchFiles` — the same path the Research pane uses, which copies into `research/`, dedupes the filename and writes the manifest — and only then does the canvas reference what came back. The alternatives were both rejected: a canvas-owned image store under `.maugham/` would make the sidecar non-derived, contradicting §8's "deletable without loss of content"; and a node pointing at the writer's `~/Downloads` would break the moment they tidied up.
 
-**Imported files land at the research root.** `toParentId: nil`. It is the one destination that does not require inventing a rule about which group a canvas drop belongs to, it matches the collection pane's root-drop behaviour (`CollectionResearchPane.swift:389`), and the writer can file it afterwards with the machinery that already exists. Task 8's guide text says so plainly rather than leaving it to be discovered.
+**Imported files land at the research root.** `toParentId: nil`. It is the one destination that does not require inventing a rule about which group a canvas drop belongs to, it matches the collection pane's root-drop behaviour (`CollectionResearchPane.swift:389`), and the writer can file it afterwards with the machinery that already exists. Task 10's guide text says so plainly rather than leaving it to be discovered.
 
-**The manifest changes here, so `.task(id: store.manifest.modified)` re-fires on its own.** `addItemNodes` also calls `reloadItemContent()` (Task 4) because an *internal* drop does not touch the manifest; on this path the two overlap harmlessly, and the cache means the second pass decodes nothing.
+**The manifest changes here, so the trigger moves on its own — and `addItemNodes` moves it again.** An import writes the manifest, and `addItemNodes` (Task 6) bumps `itemContentRevision` because an *internal* drop does not. On this path both halves of the trigger change, in quick succession. That is safe **because there is only ever one runner**: the id changing cancels the in-flight pass and starts a single new one, so the two passes cannot interleave and cannot assign out of order. It is not safe by the passes being harmless when concurrent — they are not, which is exactly why Task 5 keys them off one id and Task 6 bumps that id rather than starting a `Task` of its own. The cache means the second pass decodes nothing.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1667,6 +2320,7 @@ import AppKit
 import UniformTypeIdentifiers
 @testable import Maugham
 
+@MainActor
 final class CanvasExternalDropTests: XCTestCase {
 
     // MARK: - The canvas must route through the shared classifier
@@ -1775,7 +2429,7 @@ Expected: FAIL — the file does not compile until it exists in the project, and
 
 - [ ] **Step 3: Wire the external drop**
 
-`Maugham/Canvas/CanvasView.swift` — chained on the ZStack immediately **after** the `.dropDestination(for: String.self)` from Task 4, mirroring `ResearchRow.swift:79`:
+`Maugham/Canvas/CanvasView.swift` — chained on the ZStack immediately **after** the `.dropDestination(for: String.self)` from Task 6, mirroring `ResearchRow.swift:79`:
 
 ```swift
         // Browser image drags carry a rendered bitmap rather than a file URL, so
@@ -1849,7 +2503,7 @@ under .maugham/ would make the sidecar non-derived; a node pointing at
 
 ---
 
-### Task 6: Removing a node removes it from the canvas, never from the project
+### Task 8: Removing a node removes it from the canvas, never from the project
 
 **Files:**
 - Modify: `Maugham/Canvas/CanvasModel.swift`
@@ -1860,11 +2514,11 @@ under .maugham/ would make the sidecar non-derived; a node pointing at
 - **Consumes:** `CanvasScene.node(_:)` / `remove(_:)` / `topmostNode(at:)` / `count` / `region(_:)` / `insertRegion(_:)` (1C-a T1, 1C-b T2); `CanvasRegion.homeMembers` / `appearances` (1C-b T1); `CanvasMembership.join(_:home:in:)` / `addAppearance(_:to:in:)` / `homeRegion(of:in:)` / `appearanceRegions(of:in:)` / `leave(_:from:in:)` (1C-b T2); `CanvasModel.mutate(_:_:)` / `withScene(persist:_:)` / `load(projectRoot:)` / `flush()` / `undoManager` / `selectedRegionID` / `deleteSelectedRegion()` (1C-b T4); `CanvasStore(projectRoot:)` / `load()` (1C-a T5); `CanvasModel.selectedNodeID` and `CanvasRenderer.selectionRingWidth` (Task 3); `CanvasItemNode.make(referenceId:at:z:showsThumbnail:)` (Task 3); `CanvasEventView.onDeleteKey` (1C-b T6).
 - **Produces:** on `CanvasModel`, `func removeSelectedNodeFromCanvas()` and `func selectNode(_ id: CanvasNodeID?)`; on `CanvasView`, an amended `handleClick` and an amended `onDeleteKey` route.
 
-**Spec §8A.1 states the property this task delivers, and it is the one a writer will test on their first afternoon:** *"Deleting a node from the canvas removes it from the canvas, never from the project."* A card the writer put down and then thought better of must be removable without a second thought, and the thought they must never have to have is *"will this delete my photograph?"*
+**Spec §3.1 states the property this task delivers, and it is the one a writer will test on their first afternoon:** *"Deleting a node from the canvas removes it from the canvas, never from the project."* (§8A is the route things arrive by; §3.1 is what an item node *is*, and this sentence is its last clause.) A card the writer put down and then thought better of must be removable without a second thought, and the thought they must never have to have is *"will this delete my photograph?"*
 
 **Tripwire 14 is satisfied by not moving or deleting user content at all.** The rule says any move or delete of user-editable content routes through the typed `DocumentStore` mover, because a 750 ms autosave otherwise recreates the file at the old path. The canvas has nothing to route: removing a node is a mutation of `CanvasScene`, which lives in the sidecar. So the guard here is the *inverse* one — a grep asserting that nothing under `Maugham/Canvas/` reaches for `removeItem`, `trashItem`, `moveItem`, `moveToTrash`, `relocate`, `deleteResearchItem` or `importResearchFiles`. That grep is the whole safety property, stated as a test rather than as a comment.
 
-`CanvasView.importExternalDrop` (Task 5) calls `importResearchFiles`, so `CanvasView.swift` is allow-listed for that one symbol with the reason: an *import* creates content, it does not move or delete any. `CanvasStore.swift` is allow-listed wholesale — it owns `canvas.md` and `.maugham/canvas.json`, both of which are the canvas's own files and neither of which is a manuscript or a research asset.
+`CanvasView.importExternalDrop` (Task 7) calls `importResearchFiles`, so `CanvasView.swift` is allow-listed for that one symbol with the reason: an *import* creates content, it does not move or delete any. `CanvasStore.swift` is allow-listed wholesale — it owns `canvas.md` and `.maugham/canvas.json`, both of which are the canvas's own files and neither of which is a manuscript or a research asset.
 
 **Deleting a member must also leave its regions.** A region's `homeMembers` / `appearances` are sets of `CanvasNodeID` (1C-b Task 1). Removing a node without leaving them strands an id that names nothing — the region would count a member it can never draw, and 1C-b's tether and chip passes would look up a node that is gone. `CanvasMembership.leave` is the existing door; membership changes only by deliberate act (§4.2), and deleting the node *is* the deliberate act.
 
@@ -1880,6 +2534,7 @@ under .maugham/ would make the sidecar non-derived; a node pointing at
 import XCTest
 @testable import Maugham
 
+@MainActor
 final class CanvasNodeRemovalTests: XCTestCase {
 
     private var root: URL!
@@ -1994,7 +2649,7 @@ final class CanvasNodeRemovalTests: XCTestCase {
 
     // MARK: - Tripwire 14, inverted: the canvas touches no user content
 
-    /// Spec §8A.1: "Deleting a node from the canvas removes it from the canvas,
+    /// Spec §3.1: "Deleting a node from the canvas removes it from the canvas,
     /// never from the project." Tripwire 14 says any move or delete of
     /// user-editable content routes through the typed `DocumentStore` mover. The
     /// canvas has nothing to route — removal is a mutation of a sidecar value —
@@ -2004,7 +2659,7 @@ final class CanvasNodeRemovalTests: XCTestCase {
         // `CanvasStore` owns canvas.md and .maugham/canvas.json — the canvas's
         // OWN files, neither a manuscript nor a research asset.
         let exemptFiles: Set<String> = ["CanvasStore.swift"]
-        // An IMPORT creates content; it moves and deletes nothing (Task 5).
+        // An IMPORT creates content; it moves and deletes nothing (Task 7).
         let exemptPairs: Set<String> = ["CanvasView.swift|importResearchFiles"]
         let forbidden = ["removeItem", "trashItem", "moveItem", "moveToTrash",
                          "relocateUserContent", "relocate(", "deleteResearchItem",
@@ -2026,7 +2681,7 @@ final class CanvasNodeRemovalTests: XCTestCase {
             }
         }
         XCTAssertTrue(offenders.isEmpty,
-            "The canvas must never move or delete user content (spec §3.1/§8A.1, "
+            "The canvas must never move or delete user content (spec §3.1, "
             + "tripwire 14). Removing a node removes it FROM THE CANVAS. If a "
             + "canvas feature genuinely needs to move user content, it routes "
             + "through the typed DocumentStore mover and gets an entry in this "
@@ -2062,7 +2717,7 @@ Expected: FAIL — `value of type 'CanvasModel' has no member 'selectNode'`.
         if id != nil { selectedRegionID = nil }
     }
 
-    /// Spec §8A.1: "Deleting a node from the canvas removes it from the canvas,
+    /// Spec §3.1: "Deleting a node from the canvas removes it from the canvas,
     /// never from the project." No file is moved, trashed or rewritten — this is
     /// a mutation of a sidecar value, which is why tripwire 14's typed mover is
     /// not involved and why `CanvasNodeRemovalTests` greps to keep it that way.
@@ -2135,7 +2790,7 @@ git add Maugham/Canvas/CanvasModel.swift Maugham/Canvas/CanvasView.swift \
         MaughamTests/Canvas/CanvasNodeRemovalTests.swift
 git commit -m "feat(canvas): ⌫ removes a node from the canvas, never from the project
 
-Spec 8A.1's stated property, and the one a writer tests on their first
+Spec 3.1's stated property, and the one a writer tests on their first
 afternoon. Removal is a mutation of a sidecar value, so tripwire 14's
 typed mover is not involved — and the guard is the INVERSE one: a grep
 asserting nothing under Maugham/Canvas/ reaches for removeItem,
@@ -2150,7 +2805,7 @@ never ambiguous, and a click on empty canvas clears the selection."
 
 ---
 
-### Task 7: `⌘\` collapses both side columns on the canvas — spec §8A.3
+### Task 9: `⌘\` collapses both side columns on the canvas — spec §8A.3
 
 **Files:**
 - Create: `Maugham/Canvas/CanvasFocusColumns.swift`
@@ -2168,7 +2823,9 @@ never ambiguous, and a click on empty canvas clears the selection."
 
 **Reuse `⌘\`, do not add a key.** Focus mode already hides the titlebar, the traffic lights, the persona bar and the status footer. On the canvas it additionally collapses both side columns. That extends muscle memory the writer already has, and the exit is the key they already know.
 
-**It is a deliberate toggle and never automatic on entering the persona.** Spec §8A.3 is explicit about why: auto-collapsing would fight §8A.1, because you need the binder open to drag research across and only then do you want it gone. The palette wall *does* hide the inspector automatically on entry (`PaletteSegmentModifier`); the canvas deliberately declines that precedent, and Task 8 records the divergence so it does not read as an oversight later.
+**It is a deliberate toggle and never automatic on entering the persona.** Spec §8A.3 is explicit about why: auto-collapsing would fight §8A.1, because you need the binder open to drag research across and only then do you want it gone. The palette wall *does* hide the inspector automatically on entry (`PaletteSegmentModifier`); the canvas deliberately declines that precedent, and Task 10 records the divergence so it does not read as an oversight later.
+
+**One case deserves saying out loud: arriving on the canvas with `⌘\` already on collapses the columns.** The rule is one derived value, so it does not care which of its two inputs moved last. That is the right behaviour — the writer's own ⌘\ is still in force, focus mode is *already* what they asked for, and the same key undoes it — and it is not what §8A.3 forbids, which is *entering the persona* turning focus on by itself. Nothing here ever sets `isNoChromeOn`. `test_arrivingOnTheCanvasWithFocusModeAlreadyOnCollapses` pins it, the smoke list walks it, and Task 10's guide sentence says it in the writer's language so it cannot read as a bug.
 
 **Which column each mechanism hides.** The right column already has one: `detailColumn(store:documentStore:)` is a `@ViewBuilder` that returns nothing when `showInspector == false`. The left one does not, so this task adds a `columnVisibility` binding on the `NavigationSplitView` and sets it to `.doubleColumn` — which, in a three-column split, means "content and detail, no sidebar". The two together leave the centre column alone with the canvas in it.
 
@@ -2183,11 +2840,26 @@ static func clearsColumnStash(from: BinderSegment, to: BinderSegment) -> Bool
 
 and the persona handler drops *both* stashes when it fires. Dropping the palette stash while leaving the canvas is a no-op — `inspectorWasVisibleBeforePalette` is non-nil only while the binder is on `.palette` — so one predicate covering both is strictly safer than two that can fall out of step. A second predicate is a second thing to forget.
 
-**The persona handler must force-open BOTH columns.** It already sets `showInspector = true`. Without `columnVisibility = .all` beside it, a writer who leaves canvas focus mode by pressing ⌘2 lands in the Author persona with the sidebar still collapsed and no obvious way back — the stash that would have restored it was just dropped, correctly, by the line above.
+**The persona handler must re-open the sidebar it collapsed — and only that case.** It already sets `showInspector = true` unconditionally, which is existing behaviour this task does not touch. The sidebar is different: without something beside it, a writer who leaves canvas focus mode by pressing ⌘2 lands in the Author persona with the sidebar still collapsed and no obvious way back, because the stash that would have restored it was just dropped, correctly, by the line above.
+
+But a bare `columnVisibility = .all` in the handler would be a behaviour change well outside the canvas: a writer who collapsed the sidebar **by dragging it**, in any persona, for any reason, would have it re-opened by ⌘1/⌘2/⌘3. That is not what this task is for, and nothing else in the app re-opens a hand-collapsed sidebar. So the force-open is guarded on the case that created the problem — a canvas stash actually being dropped:
+
+```swift
+if canvasColumnStash != nil { columnVisibility = .all }
+```
+
+A hand-drag never sets that stash, so a hand-collapsed sidebar is left alone. Task 10 records the narrowing in the ADR, because "⌘2 re-opens the sidebar" is a rule a future reader will want the boundary of.
 
 **One `.onChange`, on one derived value.** `isCanvasFocus` is `isNoChromeOn && binderSegment == .canvas`. Observing the two inputs separately would fire twice for a single ⌘\-on-canvas and the second pass would read a stash the first had just written. `CanvasFocusColumns.resolve` returns `nil` for "nothing to do", so a repeat in either direction is inert rather than destructive — which is what makes the single trigger safe rather than merely tidy.
 
-**`ProjectWindow.body`'s budget: this task spends one expression and buys three back first.** `body` is at 28 chained expressions, eleven extracted `ViewModifier`s exist solely to buy expressions back, and the ceiling has been hit twice — once passing Debug and failing Release CI. `columnVisibility: $columnVisibility` is one added initialiser argument. Before adding it, the two `.overlay` blocks and the `.animation` chained on the `NavigationSplitView` move into `ProjectOverlaysModifier`: −3, +1, net **−2**. `CanvasFocusColumnsModifier` is one more `.modifier(…)` on the outer chain: net **−1** overall, and the two `@State` properties are free (a stored property is not a body expression).
+**The body budget, counted per type-check unit.** There are two, and they are solved separately:
+
+| unit | before | after |
+|---|---|---|
+| `body`'s outer chain on the `Group` (`.frame(minWidth:)` → `.preferredColorScheme`) | 28 chained expressions | **28 — unchanged** |
+| the `NavigationSplitView` inside `if let store, let documentStore` (`ProjectWindow.swift:95–109`) | 6 chained modifiers | 6 − 3 (`.overlay`, `.overlay`, `.animation` into `ProjectOverlaysModifier`) + 1 (that modifier) + 1 (`CanvasFocusColumnsModifier`) = **5**, plus one initialiser argument |
+
+The earlier draft of this task counted the three-expression buy-back against the outer chain and concluded 28 → 27. It does not pay there: the two `.overlay` blocks and the `.animation` hang off the `NavigationSplitView` **inside** the branch, which the type-checker treats as its own expression. Extracting them is still worth doing — the inner branch is the denser of the two — but `CanvasFocusColumnsModifier` must be applied **inside that branch too**, or the outer chain goes 28 → 29 against §8A.3's explicit "column visibility must not add an expression to `ProjectWindow.body`". Applied inside, the outer chain does not move and the inner one gets cheaper. The two `@State` properties are free either way (a stored property is not a body expression), and the modifier's `.onChange` fires whenever the branch is on screen, which is whenever a canvas can be.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2198,6 +2870,7 @@ import XCTest
 import SwiftUI
 @testable import Maugham
 
+@MainActor
 final class CanvasFocusColumnsTests: XCTestCase {
 
     private let open = CanvasColumnStash(showInspector: true, columnVisibility: .all)
@@ -2213,6 +2886,17 @@ final class CanvasFocusColumnsTests: XCTestCase {
     /// the binder open to drag research across (§8A.1).
     func test_enteringTheCanvasAloneCollapsesNothing() {
         XCTAssertFalse(CanvasFocusColumns.isCanvasFocus(isNoChromeOn: false, segment: .canvas))
+    }
+
+    /// The other order, which the rule deliberately treats the same way:
+    /// ⌘\ first, canvas second. The columns collapse on arrival — and that is
+    /// not §8A.3's "automatic on entering the persona", because the writer's own
+    /// ⌘\ is still in force and the same key undoes it. Nothing about entering
+    /// the canvas turns focus mode ON; leaving restores what was stashed.
+    func test_arrivingOnTheCanvasWithFocusModeAlreadyOnCollapses() {
+        XCTAssertTrue(CanvasFocusColumns.isCanvasFocus(isNoChromeOn: true, segment: .canvas),
+                      "one derived value, read the same way whichever input "
+                      + "moved last")
     }
 
     /// ⌘\ off the canvas keeps its existing meaning exactly: chrome only.
@@ -2256,18 +2940,15 @@ final class CanvasFocusColumnsTests: XCTestCase {
                                                 current: CanvasFocusColumns.collapsed))
     }
 
+    /// Also the persona-switch path: the handler DROPS the stash, so the later
+    /// pass that would have restored it finds nothing and leaves the force-open
+    /// alone. Same input, same answer — `current` is not read on this arm, which
+    /// is why one test covers both and a second with a different `current` would
+    /// assert nothing new.
     func test_leavingWithNoStashDoesNothing() {
         XCTAssertNil(CanvasFocusColumns.resolve(isCanvasFocus: false,
                                                 stash: nil,
                                                 current: open))
-    }
-
-    /// The persona-switch path: the handler drops the stash, so the later pass
-    /// that would have restored it finds nothing and leaves the force-open alone.
-    func test_aDroppedStashMakesTheRestoreArmANoOp() {
-        XCTAssertNil(CanvasFocusColumns.resolve(isCanvasFocus: false,
-                                                stash: nil,
-                                                current: CanvasFocusColumns.collapsed))
     }
 
     func test_theRoundTripIsLossless() throws {
@@ -2283,7 +2964,7 @@ final class CanvasFocusColumnsTests: XCTestCase {
 }
 ```
 
-`MaughamTests/PersonaModifierTests.swift` — rename the three existing `clearsPaletteStash` tests to `clearsColumnStash` (the assertions are unchanged; only the symbol moves) and add two:
+`MaughamTests/PersonaModifierTests.swift` — rename the three existing `clearsPaletteStash` tests to `clearsColumnStash` (the assertions are unchanged; only the symbol moves) and add three:
 
 ```swift
     /// The canvas column stash (spec §8A.3) inherits the palette stash's exact
@@ -2377,18 +3058,19 @@ enum CanvasFocusColumns {
 }
 ```
 
-- [ ] **Step 4: Buy back the expressions, then spend one**
+- [ ] **Step 4: Buy expressions back, and spend the new ones in the same unit**
 
 `Maugham/Views/ProjectWindow.swift`, in the private-modifier section beside `PaletteSegmentModifier`:
 
 ```swift
 /// The save-flash and MCP-note overlays, pulled off the split view.
 ///
-/// `ProjectWindow.body` is at the SwiftUI type-checker ceiling — eleven
-/// extracted `ViewModifier`s exist solely to buy expressions back, and the
-/// ceiling has been hit twice, once passing Debug and failing Release CI. This
-/// task spends one expression on `columnVisibility:`, so it gives three back
-/// first.
+/// `ProjectWindow` is at the SwiftUI type-checker ceiling — eleven extracted
+/// `ViewModifier`s exist solely to buy expressions back, and the ceiling has
+/// been hit twice, once passing Debug and failing Release CI. These three
+/// modifiers hang off the `NavigationSplitView` inside the `if let store`
+/// branch, which is its own expression to solve; extracting them makes that
+/// branch cheaper, and it is where the canvas modifier is spent too.
 private struct ProjectOverlaysModifier: ViewModifier {
     @Binding var showingSaveFlash: Bool
     let mcpBanner: MCPBannerModel
@@ -2466,7 +3148,7 @@ Two `@State` properties beside `inspectorWasVisibleBeforePalette` (stored proper
     @State private var canvasColumnStash: CanvasColumnStash?
 ```
 
-In `body`, replace the two `.overlay` blocks and the `.animation` line chained on the `NavigationSplitView` with one modifier, and add the initialiser argument:
+In the `if let store, let documentStore` branch, replace the two `.overlay` blocks and the `.animation` line chained on the `NavigationSplitView` with one modifier, add the initialiser argument, and apply the canvas modifier **here, in the same unit** — not on the outer chain, which must stay at 28:
 
 ```swift
                 NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -2481,19 +3163,16 @@ In `body`, replace the two `.overlay` blocks and the `.animation` line chained o
                     showingSaveFlash: $showingSaveFlash,
                     mcpBanner: mcpBanner,
                     onShowLatestMCPNote: { handleShowLatestMCPNote() }))
+                .modifier(CanvasFocusColumnsModifier(
+                    isNoChromeOn: isNoChromeOn,
+                    binderSegment: binderSegment,
+                    showInspector: $showInspector,
+                    columnVisibility: $columnVisibility,
+                    stash: $canvasColumnStash))
                 .navigationTitle(store.manifest.title)
 ```
 
-and add one modifier to the outer chain, beside `PaletteSegmentModifier`:
-
-```swift
-        .modifier(CanvasFocusColumnsModifier(
-            isNoChromeOn: isNoChromeOn,
-            binderSegment: binderSegment,
-            showInspector: $showInspector,
-            columnVisibility: $columnVisibility,
-            stash: $canvasColumnStash))
-```
+**Do not put `CanvasFocusColumnsModifier` on the outer chain beside `PaletteSegmentModifier`.** That is where the earlier draft put it, and it takes `body` to 29 — the expression §8A.3 says must not be added. Inside the branch it observes the same state, applies to the split view whose `columnVisibility` it drives, and costs the outer chain nothing. The outer chain is left **exactly** as it was: no line added, none removed.
 
 - [ ] **Step 5: Extend the predicate**
 
@@ -2540,17 +3219,25 @@ and in the `.maughamSetPersona` handler, the clear and the force-open:
 ```swift
                 if Self.clearsColumnStash(from: binderSegment, to: change.binderSegment) {
                     inspectorWasVisibleBeforePalette = nil
-                    canvasColumnStash = nil
+                    if canvasColumnStash != nil {
+                        // The sidebar is collapsed BECAUSE of canvas focus mode,
+                        // and the stash that would have restored it is being
+                        // dropped on the next line — so restore it here, or ⌘2
+                        // out of canvas focus mode lands the writer in the new
+                        // persona with no sidebar and no obvious way back.
+                        //
+                        // GUARDED on the stash, not unconditional: a writer who
+                        // collapsed the sidebar by dragging it never set one,
+                        // and a persona switch has never re-opened a
+                        // hand-collapsed column in this app.
+                        columnVisibility = .all
+                        canvasColumnStash = nil
+                    }
                 }
                 persona = change.persona
                 detailSegment = change.segment
                 binderSegment = change.binderSegment
                 showInspector = true
-                // BOTH columns. Without this, a writer leaving canvas focus mode
-                // by pressing ⌘2 lands in the new persona with the sidebar still
-                // collapsed and no obvious way back — the stash that would have
-                // restored it was just dropped, correctly, by the line above.
-                columnVisibility = .all
 ```
 
 and the call site in `body` gains the two bindings:
@@ -2601,14 +3288,22 @@ force-opens both columns, or ⌘2 out of canvas focus mode strands the
 sidebar. One .onChange on one derived value, and resolve() returns nil for
 'nothing to do' so a repeat is inert rather than destructive (tripwire 2).
 
-Body budget: three chained expressions bought back into
-ProjectOverlaysModifier before one initialiser argument is spent, so the
-net is one cheaper than before."
+The persona handler's force-open is GUARDED on the canvas stash rather
+than unconditional: a writer who collapsed the sidebar by dragging it
+never set one, and nothing else in the app re-opens a hand-collapsed
+column on a persona switch.
+
+Body budget, counted per type-check unit: the overlays and the animation
+hang off the NavigationSplitView INSIDE the `if let store` branch, not on
+body's outer chain, so extracting them pays there and not here. Both new
+expressions are spent in that same branch, which goes 6 -> 5 plus one
+initialiser argument, and body's outer chain stays at 28 — 8A.3's 'must
+not add an expression to ProjectWindow.body' read literally."
 ```
 
 ---
 
-### Task 8: Docs, AREA.md and the ADR amendment
+### Task 10: Docs, AREA.md and the ADR amendment
 
 **Files:**
 - Modify: `Maugham/Canvas/AREA.md`
@@ -2628,13 +3323,16 @@ Two standing rules apply. **Rule 7:** help and docs describe what *ships*, not w
 
 Append a section covering, each in one or two sentences:
 
-- **Item nodes hold a reference and a position, nothing else.** Title, glyph, path and "is there a picture" are resolved from `manifest.research` by `CanvasItemResolver` on `.task(id: store.manifest.modified)` — never in `body` (tripwire 4), never persisted. A rename in the research tree therefore needs no migration.
+- **Item nodes hold a reference and a position, nothing else.** Title, glyph, path and "is there a picture" are resolved from `manifest.research` by `CanvasItemResolver`, on the one `.task(id: itemContentTrigger)` — never in `body` (tripwire 4), never persisted. A rename in the research tree therefore needs no migration.
 - **A dashed border means the reference no longer resolves.** It used to mean "1C-a has not built this yet"; it does not any more, and a future reader will otherwise assume the old meaning.
 - **`CanvasImageCache` is keyed by PATH, never by id — tripwire 22.** State the bound with its arithmetic: `thumbnailMaxPixelSize = 512`, so a worst-case thumbnail is 512 × 512 × 4 = 1 MiB, and the 48 MiB budget holds 48 of them. State the one exception: an entry larger than the whole budget is kept rather than re-decoded forever.
 - **Never `PaletteWallView.downscaled`, and never `.dropDestination(for: URL.self)`.** One decodes at full size and then shrinks; the other silently rejects browser image drags. Both are grep-guarded (`CanvasExternalDropTests`) and both are easy to reach for.
 - **The canvas moves and deletes nothing on disk.** `CanvasNodeRemovalTests.test_nothingInTheCanvasAreaMovesOrDeletesUserContent` is the enforcement; if a future feature genuinely needs to, it routes through the typed `DocumentStore` mover (tripwire 14) and adds an exemption with a reason.
+- **Drawn-text suppression is gated on `visibleEditorNodeID`, never on `mountedEditorNodeID`** — the editor *is* the visible text versus the editor *exists*. `CanvasEditorIdentifierCensusTests` is a census of every production mention of the mounted identifier with two sanctioned shapes; a third fails. Say why it is a test and not a comment: this seam failed twice in 1C-a, was documented by name in two plans, and drifted again in a third.
+- **Item content is resolved by ONE `.task(id:)`.** Its id is `CanvasItemContentTrigger` — the manifest timestamp *and* a local counter a drop bumps, because an internal drag changes nothing on disk. The pass wholesale-assigns, so a second runner races it and the older one finishing later wins with a stale map; `CanvasItemContentTriggerTests` keeps it to one. The resolved map lives on `CanvasModel` so `RegionInspector` reads the same titles the cards draw.
+- **`⌘\` on the canvas collapses both side columns.** Arriving on the canvas with focus mode already on collapses them then — one derived value, and the writer's own ⌘\ is still in force; nothing here ever turns focus mode on. The persona handler's force-open of the sidebar is **guarded on the canvas stash**, so a hand-collapsed sidebar is not re-opened by ⌘1/⌘2/⌘3.
 - **The residual scale risk, stated rather than buried.** `reloadItemContent` decodes every item node's thumbnail on the load pass, yielding between decodes. That is a first-paint cost, off `body`, once per manifest change, and the path-keyed cache means re-entering the persona re-uses it. If a writer ever puts several hundred photographs on one canvas, this is where it will show, and the fix is viewport-scoped decoding — deliberately not built here, because the bound is known and the cost is one-off.
-- **`⌘\` on the canvas collapses both side columns**, why it is not automatic (§8A.3, and the divergence from `PaletteSegmentModifier` is deliberate), and that the stash is dropped — not restored — by `PersonaModifier.clearsColumnStash`.
+- **Why the collapse is not automatic on entering the persona** (§8A.3, and the divergence from `PaletteSegmentModifier` is deliberate), and that the stash is dropped — not restored — by `PersonaModifier.clearsColumnStash`.
 
 - [ ] **Step 2: `docs/adr/0026-planning-canvas-rendering.md`**
 
@@ -2643,7 +3341,10 @@ Amend rather than adding an ADR number. 1C-a's Task 17 Step 7 recorded item node
 - Mark that debt discharged, naming each piece.
 - Record the decision that **an external drop becomes a research asset first and a node second**, with the two rejected alternatives and why (a `.maugham/`-owned image store makes the sidecar non-derived, contradicting §8; a node pointing at `~/Downloads` breaks when the writer tidies up).
 - Record that **presentation is resolved, never stored**, and that this is why the sidecar schema did not change.
-- Record that **`clearsPaletteStash` became `clearsColumnStash`** and why the predicate was extended rather than duplicated — this is the third recurrence of the same later-pass ordering hazard and the ADR is where the next reader will look for it.
+- Record that **`clearsPaletteStash` became `clearsColumnStash`** and why the predicate was extended rather than duplicated — this is the third recurrence of the same later-pass ordering hazard and the ADR is where the next reader will look for it. Record the boundary of the force-open that goes with it: the sidebar is re-opened **only** when a canvas stash is being dropped, so a hand-collapsed sidebar survives a persona switch as it always has.
+- Record that **the mounted/visible editor seam is now enforced by a census** (`CanvasEditorIdentifierCensusTests`) rather than by prose, and that this is enforcement for the existing tripwire on that seam — **not** a new tripwire number. Name the count: two documented failures in 1C-a and one drift in a plan that cited the rule while breaking it.
+- Record that **an external drop must not start its own reload task.** One `.task(id:)` owns item content; a drop bumps its id. Two runners race because the pass wholesale-assigns, and the loser is silent.
+- Record that **the resolved presentation map lives on `CanvasModel`**, so the card, its appearance chip and the region inspector read one map (§4.3) — view state would be invisible to the detail column.
 
 - [ ] **Step 3: `docs/guide/research.md`**
 
@@ -2653,6 +3354,7 @@ Add a short section — what ships, in the writer's language:
 - Drop a photo from Finder or drag one out of a browser onto the canvas: it is filed into Research (at the top level, so file it wherever you like afterwards) and appears as a card at the same time.
 - Dropping onto a region puts the item in that region.
 - ⌫ removes the selected card from the canvas.
+- `⌘\` gives the canvas the whole window and the same key brings the columns back — and if focus mode is already on when you switch to the canvas, the columns step aside as you arrive.
 
 - [ ] **Step 4: the canvas guide topic**
 
@@ -2669,7 +3371,14 @@ Flip the canvas item's status where 1C-a/1C-b left it partial, and sweep both fi
 
 - [ ] **Step 6: `CLAUDE.md`**
 
-One line in the per-area pointer table's `Maugham/Canvas/` row (1C-a Task 17 creates the row): item nodes resolve their presentation from the manifest and never persist it; the image cache is bounded and **keyed by path, not id**. No new tripwire number — this is tripwire 22 recurring, and adding a 25th row for the same rule is how a tripwire table stops being read.
+One line in the per-area pointer table's `Maugham/Canvas/` row (1C-a Task 17 creates the row): item nodes resolve their presentation from the manifest and never persist it; the image cache is bounded and **keyed by path, not id**.
+
+**No new tripwire number, and the reasoning is the point.** Two candidates came up in this slice and both are existing rules recurring:
+
+- The path-keyed cache is **tripwire 22**. Adding a row for the same rule is how a tripwire table stops being read.
+- The mounted/visible editor seam is the tripwire 1C-a Task 17 already adds for it (its row lists `CanvasRendererTests` under enforcement). This slice adds `CanvasEditorIdentifierCensusTests` to that row's **"Enforced / more"** column — same rule, better enforcement — rather than minting a number for a rule that already has one.
+
+1C-a's Task 17 occupies **25–30**; 1C-b and 1C-c each need one after that, so the next free number is **31** and this slice does not take it. If either sibling plan still claims 28, it was numbered against an earlier draft of 1C-a and needs re-checking before merge — flag it rather than silently colliding.
 
 - [ ] **Step 7: Verify the docs claim only what ships**
 
@@ -2705,7 +3414,7 @@ longer says the canvas holds only scraps."
 
 ## Whole-slice verification
 
-Run after Task 8, before the branch is offered for review. Per CLAUDE.md rule 9, a **whole-branch review** follows: per-task reviews cannot see emergent interactions, and the two most recent milestones each had one caught only at that stage (T5×T6 in unified-undo; one emergent bug in hardening).
+Run after Task 10, before the branch is offered for review. Per CLAUDE.md rule 9, a **whole-branch review** follows: per-task reviews cannot see emergent interactions, and the two most recent milestones each had one caught only at that stage (T5×T6 in unified-undo; one emergent bug in hardening).
 
 - [ ] **Both schemes green.**
 
@@ -2732,7 +3441,20 @@ git diff --stat main -- Maugham.xcodeproj
 
 Expected: nothing. A `project.pbxproj` in a diff is a red flag.
 
-- [ ] **The four grep guards actually ran.** `-only-testing MaughamTests/CanvasExternalDropTests MaughamTests/CanvasNodeRemovalTests MaughamTests/TripwireGrepTests` and confirm a non-zero test count in the output. A folder path, or a class name that does not exist, runs **zero** tests and reports success.
+- [ ] **Every grep guard actually ran.** `-only-testing` takes **one value per flag**, and a folder path or a misspelled class name runs **zero** tests and reports success — so run this and read the count, do not read the exit code:
+
+```bash
+xcodebuild -project Maugham.xcodeproj -scheme Maugham test \
+  -only-testing MaughamTests/CanvasEditorIdentifierCensusTests \
+  -only-testing MaughamTests/CanvasItemContentTriggerTests \
+  -only-testing MaughamTests/CanvasItemPresentationTests \
+  -only-testing MaughamTests/CanvasExternalDropTests \
+  -only-testing MaughamTests/CanvasNodeRemovalTests \
+  -only-testing MaughamTests/TripwireGrepTests \
+  CODE_SIGNING_ALLOWED=NO 2>&1 | grep -E "Executed [0-9]+ tests"
+```
+
+Expected: a non-zero total. The guards being counted are the mounted-identifier census and its self-check, the single-runner census, the `ResearchRow` glyph grep, the two external-drop greps, the no-user-content-move grep, and the repo's own tripwire greps.
 
 - [ ] **Smoke, by hand.** The seams no test can reach:
 
@@ -2746,7 +3468,10 @@ Expected: nothing. A `project.pbxproj` in a diff is a red flag.
 8. Delete a note from Research that a card points at → the card stays and reads as unresolved, naming the reference.
 9. ⌘\ on the canvas → both columns collapse. ⌘\ again → both return, and the inspector returns to whatever it was, including closed.
 10. ⌘\ on the canvas, then ⌘2 → the Author persona opens with **both** columns visible. Then ⌘1 back to Plan and ⌘\ twice — the columns must still restore correctly, which is the ordering hazard.
-11. Quit with a card mid-drag-in and relaunch → the canvas is as it was.
+11. ⌘\ on the *manuscript* (chrome hides, columns stay), then ⌘1 to the canvas → the columns collapse on arrival. ⌘\ → they come back. This is the one §8A.3 case the rule treats as focus mode already being on.
+12. Drag the sidebar closed by hand in the Author persona, then press ⌘2/⌘1 → it stays closed. The force-open is guarded on the canvas stash, and a hand-collapsed sidebar is not the canvas's business.
+13. Focus a scrap (click into it so the editor is mounted), then drop a research note **onto that scrap** → it lands on the canvas as a card, not as text inside the scrap. Then click into a scrap, click out, and drop again — the refusal must survive the editor being re-mounted, which is what the `acceptableDragTypes` override buys over a one-shot unregister.
+14. Quit with a card mid-drag-in and relaunch → the canvas is as it was.
 
 - [ ] **MCP dev-app pre-smoke** (the commonmark-fountain lesson: a dev-app MCP pass caught a defect after every test was green). With the dev app running, `mcp__maugham_test__list_research` on the smoke project and confirm that an image dropped on the canvas appears in the research tree with a sane title and path — i.e. that the external-drop route really did file it rather than referencing a temp PNG.
 
