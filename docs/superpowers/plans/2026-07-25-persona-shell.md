@@ -746,18 +746,55 @@ In `Maugham/Models/MaughamNotifications.swift`, beside `maughamSetDetailSegment`
 
 In `Maugham/MaughamApp.swift`, at the top of the `CommandGroup(after: .toolbar)` block (before the existing focus-mode items around line 178):
 
+Write the four items out explicitly rather than looping. Task 3 established nine explicit pane `Button`s in this same menu, and `MaughamApp.swift` already holds ~20 more — a `ForEach` here would be the only loop in an otherwise declarative menu definition. It also keeps each binding greppable, which is the only guard available in a repo with no UI automation.
+
 ```swift
-                ForEach(Persona.allCases, id: \.self) { persona in
-                    Button(persona.displayName) {
-                        MaughamEvent.post(.maughamSetPersona,
-                                          to: .keyWindow,
-                                          payload: ["persona": persona.rawValue])
-                    }
-                    .keyboardShortcut(KeyEquivalent(persona.shortcutKey), modifiers: .command)
-                }
+                Button("Plan") { postPersona(.plan) }
+                    .keyboardShortcut("1", modifiers: .command)
+                Button("Author") { postPersona(.author) }
+                    .keyboardShortcut("2", modifiers: .command)
+                Button("Review") { postPersona(.review) }
+                    .keyboardShortcut("3", modifiers: .command)
+                Button("Publish") { postPersona(.publish) }
+                    .keyboardShortcut("4", modifiers: .command)
 
                 Divider()
 ```
+
+Add `postPersona` as a sibling private method beside the `postSegment(_:)` helper Task 3 added (after `body` closes, next to `dispatchFindAction` / `registerTools`):
+
+```swift
+    /// Mirrors `postSegment(_:)`. `.keyWindow` scope: only the focused
+    /// project window switches, so two windows keep independent personas.
+    private func postPersona(_ persona: Persona) {
+        MaughamEvent.post(.maughamSetPersona,
+                          to: .keyWindow,
+                          payload: ["persona": persona.rawValue])
+    }
+```
+
+Then add to `MaughamTests/PersonaKeyspaceTests.swift` the test that belongs with this code (Task 3 deliberately left it out, because Task 3 does not bind ⌘1–4):
+
+```swift
+    func test_personaShortcutsAreBound() throws {
+        let app = try source("Maugham/MaughamApp.swift")
+        for persona in Persona.allCases {
+            XCTAssertTrue(
+                app.contains(#"keyboardShortcut("\#(persona.shortcutKey)", modifiers: .command)"#),
+                "⌘\(persona.shortcutKey) is not bound for \(persona.displayName)")
+        }
+    }
+
+    func test_everyPersonaHasAMenuItem() throws {
+        let app = try source("Maugham/MaughamApp.swift")
+        for persona in Persona.allCases {
+            XCTAssertTrue(app.contains("postPersona(.\(persona.rawValue))"),
+                          "no View-menu item posts \(persona.rawValue)")
+        }
+    }
+```
+
+`source(_:)` already exists as a private helper on that class from Task 3.
 
 - [ ] **Step 5: Add the modifier and state**
 
@@ -1517,6 +1554,13 @@ Create `docs/adr/0025-persona-shell.md` covering: the four personas as optional 
 - `CLAUDE.md:110` — "Right-pane mode-swap (⌘⌥1/2/3) is the established pattern (ADR 0005)" is now false. Rewrite to name the persona registry and cite ADR 0025.
 - `docs/roadmap.md` — add the milestone under Group 1.
 - `Maugham/Resources/Samples/novel/manuscript/02-try-it.md` — shipped sample content referencing the old shortcuts.
+
+Additionally, these guide topics mention retired `⌘⌥` pane keys in prose. **No test gates them** — `DocSyncTests` only checks `right-pane.md`, and only for `DetailSegment` case names, not key values — so nothing fails if you skip them, which is exactly why they need doing deliberately now rather than being discovered stale in six months:
+
+- `docs/guide/tasks.md`, `docs/guide/translation-review.md`, `docs/guide/research.md`, `docs/guide/sense-pass.md`, `docs/guide/structure-and-binder.md`
+- `docs/problem-map.md`
+
+Grep the whole repo for the retired spellings before you finish and fix every prose hit: `rg -n '⌘⌥[1-8]' --glob '!.superpowers/**'` should return nothing outside historical records (`docs/roadmap.md`'s shipped-milestone entries and `docs/adr/` decisions are historical record — leave those alone, they describe what was true at the time).
 
 - [ ] **Step 4: Verify the doc gates**
 
