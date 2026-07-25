@@ -31,19 +31,43 @@
 
 ## Cross-plan contract with 1C-b and 1C-c
 
-1C-a ships the surface; 1C-b (regions) and 1C-c (lines and promotion) build on it. Two of those seams are worth stating here so nobody has to reverse-engineer them.
+1C-a ships the surface; 1C-b (regions) and 1C-c (lines and promotion) build on it.
 
-**Who owns the scene.** In 1C-a, `CanvasView` owns `scene`, `scraps`, `layouts`, `camera`, `editingNodeID` and `caretIndex` as `@State`. **1C-b Task 4 introduces `@Observable final class CanvasModel` and moves `scene`, `scraps`, selection, the `CanvasStore` and the undo manager into it**, because the region inspector in the right-hand column needs the same scene the canvas draws. `camera`, `layouts`, `editingNodeID` and `caretIndex` stay in `CanvasView` — they are properties of one *view* of the canvas. That move is expected, planned, and is 1C-b's work, not 1C-a's. Do not build `CanvasModel` here.
+**What this section used to be, and why that was a defect.** This section used to restate a handful of 1C-a's API spellings directly, as a table of "1C-b says / 1C-a actually ships," so downstream authors would not have to open this file. That table was written against an early draft of this plan and was never re-swept through 1C-a's three subsequent fix rounds, while both downstream plans were told to treat it as authoritative. A later sweep of 1C-b and 1C-c against 1C-a *as committed* found **eleven** disagreements with what this plan actually ships — including `CanvasRenderer.draw`'s parameter name and `CanvasUndo`'s owning task number, both of which a downstream plan had copied from *this section*, and both of which contradict **this same file's own Task 7 and Task 15**. Two downstream plans inherited errors from a summary that existed specifically to prevent that.
 
-**Where undo lives.** `CanvasUndo` is built in **1C-a Task 15**, snapshot-based, and 1C-b Task 4 rebinds it to `CanvasModel` without changing the class. Task 15 states the reasoning in full.
+**So this section now points at definitions instead of copying them.** A task number is stable across fix rounds; a signature is not — that is exactly the drift that made the old table wrong. **A task's own `Interfaces` block and its Step 3 implementation are the only authority for that task's API. No summary in this file — including this section, including the table below — overrides them.** If the table below and a task body ever disagree, the task body is correct and the table is stale; that is a bug in this section, not in the task.
 
-**Three spellings 1C-b's Interfaces block currently gets wrong** (its text was written against an earlier draft of this plan). Whoever executes 1C-b should reconcile against *this* file, which is the source of truth for 1C-a's API:
+**Verify at the definition site before writing a line of 1C-b or 1C-c that depends on one of these.** Once 1C-a is merged, grep the real source:
 
-| 1C-b says | 1C-a actually ships | Why |
-|---|---|---|
-| `CanvasStore.flush(scene:scraps:)` | `CanvasStore.flush()` — no arguments | The store keeps the last debounced payload so it can flush on `NSApplication.willTerminateNotification`. `.onDisappear` does not fire on quit. Use `save(scene:scraps:)` for an immediate write with a payload in hand. |
-| `ProjectStore.paletteSwatchColors: [Color]` | `ProjectStore.paletteSwatchHexes() -> [String]` | `PaletteCard.swatches` is `[String]` hex and `MaughamCore`'s `PaletteCard.color(fromHex:)` is the one parser. A `[Color]` seam forces a second conversion site and hides malformed hexes behind a silent `.clear`. |
-| `CanvasView(model:projectRoot:paletteSwatches: [Color])` | 1C-a ships `CanvasView(projectRoot:paletteSwatchHexes:)`; 1C-b changes the initialiser | Keep the hex spelling when adding `model:`. |
+```bash
+grep -rn "func flush\|var beforeFlush\|struct CanvasEventView\|final class CanvasEventNSView\|enum CanvasDragPhase\|static func draw(\|static func drawnAngle\|static func cardTransform\|var nodes:\|var unorderedNodes\|func paletteSwatchHexes\|editingNodeID\|mountedEditorNodeID\|visibleEditorNodeID\|var revision \|var sceneRevision\|struct CanvasInteraction\|struct CanvasMomentum\|final class CanvasUndo\|enum ScrapUndoBeat" \
+  Maugham/Canvas/ Maugham/Stores/ProjectStore+Palette.swift
+```
+
+If 1C-a has not merged yet and those files do not exist, grep this plan instead — every symbol below lives in exactly one task's `Interfaces` block and Step 3 code, not in this section:
+
+```bash
+grep -n "^### Task [0-9]\+:" docs/superpowers/plans/2026-07-25-planning-canvas-1c-a-surface-and-nodes.md
+```
+
+then read the numbered task, in full, before assuming a spelling.
+
+| Symbol | Defined in |
+|---|---|
+| `CanvasStore.flush()`, `CanvasStore.beforeFlush` | Task 5 |
+| `CanvasEventView`, `CanvasEventNSView`, `CanvasDragPhase` | Task 6 |
+| `CanvasRenderer.draw`, `CanvasRenderer.drawnAngle(for:straighten:)`, `CanvasRenderer.cardTransform(inCard:angle:)` | Task 7 |
+| `CanvasScene.nodes` / `.unorderedNodes` | Task 1 |
+| `CanvasView.paletteSwatchHexes` (the closure parameter) | Task 10 |
+| `CanvasView`'s `editingNodeID`, `mountedEditorNodeID`, `visibleEditorNodeID`, `revision`, `sceneRevision` | Task 10 |
+| `ProjectStore.paletteSwatchHexes()` | Task 11 |
+| `CanvasInteraction`, `CanvasMomentum` | Task 13 |
+| `CanvasUndo`, `ScrapUndoBeat` | Task 15 |
+
+**Two decisions, stated in full because they are facts about ownership rather than API surface — a pointer can't carry these, so they are written out:**
+
+- **Who owns the scene.** In 1C-a, `CanvasView` owns `scene`, `scraps`, `layouts`, `camera`, `editingNodeID` and `caretIndex` as `@State`. **1C-b Task 4 introduces `@Observable final class CanvasModel` and moves `scene`, `scraps`, selection, the `CanvasStore` and the undo manager into it**, because the region inspector in the right-hand column needs the same scene the canvas draws. `camera`, `layouts`, `editingNodeID` and `caretIndex` stay in `CanvasView` — they are properties of one *view* of the canvas. That move is expected, planned, and is 1C-b's work, not 1C-a's. Do not build `CanvasModel` here.
+- **Where undo lives.** `CanvasUndo` is built in **1C-a Task 15**, snapshot-based, and 1C-b Task 4 rebinds it to `CanvasModel` without changing the class. Task 15 states the reasoning in full.
 
 ## Evidence this plan is built on
 
@@ -5277,6 +5301,12 @@ Three edits to `Maugham/Canvas/CanvasView.swift`.
         store?.scheduleSave(scene: scene, scraps: scraps)
     }
 
+    // A left-drag that begins over empty canvas (no node under the point) is
+    // intentionally a no-op: `CanvasInteraction.begin` finds nothing to move or
+    // resize and sets its mode to idle, so `.changed`/`.ended` below never fire.
+    // Panning is `scrollWheel`/`magnify` (Task 6), not click-and-drag, and this
+    // slice has no marquee-select — that is out of scope here, not merely
+    // unbuilt.
     private func handleDrag(at contentPoint: CGPoint, phase: CanvasDragPhase) {
         switch phase {
         case .began:
