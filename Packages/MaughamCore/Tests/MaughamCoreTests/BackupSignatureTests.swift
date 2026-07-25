@@ -82,4 +82,62 @@ final class BackupSignatureTests: XCTestCase {
         XCTAssertNotEqual(before, BackupSignature.compute(projectURL: proj),
                           "research is primary content; changing it must change the signature")
     }
+
+    // MARK: - Volatile sidecars must not perturb the signature
+    //
+    // Regression: the exclusion list carried `sessions/` and `ui-state/` —
+    // directories that never existed — while the real artifacts are
+    // `sessions.json` and `ui-state.json`. Both therefore contributed their
+    // content hash, so every UI-state change minted a whole backup generation.
+    // Harmless-looking until the persona work put `persona`/`personaMemory` in
+    // ui-state.json and every ⌘1–⌘4 press started writing one.
+
+    @MainActor
+    func test_signature_unchangedWhenUIStateChanges() throws {
+        let proj = makeProject()
+        defer { try? FileManager.default.removeItem(at: proj) }
+        try writeOps(proj, [contentOp("01A")])
+        let uiState = proj.appendingPathComponent(".maugham/ui-state.json")
+        try #"{"schemaVersion":5,"persona":"author"}"#.write(to: uiState, atomically: true, encoding: .utf8)
+        let before = BackupSignature.compute(projectURL: proj)
+
+        // The writer presses ⌘1. Nothing worth backing up has changed.
+        try #"{"schemaVersion":5,"persona":"plan"}"#.write(to: uiState, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(BackupSignature.compute(projectURL: proj), before,
+                       "a UI-state change must not mint a backup generation")
+    }
+
+    @MainActor
+    func test_signature_unchangedWhenSessionLogChanges() throws {
+        let proj = makeProject()
+        defer { try? FileManager.default.removeItem(at: proj) }
+        try writeOps(proj, [contentOp("01A")])
+        let sessions = proj.appendingPathComponent(".maugham/sessions.json")
+        try #"{"schemaVersion":1,"entries":[]}"#.write(to: sessions, atomically: true, encoding: .utf8)
+        let before = BackupSignature.compute(projectURL: proj)
+
+        try #"{"schemaVersion":1,"entries":[{"words":120}]}"#.write(to: sessions, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(BackupSignature.compute(projectURL: proj), before,
+                       "session bookkeeping must not mint a backup generation")
+    }
+
+    @MainActor
+    func test_signature_stillChangesWhenRealContentChanges() throws {
+        // The guard above must not have been bought by excluding too much.
+        let proj = makeProject()
+        defer { try? FileManager.default.removeItem(at: proj) }
+        try writeOps(proj, [contentOp("01A")])
+        try FileManager.default.createDirectory(
+            at: proj.appendingPathComponent("manuscript"), withIntermediateDirectories: true)
+        let chapter = proj.appendingPathComponent("manuscript/c1.md")
+        try "First paragraph.".write(to: chapter, atomically: true, encoding: .utf8)
+        let before = BackupSignature.compute(projectURL: proj)
+
+        try "First paragraph. Second.".write(to: chapter, atomically: true, encoding: .utf8)
+
+        XCTAssertNotEqual(BackupSignature.compute(projectURL: proj), before,
+                          "a manuscript edit MUST mint a backup generation")
+    }
 }

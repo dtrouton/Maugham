@@ -11,8 +11,9 @@ import Foundation
 ///
 /// - op-log files (`.maugham/ops/*.jsonl`) contribute only their **non-checkpoint
 ///   op ids** (the per-save breadcrumb is filtered out),
-/// - the volatile sidecars are excluded entirely (`checkpoints.jsonl`, `sessions/`,
-///   `ui-state/`, `scratch/`, `conflicts/`, and the backup sidecars themselves),
+/// - the volatile sidecars are excluded entirely (`checkpoints.jsonl`,
+///   `sessions.json`, `ui-state.json`, `scratch/`, `conflicts/`, and the backup
+///   sidecars themselves),
 /// - every other file (manuscript `.md`/`.fountain`, `research/`, inbox, publish
 ///   config, …) contributes its content hash.
 ///
@@ -21,10 +22,24 @@ public enum BackupSignature {
     /// Marker file a generation carries so the runner can read its signature back.
     public static let signatureName = ".maugham-backup-signature"
 
-    /// `.maugham/` subtrees the checkpoint/autosave machinery rewrites per save.
+    /// `.maugham/` files and subtrees the checkpoint/autosave machinery rewrites
+    /// per save.
+    ///
+    /// **Both the file and the directory spelling are listed on purpose.** This
+    /// list carried `sessions/` and `ui-state/` — directories that have never
+    /// existed — while the real artifacts are `sessions.json` and
+    /// `ui-state.json`. Neither matched `rel == $0` nor `rel.hasPrefix($0)`, so
+    /// both contributed their full content hash and every UI-state change wrote
+    /// a whole new backup generation. That was invisible for as long as
+    /// `ui-state.json` only tracked selection and focus mode; the persona work
+    /// (2026-07-25) put `persona` and `personaMemory` in it, so every ⌘1–⌘4
+    /// press started minting a generation. Keep the directory forms so a future
+    /// move to a subdirectory does not silently reopen this.
     private static let excludedPrefixes = [
         ".maugham/checkpoints.jsonl",
+        ".maugham/sessions.json",
         ".maugham/sessions/",
+        ".maugham/ui-state.json",
         ".maugham/ui-state/",
         ".maugham/scratch/",
         ".maugham/conflicts/",
