@@ -51,6 +51,7 @@ struct ProjectWindow: View {
     @State private var findActive: Bool = false
     @State private var pendingPieceRenameId: String?
     @State private var detailSegment: DetailSegment = .inspector
+    @State private var persona: Persona = .default
     @State private var outlineLayout: OutlineLayout = .table
     @State private var mcpBanner = MCPBannerModel()
     @State private var showingCheckpointLabelSheet: Bool = false
@@ -277,6 +278,11 @@ struct ProjectWindow: View {
             isNoChromeOn: $isNoChromeOn,
             isReviewModeOn: $isReviewModeOn,
             applyNoChrome: { applyNoChrome() }))
+        .modifier(PersonaModifier(persona: $persona,
+                                  detailSegment: $detailSegment,
+                                  showInspector: $showInspector,
+                                  window: window,
+                                  documentStore: documentStore))
         .sheet(isPresented: $showingSyntaxHelp) {
             SyntaxHelpSheet(mode: currentSyntaxHelpMode)
         }
@@ -1112,6 +1118,8 @@ struct ProjectWindow: View {
             self.isReviewModeOn = ds.uiState.isReviewModeOn
             self.researchPreviewVisible = ds.uiState.researchPreviewVisible
             self.detailSegment = ds.uiState.detailSegment
+            self.persona = ds.uiState.persona
+            self.detailSegment = ds.uiState.persona.coerce(ds.uiState.detailSegment)
             self.outlineLayout = ds.uiState.outlineLayout
 
             // Restore binderSegment from saved state, or use default based on project type.
@@ -1324,6 +1332,45 @@ private struct FocusPostureModifier: ViewModifier {
             }
             .onChange(of: isReviewModeOn) { _, newValue in
                 documentStore?.updateUIState { $0.isReviewModeOn = newValue }
+            }
+    }
+}
+
+/// Persona switching. Extracted so ProjectWindow.body's modifier chain gains
+/// exactly one expression — the chain is at the SwiftUI type-checker ceiling
+/// and three sibling modifiers exist because inlining broke the Release build.
+struct PersonaModifier: ViewModifier {
+    @Binding var persona: Persona
+    @Binding var detailSegment: DetailSegment
+    @Binding var showInspector: Bool
+    let window: NSWindow?
+    let documentStore: DocumentStore?
+
+    struct Change: Equatable {
+        let persona: Persona
+        let segment: DetailSegment
+    }
+
+    /// Pure core, so the coercion is testable without SwiftUI.
+    static func applyPersonaChange(to persona: Persona, currentSegment: DetailSegment) -> Change {
+        Change(persona: persona, segment: persona.coerce(currentSegment))
+    }
+
+    static func persona(fromPayload raw: String?) -> Persona? {
+        guard let raw else { return nil }
+        return Persona(rawValue: raw)
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .onKeyWindowCommand(.maughamSetPersona, window: window) { note in
+                guard let next = Self.persona(fromPayload: note.userInfo?["persona"] as? String)
+                else { return }
+                let change = Self.applyPersonaChange(to: next, currentSegment: detailSegment)
+                persona = change.persona
+                detailSegment = change.segment
+                showInspector = true
+                documentStore?.updateUIState { $0.persona = change.persona }
             }
     }
 }

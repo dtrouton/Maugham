@@ -175,6 +175,15 @@ struct MaughamApp: App {
             // NavigationSplitView is in use) rather than creating a second one
             // via CommandMenu("View").
             CommandGroup(after: .toolbar) {
+                Button("Plan") { postPersona(.plan) }
+                    .keyboardShortcut("1", modifiers: .command)
+                Button("Author") { postPersona(.author) }
+                    .keyboardShortcut("2", modifiers: .command)
+                Button("Review") { postPersona(.review) }
+                    .keyboardShortcut("3", modifiers: .command)
+                Button("Publish") { postPersona(.publish) }
+                    .keyboardShortcut("4", modifiers: .command)
+
                 Divider()
                 Button("Toggle Focus Mode") {
                     MaughamEvent.post(.maughamToggleNoChrome, to: .keyWindow)
@@ -323,6 +332,14 @@ struct MaughamApp: App {
         MaughamEvent.post(.maughamSetDetailSegment,
                           to: .keyWindow,
                           payload: ["segment": segment.rawValue])
+    }
+
+    /// Mirrors `postSegment(_:)`. `.keyWindow` scope: only the focused
+    /// project window switches, so two windows keep independent personas.
+    private func postPersona(_ persona: Persona) {
+        MaughamEvent.post(.maughamSetPersona,
+                          to: .keyWindow,
+                          payload: ["persona": persona.rawValue])
     }
 
     @MainActor

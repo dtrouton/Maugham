@@ -51,4 +51,21 @@ final class PersonaKeyspaceTests: XCTestCase {
         XCTAssertTrue(app.contains(#"keyboardShortcut("0", modifiers: [.command, .option])"#),
                       "Toggle Inspector should be ⌘⌥0, freeing ⌘⌥I for the Inspector pane")
     }
+
+    func test_personaShortcutsAreBound() throws {
+        let app = try source("Maugham/MaughamApp.swift")
+        for persona in Persona.allCases {
+            XCTAssertTrue(
+                app.contains(#"keyboardShortcut("\#(persona.shortcutKey)", modifiers: .command)"#),
+                "⌘\(persona.shortcutKey) is not bound for \(persona.displayName)")
+        }
+    }
+
+    func test_everyPersonaHasAMenuItem() throws {
+        let app = try source("Maugham/MaughamApp.swift")
+        for persona in Persona.allCases {
+            XCTAssertTrue(app.contains("postPersona(.\(persona.rawValue))"),
+                          "no View-menu item posts \(persona.rawValue)")
+        }
+    }
 }
