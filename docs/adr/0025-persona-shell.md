@@ -25,7 +25,7 @@ this ADR answers is how to get stage-appropriate panes without building a gate.
 ### 1. Four personas — Plan, Author, Review, Publish — are optional lenses, not gates.
 
 `Persona` (`Maugham/Models/Persona.swift`) is a four-case enum selected by `⌘1`–`⌘4` from
-a bar in the window's top chrome. Switching persona changes which panes are *offered* in
+a bar in the window toolbar. Switching persona changes which panes are *offered* in
 the left-column binder and the right-column detail picker (via `binderSegments(for:)` and
 `panes`) and which one is *selected first* — it does not disable, hide, or require
 anything. Every persona is reachable at any time, on any project, in any state:

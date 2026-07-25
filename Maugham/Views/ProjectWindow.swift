@@ -392,26 +392,45 @@ struct ProjectWindow: View {
     /// the focused project URL, pulled off `body` into a modifier so
     /// `ProjectWindow.body` stays under the SwiftUI type-checker's ceiling — the
     /// Release optimizer is stricter than Debug, so adding these inline built
-    /// locally but failed the Release CI build. The persona bar renders first
-    /// (topmost) and hides in `⌘\` focus mode via `PersonaBar.isVisible`.
+    /// locally but failed the Release CI build.
+    ///
+    /// The persona bar is a WINDOW TOOLBAR item, not part of the safe-area
+    /// strip below. A permanently non-zero top safe-area inset applied outside
+    /// a `NavigationSplitView` occludes the top of every column — it cost the
+    /// binder's `Pieces | Research | Trash` picker and the right pane's segment
+    /// row (2026-07-25 smoke, defect A). The two banners keep the inset because
+    /// they are zero-height except in the rare states that raise them, and they
+    /// are deliberately *below* the toolbar in the reading order.
+    ///
+    /// `⌘\` focus mode hides the whole window toolbar rather than swapping the
+    /// item for an empty one: a conditional inside `ToolbarItem` leaves a live
+    /// (if empty) item and macOS keeps the taller unified titlebar, which is
+    /// exactly the chrome `⌘\` exists to remove. `PersonaBar.isVisible` stays
+    /// the single predicate.
     private struct TopChromeModifier: ViewModifier {
         let projectURL: URL
         let persona: Persona
         let isNoChromeOn: Bool
         let onSelectPersona: (Persona) -> Void
 
+        private var toolbarVisibility: Visibility {
+            PersonaBar.isVisible(isNoChromeOn: isNoChromeOn) ? .visible : .hidden
+        }
+
         func body(content: Content) -> some View {
             content
                 .safeAreaInset(edge: .top, spacing: 0) {
                     VStack(spacing: 0) {
-                        if PersonaBar.isVisible(isNoChromeOn: isNoChromeOn) {
-                            PersonaBar(persona: persona, onSelect: onSelectPersona)
-                            Divider()
-                        }
                         UpdateBannerView()
                         BackupRecoveryBanner(projectURL: projectURL)
                     }
                 }
+                .toolbar {
+                    ToolbarItem(placement: .navigation) {
+                        PersonaBar(persona: persona, onSelect: onSelectPersona)
+                    }
+                }
+                .toolbar(toolbarVisibility, for: .windowToolbar)
                 .focusedSceneValue(\.projectURL, projectURL)
         }
     }

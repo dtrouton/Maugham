@@ -1,7 +1,17 @@
 import SwiftUI
 
-/// The four-persona switcher. Lives in the window's top safe-area inset via
-/// TopChromeModifier, so ProjectWindow.body's modifier chain is untouched.
+/// The four-persona switcher. Lives in the WINDOW TOOLBAR, mounted by
+/// `TopChromeModifier`'s `.toolbar { ToolbarItem(placement: .navigation) }`.
+///
+/// It used to live in a `.safeAreaInset(edge: .top)` wrapped around the
+/// `NavigationSplitView`, and that occluded the top of both columns: a
+/// permanently non-zero top inset applied OUTSIDE a `NavigationSplitView` is
+/// not propagated into the columns' own layout, so the binder's segmented
+/// picker and the right pane's segment row were pushed under the strip and out
+/// of sight (2026-07-25 smoke, defect A). The toolbar is also the Mac-native
+/// shape the design asked for, so the control moved rather than the inset.
+/// Because it is a toolbar item now it carries NO background/padding chrome of
+/// its own — the toolbar supplies both.
 ///
 /// Clicking a segment posts `.maughamSetPersona` exactly as ⌘1–4 do, so there
 /// is ONE code path that changes persona and applies the segment coercions —
@@ -27,11 +37,8 @@ struct PersonaBar: View {
                     onSelect: onSelect
                 )
             }
-            Spacer()
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 5)
-        .background(.bar)
+        .fixedSize()
     }
 }
 
