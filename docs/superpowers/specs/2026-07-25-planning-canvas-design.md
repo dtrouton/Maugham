@@ -156,6 +156,75 @@ Cards carry momentum and come to rest rather than snapping. This is where tools 
 
 ---
 
+## 7A. Rendering architecture
+
+*Added 2026-07-25 after research into how comparable surfaces are actually built. This section is binding: it constrains §7's feel work and every task in the plan.*
+
+### 7A.1 Draw the nodes; mount one real editor on focus
+
+**A single SwiftUI `Canvas` renders every node, region and line. Exactly one real `NSTextView` is mounted, on the scrap currently being edited.**
+
+This is unanimous convergence, not a preference. Excalidraw, tldraw, Miro, Figma and AudioKit's `Flow` all do it; `Flow`'s source says so in a header comment (*"We found this is faster than using a View for each Node"*), and its author's other project states plainly that SwiftUI "simply can't handle big node graphs very well — we have tried." Apple's own Freeform is the same shape: its binary links MetalKit and bundles `TSDrawables`, the iWork drawing engine, and `NSTextView` does not appear in it at all.
+
+Three constraints force it:
+
+- **`.scaleEffect` scales *rendered output*.** Text blurs when magnified, and geometry read back through `GeometryProxy` is in unscaled layout space. It also breaks `NSCursor` tracking (Apple Forums 780215, macOS 15.4/15.5, DTS-acknowledged, no workaround). "Crisp text at all zoom levels" rules it out as the zoom mechanism, and it is the only thing that makes a pure-SwiftUI canvas pleasant.
+- **macOS 15 `_hitTestForEvent` regression** — trackpad scrolling spends 70–85% of its time hit-testing, scaling with view count (Forums 764264, still reported March 2025). A trackpad-panned canvas holding hundreds of interactive views is exactly this bug's shape. Drawing means ~2 views on screen instead of 300.
+- **SwiftUI has no lazy 2D container.** `LazyVGrid` is 1-D; `ZStack` and the `Layout` protocol are eager. Culling must be manual — and culling by removing entries from a `ForEach` destroys view identity, losing focus and any in-progress edit. Drawing sidesteps the whole problem: culling is `guard rect.intersects(viewport) else { continue }`.
+
+**Camera** comes from a transparent `NSViewRepresentable` overriding `scrollWheel(with:)` and `magnify(with:)`. SwiftUI cannot do this: it exposes no scroll-wheel API on macOS, `MagnificationGesture` provides no centre point, and `.simultaneousGesture(DragGesture())` never fires on macOS at all (Forums 718959). Apply the camera with `cx.translateBy`/`cx.scaleBy` so glyphs rasterise under the final CTM and are crisp at every zoom.
+
+**Hit testing** is an inverse transform plus a reverse-z rect test against the model. Exact, cheap, and it never touches SwiftUI's event machinery.
+
+**Lines and regions draw in the same pass**, off the same model. Because the model already owns every node's position, there is no geometry to read back — which is the only reason `anchorPreference` exists, and it costs a double body evaluation per frame that a drag cannot afford.
+
+### 7A.2 The biggest risk: the seam between drawn text and edited text
+
+When a scrap gains focus, a real `NSTextView` replaces the drawn glyphs. **If its layout differs from the drawing by even a fraction — line breaking, leading, hyphenation — the text visibly jumps every time the writer clicks in, and again when they click out.** On every edit, in a tool whose whole promise is that the surface is trustworthy.
+
+**Mitigation is structural and must be designed in, not patched on: draw with the same TextKit stack you edit with.** Lay out once through `NSTextStorage`/`NSTextLayoutManager` and use that same layout for both the `Canvas` draw and the mounted editor. Never SwiftUI `Text` for display and `NSTextView` for editing. Maugham already owns a TextKit stack in `Maugham/Editor/`, which makes this tractable — but the renderer must consume TextKit output from day one.
+
+**Pin it the moment it works:** focus and blur a scrap, assert the rendered glyph origins are identical. This is the regression most likely to creep back.
+
+Two rules borrowed from tools that shipped this: **stop drawing a scrap while its editor is live** (Excalidraw — the editor *is* the visible text, so there is no double-draw), and **place the caret from the click point** via `NSTextView.characterIndexForInsertion(at:)` (Miro), so clicking into a scrap lands where the writer aimed.
+
+### 7A.3 Scrap geometry — width is authoritative
+
+A scrap stores a **width**; its text reflows to fit and its height is derived. Resizing rewraps.
+
+This is a schema decision and cannot be retrofitted. It is consistent with where scraps go when promoted — a research note is plain Markdown that reflows — and with the codebase's single-source-plus-derivation grain. Rejected: baking rendered line breaks, which would make a thinking surface behave like a layout surface.
+
+**Known cost:** if the canvas font changes (theme, OS update, a Maugham release), heights shift and previously tidy cards may overlap. Cache the measured height so layout is stable until something forces a re-measure.
+
+### 7A.4 The ground
+
+`Rectangle().fill(ShaderLibrary.…)` — a Metal shader (`[[stitchable]]`, macOS 14+) with **pan and zoom passed as uniforms, sampled in content space**.
+
+- A shader using bare `position` makes the grain **crawl** across the paper as you pan.
+- Core Graphics patterns are disqualified outright: pattern space maps to base user space *"regardless of the state of the current transformation matrix"* (Quartz 2D Programming Guide), so `NSColor(patternImage:)` pans but **cannot zoom**.
+- CPU tiling measured **2.77 ms/frame** over 2560×1600, flat across zoom — ~17% of a 60 Hz frame and over budget at 120 Hz.
+- Seeded `SplitMix64` noise generation is effectively free (0.115 ms for a 512² tile). `UInt8.random(in:)` is ~60× slower because it is CSPRNG-backed — an easy and invisible trap.
+- **Fade grain amplitude as a function of zoom** to kill moiré on zoom-out; analytically `fwidth(content) == 1.0/zoom`, so no derivative functions are needed.
+
+**Hard constraint:** a shader applied *over* a subtree containing an `NSViewRepresentable` logs a warning and renders a placeholder (documented on `colorEffect`/`layerEffect`/`distortionEffect`). The ground must be a **sibling layer beneath** the content, never an overlay across it.
+
+### 7A.5 Cards
+
+§7.2's seeded sub-degree rotation becomes a transform in the draw call rather than a view modifier — cheaper still, and the stability requirement is unchanged: seeded from the node id, never random per frame.
+
+### 7A.6 Costs accepted, stated plainly
+
+- **More code than a `ZStack`.** Accepted; the alternatives fail a stated requirement.
+- **We own accessibility for the canvas.** Drawn content has no AX tree, and the W3C's enumeration of what you forfeit by drawing text — IME, caret placement, spell-check, selection, magnification following the caret — is the reason the one-real-editor-on-focus rule exists. Budget an AX layer mirroring the scene graph; Figma does exactly this. **Not optional in a writing tool.**
+
+### 7A.7 Spike before committing
+
+The plan's first task is a **timeboxed spike**, not construction. The runner-up architecture — `NSScrollView` with a document view and real subviews — gets crisp text and real editing for free, plus `setMagnification(_:centeredAt:)` (zoom-to-cursor, correctly, including clamping). It is held at second only by three unresolved risks: an `NSScrollView`-magnification coordinate-translation bug against SwiftUI content (reported 2021, **unverified on macOS 15**), `_NSTiledLayer` seams at certain zoom factors (Forums 663536, open since 2020), and per-node `NSHostingView` cost.
+
+**If that coordinate bug is fixed on macOS 15, the runner-up may beat the recommendation on effort.** Verifying it is the single cheapest experiment available, and the spike must answer it — along with `_NSTiledLayer` seams at ~1.5× zoom, which are a hazard for *any* magnification route.
+
+---
+
 ## 8. Persistence
 
 - **Node positions, region geometry, membership, lines, and seeds** → sidecar under `.maugham/`. Derived UI state; deletable without loss of content; never the truth about anything.
@@ -180,7 +249,7 @@ Membership is **stored**, never recomputed from coordinates at read time (§4.2)
 
 - **The promotion gesture.** Drag onto an artifact rail, a context action, or a keystroke. Deliberately unresolved — it wants trying in the app rather than deciding on paper.
 - **Where the scraps file lives** — project root or `research/` — and whether it is one file or one per region.
-- **Performance bounds.** What node count must stay smooth, and whether the canvas virtualises. `TypingLatencyProbeTests` is the precedent for a fixture-gated probe rather than a wall-clock assertion.
+- **Performance bounds.** What node count must stay smooth. §7A.1 settles *how* it virtualises (viewport intersection in the draw loop); the open part is the number. `TypingLatencyProbeTests` is the precedent for a fixture-gated probe rather than a wall-clock assertion. For reference, tldraw ships a hard 4,000-shape cap and freezes zoom level above 500 shapes; Excalidraw degrades around 5,000.
 - **Collapsing a region to a tile** — needed for crowding at Playlist scale, but is it v1?
 - **Whether the canvas replaces the Corkboard's freeform mode** if one is ever added, or stays deliberately separate (§2).
 - **Undo.** Canvas edits are sidecar state, not op-log ops. Whether ⌘Z spans them, and if so how, given ADR 0023's op-log-backed model.
