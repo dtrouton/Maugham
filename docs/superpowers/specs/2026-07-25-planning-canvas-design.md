@@ -140,7 +140,7 @@ The editor is deliberately austere to protect flow. Planning is associative and 
 
 ### 7.2 The cards
 
-Crisp edges. Each card sits at a **seeded fraction of a degree** — nothing is rough, but everything was *put down* rather than snapped to a grid.
+Crisp edges. Each card sits at a **seeded fraction of a degree** — nothing is rough, but everything was *put down* rather than snapped to a grid. **The card you are editing straightens to level and stays there until you leave it** — see §7A.5, where that turns an architectural collision into the focus affordance.
 
 The seed is derived from the node's id and is **stable**: a card must never shimmer or shift between renders. Deterministic irregularity, not random.
 
@@ -208,9 +208,29 @@ This is a schema decision and cannot be retrofitted. It is consistent with where
 
 **Hard constraint:** a shader applied *over* a subtree containing an `NSViewRepresentable` logs a warning and renders a placeholder (documented on `colorEffect`/`layerEffect`/`distortionEffect`). The ground must be a **sibling layer beneath** the content, never an overlay across it.
 
-### 7A.5 Cards
+### 7A.5 Cards — and focus straightens the card
 
 §7.2's seeded sub-degree rotation becomes a transform in the draw call rather than a view modifier — cheaper still, and the stability requirement is unchanged: seeded from the node id, never random per frame.
+
+**The rotation collides with §7A.1, and the resolution is a feature rather than a compromise.** A mounted `NSTextView` cannot be rotated: `.rotationEffect` blurs text and breaks `NSCursor` tracking (the same defect that disqualified `.scaleEffect` in §7A.1). So a card drawn at an angle whose editor mounts level would snap its text straight on every click — precisely the §7A.2 failure, reached by a route §7A did not anticipate.
+
+**So the whole card straightens when it takes focus, and that is the focus affordance.**
+
+- Click a card → the **entire** card animates to level, chrome and text together, over ~120 ms.
+- The editor mounts on a card that is already axis-aligned. `.rotationEffect` never enters the picture.
+- On blur the card settles back to its seeded angle.
+- The card being edited is therefore the only square one on the canvas — a "this one is live" signal that costs nothing, because everything else stays tilted.
+
+This is the physical metaphor the surface is already reaching for: you pick the paper up and square it to write on.
+
+**It makes §7A.2 easier to guarantee, not harder.** At mount time both the drawn and the edited layout are unrotated, so the glyph-origin pin compares two axis-aligned layouts. The rotation never participates in the agreement the spike measured.
+
+**Two requirements that follow:**
+
+1. **Compute the caret index before animating.** Miro's rule is that clicking into text lands the caret where the writer aimed. If the card straightens first, the click point has moved out from under the cursor — so resolve the caret at click time in the card's **local, unrotated** space, which inverse-transform hit-testing already produces, then animate, then mount with the target already known.
+2. **Animate, never snap.** An instant jump reads as a rendering bug; a brief straightening reads as the card responding. The rotation is a value the renderer interpolates — the same per-frame shape as §7.3's momentum decay, so no new machinery.
+
+**Watch in smoke:** there is a beat between click and caret. At ~120 ms it should read as responsiveness rather than lag, but only the hand can tell.
 
 ### 7A.6 Costs accepted, stated plainly
 
