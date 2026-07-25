@@ -43,14 +43,64 @@ final class PersonaPaneRegistryTests: XCTestCase {
         XCTAssertEqual(Persona.review.defaultPane, .annotations)
     }
 
-    /// Both were ○ in the design's pane × persona matrix (§6.3) and both were
-    /// dropped when the registry was first written. Translation is the
-    /// consequential one: reviewing a translated edition is a review activity,
-    /// and `ProjectWindow` force-sets `detailSegment = .translation` when the
-    /// writer enters translation review.
-    func test_reviewPersona_offersTranslationAndPalette() {
-        XCTAssertTrue(Persona.review.panes.contains(.translation))
-        XCTAssertTrue(Persona.review.panes.contains(.palette))
+    // MARK: - The whole §6.3 matrix, not a row at a time
+
+    /// `docs/superpowers/specs/2026-07-25-mode-based-ux-redesign-design.md`
+    /// §6.3, transcribed. Both `●` (primary) and `○` (available) mean the
+    /// segment belongs to that persona; `—` means absent. Only segments that
+    /// have a `DetailSegment` case today — Diagnostics, References, Intent,
+    /// Visual language and Editions belong to later milestones and are listed
+    /// as reserved in `Persona.panes`.
+    private static let designMatrix: [Persona: Set<DetailSegment>] = [
+        .plan: [.inspector, .research, .outline, .tasks, .inbox, .palette],
+        .author: [.inspector, .research, .outline, .tasks, .palette],
+        .review: [.inspector, .outline, .history, .tasks, .palette, .translation, .annotations],
+        .publish: [.translation]
+    ]
+
+    /// Deviations from §6.3 that the registry takes on purpose, each argued at
+    /// its case in `Persona.panes`. Listing them here is what makes the matrix
+    /// test able to fail on an oversight: anything outside matrix ∪ deviations
+    /// is a pane nobody decided to add.
+    private static let documentedDeviations: [Persona: Set<DetailSegment>] = [
+        // Publish would otherwise be a one-button picker until M1D.
+        .publish: [.inspector]
+    ]
+
+    /// Asserts every persona against the whole table in one pass. Row-at-a-time
+    /// spot checks let the same defect through twice: Review lost `.translation`
+    /// and `.palette` when the registry was written, and Plan lost `.tasks` in
+    /// the commit that fixed Review. A per-row assertion can only ever prove
+    /// its own row.
+    func test_everyPersona_matchesTheDesignMatrix() {
+        for persona in Persona.allCases {
+            let expected = Self.designMatrix[persona] ?? []
+            let allowed = expected.union(Self.documentedDeviations[persona] ?? [])
+            let actual = Set(persona.panes)
+
+            for segment in expected.subtracting(actual) {
+                XCTFail("\(persona) is missing \(segment), which §6.3 marks ● or ○")
+            }
+            for segment in actual.subtracting(allowed) {
+                XCTFail("""
+                    \(persona) offers \(segment), which §6.3 marks —. If that is \
+                    deliberate, argue it at the case in Persona.panes and add it \
+                    to documentedDeviations.
+                    """)
+            }
+        }
+    }
+
+    /// The reserved segments have no case yet, so the matrix above cannot
+    /// mention them. This pins the assumption: if a later milestone adds one,
+    /// this test fails and `designMatrix` must gain its row.
+    func test_designMatrixCoversEveryDetailSegmentThatExists() {
+        let mentioned = Set(Self.designMatrix.values.flatMap { $0 })
+            .union(Self.documentedDeviations.values.flatMap { $0 })
+        for segment in DetailSegment.allCases {
+            XCTAssertTrue(mentioned.contains(segment),
+                          "\(segment) exists but has no row in the transcribed §6.3 matrix")
+        }
     }
 
     func test_inboxIsPlanningOnly() {

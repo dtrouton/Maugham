@@ -7,11 +7,9 @@ final class DetailPaneToggleTasksTests: XCTestCase {
         XCTAssertEqual(DetailSegment.tasks.rawValue, "tasks")
     }
 
-    func test_badgeOffsetIsDerivedNotPositional() {
-        // Replaces the former allCases-ordering assertions. The badge offset
-        // used to depend on inbox being third-to-last in DetailSegment.allCases;
-        // it is now computed from the persona's own pane list, so enum ordering
-        // is free to change. See DetailPaneTogglePersonaTests.
-        XCTAssertEqual(DetailPaneToggle<AnyView>.badgeOffsetSegments(persona: .plan), 1)
-    }
+    // The former allCases-ordering assertions (the badge offset used to depend
+    // on inbox being third-to-last in DetailSegment.allCases) are replaced by
+    // DetailPaneTogglePersonaTests.test_badgeLandsOnTheInboxInEveryPickerThatHasOne,
+    // which asserts where the badge lands rather than what the arithmetic
+    // returns. Deliberately not duplicated here.
 }

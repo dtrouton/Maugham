@@ -77,6 +77,17 @@ struct DetailPaneToggle<Inspector: View>: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onChange(of: segment) { _, newValue in
+            // A ⌘⌥-letter shortcut can select a segment this picker cannot
+            // render — `.outline` on a collection project is the only one
+            // (`visibleSegments` refuses to append it), and it left the
+            // picker with nothing highlighted. Snap onto a segment the
+            // picker actually shows; the snap re-enters here and persists.
+            let snapped = Self.snappedSelection(
+                newValue, in: pickerSegments, fallback: persona.defaultPane)
+            guard snapped == newValue else {
+                segment = snapped
+                return
+            }
             store.documentStore?.updateUIState { $0.detailSegment = newValue }
         }
         .task {
@@ -107,9 +118,8 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// would sit on `.outline` forever.
     private func coerceSegmentIntoView(of persona: Persona) {
         let visible = Self.visibleSegments(persona: persona, hideOutline: hideOutline)
-        if !visible.contains(segment) {
-            segment = visible.first ?? persona.defaultPane
-        }
+        let coerced = Self.snappedSelection(segment, in: visible, fallback: persona.defaultPane)
+        if coerced != segment { segment = coerced }
     }
 
     // MARK: - Which segments this persona offers
@@ -142,23 +152,37 @@ struct DetailPaneToggle<Inspector: View>: View {
     }
 
     /// How many segment-widths to shift the inbox unread badge left from the
-    /// trailing edge, or nil when this persona has no inbox.
+    /// trailing edge of `segments`, or nil when that list has no inbox.
     ///
     /// SwiftUI's segmented Picker cannot badge a segment directly, so the
     /// badge is overlaid top-trailing and shifted. This was previously the
     /// hardcoded literal 2 ("inbox is third-to-last"), which silently moved
-    /// the badge onto the wrong tab when translation was added. Under personas
-    /// the picker length varies, so it must be derived — and it must be
-    /// derived from the SAME list the picker renders, `including:` and all,
-    /// or an appended out-of-persona segment slides the badge one tab over.
-    static func badgeOffsetSegments(
-        persona: Persona,
-        hideOutline: Bool = false,
-        including selected: DetailSegment? = nil
-    ) -> Int? {
-        let segments = visibleSegments(persona: persona, hideOutline: hideOutline, including: selected)
+    /// the badge onto the wrong tab when translation was added.
+    ///
+    /// Takes the rendered list itself rather than the three arguments the
+    /// list is derived from: the caller passes `pickerSegments`, the same
+    /// value `ForEach` walks, so badge and picker cannot be computed from
+    /// different lists. Re-deriving here was how the literal-drift bug got
+    /// back in one level up.
+    static func badgeOffset(in segments: [DetailSegment]) -> Int? {
         guard let index = segments.firstIndex(of: .inbox) else { return nil }
         return segments.count - 1 - index
+    }
+
+    /// The selection the picker should carry, given a proposed one and the
+    /// list the picker renders. Everything the picker can show is returned
+    /// unchanged — personas are lenses, not gates, so an out-of-persona
+    /// segment reached by shortcut stays selected (it is appended by
+    /// `visibleSegments(including:)`). The one segment that cannot be
+    /// appended is `.outline` on a collection project, whose content falls
+    /// through to the inspector; a picker showing nothing selected is the
+    /// state this snaps out of.
+    static func snappedSelection(
+        _ proposed: DetailSegment,
+        in segments: [DetailSegment],
+        fallback: DetailSegment
+    ) -> DetailSegment {
+        segments.contains(proposed) ? proposed : (segments.first ?? fallback)
     }
 
     /// New (`.new`) inbox captures awaiting triage — drives the picker badge.
@@ -191,15 +215,14 @@ struct DetailPaneToggle<Inspector: View>: View {
         // Unread badge over the inbox segment. SwiftUI's segmented Picker can't
         // badge a segment directly, so we overlay top-trailing and shift left by
         // however many equal-width segments sit to the right of inbox in THIS
-        // persona's picker — derived, never a literal (see
-        // `badgeOffsetSegments`). Anchored on the bare picker (before padding)
+        // persona's picker — derived from `pickerSegments` itself, never a
+        // literal and never a re-derivation (see `badgeOffset(in:)`).
+        // Anchored on the bare picker (before padding)
         // so the width the GeometryReader measures divides evenly across the
         // segments. Hidden at zero, and absent entirely in personas without an
         // inbox; capped at 99+.
         .overlay(alignment: .topTrailing) {
-            if inboxCount > 0,
-               let shift = Self.badgeOffsetSegments(
-                persona: persona, hideOutline: hideOutline, including: segment) {
+            if inboxCount > 0, let shift = Self.badgeOffset(in: pickerSegments) {
                 GeometryReader { geo in
                     let segmentWidth = geo.size.width / CGFloat(max(pickerSegments.count, 1))
                     inboxBadge

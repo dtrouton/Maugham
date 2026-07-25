@@ -64,6 +64,17 @@ public extension Persona {
     /// adds its `DetailSegment` case and one entry here — it does not touch
     /// `DetailPaneToggle`, the shortcut table, or `ProjectWindow`.
     ///
+    /// The registry is the design's pane × persona matrix (§6.3 of
+    /// `docs/superpowers/specs/2026-07-25-mode-based-ux-redesign-design.md`)
+    /// made executable: every `●` and `○` cell for a built segment appears
+    /// below, and `PersonaPaneRegistryTests.test_everyPersona_matchesTheDesignMatrix`
+    /// checks the whole table rather than a row at a time — the matrix was
+    /// swept row-wise twice and lost a cell each time (Review's translation
+    /// and palette, then Plan's tasks).
+    ///
+    /// One deliberate deviation, marked at its case below: Publish carries
+    /// `.inspector`, which §6.3 gives it as `—`.
+    ///
     /// Reserved for later milestones of this redesign: `.diagnostics` →
     /// author; `.references` → author, review; `.intent` → plan, author,
     /// review, publish; `.visualLanguage` → plan, review, publish;
@@ -71,7 +82,9 @@ public extension Persona {
     var panes: [DetailSegment] {
         switch self {
         case .plan:
-            return [.research, .outline, .palette, .inbox, .inspector]
+            // Primaries first, then the ○ cells: Tasks is planning-adjacent
+            // (what the writer intends to do next), Inspector is metadata.
+            return [.research, .outline, .palette, .inbox, .tasks, .inspector]
         case .author:
             return [.inspector, .outline, .research, .tasks, .palette]
         case .review:
@@ -85,7 +98,10 @@ public extension Persona {
         case .publish:
             // Thin until M1D gives Publishing its own surfaces (editions,
             // config, visual language). Translation is genuinely its work
-            // today; inspector keeps the picker from being a single button.
+            // today. DELIBERATE DEVIATION from §6.3, which marks Inspector
+            // `—` for Publish: without it the picker is a single button,
+            // which reads as broken chrome rather than a choice. Drop it
+            // when Publish gains its own surfaces.
             return [.translation, .inspector]
         }
     }
