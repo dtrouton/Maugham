@@ -21,30 +21,57 @@ struct PersonaBar: View {
     var body: some View {
         HStack(spacing: 2) {
             ForEach(Persona.allCases, id: \.self) { candidate in
-                Button {
-                    onSelect(candidate)
-                } label: {
-                    Label(candidate.displayName, systemImage: candidate.systemImageName)
-                        .labelStyle(.titleAndIcon)
-                        .font(.system(size: 11, weight: candidate == persona ? .semibold : .regular))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(
-                            RoundedRectangle(cornerRadius: 5)
-                                .fill(candidate == persona
-                                      ? Color.accentColor.opacity(0.18)
-                                      : Color.clear))
-                        .contentShape(RoundedRectangle(cornerRadius: 5))
-                }
-                .buttonStyle(.plain)
-                .help("\(candidate.displayName) (⌘\(candidate.shortcutKey))")
-                .accessibilityLabel(Self.accessibilityLabel(for: candidate))
-                .accessibilityAddTraits(candidate == persona ? [.isSelected] : [])
+                PersonaBarButton(
+                    candidate: candidate,
+                    isSelected: candidate == persona,
+                    onSelect: onSelect
+                )
             }
             Spacer()
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
         .background(.bar)
+    }
+}
+
+// MARK: - PersonaBarButton
+
+private struct PersonaBarButton: View {
+    let candidate: Persona
+    let isSelected: Bool
+    let onSelect: (Persona) -> Void
+
+    private var fontWeight: Font.Weight {
+        isSelected ? .semibold : .regular
+    }
+
+    private var backgroundColor: Color {
+        isSelected ? Color.accentColor.opacity(0.18) : Color.clear
+    }
+
+    private var accessibilityTraits: AccessibilityTraits {
+        isSelected ? [.isSelected] : []
+    }
+
+    var body: some View {
+        Button {
+            onSelect(candidate)
+        } label: {
+            Label(candidate.displayName, systemImage: candidate.systemImageName)
+                .labelStyle(.titleAndIcon)
+                .font(.system(size: 11, weight: fontWeight))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(backgroundColor)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 5))
+        }
+        .buttonStyle(.plain)
+        .help("\(candidate.displayName) (⌘\(candidate.shortcutKey))")
+        .accessibilityLabel(PersonaBar.accessibilityLabel(for: candidate))
+        .accessibilityAddTraits(accessibilityTraits)
     }
 }
