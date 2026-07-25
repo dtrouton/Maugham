@@ -71,8 +71,11 @@ final class UIStateTests: XCTestCase {
 }
 
 final class UIStatePersonaTests: XCTestCase {
-    func test_currentSchemaVersion_is4() {
-        XCTAssertEqual(UIState.currentSchemaVersion, 4)
+    func test_currentSchemaVersion_is5() {
+        // Bumped to 5 by the per-persona column memory (2026-07-25 smoke,
+        // defect B). This is UIState's OWN constant — `ProjectManifest`'s is a
+        // different one and stays at 3.
+        XCTAssertEqual(UIState.currentSchemaVersion, 5)
     }
 
     func test_empty_defaultsToAuthorPersona() {
@@ -97,6 +100,40 @@ final class UIStatePersonaTests: XCTestCase {
         let data = try JSONEncoder().encode(state)
         let decoded = try JSONDecoder().decode(UIState.self, from: data)
         XCTAssertEqual(decoded.persona, .plan)
+    }
+
+    // MARK: - Per-persona column memory (schema v5)
+
+    func test_personaMemory_roundTripsThroughEncoding() throws {
+        var state = UIState.empty
+        state.personaMemory.record(persona: .author,
+                                   binderSegment: .manuscript,
+                                   detailSegment: .history)
+        state.personaMemory.record(persona: .plan,
+                                   binderSegment: .palette,
+                                   detailSegment: .outline)
+        let data = try JSONEncoder().encode(state)
+        let decoded = try JSONDecoder().decode(UIState.self, from: data)
+        XCTAssertEqual(decoded.personaMemory, state.personaMemory)
+        XCTAssertEqual(
+            decoded.personaMemory.restoredBinderSegment(for: .author, projectType: .novel),
+            .manuscript)
+        XCTAssertEqual(decoded.personaMemory.restoredDetailSegment(for: .plan), .outline)
+    }
+
+    func test_decode_ofV4StateWithoutPersonaMemory_isEmptyNotAFailure() throws {
+        // A project last opened by the first persona build has no
+        // `personaMemory` key. It must decode, not throw, and every persona
+        // then lands on its own home.
+        let json = Data("""
+        {"schemaVersion":4,"isNoChromeOn":false,"binderSegment":"research",
+         "researchPreviewVisible":false,"detailSegment":"inspector",
+         "outlineLayout":"table","isReviewModeOn":false,"persona":"plan"}
+        """.utf8)
+        let decoded = try JSONDecoder().decode(UIState.self, from: json)
+        XCTAssertEqual(decoded.personaMemory, .empty)
+        XCTAssertEqual(decoded.persona, .plan)
+        XCTAssertEqual(decoded.binderSegment, .research)
     }
 
     func test_loadOrEmpty_rejectsStateFromANewerSchema() throws {

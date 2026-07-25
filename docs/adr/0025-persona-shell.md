@@ -127,10 +127,56 @@ The mode-swap pattern this ADR sits on top of — a picker at the top of the rig
 swaps its content, selection persists per project, shortcuts jump between modes and
 reveal the pane if hidden — is unchanged in shape. What changes is scope: the picker no
 longer offers all nine modes to every writer: `Persona.panes` filters which subset it
-shows and in what order, and `Persona.coerce(_:)` handles landing on a valid mode when
-the writer switches personas mid-pane. ADR 0005's `DetailPaneToggle`/`DetailSegment`
+shows and in what order, and each persona's remembered pane (§7) decides where the
+writer lands when they switch personas mid-pane. ADR 0005's `DetailPaneToggle`/`DetailSegment`
 machinery is the substrate this milestone builds on, not something it replaces — its
 Status stays Accepted, and this ADR is additive to it, not a supersession.
+
+### 7. A persona switch is a WORKSPACE switch — each persona remembers its own two columns.
+
+*Amendment, 2026-07-25, from the first writer smoke of this milestone (defect B).*
+
+The shipped rule kept whichever segment the destination persona also offered. That is
+defensible on paper — and wrong in the hand: Author offers Research, and Plan's binder
+home *is* Research, so `⌘1` followed by `⌘2` left the writer's binder on Research with
+nothing to move it back. The writer's words were "I've lost the binder."
+
+`PersonaMemory` (`Maugham/Models/PersonaMemory.swift`, persisted in `UIState`, schema
+v5) gives each persona its own remembered binder segment and right-pane segment.
+Entering a persona restores what that persona was last on, defaulting to its
+`binderHome` / `defaultPane` the first time. The round trip is lossless, which is what
+switching workspaces has to mean.
+
+Three properties are load-bearing:
+
+- **Departure-time recording is sufficient.** `applyPersonaChange` snapshots the persona
+  being *left*. A remembered value can only be read by switching *into* a persona, which
+  can only follow switching *out* of it — so no per-click tracking is needed, and a
+  reopened project (columns restored verbatim from `UIState`) records its real position
+  the first time the writer leaves.
+- **Transients still ride through.** `.find` and `.trash` (`BinderSegment.isTransient`)
+  survive a persona switch untouched and are never recorded — a writer mid-search is not
+  ejected, and a search from days ago is not restored on top of them.
+- **Remembered values are filtered on restore, not trusted.** Anything the destination
+  persona does not offer for this project type falls back to its home, so a stale
+  `.trash`, a `.manuscript` remembered against a screenplay, or a segment name from a
+  newer build can never be landed on. `DetailPaneToggle`'s own coercion stays the safety
+  net for the one fact `PersonaMemory` cannot see — `hideOutline` on a collection.
+
+### 8. The persona bar is a window-toolbar item, not a safe-area strip.
+
+*Amendment, 2026-07-25, from the same smoke (defect A).*
+
+The bar shipped in a `.safeAreaInset(edge: .top)` wrapped around the
+`NavigationSplitView`. A permanently non-zero top inset applied *outside* a split view
+is not propagated into the columns' own layout: it occluded the top of both of them, so
+the binder's segmented picker and the right pane's segment row vanished — and reappeared
+under `⌘\`, which hides the bar. Reproduced in isolation and confirmed fixed by moving
+the control into `ToolbarItem(placement: .navigation)`, which is also the Mac-native
+shape §1 described. The window title survives beside it. `⌘\` now hides the whole window
+toolbar; `PersonaBar.isVisible` remains the single predicate. The update/backup banners
+keep the safe-area inset because they are zero-height except when raised — which is why
+this never bit before the bar became permanent chrome.
 
 ## Consequences
 
@@ -146,6 +192,10 @@ Status stays Accepted, and this ADR is additive to it, not a supersession.
 - The View-menu-only dispatch closed a real, independently-discovered bug (picker-tag
   shortcuts no-opping with the column closed) as a side effect of the migration, not a
   separately motivated fix.
+- Personas became genuinely stateful with §7: a persona now owns two remembered column
+  selections, not just an offered set. The registries stay the extension point — a new
+  segment needs no memory-side change, because the memory is keyed by persona and
+  filtered through the registries on the way out.
 - Per-project persona persistence has one narrow multi-window sharing edge (§4) that is
   pre-existing behavior for the rest of `UIState`, not a new one this milestone
   introduced — noted so nobody rediscovers it as a surprise.

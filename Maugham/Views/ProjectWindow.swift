@@ -1423,27 +1423,45 @@ struct PersonaModifier: ViewModifier {
         let persona: Persona
         let segment: DetailSegment
         let binderSegment: BinderSegment
+        /// The memory to persist, with the departing persona's position
+        /// already recorded. Returned rather than mutated in place so the
+        /// whole rule stays one pure function.
+        let memory: PersonaMemory
     }
 
-    /// Pure core, so both coercions are testable without SwiftUI. This is the
-    /// ONE place a persona change moves the left column — the binder toggles
-    /// only render.
+    /// Pure core, so the whole workspace switch is testable without SwiftUI.
+    /// This is the ONE place a persona change moves either column — the binder
+    /// toggles only render.
+    ///
+    /// A persona switch is a WORKSPACE switch: the departing persona's two
+    /// column selections are snapshotted, and the destination's are restored
+    /// (its own home the first time). The earlier rule — keep whatever segment
+    /// the destination also offers — is what stranded the binder on Research
+    /// after ⌘1 then ⌘2 (2026-07-25 smoke, defect B): Author offers Research,
+    /// so nothing ever moved it back.
+    ///
+    /// The one exception is a transient binder segment. `.find` and `.trash`
+    /// (`BinderSegment.isTransient`, the single source shared with
+    /// `BinderSegmentPicker.visibleSegments`) are states rather than surfaces,
+    /// so they ride through a persona switch untouched — a writer mid-search is
+    /// not ejected — and are not recorded as anyone's remembered position.
     static func applyPersonaChange(to persona: Persona,
+                                   from currentPersona: Persona,
                                    currentSegment: DetailSegment,
                                    currentBinderSegment: BinderSegment,
-                                   projectType: ProjectType) -> Change {
-        let allowed = persona.binderSegments(for: projectType)
-        // .trash and .find are transient and persona-independent — a writer
-        // mid-search should not be yanked out of it by switching persona.
-        // `BinderSegment.isTransient` is the single source for that set —
-        // shared with `BinderSegmentPicker.visibleSegments` so the two
-        // cannot disagree.
-        let keepBinder = allowed.contains(currentBinderSegment)
-            || currentBinderSegment.isTransient
+                                   projectType: ProjectType,
+                                   memory: PersonaMemory) -> Change {
+        var memory = memory
+        memory.record(persona: currentPersona,
+                      binderSegment: currentBinderSegment,
+                      detailSegment: currentSegment)
+        let binderSegment = currentBinderSegment.isTransient
+            ? currentBinderSegment
+            : memory.restoredBinderSegment(for: persona, projectType: projectType)
         return Change(persona: persona,
-                      segment: persona.coerce(currentSegment),
-                      binderSegment: keepBinder ? currentBinderSegment
-                                                : persona.binderHome(for: projectType))
+                      segment: memory.restoredDetailSegment(for: persona),
+                      binderSegment: binderSegment,
+                      memory: memory)
     }
 
     static func persona(fromPayload raw: String?) -> Persona? {
@@ -1473,10 +1491,18 @@ struct PersonaModifier: ViewModifier {
                 guard let next = Self.persona(
                     fromPayload: note.userInfo?[MaughamEvent.personaKey] as? String)
                 else { return }
-                let change = Self.applyPersonaChange(to: next,
-                                                     currentSegment: detailSegment,
-                                                     currentBinderSegment: binderSegment,
-                                                     projectType: projectType)
+                // The memory is read from (and written back to) `UIState`
+                // rather than kept in a parallel `@State` — it is per-project
+                // state that sits beside `persona`, and `updateUIState`
+                // mutates its in-memory copy synchronously, so the read here
+                // always sees the last switch.
+                let change = Self.applyPersonaChange(
+                    to: next,
+                    from: persona,
+                    currentSegment: detailSegment,
+                    currentBinderSegment: binderSegment,
+                    projectType: projectType,
+                    memory: documentStore?.uiState.personaMemory ?? .empty)
                 if Self.clearsPaletteStash(from: binderSegment, to: change.binderSegment) {
                     inspectorWasVisibleBeforePalette = nil
                 }
@@ -1484,7 +1510,10 @@ struct PersonaModifier: ViewModifier {
                 detailSegment = change.segment
                 binderSegment = change.binderSegment
                 showInspector = true
-                documentStore?.updateUIState { $0.persona = change.persona }
+                documentStore?.updateUIState {
+                    $0.persona = change.persona
+                    $0.personaMemory = change.memory
+                }
             }
     }
 }

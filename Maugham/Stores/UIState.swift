@@ -3,7 +3,7 @@ import Foundation
 /// Per-project UI state persisted to `.maugham/ui-state.json`.
 /// Schema-versioned for forward compatibility.
 public struct UIState: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 4
+    public static let currentSchemaVersion = 5
 
     public var schemaVersion: Int
     public var selectedItemId: String?
@@ -25,6 +25,12 @@ public struct UIState: Codable, Equatable, Sendable {
     /// mode a *freshly opened* window starts in is shared.
     public var persona: Persona
 
+    /// Where each persona was last standing (`PersonaMemory`). Additive in
+    /// schema v5; older files decode it empty, and every persona then lands on
+    /// its own home the first time it is entered — which is the correct
+    /// first-run behaviour anyway, so there is nothing to migrate.
+    public var personaMemory: PersonaMemory
+
     public init(
         schemaVersion: Int = UIState.currentSchemaVersion,
         selectedItemId: String? = nil,
@@ -34,7 +40,8 @@ public struct UIState: Codable, Equatable, Sendable {
         detailSegment: DetailSegment = .inspector,
         outlineLayout: OutlineLayout = .table,
         isReviewModeOn: Bool = false,
-        persona: Persona = .default
+        persona: Persona = .default,
+        personaMemory: PersonaMemory = .empty
     ) {
         self.schemaVersion = schemaVersion
         self.selectedItemId = selectedItemId
@@ -45,13 +52,15 @@ public struct UIState: Codable, Equatable, Sendable {
         self.outlineLayout = outlineLayout
         self.isReviewModeOn = isReviewModeOn
         self.persona = persona
+        self.personaMemory = personaMemory
     }
 
     public static let empty = UIState()
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, selectedItemId, isNoChromeOn, binderSegment,
-             researchPreviewVisible, detailSegment, outlineLayout, isReviewModeOn, persona
+             researchPreviewVisible, detailSegment, outlineLayout, isReviewModeOn,
+             persona, personaMemory
     }
 
     public init(from decoder: Decoder) throws {
@@ -65,6 +74,8 @@ public struct UIState: Codable, Equatable, Sendable {
         self.detailSegment = (try? c.decode(DetailSegment.self, forKey: .detailSegment)) ?? .inspector
         self.outlineLayout = (try? c.decode(OutlineLayout.self, forKey: .outlineLayout)) ?? .table
         self.persona = (try? c.decode(Persona.self, forKey: .persona)) ?? .default
+        self.personaMemory =
+            (try? c.decode(PersonaMemory.self, forKey: .personaMemory)) ?? .empty
         // `scrollLine` and `hasShownOpLogBootstrapNotice` were removed in
         // v0.3.1 (dead-code sweep). JSONDecoder ignores unknown keys, so old
         // ui-state.json files load cleanly. Cursor restore actually flows
