@@ -266,7 +266,7 @@ The binder is beside the canvas in the Plan persona, and its research tree is th
 - **Internal drags** carry the item id and follow the app's established `.draggable(id)` / `.dropDestination(for: String.self)` pattern.
 - **External drags** — a photo from Finder or a browser — route through `DropClassification`. Browser image drags carry rendered bitmaps rather than file URLs, so `.dropDestination(for: URL.self)` silently rejects them; do not hand-roll this.
 
-**Images are therefore in scope for the first slice, not deferred.** The canvas is the first surface in Maugham with an unbounded image count, and no image cache or real downsampling exists anywhere in the app today — the palette wall's helper decodes at full size then redraws. Image nodes need a `CGImageSource` thumbnail path and a bounded cache **keyed by path, not id** (tripwire 22).
+**Images are in scope for this milestone, not deferred past it** — they belong to plan **1C-d** alongside the rest of §8A, not to 1C-a, which owns the surface and scraps. The distinction matters: M1C is not finished without them, and no plan may cite this section as authorising their omission from the milestone. The canvas is the first surface in Maugham with an unbounded image count, and no image cache or real downsampling exists anywhere in the app today — the palette wall's helper decodes at full size then redraws. Image nodes need a `CGImageSource` thumbnail path and a bounded cache **keyed by path, not id** (tripwire 22).
 
 ### 8A.2 Paper → photo → Claude → canvas
 
