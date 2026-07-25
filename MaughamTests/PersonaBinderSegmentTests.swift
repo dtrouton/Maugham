@@ -36,6 +36,47 @@ final class PersonaBinderSegmentTests: XCTestCase {
         }
     }
 
+    func test_documentHome_forCollection_isManuscript() {
+        // A collection's manuscript segment is the same case as a novel's —
+        // only its picker label differs ("Pieces" via displayName(for:)).
+        XCTAssertEqual(BinderSegment.documentHome(for: .collection), .manuscript)
+    }
+
+    // MARK: - Exact segment lists, reconciled against §6.3 of
+    // docs/superpowers/specs/2026-07-25-mode-based-ux-redesign-design.md.
+    // Each `Persona.binderSegments(for:)` case carries its own reconciliation
+    // comment, including the two DELIBERATE DEVIATIONs (Review, Publish) —
+    // these tests pin what the code does today; the comments at the source
+    // explain why. Novel stands in for the non-screenplay home segment
+    // (`.manuscript`); the screenplay swap is covered separately above.
+
+    func test_planPersona_exactSegments() {
+        // §6.3 Left = "Research tree"; manuscript is deliberately absent so
+        // the coercion rule can't strand a writer on it (see Persona.swift).
+        XCTAssertEqual(Persona.plan.binderSegments(for: .novel), [.research, .palette])
+    }
+
+    func test_authorPersona_exactSegments() {
+        // §6.3 Left = "Binder" — the default persona must look unchanged to
+        // an upgrading writer.
+        XCTAssertEqual(Persona.author.binderSegments(for: .novel),
+                       [.manuscript, .research, .palette])
+    }
+
+    func test_reviewPersona_exactSegments() {
+        // DELIBERATE DEVIATION from §6.3's "Pieces by review state" (not
+        // built yet): the ordinary binder stands in, and Palette drops out
+        // as a making surface rather than an adjudicating one.
+        XCTAssertEqual(Persona.review.binderSegments(for: .novel), [.manuscript, .research])
+    }
+
+    func test_publishPersona_exactSegments() {
+        // DELIBERATE DEVIATION from §6.3's "Editions" (M1D not built yet):
+        // the binder stands in, plus Research so the picker is a choice
+        // rather than a single button reading as broken chrome.
+        XCTAssertEqual(Persona.publish.binderSegments(for: .novel), [.manuscript, .research])
+    }
+
     // MARK: - What the picker renders
 
     func test_visibleSegments_appendsTheRuntimeGatedOnesInEveryPersona() {

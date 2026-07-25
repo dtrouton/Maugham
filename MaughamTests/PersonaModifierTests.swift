@@ -43,6 +43,14 @@ final class PersonaModifierTests: XCTestCase {
         XCTAssertEqual(result.binderSegment, .find, "switching persona must not cancel a search")
     }
 
+    func test_applyPersonaChange_preservesTrash() {
+        let result = PersonaModifier.applyPersonaChange(
+            to: .plan, currentSegment: .inspector,
+            currentBinderSegment: .trash, projectType: .novel)
+        XCTAssertEqual(result.binderSegment, .trash,
+                       "switching persona must not eject a writer out of Trash")
+    }
+
     func test_applyPersonaChange_keepsABinderSegmentTheDestinationOffers() {
         let result = PersonaModifier.applyPersonaChange(
             to: .plan, currentSegment: .inspector,

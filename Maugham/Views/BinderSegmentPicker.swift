@@ -34,8 +34,12 @@ struct BinderSegmentPicker: View {
                                 findActive: Bool,
                                 including selected: BinderSegment? = nil) -> [BinderSegment] {
         var segments = persona.binderSegments(for: projectType)
-        if hasTrash { segments.append(.trash) }
-        if findActive { segments.append(.find) }
+        // `.trash`/`.find` are the two transient segments — see
+        // `BinderSegment.isTransient`, the single source shared with
+        // `PersonaModifier.applyPersonaChange`'s `keepBinder` whitelist so
+        // the two cannot disagree.
+        if hasTrash, BinderSegment.trash.isTransient { segments.append(.trash) }
+        if findActive, BinderSegment.find.isTransient { segments.append(.find) }
         if let selected, !segments.contains(selected) { segments.append(selected) }
         return segments
     }

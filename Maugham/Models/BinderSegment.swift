@@ -21,6 +21,21 @@ public enum BinderSegment: String, Codable, Equatable, Sendable {
     public static func documentHome(for projectType: ProjectType) -> BinderSegment {
         projectType == .screenplay ? .scenes : .manuscript
     }
+
+    /// Runtime-gated, persona-independent segments that survive a persona
+    /// switch: a writer mid-search or looking at the trash must not be
+    /// ejected by switching persona. This is the single source both
+    /// `PersonaModifier.applyPersonaChange`'s `keepBinder` whitelist and
+    /// `BinderSegmentPicker.visibleSegments`'s append draw from, so the two
+    /// cannot disagree — a future runtime-gated segment added to one and not
+    /// the other would silently eject a writer from it on persona switch.
+    /// Today only `.trash` and `.find` qualify; nothing else does.
+    public var isTransient: Bool {
+        switch self {
+        case .trash, .find: return true
+        case .manuscript, .research, .palette, .scenes: return false
+        }
+    }
 }
 
 // MARK: - Picker labelling

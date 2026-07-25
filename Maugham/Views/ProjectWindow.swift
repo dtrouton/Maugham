@@ -1388,9 +1388,11 @@ struct PersonaModifier: ViewModifier {
         let allowed = persona.binderSegments(for: projectType)
         // .trash and .find are transient and persona-independent — a writer
         // mid-search should not be yanked out of it by switching persona.
+        // `BinderSegment.isTransient` is the single source for that set —
+        // shared with `BinderSegmentPicker.visibleSegments` so the two
+        // cannot disagree.
         let keepBinder = allowed.contains(currentBinderSegment)
-            || currentBinderSegment == .trash
-            || currentBinderSegment == .find
+            || currentBinderSegment.isTransient
         return Change(persona: persona,
                       segment: persona.coerce(currentSegment),
                       binderSegment: keepBinder ? currentBinderSegment
