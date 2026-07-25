@@ -2900,7 +2900,7 @@ Add to CLAUDE.md's tripwire table. **1C-a Task 17 adds three — 25, 26 and 27 �
 
 | # | Rule | Why | Enforced |
 |---|---|---|---|
-| 28 | Canvas membership is never derived from geometry — not on move, not on resize, not on region creation. Drop-to-join targets by greatest overlap and is the ONLY gesture that changes it | Obsidian, tldraw (#6017) and Scapple each ship a distinct bug from the geometry→membership transition rule; tldraw's persists *despite* explicit storage | `CanvasMembershipTests` (the firewall tests were falsified by introducing the tldraw ejection bug); `CanvasRegionInteractionTests` |
+| 31 | Canvas membership is never derived from geometry — not on move, not on resize, not on region creation. Drop-to-join targets by greatest overlap and is the ONLY gesture that changes it | Obsidian, tldraw (#6017) and Scapple each ship a distinct bug from the geometry→membership transition rule; tldraw's persists *despite* explicit storage | `CanvasMembershipTests` (the firewall tests were falsified by introducing the tldraw ejection bug); `CanvasRegionInteractionTests` |
 
 - [ ] **Step 4: Sweep the guide**
 
@@ -2928,7 +2928,7 @@ Expected: BUILD SUCCEEDED.
 
 ```bash
 git add Maugham/Canvas/AREA.md docs/adr/0026-planning-canvas-rendering.md CLAUDE.md docs/guide docs/roadmap.md docs/problem-map.md
-git commit -m "docs(canvas): membership rules, geometry tripwire 27, ADR 0026 amendment, guide sweep"
+git commit -m "docs(canvas): membership rules, geometry tripwire 31, ADR 0026 amendment, guide sweep"
 ```
 
 ---

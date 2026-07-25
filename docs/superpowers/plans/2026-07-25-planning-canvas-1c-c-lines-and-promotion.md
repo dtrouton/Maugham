@@ -23,7 +23,7 @@ Everything in 1C-a's and 1C-b's Global Constraints still applies. In addition:
 - `./gen.sh` after adding ANY new file. Run `xcodebuild` in the **foreground**. Never commit anything under `Maugham.xcodeproj/`.
 - `-only-testing` takes `MaughamTests/<ClassName>` — **never a folder path**. A folder path silently runs zero tests and reports success.
 - **`./gen.sh &&` leads every Step 2** in this plan. New test files are not in the generated project until `gen.sh` runs, so without it the RED step fails to compile the *target* rather than failing for the stated reason.
-- **Release build after anything touching a view.** Tasks 3, 6 and 8 touch views.
+- **Release build after anything touching a view.** Tasks 2, 3 and 6 touch `CanvasView`; Task 6 also touches `ProjectWindow`'s `.canvas` arm. Task 2's Step 6 adds the new draw calls to `CanvasView`'s `Canvas` closure, so it is a view task too — the earlier "Tasks 3, 6 and 8" reading missed it. Task 9 also ends with one, not because it touches a view but because it is the last task that changes the tool catalog, and Task 10 runs the final one.
 - **Zero `ProjectWindow.body` expression budget.** This slice adds **no** line to `body`. It adds one line to `ProjectWindow.load()` (a method) and one argument to the existing `CanvasView(...)` call inside `existingEditorSwitch`'s `.canvas` arm (still one expression).
 - **Tripwire 21:** no raw `NotificationCenter.default.post(` without `// adr-0021-ok:` on the line the call starts. The post pattern is unconditional and scans `MaughamTests/` too. This slice adds one notification name and posts it through `MaughamEvent.post`, which is the sanctioned wrapper.
 - **Tripwire 20 / ADR 0018:** any `String(contentsOf:` in this slice reads a *research note*, not a manuscript, and every such line carries `// adr-0018-ok: research note` on the line the read starts.
@@ -42,7 +42,7 @@ grep -n "func \|private enum Mode" Maugham/Canvas/CanvasInteraction.swift
 grep -n "selectedRegionID\|func withScene\|func setScrapText\|func mutate\|func beginGesture\|func endGesture\|func flush\|func deleteSelectedRegion" Maugham/Canvas/CanvasModel.swift
 grep -n "static func draw\|LayerDepth\|static func visibleNodes\|cardTransform" Maugham/Canvas/CanvasRenderer.swift
 grep -n "onDeleteKey\|onClick\|onDrag" Maugham/Canvas/CanvasEventView.swift
-grep -n "handleClick\|handleDragBegan\|handleDragChanged\|handleDragEnded\|CanvasView(" Maugham/Canvas/CanvasView.swift Maugham/Views/ProjectWindow.swift
+grep -n "handleClick\|handleDrag\|regionDrawStart\|isDrawingRegionGesture\|CanvasView(" Maugham/Canvas/CanvasView.swift Maugham/Views/ProjectWindow.swift
 ```
 
 | Symbol this plan consumes | Verified against | Spelling used here |
@@ -55,10 +55,11 @@ grep -n "handleClick\|handleDragBegan\|handleDragChanged\|handleDragEnded\|Canva
 | `CanvasMembership` | 1C-b Task 2 | `join(_:home:in:)`, `addAppearance(_:to:in:)`, `leave(_:from:in:)`, `homeRegion(of:in:)` |
 | `CanvasModel` | 1C-b Task 4 implementation | `private(set) var scene`, `private(set) var scraps`, `var selectedRegionID`, `var selectedRegion`, `let undoManager`, `load(projectRoot:)`, `flush()`, `withScene(persist:_:)`, `setScrapText(_:for:)`, `beginGesture(_:)`, `endGesture()`, `mutate(_:_:)`, `deleteSelectedRegion()` |
 | `CanvasStore` | 1C-a Task 5 (**not** 1C-b's Interfaces block, which is wrong) | `init(projectRoot:)`, `load() -> (scene:scraps:)`, `save(scene:scraps:)`, `scheduleSave(scene:scraps:)`, **`flush()` takes no arguments** |
-| `CanvasRenderer` | 1C-a Task 7 + 1C-b Task 5 | `regionLayerDepth`, `nodeLayerDepth`, `seededRotation(for:)`, `cardTransform(inCard:angle:)`, `visibleNodes(in:camera:viewSize:)`. **This plan never changes `draw`'s signature** — see Task 2. |
-| `CanvasInteraction` | 1C-a Task 13 + 1C-b Task 6 | `struct` with a `private enum Mode`; `begin(at:in:)`, `beginResize(_:at:in:)`, `update(to:in:)`, `end()`, `endDrag(in:)`, `createScrap(at:in:)`, `createRegion(from:to:in:)`, `regionHit(at:in:)` |
+| `CanvasRenderer` | 1C-a Task 7 + 1C-b Task 5 | `regionLayerDepth`, `nodeLayerDepth`, `seededRotation(for:)`, `cardTransform(inCard:angle:)`, `visibleNodes(in:camera:viewSize:)`, `visibleRegions(in:camera:viewSize:)`. **This plan never changes `draw`'s signature** — see Task 2. `draw`'s editor parameter is spelled **`visibleEditorNodeID:`** (1C-a Task 7); `mountedEditorNodeID` is a *different* `CanvasView` property and never appears in a renderer call. |
+| `CanvasCamera.visibleContentRect(viewSize:)` | 1C-a Task 4 (used by `visibleNodes`, 1C-a Task 7 Step 3) | the viewport in content space — the culling predicate every per-frame pass filters on |
+| `CanvasInteraction` | 1C-a Task 13 + 1C-b Task 6 | `struct` with a `private enum Mode`; `begin(at:in:)`, `beginResize(_:at:in:)`, `update(to:in:)`, `end()`, `endDrag(in:)`, `createScrap(at:in:)`, `isActive`, `isResizing`, plus 1C-b Task 6's `static func regionHit(at:in:)`, `static func createRegion(from:to:in:)`, `mutating func beginRegionDrag(_:at:in:)`, `mutating func beginRegionResize(_:at:in:)` |
 | `CanvasEventNSView.onDeleteKey` | 1C-b Task 6 Step 4 | `var onDeleteKey: (() -> Void)?` |
-| `CanvasView` | 1C-b Task 4 Step 4 | `let model: CanvasModel`, `let projectRoot: URL`, `let paletteSwatchHexes: [String]`, plus `@State camera/layouts/editingNodeID/caretIndex/interaction`; private `handleClick(at:)`, `handleDragBegan(from:)`, `handleDragChanged(to:)`, `handleDragEnded(from:to:)` |
+| `CanvasView` | 1C-b Task 4 Step 4 + 1C-b Task 6 Step 5 | `let model: CanvasModel`, `let projectRoot: URL`, `let paletteSwatchHexes: [String]`, plus `@State camera/layouts/editingNodeID/caretIndex/interaction/momentum/regionDrawStart`; private `handleClick(at:clickCount:)` and **one** `handleDrag(at:phase:)` — a single method switching over `CanvasDragPhase`. **There is no `handleDragBegan`/`handleDragChanged`/`handleDragEnded` triple**; see Task 3. |
 | `MCPTool` | `Maugham/MCP/MCPTool.swift` | `static var method`, `static var description`, `static var inputSchemaJSON`, `@MainActor static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data`. **There is no `name` and no `run(projectRoot:)`.** |
 | `ProjectStore` | `Maugham/Stores/ProjectStore.swift` | `@MainActor @Observable final class`; `url`, `manifest`, `weak var documentStore: DocumentStore?` |
 | research/palette/intent creation | `ProjectStore+Research.swift:120`, `ProjectStore+Palette.swift:51,92`, `ProjectStore+CraftIntent.swift:33` | `addResearchTextNote(parentId:title:) async throws -> ResearchItem`, `addPaletteCard(title:kind:) async throws -> ResearchItem`, `updatePaletteCard(_:) async throws`, `createCraftIntent(forPieceId:) async throws -> ResearchItem` — **all `async throws` on a `@MainActor` type** |
@@ -66,13 +67,15 @@ grep -n "handleClick\|handleDragBegan\|handleDragChanged\|handleDragEnded\|Canva
 | `AnnotationAuthor.SourceKind` | `Packages/MaughamCore/Sources/MaughamCore/SpanAnchor.swift:22` | `enum SourceKind: String, Codable, Equatable, Sendable { case claude; case human }` |
 | `RegionInspector.PieceChoice` | 1C-b Task 7 Interfaces | nested `struct PieceChoice: Identifiable, Hashable` with `id: String`, `title: String` |
 | `RegionBinding` | 1C-b Task 7 Interfaces | `bind(_:toPiece:in:)`, `unbind(_:in:)`, `references(forPiece:in:)`, `boundPiece(of:in:)` |
-| `MCPResponseBudget` | `Maugham/MCP/MCPResponseBudget.swift:29,39` | `static let maxTextBytes = 900_000`, `static func enforce(_ payload: Data, hint: String) throws -> Data` |
+| `MCPResponseBudget` | `Maugham/MCP/MCPResponseBudget.swift:29,40` | `static let maxTextBytes = 900_000`, `static func enforce(_ payload: Data, hint: String) throws -> Data` |
 
 **There is no `TestProjectFixture` in this codebase.** The house pattern is a per-file `private func makeProject() async throws -> (URL, ProjectStore, ProjectRegistry)`, copied into each test file — see `MaughamTests/MCP/Tools/AddNoteToolTests.swift:19-41`. The only shared fixture is `OpenTestProjectFixture` in `MaughamTests/MCP/Test/`, which is for the dev-only `test_` tools. Every task below that needs a project repeats the helper in its own file, in full.
 
 ## Three decisions this plan makes, and why
 
-**1. `.wikiLink` promotion requires both ends to be already-promoted scraps.** Spec §6 says a line produces "a `[[wiki-link]]`, when both ends are text", and §5 calls wiki-links "the durable relationship layer". `ProjectStore.resolveDocumentId(forTitle:)` resolves a wiki title against the manifest, and `ListAllLinksTool` indexes documents *and* research items by title — a scrap is in neither, so a link naming a scrap resolves to nothing. Writing one would manufacture a durable-looking relationship between two things that do not durably exist, which is precisely the "manufactures precision the writer never claimed" failure §6.1 forbids. So a line offers `.wikiLink` only when **both** of its endpoint scraps carry a `promotedItemID`, and the link is appended to the `from` end's promoted note. When they do not, the sheet says so plainly — *"Promote both cards first; a canvas line is scratch."* — which is the precedence rule taught at the exact moment it bites.
+**1. `.wikiLink` promotion requires both ends to be already-promoted scraps.** Spec §6's table says a line produces "a `[[wiki-link]]`, **when both ends have themselves been promoted**", and §5 calls wiki-links "the durable relationship layer". **This plan implements that row literally — there is no deviation.** The evidence behind the rule is in the resolver: `ProjectStore.resolveDocumentId(forTitle:)` resolves a wiki title against the manifest, and `ListAllLinksTool` indexes documents *and* research items by title — a scrap is in neither, so a link naming a scrap resolves to nothing. Writing one would manufacture a durable-looking relationship between two things that do not durably exist, which is precisely the "manufactures precision the writer never claimed" failure §6.1 forbids. So a line offers `.wikiLink` only when **both** of its endpoint scraps carry a `promotedItemID`, and the link is appended to the `from` end's promoted note. When they do not, the sheet says so plainly — *"Promote both cards first; a canvas line is scratch."* — which is the precedence rule taught at the exact moment it bites.
+
+> An earlier draft of the spec's line row read "when both ends are text", and an earlier draft of this plan recorded the promoted-ends rule as a *deviation* from it. The spec row was corrected the same day; quote the current row, and do not reintroduce the deviation framing anywhere — including in ADR 0027, where it would be permanent.
 
 **2. The promotion gesture is a menu command on the current selection, ⌘⇧↩, and there is no artifact rail.** Spec §10 left the gesture open. A rail is permanent chrome on a surface whose whole feel is open space (§7). A context menu needs a right-click path through `CanvasEventNSView` and an `NSMenu` pop, which is real machinery for a v1 affordance. A menu command is discoverable in the menu bar with its shortcut printed beside it, costs no chrome, and needs no new event plumbing beyond one notification name. **⌘⇧P is already taken** — `MaughamApp.swift:208` binds it to "Toggle Research Preview" — so this plan uses **⌘⇧↩**, which is free and reads as *commit this*, matching the Scrivener precedent §6.1 names. **Flag for smoke:** if the command feels undiscoverable, a right-click context action is the fallback, and that is a UI change, not a model change.
 
@@ -465,8 +468,12 @@ Both are given defaults, so every existing `CanvasNode(...)` call site in 1C-a a
 Extend `remove(_ id: CanvasNodeID)` — which already clears region memberships from 1C-b — with:
 
 ```swift
-        // A line to a node that is gone would draw into nowhere.
-        for lineID in linesByID.keys where linesByID[lineID]?.touches(id) == true {
+        // A line to a node that is gone would draw into nowhere. The keys are
+        // snapshotted into an Array first: `linesByID.keys` is a live view onto
+        // the dictionary, and writing through `linesByID` while iterating it is
+        // the kind of thing copy-on-write happens to make safe rather than the
+        // kind of thing that IS safe. Say what you mean.
+        for lineID in Array(linesByID.keys) where linesByID[lineID]?.touches(id) == true {
             linesByID[lineID] = nil
         }
 ```
@@ -506,11 +513,16 @@ AnnotationAuthor.SourceKind rather than minting a second provenance enum."
 **Interfaces:**
 - **Consumes:** `CanvasLine`, `CanvasLineID`, `CanvasScene.insertLine/lines/endpoints(of:)`, `CanvasNode.author/promotedItemID` (Task 1); `CanvasStore` (1C-a Task 5) — `init(projectRoot:)`, `load() -> (scene: CanvasScene, scraps: [CanvasNodeID: String])`, `save(scene:scraps:)`; `CanvasCamera` (1C-a Task 4); `CanvasRenderer.regionLayerDepth`/`nodeLayerDepth` (1C-b Task 5); `CanvasCardMetrics` (1C-a Task 1); `CanvasAccessibility.elements(scene:scraps:)` (1C-a Task 14).
 - **Modifies:** `CanvasSceneDTO` — `currentSchemaVersion` 2 → 3, a nested `LineDTO`, `lines: [LineDTO]?`, and two new optional properties on the nested node DTO.
-- **Produces on `CanvasRenderer`:** `static let lineLayerDepth: Int`, `struct LineGeometry: Equatable`, `static func lineGeometry(in:) -> [LineGeometry]`, `static func lineLabelBox(for:) -> CGRect`, `static func authorMarkFrame(inCard:) -> CGRect`, `static func promotedMarkFrame(inCard:) -> CGRect`, `static func drawLines(scene:selectedLineID:into:)`, `static func drawPendingLine(from:to:into:)`.
+- **Produces on `CanvasRenderer`:** `static let lineLayerDepth: Int`, `struct LineGeometry: Equatable`, `static func lineGeometry(in:) -> [LineGeometry]`, `static func visibleLines(in:camera:viewSize:) -> [LineGeometry]`, `static func lineLabelBox(for:) -> CGRect`, `static func authorMarkFrame(inCard:) -> CGRect`, `static func promotedMarkFrame(inCard:) -> CGRect`, `static func drawLines(scene:camera:viewSize:selectedLineID:into:)`, `static func drawPendingLine(from:to:into:)`.
+- **Modifies:** `CanvasRenderer.nodeLayerDepth` — `1` → `2`, to make room for `lineLayerDepth = 1` between it and `regionLayerDepth = 0`.
 
-**`CanvasRenderer.draw`'s signature does not change.** 1C-a pins it as `draw(scene:camera:viewSize:layouts:mountedEditorNodeID:straighten:into:)` and 1C-b amends it to add `presentations:`, `scraps:` and `selectedRegionID:`. Lines come off `scene`, which `draw` already has, and the selected line comes off the model, which the *view* already has — so `drawLines` is called from `CanvasView`'s draw closure immediately after `draw`, not threaded through it. Two plans have now disagreed about that signature; this one does not touch it.
+**`CanvasRenderer.draw`'s signature does not change.** 1C-a Task 7 pins it as `draw(scene:camera:viewSize:layouts:visibleEditorNodeID:straighten:into:)` and 1C-b Task 5 amends it to add `presentations:`, `scraps:` and `selectedRegionID:`. Lines come off `scene`, which `draw` already has, and the selected line comes off the model, which the *view* already has — so `drawLines` is called from `CanvasView`'s draw closure immediately after `draw`, not threaded through it. Two plans have now disagreed about that signature; this one does not touch it.
 
-**Layer depth constants document the draw order; they do not enforce it.** The order is the order the calls appear in `CanvasView`'s closure. Set `lineLayerDepth` strictly between the two existing constants — if 1C-b left them adjacent, raise `nodeLayerDepth` by one first. `CanvasRegionRenderTests` asserts `regionLayerDepth < nodeLayerDepth`, which survives either way.
+**The editor parameter is `visibleEditorNodeID:`, and `mountedEditorNodeID` must never be passed to a renderer.** They are two different `CanvasView` properties and both are real (1C-a Task 10): `mountedEditorNodeID` is *the editor exists, is first responder and is taking keystrokes*, derived from the click; `visibleEditorNodeID` is *the editor is the visible text*, derived from `editingNodeID` **and** `straighten.isLevel(_:)`. 1C-a Task 7 records that merging them has failed twice in opposite directions — passing the mounted id blanks the card's drawn text from frame one while the still-invisible editor draws nothing in its place (the §7A.2 jump), and gating the *mount* on `isLevel` instead loses the first keystrokes of a double-click-and-type. An earlier draft of this plan restated the signature with `mountedEditorNodeID:`; that was a restatement error, not a design change. **This plan introduces no drawn-text suppression of its own** — `drawLines` and `drawPendingLine` read neither identifier — so 1C-d's `CanvasEditorIdentifierCensusTests` (a whole-directory scan over `Maugham/Canvas/`) has nothing here to catch. See Task 10 Step 4 for why this plan adds no tripwire of its own for that seam.
+
+**Layer depth constants document the draw order; they do not enforce it.** The order is the order the calls appear in `CanvasView`'s closure. 1C-b Task 5 ships `regionLayerDepth = 0` and `nodeLayerDepth = 1` — adjacent, with no room between them — so this task **raises `nodeLayerDepth` to `2`** and sets `lineLayerDepth = 1`. Write both literals; do not leave it to a conditional reading of this paragraph. `CanvasRegionRenderTests` asserts `regionLayerDepth < nodeLayerDepth`, which still holds.
+
+**Lines are culled to the viewport, like nodes and regions.** `lineGeometry(in:)` is the unculled projection and is what the geometry tests assert against; `visibleLines(in:camera:viewSize:)` is what the draw pass calls. The whole architecture rests on per-frame work being viewport-proportional rather than scene-proportional (1C-a's 2,000-node probe, and its tripwire against keying scene-proportional work off a per-frame counter), and "line counts are small next to node counts" is an assertion nothing bounds — a writer can draw a line per card. Filtering costs one rect intersection per line and removes the argument entirely.
 
 **Lines draw above regions and beneath cards.** Above regions because a line into a region's area must not vanish under it; beneath cards because a line's job is to connect cards, and a line crossing over one reads as damage.
 
@@ -665,6 +677,51 @@ final class CanvasLinePersistenceTests: XCTestCase {
         XCTAssertLessThan(CanvasRenderer.lineLayerDepth, CanvasRenderer.nodeLayerDepth)
     }
 
+    // MARK: - Culling
+
+    /// The draw pass is viewport-proportional, like `visibleNodes` and
+    /// `visibleRegions`. A whole-scene walk here would put the one unbounded
+    /// collection on the surface — a writer can draw a line per card — back on
+    /// the per-frame path.
+    func test_aLineFarOutsideTheViewportIsCulled() {
+        var s = sceneWithALine()
+        for (i, id) in ["far1", "far2"].enumerated() {
+            var n = CanvasNode(id: CanvasNodeID(id), kind: .scrap,
+                               origin: CGPoint(x: 90_000 + CGFloat(i) * 400, y: 90_000),
+                               width: 240)
+            n.cachedHeight = 80
+            s.insert(n)
+        }
+        s.insertLine(CanvasLine(id: CanvasLineID("l9"), from: CanvasNodeID("far1"),
+                                to: CanvasNodeID("far2")))
+        XCTAssertEqual(CanvasRenderer.lineGeometry(in: s).count, 2,
+                       "the unculled projection still sees both")
+
+        let visible = CanvasRenderer.visibleLines(in: s, camera: CanvasCamera(),
+                                                  viewSize: CGSize(width: 1000, height: 800))
+        XCTAssertEqual(visible.map(\.id), [CanvasLineID("l1")])
+    }
+
+    func test_aLineInsideTheViewportSurvivesCulling() {
+        let visible = CanvasRenderer.visibleLines(in: sceneWithALine(), camera: CanvasCamera(),
+                                                  viewSize: CGSize(width: 1000, height: 800))
+        XCTAssertEqual(visible.map(\.id), [CanvasLineID("l1")],
+                       "the negative test above needs a control that passed")
+    }
+
+    /// A horizontal line has a zero-height bounding box, and `CGRect.intersects`
+    /// is false for an empty rect. Without the hairline inset in `visibleLines`
+    /// every axis-aligned line on the canvas would silently stop drawing —
+    /// and `sceneWithALine` is exactly that case, so the control above would
+    /// fail too. This pins the reason.
+    func test_anAxisAlignedLineIsNotCulledByItsZeroHeightBox() {
+        let g = CanvasRenderer.lineGeometry(in: sceneWithALine())[0]
+        XCTAssertEqual(g.from.y, g.to.y, "fixture precondition: the line is horizontal")
+        XCTAssertFalse(CanvasRenderer.visibleLines(in: sceneWithALine(), camera: CanvasCamera(),
+                                                   viewSize: CGSize(width: 1000, height: 800))
+                        .isEmpty)
+    }
+
     // MARK: - The two marks
 
     func test_bothMarksSitInsideTheCardAndDoNotOverlap() {
@@ -776,7 +833,12 @@ In `Maugham/Canvas/CanvasRenderer.swift`:
     /// beneath cards (a line crossing over a card reads as damage). These
     /// constants document the order; the order itself is the sequence of calls
     /// in `CanvasView`'s draw closure.
-    static let lineLayerDepth = regionLayerDepth + 1
+    ///
+    /// 1C-b shipped `regionLayerDepth = 0` and `nodeLayerDepth = 1` adjacent,
+    /// so this slice pushes `nodeLayerDepth` to 2 to open the slot. Change
+    /// BOTH lines in the same edit — a `lineLayerDepth` equal to
+    /// `nodeLayerDepth` fails the ordering test in Step 1.
+    static let lineLayerDepth = 1
 
     static let lineWidth: CGFloat = 1.5
     static let lineOpacity: CGFloat = 0.45
@@ -786,6 +848,10 @@ In `Maugham/Canvas/CanvasRenderer.swift`:
     /// text layout — it never has to agree with a mounted editor, so §7A.2's
     /// same-TextKit-stack rule does not reach it.
     static let lineLabelCharacterWidth: CGFloat = 6.5
+    /// Half the label pill's height, grown outward when culling, so a line
+    /// whose segment lies just outside the viewport does not drop its pill
+    /// while the pill is still on screen.
+    static let lineCullMargin: CGFloat = lineLabelHeight
 
     struct LineGeometry: Equatable {
         let id: CanvasLineID
@@ -804,6 +870,34 @@ In `Maugham/Canvas/CanvasRenderer.swift`:
         }
     }
 
+    /// The lines whose bounding box meets the viewport, and only those.
+    ///
+    /// Per-frame work on this surface is viewport-proportional by design — the
+    /// same rule `visibleNodes`/`visibleRegions` follow, and the reason the
+    /// 2,000-node probe passes. A whole-scene walk here would make the draw
+    /// pass scene-proportional again through the one collection nothing
+    /// bounds: a writer can draw a line for every card.
+    ///
+    /// Bounding box, not exact segment/rect intersection: the false positives
+    /// are a long diagonal whose box straddles the viewport, which is cheap to
+    /// stroke and correct to draw.
+    static func visibleLines(in scene: CanvasScene,
+                             camera: CanvasCamera,
+                             viewSize: CGSize) -> [LineGeometry] {
+        let viewport = camera.visibleContentRect(viewSize: viewSize)
+            .insetBy(dx: -lineCullMargin, dy: -lineCullMargin)
+        return lineGeometry(in: scene).filter { geometry in
+            let box = CGRect(x: min(geometry.from.x, geometry.to.x),
+                             y: min(geometry.from.y, geometry.to.y),
+                             width: abs(geometry.to.x - geometry.from.x),
+                             height: abs(geometry.to.y - geometry.from.y))
+            // `intersects` is false for a zero-width or zero-height rect, and a
+            // perfectly horizontal or vertical line has exactly that, so the
+            // box is given a hairline before the test.
+            return box.insetBy(dx: -0.5, dy: -0.5).intersects(viewport)
+        }
+    }
+
     /// The label pill, centred on the segment's midpoint. Empty when there is
     /// no label — an unlabelled line must not reserve a pill of empty ground.
     static func lineLabelBox(for geometry: LineGeometry) -> CGRect {
@@ -818,9 +912,12 @@ In `Maugham/Canvas/CanvasRenderer.swift`:
     /// Every line in the scene, plus its label pill. Selection draws thicker
     /// and fully opaque rather than in an accent colour: the canvas already
     /// spends its colour budget on the region ring and the palette wash (§7.1).
-    static func drawLines(scene: CanvasScene, selectedLineID: CanvasLineID?,
+    /// Culled to the viewport — `visibleLines`, never `lineGeometry`. This is
+    /// the one call in the line path that runs every frame.
+    static func drawLines(scene: CanvasScene, camera: CanvasCamera, viewSize: CGSize,
+                          selectedLineID: CanvasLineID?,
                           into cx: inout GraphicsContext) {
-        for geometry in lineGeometry(in: scene) {
+        for geometry in visibleLines(in: scene, camera: camera, viewSize: viewSize) {
             let isSelected = geometry.id == selectedLineID
             var path = Path()
             path.move(to: geometry.from)
@@ -902,10 +999,11 @@ and prepend it when `node.author == .claude`. Do not touch the element list's re
 
 - [ ] **Step 6: Call the new draw passes from `CanvasView`**
 
-In `CanvasView`'s `Canvas` closure, immediately **after** the existing `CanvasRenderer.draw(...)` call — do not change that call's arguments:
+In `CanvasView`'s `Canvas` closure, immediately **after** the existing `CanvasRenderer.draw(...)` call — do not change that call's arguments, and in particular leave its `visibleEditorNodeID:` argument exactly as 1C-a wrote it:
 
 ```swift
                 CanvasRenderer.drawLines(scene: model.scene,
+                                         camera: camera, viewSize: size,
                                          selectedLineID: model.selectedLineID,
                                          into: &cx)
                 if let pending = interaction.pendingLine {
@@ -913,12 +1011,16 @@ In `CanvasView`'s `Canvas` closure, immediately **after** the existing `CanvasRe
                 }
 ```
 
-`model.selectedLineID` and `interaction.pendingLine` arrive in Task 3. **Until Task 3 lands, pass `selectedLineID: nil` and omit the `pendingLine` branch** — Task 3's Step 4 replaces both lines. Committing a draw call that reads a symbol no task has written is the failure mode this plan exists to avoid; this ordering keeps every commit green.
+`size` is the `Canvas` closure's own second parameter — the same value the existing `draw(…, viewSize: size, …)` call passes, so the two passes cull against one viewport rather than two.
+
+`model.selectedLineID` and `interaction.pendingLine` arrive in Task 3. **Until Task 3 lands, pass `selectedLineID: nil` and omit the `pendingLine` branch** — Task 3's Step 5 replaces both lines. Committing a draw call that reads a symbol no task has written is the failure mode this plan exists to avoid; this ordering keeps every commit green.
+
+**This is a `CanvasView` edit, so this task ends with a Release build** (Step 7) — the Global Constraints list names Task 2 for that reason.
 
 - [ ] **Step 7: Run the tests and a Release build**
 
 Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasLinePersistenceTests CODE_SIGNING_ALLOWED=NO`
-Expected: PASS, 14 tests.
+Expected: PASS, 17 tests (14 plus the three culling tests).
 
 Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasRegionCodecTests CODE_SIGNING_ALLOWED=NO`
 Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasRegionRenderTests CODE_SIGNING_ALLOWED=NO`
@@ -952,12 +1054,18 @@ provenance, the other direction would claim Claude wrote what it did not."
 **This is the task the previous draft did not have.** That draft modelled, persisted, codec'd and drew `CanvasLine`, called `insertLine` only from test fixtures, and then asked the smoke to "draw a line between two scraps → label it" against code no task wrote. **Nothing else in this plan may be started until a writer can draw a line.**
 
 **Interfaces:**
-- **Consumes:** `CanvasLine`, `CanvasLineID`, `CanvasLineHit`, `CanvasScene.insertLine/removeLine/updateLine/lines` (Task 1); `CanvasScene.topmostNode(at:)`, `CanvasNode.frame` (1C-a Task 1); `CanvasInteraction` (1C-a Task 13 / 1C-b Task 6) — a `struct` with `private enum Mode`, `private var mode: Mode`, `begin(at:in:)`, `beginRegionDrag(_:at:in:)`, `beginRegionResize(_:at:in:)`, `update(to:in:)`, `end()`, `endDrag(in:)`, `regionHit(at:in:)`, `createRegion(from:to:in:)`; `CanvasModel` (1C-b Task 4) — `scene`, `selectedRegionID`, `withScene(persist:_:)`, `mutate(_:_:)`, `deleteSelectedRegion()`; `CanvasEventNSView.onDeleteKey` (1C-b Task 6).
+- **Consumes:** `CanvasLine`, `CanvasLineID`, `CanvasLineHit`, `CanvasScene.insertLine/removeLine/updateLine/lines` (Task 1); `CanvasScene.topmostNode(at:)`, `CanvasNode.frame` (1C-a Task 1); `CanvasInteraction` (1C-a Task 13 / 1C-b Task 6) — a `struct` with `private enum Mode`, `private var mode: Mode`, `begin(at:in:)`, `update(to:in:)`, `end()`, `endDrag(in:)`, `isActive`, `isResizing`, plus 1C-b's `mutating func beginRegionDrag(_:at:in:)`, `mutating func beginRegionResize(_:at:in:)`, `static func regionHit(at:in:)`, `static func createRegion(from:to:in:)`; `CanvasDragPhase` (1C-a Task 6) — `.began`/`.changed`/`.ended`, the only drag vocabulary; `CanvasModel` (1C-b Task 4) — `scene`, `selectedRegionID`, `withScene(persist:_:)`, `mutate(_:_:)`, `beginGesture(_:)`, `endGesture()`, `deleteSelectedRegion()`; `CanvasView`'s `handleDrag(at:phase:)`, `regionDrawStart`, `isDrawingRegionGesture`, `momentum`, `rebuildLayouts()`, `sceneRevision`, `revision` (1C-b Task 6 Step 5); `CanvasEventNSView.onDeleteKey` (1C-b Task 6).
 - **Produces on `CanvasInteraction`:** `struct PendingLine: Equatable { let fromNode: CanvasNodeID; let from: CGPoint; var to: CGPoint }`, `private(set) var pendingLine: PendingLine?`, `mutating func beginLine(from:at:in:)`, `mutating func updateLine(to:)`, `@discardableResult mutating func endLine(at:in:) -> CanvasLineID?`, `static func newLineID(in:) -> CanvasLineID`.
 - **Produces on `CanvasModel`:** `var selectedLineID: CanvasLineID?`, `var selectedLine: CanvasLine?`, `func selectLine(_:)`, `func selectRegion(_:)`, `func setLineLabel(_:for:)`, `func deleteSelection()`.
 - **Produces:** `struct LineLabelSheet: View` with `static func normalise(_ raw: String) -> String?` and `init(initialLabel: String?, onCommit: @escaping (String?) -> Void, onCancel: @escaping () -> Void)`.
 
-**The gesture is ⇧-drag from one card to another.** ⌥-drag already draws a region (1C-b), and the modifier is read the same way 1C-b reads its own — `NSEvent.modifierFlags` at press time, in a computed property on `CanvasView`, rather than by widening `CanvasEventView`'s callback signature for one Bool. The two plans have disagreed about that signature's arity once already; this task does not touch it. **The ⇧ branch is tested first in `handleDragBegan`**, before the card branch, because a ⇧-drag that starts on a card must draw a line rather than move it.
+**The gesture is ⇧-drag from one card to another.** ⌥-drag already draws a region (1C-b), and the modifier is read the same way 1C-b reads its own — `NSEvent.modifierFlags` at press time, in a computed property on `CanvasView`, rather than by widening `CanvasEventView`'s callback signature for one Bool. The two plans have disagreed about that signature's arity once already; this task does not touch it. **The ⇧ branch is tested first in the `.began` arm**, before the card branch, because a ⇧-drag that starts on a card must draw a line rather than move it.
+
+**There is one drag handler, and this task extends it rather than replacing three.** 1C-a Task 6 ships `onDrag: (CGPoint, CanvasDragPhase) -> Void` — **one point and a phase**, with no `start` and no `onDragBegan`/`onDragChanged`/`onDragEnded` triple ("this is the only drag vocabulary in the plan"). 1C-b Task 6 Step 5 therefore routes everything through a single `private func handleDrag(at contentPoint: CGPoint, phase: CanvasDragPhase)` that switches over the phase, and says in as many words: *"Do not split it into three; the event view has one callback and the existing brackets, guards, momentum and counter bumps all live in this switch."*
+
+**So the `start` point a region-create needs does not come from a parameter.** An earlier draft of this task wrote `handleDragEnded(from: start, to: end)` and passed `start` to `createRegion` — a signature no plan ships, fed by view state no task writes. **The swept 1C-b resolves this and this task inherits the resolution: `@State private var regionDrawStart: CGPoint?` on `CanvasView`, set in the `.began` arm's ⌥ branch and consumed in `.ended`.** Line drawing needs no equivalent, because `CanvasInteraction.PendingLine` already carries its own origin — the source card's centre, which is the geometry the finished line uses. This task adds **no** new drag-start state.
+
+**What the switch must keep.** The arms below are 1C-b's, with line branches inserted. Do not drop 1C-b's `guard editingNodeID == nil else { return }` (a focused scrap owns its own mouse), `momentum.stop()`, the `wasResizing` → `rebuildLayouts()` path, the flick → `momentum.launch` path, or the `sceneRevision`/`revision` bumps. Every one of them is load-bearing in 1C-a or 1C-b, and an earlier draft of this task lost all six by rewriting rather than extending.
 
 **Selection is mutually exclusive, and it is enforced in `CanvasModel`, not at the call sites.** Two selected things means two ⌫ targets and an ambiguous "Promote…". `selectLine`/`selectRegion` are the two doors; 1C-b's three `model.selectedRegionID = id` assignments move to `model.selectRegion(id)`. Property observers on an `@Observable` stored property are avoided deliberately — the macro rewrites stored properties into computed ones, and a `didSet` there is exactly the kind of thing that works until it doesn't.
 
@@ -1276,7 +1384,7 @@ Add a case to the existing `private enum Mode` and the four members. Note `endLi
 
 - [ ] **Step 5: Route the gesture in `CanvasView`**
 
-Replace 1C-b Task 6's `handleDragBegan`/`handleDragEnded` with these, and add the modifier property beside `isDrawingRegionGesture`:
+**Extend 1C-b Task 6 Step 5's single `handleDrag(at:phase:)`.** Do not add methods; do not change `CanvasEventView`'s callbacks. Add the modifier property beside `isDrawingRegionGesture`, then insert the marked branches into the existing switch. Every unmarked line below is 1C-b's, reproduced so the insertion points are unambiguous — if 1C-b's committed version differs, keep 1C-b's and add only the marked branches.
 
 ```swift
     /// ⇧-drag from a card draws a line to another card. Read from `NSEvent` at
@@ -1287,63 +1395,92 @@ Replace 1C-b Task 6's `handleDragBegan`/`handleDragEnded` with these, and add th
         NSEvent.modifierFlags.contains(.shift)
     }
 
-    private func handleDragBegan(from contentPoint: CGPoint) {
-        // The line branch is FIRST: a ⇧-drag that starts on a card must draw a
-        // line rather than move the card.
-        if isDrawingLineGesture, let node = model.scene.topmostNode(at: contentPoint)?.id {
-            model.beginGesture("Draw Line")
-            interaction.beginLine(from: node, at: contentPoint, in: model.scene)
-        } else if case .resizeHandle(let id)? = CanvasInteraction.regionHit(at: contentPoint,
-                                                                           in: model.scene) {
-            model.selectRegion(id)
-            model.beginGesture("Resize Region")
-            interaction.beginRegionResize(id, at: contentPoint, in: model.scene)
-        } else if model.scene.topmostNode(at: contentPoint) != nil {
-            model.beginGesture("Move Scrap")
-            interaction.begin(at: contentPoint, in: model.scene)
-        } else if case .chrome(let id)? = CanvasInteraction.regionHit(at: contentPoint,
-                                                                     in: model.scene) {
-            model.selectRegion(id)
-            model.beginGesture("Move Region")
-            interaction.beginRegionDrag(id, at: contentPoint, in: model.scene)
-        } else if isDrawingRegionGesture {
-            model.beginGesture("Draw Region")
-        }
-        // A plain drag on empty canvas is a pan, which the event view handles.
-    }
+    private func handleDrag(at contentPoint: CGPoint, phase: CanvasDragPhase) {
+        switch phase {
+        case .began:
+            guard editingNodeID == nil else { return }
+            momentum.stop()
 
-    private func handleDragChanged(to contentPoint: CGPoint) {
-        if interaction.pendingLine != nil {
-            interaction.updateLine(to: contentPoint)
-            revision &+= 1   // the rubber band is redrawn from the model
-            return
-        }
-        model.withScene { interaction.update(to: contentPoint, in: &$0) }
-    }
+            // NEW, and FIRST: a ⇧-drag that starts on a card draws a line
+            // rather than moving the card.
+            if isDrawingLineGesture, let node = model.scene.topmostNode(at: contentPoint)?.id {
+                model.beginGesture("Draw Line")
+                interaction.beginLine(from: node, at: contentPoint, in: model.scene)
+            } else if case .resizeHandle(let id)? = CanvasInteraction.regionHit(at: contentPoint,
+                                                                               in: model.scene) {
+                model.selectRegion(id)          // was `model.selectedRegionID = id`
+                model.beginGesture("Resize Region")
+                interaction.beginRegionResize(id, at: contentPoint, in: model.scene)
+            } else if model.scene.topmostNode(at: contentPoint) != nil {
+                interaction.begin(at: contentPoint, in: model.scene)
+                if interaction.isActive {
+                    model.beginGesture(interaction.isResizing ? "Resize Scrap" : "Move Scrap")
+                }
+            } else if case .chrome(let id)? = CanvasInteraction.regionHit(at: contentPoint,
+                                                                         in: model.scene) {
+                model.selectRegion(id)          // was `model.selectedRegionID = id`
+                model.beginGesture("Move Region")
+                interaction.beginRegionDrag(id, at: contentPoint, in: model.scene)
+            } else if isDrawingRegionGesture {
+                regionDrawStart = contentPoint
+                model.beginGesture("Draw Region")
+            }
 
-    private func handleDragEnded(from start: CGPoint, to end: CGPoint) {
-        if interaction.pendingLine != nil {
-            model.withScene { scene in
-                if let id = interaction.endLine(at: end, in: &scene) {
-                    model.selectLine(id)
-                }
+        case .changed:
+            // NEW: the rubber band lives on `interaction`, not in the scene, so
+            // it takes the redraw counter and returns before 1C-b's
+            // `isActive` guard — a line drag never moves a node.
+            if interaction.pendingLine != nil {
+                interaction.updateLine(to: contentPoint)
+                revision += 1
+                return
             }
-        } else if interaction.isActive {
-            model.withScene { interaction.endDrag(in: &$0) }
-        } else if isDrawingRegionGesture {
-            model.withScene { scene in
-                if let id = CanvasInteraction.createRegion(from: start, to: end, in: &scene) {
-                    model.selectRegion(id)
+            guard interaction.isActive else { return }
+            model.withScene { interaction.update(to: contentPoint, in: &$0) }
+            revision += 1
+
+        case .ended:
+            // NEW, and first for the same reason.
+            if interaction.pendingLine != nil {
+                model.withScene { scene in
+                    if let id = interaction.endLine(at: contentPoint, in: &scene) {
+                        model.selectLine(id)
+                    }
                 }
+                interaction.end()
+            } else if interaction.isActive {
+                let wasResizing = interaction.isResizing
+                model.withScene { interaction.endDrag(in: &$0) }
+                let flick = interaction.end()
+                if wasResizing {
+                    rebuildLayouts()          // bumps sceneRevision itself
+                } else if let flick {
+                    momentum.launch(flick.id, velocity: flick.velocity)
+                }
+            } else if let start = regionDrawStart {
+                // `onDrag` reports ONE point per call, so the press point was
+                // remembered in `.began`. This is the whole reason
+                // `regionDrawStart` exists (1C-b Task 6 Step 5) — do not
+                // reintroduce a `handleDragEnded(from:to:)` to carry it.
+                model.withScene { scene in
+                    if let id = CanvasInteraction.createRegion(from: start, to: contentPoint,
+                                                               in: &scene) {
+                        model.selectRegion(id)   // was `model.selectedRegionID = id`
+                    }
+                }
+                interaction.end()
+            } else {
+                interaction.end()
             }
+            regionDrawStart = nil
+            model.endGesture()   // a gesture that changed nothing pushes no undo step
+            sceneRevision += 1
+            revision += 1
         }
-        interaction.end()
-        model.endGesture()   // a gesture that changed nothing pushes no undo step
-        sceneRevision &+= 1
     }
 ```
 
-In `handleClick(at:)` (1C-b Task 4), immediately **before** the branch that clears the selection on an empty click, insert:
+In `handleClick(at:clickCount:)` (1C-a Task 10, extended by 1C-b Task 4 — it takes the click count as its second argument, because `CanvasEventNSView.onClick` is `((CGPoint, Int) -> Void)?`), immediately **before** the branch that clears the selection on an empty click, insert:
 
 ```swift
         // Lines are hit-tested only where no card was hit, so a line crossing
@@ -1381,12 +1518,13 @@ Rewire ⌫ and add the label sheet:
 
 `.sheet(item:)` needs `CanvasLineID: Identifiable`; add `extension CanvasLineID: Identifiable { public var id: String { raw } }` in `CanvasLine.swift`.
 
-Open it from a double-click on a selected line: in `handleClick(at:)`'s line branch above, when the click count is 2 set `editingLineLabelID = line` as well as selecting. `CanvasEventNSView.onClick` already carries the click count as its second argument (1C-a Task 6: `var onClick: ((CGPoint, Int) -> Void)?`).
+Open it from a double-click on a selected line: in the line branch above, when `clickCount == 2` set `editingLineLabelID = line` as well as selecting. `CanvasEventNSView.onClick` already carries the click count as its second argument (1C-a Task 6: `var onClick: ((CGPoint, Int) -> Void)?`), so nothing new is threaded through the event view.
 
 Finally, replace Task 2 Step 6's placeholder call with the real one:
 
 ```swift
                 CanvasRenderer.drawLines(scene: model.scene,
+                                         camera: camera, viewSize: size,
                                          selectedLineID: model.selectedLineID,
                                          into: &cx)
                 if let pending = interaction.pendingLine {
@@ -1492,9 +1630,11 @@ Spec §6's table is the whole contract:
 |---|---|
 | A scrap | a research note, a palette card, or an intent statement |
 | A region | a palette card, or a piece binding |
-| A line | a `[[wiki-link]]`, when both ends are text |
+| A line | a `[[wiki-link]]`, when both ends have themselves been promoted |
 
-**Why a line's ends must already be promoted.** See "Three decisions" above: `[[X]]` resolves against the manifest (documents in `ProjectStore.resolveDocumentId(forTitle:)`, documents *and* research items in `ListAllLinksTool`'s title index). A scrap is in neither, so a link naming one resolves to nothing — it would manufacture exactly the precision §6.1 forbids. `blockedReason` exists so the sheet can say why instead of showing an empty list, which is where a writer learns the precedence rule at the moment it costs them something.
+Quoted from `docs/superpowers/specs/2026-07-25-planning-canvas-design.md` §6 **as it currently stands** — re-read the row before writing the code rather than trusting this copy. The line row was corrected on 2026-07-25 from an earlier "when both ends are text"; this plan implements the current row exactly, so nothing here is a deviation.
+
+**Why a line's ends must already be promoted — the evidence behind the spec's rule.** `[[X]]` resolves against the manifest (documents in `ProjectStore.resolveDocumentId(forTitle:)`, documents *and* research items in `ListAllLinksTool`'s title index). A scrap is in neither, so a link naming one resolves to nothing — it would manufacture exactly the precision §6.1 forbids. `blockedReason` exists so the sheet can say why instead of showing an empty list, which is where a writer learns the precedence rule at the moment it costs them something.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1579,8 +1719,9 @@ final class PromotionTests: XCTestCase {
         XCTAssertNil(Promotion.blockedReason(for: .line(CanvasLineID("l1")), in: s))
     }
 
-    /// §6: "when both ends are text". An image end is not text, and it has no
-    /// promoted note to write into either.
+    /// §6: "when both ends have themselves been promoted". An image node is
+    /// never promoted by this plan's `PromotionTarget` list, so it can never
+    /// satisfy the rule — and it has no promoted note to write into either.
     func test_aLineTouchingANonTextNodeOffersNothing() {
         var s = scene()
         s.setPromotedItem("res-a", for: CanvasNodeID("a"))
@@ -2522,9 +2663,11 @@ leaves nothing behind. Declined link offers write nothing at all."
 - **Consumes:** `Promotion`, `PromotionSource`, `PromotionTarget`, `PromotionPlan`, `PromotionDiscard` (Task 4); `PromotionPerformer`, `PromotionResult` (Task 5); `CanvasModel` — `scene`, `scraps`, `selectedLineID`, `selectedRegionID`, `flush()` (1C-b Task 4 + Task 3); `RegionInspector.PieceChoice` (1C-b Task 7); `ProjectStore.manifest.structure` + `TreeWalk.collect(in:where:)`; `MaughamEvent.post(_:to:)` and `View.onKeyWindowCommand(_:window:perform:)` (`Maugham/Events/MaughamEvent+Receive.swift:18`).
 - **Produces:**
   - `Notification.Name.maughamPromoteCanvasSelection`.
-  - `@Observable final class PromotionSheetModel` — `init(source:scene:scraps:pieces:)`, `let source`, `var availableTargets: [PromotionTarget]`, `var blockedReason: String?`, `private(set) var selectedTarget: PromotionTarget?`, `func select(_:)`, `var editedTitle: String`, `var linksAccepted: Bool`, `var selectedPieceID: String?`, `var preview: PromotionPlan?`, `var resolvedPlan: PromotionPlan?`, `var canCommit: Bool`, `var discardNotice: String`, `static let precedenceNote: String`.
+  - `@Observable final class PromotionSheetModel` — `init(source:scene:scraps:pieces:)`, `let source`, `var availableTargets: [PromotionTarget]`, `var blockedReason: String?`, `private(set) var selectedTarget: PromotionTarget?`, `func select(_:)`, `var editedTitle: String`, `var linksAccepted: Bool`, `var selectedPieceID: String?`, `var preview: PromotionPlan?`, `var resolvedPlan: PromotionPlan?`, `var canCommit: Bool`, `var discardNotice: String`, `static let precedenceNote: String`, and `static func source(selectedLine:selectedRegion:editingNode:) -> PromotionSource?`.
   - `struct PromotionSheet: View` — `init(model: PromotionSheetModel, onCommit: @escaping (PromotionPlan) -> Void, onCancel: @escaping () -> Void)`.
   - On `CanvasView`: `let store: ProjectStore` (new stored property).
+
+**`store` is read from actions only — never from `body`, and never from anything `body` calls.** `ProjectStore` is `@MainActor @Observable`. SwiftUI registers a dependency on every `@Observable` property an expression in `body` touches, so one `store.manifest…` read anywhere in `CanvasView`'s body tree re-evaluates the whole canvas — its `Canvas` closure, its `TimelineView`, its accessibility children — on every manifest mutation, including the autosave-driven `modified` bump that happens while the writer types in a *different* pane. This is the same hazard 1C-a Task 10 avoided by making `paletteSwatchHexes` a deferred closure rather than a live store read, and it is why the sheet is built from a snapshot: `beginPromotion()` reads `store.manifest.structure` **once**, at the moment the writer invokes the command, and hands `PromotionSheetModel` a plain `[PieceChoice]`. The two legal readers are `beginPromotion()` and `performPromotion(_:)`, both of which run from a user action. Adding a third means asking first whether it is on the `body` path.
 
 **Two defaults are deliberate and must not be "improved":** `selectedTarget` starts nil, so nothing can be committed by pressing return on a sheet that just appeared; `linksAccepted` starts false, because an offer that arrives pre-accepted is an imposition with a checkbox.
 
@@ -2683,6 +2826,42 @@ final class PromotionSheetTests: XCTestCase {
         XCTAssertTrue(note.contains("wiki-link"))
         XCTAssertTrue(note.contains("scratch"))
     }
+
+    // MARK: - What "Promote…" acts on
+
+    /// Line beats region beats the scrap being edited. Pure logic behind a
+    /// menu command, so it is cheap to pin and expensive to discover wrong:
+    /// the failure is a writer invoking Promote… on a selected line and being
+    /// offered the region it happens to sit in.
+    func test_aSelectedLineWinsOverEverything() {
+        XCTAssertEqual(
+            PromotionSheetModel.source(selectedLine: CanvasLineID("l1"),
+                                       selectedRegion: CanvasRegionID("r1"),
+                                       editingNode: CanvasNodeID("a")),
+            .line(CanvasLineID("l1")))
+    }
+
+    func test_aSelectedRegionWinsOverTheScrapBeingEdited() {
+        XCTAssertEqual(
+            PromotionSheetModel.source(selectedLine: nil,
+                                       selectedRegion: CanvasRegionID("r1"),
+                                       editingNode: CanvasNodeID("a")),
+            .region(CanvasRegionID("r1")))
+    }
+
+    func test_theScrapBeingEditedIsTheFallback() {
+        XCTAssertEqual(
+            PromotionSheetModel.source(selectedLine: nil, selectedRegion: nil,
+                                       editingNode: CanvasNodeID("a")),
+            .scrap(CanvasNodeID("a")))
+    }
+
+    /// Nothing selected, nothing being edited: the command is inert rather
+    /// than opening an empty sheet.
+    func test_nothingSelectedPromotesNothing() {
+        XCTAssertNil(PromotionSheetModel.source(selectedLine: nil, selectedRegion: nil,
+                                                editingNode: nil))
+    }
 }
 ```
 
@@ -2717,6 +2896,25 @@ final class PromotionSheetModel {
     static let precedenceNote =
         "Wiki-links are durable and travel with your project. "
         + "Canvas lines are scratch — they stay on the canvas."
+
+    /// What "Promote…" acts on, given what the canvas currently has selected.
+    ///
+    /// Line beats region beats the scrap being edited. A writer who has just
+    /// drawn or clicked a line means the line, not the region it happens to
+    /// sit inside; and a writer typing in a scrap has already said which one,
+    /// so the command needs no selection state of its own.
+    ///
+    /// `static` and pure so the precedence is testable. It was a private
+    /// computed property on `CanvasView` in an earlier draft, where nothing
+    /// could reach it.
+    static func source(selectedLine: CanvasLineID?,
+                       selectedRegion: CanvasRegionID?,
+                       editingNode: CanvasNodeID?) -> PromotionSource? {
+        if let selectedLine { return .line(selectedLine) }
+        if let selectedRegion { return .region(selectedRegion) }
+        if let editingNode { return .scrap(editingNode) }
+        return nil
+    }
 
     let source: PromotionSource
     let pieces: [RegionInspector.PieceChoice]
@@ -2901,6 +3099,15 @@ Add the store, the window accessor and the sheet state:
     /// canvas needs it. `projectRoot` stays as it is — the sidecar path is a
     /// separate concern from the project graph and 1C-b's initialiser already
     /// carries it.
+    ///
+    /// **Never read this from `body`, or from anything `body` calls.**
+    /// `ProjectStore` is `@Observable`: any body expression that touches one of
+    /// its properties registers an observation, and the whole canvas — draw
+    /// closure, timeline, accessibility children — then re-evaluates on every
+    /// manifest mutation, including the `modified` bump an autosave in another
+    /// pane produces. `paletteSwatchHexes` is a deferred closure for exactly
+    /// this reason (1C-a Task 10). The only readers are `beginPromotion()` and
+    /// `performPromotion(_:)`, both invoked from a user action.
     let store: ProjectStore
 
     /// `onKeyWindowCommand` needs the hosting window (the `WindowAccessor`
@@ -2930,14 +3137,20 @@ and on `CanvasView`'s own body (not `ProjectWindow.body`):
 `.sheet(item:)` needs identity; add `extension PromotionSheetModel: Identifiable { var id: ObjectIdentifier { ObjectIdentifier(self) } }` in `PromotionSheet.swift`.
 
 ```swift
-    /// What "Promote…" acts on: the selected line, else the selected region,
-    /// else the scrap whose editor is mounted. No new selection state — a
-    /// writer who has clicked into a scrap has already told us which one.
+    /// What "Promote…" acts on. The precedence itself lives in
+    /// `PromotionSheetModel.source(…)` — pure, and pinned by three tests —
+    /// because a precedence rule buried in a private computed property on a
+    /// `View` is a rule nothing can check.
+    ///
+    /// `editingNodeID` is the right third term, not `mountedEditorNodeID` and
+    /// not `visibleEditorNodeID`: the question is *which scrap is the writer
+    /// in*, which is 1C-a Task 10's first column. The other two describe the
+    /// editor's lifecycle and would make "Promote…" answer differently
+    /// depending on where a 120 ms animation had got to.
     private var promotionSource: PromotionSource? {
-        if let line = model.selectedLineID { return .line(line) }
-        if let region = model.selectedRegionID { return .region(region) }
-        if let node = editingNodeID { return .scrap(node) }
-        return nil
+        PromotionSheetModel.source(selectedLine: model.selectedLineID,
+                                   selectedRegion: model.selectedRegionID,
+                                   editingNode: editingNodeID)
     }
 
     private func beginPromotion() {
@@ -2971,7 +3184,7 @@ In `existingEditorSwitch`'s `.canvas` arm, add `store: store` to the existing `C
 - [ ] **Step 7: Run the tests and a Release build**
 
 Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/PromotionSheetTests CODE_SIGNING_ALLOWED=NO`
-Expected: PASS, 13 tests.
+Expected: PASS, 17 tests (13 plus the four `source(…)` precedence tests).
 
 Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/TripwireGrepTests CODE_SIGNING_ALLOWED=NO`
 Expected: PASS — the new event is posted through `MaughamEvent.post` and received through `onKeyWindowCommand`, so no raw `NotificationCenter` appears.
@@ -3329,8 +3542,10 @@ Add `ListCanvasTool.self` to `MCPToolCatalog.all` in `Maugham/MCP/MCPTool.swift`
 **A new MCP tool breaks at least three tools-list tests** (onboarding milestone lesson). Fix all of them in this commit:
 
 - `MaughamTests/MCP/MCPProtocolHandlersTests.swift` — add `"list_canvas"` to the hardcoded name set (around line 58).
-- `CLAUDE.md` — the MCP row's `**52 tools**` becomes `**53 tools**`. `DocSyncTests.test_toolCountSyncedAcrossDocsAndCatalog` regexes `\*\*(\d+) tools\*\*` and compares against `MCPToolCatalog.all.count`.
-- `Maugham/MCP/AREA.md` — `## Tool catalogue (52)` becomes `(53)`, plus a one-line entry for `list_canvas`.
+- `CLAUDE.md` — the MCP row's `**52 tools**` becomes `**53 tools**`. `DocSyncTests.test_toolCountSyncedAcrossDocsAndCatalog` regexes `\*\*(\d+) tools\*\*` and compares against `MCPToolCatalog.all.count`. **Confirm the phrase is there before you start**: `grep -n '\*\*52 tools\*\*' CLAUDE.md`. It was deleted and restored on 2026-07-25 (`d9e8a43`), and with it missing `DocSyncTests` is red on main and this edit has no target.
+- `Maugham/MCP/AREA.md` — **two** literals, and `DocSyncTests` catches only the first because it matches on `firstMatch`:
+  - the `## Tool catalogue (52)` heading → `(53)`, plus a one-line entry for `list_canvas`;
+  - `AREA.md:92`'s prose in the dev-only Test MCP section — *"not part of the production 52-tool count above — the \"Tool catalogue (52)\" heading is unaffected"* — carries the number **twice more**. Update both. Find every one with `grep -n "52" Maugham/MCP/AREA.md` rather than trusting these line numbers.
 
 Any count literal must be derived from `MCPToolCatalog.all.count` in code; the two doc numbers are the only hardcoded copies and `DocSyncTests` is what keeps them honest.
 
@@ -3355,31 +3570,25 @@ whenever a writer is working. Residents and visitors are reported apart."
 
 ---
 
-### Task 8: `add_canvas_scraps` — paper → photo → Claude → canvas (spec §8A.2)
+### Task 8: `CanvasClaudeAddition` — the scene mutation behind Claude's additions
 
 **Files:**
 - Create: `Maugham/Canvas/CanvasClaudeAddition.swift`
-- Modify: `Maugham/MCP/Tools/CanvasTools.swift`
-- Modify: `Maugham/MCP/MCPTool.swift` (one catalog entry)
-- Modify: `Maugham/MCP/AREA.md`, `CLAUDE.md` (tool count 53 → 54, plus the row)
-- Modify: `MaughamTests/MCP/MCPProtocolHandlersTests.swift`
 - Test: `MaughamTests/Canvas/CanvasClaudeAdditionTests.swift`
-- Test: `MaughamTests/MCP/Tools/CanvasWriteToolTests.swift`
 
-**Spec §8A.2 is the whole task, and its two constraints are load-bearing:**
+**This task is pure.** No MCP, no store, no `async`, no I/O — one `inout CanvasScene` function and its layout arithmetic. Task 9 is the tool that calls it. They were one task in an earlier draft: two RED/GREEN cycles, two test files and ~590 lines under one checkbox, where the tool's schema and the placement arithmetic could each hide behind the other's green.
 
-1. *"Claude-created nodes must be visibly marked as such."* Every node this tool creates gets `author = .claude` (Task 1), which the renderer draws as a filled dot and `CanvasAccessibility` announces as "Read by Claude" (Task 2).
-2. *"The reproduction corollary applies in full… the photo stays on the canvas, and what Claude derives from it is visibly tied to it. A region containing both the image and its derived scraps is the natural form… Derived nodes must never be placed loose where their origin is unrecoverable."* So this tool creates the source node **and** the region **and** the scraps in one act, and **there is no parameter that could place a derived node anywhere else**. The corollary is enforced by the signature, not by good behaviour.
+**Spec §8A.2's second constraint is enforced HERE, structurally, and that is why it is its own task.** *"The reproduction corollary applies in full… the photo stays on the canvas, and what Claude derives from it is visibly tied to it. A region containing both the image and its derived scraps is the natural form… Derived nodes must never be placed loose where their origin is unrecoverable."* `apply` creates the source node, the region and the scraps **together or not at all**, and its signature has no parameter that could separate them — no position, no node id, no region id. The corollary is a property of this function, not of the tool's good behaviour, and not of Claude's.
 
-**Constitutionally this is permitted, and the reasoning is recorded rather than assumed** (spec §8A.2, `docs/constitution.md` must-not #1 and its corollary): must-not #1 forbids AI *originating manuscript text*; the canvas is a planning surface in the parallel plane, exactly where Claude already writes annotations, translations and palette material. Nothing Claude puts on the canvas is manuscript, and nothing reaches the manuscript except through promotion (§6), which is a deliberate writer act.
-
-**No accept/reject queue.** The canvas is scratch by construction: the writer moves, edits, deletes or promotes Claude's nodes exactly as they would their own. The marking is what makes that a real choice.
+Spec §8A.2's first constraint — *"Claude-created nodes must be visibly marked as such"* — is `author = .claude` on every scrap this function creates (Task 1), which the renderer draws as a filled dot and `CanvasAccessibility` announces as "Read by Claude" (Task 2). **The source node stays `.human`**: the writer photographed it, Claude only read it.
 
 **Interfaces:**
-- **Consumes:** `CanvasScene`, `CanvasNode`, `CanvasNodeID` (+ `.item(_:)`), `CanvasNodeKind`, `CanvasRegion`, `CanvasRegionID`, `CanvasMembership.join(_:home:in:)` / `addAppearance(_:to:in:)` / `homeRegion(of:in:)`, `CanvasScene.setAuthor(_:for:)`; `CanvasSource.read(store:url:)` and `ListCanvasTool`'s file (Task 7); `CanvasModel.beginGesture(_:)`/`withScene(persist:_:)`/`setScrapText(_:for:)`/`endGesture()`/`flush()`; `CanvasStore(projectRoot:).load()/save(scene:scraps:)`; `TreeWalk.first(in:where:)`; `MCPError.invalidArgument(_:)`.
-- **Produces:** `enum CanvasClaudeAddition` — the six layout constants, `struct CreatedScrap: Equatable`, `struct Outcome: Equatable`, `static func apply(sourceReferenceID:sourceTitle:regionLabel:texts:to:) -> Outcome?`; `enum AddCanvasScrapsTool: MCPTool` with nested `Params`/`Result`.
+- **Consumes:** `CanvasScene`, `CanvasNode`, `CanvasNodeID` (+ `.item(_:)`), `CanvasNodeKind`, `CanvasRegion`, `CanvasRegionID` (1C-a Task 1, 1C-b Task 1); `CanvasMembership.join(_:home:in:)` / `addAppearance(_:to:in:)` / `homeRegion(of:in:)` (1C-b Task 2); `CanvasScene.setAuthor(_:for:)` (Task 1).
+- **Produces:** `enum CanvasClaudeAddition` — the six layout constants, `struct CreatedScrap: Equatable`, `struct Outcome: Equatable`, `static func apply(sourceReferenceID:sourceTitle:regionLabel:texts:to:) -> Outcome?`.
+- **Produces nothing MCP-facing.** `AddCanvasScrapsTool` is Task 9.
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Write the failing test**
+
 
 `MaughamTests/Canvas/CanvasClaudeAdditionTests.swift`:
 
@@ -3521,147 +3730,13 @@ final class CanvasClaudeAdditionTests: XCTestCase {
 }
 ```
 
-`MaughamTests/MCP/Tools/CanvasWriteToolTests.swift`:
-
-```swift
-import XCTest
-import MaughamCore
-@testable import Maugham
-
-@MainActor
-final class CanvasWriteToolTests: XCTestCase {
-
-    private func makeProject() async throws -> (URL, ProjectStore, ProjectRegistry, String) {
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CWT-\(UUID())")
-        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(
-            at: tmp.appendingPathComponent("research"), withIntermediateDirectories: true)
-        let manifest = ProjectManifest(
-            type: .novel, title: "T", author: "A",
-            created: Date(), modified: Date(), structure: [], research: [])
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        try encoder.encode(manifest).write(to: tmp.appendingPathComponent("project.maugham.json"))
-        let store = try await ProjectStore.load(from: tmp)
-        // The photographed page, already in the project — this is what the
-        // phone Capture inbox promotes into (spec §8A.2).
-        let photo = try await store.addResearchTextNote(parentId: nil, title: "page 3")
-        let reg = ProjectRegistry()
-        reg.register(url: tmp, store: store)
-        return (tmp, store, reg, photo.id)
-    }
-
-    private func call(_ reg: ProjectRegistry, _ url: URL,
-                      sourceID: String, texts: [String] = ["The falls at night"],
-                      label: String? = nil) async throws -> AddCanvasScrapsTool.Result {
-        var request: [String: Any] = [
-            "project_id": ProjectIdentifier.id(for: url),
-            "source_research_id": sourceID,
-            "scraps": texts,
-        ]
-        if let label { request["region_label"] = label }
-        let data = try await AddCanvasScrapsTool.handle(
-            paramsJSON: try JSONSerialization.data(withJSONObject: request), registry: reg)
-        return try JSONDecoder().decode(AddCanvasScrapsTool.Result.self, from: data)
-    }
-
-    func test_theCatalogIncludesTheWriteToolExactlyOnce() {
-        let methods = MCPToolCatalog.all.map { $0.method }
-        XCTAssertEqual(methods.filter { $0 == "add_canvas_scraps" }.count, 1)
-    }
-
-    /// The corollary, enforced by the SIGNATURE: there is no parameter that
-    /// could put a derived node anywhere but the region holding its source.
-    func test_theSchemaHasNoWayToPlaceANodeOutsideTheSourcesRegion() throws {
-        let schema = try JSONSerialization.jsonObject(
-            with: Data(AddCanvasScrapsTool.inputSchemaJSON.utf8)) as! [String: Any]
-        let properties = schema["properties"] as! [String: Any]
-        XCTAssertEqual(Set(properties.keys),
-                       ["project_id", "source_research_id", "scraps", "region_label"],
-                       "no x/y, no node_id, no region_id — the region is DERIVED from the "
-                       + "source, never addressed by the caller")
-        XCTAssertEqual(Set(schema["required"] as! [String]),
-                       ["project_id", "source_research_id", "scraps"],
-                       "source_research_id is required: a derived node with no recoverable "
-                       + "origin must be unrepresentable")
-    }
-
-    func test_itWritesToDiskWhenNoWindowIsOpen() async throws {
-        let (url, _, reg, photoID) = try await makeProject()
-        let result = try await call(reg, url, sourceID: photoID,
-                                    texts: ["The falls at night", "October's doctor"])
-
-        let (scene, scraps) = CanvasStore(projectRoot: url).load()
-        XCTAssertEqual(result.node_ids.count, 2)
-        XCTAssertEqual(Set(result.node_ids.map { scraps[CanvasNodeID($0)] }),
-                       ["The falls at night", "October's doctor"])
-        for id in result.node_ids {
-            XCTAssertEqual(scene.node(CanvasNodeID(id))?.author, .claude)
-        }
-        let region = try XCTUnwrap(scene.region(CanvasRegionID(result.region_id)))
-        XCTAssertTrue(region.homeMembers.contains(CanvasNodeID(result.source_node_id))
-                      || region.appearances.contains(CanvasNodeID(result.source_node_id)))
-    }
-
-    func test_itWritesThroughTheLiveModelAndTheWriterCanTakeItBack() async throws {
-        let (url, store, reg, photoID) = try await makeProject()
-        let model = CanvasModel()
-        model.load(projectRoot: url)
-        model.undoManager.groupsByEvent = false
-        store.canvasModel = model
-
-        _ = try await call(reg, url, sourceID: photoID)
-        XCTAssertEqual(model.scene.count, 2, "the source node and one derived scrap")
-        XCTAssertEqual(model.scene.regions.count, 1)
-
-        model.undoManager.undo()
-        XCTAssertTrue(model.scene.isEmpty,
-                      "the writer deletes Claude's nodes exactly as they would their own "
-                      + "(§8A.2) — including with ⌘Z")
-        XCTAssertTrue(model.scene.regions.isEmpty)
-    }
-
-    func test_theDefaultRegionLabelNamesTheSource() async throws {
-        let (url, store, reg, photoID) = try await makeProject()
-        let model = CanvasModel()
-        model.load(projectRoot: url)
-        store.canvasModel = model
-        let result = try await call(reg, url, sourceID: photoID)
-        XCTAssertEqual(model.scene.region(CanvasRegionID(result.region_id))?.label,
-                       "Read from “page 3”")
-    }
-
-    func test_anUnknownSourceResearchIDFailsLoudly() async throws {
-        let (url, _, reg, _) = try await makeProject()
-        do {
-            _ = try await call(reg, url, sourceID: "not-a-real-id")
-            XCTFail("expected a refusal")
-        } catch MCPError.invalidArgument {
-            // ok — tools fail loudly on unknown ids
-        }
-        XCTAssertTrue(CanvasStore(projectRoot: url).load().scene.isEmpty)
-    }
-
-    func test_anEmptyScrapListFailsLoudlyAndLeavesNoRegion() async throws {
-        let (url, _, reg, photoID) = try await makeProject()
-        do {
-            _ = try await call(reg, url, sourceID: photoID, texts: ["  "])
-            XCTFail("expected a refusal")
-        } catch MCPError.invalidArgument {
-            // ok
-        }
-        XCTAssertTrue(CanvasStore(projectRoot: url).load().scene.regions.isEmpty)
-    }
-}
-```
-
-- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **Step 2: Run test to verify it fails**
 
 Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasClaudeAdditionTests CODE_SIGNING_ALLOWED=NO`
 Expected: FAIL — `cannot find 'CanvasClaudeAddition' in scope`.
 
 - [ ] **Step 3: Write `Maugham/Canvas/CanvasClaudeAddition.swift`**
+
 
 ```swift
 import Foundation
@@ -3813,7 +3888,197 @@ enum CanvasClaudeAddition {
 }
 ```
 
-- [ ] **Step 4: Add the tool to `Maugham/MCP/Tools/CanvasTools.swift`**
+
+- [ ] **Step 4: Run the tests**
+
+Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasClaudeAdditionTests CODE_SIGNING_ALLOWED=NO`
+Expected: PASS, 10 tests. A folder path here runs **zero** tests and reports success — confirm the count in the output.
+
+Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasMembershipTests CODE_SIGNING_ALLOWED=NO`
+Expected: still PASS — `apply` joins through `CanvasMembership`, so this is the check that it did not grow a second membership path.
+
+No Release build: this task touches no view.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add Maugham/Canvas/CanvasClaudeAddition.swift MaughamTests/Canvas/CanvasClaudeAdditionTests.swift project.yml
+git commit -m "feat(canvas): the scene mutation behind Claude's canvas additions
+
+The source node, the region and the derived scraps are created together or
+not at all, and the signature has no parameter that could separate them.
+The constitution's reproduction corollary is a property of this function."
+```
+
+---
+
+### Task 9: `add_canvas_scraps` — paper → photo → Claude → canvas (spec §8A.2)
+
+**Files:**
+- Modify: `Maugham/MCP/Tools/CanvasTools.swift`
+- Modify: `Maugham/MCP/MCPTool.swift` (one catalog entry)
+- Modify: `Maugham/MCP/AREA.md`, `CLAUDE.md` (tool count 53 → 54, plus the row)
+- Modify: `MaughamTests/MCP/MCPProtocolHandlersTests.swift`
+- Test: `MaughamTests/MCP/Tools/CanvasWriteToolTests.swift`
+
+**The whole scene mutation is Task 8's `CanvasClaudeAddition.apply`.** This task is the tool around it: resolve the project, resolve the source research item, refuse bad input loudly, and route to the live `CanvasModel` when a window has one or to the sidecar when it does not. Nothing here re-implements placement, and there must be exactly one definition of where Claude puts things — two hand-written copies would be two answers.
+
+**The tool's schema is the second half of spec §8A.2's corollary.** `Params` has `project_id`, `source_research_id`, `scraps` and an optional `region_label`, and **nothing else**. There is no position, no node id and no region id, because the region is *derived* rather than addressed: Claude cannot choose to put a derived node somewhere its source is not. Adding such a parameter would be a constitutional change, not a feature.
+
+**Constitutionally this is permitted, and the reasoning is recorded rather than assumed** (spec §8A.2, `docs/constitution.md` must-not #1 and its corollary): must-not #1 forbids AI *originating manuscript text*; the canvas is a planning surface in the parallel plane, exactly where Claude already writes annotations, translations and palette material. Nothing Claude puts on the canvas is manuscript, and nothing reaches the manuscript except through promotion (§6), which is a deliberate writer act.
+
+**No accept/reject queue.** The canvas is scratch by construction: the writer moves, edits, deletes or promotes Claude's nodes exactly as they would their own. The marking is what makes that a real choice.
+
+**Interfaces:**
+- **Consumes:** `CanvasClaudeAddition.apply(sourceReferenceID:sourceTitle:regionLabel:texts:to:)` and `Outcome` (Task 8); `CanvasSource` and `CanvasTools.swift` (Task 7); `CanvasModel.beginGesture(_:)` / `withScene(persist:_:)` / `setScrapText(_:for:)` / `endGesture()` / `flush()` (1C-b Task 4); `CanvasStore(projectRoot:).load()` / `save(scene:scraps:)` (1C-a Task 5); `ProjectStore.canvasModel` (Task 7 Step 3); `MCPTool` (`static var method/description/inputSchemaJSON`, `@MainActor static func handle(paramsJSON:registry:)` — there is no `name` and no `run(projectRoot:)`); `TreeWalk.first(in:where:)`; `MCPError.invalidArgument(_:)`.
+- **Produces:** `enum AddCanvasScrapsTool: MCPTool` with nested `Params`/`Result`, plus one `MCPToolCatalog.all` entry.
+
+- [ ] **Step 1: Write the failing test**
+
+
+`MaughamTests/MCP/Tools/CanvasWriteToolTests.swift`:
+
+```swift
+import XCTest
+import MaughamCore
+@testable import Maugham
+
+@MainActor
+final class CanvasWriteToolTests: XCTestCase {
+
+    private func makeProject() async throws -> (URL, ProjectStore, ProjectRegistry, String) {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CWT-\(UUID())")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("research"), withIntermediateDirectories: true)
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A",
+            created: Date(), modified: Date(), structure: [], research: [])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(to: tmp.appendingPathComponent("project.maugham.json"))
+        let store = try await ProjectStore.load(from: tmp)
+        // The photographed page, already in the project — this is what the
+        // phone Capture inbox promotes into (spec §8A.2).
+        let photo = try await store.addResearchTextNote(parentId: nil, title: "page 3")
+        let reg = ProjectRegistry()
+        reg.register(url: tmp, store: store)
+        return (tmp, store, reg, photo.id)
+    }
+
+    private func call(_ reg: ProjectRegistry, _ url: URL,
+                      sourceID: String, texts: [String] = ["The falls at night"],
+                      label: String? = nil) async throws -> AddCanvasScrapsTool.Result {
+        var request: [String: Any] = [
+            "project_id": ProjectIdentifier.id(for: url),
+            "source_research_id": sourceID,
+            "scraps": texts,
+        ]
+        if let label { request["region_label"] = label }
+        let data = try await AddCanvasScrapsTool.handle(
+            paramsJSON: try JSONSerialization.data(withJSONObject: request), registry: reg)
+        return try JSONDecoder().decode(AddCanvasScrapsTool.Result.self, from: data)
+    }
+
+    func test_theCatalogIncludesTheWriteToolExactlyOnce() {
+        let methods = MCPToolCatalog.all.map { $0.method }
+        XCTAssertEqual(methods.filter { $0 == "add_canvas_scraps" }.count, 1)
+    }
+
+    /// The corollary, enforced by the SIGNATURE: there is no parameter that
+    /// could put a derived node anywhere but the region holding its source.
+    func test_theSchemaHasNoWayToPlaceANodeOutsideTheSourcesRegion() throws {
+        let schema = try JSONSerialization.jsonObject(
+            with: Data(AddCanvasScrapsTool.inputSchemaJSON.utf8)) as! [String: Any]
+        let properties = schema["properties"] as! [String: Any]
+        XCTAssertEqual(Set(properties.keys),
+                       ["project_id", "source_research_id", "scraps", "region_label"],
+                       "no x/y, no node_id, no region_id — the region is DERIVED from the "
+                       + "source, never addressed by the caller")
+        XCTAssertEqual(Set(schema["required"] as! [String]),
+                       ["project_id", "source_research_id", "scraps"],
+                       "source_research_id is required: a derived node with no recoverable "
+                       + "origin must be unrepresentable")
+    }
+
+    func test_itWritesToDiskWhenNoWindowIsOpen() async throws {
+        let (url, _, reg, photoID) = try await makeProject()
+        let result = try await call(reg, url, sourceID: photoID,
+                                    texts: ["The falls at night", "October's doctor"])
+
+        let (scene, scraps) = CanvasStore(projectRoot: url).load()
+        XCTAssertEqual(result.node_ids.count, 2)
+        XCTAssertEqual(Set(result.node_ids.map { scraps[CanvasNodeID($0)] }),
+                       ["The falls at night", "October's doctor"])
+        for id in result.node_ids {
+            XCTAssertEqual(scene.node(CanvasNodeID(id))?.author, .claude)
+        }
+        let region = try XCTUnwrap(scene.region(CanvasRegionID(result.region_id)))
+        XCTAssertTrue(region.homeMembers.contains(CanvasNodeID(result.source_node_id))
+                      || region.appearances.contains(CanvasNodeID(result.source_node_id)))
+    }
+
+    func test_itWritesThroughTheLiveModelAndTheWriterCanTakeItBack() async throws {
+        let (url, store, reg, photoID) = try await makeProject()
+        let model = CanvasModel()
+        model.load(projectRoot: url)
+        model.undoManager.groupsByEvent = false
+        store.canvasModel = model
+
+        _ = try await call(reg, url, sourceID: photoID)
+        XCTAssertEqual(model.scene.count, 2, "the source node and one derived scrap")
+        XCTAssertEqual(model.scene.regions.count, 1)
+
+        model.undoManager.undo()
+        XCTAssertTrue(model.scene.isEmpty,
+                      "the writer deletes Claude's nodes exactly as they would their own "
+                      + "(§8A.2) — including with ⌘Z")
+        XCTAssertTrue(model.scene.regions.isEmpty)
+    }
+
+    func test_theDefaultRegionLabelNamesTheSource() async throws {
+        let (url, store, reg, photoID) = try await makeProject()
+        let model = CanvasModel()
+        model.load(projectRoot: url)
+        store.canvasModel = model
+        let result = try await call(reg, url, sourceID: photoID)
+        XCTAssertEqual(model.scene.region(CanvasRegionID(result.region_id))?.label,
+                       "Read from “page 3”")
+    }
+
+    func test_anUnknownSourceResearchIDFailsLoudly() async throws {
+        let (url, _, reg, _) = try await makeProject()
+        do {
+            _ = try await call(reg, url, sourceID: "not-a-real-id")
+            XCTFail("expected a refusal")
+        } catch MCPError.invalidArgument {
+            // ok — tools fail loudly on unknown ids
+        }
+        XCTAssertTrue(CanvasStore(projectRoot: url).load().scene.isEmpty)
+    }
+
+    func test_anEmptyScrapListFailsLoudlyAndLeavesNoRegion() async throws {
+        let (url, _, reg, photoID) = try await makeProject()
+        do {
+            _ = try await call(reg, url, sourceID: photoID, texts: ["  "])
+            XCTFail("expected a refusal")
+        } catch MCPError.invalidArgument {
+            // ok
+        }
+        XCTAssertTrue(CanvasStore(projectRoot: url).load().scene.regions.isEmpty)
+    }
+}
+```
+
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasWriteToolTests CODE_SIGNING_ALLOWED=NO`
+Expected: FAIL — `cannot find 'AddCanvasScrapsTool' in scope`. `CanvasClaudeAddition` already exists (Task 8), so a failure naming *it* means Task 8 was skipped.
+
+- [ ] **Step 3: Add the tool to `Maugham/MCP/Tools/CanvasTools.swift`**
+
 
 ```swift
 /// `add_canvas_scraps(project_id, source_research_id, scraps[], region_label?)`
@@ -3912,17 +4177,25 @@ public enum AddCanvasScrapsTool: MCPTool {
 }
 ```
 
-- [ ] **Step 5: Register it and update the counts**
+
+- [ ] **Step 4: Register it and update the counts**
+
 
 Add `AddCanvasScrapsTool.self` to `MCPToolCatalog.all`, then — in the same commit, exactly as Task 7 — `"add_canvas_scraps"` into `MCPProtocolHandlersTests`' name set, `**53 tools**` → `**54 tools**` in CLAUDE.md, and `## Tool catalogue (53)` → `(54)` plus a row in `Maugham/MCP/AREA.md`.
 
-- [ ] **Step 6: Run the tests and a Release build**
+**And the Test-MCP paragraph's prose count again** — `grep -n "53" Maugham/MCP/AREA.md` and update every hit, not just the heading. `DocSyncTests` uses `firstMatch`, so a stale second literal passes the suite and is still wrong.
 
-Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasClaudeAdditionTests CODE_SIGNING_ALLOWED=NO`
-Expected: PASS, 10 tests.
 
-Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasWriteToolTests CODE_SIGNING_ALLOWED=NO`
+- [ ] **Step 5: Run the tests and a Release build**
+
+Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasWriteToolTests CODE_SIGNING_ALLOWED=NO`
 Expected: PASS, 7 tests.
+
+Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasClaudeAdditionTests CODE_SIGNING_ALLOWED=NO`
+Expected: still PASS, 10 tests — Task 8's contract is unchanged by the tool wrapping it.
+
+Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/DocSyncTests CODE_SIGNING_ALLOWED=NO`
+Expected: PASS — the count edits landed on all their targets.
 
 Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham test CODE_SIGNING_ALLOWED=NO`
 Expected: full Mac suite green — the catalog changed again.
@@ -3930,10 +4203,10 @@ Expected: full Mac suite green — the catalog changed again.
 Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham -configuration Release build CODE_SIGNING_ALLOWED=NO`
 Expected: BUILD SUCCEEDED.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add Maugham/Canvas/CanvasClaudeAddition.swift Maugham/MCP CLAUDE.md MaughamTests project.yml
+git add Maugham/MCP CLAUDE.md MaughamTests/MCP project.yml
 git commit -m "feat(mcp): add_canvas_scraps (53→54) — paper → photo → Claude → canvas
 
 Every created card is marked as Claude's, and the source image plus
@@ -3944,7 +4217,7 @@ corollary is enforced by what the signature cannot express."
 
 ---
 
-### Task 9: The readiness guard, the ADR, and the milestone sweep
+### Task 10: The readiness guard, the ADR, and the milestone sweep
 
 **Files:**
 - Test: `MaughamTests/Canvas/CanvasReadinessTests.swift`
@@ -3954,7 +4227,7 @@ corollary is enforced by what the signature cannot express."
 - Modify: `docs/guide/` (the Plan-persona topic 1C-a Task 17 created), `docs/roadmap.md`, `docs/problem-map.md`
 
 **Interfaces:**
-- **Consumes:** everything Tasks 1–8 shipped; `ProjectStore.projectWordCount` (`Maugham/Stores/ProjectStore.swift`), `ProjectStore.manifest.structure`, `CanvasStore.scrapsRelativePath` (1C-a Task 5, `"canvas.md"`).
+- **Consumes:** everything Tasks 1–9 shipped; `ProjectStore.projectWordCount` (`Maugham/Stores/ProjectStore.swift`), `ProjectStore.manifest.structure`, `CanvasStore.scrapsRelativePath` (1C-a Task 5, `"canvas.md"`).
 - **Produces:** no production Swift. One test file, and documentation.
 
 - [ ] **Step 1: The readiness guard**
@@ -4058,6 +4331,8 @@ Add a **"Lines"** section:
 - Deleting a node deletes its lines (`CanvasScene.remove`), and self-lines are rejected in `insertLine` — the loader goes through `insertLine` so that rule is single-sourced.
 - `CanvasLineHit.distance` clamps at both endpoints. Without the clamp, a click far beyond a card still lands on the infinite line the segment sits on.
 - Lines are hit-tested **only where no card was hit**, so a line running under a card never steals that card's click.
+- **The draw pass culls lines to the viewport** — `CanvasRenderer.visibleLines`, never `lineGeometry`, inside `drawLines`. Per-frame work on this surface is viewport-proportional by design (the same rule `visibleNodes` and `visibleRegions` follow, and the reason 1C-a's 2,000-node probe passes); a writer can draw a line per card, so lines are not a bounded collection and "there are fewer lines than nodes" is not an argument. Note the hairline inset in `visibleLines`: an axis-aligned line has a zero-height or zero-width bounding box and `CGRect.intersects` is false for an empty rect, so without it every horizontal and vertical line on the canvas would silently stop drawing.
+- **Layer depths are `regionLayerDepth = 0`, `lineLayerDepth = 1`, `nodeLayerDepth = 2`.** They document the draw order; the order itself is the sequence of calls in `CanvasView`'s draw closure. 1C-c raised `nodeLayerDepth` from 1 to open the slot.
 
 Add a **"Promotion"** section:
 
@@ -4069,6 +4344,8 @@ Add a **"Promotion"** section:
 - `PromotionPerformer` is `@MainActor` and `async` because every `ProjectStore` creation API is; **no `inout` may appear on that path** — an `inout` cannot cross an `await`. An earlier draft of the 1C-c plan declared it synchronous and could not have compiled.
 - The `flushPendingSave()` before every body write, with the symptom: a queued 750 ms `scheduleFileSave` fires after the write and blanks the note (`AddNoteTool.swift:48-55`).
 - Validate first, write second: a refused promotion leaves nothing behind.
+- **`CanvasView.store` is read from actions only — never from `body`, and never from anything `body` calls.** `ProjectStore` is `@Observable`, so a single store read inside the body tree registers an observation and re-evaluates the entire canvas — draw closure, timeline, accessibility children — on every manifest mutation, including the `modified` bump an autosave in another pane produces. This is why `paletteSwatchHexes` is a deferred closure rather than a live read (1C-a Task 10), and why `beginPromotion()` snapshots `store.manifest.structure` into a plain `[PieceChoice]` at command time instead of handing the sheet the store. The two legal readers are `beginPromotion()` and `performPromotion(_:)`. Named symptom if the rule is broken: the canvas stutters while the writer types somewhere else entirely.
+- **What "Promote…" acts on lives in `PromotionSheetModel.source(selectedLine:selectedRegion:editingNode:)`**, pure and pinned by tests — line beats region beats the scrap being edited. The third term is `editingNodeID` (*which scrap is the writer in*), **not** `mountedEditorNodeID` or `visibleEditorNodeID`, which describe the editor's lifecycle and would make the command answer differently depending on where the 120 ms straighten had got to.
 
 Add an **"MCP"** section:
 
@@ -4090,7 +4367,7 @@ Record, citing constitution principles by name per CLAUDE.md:
 
 - **Lines are untyped** — Kinopio's April 2026 removal after years in production; the optional free-text label is the empirically supported floor; the precedence statement (§5) is in the promotion sheet's footer, because Obsidian's three-year confusion is a consequence of never answering "which of these is the real relationship?"
 - **Promotion is one previewable verb** — Scrivener's Commit as the precedent; Shipman & Marshall's conditional licence for machine inference (safe **iff** the writer sees it and can reject it cheaply); why the same inference applied silently is forbidden.
-- **A line promotes only between promoted ends**, with the resolver evidence. **This is a deviation from a literal reading of spec §6** ("when both ends are text") and must be recorded as one: the literal reading produces a link that resolves to nothing.
+- **A line promotes only between promoted ends** — spec §6's line row, implemented literally, with the **resolver evidence that is the reason for the rule**. Record the evidence, not a deviation: `[[X]]` resolves against the manifest (`ProjectStore.resolveDocumentId(forTitle:)` over documents; `ListAllLinksTool`'s title index over documents *and* research items), and a scrap is in neither — so a link naming an unpromoted scrap resolves to nothing, and writing one would manufacture the precision §6.1 forbids. Record `Promotion.blockedReason` as where the writer is told, and the precedence rule as what they are told. **Do not write that this deviates from the spec.** An earlier spec draft read "when both ends are text" and an earlier draft of this plan recorded a deviation from it; the spec row was corrected on 2026-07-25 and this plan matches it exactly. An ADR is permanent — a deviation recorded here would outlive the draft that caused it and would misdescribe the code to everyone who reads it afterwards.
 - **The gesture question (§10) is resolved** as a menu command on the current selection at ⌘⇧↩, with the rail and the context menu rejected for stated reasons, the ⌘⇧P collision noted, and the fallback named.
 - **The MCP write surface (§10) is resolved** as one tool whose region is derived rather than addressed, and why that is the corollary enforced structurally.
 - **Claude-authored nodes reuse `AnnotationAuthor.SourceKind`** rather than a second provenance enum.
@@ -4098,11 +4375,33 @@ Record, citing constitution principles by name per CLAUDE.md:
 
 - [ ] **Step 4: Add the tripwire**
 
-Add to CLAUDE.md's tripwire table. 1C-a adds 25 and 26 and 1C-b adds 27, so **this is 28** — confirm with `grep -n "^| 2[5-9] " CLAUDE.md` before writing:
+Add **one** row to CLAUDE.md's tripwire table. **This slice takes number 32.**
+
+The arithmetic, and where each number was verified — an earlier draft said "1C-a adds 25 and 26 and 1C-b adds 27, so this is 28", and every clause of that was wrong:
+
+| Plan | Numbers it adds | Verified at |
+|---|---|---|
+| main today | 1–24 | the row count in CLAUDE.md's tripwire table (24), re-checked 2026-07-25 |
+| 1C-a | **25–30** — six rows, not two: magnification/`scaleEffect`, `textStorage` vs `attributedString`, the frontmost-editor/mount-vs-visible rule, fold-on-`textDidChange`, the settled predicate, and no scene-proportional work off a per-frame counter | 1C-a Task 17 Step 3 |
+| 1C-b | **31** — canvas membership is never derived from geometry (1C-b's own text still says "28"; that is stale against 1C-a's six and is 1C-b's to fix) | 1C-b Task 8 Step 3 |
+| **1C-c (this plan)** | **32** | below |
+| 1C-d | **none** — its `CanvasEditorIdentifierCensusTests` is added to **tripwire 27's** "Enforced / more" column, because 27 already *is* the mount-versus-visible rule and a second number for one rule is how a tripwire table stops being read | 1C-d Task 8 Step 6, verified 2026-07-25 |
+
+**The `grep -n "^| 2[5-9] "` this step used to prescribe could not have caught any of that** — it cannot see a row at 30 or above, which is exactly where the collision was. Widen it, and renumber if the table has moved:
+
+```bash
+grep -n "^| [0-9]\+ " CLAUDE.md | tail -8
+```
+
+Take the next free number, write the row, and make ADR 0027 cite the **same** number — a tripwire whose ADR points at a different row is worse than no tripwire.
 
 | # | Rule | Why (1 clause) | Enforced / more |
 |---|---|---|---|
-| 28 | Nothing on the canvas becomes durable except through `PromotionPerformer`, and Claude cannot create a canvas node without its source in the same region — no position/node/region parameter may be added to `add_canvas_scraps` | the promotion seam is the whole reason the canvas can be scratch, and a derived node whose origin is unrecoverable is the constitution's reproduction corollary broken | `PromotionTests`, `PromotionPerformerTests`, `CanvasWriteToolTests.test_theSchemaHasNoWayToPlaceANodeOutsideTheSourcesRegion`; ADR 0027 |
+| 32 | Nothing on the canvas becomes durable except through `PromotionPerformer`, and Claude cannot create a canvas node without its source in the same region — no position/node/region parameter may be added to `add_canvas_scraps` | the promotion seam is the whole reason the canvas can be scratch, and a derived node whose origin is unrecoverable is the constitution's reproduction corollary broken | `PromotionTests`, `PromotionPerformerTests`, `CanvasWriteToolTests.test_theSchemaHasNoWayToPlaceANodeOutsideTheSourcesRegion`; ADR 0027 |
+
+**This plan adds no second tripwire for the `mountedEditorNodeID`/`visibleEditorNodeID` seam, deliberately.** That seam has drifted four times, and 1C-d Task 3 answers it with `CanvasEditorIdentifierCensusTests` — a **whole-directory** census over `Maugham/Canvas/` that sanctions exactly two line shapes for `mountedEditorNodeID` (its own declaration, and the `if let id = mountedEditorNodeID` mount gate) and fails on any third, with a self-check that plants an offender and proves the census fires. A whole-directory scan already covers every file this slice adds, and 1C-d attaches it to **tripwire 27** rather than minting a number, because 27 is that rule. Duplicating it here would put one rule under two numbers.
+
+What this plan owes instead is **not introducing a suppression gate at all**, so the census has nothing to catch: `drawLines`, `drawPendingLine` and `visibleLines` read neither identifier, `draw`'s argument list is untouched, and `promotionSource`'s third term is `editingNodeID` rather than either editor-lifecycle property. Task 2 and Step 2's AREA.md bullets state both. If a later change to this slice does gate drawn text, it goes under 27 with the census, not under a new number.
 
 - [ ] **Step 5: Sweep the guide**
 
@@ -4140,7 +4439,7 @@ Expected: all green. The phone suite must be untouched — this slice adds no Ma
 
 ```bash
 git add docs Maugham/Canvas/AREA.md CLAUDE.md MaughamTests/Canvas/CanvasReadinessTests.swift project.yml
-git commit -m "docs(canvas): lines, promotion and the MCP canvas surface; ADR 0027; tripwire 28
+git commit -m "docs(canvas): lines, promotion and the MCP canvas surface; ADR 0027; tripwire 32
 
 Readiness stays silent about the canvas, and there is now a test that says
 so. The roadmap entry is NOT flipped to ✓: §8A.1's images are inside M1C
@@ -4152,7 +4451,7 @@ and 1C-d is unwritten."
 ## Whole-slice verification
 
 - [ ] Full Mac suite, full phone suite, Release build — all green
-- [ ] **Whole-branch review of the 1C-c diff.** Per-task reviews cannot see emergent interactions (the T5×T6 precedent on the unified-undo milestone). Look especially at Task 3's edits to 1C-b's gesture routing and Task 6's `CanvasView` initialiser change.
+- [ ] **Whole-branch review of the 1C-c diff.** Per-task reviews cannot see emergent interactions (the T5×T6 precedent on the unified-undo milestone). Look especially at Task 3's edits to 1C-b's `handleDrag(at:phase:)` switch — three tasks now write into one method, and the branches interleave — and at Task 6's `CanvasView` initialiser change, where the review question is whether `store` stayed off the `body` path.
 - [ ] **Whole-milestone review of 1C-a + 1C-b + 1C-c together.** The scene model has now grown through three schema versions and three plans; per-slice reviews cannot see that.
 - [ ] **MCP dev-app smoke through the raw socket** — `mcp__maugham_test__*` plus `list_canvas` on a real project with scraps, a region holding both residents and visitors, a labelled line, and a Claude-authored card; then `add_canvas_scraps` against a real research item and `list_canvas` again to confirm the region came back with the source inside it. This has caught defects after all tests were green (the commonmark-fountain milestone's E1), and it is the standard pre-smoke.
 - [ ] **Smoke, by hand:**
