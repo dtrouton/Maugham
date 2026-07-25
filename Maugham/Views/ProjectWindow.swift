@@ -157,7 +157,15 @@ struct ProjectWindow: View {
             }
         }
         .frame(minWidth: 980, minHeight: 540)
-        .modifier(TopChromeModifier(projectURL: url))
+        .modifier(TopChromeModifier(
+            projectURL: url,
+            persona: persona,
+            isNoChromeOn: isNoChromeOn,
+            onSelectPersona: { next in
+                MaughamEvent.post(.maughamSetPersona,
+                                  to: .keyWindow,
+                                  payload: ["persona": next.rawValue])
+            }))
         .background(WindowAccessor(window: $window))
         .task(id: url) { await load() }
         .onDisappear {
@@ -371,10 +379,18 @@ struct ProjectWindow: View {
     /// Debug, so adding these inline built locally but failed the Release CI build.
     private struct TopChromeModifier: ViewModifier {
         let projectURL: URL
+        let persona: Persona
+        let isNoChromeOn: Bool
+        let onSelectPersona: (Persona) -> Void
+
         func body(content: Content) -> some View {
             content
                 .safeAreaInset(edge: .top, spacing: 0) {
                     VStack(spacing: 0) {
+                        if PersonaBar.isVisible(isNoChromeOn: isNoChromeOn) {
+                            PersonaBar(persona: persona, onSelect: onSelectPersona)
+                            Divider()
+                        }
                         UpdateBannerView()
                         BackupRecoveryBanner(projectURL: projectURL)
                     }
