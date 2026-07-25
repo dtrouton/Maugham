@@ -217,7 +217,7 @@ This is a schema decision and cannot be retrofitted. It is consistent with where
 **So the whole card straightens when it takes focus, and that is the focus affordance.**
 
 - Click a card → the **entire** card animates to level, chrome and text together, over ~120 ms.
-- The editor mounts on a card that is already axis-aligned. `.rotationEffect` never enters the picture.
+- The editor mounts the instant the card is clicked — so nothing typed straight after a double-click is lost — but it stays **invisible** until the card is level, and the card goes on drawing its own text (live, and rotating) until then. The editor is therefore always axis-aligned by the time it *is* the visible text. `.rotationEffect` never enters the picture.
 - On blur the card settles back to its seeded angle.
 - The card being edited is therefore the only square one on the canvas — a "this one is live" signal that costs nothing, because everything else stays tilted.
 

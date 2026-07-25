@@ -21,7 +21,7 @@
 - **`ProjectWindow.body`'s expression budget is zero.** No new top-level modifier. The canvas reaches the centre column by adding `case canvas` to `BinderSegment` and to `Persona.binderSegments(for:)` — `ProjectWindow.existingEditorSwitch` already routes on `binderSegment`.
 - **`BinderSegmentPicker` requires uniform `Image` children** — every `BinderSegment` must return an SF Symbol from `pickerSymbolName`. Mixed `Image`/`Text` in that `ForEach` shipped smoke defect C on 2026-07-25.
 - **Never `.scaleEffect` for zoom.** It scales rendered output (blurry text), reports unscaled geometry, and breaks `NSCursor` tracking (spec §7A.1).
-- **Seeded irregularity must be stable** — derived from the node id, never random per frame (spec §7.2). It applies to the **whole card**, chrome and text together. The card that takes focus **animates to level over ~120 ms and settles back on blur** (spec §7A.5) — the snap is the focus affordance, and it is what lets the editor always mount axis-aligned. Task 7 owns the interpolated value; Task 10 owns the clock that drives it.
+- **Seeded irregularity must be stable** — derived from the node id, never random per frame (spec §7.2). It applies to the **whole card**, chrome and text together. The card that takes focus **animates to level over ~120 ms and settles back on blur** (spec §7A.5) — the straighten is the focus affordance, and it is what lets the editor always *become the visible text* axis-aligned. The editor itself mounts on the click, so no keystroke is lost; only its visibility waits. Task 7 owns the interpolated value; Task 10 owns the clock that drives it.
 - **`NotificationCenter` (tripwire 21).** The *subscribe* patterns in `TripwireGrepTests` are scoped to `.maugham` names, so observing `NSApplication.willTerminateNotification` needs no annotation. **The *post* pattern is NOT scoped**: `TripwireGrepTests.adr0021PostPattern` is the bare string `NotificationCenter\.default\.post\(`, and `MaughamTests/` is one of the scanned directories. So any `NotificationCenter.default.post(` this plan writes — including the one in Task 5's test — must carry `// adr-0021-ok: <reason>` **on the line where the call starts**, or `test_noRawMaughamPostsOrSubscriptionsOutsideWrapper` fails. No `maugham.*` post or subscription outside `MaughamEvent` at all; nothing here needs one.
 - **`ContentUnavailableView` needs `.frame(maxWidth: .infinity, maxHeight: .infinity)`** and the enclosing `VStack` needs `alignment: .top` (tripwire 15 — recurred 4+ times).
 - **`Maugham.xcodeproj/` is generated and gitignored.** Never `git add` anything under it. A `project.pbxproj` in a diff is a red flag.
@@ -1994,9 +1994,18 @@ editor so AppKit gives the writer caret placement and word selection."
     - `static func visibleNodes(in scene: CanvasScene, camera: CanvasCamera, viewSize: CGSize) -> [CanvasNode]`
     - `static func placeholderLabel(forReference referenceId: String) -> String`
     - `static let resizeHandleSize: CGFloat`
-    - `static func draw(scene: CanvasScene, camera: CanvasCamera, viewSize: CGSize, layouts: [CanvasNodeID: ScrapLayout], mountedEditorNodeID: CanvasNodeID?, straighten: CanvasFocusStraighten, into cx: inout GraphicsContext)` — **`mountedEditorNodeID:` suppresses that node's TEXT only.** Its **card is still drawn** — §7A.5 makes the focused card the only square one on the canvas, and there is nothing to be square if the card vanishes.
+    - `static func drawsOwnText(_ id: CanvasNodeID, visibleEditorNodeID: CanvasNodeID?) -> Bool`
+    - `static func draw(scene: CanvasScene, camera: CanvasCamera, viewSize: CGSize, layouts: [CanvasNodeID: ScrapLayout], visibleEditorNodeID: CanvasNodeID?, straighten: CanvasFocusStraighten, into cx: inout GraphicsContext)` — **`visibleEditorNodeID:` suppresses that node's TEXT only.** Its **card is still drawn** — §7A.5 makes the focused card the only square one on the canvas, and there is nothing to be square if the card vanishes.
 
-    **The parameter is named for the editor being MOUNTED, not for the node being edited, and the difference is load-bearing.** The two diverge for the ~120 ms of the straighten: `CanvasView.editingNodeID` is set the instant the writer clicks, but the editor does not mount until the card reaches level (§7A.5, and Task 10's gate). Passing `editingNodeID` here would blank the drawn text from frame one while nothing was yet drawing it — the glyphs would vanish, then reappear straight, which is the §7A.2 jump arriving by the very route §7A.5 exists to close. An earlier draft of this plan spelled the parameter `editingNodeID:` and did exactly that. Task 10 passes one computed property to both this call and the mount, so they cannot disagree.
+    **The parameter is named for the editor being VISIBLE, not for the editor existing and not for the node being edited.** Task 10 keeps three states apart and only the third belongs here:
+
+    | | the writer is editing it | its editor exists, is first responder, takes keystrokes | its editor is the visible text |
+    |---|---|---|---|
+    | `CanvasView.editingNodeID` | yes | — | — |
+    | `CanvasView.mountedEditorNodeID` | — | yes, from the click | — |
+    | `CanvasView.visibleEditorNodeID` | — | — | yes, from `isLevel` |
+
+    The mount happens on the click, because an editor that arrives ~120 ms late is ~120 ms in which the writer's first characters reach no editor at all. Its *visibility* is what waits for the straighten. So for that window the editor exists but is not drawn, and this parameter is `nil` — the renderer keeps drawing the card's text, which is the live shared `NSTextStorage` and therefore updates as the writer types. Passing `mountedEditorNodeID` here instead would blank the drawn text from frame one while the invisible editor drew nothing in its place: the glyphs would vanish, then reappear straight, which is the §7A.2 jump arriving by the very route §7A.5 exists to close. An earlier draft of this plan spelled the parameter `editingNodeID:` and did exactly that. Task 10 derives this parameter and the editor's own visibility from **one** property, so the two cannot flip on different frames.
 
 **Two decisions this task makes, both load-bearing.**
 
@@ -2006,7 +2015,7 @@ editor so AppKit gives the writer caret placement and word selection."
 
    Three things follow, and each of them makes the rest of the plan *simpler*:
 
-   - **The editor always mounts axis-aligned** — because Task 10 *gates the mount* on this animation finishing (`isLevel(_:)`), not merely because the animation exists. `.rotationEffect` never arises, so §7A.2's glyph-origin pin compares two unrotated layouts. §7A.5 requirement 1 orders it explicitly: resolve the caret, **then** animate, **then** mount.
+   - **The editor is never the visible text until the card is level** — because Task 10 gates the editor's *visibility* on this animation finishing (`isLevel(_:)`), and gates the renderer's text suppression on the same predicate. The editor itself mounts on the click, so no keystroke is lost; it is simply not drawn yet. `.rotationEffect` never arises, so §7A.2's glyph-origin pin compares two unrotated layouts. §7A.5 requirement 1 orders it: resolve the caret, **then** animate, **then** hand the text over.
    - **The caret index is resolved at click time, in the card's local unrotated space** (§7A.5 requirement 1) — `localPoint(_:inCard:angle:)` is that inverse transform, and it is pure. Straightening first would move the click point out from under the cursor, and the caret would land somewhere the writer did not aim.
    - **Animate, never snap** (§7A.5 requirement 2). An instant jump reads as a rendering bug. The straighten fraction is a value the renderer interpolates — the same per-frame shape as Task 13's momentum decay, driven off the same `TimelineView` clock, so there is no new machinery.
 
@@ -2110,12 +2119,15 @@ final class CanvasRendererTests: XCTestCase {
         XCTAssertTrue(straighten.isSettled, "a settled canvas must pause its clock")
     }
 
-    /// The gate Task 10 mounts the editor behind. §7A.5 requirement 1 orders it:
-    /// caret, then animate, then mount. Mounting at progress 0 puts an
-    /// axis-aligned editor on a card that is still up to 0.6° off level, over the
-    /// unrotated text origin, with the drawn text already suppressed — the glyphs
-    /// jump straight the instant the writer clicks and the card catches up
-    /// afterwards, which is precisely the §7A.2 failure.
+    /// The gate Task 10 REVEALS the editor behind. The editor is mounted and
+    /// taking keystrokes well before this; `isLevel` is when it becomes the
+    /// VISIBLE text and the renderer stops drawing that card's own. §7A.5
+    /// requirement 1 orders it: caret, then animate, then hand the text over.
+    /// Showing the editor at progress 0 puts axis-aligned glyphs on a card that
+    /// is still up to 0.6° off level, at the unrotated text origin, with the
+    /// drawn text already suppressed — the glyphs jump straight the instant the
+    /// writer clicks and the card catches up afterwards, which is precisely the
+    /// §7A.2 failure.
     func test_aCardIsNotLevelUntilTheStraightenCompletes() {
         var straighten = CanvasFocusStraighten()
         let id = CanvasNodeID("s1")
@@ -2140,8 +2152,8 @@ final class CanvasRendererTests: XCTestCase {
         while straighten.step(elapsed: 1.0 / 60) { }
         straighten.focus(nil)
         XCTAssertFalse(straighten.isLevel(id),
-                       "focus has left, so the editor must not still be mounted "
-                       + "on a card that is on its way back to its angle")
+                       "focus has left, so the editor must not still be the "
+                       + "visible text on a card that is on its way back to its angle")
     }
 
     func test_onlyTheFocusedCardIsEverLevel() {
@@ -2155,6 +2167,62 @@ final class CanvasRendererTests: XCTestCase {
         while straighten.step(elapsed: 1.0 / 60) { }
         XCTAssertTrue(straighten.isLevel(CanvasNodeID("s2")))
         XCTAssertFalse(straighten.isLevel(CanvasNodeID("s1")))
+    }
+
+    // MARK: - The handover from drawn text to editor
+
+    /// The half of the swap the renderer owns. While the card is straightening
+    /// its editor is mounted but invisible, so the words on screen are the ones
+    /// this pass draws — and they are drawn from the shared `NSTextStorage` the
+    /// editor is mutating, so they update as the writer types. The renderer
+    /// stops only when the editor becomes visible, at `isLevel`.
+    ///
+    /// Both halves flip on the same value — `CanvasView.visibleEditorNodeID` —
+    /// so there is never a frame with both drawing and never a frame with
+    /// neither. A card blank for a tenth of a second and then full of straight
+    /// glyphs is the §7A.2 jump.
+    func test_theCardKeepsDrawingItsOwnTextUntilTheEditorIsVisible() {
+        var straighten = CanvasFocusStraighten()
+        let id = CanvasNodeID("s1")
+        straighten.focus(id)
+        straighten.step(elapsed: 1.0 / 60)
+
+        // Mid-straighten: nothing is visible-editing, so the card draws its own.
+        XCTAssertFalse(straighten.isLevel(id))
+        XCTAssertTrue(CanvasRenderer.drawsOwnText(id, visibleEditorNodeID: nil),
+                      "the card stopped drawing its text while the editor was "
+                      + "still invisible — the words vanish for ~120ms")
+
+        while straighten.step(elapsed: 1.0 / 60) { }
+        XCTAssertTrue(straighten.isLevel(id))
+        XCTAssertFalse(CanvasRenderer.drawsOwnText(id, visibleEditorNodeID: id),
+                       "the editor is the visible text now; drawing it again "
+                       + "double-draws every glyph (spec §7A.2, the Excalidraw rule)")
+    }
+
+    /// Click from scrap A straight to scrap B while A is still settling back and
+    /// both `isLevel` values are false — so NEITHER is suppressed. At most one
+    /// node is ever suppressed, because the suppression is keyed on a single
+    /// optional rather than on a per-node predicate.
+    func test_atMostOneNodeEverStopsDrawingItsOwnText() {
+        let a = CanvasNodeID("s1")
+        let b = CanvasNodeID("s2")
+        var straighten = CanvasFocusStraighten()
+        straighten.focus(a)
+        while straighten.step(elapsed: 1.0 / 60) { }
+        straighten.focus(b)
+        straighten.step(elapsed: 1.0 / 60)
+
+        XCTAssertFalse(straighten.isLevel(a))
+        XCTAssertFalse(straighten.isLevel(b))
+        XCTAssertTrue(CanvasRenderer.drawsOwnText(a, visibleEditorNodeID: nil),
+                      "A is settling back with no editor on it — it must draw "
+                      + "its own text again the frame focus leaves")
+        XCTAssertTrue(CanvasRenderer.drawsOwnText(b, visibleEditorNodeID: nil))
+
+        while straighten.step(elapsed: 1.0 / 60) { }
+        XCTAssertTrue(CanvasRenderer.drawsOwnText(a, visibleEditorNodeID: b))
+        XCTAssertFalse(CanvasRenderer.drawsOwnText(b, visibleEditorNodeID: b))
     }
 
     /// The sign of the card rotation, pinned against literal trigonometry.
@@ -2386,12 +2454,15 @@ struct CanvasFocusStraighten: Equatable {
     /// True only when this card is the focused one AND has finished
     /// straightening — i.e. it is drawn at exactly 0°.
     ///
-    /// **This is the gate `CanvasView` mounts the editor behind** (§7A.5
-    /// requirement 1: caret, then animate, then mount). Both halves matter: the
-    /// `focusedNodeID` check is what unmounts the editor on blur, and the
-    /// progress check is what keeps it from mounting during the ~120 ms
-    /// straighten, when an axis-aligned editor over a still-tilted card would
-    /// snap the glyphs straight — the §7A.2 failure §7A.5 exists to close.
+    /// **This is the gate `CanvasView` REVEALS the editor behind** (§7A.5
+    /// requirement 1: caret, then animate, then hand the text over). It gates
+    /// visibility, NOT existence: the editor is mounted and first responder from
+    /// the instant the writer clicks, or the first characters of a
+    /// double-click-and-type would reach nothing. Both halves matter: the
+    /// `focusedNodeID` check is what hides the editor again on blur, and the
+    /// progress check is what keeps it hidden during the ~120 ms straighten,
+    /// when axis-aligned glyphs over a still-tilted card would snap straight —
+    /// the §7A.2 failure §7A.5 exists to close.
     func isLevel(_ id: CanvasNodeID) -> Bool {
         focusedNodeID == id && progress(for: id) >= 1
     }
@@ -2470,8 +2541,8 @@ enum CanvasRenderer {
 
     /// The angle a card is ACTUALLY drawn at right now: its seeded angle, scaled
     /// down toward zero as it straightens (spec §7A.5). At full straighten it is
-    /// exactly level, which is what lets the editor mount axis-aligned and the
-    /// §7A.2 glyph-origin pin compare two unrotated layouts.
+    /// exactly level, which is what lets the editor take over the text
+    /// axis-aligned and the §7A.2 glyph-origin pin compare two unrotated layouts.
     static func drawnAngle(for id: CanvasNodeID, straighten: CanvasFocusStraighten) -> Angle {
         .degrees(seededRotation(for: id).degrees * (1 - Double(straighten.progress(for: id))))
     }
@@ -2520,27 +2591,44 @@ enum CanvasRenderer {
         "Item · \(referenceId)"
     }
 
+    /// Whether this pass draws a node's own text, or leaves it to the editor.
+    ///
+    /// The rule is Excalidraw's (spec §7A.2): while a scrap's editor is the
+    /// VISIBLE text, drawing the text too would double-draw it. The converse is
+    /// the half that has been got wrong twice — while the editor is *not*
+    /// visible, this pass must draw, whether or not an editor exists.
+    ///
+    /// A single optional, not a per-node predicate, so at most one node on the
+    /// canvas can ever stop drawing its own text.
+    static func drawsOwnText(_ id: CanvasNodeID, visibleEditorNodeID: CanvasNodeID?) -> Bool {
+        id != visibleEditorNodeID
+    }
+
     /// Draw every visible node under the camera's CTM.
     ///
-    /// `mountedEditorNodeID` suppresses that node's TEXT only: while a scrap's
-    /// editor is live the editor IS the visible text, so drawing it too would
-    /// double-draw (spec §7A.2, the rule borrowed from Excalidraw). Its CARD is
-    /// still drawn — §7A.5 makes the focused card the only square one on the
-    /// canvas, and there is nothing to be square if the card disappears the
-    /// moment it is clicked.
+    /// `visibleEditorNodeID` suppresses that node's TEXT only — see
+    /// `drawsOwnText`. Its CARD is still drawn: §7A.5 makes the focused card the
+    /// only square one on the canvas, and there is nothing to be square if the
+    /// card disappears the moment it is clicked.
     ///
-    /// **It is the node whose editor is MOUNTED, not the node being edited.**
-    /// The two differ for the ~120 ms of the straighten: the writer's click sets
-    /// `CanvasView.editingNodeID` immediately, but the editor does not mount
-    /// until the card reaches level. Blanking the drawn text on the click would
+    /// **It is the node whose editor is VISIBLE — neither the node being edited
+    /// nor the node whose editor merely exists.** All three differ for the
+    /// ~120 ms of the straighten: the writer's click sets
+    /// `CanvasView.editingNodeID` and mounts the editor immediately, so no
+    /// keystroke is lost, but the editor stays invisible until the card is
+    /// level. Through that window this pass keeps drawing the card's text — and
+    /// it is live text, because the layout wraps the same `NSTextStorage` the
+    /// invisible editor is mutating, and `CanvasView.syncActiveEdit` bumps
+    /// `revision` on every keystroke. Blanking it on the click instead would
     /// leave the card empty for that beat and then fill it with axis-aligned
-    /// glyphs — the jump §7A.5 was written to prevent. `CanvasView` passes one
-    /// computed property to this call and to the mount, so they cannot diverge.
+    /// glyphs — the jump §7A.5 was written to prevent. `CanvasView` derives this
+    /// argument and the editor's own visibility from ONE property, so they
+    /// cannot flip on different frames.
     static func draw(scene: CanvasScene,
                      camera: CanvasCamera,
                      viewSize: CGSize,
                      layouts: [CanvasNodeID: ScrapLayout],
-                     mountedEditorNodeID: CanvasNodeID?,
+                     visibleEditorNodeID: CanvasNodeID?,
                      straighten: CanvasFocusStraighten,
                      into cx: inout GraphicsContext) {
         cx.translateBy(x: camera.pan.x, y: camera.pan.y)
@@ -2548,8 +2636,9 @@ enum CanvasRenderer {
 
         for node in visibleNodes(in: scene, camera: camera, viewSize: viewSize) {
             guard let frame = node.frame else { continue }
+            let ownText = drawsOwnText(node.id, visibleEditorNodeID: visibleEditorNodeID)
             drawCard(node, frame: frame,
-                     layout: node.id == mountedEditorNodeID ? nil : layouts[node.id],
+                     layout: ownText ? layouts[node.id] : nil,
                      angle: drawnAngle(for: node.id, straighten: straighten),
                      into: &cx)
         }
@@ -2561,8 +2650,8 @@ enum CanvasRenderer {
     ///
     /// The rotation applies to the WHOLE card, chrome and text together (spec
     /// §7A.5). `angle` is already interpolated by `CanvasFocusStraighten`, so the
-    /// card the editor is about to mount on arrives here at 0°. A `nil` layout
-    /// means "the mounted editor is drawing this scrap's text".
+    /// card the editor is about to take over arrives here at 0°. A `nil` layout
+    /// means "the editor is VISIBLE on this scrap and is drawing its text".
     private static func drawCard(_ node: CanvasNode,
                                  frame: CGRect,
                                  layout: ScrapLayout?,
@@ -2647,7 +2736,7 @@ enum CanvasRenderer {
 - [ ] **Step 4: Run the tests**
 
 Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasRendererTests CODE_SIGNING_ALLOWED=NO`
-Expected: PASS, 19 tests.
+Expected: PASS, 21 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -2659,9 +2748,12 @@ The whole card carries its seeded angle, and the card that takes focus
 animates to level over ~120ms and settles back on blur (spec 7A.5).
 isSettled means every card is at ITS target, not that every progress
 value is 1 — the latter pauses the clock on blur and strands the card
-level. isLevel is the gate Task 10 mounts the editor behind, so the
-editor always mounts axis-aligned and the 7A.2 glyph-origin pin compares
-two unrotated layouts. One cardTransform, used forwards by the draw pass
+level. isLevel is the gate Task 10 REVEALS the editor behind (it mounts
+on the click; only its visibility waits), so the editor always takes over
+the text axis-aligned and the 7A.2 glyph-origin pin compares two
+unrotated layouts. drawsOwnText is the other half of that one swap: at
+most one node ever stops drawing its own text, and only while the editor
+is visible on it. One cardTransform, used forwards by the draw pass
 and inverted by the caret hit test. Pins that no file in Maugham/Canvas
 derives a raster scale or a second rotation of its own."
 ```
@@ -2964,16 +3056,18 @@ with pan/zoom/grainScale uniforms, pinned by a library-resolution test."
 **Interfaces:**
 - **Consumes:** `ScrapLayout` (Task 3); `CanvasCamera` (Task 4).
 - **Produces:**
-  - `final class ScrapEditorContainer: NSView, NSTextViewDelegate` — `private(set) var textView: NSTextView?`, `var canvasUndoManager: UndoManager?`, `var onScroll: ((CGFloat, CGFloat, Bool) -> Void)?`, `var onMagnify: ((CGFloat, CGPoint) -> Void)?`, `var onTextChanged: (() -> Void)?`, `@discardableResult func mount(layout: ScrapLayout, unscaledSize: CGSize, zoom: CGFloat) -> Bool` (returns `true` when the editor was built or rebuilt), `func requestFocus(caretIndex: Int?)`, `func unmount()`; testable seams `applyScroll(deltaX:deltaY:precise:)`, `applyMagnify(magnification:atEditorPoint:)`.
-  - `struct ScrapEditorHost: NSViewRepresentable` — `let layout: ScrapLayout`, `let unscaledSize: CGSize`, `let zoom: CGFloat`, `let caretIndex: Int?`, `let undoManager: UndoManager?`, `let onScroll: (CGFloat, CGFloat, Bool) -> Void`, `let onMagnify: (CGFloat, CGPoint) -> Void`, `let onTextChanged: () -> Void`. **The parameter is `unscaledSize: CGSize`, not `frame: CGRect`** — the host owns the size, `CanvasView` owns the position.
+  - `final class ScrapEditorContainer: NSView, NSTextViewDelegate` — `private(set) var textView: NSTextView?`, `var isEditorVisible: Bool` (default `true`), `var canvasUndoManager: UndoManager?`, `var onScroll: ((CGFloat, CGFloat, Bool) -> Void)?`, `var onMagnify: ((CGFloat, CGPoint) -> Void)?`, `var onTextChanged: (() -> Void)?`, `@discardableResult func mount(layout: ScrapLayout, unscaledSize: CGSize, zoom: CGFloat) -> Bool` (returns `true` when the editor was built or rebuilt), `func requestFocus(caretIndex: Int?)`, `func unmount()`; testable seams `applyScroll(deltaX:deltaY:precise:)`, `applyMagnify(magnification:atEditorPoint:)`.
+  - `struct ScrapEditorHost: NSViewRepresentable` — `let layout: ScrapLayout`, `let unscaledSize: CGSize`, `let zoom: CGFloat`, `let caretIndex: Int?`, `let isEditorVisible: Bool`, `let undoManager: UndoManager?`, `let onScroll: (CGFloat, CGFloat, Bool) -> Void`, `let onMagnify: (CGFloat, CGPoint) -> Void`, `let onTextChanged: () -> Void`. **The parameter is `unscaledSize: CGSize`, not `frame: CGRect`** — the host owns the size, `CanvasView` owns the position.
   - `enum ScrapEditorGeometry` — `static func viewPoint(fromEditorPoint: CGPoint, textOrigin: CGPoint, camera: CanvasCamera) -> CGPoint`.
 
-**Four defects this task exists to not have.** Each is a smoke failure a writer meets in the first minute, and none is caught by a test that counts subviews.
+**Five defects this task exists to not have.** Each is a smoke failure a writer meets in the first minute, and none is caught by a test that counts subviews.
 
 1. **First responder.** `makeNSView` runs *before* the view is in a window, so `tv.window` is `nil` and `tv.window?.makeFirstResponder(tv)` is a silent no-op. Focus is therefore **requested** and claimed again from `viewDidMoveToWindow`.
 2. **Rebinding.** `mount` must rebuild the text view when the *layout identity* changes, not merely when there is no text view. Creating it only `if textView == nil` means clicking from scrap A to scrap B keeps editing A — and a test that counts subviews passes anyway.
 3. **The writer's words never leave the editor.** Typing mutates the shared `NSTextStorage` inside `ScrapLayout`. If nothing tells the canvas that happened, `scraps[id]` still holds the text as it was *before* the writer typed — so the debounced payload is stale, the drawn card never grows, and **double-click empty space → type a sentence → ⌘Q → relaunch leaves an empty scrap.** That is the product constitution's must #1, *the words are safe*, failing on the very first interaction. The container is therefore the text view's `NSTextViewDelegate` and reports every change through `onTextChanged`; Task 10 folds it into the model on the spot.
-4. **The pinch anchor is in the wrong space.** `magnify(with:)` converts `event.locationInWindow` into the **container's** bounds — the scrap's own unzoomed text box. Handing that straight to `camera.zoom(to:anchoringViewPoint:)`, which expects canvas view space, zooms about a point the writer never touched. (`CanvasEventNSView` is correct only because its space *is* canvas space.) So this file forwards a point in its own space, says so in the name (`atEditorPoint:`), and `ScrapEditorGeometry.viewPoint` is the one place that maps it — through `CanvasCamera`'s existing transform, because the focused card is level (§7A.5) and the editor's space is therefore content space translated to the card's text origin.
+4. **The pinch anchor is in the wrong space.** `magnify(with:)` converts `event.locationInWindow` into the **container's** bounds — the scrap's own unzoomed text box. Handing that straight to `camera.zoom(to:anchoringViewPoint:)`, which expects canvas view space, zooms about a point the writer never touched. (`CanvasEventNSView` is correct only because its space *is* canvas space.) So this file forwards a point in its own space, says so in the name (`atEditorPoint:`), and `ScrapEditorGeometry.viewPoint` is the one place that maps it — through `CanvasCamera`'s existing transform, because the editor is placed unrotated at the card's text origin and, while it is *visible*, the card under it is level (§7A.5).
+
+5. **An invisible editor that still swallows the pointer.** The editor is mounted from the instant the writer clicks — otherwise the first characters of a double-click-and-type reach nothing — but for the ~120 ms of the straighten it is not drawn, because the card is still drawing its own rotating text (Task 10). An invisible, frontmost `NSView` that keeps hit-testing is a trap: a click or a pinch inside that window would be resolved against the editor's *unrotated* box while the writer is looking at a card up to 0.6° off level. So visibility and hit testing are the same switch — `isEditorVisible` sets `alphaValue` **and** short-circuits `hitTest(_:)`. First responder is unaffected by both, which is the point: key events go to the window's first responder and never through hit testing, so an invisible editor still takes every keystroke while the pointer passes through to `CanvasEventNSView`, whose space *is* canvas space. Do not reach for `.hidden()` or `isHidden` — AppKit moves first responder off a hidden view, which is exactly the keystroke loss this is here to prevent.
 
 **Zoomed editing uses bounds scaling** — the spike's Q4. Grow the container's `frame` by zoom, hold its `bounds` at the unzoomed size. Coordinates round-trip correctly at every zoom tested (1×–3×) and AppKit re-rasterises, so text stays crisp. Crucially it involves **no re-layout**, so Task 3's proven drawn/edited agreement carries over unchanged. Do not reach for `.scaleEffect`, and do not re-lay-out the editor at a scaled font size.
 
@@ -3099,6 +3193,49 @@ final class ScrapEditorHostTests: XCTestCase {
         let window = host(container)
         container.requestFocus(caretIndex: 0)
         XCTAssertTrue(window.firstResponder === container.textView)
+    }
+
+    /// The whole reason the editor mounts on the click rather than on `isLevel`:
+    /// double-click empty canvas and start typing, and the first characters must
+    /// land somewhere. They land here, in an editor nobody can see yet, while the
+    /// renderer keeps drawing the card's own (rotating, live) text.
+    func test_anInvisibleEditorStillHoldsFocusAndTakesKeystrokes() {
+        let container = ScrapEditorContainer(frame: CGRect(origin: .zero, size: size))
+        let l = layout("before")
+        container.mount(layout: l, unscaledSize: size, zoom: 1)
+        container.isEditorVisible = false
+        let window = host(container)
+        container.requestFocus(caretIndex: 0)
+
+        XCTAssertEqual(container.alphaValue, 0,
+                       "the editor must not be drawn while the card is still "
+                       + "drawing its own text — that is a double-draw")
+        XCTAssertTrue(window.firstResponder === container.textView,
+                      "invisible must not mean unfocused, or the writer's first "
+                      + "characters after a double-click go nowhere")
+
+        container.textView?.insertText("Z", replacementRange: NSRange(location: 0, length: 0))
+        XCTAssertTrue(l.text.hasPrefix("Z"),
+                      "a keystroke during the straighten was discarded")
+    }
+
+    /// Visibility and hit testing are the same switch. While the editor is
+    /// invisible the pointer belongs to `CanvasEventNSView`, whose space IS
+    /// canvas space — so nothing resolves a click or a pinch against the
+    /// editor's unrotated box while the card under it is still tilted.
+    func test_anInvisibleEditorLetsThePointerThroughToTheCanvas() {
+        let container = ScrapEditorContainer(frame: CGRect(origin: .zero, size: size))
+        container.mount(layout: layout(), unscaledSize: size, zoom: 1)
+        host(container)
+        let inside = CGPoint(x: 10, y: 10)
+
+        XCTAssertNotNil(container.hitTest(inside),
+                        "precondition: a visible editor owns its own mouse")
+        container.isEditorVisible = false
+        XCTAssertNil(container.hitTest(inside),
+                     "an invisible editor is still frontmost — if it hit-tests it "
+                     + "eats the click and anchors the pinch on a card that is "
+                     + "not where the writer sees it")
     }
 
     func test_caretIndexBeyondTheTextIsClampedRatherThanCrashing() {
@@ -3255,6 +3392,37 @@ final class ScrapEditorContainer: NSView, NSTextViewDelegate {
     private var wantsFocus = false
     private var pendingCaretIndex: Int?
 
+    /// Whether the editor is the VISIBLE text of its scrap.
+    ///
+    /// It is mounted, focused and taking keystrokes long before this goes true:
+    /// `CanvasView` mounts on the click so nothing the writer types is lost, and
+    /// flips this at `CanvasFocusStraighten.isLevel(_:)`, on the same frame the
+    /// renderer stops drawing that card's own text. While it is `false` the
+    /// words on screen are the drawn ones — the same shared `NSTextStorage`,
+    /// rotating with the card.
+    ///
+    /// It drives TWO things and both are required. `alphaValue` stops the
+    /// double-draw. `hitTest(_:)` stops an invisible frontmost view owning the
+    /// mouse: a click or a pinch inside that window would be resolved against
+    /// this view's UNROTATED box while the card beneath is still up to 0.6° off
+    /// level, so the pointer belongs to `CanvasEventNSView` — whose space is
+    /// canvas space — until the handover is complete.
+    ///
+    /// **Not `isHidden`, and not SwiftUI's `.hidden()`.** AppKit moves first
+    /// responder off a hidden view, which loses exactly the keystrokes mounting
+    /// early exists to keep. `alphaValue` and `hitTest` leave the responder
+    /// chain alone.
+    /// Guarded on a real change: `updateNSView` re-wires this on every body
+    /// pass, and `revision` ticks at frame rate through every straighten, coast
+    /// and drag — an unguarded `alphaValue` write would dirty the layer 60–120
+    /// times a second to set it to the value it already had.
+    var isEditorVisible: Bool = true {
+        didSet {
+            guard isEditorVisible != oldValue else { return }
+            alphaValue = isEditorVisible ? 1 : 0
+        }
+    }
+
     var canvasUndoManager: UndoManager?
     var onScroll: ((CGFloat, CGFloat, Bool) -> Void)?
     /// (magnification delta, point in THIS view's own unzoomed space). NOT
@@ -3266,6 +3434,14 @@ final class ScrapEditorContainer: NSView, NSTextViewDelegate {
     var onTextChanged: (() -> Void)?
 
     override var isFlipped: Bool { true }
+
+    /// See `isEditorVisible`. Returning `nil` takes this view out of the hit
+    /// chain entirely, so the click reaches `CanvasEventNSView` beneath it — and
+    /// leaves first responder, and therefore every keystroke, untouched.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard isEditorVisible else { return nil }
+        return super.hitTest(point)
+    }
 
     /// `NSTextView` asks its delegate, then walks the responder chain. This
     /// container is its superview, so returning the canvas manager here is what
@@ -3377,14 +3553,29 @@ final class ScrapEditorContainer: NSView, NSTextViewDelegate {
 /// VIEW space.
 ///
 /// The editor's space is content space translated to the card's text origin —
-/// exactly, and with **no rotation term**. That is only true because
-/// `CanvasView` gates the mount on `CanvasFocusStraighten.isLevel(_:)`, so this
-/// type never sees a card mid-straighten (spec §7A.5 requirement 1: caret, then
-/// animate, then mount). Mounting on the click instead would leave this mapping
-/// wrong by up to 0.6° of card rotation for the whole ~120 ms window, and the
-/// pinch would anchor somewhere the writer did not touch. So the mapping is a
-/// translation followed by the camera's own transform, with nothing bespoke to
-/// keep in sync — and the gate is what pays for that simplicity.
+/// exactly, and with **no rotation term**, because `CanvasView` places the
+/// container at the UNROTATED text origin and the container itself is never
+/// rotated. As a mapping of the editor's own box this is unconditionally right.
+///
+/// What it cannot express is the card's *drawn* angle, and there is now a window
+/// in which those differ: the editor is mounted from the click (so no keystroke
+/// is lost) while the card spends ~120 ms straightening under it. Anchoring a
+/// pinch through here during that window would be off by up to `r·θ` — ≈1.4 pt
+/// at the corner of a default card — from where the writer's fingers are on the
+/// card they can see.
+///
+/// **That window is closed by hit testing, not by arithmetic.** This function is
+/// only ever reached from an event the container received, and
+/// `ScrapEditorContainer.hitTest(_:)` returns `nil` while `isEditorVisible` is
+/// false, so the event goes to `CanvasEventNSView` instead — whose space *is*
+/// canvas space, with no approximation at all. By the time anything reaches this
+/// function the card is level and drawn angle and editor box agree exactly.
+///
+/// The one thing that can still read the editor's geometry while it is invisible
+/// is AppKit's own input-method candidate window, which anchors on the text
+/// view's rect. Its error is bounded by the same ≈1.4 pt the unrotated hit test
+/// already accepts, and it lasts a tenth of a second; it is accepted, not
+/// overlooked.
 enum ScrapEditorGeometry {
     static func viewPoint(fromEditorPoint point: CGPoint,
                           textOrigin: CGPoint,
@@ -3395,7 +3586,8 @@ enum ScrapEditorGeometry {
 }
 
 /// SwiftUI wrapper. Exactly one of these is ever in the hierarchy — the scrap
-/// currently being edited (spec §7A.1).
+/// currently being edited (spec §7A.1). It is in the hierarchy from the instant
+/// the writer clicks; `isEditorVisible` is what waits for the straighten.
 struct ScrapEditorHost: NSViewRepresentable {
     let layout: ScrapLayout
     /// The TEXT box size, in content points. `CanvasView` owns the position and
@@ -3405,6 +3597,11 @@ struct ScrapEditorHost: NSViewRepresentable {
     /// Where the writer clicked, so the caret lands where they aimed
     /// (spec §7A.2, the rule borrowed from Miro).
     let caretIndex: Int?
+    /// Whether this editor is the visible text yet — see
+    /// `ScrapEditorContainer.isEditorVisible`. `CanvasView` derives it from the
+    /// same property it hands the renderer, so the editor appearing and the card
+    /// ceasing to draw its text happen on one frame.
+    let isEditorVisible: Bool
     let undoManager: UndoManager?
     let onScroll: (CGFloat, CGFloat, Bool) -> Void
     /// (magnification delta, point in the EDITOR's own unzoomed space). The
@@ -3437,6 +3634,7 @@ struct ScrapEditorHost: NSViewRepresentable {
     }
 
     private func wire(_ c: ScrapEditorContainer) {
+        c.isEditorVisible = isEditorVisible
         c.canvasUndoManager = undoManager
         c.onScroll = onScroll
         c.onMagnify = onMagnify
@@ -3448,7 +3646,7 @@ struct ScrapEditorHost: NSViewRepresentable {
 - [ ] **Step 4: Run the tests and a Release build**
 
 Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/ScrapEditorHostTests CODE_SIGNING_ALLOWED=NO`
-Expected: PASS, 15 tests.
+Expected: PASS, 17 tests.
 
 Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham -configuration Release build CODE_SIGNING_ALLOWED=NO`
 Expected: BUILD SUCCEEDED. **A Debug pass is not evidence** — the Release type-check budget is stricter, and v0.8.0 shipped a Release-only failure this way.
@@ -3463,7 +3661,13 @@ Focus is requested and claimed on viewDidMoveToWindow (makeNSView has no
 window yet); mount rebinds on layout identity, not on textView == nil;
 the container is the text view's delegate so every keystroke reaches the
 model rather than living only in the shared NSTextStorage; and the pinch
-anchor it forwards is named for the space it is actually in."
+anchor it forwards is named for the space it is actually in.
+
+isEditorVisible is one switch over alphaValue AND hitTest, so the editor
+can be mounted and first responder while the card is still straightening
+without double-drawing its text or stealing the pointer. Never isHidden:
+AppKit moves first responder off a hidden view, which loses the very
+keystrokes mounting early exists to keep."
 ```
 
 ---
@@ -3480,9 +3684,25 @@ anchor it forwards is named for the space it is actually in."
 
 **Layer order is the defect this task exists to not have.** The ZStack is `CanvasGround` → `Canvas` → `CanvasEventView` → `ScrapEditorHost`, and the **editor is frontmost**. If the event view were in front it would eat click-to-place-caret, drag-select and double-click-word — the headline interaction — while every test still passed. Ground and `Canvas` opt out of hit testing so the event view reaches everything the editor does not cover. The editor container forwards `scrollWheel`/`magnify` back to the camera so panning and zooming still work with the pointer over the focused scrap.
 
-**The editor mounts when the card is level, not when the writer clicks — and the renderer is told about the mount, not the click.** Spec §7A.5 requirement 1 orders it: resolve the caret, **then** animate, **then** mount. An earlier draft set `editingNodeID` and called `straighten.focus(_:)` in the same turn, which satisfied `mountedEditor`'s `if let id = editingNodeID` on the very next body pass, at progress 0. For the whole ~120 ms the drawn text was suppressed, an axis-aligned editor rendered it at the *unrotated* text origin, and the chrome underneath was still up to 0.6° off level and closing — so the glyphs jumped straight the instant the writer clicked and the card caught up afterwards. That is the §7A.2 failure, reached by the exact route §7A.5 was rewritten to close, and `ScrapEditorGeometry.viewPoint`'s "no rotation term" was wrong for the same window.
+**The editor mounts on the click; it becomes VISIBLE when the card is level. Those are two different things and this task keeps them apart.** Spec §7A.5 requirement 1 orders the handover — resolve the caret, **then** animate, **then** let the editor be the text — and §7A.5 licenses "a beat between click and caret". It does not license discarded keystrokes.
 
-One computed property, `mountedEditorNodeID`, gates the mount **and** feeds the renderer's text suppression, so the drawn text stays visible *and rotating* right up to the frame the editor takes over. No new machinery is needed: `straighten.focus(_:)` already unpauses the clock, so the mount lands ~120 ms later on its own. `CanvasCompositionTests` pins it, because nothing else can observe it — the mount is a `@ViewBuilder` branch on private `@State`.
+Two drafts each got one half of this wrong, in opposite directions:
+
+- The first set `editingNodeID` and called `straighten.focus(_:)` in the same turn, and let the editor be the visible text from the very next body pass, at progress 0. For the whole ~120 ms axis-aligned glyphs sat at the *unrotated* text origin over chrome that was still up to 0.6° off level and closing, with the drawn text already suppressed — so the glyphs jumped straight the instant the writer clicked and the card caught up afterwards. That is the §7A.2 failure by §7A.5's own route.
+- The second fixed the jump by deferring the **mount** to `isLevel`. But an editor that does not exist cannot be first responder: double-click empty canvas, start typing immediately, and the first character or two go nowhere at all.
+
+So there are two properties, and the names have to make the difference unmissable because one name serving both meanings is what produced the first draft:
+
+| property | means | gate |
+|---|---|---|
+| `mountedEditorNodeID` | the editor **exists** — in the hierarchy, first responder, taking keystrokes | `editingNodeID`, from the click |
+| `visibleEditorNodeID` | the editor **is the visible text** | `editingNodeID` **and** `straighten.isLevel(id)` |
+
+Through the straighten the editor exists and is invisible, and the renderer keeps drawing the card's text. That drawn text is *live*: `layouts[id]` wraps the same `NSTextStorage` the invisible editor is mutating, and `syncActiveEdit` already folds every keystroke back into `scraps` and bumps `revision`, so the words appear on the rotating card as they are typed. At `isLevel` the editor becomes visible and the renderer stops drawing that node's text — **both flip on `visibleEditorNodeID`, one property read once per body pass**, so there is never a frame with both and never a frame with neither. That is the whole correctness argument: the swap reveals nothing that was not already on screen, and no keystroke is lost.
+
+No new machinery is needed: `straighten.focus(_:)` already unpauses the clock, so the reveal lands ~120 ms later on its own. `CanvasCompositionTests` pins it, because nothing else can observe it — the mount is a `@ViewBuilder` branch on private `@State`.
+
+**Clicking from scrap A straight to scrap B while A is still settling back** is the case where all of this has to hold at once. `handleClick` calls `commitActiveEdit()` (A's text is folded into the model), then sets `editingNodeID = B` and `straighten.focus(B)`. `isLevel(A)` is false the same frame — `focus(_:)` moves `focusedNodeID` — and `isLevel(B)` is false because B has only just started, so `visibleEditorNodeID` is `nil` and **both** cards draw their own text. Exactly one node can ever be suppressed because the suppression is keyed on a single optional, not on a per-node predicate. And A's editor is not left invisible-but-mounted: `mountedEditorNodeID` is now B, the `if let` branch stays taken, so SwiftUI reuses the same `ScrapEditorHost` and `updateNSView` calls `mount(layout:)` with B's layout — which rebinds on layout identity (Task 9's defect 2) and tears A's text view out. Only leaving for empty canvas takes the branch away, and that is the path `dismantleNSView`/`unmount()` covers.
 
 **The words are safe, and that is not the same as "there is a save path".** Typing mutates the `NSTextStorage` inside `ScrapLayout`; nothing else knows until this view is told. So there are three commit points, and all three are required:
 
@@ -3537,13 +3757,33 @@ final class CanvasCompositionTests: XCTestCase {
             .joined(separator: "\n")
     }
 
-    /// Just the `body` property. `mountedEditorNodeID` is mentioned inside the
-    /// draw closure, ABOVE the event view, so a search over the whole file finds
-    /// the wrong "mountedEditor" and the z-order assertion becomes meaningless.
+    /// Just the `body` property, so a search over the whole file cannot find a
+    /// "mountedEditor" outside the ZStack and make the z-order assertion
+    /// meaningless.
     private func bodySource(_ src: String) throws -> String {
         let start = try XCTUnwrap(src.range(of: "var body: some View"))
         let end = try XCTUnwrap(src.range(of: "private var mountedEditorNodeID"),
                                 "the mount gate must be declared after `body`")
+        return String(src[start.upperBound..<end.lowerBound])
+    }
+
+    /// One declaration, from its name to the next blank line. `codeOnly` has
+    /// already dropped the doc comments, so what separates declarations is
+    /// exactly the blank lines the author left between them.
+    private func declarationSource(_ src: String, named name: String) throws -> String {
+        let start = try XCTUnwrap(src.range(of: name), "\(name) is not declared")
+        let rest = String(src[start.lowerBound...])
+        let end = rest.range(of: "\n\n")?.lowerBound ?? rest.endIndex
+        return String(rest[rest.startIndex..<end])
+    }
+
+    /// The whole `mountedEditor` property — `isEditorVisible:` is an ARGUMENT to
+    /// `ScrapEditorHost`, so a slice that stops at `ScrapEditorHost(` cannot see
+    /// it. `load()` is the declaration that follows.
+    private func mountedEditorBuilder(_ src: String) throws -> String {
+        let start = try XCTUnwrap(src.range(of: "private var mountedEditor: some View"))
+        let end = try XCTUnwrap(src.range(of: "private func load()"),
+                                "`load()` must follow `mountedEditor`")
         return String(src[start.upperBound..<end.lowerBound])
     }
 
@@ -3555,9 +3795,9 @@ final class CanvasCompositionTests: XCTestCase {
         let body = try bodySource(src)
         let event = try XCTUnwrap(body.range(of: "CanvasEventView("),
                                   "CanvasView no longer composes CanvasEventView")
-        // The frontmost layer is the LAST thing in the ZStack, and `body`'s other
-        // mention of the name — `mountedEditorNodeID:` in the draw call — sits
-        // above the event view, so `.backwards` finds the composition slot.
+        // The frontmost layer is the LAST thing in the ZStack, so `.backwards`
+        // finds the composition slot even if a future edit adds another mention
+        // of the name above the event view.
         let slot = try XCTUnwrap(body.range(of: "mountedEditor", options: .backwards),
                                  "CanvasView no longer composes mountedEditor")
         XCTAssertTrue(event.lowerBound < slot.lowerBound,
@@ -3589,43 +3829,61 @@ final class CanvasCompositionTests: XCTestCase {
             + "clicks never reach the event view")
     }
 
-    /// §7A.5 requirement 1: caret, THEN animate, THEN mount. The editor must not
-    /// appear until the card it sits on has finished straightening — an
-    /// axis-aligned editor over a card that is still up to 0.6° off level, at the
-    /// unrotated text origin, with the drawn text already suppressed, snaps the
-    /// glyphs straight the instant the writer clicks. That is the §7A.2 failure
-    /// arriving by the route §7A.5 exists to close, and no runtime test can see
-    /// it: the mount is a @ViewBuilder branch on private @State.
-    func test_theEditorMountsOnlyOnceTheCardHasFinishedStraightening() throws {
+    /// The editor must EXIST from the click. §7A.5 licenses a late caret, not
+    /// lost keystrokes: gate the mount itself on `isLevel` and the first
+    /// character or two of a double-click-and-type reach no editor at all.
+    /// No runtime test can see this — the mount is a @ViewBuilder branch on
+    /// private @State.
+    func test_theEditorMountsOnTheClickSoNoKeystrokeIsLost() throws {
         let src = codeOnly(try canvasViewSource())
-        XCTAssertTrue(src.contains("straighten.isLevel("),
-                      "the mount is not gated on the straighten completing — the "
-                      + "editor appears at progress 0 and the text jumps straight")
+        let gate = try declarationSource(src, named: "private var mountedEditorNodeID")
+        XCTAssertTrue(gate.contains("editingNodeID"))
+        XCTAssertFalse(gate.contains("isLevel"),
+                       "the MOUNT is gated on the straighten, so the editor does "
+                       + "not exist while the writer is typing into it — only "
+                       + "visibleEditorNodeID may read isLevel")
 
-        XCTAssertNotNil(src.range(of: "private var mountedEditorNodeID"),
-                        "one property must gate both the mount and the renderer's "
-                        + "text suppression, or the two can diverge")
-
-        // The mounted-editor builder branches on the GATED id, never the raw one.
-        let declaration = try XCTUnwrap(src.range(of: "private var mountedEditor: some View"))
-        let rest = String(src[declaration.upperBound...])
-        let host = try XCTUnwrap(rest.range(of: "ScrapEditorHost("))
-        let builder = String(rest[rest.startIndex..<host.lowerBound])
-        XCTAssertTrue(builder.contains("mountedEditorNodeID"))
-        XCTAssertFalse(builder.contains("if let id = editingNodeID"),
-                       "mountedEditor is branching on the raw editingNodeID, so it "
-                       + "mounts on the click rather than on the straighten")
+        // The builder mounts off that property, not off the visibility one.
+        let builder = try mountedEditorBuilder(src)
+        XCTAssertTrue(builder.contains("if let id = mountedEditorNodeID"),
+                      "the editor must be built off the MOUNT gate")
+        XCTAssertFalse(builder.contains("if let id = visibleEditorNodeID"),
+                       "mountedEditor is branching on visibility — the "
+                       + "deferred-mount defect wearing the new names")
     }
 
-    /// The same id feeds the draw pass, so the drawn text stays visible AND
-    /// rotating until the editor is ready to take over. Suppressing it on the
-    /// click blanks the card for ~120ms and then fills it with straight glyphs.
-    func test_theRendererIsToldAboutTheMountRatherThanTheClick() throws {
+    /// …and must be INVISIBLE until the card is level. Axis-aligned glyphs at
+    /// the unrotated text origin over a card still up to 0.6° off level, with
+    /// the drawn text already suppressed, snap straight the instant the writer
+    /// clicks — the §7A.2 failure by the route §7A.5 exists to close.
+    func test_theEditorIsInvisibleUntilTheCardIsLevel() throws {
         let src = codeOnly(try canvasViewSource())
-        XCTAssertTrue(src.contains("mountedEditorNodeID: mountedEditorNodeID"),
-                      "CanvasRenderer.draw must be handed the GATED id — passing "
-                      + "editingNodeID suppresses the drawn text while nothing is "
-                      + "yet drawing it in its place")
+        let gate = try declarationSource(src, named: "private var visibleEditorNodeID")
+        XCTAssertTrue(gate.contains("straighten.isLevel("),
+                      "the visibility gate must be its own named property, "
+                      + "distinct from the mount gate, and it must read isLevel — "
+                      + "otherwise the editor is visible at progress 0 and the "
+                      + "text jumps straight")
+
+        let builder = try mountedEditorBuilder(src)
+        XCTAssertTrue(builder.contains("isEditorVisible: visibleEditorNodeID == id"),
+                      "the editor's visibility must come from the same property "
+                      + "the renderer is handed, or the two flip on different frames")
+    }
+
+    /// The correctness argument in one assertion: the renderer's text
+    /// suppression and the editor's visibility read ONE property, so the swap
+    /// reveals nothing that was not already on screen. Two spellings of the
+    /// predicate is a frame with both drawing, or a frame with neither.
+    func test_theRendererAndTheEditorSwapOnTheSamePredicate() throws {
+        let src = codeOnly(try canvasViewSource())
+        XCTAssertTrue(src.contains("visibleEditorNodeID: visibleEditorNodeID"),
+                      "CanvasRenderer.draw must be handed the VISIBILITY id — "
+                      + "passing the mount id suppresses the drawn text while an "
+                      + "invisible editor draws nothing in its place")
+        XCTAssertEqual(src.components(separatedBy: "straighten.isLevel(").count - 1, 1,
+                       "there must be exactly one place the straighten is asked "
+                       + "whether the card is level; a second is a second predicate")
     }
 
     /// I7. The editor forwards a point in its OWN unzoomed space; anchoring the
@@ -3741,7 +3999,7 @@ struct CanvasView: View {
                     _ = drawRevision
                     CanvasRenderer.draw(scene: scene, camera: camera, viewSize: size,
                                         layouts: layouts,
-                                        mountedEditorNodeID: mountedEditorNodeID,
+                                        visibleEditorNodeID: visibleEditorNodeID,
                                         straighten: straighten, into: &cx)
                 }
                 .allowsHitTesting(false)
@@ -3775,30 +4033,48 @@ struct CanvasView: View {
         }
     }
 
-    /// The node whose real editor is mounted RIGHT NOW — `nil` for the ~120 ms
-    /// the clicked card spends straightening, and `nil` again the moment focus
-    /// leaves.
+    /// The node whose real editor EXISTS right now — in the hierarchy, first
+    /// responder, taking keystrokes. That is from the instant the writer clicks,
+    /// with no gate on the straighten.
     ///
-    /// **Both the mount below and the renderer's text suppression read THIS**, so
-    /// the drawn text cannot be blanked while no editor is there to replace it,
-    /// and the editor cannot appear on a card that is still tilted. Spec §7A.5
-    /// requirement 1 is an ordering — caret, then animate, then mount — and this
-    /// property is the "then". `straighten.focus(_:)` has already unpaused the
-    /// clock, so the mount arrives on its own about a tenth of a second later;
-    /// there is no timer and no completion callback.
+    /// **This is deliberately not `visibleEditorNodeID`, and the two must not be
+    /// merged back together.** Deferring the *mount* to `isLevel` was a real
+    /// defect: for ~120 ms there was no editor to be first responder, so
+    /// double-click empty canvas and type immediately and the first character or
+    /// two reached nothing at all. §7A.5 says there is "a beat between click and
+    /// caret" — a late caret is the accepted cost; discarded keystrokes are not.
+    private var mountedEditorNodeID: CanvasNodeID? { editingNodeID }
+
+    /// The node whose editor is the VISIBLE text right now — `nil` for the
+    /// ~120 ms the clicked card spends straightening, and `nil` again the moment
+    /// focus leaves.
     ///
-    /// Gating on `editingNodeID` alone was the earlier draft's defect: the editor
-    /// rendered axis-aligned at the unrotated text origin over chrome that was
-    /// still up to 0.6° off level, so the glyphs snapped straight on the click
-    /// and the card caught up behind them — spec §7A.2's failure by §7A.5's own
-    /// route. `ScrapEditorGeometry.viewPoint`'s "no rotation term" was wrong for
-    /// the same window.
-    private var mountedEditorNodeID: CanvasNodeID? {
+    /// **The renderer's text suppression and the editor's own visibility both
+    /// read THIS**, one property, once per body pass. So the drawn text cannot
+    /// be blanked while nothing is drawing it in its place, and the editor
+    /// cannot appear over a card that is still tilted: the two flip on the same
+    /// frame and the swap reveals nothing that was not already on screen. Spec
+    /// §7A.5 requirement 1 is an ordering — caret, then animate, then hand the
+    /// text over — and this property is the "then". `straighten.focus(_:)` has
+    /// already unpaused the clock, so it arrives on its own about a tenth of a
+    /// second later; there is no timer and no completion callback.
+    ///
+    /// Through that window the card keeps drawing its own text, and it is LIVE
+    /// text: `layouts[id]` wraps the same `NSTextStorage` the invisible editor is
+    /// mutating, and `syncActiveEdit` bumps `revision` on every keystroke, so the
+    /// words appear on the rotating card as they are typed.
+    ///
+    /// Making the editor visible from the click was the first draft's defect:
+    /// axis-aligned glyphs at the unrotated text origin over chrome that was
+    /// still up to 0.6° off level, so they snapped straight on the click and the
+    /// card caught up behind them — spec §7A.2's failure by §7A.5's own route.
+    private var visibleEditorNodeID: CanvasNodeID? {
         guard let id = editingNodeID, straighten.isLevel(id) else { return nil }
         return id
     }
 
-    /// Frontmost. Present only once the focused card has finished straightening.
+    /// Frontmost, from the click. Invisible — and transparent to the pointer —
+    /// until the card it sits on is level.
     @ViewBuilder
     private var mountedEditor: some View {
         if let id = mountedEditorNodeID,
@@ -3813,6 +4089,10 @@ struct CanvasView: View {
                             unscaledSize: textSize,
                             zoom: camera.zoom,
                             caretIndex: caretIndex,
+                            // The same property the renderer is handed above, so
+                            // the editor appearing and the card ceasing to draw
+                            // its text are one event, not two.
+                            isEditorVisible: visibleEditorNodeID == id,
                             undoManager: nil,          // Task 15
                             onScroll: { dx, dy, precise in
                                 let factor: CGFloat = precise ? 1 : 8
@@ -3964,10 +4244,12 @@ struct CanvasView: View {
 
         editingNodeID = node.id
         lastKeystrokeAt = nil
-        // Now animate. The EDITOR does not appear yet: `mountedEditorNodeID`
-        // withholds it until `straighten.isLevel(_:)`, about a tenth of a second
-        // from here, and until then the drawn text stays visible and keeps
-        // rotating. Spec §7A.5 calls that beat responsiveness rather than lag.
+        // The editor mounts on this line's body pass and takes keystrokes at
+        // once; what it does not do yet is SHOW. `visibleEditorNodeID` withholds
+        // that until `straighten.isLevel(_:)`, about a tenth of a second from
+        // here, and until then the drawn text stays visible, keeps rotating, and
+        // grows as the writer types into the editor nobody can see. Spec §7A.5
+        // calls that beat responsiveness rather than lag.
         straighten.focus(node.id)
         store?.scheduleSave(scene: scene, scraps: scraps)
     }
@@ -3977,7 +4259,7 @@ struct CanvasView: View {
 - [ ] **Step 4: Run the tests and a Release build**
 
 Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasCompositionTests -only-testing MaughamTests/ScrapEditorHostTests CODE_SIGNING_ALLOWED=NO`
-Expected: PASS, 6 + 15 tests.
+Expected: PASS, 7 + 17 tests.
 
 Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham -configuration Release build CODE_SIGNING_ALLOWED=NO`
 Expected: BUILD SUCCEEDED. **A Debug pass is not evidence** — the Release type-check budget is stricter, and v0.8.0 shipped a Release-only failure this way.
@@ -3993,10 +4275,12 @@ the ground is a sibling beneath, never an overlay. Every keystroke is
 folded into the model on the spot and again before any write, so a quit
 mid-sentence keeps the sentence. The focused card straightens to level
 over ~120ms on the same timeline the momentum coast will use (7A.5); the
-caret is resolved in the card's unrotated space before it animates, and
-the editor mounts only once it is level — one gated property feeds both
-the mount and the renderer's text suppression, so the drawn text stays
-visible and rotating until the editor takes over."
+caret is resolved in the card's unrotated space before it animates. The
+editor MOUNTS on the click, so nothing typed into a brand-new scrap is
+lost, and only its VISIBILITY waits for level — visibleEditorNodeID feeds
+both that and the renderer's text suppression, so the card's own text
+stays on screen and rotating, updating as you type, right up to the one
+frame the editor takes over."
 ```
 
 ---
@@ -4910,7 +5194,7 @@ Three edits to `Maugham/Canvas/CanvasView.swift`.
                     _ = drawRevision
                     CanvasRenderer.draw(scene: scene, camera: camera, viewSize: size,
                                         layouts: layouts,
-                                        mountedEditorNodeID: mountedEditorNodeID,
+                                        visibleEditorNodeID: visibleEditorNodeID,
                                         straighten: straighten, into: &cx)
                 }
                 .allowsHitTesting(false)
@@ -4974,8 +5258,9 @@ Three edits to `Maugham/Canvas/CanvasView.swift`.
                 at: CGPoint(x: local.x - textOrigin.x, y: local.y - textOrigin.y))
             editingNodeID = node.id
             lastKeystrokeAt = nil
-            // The editor is still withheld here — `mountedEditorNodeID` releases
-            // it when `straighten.isLevel(_:)` goes true, ~120ms from now.
+            // The editor mounts here and takes keystrokes at once; it is its
+            // VISIBILITY that is withheld — `visibleEditorNodeID` releases that
+            // when `straighten.isLevel(_:)` goes true, ~120ms from now.
             straighten.focus(node.id)
         } else if scene.topmostNode(at: contentPoint) == nil {
             let id = CanvasInteraction.createScrap(at: contentPoint, in: &scene)
@@ -5469,7 +5754,7 @@ Do **not** add `.accessibilityElement(children: .ignore)` or `.accessibilityHidd
 - [ ] **Step 5: Run the tests and a Release build**
 
 Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/CanvasAccessibilityTests -only-testing MaughamTests/CanvasCompositionTests CODE_SIGNING_ALLOWED=NO`
-Expected: PASS, 13 + 6 tests.
+Expected: PASS, 13 + 7 tests.
 
 Run: `xcodebuild -project Maugham.xcodeproj -scheme Maugham -configuration Release build CODE_SIGNING_ALLOWED=NO`
 Expected: BUILD SUCCEEDED.
@@ -6517,7 +6802,8 @@ Cover, at minimum, each of these — a bullet per line, with the symptom named w
 - **The three `ScrapLayout` requirements, verbatim, with the symptom each produces when broken.** The `attributedString` one especially: it fails silently and looks like a UI bug rather than a wiring bug.
 - **Card metrics live in `CanvasCardMetrics` and nowhere else.** A second spelling of the inset puts drawn text and edited text on different rects — the §7A.2 jump by the back door.
 - **The whole card carries its seeded angle, and focus straightens it** (§7A.5). The focused card animates to level over ~120 ms and settles back on blur; that is the focus affordance. Three parts of it are load-bearing and each has failed in draft:
-  - **The editor mounts on `isLevel`, not on the click.** `CanvasView.mountedEditorNodeID` is the gate, and the *same* property feeds `CanvasRenderer.draw`'s `mountedEditorNodeID:`, so the drawn text stays visible and rotating until the editor takes over. Gating the mount on `editingNodeID` instead puts an axis-aligned editor over a still-tilted card at the unrotated text origin with the drawn text already suppressed — the glyphs snap straight on the click and the card catches up behind them, which is §7A.2's failure by §7A.5's own route. `ScrapEditorGeometry.viewPoint`'s "no rotation term" is only true because of this gate.
+  - **The editor MOUNTS on the click; it becomes VISIBLE on `isLevel`.** Two properties, and merging them back into one is how this has failed twice, in opposite directions. `CanvasView.mountedEditorNodeID` is `editingNodeID` — the editor exists, is first responder and takes keystrokes from frame one, or a double-click-and-type loses its first character or two. `CanvasView.visibleEditorNodeID` adds `straighten.isLevel(_:)`, and the *same* property feeds both `ScrapEditorHost.isEditorVisible` and `CanvasRenderer.draw`'s `visibleEditorNodeID:` — so the card's own text stays on screen and rotating (live, off the shared `NSTextStorage`) right up to the one frame the editor takes over. Make the editor visible on the click instead and axis-aligned glyphs land at the unrotated text origin over a still-tilted card with the drawn text already suppressed: they snap straight and the card catches up behind them, which is §7A.2's failure by §7A.5's own route.
+  - **While it is invisible the editor is also transparent to the pointer.** `ScrapEditorContainer.isEditorVisible` drives `alphaValue` *and* `hitTest(_:)`, so through the straighten a click or a pinch reaches `CanvasEventNSView` — whose space is canvas space — instead of being resolved against the editor's unrotated box under a card up to 0.6° off level. That is what keeps `ScrapEditorGeometry.viewPoint`'s "no rotation term" honest: the function is only ever reached from an event the container received, and it receives none while invisible. Never `isHidden`/`.hidden()` — AppKit moves first responder off a hidden view, which loses the keystrokes the early mount exists to keep.
   - **`CanvasFocusStraighten.isSettled` means "every card is at ITS target", not "every progress value is 1".** The naive spelling reports settled the instant focus leaves — the entry is still at 1 while its target is now 0 — so `TimelineView` pauses, `step` is never called again, and the card stays level for the rest of the session.
   - **The caret index is resolved in the card's unrotated space *before* the animation starts**, or the click point moves out from under the cursor. `CanvasRenderer.cardTransform` is the one definition of the card rotation; `localPoint` inverts *it*, not a second hand-written `R(−θ)`. A grep test forbids `rotate(by:)`/`rotationEffect` anywhere in this area, because a flipped convention doubles the caret error instead of removing it and a round-trip test passes either way.
 
@@ -6561,7 +6847,7 @@ The ADR records, with the spike's measurements as evidence. **Every one of these
 1. **A drawn canvas over hosted views**, and the disqualification of `NSScrollView` magnification (SwiftUI content reports the same `.global` frame at every zoom; above ~2× clicks stop registering entirely).
 2. **The shared-TextKit rule** — one layout stack for drawn and edited text — and the three requirements it comes with.
 3. **Scrap text in `canvas.md`, layout in `.maugham/canvas.json`**, and why the split is the point.
-4. **The whole card carries its seeded angle; focus straightens it over ~120 ms** (spec §7A.5). Record why this makes §7A.2 *easier*: the editor always mounts axis-aligned, so the glyph-origin pin compares two unrotated layouts and `.rotationEffect` never arises. Record that "always" is enforced by a **gate** — the editor mounts on `CanvasFocusStraighten.isLevel(_:)`, and the same gated id feeds the renderer's text suppression, because mounting on the click blanks the drawn text for the whole animation and lands straight glyphs over a tilted card. Record the caret rule — resolved in the card's unrotated space at click time, before the animation — and that there is exactly one definition of the card rotation (`cardTransform`), used forwards by the draw pass and inverted by the caret, because a second one is a sign convention nothing can check. Record that the animation is interpolated per frame on the same clock as §7.3's momentum. **Do not restate the earlier, false claim that an `NSTextView` cannot be rotated**; `NSView.frameRotation` does exactly that, crisply.
+4. **The whole card carries its seeded angle; focus straightens it over ~120 ms** (spec §7A.5). Record why this makes §7A.2 *easier*: the editor is always axis-aligned when it becomes the visible text, so the glyph-origin pin compares two unrotated layouts and `.rotationEffect` never arises. Record that "always" is enforced by a **gate on visibility, not on existence**, and record both failures it sits between, because they pull in opposite directions: making the editor visible on the click blanks the drawn text for the whole animation and lands straight glyphs over a tilted card; deferring the *mount* to `CanvasFocusStraighten.isLevel(_:)` leaves ~120 ms with no first responder, so a double-click-and-type loses its opening characters. The resolution is two properties — `mountedEditorNodeID` (the editor exists, from the click) and `visibleEditorNodeID` (the editor is the visible text, from `isLevel`) — with the second feeding the editor's visibility and the renderer's text suppression alike, so they flip on one frame and the swap reveals only what was already on screen. Record the corollary that keeps the geometry honest: while invisible the editor does not hit-test either, so no click or pinch is ever resolved against its unrotated box under a tilted card. Record the caret rule — resolved in the card's unrotated space at click time, before the animation — and that there is exactly one definition of the card rotation (`cardTransform`), used forwards by the draw pass and inverted by the caret, because a second one is a sign convention nothing can check. Record that the animation is interpolated per frame on the same clock as §7.3's momentum. **Do not restate the earlier, false claim that an `NSTextView` cannot be rotated**; `NSView.frameRotation` does exactly that, crisply.
 5. **Undo is a canvas-scoped snapshot `UndoManager`, not op-log compensating ops**, because canvas state is derived (§8) and op-logging it would stop it being derived. Record the second half too: the mounted editor has `allowsUndo = false`, so one change is one step. Record the granularity decision **and the option that was rejected**, so it is not relitigated: inside a scrap the boundary is the **sentence** — the outer bracket is focus, and `breakGesture()` splits the visit on a finished sentence or a beat of stillness. **Per-word was rejected**: it is only reachable by handing undo back to the text view (`allowsUndo = true`), which puts one change on the stack twice and leaves the text view's copy pointed at an `NSTextStorage` that `rebuildLayouts()` has orphaned — so the second ⌘Z appears to do nothing; and a gesture break per word would mean a whole-scene snapshot per word, when the snapshot is the thing that makes 1C-b's region drags correct. **Per-visit was also rejected** as too coarse for a scrap that ran to a paragraph. State the residual cost in writer's terms, and note that the guide says it too.
 6. **We own the canvas accessibility tree**, resolving §7A.6's "not optional in a writing tool".
 7. **1C-a ships scraps only; item nodes are placeholders and belong to 1C-d.** Record it as a decision about the *order of work*, with the boundary stated explicitly: spec §8A.1 places images **inside milestone M1C**, so this is a slice boundary and never a licence to ship M1C without them. Record what 1C-d owes: the drop target, `DropClassification` for browser drags, a `CGImageSource` thumbnail path and a bounded cache keyed by path (tripwire 22).
@@ -6578,7 +6864,7 @@ Add to CLAUDE.md's tripwire table (numbers follow the highest currently present 
 |---|---|---|---|
 | 25 | No `NSScrollView.magnification` under SwiftUI content, and no `.scaleEffect` for canvas zoom | SwiftUI's coordinate space is unaware of magnification — same `.global` frame at every zoom, and above ~2× clicks stop registering entirely (measured, macOS 26.5.2); `.scaleEffect` blurs text and breaks `NSCursor` tracking | `docs/superpowers/notes/2026-07-25-canvas-rendering-spike.md`; `CanvasCameraTests` |
 | 26 | `NSTextContentStorage.textStorage = NSTextStorage(...)`, never `.attributedString =` | With `attributedString` the scrap renders perfectly and silently swallows every keystroke — `textStorage` nil, `string` empty, `insertText` a no-op | `ScrapLayoutTests.test_mountedEditorActuallyEditsTheSharedStack` |
-| 27 | The canvas's mounted editor stays the FRONTMOST layer, its focus is *requested* not taken, and it mounts only once the card is level | An event view in front eats click-to-place-caret, drag-select and double-click-word; `makeFirstResponder` in `makeNSView` runs with a nil window and is a silent no-op; mounting on the click instead of on `isLevel` puts an axis-aligned editor over a still-tilted card with the drawn text already suppressed, so the glyphs snap straight and the card follows — none of the three is visible to a subview count | `CanvasCompositionTests`; `ScrapEditorHostTests`; `CanvasRendererTests` (`isLevel`) |
+| 27 | The canvas's mounted editor stays the FRONTMOST layer, its focus is *requested* not taken, and it mounts on the click while its VISIBILITY waits for the card to be level | An event view in front eats click-to-place-caret, drag-select and double-click-word; `makeFirstResponder` in `makeNSView` runs with a nil window and is a silent no-op; showing the editor on the click puts axis-aligned glyphs over a still-tilted card with the drawn text already suppressed, so they snap straight and the card follows, while deferring the *mount* to `isLevel` leaves ~120 ms in which typing reaches no editor at all — none of the four is visible to a subview count | `CanvasCompositionTests`; `ScrapEditorHostTests`; `CanvasRendererTests` (`isLevel`, `drawsOwnText`) |
 | 28 | Text living in a shared `NSTextStorage` must be folded into the model on `textDidChange`, not only at a focus boundary | The debounced payload is whatever was queued *before* the writer typed, so type-then-quit writes an empty scrap and the drawn card never grows — the words are safe (constitution must #1) failing on the first interaction | `ScrapEditorHostTests.test_typingReportsItselfSoTheCanvasCanFoldItIntoTheModel`; `CanvasStoreTests.test_beforeFlushCanReplaceThePayloadOnItsWayOut` |
 | 29 | A clock's "settled" predicate compares each value to ITS OWN target, never to a constant | `CanvasFocusStraighten.isSettled` written as `allSatisfy { $0.value >= 1 }` is true the instant focus leaves — the entry is still 1 while its target is now 0 — so `TimelineView` pauses, the settle-back never runs, and the card stays level for the rest of the session | `CanvasRendererTests.test_blurSettlesTheCardBackToItsSeededAngle` |
 | 30 | Nothing scene-proportional may key off a per-frame redraw counter | `CanvasView.revision` ticks on every drag frame, straighten frame and momentum frame; the accessibility tree keyed on it sorted the scene and copied every scrap's string at 60–120 Hz. Use the structural counter (`sceneRevision`), and extract camera-reading `ForEach`es into `.equatable()` subviews | `CanvasAccessibilityTests.test_theTreeIsNotKeyedOnTheRedrawCounter` |
@@ -6644,8 +6930,8 @@ After Task 17, before 1C-b:
 - [ ] **Now quit with ⌘Q without clicking away first.** Relaunch, reopen: **the sentence is there.** This is the one that fails if the writer's words only ever live in the editor's `NSTextStorage`, and it is the product constitution's must #1. Do not substitute "click away, then quit" — that is a different path and it passes when this one does not.
 - [ ] Keep typing past the end of the first line. **The card grows** as the text wraps. If it does not, nothing is re-measuring while you type — and the same gap is what loses the words above.
 - [ ] Click away, then **double-click back into the middle of a word**. The caret lands where you aimed, and **the text does not move by a hair** on focus or on blur. The tests assert glyph geometry; only your eye catches a jump inside their tolerance. This is the §7A.2 failure the whole architecture exists to prevent.
-- [ ] Watch the card as you click into it: it **animates to level over about a tenth of a second** and settles back to its angle when you click away (§7A.5). An instant jump reads as a rendering bug; more than about a fifth of a second reads as lag. The beat between the click and the caret is the thing to feel for.
-- [ ] **Watch the TEXT during that tenth of a second, not just the card.** The words must rotate with the card the whole way and only then hand over to the editor. If the glyphs snap straight the instant you click and the chrome swings up behind them, the editor is mounting before the straighten finishes — the §7A.2 failure by §7A.5's own route.
+- [ ] Watch the card as you click into it: it **animates to level over about a tenth of a second** and settles back to its angle when you click away (§7A.5). An instant jump reads as a rendering bug; more than about a fifth of a second reads as lag.
+- [ ] **Double-click empty canvas and type immediately — no characters are lost, and the text does not jump.** Both halves matter and they fail in opposite directions. A missing first character or two means the editor is not mounted until the card is level, so the keystrokes reached nothing. Glyphs that snap straight the instant you click, with the chrome swinging up behind them, mean the editor was made visible before the card was level — the §7A.2 failure by §7A.5's own route. What you should see is the words appearing on the card as it rotates up to square, with the caret arriving a beat after them.
 - [ ] **Click into a card, then click onto empty canvas, and keep watching it.** It must lean back to its angle within about a tenth of a second. A card that stays perfectly square after you leave means `isSettled` reported settled on blur and the clock stopped — and from then on nothing else on the canvas animates either.
 - [ ] Double-click into a *second* scrap. You must be editing the second one — an editor still bound to the first is invisible to every automated check.
 - [ ] **Pan the canvas. The grain must not crawl.** If the texture slides under the cards, the shader is sampling screen space instead of content space (§7A.4).
