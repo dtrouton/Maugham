@@ -1225,6 +1225,50 @@ final class TripwireGrepTests: XCTestCase {
             "Self-check: the XCTAssertNil-guarded rejection literal must NOT fire.")
     }
 
+    // MARK: - Segmented-picker child uniformity (2026-07-25 smoke, defect C)
+
+    /// A segmented `Picker` whose `ForEach` emits more than one KIND of child
+    /// is a shipped-bug shape. The `if let symbol { Image } else { Text }`
+    /// spelling makes a `_ConditionalContent` whose branch is cached per
+    /// position; the picker updates its `NSSegmentedControl` in place, so the
+    /// first list reshape (a persona change) leaves stale branches on the wrong
+    /// indices — the binder rendered `Pieces | 🎨Research | 🎨`, and a persona
+    /// with no Palette segment showed a palette icon that selected Research.
+    ///
+    /// Both binder toggles share `BinderSegmentPicker`, and the right pane's
+    /// picker has the same shape, so both files are checked: inside the
+    /// `ForEach` that feeds a `Picker`, there must be no branch.
+    func test_segmentedPickerForEachBodiesHaveNoConditionalChildren() throws {
+        for relative in ["Views/BinderSegmentPicker.swift", "Views/DetailPaneToggle.swift"] {
+            let content = try String(
+                contentsOf: sourceDir.appendingPathComponent(relative), encoding: .utf8)
+            let lines = content.components(separatedBy: .newlines)
+            var insidePicker = false
+            var insideForEach = false
+            var depth = 0
+            for (i, raw) in lines.enumerated() {
+                let line = raw.trimmingCharacters(in: .whitespaces)
+                // Skip doc comments — they discuss the very shape we ban.
+                if line.hasPrefix("//") || line.hasPrefix("///") { continue }
+                if line.contains("Picker(") { insidePicker = true; depth = 0 }
+                guard insidePicker else { continue }
+                if insideForEach {
+                    XCTAssertFalse(
+                        line.hasPrefix("if ") || line.hasPrefix("} else")
+                            || line.hasPrefix("else ") || line.contains(" ? ") ,
+                        "\(relative):\(i + 1) — a segmented Picker's ForEach body must emit ONE "
+                        + "kind of child. A conditional here is _ConditionalContent, whose branch "
+                        + "is cached per position; the first list reshape puts a stale child on "
+                        + "the wrong segment (2026-07-25 smoke, defect C). Move the variation "
+                        + "INSIDE one child expression, or change every segment together.")
+                }
+                if line.contains("ForEach(") { insideForEach = true; depth = 0 }
+                depth += line.filter { $0 == "{" }.count - line.filter { $0 == "}" }.count
+                if insideForEach && depth <= 0 { insideForEach = false; insidePicker = false }
+            }
+        }
+    }
+
     // MARK: - Coercion call-site census (persona pane-selection wiring)
 
     /// Recurrence-tripper: DetailPaneToggle has two critical segment-snapping call

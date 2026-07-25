@@ -54,16 +54,28 @@ struct BinderSegmentPicker: View {
                              including: segment)
     }
 
+    /// UNIFORM CHILDREN — every segment is an `Image`, never a mix.
+    ///
+    /// The `if let symbol { Image } else { Text }` this replaces put an
+    /// `_ConditionalContent` inside the `ForEach`. Its branch is cached per
+    /// position and the segmented `Picker` updates its `NSSegmentedControl` in
+    /// place, so the first persona change that reshaped the list left stale
+    /// branches on the wrong indices: `Pieces | 🎨Research | 🎨`, and in Review
+    /// (which offers no Palette) a palette icon sitting on the Research
+    /// segment. That is how the palette wall became unreachable — the writer
+    /// clicked the palette and got Research (2026-07-25 smoke, defect C).
+    ///
+    /// Anything that varies per segment must therefore stay INSIDE one child
+    /// expression. If a future segment wants a text label, every segment gets
+    /// a text label — see `BinderSegment.pickerSymbolName` for why that is not
+    /// affordable in a 240pt column today.
     var body: some View {
         Picker("Binder", selection: $segment) {
             ForEach(pickerSegments, id: \.self) { seg in
-                if let symbol = seg.pickerSymbolName {
-                    Image(systemName: symbol)
-                        .tag(seg)
-                        .help(seg.displayName(for: projectType))
-                } else {
-                    Text(seg.displayName(for: projectType)).tag(seg)
-                }
+                Image(systemName: seg.pickerSymbolName)
+                    .tag(seg)
+                    .help(seg.displayName(for: projectType))
+                    .accessibilityLabel(seg.displayName(for: projectType))
             }
         }
         .pickerStyle(.segmented)

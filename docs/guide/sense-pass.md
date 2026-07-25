@@ -11,7 +11,9 @@ story is not "missing" sensory detail.
    piece needs. Add one from the inspector (**Add craft intent…**). Not having
    one is a valid choice; it means you've decided this piece doesn't need the
    apparatus.
-2. **Gather** — build *palette cards* in the Palette segment: one card per
+2. **Gather** — build *palette cards* in the Palette segment — the palette
+   icon in the binder's picker, available in Plan and Author. Every segment in
+   that picker is an icon; hover for its name. One card per
    location, character, or motif. The card editor is visual, not markdown —
    drag images in from Finder or paste them from the clipboard, pick colour
    swatches with the colour picker or sample them straight off a reference

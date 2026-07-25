@@ -112,4 +112,60 @@ final class PersonaBinderSegmentTests: XCTestCase {
             including: .research)
         XCTAssertEqual(segments.filter { $0 == .research }.count, 1)
     }
+
+    // MARK: - Defect C: the palette must be present and selectable
+
+    /// Every binder segment renders as an icon, so every one needs a symbol and
+    /// no two may collide — a duplicate would be indistinguishable in a picker
+    /// that has no text labels.
+    func test_everySegmentHasADistinctPickerSymbol() {
+        let all: [BinderSegment] = [.manuscript, .research, .palette, .scenes, .trash, .find]
+        let symbols = all.map(\.pickerSymbolName)
+        XCTAssertFalse(symbols.contains(where: \.isEmpty))
+        XCTAssertEqual(Set(symbols).count, all.count, "picker symbols must be distinct")
+    }
+
+    /// The tooltip / accessibility label is the only text an icon-only picker
+    /// carries, so it must never be empty — and a collection still says
+    /// "Pieces", not "Manuscript".
+    func test_everySegmentHasANonEmptyDisplayNameForEveryProjectType() {
+        let all: [BinderSegment] = [.manuscript, .research, .palette, .scenes, .trash, .find]
+        for type in ProjectType.allCases {
+            for segment in all {
+                XCTAssertFalse(segment.displayName(for: type).isEmpty, "\(segment)/\(type)")
+            }
+        }
+        XCTAssertEqual(BinderSegment.manuscript.displayName(for: .collection), "Pieces")
+    }
+
+    /// The writer's actual complaint: "I cannot find the wall of images."
+    /// Palette must be in the rendered list — for every project type — in
+    /// exactly the personas whose registry offers it, and selecting it is what
+    /// routes the centre column to `PaletteWallView`.
+    func test_paletteIsRendered_inEveryPersonaWhoseRegistryOffersIt() {
+        for type in ProjectType.allCases {
+            for persona in Persona.allCases {
+                let offered = persona.binderSegments(for: type).contains(.palette)
+                let rendered = BinderSegmentPicker.visibleSegments(
+                    persona: persona, projectType: type,
+                    hasTrash: false, findActive: false).contains(.palette)
+                XCTAssertEqual(rendered, offered, "\(persona)/\(type)")
+            }
+        }
+    }
+
+    /// Plan and Author are the two making personas, and both must reach the
+    /// palette wall from the binder on every project type. Pinned by name
+    /// because this is the reachability the smoke lost.
+    func test_planAndAuthorAlwaysReachThePalette() {
+        for type in ProjectType.allCases {
+            for persona in [Persona.plan, .author] {
+                XCTAssertTrue(
+                    BinderSegmentPicker.visibleSegments(
+                        persona: persona, projectType: type,
+                        hasTrash: true, findActive: true).contains(.palette),
+                    "\(persona)/\(type) cannot reach the palette wall")
+            }
+        }
+    }
 }

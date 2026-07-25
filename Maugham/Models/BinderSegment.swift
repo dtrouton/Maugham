@@ -55,11 +55,37 @@ public extension BinderSegment {
         }
     }
 
-    /// SF Symbol to render instead of `displayName(for:)` in the binder
-    /// picker, or nil for the text-labelled segments. Only Palette is an icon
-    /// — it is the narrow one, and the picker is a 240pt column. Keeping this
-    /// beside the case is what lets both toggles share one `ForEach`.
-    var pickerSymbolName: String? {
-        self == .palette ? "paintpalette" : nil
+    /// SF Symbol the binder picker renders for this segment. EVERY segment has
+    /// one, and the picker renders nothing else — `displayName(for:)` survives
+    /// as the tooltip and the accessibility label.
+    ///
+    /// It used to be `String?`, icon for Palette and text for the rest, which
+    /// made the picker's `ForEach` emit two different child types behind an
+    /// `if let`. That is a `_ConditionalContent` whose branch is cached per
+    /// POSITION, and a segmented `Picker` updates its `NSSegmentedControl` in
+    /// place: as soon as a persona change reshaped the list, the stale branch
+    /// stayed on the old index and the picker rendered `Pieces | 🎨Research |
+    /// 🎨` — a palette icon glued to Research, and, in a persona with no
+    /// Palette segment at all, a palette icon on a segment that selects
+    /// Research. That is 2026-07-25 smoke defect C, and why the writer could
+    /// not reach the palette wall. Reproduced by driving the list through a
+    /// persona switch offscreen; the uniform-`Image` picker is stable through
+    /// the same sequence.
+    ///
+    /// Text for every segment was measured and rejected: the segmented control
+    /// will not compress below its ideal width, and `Manuscript | Research |
+    /// Palette` alone measures 264pt against a 240pt ideal column (352pt with
+    /// Trash, 440pt with Find), so it truncates from the leading edge. The
+    /// icon set measures 87–145pt and always fits — and it matches the right
+    /// pane's picker, which has been icon-only since ADR 0005.
+    var pickerSymbolName: String {
+        switch self {
+        case .manuscript: return "doc.text"
+        case .research: return "books.vertical"
+        case .palette: return "paintpalette"
+        case .scenes: return "film"
+        case .trash: return "trash"
+        case .find: return "magnifyingglass"
+        }
     }
 }
