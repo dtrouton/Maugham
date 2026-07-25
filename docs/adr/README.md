@@ -42,6 +42,10 @@ Keep them short. One to two pages is the right scale. If an ADR keeps growing, i
 | [0018](0018-manuscript-reads-derive-from-oplog.md) | Manuscript reads always derive from the op log (never the `.md`); enforced by a tripwire | Accepted | 2026-06-28 |
 | [0019](0019-clean-md-on-disk.md) | Manuscript files on disk are clean Markdown/Fountain (anchors live only in the op log) | Accepted | 2026-06-29 |
 | [0020](0020-dev-only-test-mcp.md) | Dev-only privileged Test MCP for Claude Code | Accepted | 2026-07-01 |
+| [0021](0021-scoped-window-events.md) | Window events are scoped at the post site (typed event bus over NotificationCenter) | Implemented | 2026-07-02 |
+| [0022](0022-commonmark-fountain-ledger.md) | CommonMark + Fountain grammar ledger | Implemented | 2026-07-06 |
+| [0023](0023-unified-oplog-backed-undo.md) | Unified op-log-backed ⌘Z undo: compensating ops on one native stack | Accepted | 2026-07-10 |
+| [0024](0024-translation-layer.md) | Translation layer: a second Claude-parallel data plane | Accepted | 2026-07-22 |
 | [0025](0025-persona-shell.md) | Persona shell: four optional lenses over one project (Plan/Author/Review/Publish) | Accepted | 2026-07-25 |
 
 ## How to write a new ADR

@@ -53,6 +53,11 @@ enum MaughamEvent {
     static let scopeKindKey = "maugham.scope.kind"
     static let scopeIdKey = "maugham.scope.id"
 
+    /// Payload key for `.maughamSetPersona`. One spelling shared by both post
+    /// sites (the View menu's ⌘1–⌘4 and the persona bar) and the receiver in
+    /// `PersonaModifier`, so a rename cannot silently make the post a no-op.
+    static let personaKey = "persona"
+
     /// Post `name` to the given scope. `object` and `payload` pass through to
     /// NotificationCenter unchanged (payload keys must not shadow the
     /// reserved scope keys).

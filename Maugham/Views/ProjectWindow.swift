@@ -161,11 +161,7 @@ struct ProjectWindow: View {
             projectURL: url,
             persona: persona,
             isNoChromeOn: isNoChromeOn,
-            onSelectPersona: { next in
-                MaughamEvent.post(.maughamSetPersona,
-                                  to: .keyWindow,
-                                  payload: ["persona": next.rawValue])
-            }))
+            onSelectPersona: Self.postPersona))
         .background(WindowAccessor(window: $window))
         .task(id: url) { await load() }
         .onDisappear {
@@ -279,7 +275,9 @@ struct ProjectWindow: View {
             selectedItemId: selectedItemId,
             showingCheckpointLabelSheet: $showingCheckpointLabelSheet,
             onSaveFlash: { showSaveFlash() }))
-        .modifier(ParagraphNavModifier(window: window, binderSegment: $binderSegment))
+        .modifier(ParagraphNavModifier(window: window,
+                                       binderSegment: $binderSegment,
+                                       projectType: store?.manifest.type ?? .novel))
         .modifier(FocusPostureModifier(
             window: window,
             documentStore: documentStore,
@@ -290,6 +288,7 @@ struct ProjectWindow: View {
                                   detailSegment: $detailSegment,
                                   binderSegment: $binderSegment,
                                   showInspector: $showInspector,
+                                  inspectorWasVisibleBeforePalette: $inspectorWasVisibleBeforePalette,
                                   window: window,
                                   documentStore: documentStore,
                                   projectType: store?.manifest.type ?? .novel))
@@ -324,6 +323,20 @@ struct ProjectWindow: View {
             inspectorWasVisibleBeforePalette: $inspectorWasVisibleBeforePalette,
             selectedPaletteCardId: $selectedPaletteCardId))
         .preferredColorScheme(preferredColorScheme)
+    }
+
+    /// The persona bar's post. Mirrors `MaughamApp.postPersona(_:)` — the ⌘1–⌘4
+    /// View-menu spelling — and shares its payload key via
+    /// `MaughamEvent.personaKey` so the two cannot drift. `.keyWindow` scope:
+    /// only the focused project window switches.
+    ///
+    /// A named `static func` rather than an inline closure in the modifier
+    /// chain: `ProjectWindow.body` is at SwiftUI's type-checker ceiling (see
+    /// `Maugham/Views/AREA.md`), and `static` keeps it from capturing `self`.
+    private static func postPersona(_ next: Persona) {
+        MaughamEvent.post(.maughamSetPersona,
+                          to: .keyWindow,
+                          payload: [MaughamEvent.personaKey: next.rawValue])
     }
 
     /// Reads the share metadata for this project off the main actor and folds it
@@ -1140,19 +1153,29 @@ struct ProjectWindow: View {
             self.isNoChromeOn = ds.uiState.isNoChromeOn
             self.isReviewModeOn = ds.uiState.isReviewModeOn
             self.researchPreviewVisible = ds.uiState.researchPreviewVisible
+            // Restored VERBATIM, exactly as the binder below is. Coercing to
+            // the restored persona's registry here silently ate the writer's
+            // last explicit pane choice (⌘⌥H in Author, quit, reopen → History
+            // gone), and would have moved every pre-persona project off
+            // Annotations/History/Inbox/Translation on upgrade. It protects
+            // nothing: `DetailPaneToggle` appends an out-of-persona selection
+            // and renders it highlighted — `visibleSegments`' own doc comment
+            // names a restored `UIState` as a path that append exists to
+            // honour — and the one genuinely un-appendable value (`.outline`
+            // on a collection) is handled by the snap on mount.
             self.detailSegment = ds.uiState.detailSegment
             self.persona = ds.uiState.persona
-            self.detailSegment = ds.uiState.persona.coerce(ds.uiState.detailSegment)
             self.outlineLayout = ds.uiState.outlineLayout
 
-            // Restore binderSegment from saved state, or use default based on project type.
+            // Restore binderSegment from saved state. A screenplay has no
+            // Manuscript segment (Scenes IS its slugline navigator), so route
+            // through the typed `documentHome(for:)` rather than re-deriving
+            // the check inline — `Persona.swift` warns against exactly that,
+            // and it shipped a real bug on 2026-07-02.
             let savedSegment = ds.uiState.binderSegment
-            // If screenplay project doesn't have manuscript segment, use scenes instead.
-            if s.manifest.type == .screenplay && savedSegment == .manuscript {
-                self.binderSegment = .scenes
-            } else {
-                self.binderSegment = savedSegment
-            }
+            self.binderSegment = savedSegment == .manuscript
+                ? .documentHome(for: s.manifest.type)
+                : savedSegment
             applyNoChrome()
             loadError = nil
         } catch ProjectStoreError.manifestNotFound {
@@ -1367,6 +1390,9 @@ struct PersonaModifier: ViewModifier {
     @Binding var detailSegment: DetailSegment
     @Binding var binderSegment: BinderSegment
     @Binding var showInspector: Bool
+    /// `PaletteSegmentModifier`'s pre-palette visibility stash. Written here
+    /// only to DROP it — see `clearsPaletteStash(from:to:)`.
+    @Binding var inspectorWasVisibleBeforePalette: Bool?
     let window: NSWindow?
     let documentStore: DocumentStore?
     /// Decides the binder's document home — a screenplay has no Manuscript
@@ -1406,15 +1432,35 @@ struct PersonaModifier: ViewModifier {
         return Persona(rawValue: raw)
     }
 
+    /// True when a persona change moves the binder OFF the palette — the case
+    /// where `PaletteSegmentModifier`'s pre-palette visibility stash must be
+    /// dropped rather than restored.
+    ///
+    /// That modifier's `.onChange(of: binderSegment)` fires in a LATER update
+    /// pass than this handler, so its exit arm would restore the stashed
+    /// visibility *over* the `showInspector = true` below and land the writer
+    /// in the new persona with a closed inspector column — unlike every other
+    /// persona-switch path. Clearing the stash here (rather than deferring the
+    /// force-open by a pass) makes that arm a no-op restore without depending
+    /// on SwiftUI pass ordering, which is the fragility tripwire 2 is about.
+    static func clearsPaletteStash(from current: BinderSegment,
+                                   to next: BinderSegment) -> Bool {
+        current == .palette && next != .palette
+    }
+
     func body(content: Content) -> some View {
         content
             .onKeyWindowCommand(.maughamSetPersona, window: window) { note in
-                guard let next = Self.persona(fromPayload: note.userInfo?["persona"] as? String)
+                guard let next = Self.persona(
+                    fromPayload: note.userInfo?[MaughamEvent.personaKey] as? String)
                 else { return }
                 let change = Self.applyPersonaChange(to: next,
                                                      currentSegment: detailSegment,
                                                      currentBinderSegment: binderSegment,
                                                      projectType: projectType)
+                if Self.clearsPaletteStash(from: binderSegment, to: change.binderSegment) {
+                    inspectorWasVisibleBeforePalette = nil
+                }
                 persona = change.persona
                 detailSegment = change.segment
                 binderSegment = change.binderSegment
@@ -1429,6 +1475,14 @@ private struct ParagraphNavModifier: ViewModifier {
     /// scoped (ADR 0021), so only the key window acts.
     let window: NSWindow?
     @Binding var binderSegment: BinderSegment
+    /// Decides the binder's document home. A screenplay has NO Manuscript
+    /// segment — Scenes is the slugline navigator inside the single
+    /// `.fountain` — so naming `.manuscript` raw drops the writer into a
+    /// one-row `BinderView` (2026-07-02 smoke) and, since
+    /// `BinderSegmentPicker.visibleSegments` appends the active selection,
+    /// renders a labelled Manuscript tab the persona registry promises never
+    /// to offer (`test_screenplayPersonasNeverOfferManuscript`).
+    let projectType: ProjectType
     @Environment(\.openWindow) private var openWindow
 
     func body(content: Content) -> some View {
@@ -1437,7 +1491,7 @@ private struct ParagraphNavModifier: ViewModifier {
                 // v1: just ensure the manuscript pane is focused.
                 // Anchored scroll-to-paragraph is a follow-up.
                 _ = note.userInfo?["paragraph_id"] as? String
-                binderSegment = .manuscript
+                binderSegment = .documentHome(for: projectType)
             }
             // `.maughamShowHelp` is `.allWindows` scoped, so every live-or-zombie
             // window receives it; `openWindow(id:)` for a singleton Window is

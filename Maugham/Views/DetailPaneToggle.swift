@@ -96,8 +96,11 @@ struct DetailPaneToggle<Inspector: View>: View {
             // changes (.inbox arm) keep it fresh thereafter.
             await store.documentStore?.inboxStore.refresh()
         }
+        // MOUNT, not a persona change — snaps against the SELECTION-CARRYING
+        // list, so an out-of-persona pane the writer just asked for survives.
+        // See "Two snaps, two lists" below; this is NOT `coerceSegmentIntoView`.
         .onAppear {
-            coerceSegmentIntoView(of: persona)
+            snapSegmentIntoPicker()
         }
         // Belt to `PersonaModifier`'s braces: that modifier already runs
         // `Persona.coerce(_:)` on a persona change, but it cannot see
@@ -109,7 +112,60 @@ struct DetailPaneToggle<Inspector: View>: View {
         }
     }
 
-    /// Pull `segment` onto a pane this picker actually offers. No-op when it
+    // MARK: - Two snaps, two lists — do not conflate them
+
+    // `segment` is pulled onto a renderable pane from two places, and they
+    // consult DIFFERENT lists on purpose. Which list a coercion consults has
+    // now been wrong three times on this branch, so the split is spelled out:
+    //
+    // - `snapSegmentIntoPicker()` uses the SELECTION-CARRYING list
+    //   (`pickerSegments` = `visibleSegments(including: segment)`). It keeps
+    //   whatever is selected, because an out-of-persona segment is appended
+    //   and rendered — personas are lenses, not gates. The only value it ever
+    //   moves is `.outline` on a collection project, which
+    //   `visibleSegments(including:)` refuses to append.
+    //   Callers: `.onAppear` and `.onChange(of: segment)`.
+    //
+    // - `coerceSegmentIntoView(of:)` uses the persona's BARE registry list.
+    //   It deliberately DROPS an out-of-persona segment, because on a persona
+    //   change coercion is the intent.
+    //   Caller: `.onChange(of: persona)`, and only that.
+
+    /// Snap `segment` onto something the picker renders, honouring an
+    /// out-of-persona selection (it is appended, so it is in the list).
+    ///
+    /// `.onAppear` must use this rather than `coerceSegmentIntoView(of:)`:
+    /// this view mounts conditionally on `showInspector`, so a `⌘⌥`-letter
+    /// shortcut that reveals a hidden column (`showInspector = true` then
+    /// `detailSegment = seg`, `SessionAndNavigationModifier`) mounts it FRESH
+    /// with the requested segment already in place. `.onChange(of: segment)`
+    /// cannot fire — the change predates the mount — but `.onAppear` does.
+    /// Coercing here threw the requested pane away and persisted the wrong
+    /// one to `UIState` (whole-branch review, Critical 1).
+    private func snapSegmentIntoPicker() {
+        let snapped = Self.mountSelection(
+            segment, persona: persona, hideOutline: hideOutline)
+        if snapped != segment { segment = snapped }
+    }
+
+    /// The selection a freshly-mounted picker must carry, given the segment
+    /// already in place. Split out as a pure static so a test can pin the
+    /// LIST CHOICE — `including: current`, the selection-carrying list — and
+    /// not merely the snap. Swapping this to the bare registry list is the
+    /// Critical 1 regression, and
+    /// `DetailPaneTogglePersonaTests.test_mountSelection_keepsAnOutOfRegistrySegment`
+    /// fails when it happens.
+    static func mountSelection(
+        _ current: DetailSegment,
+        persona: Persona,
+        hideOutline: Bool
+    ) -> DetailSegment {
+        let carrying = visibleSegments(
+            persona: persona, hideOutline: hideOutline, including: current)
+        return snappedSelection(current, in: carrying, fallback: persona.defaultPane)
+    }
+
+    /// Pull `segment` onto a pane this persona registers. No-op when it
     /// already is one, so it never fights a deliberate selection.
     ///
     /// Deliberately asks for the persona's OWN list (no `including:`) — the

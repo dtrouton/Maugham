@@ -94,7 +94,14 @@ menu commands (four) and `.keyboardShortcut` modifiers on `DetailPaneToggle`'s `
 tags (five). The picker-tag shortcuts only fired when the picker was already on screen,
 so `⌘⌥4`–`⌘⌥8` (History/Tasks/Inbox/Palette/Translation, pre-migration numbering) silently
 no-opped whenever the inspector column was closed. Every pane shortcut now reveals a
-hidden column before selecting its pane.
+hidden column before selecting its pane — *including* an out-of-persona one. Revealing a
+hidden column mounts `DetailPaneToggle` fresh (the column is conditional on
+`showInspector`), so the mount-time snap in `.onAppear` deliberately consults the
+selection-carrying list, not the persona's bare registry: the writer's requested pane is
+appended and kept. The one exception is `.outline` on a collection project, whose content
+falls through to the inspector, so a tab would lie. Coercion to the registry belongs to
+persona changes only, and the two call sites are documented apart in `DetailPaneToggle`
+because conflating them cost three defects during this milestone.
 
 ### 4. Persona is per-window state, persisted per-project — with an honest limitation.
 

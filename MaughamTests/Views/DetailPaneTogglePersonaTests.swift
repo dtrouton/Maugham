@@ -157,6 +157,66 @@ final class DetailPaneTogglePersonaTests: XCTestCase {
         }
     }
 
+    // MARK: - The mount-time snap keeps an out-of-persona pane
+
+    /// `DetailPaneToggle` mounts conditionally on `showInspector`, so a
+    /// `⌘⌥`-letter shortcut that REVEALS a hidden column
+    /// (`showInspector = true` then `detailSegment = seg`) mounts the picker
+    /// fresh with the requested segment already in place: `.onChange(of:
+    /// segment)` cannot fire, but `.onAppear` does.
+    ///
+    /// `.onAppear` therefore has to snap against the selection-carrying list
+    /// (`visibleSegments(including:)`) — the shape asserted here. Snapping
+    /// against the persona's BARE registry list instead, which is what
+    /// `coerceSegmentIntoView(of:)` does and what `.onAppear` used to call,
+    /// throws the requested pane away: the second half of this test is the
+    /// failing behaviour, pinned so the two call sites cannot be conflated
+    /// again (whole-branch review, Critical 1).
+    func test_mountSelection_keepsAnOutOfRegistrySegment() {
+        // Author has no Annotations pane; ⌘⌥A with the column closed lands here.
+        let selected = DetailSegment.annotations
+        XCTAssertFalse(Persona.author.panes.contains(selected))
+
+        XCTAssertEqual(
+            DetailPaneToggle<AnyView>.mountSelection(
+                selected, persona: .author, hideOutline: false),
+            selected,
+            "the mount-time snap must keep the pane the writer just asked for")
+
+        // The list `mountSelection` must NOT consult — proof the distinction
+        // bites, and what the old `.onAppear` coercion produced.
+        let bare = DetailPaneToggle<AnyView>.visibleSegments(
+            persona: .author, hideOutline: false)
+        XCTAssertEqual(
+            DetailPaneToggle<AnyView>.snappedSelection(
+                selected, in: bare, fallback: Persona.author.defaultPane),
+            Persona.author.defaultPane,
+            "the bare registry list is the one that eats the selection")
+    }
+
+    /// Every persona × every pane shortcut: revealing a hidden column must
+    /// land on the requested pane. `.outline` on a collection is the sole
+    /// exception — its content falls through to the inspector, so a tab would
+    /// lie, and the snap pulls it back. This is ADR 0025 §3's claim that
+    /// "every pane shortcut now reveals a hidden column before selecting its
+    /// pane" stated as a test.
+    func test_mountSelection_landsOnTheRequestedPaneInEveryPersona() {
+        for persona in Persona.allCases {
+            for hideOutline in [false, true] {
+                for requested in DetailSegment.allCases {
+                    let landed = DetailPaneToggle<AnyView>.mountSelection(
+                        requested, persona: persona, hideOutline: hideOutline)
+                    if hideOutline && requested == .outline {
+                        XCTAssertNotEqual(landed, requested)
+                    } else {
+                        XCTAssertEqual(landed, requested,
+                                       "\(persona) dropped \(requested) on reveal")
+                    }
+                }
+            }
+        }
+    }
+
     /// `hideOutline` still wins over the selection: a collection project has
     /// no outline pane, and appending it would render a tab whose content
     /// falls through to the inspector.

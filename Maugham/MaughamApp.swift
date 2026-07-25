@@ -339,7 +339,7 @@ struct MaughamApp: App {
     private func postPersona(_ persona: Persona) {
         MaughamEvent.post(.maughamSetPersona,
                           to: .keyWindow,
-                          payload: ["persona": persona.rawValue])
+                          payload: [MaughamEvent.personaKey: persona.rawValue])
     }
 
     @MainActor
