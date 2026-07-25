@@ -32,14 +32,27 @@ final class ScrapLayout {
     private let contentStorage = NSTextContentStorage()
     private let layoutManager = NSTextLayoutManager()
     private let container: NSTextContainer
+    /// Held directly rather than read back through `contentStorage.textStorage`,
+    /// which is optional: a `text` accessor that falls back to `""` would hide
+    /// requirement 1 being broken behind an empty string instead of failing.
+    private let storage: NSTextStorage
 
-    init(text: String, width: CGFloat, font: NSFont) {
+    /// - Parameter textColor: the ink. Defaults to `NSColor.labelColor`, which is
+    ///   DYNAMIC — it is baked into the storage here but resolves against whatever
+    ///   appearance is current when the glyphs are rasterised. That is the hazard
+    ///   this parameter exists for: if the card is drawn paper-coloured in *both*
+    ///   appearances, a dynamic label colour is white-on-paper in dark mode and
+    ///   every scrap is unreadable, while `lineGeometrySignature` — which compares
+    ///   geometry only — is structurally blind to it. Task 7 owns the card fill, so
+    ///   Task 7 owns this decision: pass a static ink colour if the card is static.
+    init(text: String, width: CGFloat, font: NSFont, textColor: NSColor = .labelColor) {
         // REQUIREMENT 1 — see the class doc. Do not "simplify" this to
         // `contentStorage.attributedString = ...`.
-        contentStorage.textStorage = NSTextStorage(
+        storage = NSTextStorage(
             attributedString: NSAttributedString(
                 string: text,
-                attributes: [.font: font, .foregroundColor: NSColor.labelColor]))
+                attributes: [.font: font, .foregroundColor: textColor]))
+        contentStorage.textStorage = storage
 
         container = NSTextContainer(size: CGSize(width: width,
                                                  height: CGFloat.greatestFiniteMagnitude))
@@ -53,7 +66,7 @@ final class ScrapLayout {
         layoutManager.ensureLayout(for: layoutManager.documentRange)
     }
 
-    var text: String { contentStorage.textStorage?.string ?? "" }
+    var text: String { storage.string }
 
     var measuredHeight: CGFloat {
         layoutManager.ensureLayout(for: layoutManager.documentRange)
@@ -89,6 +102,10 @@ final class ScrapLayout {
 
     /// Mount a real editor on THIS stack. The returned view shares the container,
     /// so what it edits is what we draw.
+    ///
+    /// ONE EDITOR AT A TIME. An `NSTextContainer` has a single `textView`, so a
+    /// second `makeEditor` silently rebinds it and orphans the first. Call
+    /// `releaseEditor()` at blur before mounting the next one.
     func makeEditor(frame: CGRect) -> NSTextView {
         let tv = NSTextView(frame: frame, textContainer: container)
         tv.textContainerInset = .zero          // REQUIREMENT 2
@@ -109,6 +126,17 @@ final class ScrapLayout {
         // Task 15 states the decision and its cost in full.
         tv.allowsUndo = false
         return tv
+    }
+
+    /// The teardown counterpart to `makeEditor`. Detaches the mounted view from
+    /// the shared container — after this the view's own `textContainer` is nil and
+    /// the stack is drawn-only again, ready for the next `makeEditor`.
+    ///
+    /// Removing the view from its superview is NOT a detach: the container keeps
+    /// pointing at it, so anything the mount did to the layout stays done. Task 9
+    /// calls this on blur.
+    func releaseEditor() {
+        container.textView = nil
     }
 
     /// Place the caret from the click point (spec §7A.2, the rule borrowed from
