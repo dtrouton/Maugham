@@ -432,12 +432,35 @@ struct CanvasView: View {
         let recorder = CanvasUndo(undoManager: undoManager)
         recorder.readSnapshot = { (scene: scene, scraps: scraps) }
         recorder.applySnapshot = { snapshot in
+            // FIRST, before the scene is replaced. A coast steps `scene` directly
+            // from the timeline, outside any gesture and after the drag's own
+            // snapshot was taken at `.began`. Leave it running and a ⌘Z inside the
+            // ~1 s after a flick puts the card back at the pick-up point and the
+            // momentum then skates it away from there — so it comes to rest
+            // somewhere the writer never put it, and that is the position the
+            // save at the bottom of this closure writes.
+            momentum.stop()
             scene = snapshot.scene
             scraps = snapshot.scraps
+            // The undo may have taken away the scrap the writer is standing in —
+            // double-click bare canvas, type, ⌘Z, ⌘Z is three keystrokes to it.
+            // `mountedEditor` guards on `scene.node(id)`, so the editor goes;
+            // without this line `editingNodeID`, `caretIndex` and `straighten`
+            // would go on naming a node that no longer exists. Every mouse-down
+            // repairs it in passing — `CanvasEventNSView.applyMouseDown` runs
+            // `onClick` strictly before `onDrag(.began)`, so `handleClick` clears
+            // the stale id before any drag guard reads it — but the state is
+            // wrong in the meantime, and ⇧⌘Z brings the card back and drops the
+            // writer into an editor they never clicked into. This is the state
+            // `.unenterableNode` in `handleClick` already refuses to leave
+            // standing, arriving from the undo path instead of the click path.
+            if let id = editingNodeID, scene.node(id) == nil { leaveTheOpenScrap() }
             // Heights are DERIVED, so a restored scene is re-measured rather
             // than trusted — and a scrap whose text the undo changed gets a new
             // `ScrapLayout`, which is what makes `ScrapEditorHost` rebind the
             // mounted editor instead of leaving it showing the discarded words.
+            // Replacing the layout under a MOUNTED editor is safe; the
+            // measurement is on `rebuildLayouts` below.
             rebuildLayouts()
             store?.scheduleSave(scene: scene, scraps: scraps)
         }
@@ -452,15 +475,34 @@ struct CanvasView: View {
     /// node with no `cachedHeight` has no `frame`, so it is invisible to both
     /// hit testing and culling — it is on the canvas and cannot be clicked.
     ///
-    /// **A layout whose editor is mounted must not be replaced here**, and today
-    /// nothing replaces one: the reuse branch is keyed on `existing.text ==
-    /// text`, and `syncActiveEdit` keeps `scraps[id]` equal to the live layout's
-    /// text on every keystroke, so an edit in progress always takes it.
-    /// `ScrapEditorContainer.mountedLayout` is `weak`, so a caller that DOES
-    /// break that — Task 15's undo restoring an older string into `scraps` while
-    /// the writer is still in the scrap is the shape to watch — leaves the
-    /// container holding a text view whose `NSTextStorage` has been deallocated
-    /// underneath it. `unmount()` first, or clear `editingNodeID` first.
+    /// **Replacing a layout whose editor is MOUNTED is safe**, and this says so
+    /// with a measurement because it used to say the opposite with a warning.
+    ///
+    /// Task 15's undo is the caller that does it: `applySnapshot` restores an
+    /// older string into `scraps` while the writer is still in the scrap, so the
+    /// reuse branch below (keyed on `existing.text == text`) misses, `layouts[id]`
+    /// is overwritten, and the `ScrapLayout` the mounted `NSTextView` was built
+    /// from is released **synchronously** — a whole SwiftUI update pass before
+    /// `ScrapEditorHost.updateNSView` rebinds. The old warning called that window
+    /// a dangling stack, on the theory that the view retains only its
+    /// `NSTextContainer`, whose `textLayoutManager` back-link is weak.
+    ///
+    /// That theory is wrong. Measured 2026-07-26 on macOS 26.5: with the
+    /// `ScrapLayout` released and nothing but the text view left alive, the
+    /// `NSTextLayoutManager`, the `NSTextContentStorage` and the `NSTextStorage`
+    /// are all still alive, `textContainer.textLayoutManager` is non-nil,
+    /// `string` reads, and the view lays out and draws. An `NSTextView` built
+    /// through `NSTextView(frame:textContainer:)` owns its TextKit 2 stack
+    /// itself. `ScrapLayoutTests.test_theMountedEditorOutlivesTheScrapLayoutThatBuiltIt`
+    /// is that measurement in isolation, and
+    /// `CanvasViewMountingTests.test_anUndoInsideAScrapLeavesItsLiveEditorUsableBeforeTheRebind`
+    /// is the same window reached through a real ⌘Z on the real surface.
+    ///
+    /// What that buys is a window that is safe, not one that is correct: through
+    /// it the mounted view still shows the text the undo discarded. Showing the
+    /// restored words is the REBIND's job — `updateNSView` sees a new layout
+    /// identity and remounts — which is why the replacement has to be a new
+    /// `ScrapLayout` rather than the old one mutated in place.
     ///
     /// `unorderedNodes`, not `nodes`: this measures every scrap and does not
     /// care which is in front, and `CanvasScene.nodes` sorts the whole scene on

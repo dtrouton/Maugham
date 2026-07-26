@@ -26,6 +26,80 @@ final class ScrapLayoutTests: XCTestCase {
         return window
     }
 
+    /// **A mounted editor outlives the `ScrapLayout` that built it**, and that is
+    /// the fact `CanvasView.rebuildLayouts` rests on.
+    ///
+    /// `applySnapshot` replaces `layouts[id]` while the writer is still in the
+    /// scrap, which releases that scrap's `ScrapLayout` synchronously — a whole
+    /// SwiftUI update pass before `ScrapEditorHost.updateNSView` rebinds. The
+    /// question is what the still-mounted text view is left holding through that
+    /// window, and the plausible-sounding answer is "a container whose layout
+    /// manager has gone": `ScrapLayout` privately owns the `NSTextStorage`, the
+    /// `NSTextContentStorage` and the `NSTextLayoutManager`, and
+    /// `NSTextContainer.textLayoutManager` is a weak back-link.
+    ///
+    /// Measured here instead of assumed. An `NSTextView` built through
+    /// `NSTextView(frame:textContainer:)` owns its TextKit 2 stack itself: with
+    /// the `ScrapLayout` released and nothing but the view alive, every object in
+    /// the stack is still there and the view still lays out, draws and reads.
+    ///
+    /// This is a fact about AppKit rather than about our code, so it is asserted
+    /// where it can be asserted in isolation — no SwiftUI, no undo, no timing.
+    /// If a future macOS changes it, THIS is the test that says so, and
+    /// `rebuildLayouts`'s doc is what has to change with it.
+    func test_theMountedEditorOutlivesTheScrapLayoutThatBuiltIt() {
+        var editor: NSTextView?
+        weak var weakLayout: ScrapLayout?
+        weak var weakLayoutManager: NSTextLayoutManager?
+        weak var weakContentStorage: NSTextContentStorage?
+        weak var weakStorage: NSTextStorage?
+
+        autoreleasepool {
+            let l = layout()
+            weakLayout = l
+            let tv = l.makeEditor(frame: CGRect(x: 0, y: 0, width: 240, height: 200))
+            editor = tv
+            weakLayoutManager = tv.textContainer?.textLayoutManager
+            weakContentStorage = tv.textContentStorage
+            weakStorage = tv.textStorage
+            XCTAssertNotNil(weakLayoutManager,
+                            "precondition: the mounted view is on the layout's own "
+                            + "TextKit 2 stack, which is the whole of ScrapLayout's "
+                            + "reason to exist")
+            XCTAssertNotNil(weakStorage, "precondition: and on its storage")
+        }
+        // The `ScrapLayout` is gone. Only the text view is left holding anything.
+        XCTAssertNil(weakLayout,
+                     "precondition, and the control for every assertion below: the "
+                     + "ScrapLayout really was deallocated. Without this they would "
+                     + "all be true of an object that is simply still alive, and the "
+                     + "weak references would be measuring nothing")
+
+        XCTAssertNotNil(weakLayoutManager,
+                        "the layout manager went with the ScrapLayout, so replacing a "
+                        + "mounted scrap's layout leaves the writer's live editor "
+                        + "pointing at a deallocated stack — CanvasView.applySnapshot "
+                        + "does exactly that on every ⌘Z inside a scrap")
+        XCTAssertNotNil(weakContentStorage, "the content storage went with it too")
+        XCTAssertNotNil(weakStorage,
+                        "the NSTextStorage the writer is typing into went with it")
+        XCTAssertNotNil(editor?.textContainer?.textLayoutManager,
+                        "the container's back-link to the layout manager is nil, so "
+                        + "the next layout pass on the mounted view has nothing to "
+                        + "lay out with")
+        XCTAssertEqual(editor?.string, sample,
+                       "the mounted view can no longer read its own text")
+
+        // And it still works, rather than merely still existing.
+        editor?.layoutSubtreeIfNeeded()
+        editor?.needsDisplay = true
+        editor?.displayIfNeeded()
+        XCTAssertGreaterThan(editor?.textContainer?.textLayoutManager?
+            .usageBoundsForTextContainer.height ?? 0, 0,
+                             "the mounted view lays out to nothing once its ScrapLayout "
+                             + "is gone")
+    }
+
     /// THE §7A.2 PIN. If drawn and edited layout differ by even a fraction, text
     /// visibly jumps every time the writer clicks in and again when they click
     /// out. Spike verified this holds; this test keeps it holding.

@@ -1043,6 +1043,212 @@ final class CanvasViewMountingTests: XCTestCase {
                       + "it was swallowed by a gesture the press left open")
     }
 
+    /// **The live editor stays usable through the window where its `ScrapLayout`
+    /// has been replaced and SwiftUI has not rebound yet.**
+    ///
+    /// ⌘Z inside a scrap runs `applySnapshot` → `rebuildLayouts()`, which
+    /// overwrites `layouts[id]` and releases the `ScrapLayout` the mounted
+    /// `NSTextView` was built from — synchronously, a whole update pass before
+    /// `ScrapEditorHost.updateNSView` sees the new identity and remounts. A
+    /// display or layout pass landing in that window meets whatever the view was
+    /// left holding, and `test_undoInsideAScrapTakesBackASentenceAtATime` only
+    /// ever looks after a `pump()`, so it says nothing about it.
+    ///
+    /// `ScrapLayoutTests.test_theMountedEditorOutlivesTheScrapLayoutThatBuiltIt`
+    /// is the isolated measurement — an `NSTextView` owns its TextKit 2 stack, so
+    /// nothing is dangling. This is the same claim through a real ⌘Z on the real
+    /// surface, which is where a SwiftUI or AppKit change would show up first.
+    /// Between them they are why `rebuildLayouts` documents this as safe rather
+    /// than warning against it.
+    func test_anUndoInsideAScrapLeavesItsLiveEditorUsableBeforeTheRebind() throws {
+        let window = host(CanvasView(projectRoot: try projectRoot(),
+                                     paletteSwatchHexes: { [] }))
+        let container = try doubleClickTheScrap(in: window)
+        let editor = try XCTUnwrap(container.textView)
+        editor.setSelectedRange(NSRange(location: (editor.string as NSString).length, length: 0))
+        type(". Rain.", into: editor)
+        pump(0.05)
+        let textContainer = try XCTUnwrap(editor.textContainer)
+
+        container.undo(nil)
+        // NO pump. Everything below is inside the window.
+
+        XCTAssertTrue(container.textView === editor,
+                      "precondition: SwiftUI has not rebound yet, so this really is "
+                      + "the window between the layout swap and the remount")
+        XCTAssertNotNil(textContainer.textLayoutManager,
+                        "the mounted view's container lost its layout manager when "
+                        + "the undo replaced the scrap's ScrapLayout, so anything "
+                        + "that lays this view out in the next moment has nothing "
+                        + "to lay it out with")
+        XCTAssertNotNil(editor.textStorage,
+                        "the storage the writer is typing into was deallocated "
+                        + "underneath the live editor")
+        XCTAssertEqual(editor.string, scrapText + ". Rain.",
+                       "the mounted view cannot read its own text mid-window — it "
+                       + "still shows the words the undo discarded, which is right, "
+                       + "and the rebind below is what replaces them")
+
+        // A display and a layout pass, which is what would actually arrive here.
+        editor.layoutSubtreeIfNeeded()
+        editor.needsDisplay = true
+        editor.displayIfNeeded()
+        _ = editor.selectedRange()
+
+        pump()
+        XCTAssertEqual(try mountedText(in: window), scrapText + ".",
+                       "the rebind never happened, so the writer is looking at the "
+                       + "sentence ⌘Z was supposed to take back")
+    }
+
+    /// **Undoing away the focused scrap must take the writer out of it**, which
+    /// is the smoke's own three-keystroke sequence: double-click bare canvas,
+    /// type, ⌘Z, ⌘Z.
+    ///
+    /// The second ⌘Z removes the node the writer is standing in. `mountedEditor`
+    /// guards on `scene.node(id)`, so the editor unmounts and the strandedness is
+    /// invisible — `editingNodeID`, `caretIndex` and `straighten` all go on naming
+    /// a node that no longer exists. ⇧⌘Z is where it becomes visible: the card
+    /// comes back and that stale focus silently drops the writer inside a text
+    /// editor they never clicked into, caret placed, with the next keystroke
+    /// going into the scrap rather than to the canvas.
+    ///
+    /// This is the state `handleClick`'s `.unenterableNode` case already refuses
+    /// to leave standing, reached from the undo path instead of the click path.
+    func test_undoingAwayTheFocusedScrapTakesTheWriterOutOfIt() throws {
+        let root = try projectRoot()
+        let window = host(CanvasView(projectRoot: root, paletteSwatchHexes: { [] }))
+        let hosted = try XCTUnwrap(window.contentView)
+        let events = try eventView(in: window)
+
+        // Bare canvas, well clear of the fixture's card at (20,20)–(260,80).
+        events.applyMouseDown(at: CGPoint(x: 500, y: 400), clickCount: 2)
+        pump(0.3)
+        let created = try XCTUnwrap(firstDescendant(ScrapEditorContainer.self, in: hosted),
+                                    "a double-click on bare canvas made no scrap, so "
+                                    + "there is no New Scrap step to undo past")
+        type("Rain.", into: try XCTUnwrap(created.textView))
+        pump(0.05)
+
+        // ⌘Z — takes back the typing. The editor is still mounted afterwards, on a
+        // rebound text view, so the container is re-found rather than reused.
+        try XCTUnwrap(firstDescendant(ScrapEditorContainer.self, in: hosted)).undo(nil)
+        pump()
+        XCTAssertEqual(try mountedText(in: window), "",
+                       "precondition: the first ⌘Z took back the typing and left the "
+                       + "writer in the new, empty scrap")
+
+        // ⌘Z again — takes back the card the writer is standing in.
+        try XCTUnwrap(firstDescendant(ScrapEditorContainer.self, in: hosted)).undo(nil)
+        pump(1.0)
+        XCTAssertNil(firstDescendant(ScrapEditorContainer.self, in: hosted),
+                     "precondition: the second ⌘Z removed the focused scrap, so the "
+                     + "editor is gone")
+        XCTAssertEqual(sceneOnDisk(root).count, 1,
+                       "precondition: the new card really is off the canvas, so the "
+                       + "redo below is a real redo")
+
+        // ⇧⌘Z, through the manager the event view vends — there is no editor left
+        // to route it, which is the writer's position too.
+        let manager = try XCTUnwrap(events.undoManager)
+        XCTAssertTrue(manager.canRedo, "precondition: there is something to redo")
+        manager.redo()
+        pump(1.0)
+
+        XCTAssertEqual(sceneOnDisk(root).count, 2,
+                       "precondition: ⇧⌘Z brought the card back")
+        XCTAssertNil(firstDescendant(ScrapEditorContainer.self, in: hosted),
+                     "⇧⌘Z brought the card back and put the writer inside it, caret "
+                     + "and all, without their ever clicking into it: the undo that "
+                     + "removed the scrap left `editingNodeID` naming it, so the "
+                     + "editor remounts the moment the node exists again and the "
+                     + "next keystroke goes into the scrap instead of to the canvas")
+    }
+
+    /// The same sequence asked the other way: after undoing away the scrap the
+    /// writer was in, the canvas still responds to a drag.
+    ///
+    /// **This passes with the focus reconciliation removed, and saying so is the
+    /// point.** The reconciliation looks, from outside, like the thing that keeps
+    /// drags alive — `handleDrag`'s `.began` bails at
+    /// `guard editingNodeID == nil`, so a stranded id reads like a canvas that
+    /// ignores every drag until the writer clicks. It is not, and measured
+    /// against the unfixed code this test was green: `CanvasEventNSView`'s
+    /// `applyMouseDown` runs `onClick` strictly before `onDrag(.began)` — a
+    /// documented contract in that file — so a drag cannot BEGIN without
+    /// `handleClick` having cleared the stale id microseconds earlier, in the
+    /// same call. The sibling test above is the one that can fail on the
+    /// reconciliation.
+    ///
+    /// What this pins is that the two defences do not BOTH go. Measured by
+    /// mutation: reordering those two callbacks alone leaves it green (the
+    /// reconciliation covers it), removing the reconciliation alone leaves it
+    /// green (the ordering covers it), and removing both fails it here with
+    /// `("20.0") is not equal to ("60.0")` — the card never moved.
+    /// The sequence is the hand-smoke's, which is why it is asked at all.
+    func test_undoingBackPastANewScrapLeavesTheCanvasRespondingToDrags() throws {
+        let root = try projectRoot()
+        let window = host(CanvasView(projectRoot: root, paletteSwatchHexes: { [] }))
+        let hosted = try XCTUnwrap(window.contentView)
+        let events = try eventView(in: window)
+
+        events.applyMouseDown(at: CGPoint(x: 500, y: 400), clickCount: 2)
+        pump(0.3)
+        let created = try XCTUnwrap(firstDescendant(ScrapEditorContainer.self, in: hosted),
+                                    "a double-click on bare canvas made no scrap")
+        type("Rain.", into: try XCTUnwrap(created.textView))
+        pump(0.05)
+
+        try XCTUnwrap(firstDescendant(ScrapEditorContainer.self, in: hosted)).undo(nil)
+        pump()
+        try XCTUnwrap(firstDescendant(ScrapEditorContainer.self, in: hosted)).undo(nil)
+        pump()
+
+        // Drag the fixture's card 40pt right, with the last two samples identical
+        // so nothing flicks and the assertion is about the drag alone.
+        drag(events, from: CGPoint(x: 60, y: 40),
+             through: [CGPoint(x: 100, y: 40), CGPoint(x: 100, y: 40)])
+        pump(1.0)
+
+        let dragged = try XCTUnwrap(sceneOnDisk(root).node(scrapID))
+        XCTAssertEqual(dragged.origin.x, 60, accuracy: 0.5,
+                       "the card did not move after an undo took away the scrap the "
+                       + "writer was in — the likeliest cause is `onClick` no longer "
+                       + "running before `onDrag(.began)`, which is what clears the "
+                       + "stale `editingNodeID` before the drag guard reads it")
+    }
+
+    /// **⌘Z during a coast must not leave the card somewhere the writer never put
+    /// it.** The coast steps `scene` directly, frame by frame, outside any
+    /// gesture; an undo that restores the pick-up point without stopping it hands
+    /// the momentum a fresh starting position and the card skates off from there —
+    /// and that resting place is what reaches disk.
+    ///
+    /// The window is the ~1 s after a flick, which is exactly when a writer who
+    /// did not mean that throw reaches for ⌘Z.
+    func test_undoDuringACoastLeavesTheCardWhereTheWriterPickedItUp() throws {
+        let root = try projectRoot()
+        let window = host(CanvasView(projectRoot: root, paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+
+        // The flick `test_aFlickCarriesTheCardOnPastWhereThePointerLetGo` measures:
+        // 10 pt on the last frame, carrying ≈47.8 pt past the release point.
+        drag(events, from: CGPoint(x: 60, y: 40),
+             through: [CGPoint(x: 70, y: 40), CGPoint(x: 80, y: 40)])
+        // NO pump: the coast is live and has travelled nothing yet, which is the
+        // moment this test is about.
+        let manager = try XCTUnwrap(events.undoManager)
+        XCTAssertTrue(manager.canUndo, "precondition: the drag registered a step")
+        manager.undo()
+        pump(1.2)                       // a surviving coast finishes, then the debounce
+
+        let restored = try XCTUnwrap(sceneOnDisk(root).node(scrapID))
+        XCTAssertEqual(restored.origin.x, 20, accuracy: 0.5,
+                       "⌘Z put the card back and the coast then carried it away "
+                       + "again, so it came to rest somewhere the writer never put "
+                       + "it — and that is the position that reached disk")
+    }
+
     /// The same rule in the RESIZE branch, where it is easier to get wrong.
     ///
     /// `CanvasScene.setWidth` clears `cachedHeight` on every `.changed`, identical
