@@ -60,6 +60,11 @@ struct CanvasView: View {
     @State private var store: CanvasStore?
     /// §7A.5: the focused card animates to level and settles back on blur.
     @State private var straighten = CanvasFocusStraighten()
+    /// The live drag or resize, and §7.3's coast after a flick. Both are plain
+    /// value types with no clock of their own — the `TimelineView` below is the
+    /// only clock on this surface.
+    @State private var interaction = CanvasInteraction()
+    @State private var momentum = CanvasMomentum()
 
     /// `layouts` holds ScrapLayout REFERENCES. Typing mutates the object in
     /// place, so `@State` observes no change and the `Canvas` never redraws.
@@ -124,10 +129,15 @@ struct CanvasView: View {
                 // everything, so it says so at both ends.
                 .allowsHitTesting(false)
 
-            // The clock §7A.5's straightening runs on. Paused the moment nothing
-            // is animating, so an idle canvas costs nothing. Task 13 adds
-            // momentum to THIS timeline — do not create a second one.
-            TimelineView(.animation(paused: straighten.isSettled)) { context in
+            // ONE clock, two interpolated models: §7A.5's straightening and
+            // §7.3's coast. Paused only when BOTH are settled, so an idle canvas
+            // costs nothing. A second `TimelineView` over the same `Canvas`
+            // would be two redraw sources fighting for one frame — do not add
+            // one. `withAnimation` cannot do either job: it interpolates
+            // `Animatable` values through the SwiftUI view graph, and a plain
+            // model value read inside a `Canvas` draw closure is not in that
+            // graph (see `CanvasMomentum`).
+            TimelineView(.animation(paused: straighten.isSettled && momentum.isAtRest)) { context in
                 Canvas { cx, size in
                     _ = drawRevision
                     CanvasRenderer.draw(scene: scene, camera: camera, viewSize: size,
@@ -141,6 +151,20 @@ struct CanvasView: View {
                     // whole idle gap, not a frame. See `maximumFrameStep`.
                     straighten.step(elapsed: min(now.timeIntervalSince(previous),
                                                  Self.maximumFrameStep))
+                    // Momentum needs no elapsed and no clamp: it decays PER
+                    // FRAME, so one late tick advances the coast by one frame
+                    // rather than by the idle gap. Guarded on `isAtRest` so a
+                    // tick that exists only to straighten a card does not reset
+                    // the save debounce.
+                    if !momentum.isAtRest, !momentum.step(&scene) {
+                        store?.scheduleSave(scene: scene, scraps: scraps)
+                        // *** The card has come to rest somewhere new, so the
+                        // accessibility tree's frames are stale. KEEP THIS. ***
+                        // Bumped here and not once per coasting frame:
+                        // `sceneRevision` is the STRUCTURAL counter and a coast
+                        // is one structural change, at its end.
+                        sceneRevision += 1
+                    }
                     revision += 1
                 }
             }
@@ -151,9 +175,9 @@ struct CanvasView: View {
                     handleClick(at: camera.contentPoint(fromView: viewPoint),
                                 clickCount: clickCount)
                 },
-                // Task 13 drives CanvasInteraction from this. Until then a drag
-                // is a no-op, deliberately — not a forgotten stub.
-                onDrag: { _, _ in },
+                onDrag: { viewPoint, phase in
+                    handleDrag(at: camera.contentPoint(fromView: viewPoint), phase: phase)
+                },
                 // Task 15 supplies the canvas undo manager.
                 undoManager: nil)
 
@@ -378,8 +402,35 @@ struct CanvasView: View {
 
     // MARK: - Clicks
 
+    /// What a double click landed on. Three cases, resolved from ONE hit test.
+    ///
+    /// `CanvasScene.topmostNode(at:)` filters the whole scene, so asking twice in
+    /// one click is an avoidable `O(scene)` pass; and asking it in a `guard` with
+    /// the other conditions is how the fall-through below went missing in the
+    /// first draft. Making the third case a NAMED case is what stops it being
+    /// forgotten again.
+    private enum ClickTarget {
+        /// Bare canvas — make a scrap here.
+        case emptyCanvas
+        /// A scrap this view has measured and laid out — enter it.
+        case scrap(node: CanvasNode, layout: ScrapLayout, frame: CGRect)
+        /// A node that cannot be entered: an item node (1C-d gives those their
+        /// own behaviour), or a scrap with no layout or no `cachedHeight` yet.
+        /// Reachable TODAY — Task 5's codec round-trips item nodes deliberately,
+        /// so a sidecar written by a later build opens with them present.
+        case unenterableNode
+    }
+
+    private func clickTarget(at contentPoint: CGPoint) -> ClickTarget {
+        guard let node = scene.topmostNode(at: contentPoint) else { return .emptyCanvas }
+        guard case .scrap = node.kind,
+              let layout = layouts[node.id],
+              let frame = node.frame else { return .unenterableNode }
+        return .scrap(node: node, layout: layout, frame: frame)
+    }
+
     /// Single click: leave whatever was being edited. Double click: enter the
-    /// scrap under the pointer (Task 13 adds "or make one here").
+    /// scrap under the pointer, or make one on bare canvas.
     ///
     /// The single/double split is the standard canvas idiom, and it is what lets
     /// a single click start a DRAG while the editor is unmounted — with the
@@ -397,37 +448,125 @@ struct CanvasView: View {
     private func handleClick(at contentPoint: CGPoint, clickCount: Int) {
         commitActiveEdit()
 
-        guard clickCount >= 2,
-              let node = scene.topmostNode(at: contentPoint),
-              case .scrap = node.kind,
-              let layout = layouts[node.id],
-              let frame = node.frame else {
-            editingNodeID = nil
-            caretIndex = nil
-            straighten.focus(nil)
+        guard clickCount >= 2 else {
+            leaveTheOpenScrap()
             store?.scheduleSave(scene: scene, scraps: scraps)
             return
         }
 
-        // §7A.5 requirement 1: resolve the caret in the card's LOCAL, UNROTATED
-        // space at CLICK TIME — before the card straightens. Straightening first
-        // moves the click point out from under the cursor, and the caret lands
-        // somewhere the writer did not aim.
-        let angle = CanvasRenderer.drawnAngle(for: node.id, straighten: straighten)
-        let local = CanvasRenderer.localPoint(contentPoint, inCard: frame, angle: angle)
-        let textOrigin = CanvasCardMetrics.textOrigin(inCard: frame)
-        caretIndex = layout.characterIndex(
-            at: CGPoint(x: local.x - textOrigin.x, y: local.y - textOrigin.y))
+        switch clickTarget(at: contentPoint) {
+        case .scrap(let node, let layout, let frame):
+            // §7A.5 requirement 1: resolve the caret in the card's LOCAL,
+            // UNROTATED space at CLICK TIME — before the card straightens.
+            // Straightening first moves the click point out from under the
+            // cursor, and the caret lands somewhere the writer did not aim.
+            let angle = CanvasRenderer.drawnAngle(for: node.id, straighten: straighten)
+            let local = CanvasRenderer.localPoint(contentPoint, inCard: frame, angle: angle)
+            let textOrigin = CanvasCardMetrics.textOrigin(inCard: frame)
+            caretIndex = layout.characterIndex(
+                at: CGPoint(x: local.x - textOrigin.x, y: local.y - textOrigin.y))
 
-        editingNodeID = node.id
-        lastKeystrokeAt = nil
-        // The editor mounts on this line's body pass and takes keystrokes at
-        // once; what it does not do yet is SHOW. `visibleEditorNodeID` withholds
-        // that until `straighten.isLevel(_:)`, about a tenth of a second from
-        // here, and until then the drawn text stays visible, keeps rotating, and
-        // grows as the writer types into the editor nobody can see. Spec §7A.5
-        // calls that beat responsiveness rather than lag.
-        straighten.focus(node.id)
+            editingNodeID = node.id
+            lastKeystrokeAt = nil
+            // The editor mounts on this line's body pass and takes keystrokes at
+            // once; what it does not do yet is SHOW. `visibleEditorNodeID`
+            // withholds that until `straighten.isLevel(_:)`, about a tenth of a
+            // second from here, and until then the drawn text stays visible,
+            // keeps rotating, and grows as the writer types into the editor
+            // nobody can see. Spec §7A.5 calls that beat responsiveness rather
+            // than lag.
+            straighten.focus(node.id)
+
+        case .emptyCanvas:
+            let id = CanvasInteraction.createScrap(at: contentPoint, in: &scene)
+            scraps[id] = ""
+            // A new scrap has no cachedHeight, so it has no frame, so it is
+            // invisible to hit testing and culling until it is measured.
+            // `rebuildLayouts()` also bumps `sceneRevision`.
+            rebuildLayouts()
+            editingNodeID = id
+            caretIndex = 0
+            lastKeystrokeAt = nil
+            straighten.focus(id)
+
+        case .unenterableNode:
+            // Nothing to enter, so this behaves like a single click. Falling
+            // through instead would leave `editingNodeID` and `straighten`
+            // pointing at whatever was open before: the invisible editor stays
+            // mounted on the card the writer just clicked AWAY from, and
+            // `visibleEditorNodeID` re-reveals it the moment `isLevel` fires.
+            leaveTheOpenScrap()
+        }
         store?.scheduleSave(scene: scene, scraps: scraps)
+    }
+
+    /// Focus leaves the canvas's open scrap: unmount the editor and let the card
+    /// settle back over ~120 ms. `isSettled` is false the moment focus leaves —
+    /// it means "every card is at ITS target", not "every progress value is 1" —
+    /// so the clock keeps running until it lands.
+    private func leaveTheOpenScrap() {
+        editingNodeID = nil
+        caretIndex = nil
+        straighten.focus(nil)
+    }
+
+    // MARK: - Drags
+
+    /// A left-drag that begins over empty canvas (no node under the point) is
+    /// intentionally a no-op: `CanvasInteraction.begin` finds nothing to move or
+    /// resize and sets its mode to idle, so `.changed`/`.ended` below never
+    /// register. Panning is `scrollWheel`/`magnify` (Task 6), not click-and-drag,
+    /// and this slice has no marquee-select — that is out of scope here, not
+    /// merely unbuilt.
+    ///
+    /// **A drag that starts inside a FOCUSED scrap belongs to the editor**, which
+    /// is in front and takes the mouse itself, so it is a text selection rather
+    /// than a card move. Nothing currently lets a writer drag a focused card by
+    /// its text; whether that is right is a product question nobody has answered,
+    /// and it is flagged rather than decided here.
+    private func handleDrag(at contentPoint: CGPoint, phase: CanvasDragPhase) {
+        switch phase {
+        case .began:
+            // A focused scrap owns its own mouse, so a drag can only start on an
+            // unfocused card. `onClick` has already run for this same mouse-down
+            // (`CanvasEventNSView.applyMouseDown` pins that order), so this sees
+            // the focus state the click just set.
+            guard editingNodeID == nil else { return }
+            // Catching a coasting card stops it where the pointer caught it. The
+            // resting place reaches disk without a save of its own here: the
+            // `onClick` that preceded this call scheduled one, and `scene`
+            // already held every frame the coast had applied.
+            momentum.stop()
+            interaction.begin(at: contentPoint, in: scene)
+        case .changed:
+            guard interaction.isActive else { return }
+            interaction.update(to: contentPoint, in: &scene)
+            revision += 1
+        case .ended:
+            guard interaction.isActive else { return }
+            let wasResizing = interaction.isResizing
+            let flick = interaction.end()
+            // A press that never moved is not a drag. AppKit opens a drag session
+            // on EVERY mouse-down, including the first of a double-click, so
+            // without this every click into a scrap would write the sidecar and
+            // rebuild the accessibility tree for nothing.
+            guard interaction.hasMoved else { return }
+            if wasResizing {
+                // The rewrap cleared the cached height; re-measure before the
+                // card is hit-tested or culled again. `rebuildLayouts()` bumps
+                // `sceneRevision` itself.
+                rebuildLayouts()
+            } else {
+                // *** KEEP THIS. *** A move is one structural change, recorded at
+                // the END of the gesture rather than once per drag frame, and the
+                // accessibility tree is rebuilt from this counter alone. If the
+                // card is about to coast, the timeline bumps it again when the
+                // coast comes to rest.
+                sceneRevision += 1
+                if let flick { momentum.launch(flick.id, velocity: flick.velocity) }
+            }
+            store?.scheduleSave(scene: scene, scraps: scraps)
+            revision += 1
+        }
     }
 }

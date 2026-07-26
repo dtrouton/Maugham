@@ -195,6 +195,77 @@ final class CanvasViewMountingTests: XCTestCase {
                        + "editor that stays invisible for the whole visit")
     }
 
+    /// The container's box in SwiftUI's coordinate space — top-left origin, y
+    /// downward, which is the space `CanvasCamera` maps into. `CanvasView`
+    /// positions the container at `camera.viewPoint(fromContent: textOrigin)` and
+    /// sizes it `textSize * camera.zoom`, so this one rect carries both camera
+    /// terms and a before/after pair recovers the zoom.
+    private func swiftUIFrame(of view: NSView, in root: NSView) -> CGRect {
+        let f = view.convert(view.bounds, to: root)
+        guard !root.isFlipped else { return f }
+        return CGRect(x: f.minX, y: root.bounds.height - f.maxY,
+                      width: f.width, height: f.height)
+    }
+
+    /// A pinch inside the MOUNTED editor must zoom about the canvas point under
+    /// the writer's fingers.
+    ///
+    /// `CanvasCompositionTests.test_theFocusedEditorsPinchAnchorGoesThroughTheGeometryMapper`
+    /// greps this view's source for the name `ScrapEditorGeometry.viewPoint`.
+    /// That grep passes just as happily if the mapped point is computed and then
+    /// dropped and the raw editor-space point is handed to the camera — which
+    /// compiles, and zooms about a point the writer never touched. Nothing else
+    /// in the plan drives `applyMagnify` on a mounted container at all, so the
+    /// mapper could be reduced to dead code without a single test going red.
+    ///
+    /// The invariant is stated rather than the arithmetic reproduced: the canvas
+    /// point under the fingers does not move on screen. Under the wiring this
+    /// pins, the anchor is the container's origin plus the editor point scaled by
+    /// the zoom, and that lands on the same view point before and after. Handing
+    /// the camera the raw editor point instead anchors at (100,10) rather than
+    /// (130,40) and shifts it by 15 points in each axis.
+    func test_pinchingInsideAMountedEditorAnchorsOnTheCanvasPointUnderTheFingers() throws {
+        let window = host(CanvasView(projectRoot: try projectRoot(),
+                                     paletteSwatchHexes: { [] }))
+        let root = try XCTUnwrap(window.contentView)
+        let container = try doubleClickTheScrap(in: window)
+        XCTAssertEqual(container.alphaValue, 1,
+                       "precondition: the straighten has finished, so this editor "
+                       + "is the view a real pinch would land on")
+
+        let before = swiftUIFrame(of: container, in: root)
+        // The fixture's card is at (20,20) 240 wide, so its text box is 220 wide
+        // at a text origin of (30,30). Seeing exactly that is what says the
+        // camera is still at identity, and therefore that the pre-pinch zoom
+        // below is 1.
+        XCTAssertEqual(before.origin.x, 30, accuracy: 0.5)
+        XCTAssertEqual(before.origin.y, 30, accuracy: 0.5)
+        XCTAssertEqual(before.width, 220, accuracy: 0.5,
+                       "precondition: nothing has moved the camera off identity")
+
+        // Inside the editor, well away from its own origin — an anchor bug that
+        // drops the text-origin translation is invisible at (0,0).
+        let editorPoint = CGPoint(x: 100, y: 10)
+        container.applyMagnify(magnification: 0.5, atEditorPoint: editorPoint)
+        pump()
+
+        let after = swiftUIFrame(of: container, in: root)
+        let zoom = after.width / before.width
+        XCTAssertEqual(zoom, 1.5, accuracy: 0.01,
+                       "precondition: the pinch never reached the camera at all")
+
+        XCTAssertEqual(after.origin.x + editorPoint.x * zoom,
+                       before.origin.x + editorPoint.x, accuracy: 0.5,
+                       "the pinch anchored somewhere other than the canvas point "
+                       + "under the fingers — the editor hands back a point in its "
+                       + "OWN space and it has to go through "
+                       + "ScrapEditorGeometry.viewPoint first")
+        XCTAssertEqual(after.origin.y + editorPoint.y * zoom,
+                       before.origin.y + editorPoint.y, accuracy: 0.5,
+                       "the pinch anchored somewhere other than the canvas point "
+                       + "under the fingers, on the y axis")
+    }
+
     // MARK: - The words are safe
 
     /// The product constitution's must #1 and the smoke that gates this slice:
