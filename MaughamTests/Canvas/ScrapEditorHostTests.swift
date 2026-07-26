@@ -186,6 +186,7 @@ final class ScrapEditorHostTests: XCTestCase {
         }
 
         // Aspect-breaking on purpose — see the doc comment.
+        container.wantsLayer = true
         container.frame = CGRect(x: 17, y: 23, width: 960, height: 100)
 
         let container2 = scale(of: container)

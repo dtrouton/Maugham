@@ -124,9 +124,10 @@ final class ScrapEditorContainer: NSView, NSTextViewDelegate, NSUserInterfaceVal
     /// default, but `NSTextView` overrides it and returns nil, so the walk never
     /// arrives. The override was measured to be inert twice over: with it in
     /// place `window.undoManager` was still not the canvas manager with either
-    /// the text view OR the container as first responder, and nothing reads
-    /// `self.undoManager`. These two methods reach `canvasUndoManager` directly,
-    /// which is the whole route.
+    /// the text view OR the container as first responder — and it cannot become
+    /// first responder in the first place, since `acceptsFirstResponder` defaults
+    /// to false here, unlike `CanvasEventNSView`. Nothing reads `self.undoManager`.
+    /// These two methods reach `canvasUndoManager` directly, which is the whole route.
     @objc func undo(_ sender: Any?) {
         canvasUndoManager?.undo()
     }
@@ -199,9 +200,9 @@ final class ScrapEditorContainer: NSView, NSTextViewDelegate, NSUserInterfaceVal
         // editor at scale 2.0833 under a 500x210 frame and (2.833, 3.0) under a
         // superview autoresize, while the renderer draws at 2 — sliding the
         // glyphs off the card beneath, which is the §7A.2 text-jumping failure
-        // itself. Recomputing bounds as frame/zoom is the same mistake wearing a
-        // different hat: it hand-derives a scale AppKit already holds exactly
-        // (`ScrapLayout` requirement 3). Pinned by
+        // itself. Recomputing bounds as frame/zoom would yield the correct scale,
+        // but it hand-derives a value AppKit already holds exactly (`ScrapLayout`
+        // requirement 3), which is the wrongness we avoid. Pinned by
         // `test_anExternalFrameWriteLeavesTheEditorAtTheCameraScale`.
         frame = CGRect(origin: frame.origin,
                        size: CGSize(width: unscaledSize.width * zoom,
@@ -253,7 +254,11 @@ final class ScrapEditorContainer: NSView, NSTextViewDelegate, NSUserInterfaceVal
         // leaving the switch where the last straighten put it is a trap: it is
         // guarded on a real change, so a container unmounted while invisible and
         // then reused mounts at alpha 0 and stays there until something writes a
-        // DIFFERENT value. Harmless while `dismantleNSView` discards the view.
+        // DIFFERENT value. Setting it here writes alphaValue = 1 on a view about
+        // to be torn down in `dismantleNSView`, which can flash the editor visible
+        // for a frame if a display pass lands between the two during a blur — it
+        // only arises if the writer blurs *during* the ~120 ms straighten, and
+        // the alternative (not resetting here) is worse. Harmless while dismantled.
         isEditorVisible = true
     }
 
