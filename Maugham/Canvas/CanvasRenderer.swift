@@ -73,8 +73,24 @@ struct CanvasFocusStraighten: Equatable {
     }
 
     /// Advance one frame. Returns `true` while anything is still moving.
+    ///
+    /// A non-positive `elapsed` advances nothing and reports what is still in
+    /// flight. Task 10 owns the `TimelineView` clock, and a paused-then-resumed
+    /// timeline is exactly where a zero or negative delta arrives.
+    ///
+    /// Ungoverned, a NEGATIVE delta runs the interpolation backwards: the
+    /// `abs(target - current) <= delta` test can never be true, so every entry
+    /// takes the moving branch and walks AWAY from its target, out of 0...1, and
+    /// the card never settles. A zero delta is merely a wasted frame.
+    ///
+    /// It returns `!isSettled` rather than `false` deliberately. `false` would
+    /// make `while step(elapsed: 0) { }` terminate, but it would also tell the
+    /// clock that a card mid-straighten had finished — and a paused clock that
+    /// strands a card between angles is the failure `isSettled` is written to
+    /// avoid, traded for a convenience no production caller wants.
     @discardableResult
     mutating func step(elapsed: TimeInterval) -> Bool {
+        guard elapsed > 0 else { return !isSettled }
         let delta = CGFloat(elapsed / Self.secondsToLevel)
         var moving = false
         for (id, current) in progressByNode {
@@ -211,6 +227,20 @@ enum CanvasRenderer {
         contentPoint.applying(cardTransform(inCard: frame, angle: angle).inverted())
     }
 
+    /// How far outside its own frame a card paints, in content points.
+    ///
+    /// Two things reach past `CanvasNode.frame`: `drawCard`'s drop shadow, which
+    /// is radius 3 at offset (1, 2) and so extends ~5 pt past the edge it falls
+    /// from; and the seeded rotation, which carries a corner of a default
+    /// 240×80 card ~1.4 pt outside the unrotated rect (r·θ at r = 126.5 pt,
+    /// θ = 0.6°). 8 pt covers both with room to spare.
+    ///
+    /// Culling on the bare frame drops a card whose frame is 1 pt off-screen
+    /// while up to 4 pt of its shadow would still have landed inside the
+    /// viewport — so shadows pop in and out at the edge as the writer pans,
+    /// which reads as the surface flickering rather than as objects on a ground.
+    static let cullingBleed: CGFloat = 8
+
     /// Virtualisation, entire (spec §7A.1): an intersection test in the draw
     /// loop. No `ForEach` identity to preserve, so culling cannot destroy focus
     /// or an in-progress edit.
@@ -222,7 +252,8 @@ enum CanvasRenderer {
     static func visibleNodes(in scene: CanvasScene,
                              camera: CanvasCamera,
                              viewSize: CGSize) -> [CanvasNode] {
-        scene.nodes(intersecting: camera.visibleContentRect(viewSize: viewSize))
+        scene.nodes(intersecting: camera.visibleContentRect(viewSize: viewSize)
+            .insetBy(dx: -cullingBleed, dy: -cullingBleed))
     }
 
     /// 1C-a draws item nodes as placeholders. 1C-d resolves the real title,
@@ -280,7 +311,7 @@ enum CanvasRenderer {
             drawCard(node, frame: frame,
                      layout: ownText ? layouts[node.id] : nil,
                      angle: drawnAngle(for: node.id, straighten: straighten),
-                     into: cx)
+                     on: cx)
         }
     }
 
@@ -293,14 +324,15 @@ enum CanvasRenderer {
     /// card the editor is about to take over arrives here at 0°. A `nil` layout
     /// means "the editor is VISIBLE on this scrap and is drawing its text".
     ///
-    /// Takes the context BY VALUE. Every card starts from the camera CTM `draw`
-    /// set and adds its own rotation to a copy; nothing a card does may leak into
-    /// the next one, and `draw` never reads the context back.
+    /// Takes the context BY VALUE, and the label says so: this draws ON a
+    /// context rather than INTO an `inout` one. Every card starts from the
+    /// camera CTM `draw` set and adds its own rotation to a copy; nothing a card
+    /// does may leak into the next one, and `draw` never reads the context back.
     private static func drawCard(_ node: CanvasNode,
                                  frame: CGRect,
                                  layout: ScrapLayout?,
                                  angle: Angle,
-                                 into cx: GraphicsContext) {
+                                 on cx: GraphicsContext) {
         let shape = Path(roundedRect: frame, cornerRadius: 3)
 
         var card = cx
@@ -311,9 +343,15 @@ enum CanvasRenderer {
             .concatenating(card.transform)
 
         // Light falls from one corner (§7.1) — a single soft drop, not a glow.
+        // The caster is filled with the card's own paper, not with white: the
+        // caster and the paper fill below antialias independently, so a sliver
+        // of the caster's colour survives in the rounded-rect edge pixels. A
+        // white caster is invisible in light mode and a faint light fringe
+        // around every card in dark mode — the light-mode skeuomorph pasted
+        // into the dark that `cardPaper` exists to avoid.
         card.drawLayer { shadow in
             shadow.addFilter(.shadow(color: .black.opacity(0.18), radius: 3, x: 1, y: 2))
-            shadow.fill(shape, with: .color(.white))
+            shadow.fill(shape, with: .color(Color(nsColor: cardPaper)))
         }
         card.fill(shape, with: .color(Color(nsColor: cardPaper)))
 
