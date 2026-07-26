@@ -3,8 +3,10 @@ import MaughamCore
 @testable import Maugham
 
 final class PersonaBinderSegmentTests: XCTestCase {
-    func test_planPersona_leadsWithResearch() {
-        XCTAssertEqual(Persona.plan.binderHome(for: .novel), .research)
+    func test_planPersona_leadsWithTheCanvas() {
+        // M1C: Plan's centre column is the freeform planning canvas, so the
+        // canvas leads its segment list and is therefore its binderHome.
+        XCTAssertEqual(Persona.plan.binderHome(for: .novel), .canvas)
     }
 
     func test_authorPersona_leadsWithTheDocumentHome() {
@@ -51,9 +53,12 @@ final class PersonaBinderSegmentTests: XCTestCase {
     // (`.manuscript`); the screenplay swap is covered separately above.
 
     func test_planPersona_exactSegments() {
-        // §6.3 Left = "Research tree"; manuscript is deliberately absent so
-        // the coercion rule can't strand a writer on it (see Persona.swift).
-        XCTAssertEqual(Persona.plan.binderSegments(for: .novel), [.research, .palette])
+        // §6.3 Left = "Research tree" and centre = the canvas (M1C). The canvas
+        // leads because entering Plan should land on it; Research follows as
+        // §6.3's Left surface and as the source 1C-d drags items from.
+        // Manuscript is deliberately absent so the coercion rule can't strand a
+        // writer on it (see Persona.swift).
+        XCTAssertEqual(Persona.plan.binderSegments(for: .novel), [.canvas, .research, .palette])
     }
 
     func test_authorPersona_exactSegments() {

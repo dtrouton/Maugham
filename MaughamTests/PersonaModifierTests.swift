@@ -42,7 +42,7 @@ final class PersonaModifierTests: XCTestCase {
             to: .plan, from: .author, currentSegment: .inspector,
             currentBinderSegment: .manuscript, projectType: .novel,
             memory: .empty)
-        XCTAssertEqual(result.binderSegment, .research)
+        XCTAssertEqual(result.binderSegment, .canvas)
     }
 
     func test_applyPersonaChange_preservesAnActiveFind() {
@@ -84,7 +84,7 @@ final class PersonaModifierTests: XCTestCase {
             to: .plan, from: .author, currentSegment: .inspector,
             currentBinderSegment: .manuscript, projectType: .novel,
             memory: .empty)
-        XCTAssertEqual(out.binderSegment, .research, "Plan's own binder home")
+        XCTAssertEqual(out.binderSegment, .canvas, "Plan's own binder home")
 
         let back = PersonaModifier.applyPersonaChange(
             to: .author, from: .plan, currentSegment: out.segment,
@@ -150,7 +150,7 @@ final class PersonaModifierTests: XCTestCase {
             to: .plan, from: .author, currentSegment: .inspector,
             currentBinderSegment: .research, projectType: .novel,
             memory: PersonaMemory(binder: ["plan": .manuscript]))
-        XCTAssertEqual(result.binderSegment, .research, "Plan's home, not the stale value")
+        XCTAssertEqual(result.binderSegment, .canvas, "Plan's home, not the stale value")
     }
 
     func test_applyPersonaChange_neverRestoresAStaleTrash() {
