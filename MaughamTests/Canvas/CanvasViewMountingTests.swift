@@ -848,4 +848,239 @@ final class CanvasViewMountingTests: XCTestCase {
                       "leaving the canvas mid-sentence lost the sentence — a persona "
                       + "switch or a closed window drops whatever was being typed")
     }
+
+    // MARK: - ⌘Z, on the real surface
+
+    /// One character at a time, at the end of the text, so every keystroke fires
+    /// its own `textDidChange` — which is where `syncActiveEdit` asks
+    /// `ScrapUndoBeat` its two questions. A single `insertText` of the whole run
+    /// would be ONE change and would test nothing about coalescing.
+    private func type(_ text: String, into editor: NSTextView) {
+        for character in text {
+            let end = (editor.string as NSString).length
+            editor.insertText(String(character), replacementRange: NSRange(location: end, length: 0))
+        }
+    }
+
+    /// Whatever the writer is looking at, after a rebind has replaced the text
+    /// view underneath the container.
+    private func mountedText(in window: NSWindow) throws -> String {
+        let hosted = try XCTUnwrap(window.contentView)
+        let container = try XCTUnwrap(firstDescendant(ScrapEditorContainer.self, in: hosted),
+                                      "the editor is no longer mounted — an undo that "
+                                      + "throws the writer out of the scrap is not the "
+                                      + "behaviour any of this describes")
+        return try XCTUnwrap(container.textView).string
+    }
+
+    /// Read what the debounce has written, WITHOUT taking the window down. The
+    /// undo path schedules a save of its own, so a pump past the 750 ms debounce
+    /// is enough — and unlike `savedScene(after:root:)` it can be asked twice in
+    /// one test, which is what makes the drag assertions below non-vacuous.
+    private func sceneOnDisk(_ root: URL) -> CanvasScene {
+        CanvasStore(projectRoot: root).load().scene
+    }
+
+    /// `ScrapUndoBeat`'s sentence rule, running for real. The rule itself is unit
+    /// tested in `CanvasUndoTests`; what only this view can show is that anything
+    /// ASKS it, and that it is asked AFTER the keystroke is folded in.
+    ///
+    /// Three sentences typed in one visit must be three ⌘Z steps, and the first
+    /// ⌘Z must leave the earlier sentences standing. Every pump here is a
+    /// twentieth of `ScrapUndoBeat.idleSeconds`, so the idle rule cannot fire and
+    /// the boundaries under test are the full stops and nothing else.
+    ///
+    /// ⌘Z is pressed WITHOUT clicking away first, so this also drives the
+    /// mid-visit re-baseline and the layout swap: `applySnapshot` rebuilds the
+    /// focused scrap's `ScrapLayout`, and the mounted editor has to come back
+    /// bound to the new one rather than showing the words the undo discarded.
+    func test_undoInsideAScrapTakesBackASentenceAtATime() throws {
+        let window = host(CanvasView(projectRoot: try projectRoot(),
+                                     paletteSwatchHexes: { [] }))
+        let container = try doubleClickTheScrap(in: window)
+        let editor = try XCTUnwrap(container.textView)
+        editor.setSelectedRange(NSRange(location: (editor.string as NSString).length, length: 0))
+
+        type(".", into: editor)                       // finishes the fixture's line
+        pump(0.05)
+        type(" Rain on the ponchos.", into: editor)
+        pump(0.05)
+        type(" Nobody buying them.", into: editor)
+        pump(0.05)
+
+        let whole = scrapText + ". Rain on the ponchos. Nobody buying them."
+        XCTAssertEqual(try mountedText(in: window), whole,
+                       "precondition: all three sentences were typed, so an "
+                       + "unchanged string below means ⌘Z did nothing rather than "
+                       + "that there was nothing to take back")
+
+        container.undo(nil)
+        pump()
+        XCTAssertEqual(try mountedText(in: window), scrapText + ". Rain on the ponchos.",
+                       "one ⌘Z inside a scrap did not take back exactly one "
+                       + "sentence: the whole visit collapsing into one step is the "
+                       + "per-visit granularity this task rejected, and a single "
+                       + "character is the per-keystroke one")
+
+        container.undo(nil)
+        pump()
+        XCTAssertEqual(try mountedText(in: window), scrapText + ".")
+
+        container.undo(nil)
+        pump()
+        XCTAssertEqual(try mountedText(in: window), scrapText,
+                       "the third ⌘Z did not reach the text the writer clicked into "
+                       + "the scrap with")
+    }
+
+    /// The idle rule, running for real — and specifically that it is asked BEFORE
+    /// the keystroke is folded in.
+    ///
+    /// Nothing here ends a sentence, so the full-stop rule cannot fire and the
+    /// only thing that can put a boundary between the two runs is the pause. The
+    /// step that closes must end exactly where the writer stopped: ask the rule
+    /// after the fold instead and it ends one character later, swallowing the
+    /// first keystroke of what came next.
+    func test_aPauseInsideAScrapEndsTheStepWhereTheWriterStopped() throws {
+        let window = host(CanvasView(projectRoot: try projectRoot(),
+                                     paletteSwatchHexes: { [] }))
+        let container = try doubleClickTheScrap(in: window)
+        let editor = try XCTUnwrap(container.textView)
+        editor.setSelectedRange(NSRange(location: (editor.string as NSString).length, length: 0))
+
+        type(" and the sodium light", into: editor)
+        pump(ScrapUndoBeat.idleSeconds + 0.3)          // the writer sits back
+        type(" on the wet stone", into: editor)
+        pump(0.05)
+
+        XCTAssertEqual(try mountedText(in: window),
+                       scrapText + " and the sodium light on the wet stone",
+                       "precondition: both runs were typed")
+
+        container.undo(nil)
+        pump()
+        let afterUndo = try mountedText(in: window)
+        XCTAssertEqual(afterUndo, scrapText + " and the sodium light",
+                       "a pause mid-sentence did not end the undo step — with no "
+                       + "full stop anywhere in this visit, the idle beat is the "
+                       + "only thing that can, and without it one ⌘Z takes back "
+                       + "everything typed since the writer clicked in")
+        XCTAssertFalse(afterUndo.hasSuffix(" "),
+                       "the step that closed swallowed the first character of what "
+                       + "came after the pause — the idle rule was asked AFTER the "
+                       + "keystroke was folded in rather than before it")
+    }
+
+    /// The drag bracket, and the decision that the coast lives outside it: one ⌘Z
+    /// returns the card to where the writer picked it up, not to where it stopped
+    /// skating.
+    ///
+    /// Read through the debounce rather than by taking the window down, so the
+    /// moved position and the restored one can both be asserted — otherwise "the
+    /// card is at 20" passes just as well on a drag that never happened.
+    func test_undoAfterADragPutsTheCardBackWhereTheWriterPickedItUp() throws {
+        let root = try projectRoot()
+        let window = host(CanvasView(projectRoot: root, paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+
+        drag(events, from: CGPoint(x: 60, y: 40),
+             through: [CGPoint(x: 70, y: 40), CGPoint(x: 80, y: 40)])
+        pump(1.2)                                   // the coast finishes, then the debounce
+
+        let moved = try XCTUnwrap(sceneOnDisk(root).node(scrapID))
+        XCTAssertGreaterThan(moved.origin.x, 60,
+                             "precondition: the card really moved, so the assertion "
+                             + "below is about the undo rather than about a drag that "
+                             + "never took")
+
+        let manager = try XCTUnwrap(events.undoManager,
+                                    "the event view vends no undo manager, so ⌘Z with "
+                                    + "nothing focused reaches the window's stack")
+        XCTAssertTrue(manager.canUndo, "the drag registered no undo step at all")
+        manager.undo()
+        pump(1.2)
+
+        let restored = try XCTUnwrap(sceneOnDisk(root).node(scrapID))
+        XCTAssertEqual(restored.origin.x, 20, accuracy: 0.5,
+                       "⌘Z did not put the card back where it was picked up — a drag "
+                       + "that scatters an arrangement with no way back is the single "
+                       + "most likely way this surface loses a writer's trust")
+        XCTAssertEqual(restored.origin.y, 20, accuracy: 0.5)
+    }
+
+    /// A press that never became a drag opened a gesture at `.began` all the same.
+    /// If that gesture is not closed, the next real drag nests inside it and two
+    /// gestures collapse into one ⌘Z; if it IS closed but registers a step, ⌘Z
+    /// after a stray click undoes the writer's last real edit while appearing to
+    /// do nothing.
+    ///
+    /// Both are the same assertion from outside: after a press that moved
+    /// nothing, there is nothing to undo.
+    func test_aPressThatNeverMovedLeavesNothingToUndo() throws {
+        let window = host(CanvasView(projectRoot: try projectRoot(),
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+
+        // On the card, well clear of the resize corner, and released without ever
+        // leaving the press point.
+        events.applyMouseDown(at: CGPoint(x: 60, y: 40), clickCount: 1)
+        events.applyMouseUp(at: CGPoint(x: 60, y: 40))
+        pump()
+
+        let manager = try XCTUnwrap(events.undoManager)
+        XCTAssertFalse(manager.canUndo,
+                       "a click that moved nothing left a step on the stack: the "
+                       + "writer's next ⌘Z appears to do nothing, and the one after "
+                       + "it takes back an edit they had forgotten about")
+
+        // And the gesture it opened really did close — a second press that DOES
+        // move must be a step of its own rather than a continuation of the first.
+        drag(events, from: CGPoint(x: 60, y: 40),
+             through: [CGPoint(x: 65, y: 40), CGPoint(x: 66, y: 40)])
+        pump()
+        XCTAssertTrue(manager.canUndo,
+                      "the drag that followed the stray press registered nothing — "
+                      + "it was swallowed by a gesture the press left open")
+    }
+
+    /// The same rule in the RESIZE branch, where it is easier to get wrong.
+    ///
+    /// `CanvasScene.setWidth` clears `cachedHeight` on every `.changed`, identical
+    /// width or not, so between the press and `rebuildLayouts()` the card has no
+    /// height — and `CanvasNode` is `Equatable` including that field. Close the
+    /// gesture before the re-measure rather than after and the snapshot diff is
+    /// "card with a height" against "card with none", which are different, so a
+    /// corner press that never moved leaves a step behind.
+    ///
+    /// The geometry is `test_aCornerPressThatNeverMovedLeavesTheCardOnTheCanvas`'s,
+    /// which is the same gesture asked a different question: that one asks whether
+    /// the card survives, this one asks whether ⌘Z was quietly spent on it.
+    func test_aCornerPressThatNeverMovedLeavesNothingToUndo() throws {
+        let window = host(CanvasView(projectRoot: try projectRoot(),
+                                     paletteSwatchHexes: { [] }))
+        let hosted = try XCTUnwrap(window.contentView)
+        let events = try eventView(in: window)
+
+        // Read the corner off the surface rather than writing the font metrics
+        // down twice — the mounted editor's box is the card's text box, inset.
+        let textBox = swiftUIFrame(of: try doubleClickTheScrap(in: window), in: hosted)
+        let cardCorner = CGPoint(x: textBox.maxX + CanvasCardMetrics.inset,
+                                 y: textBox.maxY + CanvasCardMetrics.inset)
+        events.applyMouseDown(at: CGPoint(x: 600, y: 500), clickCount: 1)   // click away
+        events.applyMouseUp(at: CGPoint(x: 600, y: 500))
+        pump()
+
+        let manager = try XCTUnwrap(events.undoManager)
+        XCTAssertFalse(manager.canUndo, "precondition: nothing on the stack yet")
+
+        let press = CGPoint(x: cardCorner.x - 2, y: cardCorner.y - 2)
+        drag(events, from: press, through: [press])
+        pump()
+
+        XCTAssertFalse(manager.canUndo,
+                       "a corner press that never moved left a step on the stack — "
+                       + "⌘Z is spent on it and appears to do nothing, and its redo "
+                       + "re-applies a card with no measured height, which has no "
+                       + "frame and so vanishes from the canvas entirely")
+    }
 }

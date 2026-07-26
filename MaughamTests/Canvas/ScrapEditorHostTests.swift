@@ -569,7 +569,9 @@ final class ScrapEditorHostTests: XCTestCase {
     func test_undoWhileEditingRunsTheCanvasStack() throws {
         let container = ScrapEditorContainer(frame: .zero)
         let manager = UndoManager()
-        container.canvasUndoManager = manager
+        // The recorder rather than the bare manager: ⌘Z inside a scrap has an
+        // open gesture to close first, so `undo:` routes through `CanvasUndo`.
+        container.canvasUndo = CanvasUndo(undoManager: manager)
         container.mount(layout: layout(), unscaledSize: size, zoom: 1)
         host(container)
         let editor = try XCTUnwrap(container.textView)
@@ -601,7 +603,9 @@ final class ScrapEditorHostTests: XCTestCase {
     func test_undoIsOfferedOnlyWhenTheCanvasStackHasSomethingToUndo() {
         let container = ScrapEditorContainer(frame: .zero)
         let manager = UndoManager()
-        container.canvasUndoManager = manager
+        // The recorder rather than the bare manager: ⌘Z inside a scrap has an
+        // open gesture to close first, so `undo:` routes through `CanvasUndo`.
+        container.canvasUndo = CanvasUndo(undoManager: manager)
         let item = NSMenuItem(title: "Undo",
                               action: #selector(ScrapEditorContainer.undo(_:)),
                               keyEquivalent: "z")

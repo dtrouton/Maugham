@@ -22,7 +22,7 @@ import SwiftUI
 ///
 /// ---
 ///
-/// FOUR SOURCE-LAYOUT CONTRACTS. `CanvasCompositionTests` and Task 14's
+/// FIVE SOURCE-LAYOUT CONTRACTS. `CanvasCompositionTests` and Task 14's
 /// accessibility test read this file as TEXT, slicing it on declaration names.
 /// Tasks 13, 14 and 15 all edit this file after Task 10, and a reformat can
 /// break one of these with a failure message pointing somewhere else entirely —
@@ -43,6 +43,14 @@ import SwiftUI
 ///     accessibility element-list builder, and requires the first occurrence to
 ///     be the `.onChange` that rebuilds it. So that symbol must not be named in
 ///     any comment above it. It is deliberately not spelled here either.
+///  5. `CanvasCompositionTests.test_theCanvasIsNotHiddenFromAccessibility`
+///     ALSO scans this file raw, for the two modifiers that would take the
+///     drawn layer out of the accessibility tree — the "hide it" one and the
+///     "ignore its children" one. Naming either **in a comment** fails that
+///     test exactly as calling it would. It cost Task 14 a red suite; Task 14
+///     documented it beside the modifiers and left the promotion to Task 15,
+///     the last task to edit this file. Both are therefore described in prose
+///     and spelled nowhere in this file, here or below.
 struct CanvasView: View {
     let projectRoot: URL
     /// Deferred on purpose: `ProjectStore.paletteSwatchHexes()` reads every
@@ -65,6 +73,45 @@ struct CanvasView: View {
     /// only clock on this surface.
     @State private var interaction = CanvasInteraction()
     @State private var momentum = CanvasMomentum()
+
+    /// ⌘Z, scoped to the canvas. `@Environment(\.undoManager)` would give a
+    /// window-lifetime manager shared with the manuscript editor's op-log stack
+    /// (ADR 0023), and a persona switch mid-drag would leave a half-open group
+    /// on it. `CanvasUndo` is the only thing that ever registers here — the
+    /// mounted `NSTextView` has `allowsUndo == false` and registers nothing.
+    ///
+    /// **`groupsByEvent` is off, and that is not a test affordance.** Left at its
+    /// default it wraps everything registered during one pass of the event loop
+    /// in an implicit top-level group. `CanvasUndo` already brackets every
+    /// gesture explicitly, so that group can only take granularity away: two
+    /// gestures that happen to land in one pass — a sentence finished by the same
+    /// keystroke that a pause has already closed a step on — collapse into a
+    /// single ⌘Z, and which pairs collapse depends on how AppKit batched the
+    /// events. One gesture is one step, always, and that is what this line buys.
+    ///
+    /// It is also the only way the behaviour is observable. That implicit group
+    /// is closed by `NSApplication`'s event loop and NOT by a run-loop turn —
+    /// measured 2026-07-26 on macOS 26.5: `groupingLevel` is 1 after a
+    /// registration and still 1 after `RunLoop.run(until:)`, twice over. So with
+    /// the default, every canvas step a test makes lands in ONE group that never
+    /// closes and one ⌘Z unwinds the whole test; the sentence-granularity tests
+    /// in `CanvasViewMountingTests` were written, run, and failed exactly that way
+    /// before this line existed. Leaving it on would also mean the shipping
+    /// manager is configured differently from every manager the tests exercise,
+    /// since `undo()` called synchronously against an open implicit group raises
+    /// `NSInternalInconsistencyException` and the unit tests must turn it off
+    /// regardless.
+    ///
+    /// The cost is that a registration outside an explicit group would now raise
+    /// rather than being quietly absorbed. `CanvasUndo` is the only registrant —
+    /// pinned by `CanvasUndoTests.test_typingIntoTheMountedEditorRegistersNothingOfItsOwn`
+    /// — and it registers only between `beginUndoGrouping` and `endUndoGrouping`.
+    @State private var undoManager: UndoManager = {
+        let manager = UndoManager()
+        manager.groupsByEvent = false
+        return manager
+    }()
+    @State private var undo: CanvasUndo?
 
     /// `layouts` holds ScrapLayout REFERENCES. Typing mutates the object in
     /// place, so `@State` observes no change and the `Canvas` never redraws.
@@ -99,8 +146,10 @@ struct CanvasView: View {
     /// When the writer last folded a keystroke into the model. A gap wider than
     /// `ScrapUndoBeat.idleSeconds` closes the open "Edit Scrap" gesture, so a
     /// long visit to a scrap is several ⌘Z steps rather than one. Cleared
-    /// whenever focus moves. **Written in this task, read in Task 15** — like
-    /// `undoManager: nil`, it is a placed seam rather than a forgotten one.
+    /// whenever focus moves, so the first keystroke of a visit never closes the
+    /// step the PREVIOUS visit left behind.
+    ///
+    /// Moved only by a real keystroke — see `syncActiveEdit(fromKeystroke:)`.
     @State private var lastKeystrokeAt: Date?
 
     private let scrapFont = NSFont(name: "Iowan Old Style", size: 13)
@@ -217,8 +266,15 @@ struct CanvasView: View {
                 onDrag: { viewPoint, phase in
                     handleDrag(at: camera.contentPoint(fromView: viewPoint), phase: phase)
                 },
-                // Task 15 supplies the canvas undo manager.
-                undoManager: nil)
+                // The bare manager, vended down the responder chain so ⌘Z with
+                // nothing focused runs the canvas stack rather than the window's.
+                //
+                // Bare, and not the recorder the editor gets: this path is only
+                // reachable with no scrap focused, and every route out of a scrap
+                // runs `commitActiveEdit`, so there is never an open gesture here
+                // for `CanvasUndo.undo()` to close. A drag's gesture closes at
+                // `.ended`, before any ⌘Z can arrive.
+                undoManager: undoManager)
 
             mountedEditor
         }
@@ -246,6 +302,14 @@ struct CanvasView: View {
             // quit writes this closed window's stale scene back over whatever
             // replaced it. Cheaper than teaching the store a weak owner.
             store?.beforeFlush = nil
+            // The same cycle one layer down, and one edge longer: the recorder's
+            // two closures capture this view, which holds the `@State` box that
+            // holds the recorder — and the manager retains the recorder once per
+            // step on its stack. Without this a closed canvas keeps its scene,
+            // every scrap's text and every snapshot of both alive for the life of
+            // the app. No gesture is closed here: there is no writer left to
+            // press ⌘Z at teardown, and `release()` drops the stack whole.
+            undo?.release()
         }
     }
 
@@ -314,7 +378,13 @@ struct CanvasView: View {
                             // the editor appearing and the card ceasing to draw
                             // its text are one event, not two.
                             isEditorVisible: visibleEditorNodeID == id,
-                            undoManager: nil,          // Task 15
+                            // The recorder, which drives the SAME stack the event
+                            // view vends — so ⌘Z while editing and ⌘Z with
+                            // nothing focused are one history in the order things
+                            // happened. It is the recorder rather than the
+                            // manager because a ⌘Z from in here has an open
+                            // gesture to close first.
+                            canvasUndo: undo,
                             onScroll: { dx, dy, precise in
                                 let factor: CGFloat = precise ? 1 : 8
                                 camera.panBy(CGSize(width: dx * factor, height: dy * factor))
@@ -331,7 +401,9 @@ struct CanvasView: View {
                                 camera.zoom(to: camera.zoom * (1 + magnification),
                                             anchoringViewPoint: anchor)
                             },
-                            onTextChanged: { syncActiveEdit() })
+                            // The ONE caller that is a real keystroke, and so
+                            // the only one allowed to move an undo boundary.
+                            onTextChanged: { syncActiveEdit(fromKeystroke: true) })
                 .frame(width: textSize.width * camera.zoom,
                        height: textSize.height * camera.zoom)
                 .position(x: viewOrigin.x + textSize.width * camera.zoom / 2,
@@ -353,6 +425,23 @@ struct CanvasView: View {
         scraps = loaded.scraps
         wash = CanvasGroundPalette.wash(fromHex: paletteSwatchHexes())
         rebuildLayouts()
+
+        // `CanvasUndo` owns no state — it reads and writes this view's through
+        // two closures, which is what lets 1C-b Task 4 move the same class onto
+        // `CanvasModel` by rebinding them.
+        let recorder = CanvasUndo(undoManager: undoManager)
+        recorder.readSnapshot = { (scene: scene, scraps: scraps) }
+        recorder.applySnapshot = { snapshot in
+            scene = snapshot.scene
+            scraps = snapshot.scraps
+            // Heights are DERIVED, so a restored scene is re-measured rather
+            // than trusted — and a scrap whose text the undo changed gets a new
+            // `ScrapLayout`, which is what makes `ScrapEditorHost` rebind the
+            // mounted editor instead of leaving it showing the discarded words.
+            rebuildLayouts()
+            store?.scheduleSave(scene: scene, scraps: scraps)
+        }
+        undo = recorder
     }
 
     /// Build a layout per scrap and fill in the derived heights the model needs
@@ -422,29 +511,70 @@ struct CanvasView: View {
     /// `NSTextStorage` from inside its own text view's change notification.
     ///
     /// Pushes no undo step of its OWN, deliberately — one per keystroke is the
-    /// other failure. Task 15 gives it a `fromKeystroke:` flag and, behind that
-    /// flag, the two inner undo boundaries: a beat of stillness or a finished
-    /// sentence closes the open gesture and opens the next (`ScrapUndoBeat`). The
-    /// flag exists because the other two callers below run at teardown and at
-    /// app quit, where moving an undo boundary would leave a half-open bracket.
-    /// In Task 10 the body is the six lines below and there is no flag yet.
-    private func syncActiveEdit() {
+    /// other failure. What it does instead is move the INNER undo boundaries
+    /// inside the open "Edit Scrap" gesture, and **only when the change came from
+    /// a real keystroke**:
+    ///
+    /// - **The idle beat is asked BEFORE the fold**, so the step that closes ends
+    ///   where the writer actually stopped rather than one character into what
+    ///   they typed next.
+    /// - **The sentence rule is asked AFTER the fold**, so the full stop belongs
+    ///   to the step it closes rather than opening the following one.
+    ///
+    /// Swapping either would be invisible in the code and obvious to a writer:
+    /// ⌘Z after a pause would take back one extra character, and ⌘Z after a
+    /// sentence would leave the full stop stranded at the head of the next step.
+    ///
+    /// `fromKeystroke` is `false` by default because the other two callers —
+    /// `.onDisappear` and `CanvasStore.beforeFlush` — run at teardown and at app
+    /// quit. A writer who paused for two seconds and then quit would otherwise
+    /// trip the idle break at `beforeFlush`, closing a step and REOPENING a
+    /// gesture on a view that is going away: a half-open bracket, arriving from
+    /// the save path instead of the focus path. Neither of them may move a
+    /// boundary, and neither has to say so.
+    private func syncActiveEdit(fromKeystroke: Bool = false) {
         guard let id = editingNodeID, let layout = layouts[id] else { return }
-        guard scraps[id] != layout.text else { return }
-        scraps[id] = layout.text
+        // Read once: `ScrapLayout.text` bridges out of an `NSTextStorage` on
+        // every access, and this runs on every keystroke.
+        let updated = layout.text
+        guard scraps[id] != updated else { return }
+        let previous = scraps[id] ?? ""
+        let now = Date()
+
+        // BEFORE the fold — see the doc above.
+        if fromKeystroke, ScrapUndoBeat.hasGoneIdle(since: lastKeystrokeAt, now: now) {
+            undo?.breakGesture()
+        }
+
+        scraps[id] = updated
         scene.setCachedHeight(
             CanvasCardMetrics.cardHeight(forTextHeight: layout.measuredHeight), for: id)
         revision += 1
         store?.scheduleSave(scene: scene, scraps: scraps)
+
+        // AFTER the fold — see the doc above.
+        if fromKeystroke,
+           ScrapUndoBeat.completesASentence(before: previous, after: updated) {
+            undo?.breakGesture()
+        }
+        if fromKeystroke { lastKeystrokeAt = now }
     }
 
-    /// The outer undo boundary: focus is leaving the scrap. Task 15 closes the
-    /// "Edit Scrap" gesture here; until then it is the same work as
-    /// `syncActiveEdit`, plus the accessibility tree, whose synthetic element for
-    /// this scrap has been stale for the whole visit — deliberately, because the
-    /// real `NSTextView` was the accessible thing while the writer was in it.
+    /// The outer undo boundary: focus is leaving the scrap.
+    ///
+    /// `syncActiveEdit` has folded the text in on every keystroke and broken the
+    /// gesture at each sentence and each pause; this closes whatever is still
+    /// open. `endGesture` registers nothing when the state has not moved, so
+    /// clicking in and straight back out leaves no step behind — and it is a
+    /// no-op outside a gesture, which is what makes it safe at the head of
+    /// `handleClick`, where most clicks have nothing focused at all.
+    ///
+    /// Plus the accessibility tree, whose synthetic element for this scrap has
+    /// been stale for the whole visit — deliberately, because the real
+    /// `NSTextView` was the accessible thing while the writer was in it.
     private func commitActiveEdit() {
         syncActiveEdit()
+        undo?.endGesture()
         lastKeystrokeAt = nil
         sceneRevision += 1
     }
@@ -525,18 +655,37 @@ struct CanvasView: View {
             // nobody can see. Spec §7A.5 calls that beat responsiveness rather
             // than lag.
             straighten.focus(node.id)
+            // The OUTER undo bracket for this visit. `commitActiveEdit` at the
+            // head of this method has already closed the previous one, so a
+            // click straight from one scrap into another never nests.
+            undo?.beginGesture("Edit Scrap")
 
         case .emptyCanvas:
+            // Creating the card is its own step, closed before the visit opens:
+            // one ⌘Z takes back what the writer typed, a second takes back the
+            // card. Explicit begin/end rather than `mutate` — the new id has to
+            // escape the gesture, and a closure assigning into a `var` declared
+            // outside it would leave that var at its sentinel whenever `undo` is
+            // nil, which is every moment before `load()` has run.
+            undo?.beginGesture("New Scrap")
             let id = CanvasInteraction.createScrap(at: contentPoint, in: &scene)
             scraps[id] = ""
             // A new scrap has no cachedHeight, so it has no frame, so it is
             // invisible to hit testing and culling until it is measured.
             // `rebuildLayouts()` also bumps `sceneRevision`.
             rebuildLayouts()
+            // Closed AFTER the measure, so the next gesture's baseline holds a
+            // card with a height. Close it before and "Edit Scrap" opens on a
+            // scene whose new node has no `cachedHeight`, so undoing the typing
+            // would restore a card with no frame — invisible to hit testing, to
+            // culling and to the renderer.
+            undo?.endGesture()
             editingNodeID = id
             caretIndex = 0
             lastKeystrokeAt = nil
             straighten.focus(id)
+            // Whatever the writer now types is a second, separate step.
+            undo?.beginGesture("Edit Scrap")
 
         case .unenterableNode:
             // Nothing to enter, so this behaves like a single click. Falling
@@ -593,6 +742,13 @@ struct CanvasView: View {
             // the focus state the click just set.
             guard editingNodeID == nil else { return }
             interaction.begin(at: contentPoint, in: scene)
+            // Only when `begin` found something. A press on bare canvas leaves
+            // the interaction idle, so `.ended` bails on its first guard and
+            // would never close a gesture opened here — the next real drag would
+            // then nest inside it and two gestures would collapse into one ⌘Z.
+            if interaction.isActive {
+                undo?.beginGesture(interaction.isResizing ? "Resize Scrap" : "Move Scrap")
+            }
         case .changed:
             guard interaction.isActive else { return }
             interaction.update(to: contentPoint, in: &scene)
@@ -619,9 +775,24 @@ struct CanvasView: View {
                 // The cost is that a corner press that never moved re-measures
                 // and re-queues a save for an unchanged scene, which is cheap
                 // and idempotent. It is NOT a licence to push an undo step from
-                // here: anything Task 15 adds to this branch that the writer
-                // could notice still has to read `interaction.hasMoved`.
+                // here: anything added to this branch that the writer could
+                // notice still has to read `interaction.hasMoved`. The gesture
+                // closed below is not that — `endGesture` registers nothing at
+                // all when the scene did not move.
                 rebuildLayouts()
+                // AFTER the re-measure, and the ordering is the whole of it.
+                // `setWidth` clears `cachedHeight` on EVERY `.changed`, and
+                // `CanvasNode` is `Equatable` INCLUDING that field. Close the
+                // gesture first and the diff is "card with a height" against
+                // "card with none", which differ — so a corner press that never
+                // moved registers a step, and the writer's next ⌘Z appears to do
+                // nothing while the one after it takes back an edit they had
+                // forgotten about. Worse, that step's REDO re-applies the
+                // heightless card: no `frame`, so invisible to `topmostNode(at:)`,
+                // to `nodes(intersecting:)` and to the renderer at once.
+                // `test_aCornerPressThatNeverMovedLeavesNothingToUndo` is the one
+                // that fails if these two lines are swapped.
+                undo?.endGesture()
             } else {
                 // A press that never moved is not a drag. AppKit opens a drag
                 // session on EVERY mouse-down, including the first of a
@@ -629,6 +800,14 @@ struct CanvasView: View {
                 // write the sidecar and rebuild the accessibility tree for
                 // nothing. Safe HERE and not above because a move mutates
                 // nothing until the pointer actually moves.
+                //
+                // The gesture closes ABOVE this bail-out, not below it: the
+                // press opened one at `.began` whether or not it turned into a
+                // drag, and returning with it still open would leave the next
+                // real drag nested inside it — two gestures, one ⌘Z, and the
+                // card jumping back further than the writer asked. Nothing
+                // moved, so `endGesture` registers no step.
+                undo?.endGesture()
                 guard interaction.hasMoved else { return }
                 // *** KEEP THIS. *** A move is one structural change, recorded at
                 // the END of the gesture rather than once per drag frame, and the

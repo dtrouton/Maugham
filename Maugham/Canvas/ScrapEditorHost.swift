@@ -72,7 +72,13 @@ final class ScrapEditorContainer: NSView, NSTextViewDelegate, NSUserInterfaceVal
         }
     }
 
-    var canvasUndoManager: UndoManager?
+    /// The canvas's recorder, NOT its bare `UndoManager`. ⌘Z pressed inside a
+    /// scrap has to close the gesture holding the run of typing in progress
+    /// before the manager is asked to undo anything, and `CanvasUndo.undo()` is
+    /// the only thing that does — see its doc. `CanvasEventNSView` vends the bare
+    /// manager instead, correctly: nothing is focused there, so no gesture is
+    /// open.
+    var canvasUndo: CanvasUndo?
     var onScroll: ((CGFloat, CGFloat, Bool) -> Void)?
     /// (magnification delta, point in THIS view's own unzoomed space). NOT
     /// canvas space — see `applyMagnify`.
@@ -113,8 +119,9 @@ final class ScrapEditorContainer: NSView, NSTextViewDelegate, NSUserInterfaceVal
     /// Left unhandled, the action reaches `NSWindow`, which asks the FIRST
     /// RESPONDER for a manager, gets that nil, and falls back to its delegate's —
     /// SwiftUI's, not the canvas's. So ⌘Z inside a scrap would silently drive the
-    /// wrong stack. Task 15 owns undo; this is the four lines that make its stack
-    /// reachable from inside an editor, and menu-item titling is still its.
+    /// wrong stack. `CanvasUndo` owns undo; these are the four lines that make
+    /// its stack reachable from inside an editor, and `validateUserInterfaceItem`
+    /// below is what gives the menu item its name once it is.
     ///
     /// There is deliberately no `undoManager` override on this view, and this is
     /// the one place it differs from `CanvasEventNSView`, which has one. That
@@ -127,24 +134,41 @@ final class ScrapEditorContainer: NSView, NSTextViewDelegate, NSUserInterfaceVal
     /// the text view OR the container as first responder — and it cannot become
     /// first responder in the first place, since `acceptsFirstResponder` defaults
     /// to false here, unlike `CanvasEventNSView`. Nothing reads `self.undoManager`.
-    /// These two methods reach `canvasUndoManager` directly, which is the whole route.
+    /// These two methods reach `canvasUndo` directly, which is the whole route.
     @objc func undo(_ sender: Any?) {
-        canvasUndoManager?.undo()
+        canvasUndo?.undo()
     }
 
     @objc func redo(_ sender: Any?) {
-        canvasUndoManager?.redo()
+        canvasUndo?.redo()
     }
 
     /// Claiming an action obliges this view to validate it: AppKit enables a menu
     /// item whose responder merely responds to the selector, so without this the
     /// Edit menu offers a live Undo with an empty stack the moment a scrap takes
-    /// focus. Enablement only — the item's TITLE ("Undo Typing") is Task 15's,
-    /// along with the rest of undo.
+    /// focus.
+    ///
+    /// And it obliges this view to TITLE it. `NSWindow` retitles Undo/Redo from
+    /// whichever manager it resolves, but the whole point of the two methods
+    /// above is that the action never reaches `NSWindow` — so left alone the item
+    /// keeps whatever the nib gave it, and every canvas step reads a bare "Undo"
+    /// with no word about what it will take back. `undoMenuItemTitle` is the same
+    /// localised string `NSWindow` would have used, and it already reads "Undo"
+    /// on an empty stack.
+    ///
+    /// Guarded on `NSMenuItem` rather than assumed: the protocol is
+    /// `NSValidatedUserInterfaceItem`, which a toolbar item or a control also
+    /// satisfies, and `title` is not on it.
     func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
         switch item.action {
-        case #selector(undo(_:)): return canvasUndoManager?.canUndo ?? false
-        case #selector(redo(_:)): return canvasUndoManager?.canRedo ?? false
+        case #selector(undo(_:)):
+            (item as? NSMenuItem)?.title = canvasUndo?.undoMenuItemTitle
+                ?? NSLocalizedString("Undo", comment: "Edit menu item, nothing to undo")
+            return canvasUndo?.canUndo ?? false
+        case #selector(redo(_:)):
+            (item as? NSMenuItem)?.title = canvasUndo?.redoMenuItemTitle
+                ?? NSLocalizedString("Redo", comment: "Edit menu item, nothing to redo")
+            return canvasUndo?.canRedo ?? false
         // AppKit only asks the responder that will handle the action, so
         // anything else reaching here is not this view's to veto.
         default: return true
@@ -357,7 +381,8 @@ struct ScrapEditorHost: NSViewRepresentable {
     /// same property it hands the renderer, so the editor appearing and the card
     /// ceasing to draw its text happen on one frame.
     let isEditorVisible: Bool
-    let undoManager: UndoManager?
+    /// The recorder rather than the manager — see `ScrapEditorContainer.canvasUndo`.
+    let canvasUndo: CanvasUndo?
     let onScroll: (CGFloat, CGFloat, Bool) -> Void
     /// (magnification delta, point in the EDITOR's own unzoomed space). The
     /// caller maps it with `ScrapEditorGeometry.viewPoint`.
@@ -390,7 +415,7 @@ struct ScrapEditorHost: NSViewRepresentable {
 
     private func wire(_ c: ScrapEditorContainer) {
         c.isEditorVisible = isEditorVisible
-        c.canvasUndoManager = undoManager
+        c.canvasUndo = canvasUndo
         c.onScroll = onScroll
         c.onMagnify = onMagnify
         c.onTextChanged = onTextChanged
