@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import ApplicationServices
 import SwiftUI
 @testable import Maugham
 
@@ -423,6 +424,158 @@ final class CanvasViewMountingTests: XCTestCase {
                        "the editor is sliding across the canvas while the writer "
                        + "types into it: the card kept coasting underneath the "
                        + "mounted editor")
+    }
+
+    // MARK: - Accessibility, §7A.6
+
+    /// Attach an assistive client to this process, once.
+    ///
+    /// **Nothing below can see anything without this, and it is not a formality.**
+    /// SwiftUI does not build an accessibility tree until something asks for one.
+    /// Measured 2026-07-26: an `NSHostingView` whose subtree contains a real,
+    /// mounted `NSTextView` reports ZERO accessibility children, and reports both
+    /// that text view and its synthetic nodes the instant an accessibility
+    /// request reaches the process. So a walk run without this reports an empty
+    /// canvas whatever `CanvasView` installs — it would fail this task's tests
+    /// while the feature worked, and would go on failing them if the feature were
+    /// deleted. In the app the client is VoiceOver; in a unit test there is none,
+    /// so the test is the client.
+    ///
+    /// One attribute query against our OWN pid is the whole lever, and it needs
+    /// no permission: `AXIsProcessTrusted()` is false in this process and the
+    /// query still succeeds, because trust gates reading OTHER applications.
+    /// Three cheaper things were measured and do NOT work — waiting (any
+    /// duration), `NSAccessibility.unignoredDescendant(of:)`, and the legacy
+    /// `accessibilityAttributeValue:` selector, which answers a request without
+    /// realising the tree behind it.
+    ///
+    /// `static let` so it happens once: enabling accessibility is process-global
+    /// and cannot be undone.
+    private static let assistiveClientIsAttached: Bool = {
+        var role: CFTypeRef?
+        _ = AXUIElementCopyAttributeValue(AXUIElementCreateApplication(getpid()),
+                                          kAXRoleAttribute as CFString, &role)
+        return true
+    }()
+
+    /// Every accessibility element under the window's content view, in tree
+    /// order — the tree an assistive client walks, which is the only place the
+    /// question "can a VoiceOver user reach this" can honestly be asked.
+    private func axTree(in window: NSWindow) throws -> [AnyObject] {
+        _ = Self.assistiveClientIsAttached
+        return axElements(under: try XCTUnwrap(window.contentView))
+    }
+
+    private func axElements(under root: AnyObject, depth: Int = 0) -> [AnyObject] {
+        guard depth < 40 else { return [] }
+        return [root] + axChildren(of: root)
+            .flatMap { axElements(under: $0, depth: depth + 1) }
+    }
+
+    /// Read through the ObjC selectors rather than `NSAccessibilityProtocol`, and
+    /// not for convenience.
+    ///
+    /// SwiftUI's synthetic elements are `SwiftUI.AccessibilityNode`: not
+    /// `NSView`s, so `firstDescendant` above cannot see them, and — measured —
+    /// not satisfying `as? NSAccessibilityProtocol` either, so a walk written
+    /// against that protocol drops silently exactly the elements this task
+    /// exists to publish. It answers the informal `NSAccessibility` selectors
+    /// every `NSObject` vends, which is how the accessibility runtime asks.
+    private func axChildren(of element: AnyObject) -> [AnyObject] {
+        axAttribute(element, "accessibilityChildren") as? [AnyObject] ?? []
+    }
+
+    private func axString(_ element: AnyObject, _ attribute: String) -> String? {
+        axAttribute(element, attribute) as? String
+    }
+
+    private func axAttribute(_ element: AnyObject, _ attribute: String) -> Any? {
+        guard let object = element as? NSObject,
+              object.responds(to: NSSelectorFromString(attribute)) else { return nil }
+        return object.value(forKey: attribute)
+    }
+
+    /// **The whole of spec §7A.6 in one assertion.** Everything on this surface
+    /// is drawn into a `Canvas`, and drawn content has no accessibility tree —
+    /// so without the synthetic one a VoiceOver user meets a blank rectangle
+    /// where the writer's entire plan is. Nothing else in the plan can see this:
+    /// `CanvasAccessibilityTests` proves the element LIST is right, and the fact
+    /// that a list is right says nothing about whether SwiftUI's hosting
+    /// hierarchy ever publishes it.
+    func test_theCanvasReadsOutItsScrapsRatherThanBeingABlankRectangle() throws {
+        let window = host(CanvasView(projectRoot: try projectRoot(),
+                                     paletteSwatchHexes: { [] }))
+        let all = try axTree(in: window)
+
+        XCTAssertTrue(all.contains { axString($0, "accessibilityLabel") == CanvasAccessibility.canvasLabel },
+                      "the canvas itself is not in the accessibility tree, so there "
+                      + "is nothing for a VoiceOver user to land on and walk")
+        // `accessibilityValue`, deliberately, and not "wherever the words ended
+        // up". It is the slot the real NSTextView publishes its text in and the
+        // slot VoiceOver reads; an element that files the writer's sentence under
+        // AXValueDescription instead announces "Scrap" and stops. See the trait
+        // in `CanvasAXChildren` — that failure was real, and this is what caught it.
+        XCTAssertTrue(all.compactMap { axString($0, "accessibilityValue") }.contains(scrapText),
+                      "the writer's scrap is drawn and nothing else — its synthetic "
+                      + "element never reached the accessibility tree, so VoiceOver "
+                      + "reads this canvas out as a blank rectangle (spec §7A.6)")
+    }
+
+    /// The other half of the slice's hand-smoke: *entering one lands you in a
+    /// real text field*.
+    ///
+    /// Task 9 proved the mounted text view is among `ScrapEditorContainer`'s
+    /// accessibility children, and said plainly that this is NOT evidence it is
+    /// usefully reachable. Three things separate the two, and each is a way a
+    /// writer using VoiceOver would be stuck on a surface whose unit tests are
+    /// all green:
+    ///
+    ///  1. the editor is reachable from the hosted WINDOW, not merely from the
+    ///     container that built it — `.accessibilityChildren` on the drawn layer
+    ///     replaces children, and applying it a level too high would replace the
+    ///     editor's;
+    ///  2. it announces itself as EDITABLE TEXT, not as an unlabelled group;
+    ///  3. it is where the keyboard focus actually is, so entering a scrap moves
+    ///     an assistive client's focus into it rather than leaving it parked on
+    ///     the synthetic twin of the card.
+    func test_enteringAScrapLandsAssistiveFocusInARealTextField() throws {
+        let window = host(CanvasView(projectRoot: try projectRoot(),
+                                     paletteSwatchHexes: { [] }))
+        let container = try doubleClickTheScrap(in: window)
+        let editor = try XCTUnwrap(container.textView)
+
+        let reachable = try axTree(in: window).contains { $0 === editor }
+        XCTAssertTrue(reachable,
+                      "the mounted editor is not reachable in the accessibility "
+                      + "tree the window publishes — the synthetic children have "
+                      + "been installed somewhere that replaces it, so entering a "
+                      + "scrap lands a VoiceOver user on nothing they can type into")
+
+        XCTAssertEqual(editor.accessibilityRole(), .textArea,
+                       "the thing entering a scrap lands on does not announce "
+                       + "itself as editable text")
+        XCTAssertEqual(editor.accessibilityValue() as? String, scrapText,
+                       "the editor is reachable but says nothing — a text field "
+                       + "that reads out empty is no better than the drawn card")
+
+        // Read through KVC, and not for convenience. `accessibilityFocusedUIElement`
+        // is an ObjC @property on the informal NSAccessibility protocol, and in
+        // Swift a STATIC member of the same name shadows it on every instance:
+        // `window.accessibilityFocusedUIElement()` fails with "static member
+        // cannot be used on instance of type 'NSWindow'", and casting to
+        // `NSAccessibilityProtocol` fails with "has no member" because the Swift
+        // protocol does not surface it at all. Both spellings were tried.
+        //
+        // KVC reaches the real published property rather than a stand-in for it,
+        // which matters here: asserting `window.firstResponder` instead would test
+        // the INPUT to AX focus rather than what assistive technology is actually
+        // handed. Verified against a standalone probe: with an NSTextView as first
+        // responder, this returns that text view.
+        let focused = window.value(forKey: "accessibilityFocusedUIElement") as AnyObject?
+        XCTAssertTrue(focused === editor,
+                      "assistive focus is not in the editor after entering the "
+                      + "scrap, so a VoiceOver user is left on the synthetic twin "
+                      + "of a card whose real text field is elsewhere")
     }
 
     // MARK: - The words are safe

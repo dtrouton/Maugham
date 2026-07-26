@@ -83,6 +83,19 @@ struct CanvasView: View {
     /// every straighten, coast and drag increments.
     @State private var sceneRevision = 0
 
+    /// The synthetic accessibility tree — spec §7A.6's "AX layer mirroring the
+    /// scene graph", because drawn content has none of its own.
+    ///
+    /// Rebuilt from the `.onChange` below and NOT computed in `body`. Building it
+    /// sorts the scene into reading order and copies every scrap's string, and
+    /// `body` runs on every scroll event, every drag frame and every momentum
+    /// tick — so computing it there is scene-proportional work inside the loop
+    /// that has to stay proportional to the viewport. Keying it on `revision`
+    /// would be the same defect with an extra step: that counter is bumped by
+    /// every one of those frames. The elements carry CONTENT frames, so a pan or
+    /// a zoom does not invalidate them at all.
+    @State private var axElements: [CanvasAXElement] = []
+
     /// When the writer last folded a keystroke into the model. A gap wider than
     /// `ScrapUndoBeat.idleSeconds` closes the open "Edit Scrap" gesture, so a
     /// long visit to a scrap is several ⌘Z steps rather than one. Cleared
@@ -146,6 +159,32 @@ struct CanvasView: View {
                                         straighten: straighten, into: &cx)
                 }
                 .allowsHitTesting(false)
+                // Spec §7A.6: drawn content has no AX tree, so this view owns
+                // one. Without these three lines a VoiceOver user meets a blank
+                // rectangle where the writer's whole plan is.
+                //
+                // Hit testing is off on this layer and accessibility is not: the
+                // two are different trees, and the layer only leaves the second
+                // one if something hides it or tells it to ignore its children.
+                // `CanvasCompositionTests` scans this file RAW for both of those
+                // modifiers, so they are described here rather than spelled —
+                // naming either in a comment fails that test as surely as calling
+                // it would. Either would throw the mounted `NSTextView` away
+                // along with the drawn cards.
+                //
+                // The children are EXTRACTED and `.equatable()` rather than an
+                // inline `ForEach`: they read the camera, so inline they would be
+                // rebuilt on every body pass — N synthetic views per frame for
+                // the whole of every straighten, coast and drag, which is the
+                // very thing the cached element list above exists to avoid. As an
+                // `Equatable` view SwiftUI skips them unless the elements or the
+                // camera actually moved.
+                .accessibilityLabel(CanvasAccessibility.canvasLabel)
+                .accessibilityValue(CanvasAccessibility.summary(scene: scene))
+                .accessibilityChildren {
+                    CanvasAXChildren(elements: axElements, camera: camera)
+                        .equatable()
+                }
                 .onChange(of: context.date) { previous, now in
                     // Clamped: the first date after this timeline unpauses is a
                     // whole idle gap, not a frame. See `maximumFrameStep`.
@@ -185,6 +224,16 @@ struct CanvasView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { load() }
+        // The STRUCTURAL counter, never `revision`.
+        //
+        // `initial: true` is belt and braces rather than the load path: `load()`
+        // ends in `rebuildLayouts()`, which bumps this counter, so the loaded
+        // canvas reaches the tree either way. It is here so that a scene which
+        // somehow arrives without a bump still has an accessible canvas rather
+        // than a silent one — the failure this whole layer exists to prevent.
+        .onChange(of: sceneRevision, initial: true) { _, _ in
+            axElements = CanvasAccessibility.elements(scene: scene, scraps: scraps)
+        }
         .onDisappear {
             // Fold the live editor's text in BEFORE the write, or a persona
             // switch mid-sentence loses the sentence.
