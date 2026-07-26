@@ -39,7 +39,8 @@ struct CollectionBinderPaneToggle: View {
                         store: store,
                         selectedItemId: $selectedItemId,
                         renamingItemId: $renamingItemId)
-                case .research:
+                case .research, .canvas:
+                    // Spec §10 — see BinderPaneToggle for the reasoning.
                     CollectionResearchPane(
                         store: store,
                         selectedResearchId: $selectedResearchId,

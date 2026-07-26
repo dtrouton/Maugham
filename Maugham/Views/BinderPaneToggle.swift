@@ -28,7 +28,12 @@ struct BinderPaneToggle: View {
                 switch segment {
                 case .manuscript:
                     BinderView(store: store, selectedItemId: $selectedItemId)
-                case .research:
+                case .research, .canvas:
+                    // Spec §10: the canvas segment shows the RESEARCH TREE.
+                    // Umbrella §6.3 gives Plan a Left surface of "Research
+                    // tree", and §8A.1's drag-in route (1C-d) needs the tree
+                    // beside the canvas to drag from. The two segments share a
+                    // left pane on purpose; the centre column is what differs.
                     ResearchView(store: store, selectedResearchId: $selectedResearchId)
                 case .palette:
                     PaletteBinderList(store: store, selectedCardId: $selectedPaletteCardId)

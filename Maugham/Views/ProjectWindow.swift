@@ -786,6 +786,8 @@ struct ProjectWindow: View {
 
     private var shouldShowStatusFooter: Bool {
         guard userPreferences.goalIndicatorsVisible else { return false }
+        // `.canvas` is deliberately absent: the footer reports manuscript
+        // metrics, and readiness stays silent about the canvas (umbrella §7, §9).
         guard binderSegment == .manuscript || binderSegment == .scenes else {
             return false
         }
@@ -871,6 +873,9 @@ struct ProjectWindow: View {
                 // (lockEditing) via `effectivePosture` mirrored into the control.
                 control: editorControl
             )
+        case .canvas:
+            CanvasView(projectRoot: store.url,
+                       paletteSwatchHexes: { store.paletteSwatchHexes() })
         case .research:
             if let id = selectedResearchId,
                let item = TreeWalk.find(
@@ -1025,6 +1030,9 @@ struct ProjectWindow: View {
                 onOpenProjectSettings: { activeSheet = .projectSettings },
                 onOpenCraftIntent: openCraftIntent
             )
+        case .canvas:
+            ContentUnavailableView("Canvas", systemImage: "square.on.circle")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .research:
             if let id = selectedResearchId,
                let item = TreeWalk.find(

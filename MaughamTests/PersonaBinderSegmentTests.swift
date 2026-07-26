@@ -119,7 +119,7 @@ final class PersonaBinderSegmentTests: XCTestCase {
     /// no two may collide — a duplicate would be indistinguishable in a picker
     /// that has no text labels.
     func test_everySegmentHasADistinctPickerSymbol() {
-        let all: [BinderSegment] = [.manuscript, .research, .palette, .scenes, .trash, .find]
+        let all = BinderSegment.allCases
         let symbols = all.map(\.pickerSymbolName)
         XCTAssertFalse(symbols.contains(where: \.isEmpty))
         XCTAssertEqual(Set(symbols).count, all.count, "picker symbols must be distinct")
@@ -129,7 +129,7 @@ final class PersonaBinderSegmentTests: XCTestCase {
     /// carries, so it must never be empty — and a collection still says
     /// "Pieces", not "Manuscript".
     func test_everySegmentHasANonEmptyDisplayNameForEveryProjectType() {
-        let all: [BinderSegment] = [.manuscript, .research, .palette, .scenes, .trash, .find]
+        let all = BinderSegment.allCases
         for type in ProjectType.allCases {
             for segment in all {
                 XCTAssertFalse(segment.displayName(for: type).isEmpty, "\(segment)/\(type)")
