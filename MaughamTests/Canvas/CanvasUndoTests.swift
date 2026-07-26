@@ -201,10 +201,38 @@ final class CanvasUndoTests: XCTestCase {
         XCTAssertFalse(m.canUndo, "the inner gesture registered a step of its own")
     }
 
-    func test_endWithoutBeginIsANoOpRatherThanACrash() {
-        let undo = CanvasUndo(undoManager: manager())
-        undo.endGesture()
+    /// A stray `endGesture` must leave the recorder exactly where it found it.
+    ///
+    /// **The crash is not the interesting failure, and asserting only
+    /// `isInGesture` cannot see the interesting one.** Remove `endGesture`'s
+    /// `guard depth > 0` and nothing crashes and `isInGesture` is still false:
+    /// `depth` goes to −1, and the `depth == 0` guard below it returns before
+    /// anything registers. What breaks is the NEXT gesture — `beginGesture` takes
+    /// −1 to 0, misses its own `depth == 1` guard, and so never takes a snapshot
+    /// or a name. The writer then drags a card and ⌘Z does nothing at all.
+    ///
+    /// So the assertion that matters is on the gesture AFTER the stray end.
+    func test_endWithoutBeginLeavesTheNextGestureWhole() {
+        let box = boxWithScrap()
+        let m = manager()
+        let undo = CanvasUndo(undoManager: m)
+        wire(undo, to: box)
+
+        undo.endGesture()                       // stray, with nothing open
         XCTAssertFalse(undo.isInGesture)
+        XCTAssertFalse(m.canUndo, "a stray end registered a step of its own")
+
+        undo.beginGesture("Move Scrap")
+        XCTAssertTrue(undo.isInGesture,
+                      "the stray end took the depth below zero, so this begin never "
+                      + "reached depth 1 — it took no snapshot and kept no name, and "
+                      + "the drag it brackets will register nothing")
+        box.scene.move(CanvasNodeID("a"), to: CGPoint(x: 900, y: 900))
+        undo.endGesture()
+
+        XCTAssertTrue(m.canUndo, "the gesture after a stray end registered nothing")
+        m.undo()
+        XCTAssertEqual(box.scene.node(CanvasNodeID("a"))?.origin, CGPoint(x: 100, y: 100))
     }
 
     // MARK: - Granularity inside one visit
@@ -360,6 +388,14 @@ final class CanvasUndoTests: XCTestCase {
     /// The Edit menu's Undo item is titled by whoever handles the action. Inside a
     /// scrap that is the container, not `NSWindow`, so without this the writer
     /// reads a bare "Undo" for every canvas step.
+    ///
+    /// **One recorder, handed to the container**, which is what production does
+    /// (`CanvasView` passes `undo` to `ScrapEditorHost`). Wiring a second
+    /// `CanvasUndo` onto the same manager still satisfies every assertion below —
+    /// they all resolve through the manager — but it makes the setup blind to
+    /// anything that depends on the CONTAINER's recorder holding an open gesture,
+    /// which is exactly what `canUndo`'s pending term and `undo()`'s
+    /// close-then-reopen are.
     func test_theEditMenuNamesTheCanvasStepWhileAScrapIsFocused() {
         let box = boxWithScrap()
         let m = manager()
@@ -367,7 +403,7 @@ final class CanvasUndoTests: XCTestCase {
         wire(undo, to: box)
 
         let container = ScrapEditorContainer(frame: .zero)
-        container.canvasUndo = CanvasUndo(undoManager: m)
+        container.canvasUndo = undo
         let item = NSMenuItem(title: "Undo",
                               action: #selector(ScrapEditorContainer.undo(_:)),
                               keyEquivalent: "z")
@@ -387,6 +423,25 @@ final class CanvasUndoTests: XCTestCase {
         container.undo(nil)
         XCTAssertTrue(container.validateUserInterfaceItem(redoItem))
         XCTAssertEqual(redoItem.title, "Redo Move Scrap")
+
+        // The PENDING case, which only one shared recorder can see. The manager's
+        // undo stack is empty now (the step above was just undone), and the writer
+        // is mid-run inside a scrap — so the only thing to take back is an open
+        // gesture the manager knows nothing about. The item must be ENABLED, and
+        // it must read a bare "Undo": a pending run is not a step until it closes
+        // and has no action name, and enabled-and-honestly-unnamed beats greyed
+        // out and wrong. Wiring a SECOND recorder onto this manager, as this test
+        // used to, makes both of these unreachable.
+        XCTAssertFalse(container.validateUserInterfaceItem(item),
+                       "precondition: with nothing open and an empty stack there is "
+                       + "nothing to undo")
+        undo.beginGesture("Edit Scrap")
+        box.scraps[CanvasNodeID("a")] = "The falls at noon"
+        XCTAssertTrue(container.validateUserInterfaceItem(item),
+                      "Undo is greyed out while the writer is halfway through the "
+                      + "first run of typing inside a scrap, and ⌘Z would do nothing")
+        XCTAssertEqual(item.title, "Undo",
+                       "the pending run borrowed a name from a step it is not")
     }
 
     /// The whole shape, end to end: focus opens the gesture, blur closes it, one

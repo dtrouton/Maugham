@@ -105,10 +105,28 @@ struct CanvasView: View {
     /// The cost is that a registration outside an explicit group would now raise
     /// rather than being quietly absorbed. `CanvasUndo` is the only registrant —
     /// pinned by `CanvasUndoTests.test_typingIntoTheMountedEditorRegistersNothingOfItsOwn`
-    /// — and it registers only between `beginUndoGrouping` and `endUndoGrouping`.
+    /// for the text view, by `CanvasCompositionTests.test_theCanvasRegistersUndoInExactlyOnePlace`
+    /// for the area as a whole, and by the `groupingLevel` assertion in
+    /// `CanvasUndo.register` — and it registers only between `beginUndoGrouping`
+    /// and `endUndoGrouping`.
+    ///
+    /// **`levelsOfUndo` is capped, because `UndoManager`'s default is
+    /// unlimited.** Every step here retains a whole `CanvasScene` AND a whole
+    /// `[CanvasNodeID: String]` — every scrap's text, copied — and the
+    /// granularity is one step per SENTENCE typed, not per visit. Unbounded,
+    /// nothing gives any of it back until `release()` at window close.
+    ///
+    /// 200 is chosen from both ends. From the writer's: at one step per sentence
+    /// it is a long afternoon's worth of sentences, and orders of magnitude more
+    /// than a session's drags — nobody ⌘Zs past 200 steps meaning to arrive
+    /// somewhere. From memory's: a 200-scrap canvas of paragraph-sized scraps is
+    /// on the order of 10 KB of copied dictionary per step, so the stack is
+    /// bounded at roughly 2 MB per canvas rather than at the length of the
+    /// session.
     @State private var undoManager: UndoManager = {
         let manager = UndoManager()
         manager.groupsByEvent = false
+        manager.levelsOfUndo = 200
         return manager
     }()
     @State private var undo: CanvasUndo?

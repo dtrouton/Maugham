@@ -118,7 +118,7 @@ final class CanvasUndo {
             gestureName = ""
         }
         guard let before = snapshotAtGestureStart, let now = readSnapshot?() else { return }
-        guard before.scene != now.scene || before.scraps != now.scraps else { return }
+        guard Self.stateMoved(from: before, to: now) else { return }
 
         undoManager.beginUndoGrouping()
         register(before, name: name)
@@ -211,7 +211,19 @@ final class CanvasUndo {
     private var openGestureHasChanges: Bool {
         guard depth == 1, let before = snapshotAtGestureStart,
               let now = readSnapshot?() else { return false }
-        return before.scene != now.scene || before.scraps != now.scraps
+        return Self.stateMoved(from: before, to: now)
+    }
+
+    /// Did anything the writer could see actually change?
+    ///
+    /// **Extracted because it must be asked identically in two places** — here,
+    /// through `canUndo`'s pending term, and in `endGesture`, which is what
+    /// actually registers. Written out twice they could drift, and the drift has
+    /// a direction: a `canUndo` that says yes where `endGesture` says no is an
+    /// enabled Edit-menu item and a ⌘Z that does nothing, which is the exact
+    /// trust loss this whole class exists to prevent.
+    private static func stateMoved(from before: Snapshot, to now: Snapshot) -> Bool {
+        before.scene != now.scene || before.scraps != now.scraps
     }
 
     /// Close one open gesture and hand back its name so the caller can reopen it.
@@ -255,6 +267,18 @@ final class CanvasUndo {
     /// `UndoManager`, so ⇧⌘Z reads "Redo Move Scrap" and the step keeps its name
     /// however many times the writer cycles it.
     private func register(_ snapshot: Snapshot, name: String) {
+        // The canvas's manager has `groupsByEvent` off (see `CanvasView`), and
+        // that turns "registered outside a group" from something `UndoManager`
+        // quietly absorbs into something it RAISES. Both routes here are inside
+        // one: `endGesture` opens a group on the line above, and the re-entrant
+        // call below runs inside the group `UndoManager` opens around an undo.
+        // A third caller that is not would crash the app on the writer's next
+        // edit, so it fails here, in Debug, at the moment it is written.
+        // `CanvasCompositionTests.test_theCanvasRegistersUndoInExactlyOnePlace`
+        // is the other half — this one guards HOW, that one guards WHO.
+        assert(undoManager.groupingLevel > 0,
+               "CanvasUndo.register ran outside an undo group — with "
+               + "groupsByEvent off, UndoManager raises on that")
         undoManager.registerUndo(withTarget: self) { target in
             // `readSnapshot` is OPTIONAL — an unwired recorder must record
             // nothing rather than trap.

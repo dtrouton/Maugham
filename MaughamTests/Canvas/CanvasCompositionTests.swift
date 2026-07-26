@@ -207,4 +207,48 @@ final class CanvasCompositionTests: XCTestCase {
                       + "ground is untinted for every project and the seam Task 8 "
                       + "built is dead code")
     }
+
+    /// A CENSUS, not an allow-list: exactly one place in `Maugham/Canvas/` puts
+    /// anything on the canvas's undo stack, and it is `CanvasUndo.register`.
+    ///
+    /// The canvas's `UndoManager` has `groupsByEvent` **off**, which is right on
+    /// the merits (see `CanvasView.undoManager`) and carries one cost:
+    /// `UndoManager` no longer opens an implicit group per event, so a
+    /// registration made outside an explicit group **raises** instead of being
+    /// quietly absorbed. That manager is vended down the responder chain by
+    /// `CanvasEventNSView`, so it is reachable by anything on this surface that
+    /// goes looking for an undo manager, and "`CanvasUndo` is the only
+    /// registrant" was defended by a comment and by one text-view-specific test.
+    ///
+    /// This is the area-wide half. `CanvasUndo.register`'s own `groupingLevel`
+    /// assertion is the other: this one says WHO may register, that one says the
+    /// registration is inside a group. A second registrant is not necessarily
+    /// wrong — but it has to be seen, and it has to bracket itself.
+    func test_theCanvasRegistersUndoInExactlyOnePlace() throws {
+        let area = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Maugham/Canvas")
+        let files = try FileManager.default
+            .contentsOfDirectory(at: area, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "swift" }
+        XCTAssertGreaterThan(files.count, 10,
+                             "the canvas source directory did not resolve, so this "
+                             + "census is scanning nothing")
+
+        var registrants: [String] = []
+        for file in files {
+            let hits = codeOnly(try String(contentsOf: file, encoding: .utf8))
+                .components(separatedBy: "registerUndo").count - 1
+            if hits > 0 { registrants.append("\(file.lastPathComponent)×\(hits)") }
+        }
+        XCTAssertEqual(registrants, ["CanvasUndo.swift×1"],
+                       "something other than CanvasUndo.register registers on the "
+                       + "canvas undo stack. With groupsByEvent off, a registration "
+                       + "outside an explicit group RAISES rather than being "
+                       + "absorbed — and a second registrant also puts one change on "
+                       + "the stack twice, which is the defect allowsUndo == false "
+                       + "exists to prevent. Found: \(registrants)")
+    }
 }

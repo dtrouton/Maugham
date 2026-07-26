@@ -91,6 +91,19 @@ final class CanvasViewMountingTests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(seconds))
     }
 
+    /// Pump for at least `seconds` of WALL CLOCK.
+    ///
+    /// `RunLoop.run(until:)` returns as soon as it has nothing left to service,
+    /// so `pump(1.8)` really waits for the last scheduled timer and no longer.
+    /// Measured 2026-07-26: a `pump(1.8)` after a keystroke returned 0.76 s later
+    /// — the 750 ms save debounce, the last source on the loop. Anything that
+    /// asserts on `ScrapUndoBeat.idleSeconds` having ELAPSED has to use this;
+    /// with `pump` the beat silently does not pass and the test measures nothing.
+    private func waitOut(_ seconds: TimeInterval) {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline { pump(0.1) }
+    }
+
     @discardableResult
     private func host(_ view: CanvasView) -> NSWindow {
         let frame = CGRect(x: 0, y: 0, width: 800, height: 600)
@@ -1288,5 +1301,110 @@ final class CanvasViewMountingTests: XCTestCase {
                        + "⌘Z is spent on it and appears to do nothing, and its redo "
                        + "re-applies a card with no measured height, which has no "
                        + "frame and so vanishes from the canvas entirely")
+
+        // The positive control. Without it a resize path that registered NOTHING
+        // EVER — no `beginGesture` in `.began`, say — would satisfy the assertion
+        // above and delete ⌘Z from the corner handle in silence. Its sibling
+        // `test_aPressThatNeverMovedLeavesNothingToUndo` has had one since it was
+        // written; this one did not.
+        drag(events, from: press, through: [CGPoint(x: press.x + 40, y: press.y)])
+        pump()
+        XCTAssertTrue(manager.canUndo,
+                      "a resize that really widened the card registered nothing, so "
+                      + "the assertion above passes for the wrong reason: the corner "
+                      + "handle has no undo at all")
+    }
+
+    /// **The undo stack is bounded.** `UndoManager`'s default `levelsOfUndo` is
+    /// 0, meaning unlimited, and every step here retains a whole `CanvasScene`
+    /// plus every scrap's text — at one step per SENTENCE typed. Unbounded, a
+    /// long session's stack is tens of megabytes that nothing gives back until
+    /// the window closes.
+    ///
+    /// Asked of the manager the surface actually vends, not of a manager the test
+    /// built: a cap set on the wrong object bounds nothing.
+    func test_theCanvasUndoStackIsBounded() throws {
+        let window = host(CanvasView(projectRoot: try projectRoot(),
+                                     paletteSwatchHexes: { [] }))
+        let manager = try XCTUnwrap(try eventView(in: window).undoManager)
+        XCTAssertGreaterThan(manager.levelsOfUndo, 0,
+                             "levelsOfUndo is 0 — UndoManager's default, which means "
+                             + "UNLIMITED. Every canvas step retains a copy of the "
+                             + "whole scene and of every scrap's string, and nothing "
+                             + "drops any of it until the window closes")
+        XCTAssertFalse(manager.groupsByEvent,
+                       "the shipping manager is not the one the unit tests exercise: "
+                       + "with groupsByEvent on, two gestures landing in one pass of "
+                       + "the event loop collapse into a single ⌘Z")
+    }
+
+    /// **`syncActiveEdit`'s `fromKeystroke` default is `false`, and quitting is
+    /// what it is for.**
+    ///
+    /// `CanvasStore.beforeFlush` runs at app quit and folds the live editor's
+    /// text in — that is how a sentence typed and never clicked away from reaches
+    /// disk. What it must NOT do is move an undo boundary: a writer who paused
+    /// for two seconds and then pressed ⌘Q would trip the idle rule there,
+    /// closing a step and REOPENING a gesture on a view that is going away.
+    ///
+    /// **The setup has to make the model STALE, and that is the whole difficulty.**
+    /// `syncActiveEdit` returns at its "nothing changed" guard when `scraps[id]`
+    /// already equals the live layout's text — which it does after every
+    /// keystroke, because `onTextChanged` folds on every one. So the boundary
+    /// rules are simply never reached at flush time on the ordinary path, and
+    /// that is exactly why flipping the default left the whole suite green: there
+    /// was nothing to fold, so nothing to break a step on.
+    ///
+    /// The state `beforeFlush` is written for is text sitting in the shared
+    /// `NSTextStorage` that never came through `onTextChanged`, so this test
+    /// constructs it the only honest way — by detaching the delegate for the
+    /// duration of the edit, which is what "the model is behind the storage"
+    /// means in one line. Everything after that is the production path.
+    ///
+    /// The ORDER of the two waits is load-bearing and was measured, not guessed.
+    /// `CanvasStore`'s 750 ms save debounce calls the same `beforeFlush` hook, and
+    /// 750 ms is inside `ScrapUndoBeat.idleSeconds` — so a stale edit made before
+    /// the debounce fires is folded at 0.75 s, with the beat not yet elapsed, and
+    /// the rule under test is never reached. Let the debounce go first; the stale
+    /// edit that follows schedules none of its own, so the next fold is the quit.
+    func test_quittingAfterAPauseFoldsTheTextInWithoutMovingAnUndoBoundary() throws {
+        let root = try projectRoot()
+        let window = host(CanvasView(projectRoot: root, paletteSwatchHexes: { [] }))
+        let container = try doubleClickTheScrap(in: window)
+        let editor = try XCTUnwrap(container.textView)
+        editor.setSelectedRange(NSRange(location: (editor.string as NSString).length, length: 0))
+
+        // One run, no terminator anywhere, so only a pause could ever close it.
+        type(" and the sodium light", into: editor)
+        waitOut(1.0)                                   // the save debounce goes first
+        let manager = try XCTUnwrap(try eventView(in: window).undoManager)
+        XCTAssertFalse(manager.canUndo,
+                       "precondition: the whole visit is still inside the open "
+                       + "gesture, so the manager's stack is empty")
+
+        // Behind the delegate's back, so the model is left holding the text as it
+        // was — the condition the quit hook exists to fold in.
+        let delegate = editor.delegate
+        editor.delegate = nil
+        editor.insertText(" on the wet stone",
+                          replacementRange: NSRange(
+                            location: (editor.string as NSString).length, length: 0))
+        editor.delegate = delegate
+        waitOut(ScrapUndoBeat.idleSeconds + 0.3)       // the writer sits back
+        XCTAssertFalse(manager.canUndo, "precondition: still nothing registered")
+
+        NotificationCenter.default.post(   // adr-0021-ok: AppKit lifecycle notification, not a maugham.* event — this is what CanvasStore observes for quit
+            name: NSApplication.willTerminateNotification,
+            object: NSApplication.shared)
+
+        let scrapsURL = root.appendingPathComponent(CanvasStore.scrapsRelativePath)
+        XCTAssertTrue(try String(contentsOf: scrapsURL, encoding: .utf8).contains("wet stone"),
+                      "precondition: the quit hook really did fold the text in, so "
+                      + "the assertion below is about what it did NOT do")
+        XCTAssertFalse(manager.canUndo,
+                       "quitting after a pause closed an undo step and reopened a "
+                       + "gesture on a view that is going away — `beforeFlush` took "
+                       + "`fromKeystroke: true`, and only a real keystroke may move "
+                       + "an undo boundary")
     }
 }
