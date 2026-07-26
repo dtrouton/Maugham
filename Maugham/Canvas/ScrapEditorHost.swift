@@ -92,8 +92,6 @@ final class ScrapEditorContainer: NSView, NSTextViewDelegate, NSUserInterfaceVal
         return super.hitTest(point)
     }
 
-    override var undoManager: UndoManager? { canvasUndoManager ?? super.undoManager }
-
     // MARK: - ⌘Z while a scrap is focused
 
     /// `NSTextView` does not implement `undo:`, so the menu action walks past it
@@ -105,8 +103,8 @@ final class ScrapEditorContainer: NSView, NSTextViewDelegate, NSUserInterfaceVal
     /// is deliberately false (`ScrapLayout.makeEditor`: one change, one step).
     /// Measured on macOS 26.5, all three candidate paths in one run: the
     /// container is the text view's delegate AND responds to
-    /// `undoManagerForTextView:`, and it is the text view's `nextResponder` with
-    /// `undoManager` above correctly vending the canvas manager — and
+    /// `undoManagerForTextView:`, and it is the text view's `nextResponder`
+    /// vending the canvas manager from an `undoManager` override — and
     /// `textView.undoManager` was still nil. Flipping `allowsUndo` to true makes
     /// the delegate hook work, at the price of the text view registering its own
     /// typing steps on the canvas stack, which is the double-registration Task 3
@@ -117,6 +115,18 @@ final class ScrapEditorContainer: NSView, NSTextViewDelegate, NSUserInterfaceVal
     /// SwiftUI's, not the canvas's. So ⌘Z inside a scrap would silently drive the
     /// wrong stack. Task 15 owns undo; this is the four lines that make its stack
     /// reachable from inside an editor, and menu-item titling is still its.
+    ///
+    /// There is deliberately no `undoManager` override on this view, and this is
+    /// the one place it differs from `CanvasEventNSView`, which has one. That
+    /// difference is not an oversight: there the view itself is first responder,
+    /// so `NSWindow` asks it directly. Here the TEXT VIEW is first responder, and
+    /// it short-circuits — `NSResponder.undoManager` walks `nextResponder` by
+    /// default, but `NSTextView` overrides it and returns nil, so the walk never
+    /// arrives. The override was measured to be inert twice over: with it in
+    /// place `window.undoManager` was still not the canvas manager with either
+    /// the text view OR the container as first responder, and nothing reads
+    /// `self.undoManager`. These two methods reach `canvasUndoManager` directly,
+    /// which is the whole route.
     @objc func undo(_ sender: Any?) {
         canvasUndoManager?.undo()
     }
@@ -167,9 +177,32 @@ final class ScrapEditorContainer: NSView, NSTextViewDelegate, NSUserInterfaceVal
         // survivable only because `widthTracksTextView` is false.
         textView?.frame = CGRect(origin: .zero, size: unscaledSize)
 
-        // Frame in zoomed (view) space; bounds in unzoomed (content) space.
-        // Order matters: setting `frame` resets the bounds size, so `bounds` is
-        // restored after it rather than before.
+        // Frame in zoomed (view) space; bounds in unzoomed (content) space. The
+        // two together ARE the zoom: AppKit holds a frame→bounds scale, and a
+        // frame write on its own moves `bounds.size` to PRESERVE the old scale.
+        // So a zoom change needs this explicit bounds write, and it has to come
+        // after the frame write rather than before.
+        //
+        // Nothing outside this method has to defend it, because what has to
+        // survive is the SCALE rather than `bounds.size`, and AppKit preserves
+        // the scale itself. Measured on macOS 26.5: a reposition, a 500x210
+        // write, an aspect-BREAKING 960x100 write, a 1pt nudge, frame → .zero
+        // and back, a superview autoresize and two writes in a row all left the
+        // container AND the text view at exactly the scale this line set. The
+        // scale is the half the drawn/edited agreement rests on: it is what the
+        // glyphs are rasterised and positioned at, so they stay on top of the
+        // same layout the renderer is drawing.
+        //
+        // Do NOT "harden" this with a `setFrameSize` override that forces
+        // `bounds.size` back to `unscaledSize`. It does not protect the
+        // invariant, it breaks it: measured by mutation, that override puts the
+        // editor at scale 2.0833 under a 500x210 frame and (2.833, 3.0) under a
+        // superview autoresize, while the renderer draws at 2 — sliding the
+        // glyphs off the card beneath, which is the §7A.2 text-jumping failure
+        // itself. Recomputing bounds as frame/zoom is the same mistake wearing a
+        // different hat: it hand-derives a scale AppKit already holds exactly
+        // (`ScrapLayout` requirement 3). Pinned by
+        // `test_anExternalFrameWriteLeavesTheEditorAtTheCameraScale`.
         frame = CGRect(origin: frame.origin,
                        size: CGSize(width: unscaledSize.width * zoom,
                                     height: unscaledSize.height * zoom))
@@ -214,6 +247,14 @@ final class ScrapEditorContainer: NSView, NSTextViewDelegate, NSUserInterfaceVal
         detachEditor()
         wantsFocus = false
         pendingCaretIndex = nil
+        // Not in `detachEditor`, which also runs on a rebind — resetting it there
+        // would flash the editor visible mid-straighten every time the writer
+        // clicks from one scrap to the next. Here it is a full teardown, and
+        // leaving the switch where the last straighten put it is a trap: it is
+        // guarded on a real change, so a container unmounted while invisible and
+        // then reused mounts at alpha 0 and stays there until something writes a
+        // DIFFERENT value. Harmless while `dismantleNSView` discards the view.
+        isEditorVisible = true
     }
 
     /// Blur, in full. `removeFromSuperview()` alone is NOT a detach: the shared

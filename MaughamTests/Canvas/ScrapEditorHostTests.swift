@@ -87,20 +87,33 @@ final class ScrapEditorHostTests: XCTestCase {
                        "the backing store did not grow with zoom, so the glyphs were "
                        + "not rasterised under the scale — this is an upscale")
 
-        // A 3x upscale maps each ink pixel onto exactly 9, so it lands AT 9 (or
-        // above it, once interpolation bleeds the antialiased edges). Genuine
-        // rasterisation at 3x lands strictly below: the glyphs are drawn at a
-        // larger size, so their strokes get relatively thinner and cover
-        // proportionally less of the bigger raster. Measured 2026-07-26 on
-        // macOS 26.5: 480px/9536 ink at 1x, 1440px/56503 at 3x — ratio 5.93.
+        // UPPER BOUND, and the principled half: a 3x upscale maps each source
+        // pixel onto exactly 9, so pixel replication lands AT 9 — or above it,
+        // once interpolation bleeds the antialiased edges.
         //
-        // Above 3 because the text must fill more than a linear stretch of the
-        // same coverage. The pixel-dimension assertion above is still the
-        // load-bearing half; this brackets what was drawn into those pixels.
+        // Why honest rasterisation lands BELOW 9 is not that the strokes thin
+        // out: stroke width scales with point size, so glyph ink area grows as
+        // zoom² under honest rasterisation too, and the geometric expectation is
+        // also ≈9. It is the counter. `inkPixelCount` scores any non-zero sample,
+        // so at 13pt a large share of what it counts is faint antialiased fringe
+        // (plus small-size stem darkening), which inflates the 1x denominator.
+        // Measured 2026-07-26 on macOS 26.5: 480px/9536 ink at 1x, 1440px/56503
+        // at 3x — ratio 5.93. Expect that number to move with the typeface:
+        // `layout()` falls back to `systemFont` where Iowan Old Style is absent,
+        // and this is the only test here whose numbers depend on which font ran.
+        //
+        // LOWER BOUND, and it is not decorative: it guards a failure the
+        // assertion above cannot see. Drop the bounds restore in `mount` — let
+        // bounds grow with the frame — and the glyphs are rasterised at their
+        // UNZOOMED size into a backing store that still grew 3x, so the text
+        // does not grow with the card. Measured by mutation 2026-07-26: the
+        // pixel-dimension assertion above PASSED and this one failed, at a ratio
+        // of exactly 1.0.
         let ratio = Double(three.ink) / Double(one.ink)
         XCTAssertGreaterThan(ratio, 3,
-                             "ink did not grow with the raster — text at 3x is drawn "
-                             + "with barely more coverage than at 1x")
+                             "ink did not grow with the raster — the glyphs were "
+                             + "drawn at their unzoomed size into a zoomed backing "
+                             + "store, so the text does not grow with the card")
         XCTAssertLessThan(ratio, 9,
                           "ink grew by exactly the pixel count, which is what "
                           + "replicating each source pixel 3x3 does — the glyphs "
@@ -124,6 +137,73 @@ final class ScrapEditorHostTests: XCTestCase {
             }
         }
         return count
+    }
+
+    /// `mount` writes `frame` and then `bounds`, so the invariant it sets up would
+    /// be sequence-dependent if anything else could write the frame — and
+    /// something can: this is an `NSViewRepresentable`, and SwiftUI's layout pass
+    /// writes the hosted view's frame after `updateNSView` has returned, at a size
+    /// it derived itself.
+    ///
+    /// What has to survive that is the SCALE — not `bounds.size`. The scale is
+    /// what the glyphs are rasterised and positioned at, so it is what keeps the
+    /// editor's text on top of the same layout the renderer is drawing (§7A.2).
+    ///
+    /// AppKit already defends it. Measured on macOS 26.5, an `NSView` holds a
+    /// per-axis frame→bounds scale and moves `bounds.size` with the frame to
+    /// PRESERVE that scale, rather than holding the bounds size and letting the
+    /// scale move. Every external write tried over a 2x mount left the scale at
+    /// exactly (2, 2), the text view included: a 500x210 write, a reposition, a
+    /// 1pt `setFrameSize` nudge, frame → .zero and back, a superview autoresize,
+    /// two writes in a row, and a layout+display pass afterwards.
+    ///
+    /// The aspect-breaking write below is the discriminator, which is why it is
+    /// the one asserted. A preserved-SIZE model keeps bounds at 240x100 and
+    /// splits the scale to (4, 1); a preserved-SCALE model moves bounds to
+    /// 480x50 and holds (2, 2). It is the second.
+    ///
+    /// So the container deliberately does NOT override `setFrameSize` to force
+    /// `bounds.size` back to the unzoomed box. That override does not protect the
+    /// invariant, it breaks it: measured by mutation 2026-07-26, it puts the
+    /// editor at scale 2.0833 under a 500x210 frame — and at (2.833, 3.0) under a
+    /// superview autoresize — while the renderer draws at 2, sliding the glyphs
+    /// off the card beneath, which IS the text-jumping failure. Recomputing
+    /// bounds as frame/zoom is the same mistake wearing a different hat: it
+    /// hand-derives a scale AppKit already holds exactly (`ScrapLayout`
+    /// requirement 3). This test fails if either is added, and if AppKit ever
+    /// stops preserving the scale.
+    func test_anExternalFrameWriteLeavesTheEditorAtTheCameraScale() throws {
+        let container = ScrapEditorContainer(frame: .zero)
+        container.mount(layout: layout(), unscaledSize: size, zoom: 2)
+        host(container, contentSize: CGSize(width: 1200, height: 800))
+        let editor = try XCTUnwrap(container.textView)
+
+        func scale(of view: NSView) -> (x: CGFloat, y: CGFloat) {
+            let origin = view.convert(CGPoint.zero, to: nil)
+            let alongX = view.convert(CGPoint(x: 100, y: 0), to: nil)
+            let alongY = view.convert(CGPoint(x: 0, y: 100), to: nil)
+            return ((alongX.x - origin.x) / 100, abs(alongY.y - origin.y) / 100)
+        }
+
+        // Aspect-breaking on purpose — see the doc comment.
+        container.frame = CGRect(x: 17, y: 23, width: 960, height: 100)
+
+        let container2 = scale(of: container)
+        XCTAssertEqual(container2.x, 2, accuracy: 0.0001,
+                       "a frame write from outside mount changed the scale the "
+                       + "editor draws at — its glyphs no longer land where the "
+                       + "renderer is drawing the same layout, so the text jumps")
+        XCTAssertEqual(container2.y, 2, accuracy: 0.0001,
+                       "the vertical scale moved on its own — the frame→bounds "
+                       + "scale is not being preserved per axis")
+        // The one that actually reaches the glyphs.
+        let editorScale = scale(of: editor)
+        XCTAssertEqual(editorScale.x, 2, accuracy: 0.0001)
+        XCTAssertEqual(editorScale.y, 2, accuracy: 0.0001)
+        XCTAssertEqual(container.bounds.size, CGSize(width: 480, height: 50),
+                       "AppKit no longer moves bounds to preserve the scale across "
+                       + "a frame write, so mount's bounds restore IS now sequence-"
+                       + "dependent and the container has to defend the scale itself")
     }
 
     func test_mountedEditorSharesTheLayoutStack() {
@@ -234,13 +314,45 @@ final class ScrapEditorHostTests: XCTestCase {
         XCTAssertNotNil(editor.textContainer,
                         "the remounted editor is not attached to the shared stack")
 
+        // Before any typing, so what is compared is the effect of the CYCLE and
+        // nothing else — and the WHOLE signature, not its count. Measured
+        // 2026-07-26: the full signature does survive the cycle, byte for byte.
+        //
+        // The count alone cannot do this job, and the difference is not academic.
+        // Asserted below the typing instead, as it was, `insertText("Z")` moves
+        // this scrap's only line from 71.315918 pt wide to 78.645996 — a change
+        // the count is blind to, which is why a count comparison was the only
+        // form that could survive down there. A cycle that shifts a line without
+        // changing how many there are is exactly the drift that shows up as text
+        // jumping when the writer clicks back in.
+        XCTAssertEqual(l.lineGeometrySignature, signature,
+                       "a mount/unmount/mount cycle relaid the text out")
+
         container.requestFocus(caretIndex: 0)
         editor.insertText("Z", replacementRange: NSRange(location: 0, length: 0))
         XCTAssertTrue(l.text.hasPrefix("Z"),
                       "the remounted editor does not reach the scrap's storage — "
                       + "clicking back into a scrap gives a caret that types nowhere")
-        XCTAssertEqual(l.lineGeometrySignature.count, signature.count,
-                       "a mount/unmount/mount cycle relaid the text out")
+    }
+
+    /// M7. `unmount` is a full teardown, so it must not leave the container in the
+    /// mid-straighten state the last scrap was unmounted in: `isEditorVisible` is
+    /// guarded on a real change, so a container unmounted while invisible and
+    /// later remounted stays at alpha 0 until something writes a DIFFERENT value.
+    /// Harmless while `dismantleNSView` discards the view, and a scrap that mounts
+    /// focused and permanently invisible the moment anything reuses one.
+    func test_unmountLeavesTheContainerReadyToBeSeenAgain() {
+        let container = ScrapEditorContainer(frame: .zero)
+        container.mount(layout: layout(), unscaledSize: size, zoom: 1)
+        container.isEditorVisible = false
+
+        container.unmount()
+
+        XCTAssertTrue(container.isEditorVisible,
+                      "unmount left the visibility switch where the straighten put it")
+        XCTAssertEqual(container.alphaValue, 1,
+                       "a reused container mounts invisible — the writer types into "
+                       + "a scrap whose editor is never drawn")
     }
 
     func test_unmountDetachesTheEditorFromTheSharedStack() throws {
@@ -510,12 +622,28 @@ final class ScrapEditorHostTests: XCTestCase {
     /// being clear about — it cannot fail on AppKit's defaults, only if this file
     /// starts calling `setAccessibilityElement`. Task 14 owns the real
     /// accessibility layer.
-    func test_theMountedEditorIsExposedToAccessibility() {
+    func test_theMountedEditorIsExposedToAccessibility() throws {
         let container = ScrapEditorContainer(frame: .zero)
         container.mount(layout: layout(), unscaledSize: size, zoom: 1)
         host(container)
+        let editor = try XCTUnwrap(container.textView)
+
         XCTAssertFalse(container.isAccessibilityElement(),
                        "the container must not absorb its text view's AX identity")
-        XCTAssertTrue(container.textView?.isAccessibilityElement() == true)
+        XCTAssertTrue(editor.isAccessibilityElement())
+
+        // The two above are AppKit defaults. This one is reachability — it is
+        // what VoiceOver actually walks, and it can fail for reasons other than a
+        // `setAccessibilityElement` call in this file.
+        XCTAssertTrue(container.accessibilityChildren()?.contains { $0 as AnyObject === editor } == true,
+                      "the mounted editor is not among the container's AX children, "
+                      + "so VoiceOver cannot reach the text the writer is editing")
+
+        // alpha 0 is this task's own invention, and the editor is focused and
+        // taking keystrokes for the whole ~120 ms it lasts.
+        container.isEditorVisible = false
+        XCTAssertTrue(container.accessibilityChildren()?.contains { $0 as AnyObject === editor } == true,
+                      "the editor leaves the AX tree while the card straightens, "
+                      + "so VoiceOver loses the scrap it is focused on")
     }
 }
