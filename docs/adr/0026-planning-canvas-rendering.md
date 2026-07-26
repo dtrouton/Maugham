@@ -273,8 +273,9 @@ element for **every node, all of them**, in rows-then-columns reading order (a p
 walk, not a fixed grid — a grid reads two cards 2 pt apart as different rows whenever they
 straddle a cell boundary).
 
-The tree is rebuilt from the **structural** counter (`sceneRevision`: load, create, delete,
-undo, the end of a drag or resize, momentum coming to rest, leaving a scrap) and never from
+The tree is rebuilt from the **structural** counter (`sceneRevision`: load, create, undo,
+the end of a drag or resize, a coast ending — at rest or truncated by a press — and leaving
+a scrap; **not** deletion, which 1C-a has no path for at all, see decision 7) and never from
 the per-frame redraw counter. Keying it on `revision` sorted the scene and copied every
 scrap's string at 60–120 Hz through every drag, coast and straighten. That generalises past
 accessibility, so it is **tripwire 30**: nothing scene-proportional may key off a per-frame
@@ -297,6 +298,18 @@ a slice boundary, never a milestone one.** Spec §8A.1 places images **inside mi
 M1C** — "not deferred past it" — and says in the same breath that no plan may cite it as
 authorising their omission from the milestone. This ADR may not be cited to that end
 either. M1C is not finished without them.
+
+**Deleting a scrap belongs to no slice yet, and that is recorded here because nobody decided
+it.** 1C-a has no delete path: `CanvasScene.remove`, its inverse and the `"Delete Scrap"`
+undo step are built and exercised by `CanvasUndoTests`, and no production code calls any of
+them — no key handler, no menu item, no gesture. Three documents described `sceneRevision`
+as bumped on "delete" until the whole-branch review found there was nothing to bump for.
+The writer-visible consequence: double-click creates, so a stray double-click leaves an
+empty card that ⌘Z reclaims only until they click away. **1C-b and 1C-d are the candidates**
+— 1C-b because regions force the "what happens to the contents" question and the
+`CanvasModel` move is where the command would live; 1C-d because it is the other slice
+adding node-level behaviour. This must be settled inside M1C, and the paragraph above
+applies to it word for word: this ADR may not be cited as authorising its omission.
 
 **What 1C-d owes:** the drop target; `DropClassification` for browser image drags (which
 carry rendered bitmaps rather than file URLs, so `.dropDestination(for: URL.self)` silently
@@ -334,5 +347,7 @@ downsampling exists anywhere in the app today.
   - **The focused scrap is announced twice to VoiceOver**, once stale (decision 6). Whether
     `elements` needs to know the focused id is a question a VoiceOver walk settles.
 - **Left to later slices:** regions and `CanvasModel` (1C-b); lines and promotion (1C-c);
-  item nodes, drops and images (1C-d). §8A.2's Claude write path is designed and unbuilt;
-  its constitutional reasoning is recorded in the spec, not here.
+  item nodes, drops and images (1C-d). **Deleting a scrap is owned by no slice yet** — the
+  model and undo support exist with no caller, and decision 7 records the open choice
+  between 1C-b and 1C-d. §8A.2's Claude write path is designed and unbuilt; its
+  constitutional reasoning is recorded in the spec, not here.

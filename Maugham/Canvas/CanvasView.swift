@@ -142,10 +142,19 @@ struct CanvasView: View {
     @State private var revision = 0
 
     /// The STRUCTURAL counter: bumped only when the shape or content of the
-    /// scene changes — load, create, delete, undo, the end of a drag or resize,
-    /// momentum coming to rest, and leaving a scrap. Task 14's accessibility
-    /// tree is rebuilt from this and never from `revision`, which every frame of
-    /// every straighten, coast and drag increments.
+    /// scene changes — load, create, undo, the end of a drag or resize, a coast
+    /// ending (at rest, or truncated by a press), and leaving a scrap. Task 14's
+    /// accessibility tree is rebuilt from this and never from `revision`, which
+    /// every frame of every straighten, coast and drag increments.
+    ///
+    /// **Deletion is not on that list because 1C-a has no delete path**, and the
+    /// list used to say otherwise. `CanvasScene.remove` and the whole undo route
+    /// behind it are built and have no production caller: no key, no menu item,
+    /// no gesture. Writer-visible consequence — a stray double-click leaves an
+    /// empty scrap that ⌘Z takes back only until the writer clicks away, after
+    /// which the card is on the canvas for good. Which slice builds the trigger
+    /// is an open M1C decision (`Maugham/Canvas/AREA.md`, "What 1C-a
+    /// deliberately does not do"); whichever it is adds a bump here.
     @State private var sceneRevision = 0
 
     /// The synthetic accessibility tree — spec §7A.6's "AX layer mirroring the
@@ -632,11 +641,24 @@ struct CanvasView: View {
     /// Plus the accessibility tree, whose synthetic element for this scrap has
     /// been stale for the whole visit — deliberately, because the real
     /// `NSTextView` was the accessible thing while the writer was in it.
+    ///
+    /// **That bump is guarded on there having BEEN a visit, and the guard is the
+    /// point of it.** This runs at the head of `handleClick`, and
+    /// `CanvasEventNSView.applyMouseDown` emits `onClick` before `onDrag(.began)`
+    /// — so bumping unconditionally rebuilds the whole tree on every mouse-down
+    /// the canvas ever sees, including the press that begins a drag, which is the
+    /// moment the surface most needs to feel instant. With nothing focused there
+    /// is nothing to fold in either: `syncActiveEdit` returns on its first guard
+    /// and `endGesture` registers nothing. Every path that changes the scene with
+    /// no scrap focused bumps the counter where the change happens — `load` and
+    /// the create branch through `rebuildLayouts()`, the two `.ended` branches of
+    /// `handleDrag`, and a coast at `.began` or at rest — so nothing depends on
+    /// this one to notice a change it did not make.
     private func commitActiveEdit() {
         syncActiveEdit()
         undo?.endGesture()
         lastKeystrokeAt = nil
-        sceneRevision += 1
+        if editingNodeID != nil { sceneRevision += 1 }
     }
 
     // MARK: - Clicks
@@ -795,7 +817,20 @@ struct CanvasView: View {
             // `onClick` that preceded this call scheduled one — every branch of
             // `handleClick` does — and `scene` already held every frame the
             // coast had applied.
+            //
+            // A press TRUNCATES the coast, so the card comes to rest HERE and
+            // never reaches the timeline's rest branch — the only other place
+            // that bumps the structural counter for a coast. Leave this out and
+            // the accessibility tree keeps the frame the card had when the writer
+            // let go of it, for as long as it takes some other structural change
+            // to come along. This is the one path `commitActiveEdit`'s formerly
+            // unconditional bump covered by accident, which is why it arrived
+            // with the guard that removed it.
+            // `CanvasViewMountingTests.test_aPressThatStopsACoastRefreshesTheAccessibilityFrame`
+            // reads 40 against a card drawn at 64 without it.
+            let wasCoasting = !momentum.isAtRest
             momentum.stop()
+            if wasCoasting { sceneRevision += 1 }
             // A focused scrap owns its own mouse, so a drag can only start on an
             // unfocused card. `onClick` has already run for this same mouse-down
             // (`CanvasEventNSView.applyMouseDown` pins that order), so this sees

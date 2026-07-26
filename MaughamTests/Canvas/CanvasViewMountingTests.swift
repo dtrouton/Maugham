@@ -635,6 +635,62 @@ final class CanvasViewMountingTests: XCTestCase {
                              + "frame below")
     }
 
+    /// A press that stops a coast leaves the card somewhere the tree has never
+    /// heard of, and this is what makes it hear.
+    ///
+    /// `sceneRevision` is bumped for a coast in exactly two places: when the
+    /// timeline's rest branch runs, and — because a press truncates the coast so
+    /// that branch never runs — at `handleDrag(.began)`. Until the fix wave that
+    /// added this test the second was covered by accident: `commitActiveEdit`
+    /// bumped the counter on EVERY mouse-down, which is the per-click tree
+    /// rebuild that guard now prevents. Take the `.began` bump out and this test
+    /// reads the card at the point the writer let go, up to `maximumLaunchSpeed`
+    /// away from where it is drawn.
+    ///
+    /// Both preconditions are load-bearing and fail loudly rather than passing
+    /// vacuously: the card must have MOVED since the release (or nothing was
+    /// coasting) and must be short of the ~87.8 that
+    /// `test_aFlickCarriesTheCardOnPastWhereThePointerLetGo` measures for the
+    /// identical throw (or the coast finished on its own and the rest branch,
+    /// not this one, refreshed the tree).
+    func test_aPressThatStopsACoastRefreshesTheAccessibilityFrame() throws {
+        let root = try projectRoot()
+        let window = host(CanvasView(projectRoot: root, paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+
+        // The throw the flick test measures: released at x = 40, ~47.8 pt of
+        // coast ahead of it over ~14 frames.
+        drag(events, from: CGPoint(x: 60, y: 40),
+             through: [CGPoint(x: 70, y: 40), CGPoint(x: 80, y: 40)])
+        // A few frames of it, and no more — a live coast keeps the runloop fed,
+        // so this really does return after 30 ms rather than when it runs dry.
+        pump(0.03)
+        // Bare canvas, far from the card: the press stops the coast and starts
+        // no drag of its own.
+        events.applyMouseDown(at: CGPoint(x: 600, y: 500), clickCount: 1)
+        events.applyMouseUp(at: CGPoint(x: 600, y: 500))
+        pump(0.2)
+
+        let published = try viewFrame(
+            ofPublished: try axElement(valued: scrapText, in: try axTree(in: window)),
+            in: window)
+        let drawn = try XCTUnwrap(savedScene(after: window, root: root).node(scrapID))
+
+        XCTAssertGreaterThan(drawn.origin.x, 44,
+                             "precondition: the flick never carried the card past "
+                             + "the point it was released at, so there was no coast "
+                             + "for the press to stop and this test measures nothing")
+        XCTAssertLessThan(drawn.origin.x, 82,
+                          "precondition: the coast reached its own resting place "
+                          + "before the press arrived, so the timeline's rest branch "
+                          + "refreshed the tree and the press had nothing to do")
+        XCTAssertEqual(published.origin.x, drawn.origin.x, accuracy: 1.0,
+                       "the accessibility frame is where the writer LET GO of the "
+                       + "card, not where the press stopped it — an assistive cursor "
+                       + "points at empty ground, and stays wrong until some other "
+                       + "structural change happens to rebuild the tree")
+    }
+
     /// Decision 1, asked of the published tree rather than of the list.
     /// `CanvasAccessibilityTests.test_offscreenNodesAreStillInTheTree` proves
     /// `elements` returns the far card; that says nothing about whether SwiftUI
@@ -962,7 +1018,12 @@ final class CanvasViewMountingTests: XCTestCase {
         editor.setSelectedRange(NSRange(location: (editor.string as NSString).length, length: 0))
 
         type(" and the sodium light", into: editor)
-        pump(ScrapUndoBeat.idleSeconds + 0.3)          // the writer sits back
+        // `waitOut`, not `pump`: this is the one assertion in the file that turns
+        // on WALL CLOCK elapsing. `pump` returns when the loop runs dry — measured
+        // 0.76 s for a requested 1.8 — and then the idle beat never passes, one ⌘Z
+        // takes back both runs, and the test below fails on a machine that is
+        // merely busy.
+        waitOut(ScrapUndoBeat.idleSeconds + 0.3)       // the writer sits back
         type(" on the wet stone", into: editor)
         pump(0.05)
 
