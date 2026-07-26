@@ -43,6 +43,17 @@ jobs:
           xcrun --show-sdk-path --sdk macosx
           xcrun --show-sdk-version --sdk macosx
 
+      - name: Install the Metal toolchain
+        # Xcode 26 unbundles the Metal compiler into a downloadable component.
+        # Without it, CompileMetalFile fails with "cannot execute tool 'metal'
+        # due to missing Metal Toolchain" the moment anything builds
+        # Maugham/Canvas/CanvasGround.metal — the canvas ground shader, and the
+        # repo's only .metal file. No-op when it is already in the runner image.
+        # Deliberately non-fatal: if the component is genuinely missing AND this
+        # download fails, the build step below reports the real error rather
+        # than this one masking it. A release must not fail silently here.
+        run: xcodebuild -downloadComponent MetalToolchain || true
+
       - name: Install xcodegen (pinned 2.45.4, checksum-verified)
         # Pin xcodegen to a specific released binary instead of `brew install
         # xcodegen` (which floats to whatever the tap currently ships). Download
