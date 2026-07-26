@@ -527,16 +527,22 @@ struct CanvasView: View {
     private func handleDrag(at contentPoint: CGPoint, phase: CanvasDragPhase) {
         switch phase {
         case .began:
+            // ANY press stops a coast — this one included, and one on bare
+            // canvas nowhere near the moving card. Above the focus guard
+            // deliberately: the press that ENTERS a scrap is the second of a
+            // double-click, and if the first one jiggled far enough to launch a
+            // flick (the floor is half a point per frame) the card would go on
+            // coasting under the mounted editor, dragging the text box with it.
+            // The resting place reaches disk without a save of its own here: the
+            // `onClick` that preceded this call scheduled one — every branch of
+            // `handleClick` does — and `scene` already held every frame the
+            // coast had applied.
+            momentum.stop()
             // A focused scrap owns its own mouse, so a drag can only start on an
             // unfocused card. `onClick` has already run for this same mouse-down
             // (`CanvasEventNSView.applyMouseDown` pins that order), so this sees
             // the focus state the click just set.
             guard editingNodeID == nil else { return }
-            // Catching a coasting card stops it where the pointer caught it. The
-            // resting place reaches disk without a save of its own here: the
-            // `onClick` that preceded this call scheduled one, and `scene`
-            // already held every frame the coast had applied.
-            momentum.stop()
             interaction.begin(at: contentPoint, in: scene)
         case .changed:
             guard interaction.isActive else { return }
@@ -546,17 +552,35 @@ struct CanvasView: View {
             guard interaction.isActive else { return }
             let wasResizing = interaction.isResizing
             let flick = interaction.end()
-            // A press that never moved is not a drag. AppKit opens a drag session
-            // on EVERY mouse-down, including the first of a double-click, so
-            // without this every click into a scrap would write the sidecar and
-            // rebuild the accessibility tree for nothing.
-            guard interaction.hasMoved else { return }
             if wasResizing {
                 // The rewrap cleared the cached height; re-measure before the
                 // card is hit-tested or culled again. `rebuildLayouts()` bumps
                 // `sceneRevision` itself.
+                //
+                // *** UNCONDITIONAL, and NOT behind `hasMoved`. *** The two ask
+                // different questions: `hasMoved` is "did the pointer leave the
+                // press point", while `CanvasScene.setWidth` clears
+                // `cachedHeight` on EVERY `.changed`, including one delivered at
+                // exactly the press point with an identical width. Gate this on
+                // `hasMoved` and that one sample leaves the card with no height,
+                // therefore no `frame`, therefore invisible to `topmostNode(at:)`,
+                // to `nodes(intersecting:)` and to the renderer — the card
+                // vanishes, and only a reload brings it back.
+                //
+                // The cost is that a corner press that never moved re-measures
+                // and re-queues a save for an unchanged scene, which is cheap
+                // and idempotent. It is NOT a licence to push an undo step from
+                // here: anything Task 15 adds to this branch that the writer
+                // could notice still has to read `interaction.hasMoved`.
                 rebuildLayouts()
             } else {
+                // A press that never moved is not a drag. AppKit opens a drag
+                // session on EVERY mouse-down, including the first of a
+                // double-click, so without this every click into a scrap would
+                // write the sidecar and rebuild the accessibility tree for
+                // nothing. Safe HERE and not above because a move mutates
+                // nothing until the pointer actually moves.
+                guard interaction.hasMoved else { return }
                 // *** KEEP THIS. *** A move is one structural change, recorded at
                 // the END of the gesture rather than once per drag frame, and the
                 // accessibility tree is rebuilt from this counter alone. If the

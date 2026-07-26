@@ -128,6 +128,17 @@ final class CanvasInteractionTests: XCTestCase {
         XCTAssertEqual(n?.origin, CGPoint(x: 500, y: 400))
         XCTAssertGreaterThan(n!.z, scene.node(CanvasNodeID("s1"))!.z)
         XCTAssertNil(n?.cachedHeight, "a new scrap is measured by the view, not guessed here")
+        // The width is the one thing about a new card the writer sees before
+        // typing a word, and nothing else in the suite reads
+        // `defaultScrapWidth` — `createScrap` could hand `insert` the MINIMUM,
+        // or any literal, and every card the canvas ever makes would come out
+        // the wrong size with the suite still green.
+        XCTAssertEqual(n?.width, CanvasInteraction.defaultScrapWidth)
+        XCTAssertGreaterThan(CanvasInteraction.defaultScrapWidth,
+                             CanvasInteraction.minimumScrapWidth,
+                             "a default equal to the minimum opens every new scrap "
+                             + "at the narrowest width the surface allows, which is "
+                             + "also the one width the writer cannot narrow")
     }
 
     func test_createdScrapIDsAreUnique() {
@@ -139,13 +150,21 @@ final class CanvasInteractionTests: XCTestCase {
 
     // MARK: - Velocity, for §7.3's momentum
 
+    /// Time is INJECTED here, not sampled. `update` and `end` both default `now`
+    /// to `CACurrentMediaTime()`, so left to the defaults this test would measure
+    /// how long the machine took between two synchronous calls and compare it
+    /// against `maximumFlickAge` — green on a quiet machine, red under load, and
+    /// wrong either way. The stamps below say "one frame apart, released half a
+    /// frame later", which is what the assertion is actually about.
     func test_endReturnsTheFinalDragDeltaAsVelocity() {
         var scene = sceneWithOneScrap()
         var i = CanvasInteraction()
+        let t = 100.0
         i.begin(at: CGPoint(x: 110, y: 110), in: scene)
-        i.update(to: CGPoint(x: 130, y: 110), in: &scene)
-        i.update(to: CGPoint(x: 160, y: 118), in: &scene)   // last frame: +30, +8
-        let flick = i.end()
+        i.update(to: CGPoint(x: 130, y: 110), in: &scene, now: t)
+        // last frame: +30, +8
+        i.update(to: CGPoint(x: 160, y: 118), in: &scene, now: t + 1.0 / 60)
+        let flick = i.end(now: t + 1.0 / 60 + 1.0 / 120)
         XCTAssertEqual(flick?.id, CanvasNodeID("s1"))
         XCTAssertEqual(flick?.velocity, CGSize(width: 30, height: 8))
         XCTAssertFalse(i.isActive)
@@ -166,6 +185,91 @@ final class CanvasInteractionTests: XCTestCase {
         i.update(to: CGPoint(x: 160, y: 130), in: &scene)
         XCTAssertEqual(i.end()?.velocity, .zero,
                        "one sample is a placement, not a throw")
+    }
+
+    /// **A drag the writer PAUSED before letting go is a placement, not a
+    /// throw.** `mouseDragged:` is delivered on MOTION, not on a clock, so a
+    /// parked pointer produces no samples at all: without the stamp the two
+    /// retained samples are still the fast ones from before the pause, and the
+    /// card the writer had already put down goes skating.
+    ///
+    /// Both halves are here on purpose. The staleness guard has a failure mode
+    /// of its own — set too tight it kills every flick, which passes the first
+    /// assertion and destroys §7.3.
+    func test_aDragPausedBeforeReleaseDoesNotFlick() {
+        let fast = CGPoint(x: 130, y: 110)
+        let faster = CGPoint(x: 160, y: 118)   // +30, +8 in one frame
+
+        // A scene each: the drags below move the card, and a second press at the
+        // same point would land on bare canvas.
+        var pausedScene = sceneWithOneScrap()
+        var paused = CanvasInteraction()
+        paused.begin(at: CGPoint(x: 110, y: 110), in: pausedScene)
+        paused.update(to: fast, in: &pausedScene, now: 100)
+        paused.update(to: faster, in: &pausedScene, now: 100 + 1.0 / 60)
+        XCTAssertEqual(paused.end(now: 100 + 1.0 / 60 + 0.2)?.velocity, .zero,
+                       "the writer moved the card fast, held it still for a fifth "
+                       + "of a second and let go — a card that slides away from "
+                       + "where it was parked is the first thing momentum gets "
+                       + "blamed for")
+
+        var releasedScene = sceneWithOneScrap()
+        var released = CanvasInteraction()
+        released.begin(at: CGPoint(x: 110, y: 110), in: releasedScene)
+        released.update(to: fast, in: &releasedScene, now: 100)
+        released.update(to: faster, in: &releasedScene, now: 100 + 1.0 / 60)
+        XCTAssertEqual(released.end(now: 100 + 1.0 / 60 + 1.0 / 120)?.velocity,
+                       CGSize(width: 30, height: 8),
+                       "a release that follows its last motion inside a frame is an "
+                       + "ordinary fast flick and MUST still flick")
+    }
+
+    /// The boundary itself, from both sides — a guard whose threshold could halve
+    /// or double without a test noticing is not a threshold.
+    ///
+    /// The two comparisons below are deliberately written against the constant,
+    /// so they pin that the guard fires where it claims to rather than a frame
+    /// either side of it. That leaves the constant's own VALUE unpinned, which is
+    /// what the band at the top asserts: the number may be tuned, but only inside
+    /// the window where both of §7.3's failure modes are still excluded.
+    ///
+    /// They straddle the boundary by a millisecond rather than landing on it. A
+    /// sample aged EXACTLY `maximumFlickAge` is not a behaviour worth pinning —
+    /// whether the comparison is `<=` or `<` makes no difference to any writer —
+    /// and asserting it would only measure floating point: `51 + 0.1 - 51` is
+    /// `0.10000000000000142`, so the on-the-boundary release is already outside
+    /// its own boundary. A millisecond each way pins the threshold's position to
+    /// within 2 ms, which is two orders finer than any mis-tuning could be.
+    func test_theFlickStalenessBoundaryIsWhereItSaysItIs() {
+        let age = CanvasInteraction.maximumFlickAge
+
+        XCTAssertGreaterThan(age, 2.0 / 60,
+                             "a threshold inside a couple of frames disarms ORDINARY "
+                             + "flicks: every drag sample on this surface mutates the "
+                             + "scene and recomputes `body`, so the mouseUp of a "
+                             + "genuine throw routinely lands a hitched frame or two "
+                             + "after the last mouseDragged")
+        XCTAssertLessThan(age, 0.15,
+                          "the shortest stop a hand can make on purpose before letting "
+                          + "go is around 150-200ms; at or above it the guard starts "
+                          + "believing pauses and the parked card is thrown anyway")
+
+        var onTimeScene = sceneWithOneScrap()
+        var justInTime = CanvasInteraction()
+        justInTime.begin(at: CGPoint(x: 110, y: 110), in: onTimeScene)
+        justInTime.update(to: CGPoint(x: 120, y: 110), in: &onTimeScene, now: 50)
+        justInTime.update(to: CGPoint(x: 140, y: 110), in: &onTimeScene, now: 51)
+        XCTAssertEqual(justInTime.end(now: 51 + age - 0.001)?.velocity,
+                       CGSize(width: 20, height: 0),
+                       "a release a millisecond inside the threshold is a flick")
+
+        var lateScene = sceneWithOneScrap()
+        var tooLate = CanvasInteraction()
+        tooLate.begin(at: CGPoint(x: 110, y: 110), in: lateScene)
+        tooLate.update(to: CGPoint(x: 120, y: 110), in: &lateScene, now: 50)
+        tooLate.update(to: CGPoint(x: 140, y: 110), in: &lateScene, now: 51)
+        XCTAssertEqual(tooLate.end(now: 51 + age + 0.001)?.velocity, .zero,
+                       "a release a millisecond outside it is a placement")
     }
 
     // MARK: - Did it move at all?
@@ -210,7 +314,12 @@ final class CanvasInteractionTests: XCTestCase {
         XCTAssertFalse(i.hasMoved)
     }
 
-    func test_aResizeThatNeverMovedIsNotAResize() {
+    /// Renamed from `test_aResizeThatNeverMovedIsNotAResize`, which described one
+    /// line of itself: the one-point case is what it actually measures, and the
+    /// case its old name claimed is now
+    /// `test_aResizeSampleAtThePressPointStillClearsTheCachedHeight` below —
+    /// which turns out to have the OPPOSITE answer.
+    func test_aResizeOfOnePointIsAResize() {
         var scene = sceneWithOneScrap()
         var i = CanvasInteraction()
         i.beginResize(CanvasNodeID("s1"), at: CGPoint(x: 340, y: 140), in: scene)
@@ -219,5 +328,38 @@ final class CanvasInteractionTests: XCTestCase {
         XCTAssertTrue(i.hasMoved, "a rewrap of one point is still a rewrap — the "
                       + "card has to be re-measured or it hit-tests against its "
                       + "old shape")
+    }
+
+    /// **`hasMoved` and "does this node still have a height" are DIFFERENT
+    /// questions, and a resize is where they part company.**
+    ///
+    /// `test_aPressThatNeverMovedIsNotADrag` covers the update-at-the-press-point
+    /// case for a MOVE, where it is harmless: `scene.move(to:)` puts the node back
+    /// exactly where it was. The resizing arm is not harmless —
+    /// `CanvasScene.setWidth` clears `cachedHeight` unconditionally, identical
+    /// width or not, so this one sample leaves the node with no `frame` at all:
+    /// invisible to `topmostNode(at:)`, to `nodes(intersecting:)` and to the
+    /// renderer.
+    ///
+    /// That is a state the model is entitled to be in — the width IS
+    /// authoritative and the height IS derived — but it means the view's
+    /// re-measure may not be gated on `hasMoved`. It is not; the live proof is
+    /// `CanvasViewMountingTests.test_aCornerPressThatNeverMovedLeavesTheCardOnTheCanvas`.
+    func test_aResizeSampleAtThePressPointStillClearsTheCachedHeight() {
+        var scene = sceneWithOneScrap()
+        var i = CanvasInteraction()
+        let press = CGPoint(x: 340, y: 140)
+        i.beginResize(CanvasNodeID("s1"), at: press, in: scene)
+        i.update(to: press, in: &scene)
+
+        XCTAssertFalse(i.hasMoved, "the pointer never left the press point")
+        XCTAssertEqual(scene.node(CanvasNodeID("s1"))?.width, 240,
+                       "precondition: the width is unchanged, so nothing about "
+                       + "this card actually needs rewrapping")
+        XCTAssertNil(scene.node(CanvasNodeID("s1"))?.cachedHeight,
+                     "the height went anyway — so a caller that re-measures only "
+                     + "when `hasMoved` leaves this card with no frame, and a card "
+                     + "with no frame is not on the canvas at all")
+        XCTAssertNil(scene.node(CanvasNodeID("s1"))?.frame)
     }
 }

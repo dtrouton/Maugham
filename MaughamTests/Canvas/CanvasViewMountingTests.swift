@@ -92,6 +92,37 @@ final class CanvasViewMountingTests: XCTestCase {
         return nil
     }
 
+    private func eventView(in window: NSWindow) throws -> CanvasEventNSView {
+        let root = try XCTUnwrap(window.contentView)
+        return try XCTUnwrap(firstDescendant(CanvasEventNSView.self, in: root),
+                             "the canvas event view never reached the hosted "
+                             + "hierarchy, so nothing on this surface can be clicked")
+    }
+
+    /// A press, an optional path, and a release — the real `mouseDown` →
+    /// `mouseDragged` → `mouseUp` sequence, through the same seam the AppKit
+    /// overrides call.
+    ///
+    /// No pumping between the samples: a real drag delivers them a frame apart,
+    /// and turning the runloop in between would age them past
+    /// `CanvasInteraction.maximumFlickAge` and quietly disarm every flick these
+    /// tests are about.
+    private func drag(_ events: CanvasEventNSView,
+                      from start: CGPoint,
+                      through path: [CGPoint]) {
+        events.applyMouseDown(at: start, clickCount: 1)
+        for point in path { events.applyMouseDragged(to: point) }
+        events.applyMouseUp(at: path.last ?? start)
+    }
+
+    /// Take the canvas down so `.onDisappear` flushes the store, then read what
+    /// reached disk.
+    private func savedScene(after window: NSWindow, root: URL) -> CanvasScene {
+        window.contentView = NSView(frame: .zero)
+        pump()
+        return CanvasStore(projectRoot: root).load().scene
+    }
+
     /// Double-click the scrap the fixture put at (20, 20)–(260, 80). The camera
     /// is at identity, so a view point IS a content point.
     ///
@@ -264,6 +295,134 @@ final class CanvasViewMountingTests: XCTestCase {
                        before.origin.y + editorPoint.y, accuracy: 0.5,
                        "the pinch anchored somewhere other than the canvas point "
                        + "under the fingers, on the y axis")
+    }
+
+    // MARK: - Drags, and what a card does after one
+
+    /// **A press in the resize corner that never moves must not delete the card
+    /// from the canvas.**
+    ///
+    /// `CanvasScene.setWidth` clears `cachedHeight` on every `.changed`,
+    /// identical width or not, and a node with no height has no `frame` — so it
+    /// is invisible to `topmostNode(at:)`, to `nodes(intersecting:)` and to the
+    /// renderer at once. The card is still in the scene and gone from the
+    /// surface, and `rebuildLayouts()` has three call sites, none of which the
+    /// writer can reach without reloading the view.
+    ///
+    /// It takes a `mouseDragged:` delivered at exactly the `mouseDown` point to
+    /// get there, which is why the unit test that describes the state —
+    /// `CanvasInteractionTests.test_aResizeSampleAtThePressPointStillClearsTheCachedHeight`
+    /// — cannot see the consequence. This drives the whole path and asks the
+    /// question the writer asks: click the card again, is it the same card?
+    func test_aCornerPressThatNeverMovedLeavesTheCardOnTheCanvas() throws {
+        let root = try projectRoot()
+        let window = host(CanvasView(projectRoot: root, paletteSwatchHexes: { [] }))
+        let hosted = try XCTUnwrap(window.contentView)
+        let events = try eventView(in: window)
+
+        // Where the corner square is depends on the card's MEASURED height, so
+        // read it off the surface rather than writing the font metrics down
+        // twice: the mounted editor's box is the card's text box, inset on all
+        // four sides.
+        let textBox = swiftUIFrame(of: try doubleClickTheScrap(in: window), in: hosted)
+        let cardCorner = CGPoint(x: textBox.maxX + CanvasCardMetrics.inset,
+                                 y: textBox.maxY + CanvasCardMetrics.inset)
+        events.applyMouseDown(at: CGPoint(x: 600, y: 500), clickCount: 1)   // click away
+        events.applyMouseUp(at: CGPoint(x: 600, y: 500))
+        pump()
+
+        // Press inside the corner square, deliver one drag sample at exactly the
+        // press point, release.
+        let press = CGPoint(x: cardCorner.x - 2, y: cardCorner.y - 2)
+        drag(events, from: press, through: [press])
+        pump()
+
+        let editor = try XCTUnwrap(try doubleClickTheScrap(in: window).textView)
+        XCTAssertEqual(editor.string, scrapText,
+                       "the card vanished: a zero-distance resize left it with no "
+                       + "measured height, so the hit test no longer finds it and "
+                       + "double-clicking where it sits makes a NEW scrap on top of "
+                       + "the writer's words")
+        XCTAssertEqual(savedScene(after: window, root: root).count, 1,
+                       "the canvas has two scraps where the writer made one")
+    }
+
+    /// §7.3, on the real surface: a card let go while moving carries on and comes
+    /// to rest, rather than stopping dead where the pointer released it.
+    ///
+    /// This is also the control for the two tests around it. A staleness guard on
+    /// the flick velocity (`CanvasInteraction.maximumFlickAge`) has a failure mode
+    /// that no "the card did not move" assertion can see: set it too tight and
+    /// nothing ever flicks, which passes those tests and deletes the feature.
+    ///
+    /// The arithmetic is a geometric series and therefore frame-rate independent:
+    /// 10 pt/frame decaying by 0.8 carries `10 * (1 - 0.8^14) / 0.2` ≈ 47.8 pt
+    /// past the release point, wherever the clock happens to tick. A coast that
+    /// had not finished would leave the drag's own payload queued — the card at
+    /// exactly 40 — so a short pump fails this rather than fudging it.
+    func test_aFlickCarriesTheCardOnPastWhereThePointerLetGo() throws {
+        let root = try projectRoot()
+        let window = host(CanvasView(projectRoot: root, paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+
+        // Grab the card at (60,40) — on it, and well clear of the resize corner —
+        // and throw it 20pt right, the last frame carrying 10.
+        drag(events, from: CGPoint(x: 60, y: 40),
+             through: [CGPoint(x: 70, y: 40), CGPoint(x: 80, y: 40)])
+        pump(1.0)
+
+        let node = try XCTUnwrap(savedScene(after: window, root: root).node(scrapID))
+        XCTAssertEqual(node.origin.x, 87.8, accuracy: 1.0,
+                       "the card stopped dead at 40, where the pointer let go — "
+                       + "§7.3's coast is the one thing this surface exists to get "
+                       + "right, and a velocity guard that disarms it is worse than "
+                       + "no guard at all")
+        XCTAssertEqual(node.origin.y, 20, accuracy: 0.5,
+                       "a flick along x sent the card off its own line")
+    }
+
+    /// **Any press stops a coast, including the one that enters a scrap.**
+    ///
+    /// The press that enters is the SECOND of a double-click, and the first can
+    /// itself launch a flick: AppKit opens a drag session on every mouse-down,
+    /// its double-click distance tolerance is wider than nothing, and the launch
+    /// floor is half a point per frame. Miss this and the editor is mounted on a
+    /// card that is still travelling — the text box slides across the canvas
+    /// under the writer's cursor as `body` recomputes.
+    ///
+    /// That the flick this test relies on really does launch is
+    /// `test_aFlickCarriesTheCardOnPastWhereThePointerLetGo`, immediately above,
+    /// on the identical gesture.
+    func test_thePressThatEntersAScrapStopsTheCardCoastingUnderIt() throws {
+        let root = try projectRoot()
+        let window = host(CanvasView(projectRoot: root, paletteSwatchHexes: { [] }))
+        let hosted = try XCTUnwrap(window.contentView)
+        let events = try eventView(in: window)
+
+        drag(events, from: CGPoint(x: 60, y: 40),
+             through: [CGPoint(x: 70, y: 40), CGPoint(x: 80, y: 40)])
+        // No pump: enter the card before the coast has carried it anywhere, the
+        // way the second press of a double-click arrives.
+        events.applyMouseDown(at: CGPoint(x: 100, y: 40), clickCount: 2)
+        events.applyMouseUp(at: CGPoint(x: 100, y: 40))
+        pump(0.05)
+
+        let container = try XCTUnwrap(firstDescendant(ScrapEditorContainer.self, in: hosted),
+                                      "the double-click mounted no editor")
+        let mounted = swiftUIFrame(of: container, in: hosted)
+        // The card was released at x = 40 and the editor sits at its text origin,
+        // one inset in.
+        XCTAssertEqual(mounted.origin.x, 50, accuracy: 0.5,
+                       "the card was already travelling when the editor mounted on "
+                       + "it — the press that entered the scrap did not stop the "
+                       + "coast")
+
+        pump(0.5)
+        XCTAssertEqual(swiftUIFrame(of: container, in: hosted).origin.x,
+                       mounted.origin.x, accuracy: 0.5,
+                       "the editor is sliding across the canvas while the writer "
+                       + "types into it: the card kept coasting underneath the "
+                       + "mounted editor")
     }
 
     // MARK: - The words are safe

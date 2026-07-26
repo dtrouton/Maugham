@@ -64,7 +64,11 @@ final class CanvasMomentumTests: XCTestCase {
         var frames = 0
         while m.step(&s) { frames += 1; if frames > 600 { break } }
         XCTAssertLessThan(frames, 60, "a card still coasting after a second is a bug")
-        XCTAssertLessThan(s.node(CanvasNodeID("a"))!.origin.x, 400,
+        // A capped flick travels `speed / (1 - decay)` = 40 / 0.2 ≈ 198, so 220
+        // is about 11% of headroom: it passes today and fails on a doubling of
+        // EITHER constant. The plan's 400 had 2x headroom and would have
+        // survived both.
+        XCTAssertLessThan(s.node(CanvasNodeID("a"))!.origin.x, 220,
                           "a flick must not launch the card off the canvas")
     }
 

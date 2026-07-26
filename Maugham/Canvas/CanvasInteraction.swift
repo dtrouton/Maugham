@@ -1,4 +1,5 @@
 import Foundation
+import QuartzCore
 
 /// Drag, resize and create, as a pure state machine so the gestures are
 /// testable without a window.
@@ -8,18 +9,69 @@ struct CanvasInteraction {
     static let minimumScrapWidth: CGFloat = 120
     static let defaultScrapWidth: CGFloat = 240
 
+    /// How old the last drag sample may be and still count as a throw.
+    ///
+    /// **`mouseDragged:` is delivered on MOTION, not on a clock.** A pointer the
+    /// writer has parked produces no samples at all, so without this the two
+    /// retained samples are still the fast ones from before the pause — move a
+    /// card quickly, hold it still, let go, and the card the writer had already
+    /// put down goes skating. That is the failure §7.3's momentum would be
+    /// noticed for first.
+    ///
+    /// **The band matters more than the number, and it is wide.** The two
+    /// failures this sits between are not symmetric:
+    ///
+    /// - Too LOOSE and a parked card is thrown. The floor on that is human: a
+    ///   deliberate stop-then-release is a motor act of roughly 150–200 ms, so
+    ///   anything at or above ~0.15 s starts believing pauses.
+    /// - Too TIGHT and *nothing ever flicks*, which deletes §7.3 — the one
+    ///   behaviour this surface exists to get right. The ceiling on that is not
+    ///   one frame: `mouseUp` follows the last `mouseDragged` by a frame plus
+    ///   delivery latency, and every drag sample on this surface mutates
+    ///   `scene`, recomputes `body` and redraws the renderer, so a release that
+    ///   lands a hitched frame or two late is an ORDINARY fast flick.
+    ///
+    /// 1/10 s is six frames at 60 Hz and twelve at 120: three to six times the
+    /// gap a genuine release produces even through a dropped frame, and still
+    /// under the shortest pause a hand can make on purpose. It is deliberately
+    /// biased towards the loose end — a card that occasionally coasts when the
+    /// writer half-meant to park it is a much smaller failure than a canvas
+    /// where nothing ever glides.
+    ///
+    /// **What guards the tight direction is the BAND assertion in
+    /// `test_theFlickStalenessBoundaryIsWhereItSaysItIs`, not the live one.**
+    /// Measured, not assumed: tightening this to `1.0 / 60` leaves all nine of
+    /// `CanvasViewMountingTests` green, and only setting it to `0` makes
+    /// `test_aFlickCarriesTheCardOnPastWhereThePointerLetGo` fail. That test
+    /// drives `mouseDragged`/`mouseUp` as back-to-back synchronous calls, so the
+    /// age it produces is a microsecond, not the frame-plus-latency a real
+    /// release produces — it can prove the guard is not absolute and nothing
+    /// finer. Do not tighten this on the strength of a green mounting suite.
+    static let maximumFlickAge: TimeInterval = 1.0 / 10
+
     private enum Mode: Equatable {
         case idle
         case moving(CanvasNodeID, grabOffset: CGSize)
         case resizing(CanvasNodeID, startWidth: CGFloat, startX: CGFloat)
     }
 
+    /// One drag sample: where the pointer was, and when.
+    ///
+    /// The time is what makes the velocity honest. While the pointer is moving
+    /// AppKit delivers `mouseDragged:` at roughly one event per frame, so the
+    /// difference between two consecutive samples is points-per-frame — the unit
+    /// `CanvasMomentum` decays in, and the reason no rate conversion happens
+    /// anywhere. But that only holds while the pointer is MOVING, which is what
+    /// `maximumFlickAge` checks before the delta is believed.
+    private struct Sample {
+        var point: CGPoint
+        var time: TimeInterval
+    }
+
     private var mode: Mode = .idle
-    /// The last two drag samples, for §7.3's flick velocity. Drag updates arrive
-    /// once per frame, so the difference between them IS points-per-frame — no
-    /// timestamps, and the same unit `CanvasMomentum` decays.
-    private var lastPoint: CGPoint?
-    private var previousPoint: CGPoint?
+    /// The last two drag samples, for §7.3's flick velocity.
+    private var lastSample: Sample?
+    private var previousSample: Sample?
     /// Where the press landed, so `hasMoved` can answer without a second copy of
     /// the node's original geometry.
     private var startPoint: CGPoint?
@@ -67,8 +119,8 @@ struct CanvasInteraction {
     /// larger than its mark forgives a near miss and the reverse swallows drags
     /// the writer aimed at the card. See `CanvasRenderer.resizeHandle`.
     mutating func begin(at contentPoint: CGPoint, in scene: CanvasScene) {
-        lastPoint = nil
-        previousPoint = nil
+        lastSample = nil
+        previousSample = nil
         startPoint = contentPoint
         hasMoved = false
         guard let node = scene.topmostNode(at: contentPoint), let frame = node.frame else {
@@ -85,18 +137,23 @@ struct CanvasInteraction {
     }
 
     mutating func beginResize(_ id: CanvasNodeID, at contentPoint: CGPoint, in scene: CanvasScene) {
-        lastPoint = nil
-        previousPoint = nil
+        lastSample = nil
+        previousSample = nil
         startPoint = contentPoint
         hasMoved = false
         guard let node = scene.node(id) else { mode = .idle; return }
         mode = .resizing(id, startWidth: node.width, startX: contentPoint.x)
     }
 
-    mutating func update(to contentPoint: CGPoint, in scene: inout CanvasScene) {
+    /// - Parameter now: when this sample arrived. Defaulted to the clock the
+    ///   timeline runs on so production callers say nothing about time; tests
+    ///   pass it to drive `end(now:)`'s staleness check.
+    mutating func update(to contentPoint: CGPoint,
+                         in scene: inout CanvasScene,
+                         now: TimeInterval = CACurrentMediaTime()) {
         guard mode != .idle else { return }
-        previousPoint = lastPoint
-        lastPoint = contentPoint
+        previousSample = lastSample
+        lastSample = Sample(point: contentPoint, time: now)
         if let startPoint, contentPoint != startPoint { hasMoved = true }
 
         switch mode {
@@ -118,21 +175,35 @@ struct CanvasInteraction {
     /// Ends the gesture and reports the flick, if there was one: the node that
     /// moved and its final per-frame velocity. A resize never flicks — rewrapping
     /// a scrap must not send it skating.
+    ///
+    /// A drag the writer PAUSED before letting go does not flick either, and
+    /// that is what `now` is for: see `maximumFlickAge`. Without it the writer
+    /// parks a card, lets go, and watches it slide away.
+    ///
+    /// - Parameter now: when the button came up. Defaulted to the same clock
+    ///   `update(to:in:now:)` stamps its samples with.
     @discardableResult
-    mutating func end() -> (id: CanvasNodeID, velocity: CGSize)? {
+    mutating func end(now: TimeInterval = CACurrentMediaTime()) -> (id: CanvasNodeID, velocity: CGSize)? {
         defer {
             mode = .idle
-            lastPoint = nil
-            previousPoint = nil
+            lastSample = nil
+            previousSample = nil
             startPoint = nil
             // `hasMoved` is NOT cleared here — see its doc comment.
         }
         guard case .moving(let id, _) = mode else { return nil }
-        guard let last = lastPoint, let previous = previousPoint else {
+        guard let last = lastSample, let previous = previousSample else {
             // One sample is a placement, not a throw.
             return (id, .zero)
         }
-        return (id, CGSize(width: last.x - previous.x, height: last.y - previous.y))
+        guard now - last.time <= Self.maximumFlickAge else {
+            // The pointer had already stopped. The two samples still held are
+            // the fast ones from before the pause, and believing them throws a
+            // card the writer had put down.
+            return (id, .zero)
+        }
+        return (id, CGSize(width: last.point.x - previous.point.x,
+                           height: last.point.y - previous.point.y))
     }
 
     /// Mint a scrap at a point. IDs are unique within the scene by construction
@@ -165,8 +236,11 @@ struct CanvasInteraction {
 /// not in that graph — the card would simply appear at its final position.
 /// `CanvasView` drives `step(_:)` from `TimelineView(.animation(paused:))`.
 ///
-/// Velocity is in CONTENT points per frame. Drag samples arrive once per frame,
-/// so `CanvasInteraction.end()`'s delta is already in this unit.
+/// Velocity is in CONTENT points per frame. While the pointer is moving AppKit
+/// delivers drag samples at roughly one per frame, so `CanvasInteraction.end()`'s
+/// delta is already in this unit — and when the pointer had STOPPED moving, so
+/// that the delta is stale rather than slow, `end` reports `.zero` rather than
+/// hand this a velocity nobody threw (`CanvasInteraction.maximumFlickAge`).
 struct CanvasMomentum: Equatable {
 
     /// Per-frame multiplier. 0.80 gives a ~20-frame (⅓ second) coast, which
