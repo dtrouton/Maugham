@@ -70,6 +70,37 @@ final class CanvasAccessibilityTests: XCTestCase {
                        + "in an order that means nothing at all")
     }
 
+    /// **The banding must be a proximity band, not a fixed grid.**
+    ///
+    /// `(y / rowBand).rounded(.down)` measures distance from the ORIGIN rather
+    /// than distance between the cards, so wherever a cell boundary happens to
+    /// fall, two cards a couple of points apart land in different rows while two
+    /// cards nearly a whole band apart share one. On a canvas the writer places
+    /// freely, a pair straddling a boundary is routine rather than a corner case
+    /// — and it is invisible to
+    /// `test_aCardSlightlyHigherToTheRightStillReadsSecondInItsRow` above, whose
+    /// fixture passes under a grid only because y=0 and y=20 happen to share a
+    /// cell.
+    ///
+    /// The fixture is deliberately expressed in terms of `rowBand` itself rather
+    /// than a literal 60, so shrinking or growing the band cannot quietly turn
+    /// this test into one that agrees with any implementation. The ids again make
+    /// an alphabetical sort wrong, and the right-hand card is again the higher one
+    /// so a raw-y sort is wrong too.
+    func test_twoNearLevelCardsEitherSideOfABandBoundaryStillReadAsOneRow() {
+        let band = CanvasAccessibility.rowBand
+        var scene = CanvasScene()
+        scene.insert(scrapNode("z2", x: 0, y: band + 1))       // just below the boundary
+        scene.insert(scrapNode("a2", x: 400, y: band - 1))     // just above it
+        let ids = CanvasAccessibility.elements(scene: scene, scraps: [:]).map(\.id.raw)
+        XCTAssertEqual(ids, ["z2", "a2"],
+                       "two cards 2pt apart vertically read as two separate rows "
+                       + "because a band boundary falls between them — the banding "
+                       + "is a fixed grid keyed on distance from the origin, not a "
+                       + "proximity band, so whether roughly-level cards read as one "
+                       + "row depends on where they happen to sit on the canvas")
+    }
+
     func test_aScrapCarriesItsTextAsItsValue() {
         let element = CanvasAccessibility.elements(scene: sampleScene(), scraps: scraps)
             .first { $0.id == CanvasNodeID("s1") }

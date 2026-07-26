@@ -9,9 +9,9 @@ enum CanvasAXRole: String, Equatable, Sendable {
 /// One synthetic accessibility element mirroring one node of the scene graph.
 struct CanvasAXElement: Equatable, Identifiable {
     let id: CanvasNodeID
+    let role: CanvasAXRole
     /// What the element IS, plus where — "Scrap, 3 of 12" reads badly, so the
     /// label carries the kind and the value carries the words.
-    let role: CanvasAXRole
     let label: String
     let value: String
     /// CONTENT coordinates, deliberately: an element that carried view
@@ -40,9 +40,10 @@ struct CanvasAXElement: Equatable, Identifiable {
 /// 1. **Every node is here, not just the visible ones.** Culling is a drawing
 ///    optimisation; a node you cannot see is still a node you must be able to
 ///    reach, and an assistive client walks elements rather than panning first.
-/// 2. **Reading order is rows, then columns** — banded by y so roughly-level
-///    cards read left to right. Z-order is a drawing concern and would read the
-///    canvas out in the order the writer happened to touch it.
+/// 2. **Reading order is rows, then columns** — banded by the gap between one
+///    card and the next below it, so roughly-level cards read left to right
+///    wherever they sit (see `rowOrdered`). Z-order is a drawing concern and
+///    would read the canvas out in the order the writer happened to touch it.
 /// 3. **The mounted editor is a real `NSTextView`** and is natively accessible.
 ///    That is the whole point of the one-real-editor-on-focus rule: drawing text
 ///    forfeits IME, caret placement, spell-check, selection and
@@ -58,24 +59,19 @@ enum CanvasAccessibility {
     static let emptyScrapValue = "Empty scrap"
 
     /// Cards within this many points of each other vertically read as one row.
-    private static let rowBand: CGFloat = 60
+    ///
+    /// Internal rather than private so the reading-order tests can express their
+    /// fixtures in terms of it: a fixture written against a literal 60 agrees with
+    /// a grid implementation by coincidence, and stops discriminating at all if
+    /// this number ever moves.
+    static let rowBand: CGFloat = 60
     /// A node that has never been measured still needs a rect, or it drops out
     /// of the tree the instant a writer creates it.
     private static let unmeasuredHeight: CGFloat = 40
 
     static func elements(scene: CanvasScene,
                          scraps: [CanvasNodeID: String]) -> [CanvasAXElement] {
-        // `unorderedNodes`, not `nodes`: `nodes` sorts into DRAW order on every
-        // access, and this method immediately re-sorts into READING order. One
-        // sort, not two.
-        scene.unorderedNodes
-            .sorted { a, b in
-                let bandA = (a.origin.y / rowBand).rounded(.down)
-                let bandB = (b.origin.y / rowBand).rounded(.down)
-                if bandA != bandB { return bandA < bandB }
-                if a.origin.x != b.origin.x { return a.origin.x < b.origin.x }
-                return a.id.raw < b.id.raw
-            }
+        rowOrdered(scene.unorderedNodes)
             .map { node in
                 let frame = CGRect(origin: node.origin,
                                    size: CGSize(width: node.width,
@@ -96,6 +92,53 @@ enum CanvasAccessibility {
                         contentFrame: frame)
                 }
             }
+    }
+
+    /// Reading order: rows top to bottom, then left to right within a row.
+    ///
+    /// The bands are found by PROXIMITY — the gap between one card and the next
+    /// card down — and deliberately not by `(y / rowBand).rounded(.down)`, which
+    /// looks like the same thing and is not. A fixed grid measures each card's
+    /// distance from the ORIGIN, so whether two cards read as one row depends on
+    /// where the canvas's cell boundaries happen to fall between them: two cards
+    /// 2pt apart straddling a boundary read as two rows, while two cards a whole
+    /// band apart inside one cell read as one. On a surface where the writer
+    /// places cards freely that is not a corner case, and it makes the stated
+    /// invariant — roughly level reads as one row — true only by luck.
+    ///
+    /// One consequence is worth stating rather than discovering: proximity bands
+    /// CHAIN. A staircase of cards each half a band below the last is one row, of
+    /// any length. That is the honest reading of "these are all roughly level
+    /// with their neighbours", it is what a fixed grid gets wrong in the other
+    /// direction, and a writer who lays a canvas out that way has not drawn rows.
+    ///
+    /// `unorderedNodes`, not `nodes`: `nodes` sorts into DRAW order on every
+    /// access, and this immediately re-sorts into READING order.
+    private static func rowOrdered(_ nodes: [CanvasNode]) -> [CanvasNode] {
+        // Top to bottom first, so "the gap to the previous card" is a gap
+        // between vertical neighbours. Ties break on x and then on id so the
+        // walk below is deterministic: `unorderedNodes` is in hash order.
+        let byHeight = nodes.sorted { a, b in
+            if a.origin.y != b.origin.y { return a.origin.y < b.origin.y }
+            if a.origin.x != b.origin.x { return a.origin.x < b.origin.x }
+            return a.id.raw < b.id.raw
+        }
+
+        var band = 0
+        var previousY: CGFloat?
+        let banded: [(band: Int, node: CanvasNode)] = byHeight.map { node in
+            if let previousY, node.origin.y - previousY > rowBand { band += 1 }
+            previousY = node.origin.y
+            return (band, node)
+        }
+
+        return banded
+            .sorted { a, b in
+                if a.band != b.band { return a.band < b.band }
+                if a.node.origin.x != b.node.origin.x { return a.node.origin.x < b.node.origin.x }
+                return a.node.id.raw < b.node.id.raw
+            }
+            .map(\.node)
     }
 
     /// What the canvas itself says when focused, before its children are walked.

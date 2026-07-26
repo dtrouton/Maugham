@@ -36,6 +36,14 @@ final class CanvasViewMountingTests: XCTestCase {
     private let scrapID = CanvasNodeID("s1")
     private let scrapText = "the falls at night"
 
+    /// A second card, down and to the right of the first, and a third far outside
+    /// any viewport. Both exist so the published FRAMES can be compared against
+    /// each other — see `test_twoCardsInDifferentPlacesPublishDifferentFrames`.
+    private let secondScrapID = CanvasNodeID("s2")
+    private let secondScrapText = "and the lit bridge"
+    private let farScrapID = CanvasNodeID("far")
+    private let farScrapText = "ninety thousand points east"
+
     override func tearDown() {
         windows.removeAll()
         for root in roots { try? FileManager.default.removeItem(at: root) }
@@ -49,16 +57,31 @@ final class CanvasViewMountingTests: XCTestCase {
     /// through `CanvasStore` itself, so the fixture cannot drift from the format
     /// the view will read.
     private func projectRoot() throws -> URL {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("canvas-mount-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        roots.append(root)
-
         var scene = CanvasScene()
         scene.insert(CanvasNode(id: scrapID, kind: .scrap,
                                 origin: CGPoint(x: 20, y: 20), width: 240,
                                 cachedHeight: 60))
-        CanvasStore(projectRoot: root).save(scene: scene, scraps: [scrapID: scrapText])
+        return try projectRoot(scene: scene, scraps: [scrapID: scrapText])
+    }
+
+    /// An empty directory — no canvas on disk at all, which is the state a writer
+    /// meets the first time they open the Plan persona on a project.
+    private func emptyProjectRoot() throws -> URL {
+        try makeRoot()
+    }
+
+    private func projectRoot(scene: CanvasScene,
+                             scraps: [CanvasNodeID: String]) throws -> URL {
+        let root = try makeRoot()
+        CanvasStore(projectRoot: root).save(scene: scene, scraps: scraps)
+        return root
+    }
+
+    private func makeRoot() throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("canvas-mount-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        roots.append(root)
         return root
     }
 
@@ -495,6 +518,169 @@ final class CanvasViewMountingTests: XCTestCase {
         return object.value(forKey: attribute)
     }
 
+    /// Three cards at known, different places, so the published frames have
+    /// something to be compared against — including one at (90 000, 90 000),
+    /// which no viewport will ever hold.
+    private func threeCardProjectRoot() throws -> URL {
+        var scene = CanvasScene()
+        for (id, origin) in [(scrapID, CGPoint(x: 20, y: 20)),
+                             (secondScrapID, CGPoint(x: 400, y: 300)),
+                             (farScrapID, CGPoint(x: 90_000, y: 90_000))] {
+            scene.insert(CanvasNode(id: id, kind: .scrap, origin: origin,
+                                    width: 240, cachedHeight: 60))
+        }
+        return try projectRoot(scene: scene, scraps: [scrapID: scrapText,
+                                                      secondScrapID: secondScrapText,
+                                                      farScrapID: farScrapText])
+    }
+
+    private func axElement(valued value: String, in tree: [AnyObject]) throws -> AnyObject {
+        try XCTUnwrap(tree.first { axString($0, "accessibilityValue") == value },
+                      "no element in the published accessibility tree carries "
+                      + "\"\(value)\", so that card is not reachable at all")
+    }
+
+    /// Where an assistive client would actually point, in the space
+    /// `CanvasAXElement.viewFrame(in:)` speaks.
+    ///
+    /// A published `accessibilityFrame` is in SCREEN coordinates with y UP; the
+    /// element list is in the hosted root's SwiftUI space with y DOWN. Both
+    /// conversions are here rather than in the assertions so that a test reading
+    /// `(20, 20)` is reading the same numbers the fixture wrote.
+    private func viewFrame(ofPublished element: AnyObject, in window: NSWindow) throws -> CGRect {
+        let boxed = try XCTUnwrap(axAttribute(element, "accessibilityFrame") as? NSValue,
+                                  "the element publishes no accessibilityFrame at all, "
+                                  + "so an assistive client has a label and a value and "
+                                  + "nowhere to point")
+        let root = try XCTUnwrap(window.contentView)
+        let inRoot = root.convert(window.convertFromScreen(boxed.rectValue), from: nil)
+        guard !root.isFlipped else { return inRoot }
+        return CGRect(x: inRoot.minX, y: root.bounds.height - inRoot.maxY,
+                      width: inRoot.width, height: inRoot.height)
+    }
+
+    /// **Where, not just what.** Every other assertion on this layer reads a
+    /// label, a value or a role — words. The one thing an assistive client needs
+    /// beyond the words is the rectangle to point at, and until this test nothing
+    /// read one.
+    ///
+    /// The failure it exists to catch is silent: `CanvasAXChildren` places each
+    /// child with `.position`, at coordinates that routinely fall far outside the
+    /// container's bounds. If SwiftUI resolved those positions to nothing, every
+    /// element would land on the same rect, every word-reading test above would
+    /// still pass, and VoiceOver would read the canvas out perfectly while
+    /// pointing its cursor at one spot for all of it. The plan declined the
+    /// `.scaleEffect` alternative for being unverified on exactly this point; this
+    /// is the chosen mechanism meeting the same standard.
+    ///
+    /// The fixture's card is at content (20, 20) 240 wide and the camera is at
+    /// identity, so the view frame IS the content frame. Height is asserted only
+    /// to be real: it is measured from the font at load, not written by the
+    /// fixture.
+    func test_aCardsPublishedFrameLandsWhereTheCardIsDrawn() throws {
+        let window = host(CanvasView(projectRoot: try projectRoot(),
+                                     paletteSwatchHexes: { [] }))
+        let card = try axElement(valued: scrapText, in: try axTree(in: window))
+        let frame = try viewFrame(ofPublished: card, in: window)
+
+        XCTAssertEqual(frame.origin.x, 20, accuracy: 0.5,
+                       "the published frame is not where the card is drawn, so an "
+                       + "assistive cursor points somewhere the writer's card is not")
+        XCTAssertEqual(frame.origin.y, 20, accuracy: 0.5,
+                       "the published frame is not where the card is drawn on the y "
+                       + "axis — the likeliest cause is a flip between SwiftUI's "
+                       + "y-down space and AppKit's y-up screen coordinates")
+        XCTAssertEqual(frame.width, 240, accuracy: 0.5,
+                       "the published frame is not the size of the card")
+        XCTAssertGreaterThan(frame.height, 0,
+                             "the card publishes a zero-height rectangle: reachable "
+                             + "in the tree and impossible to point at")
+    }
+
+    /// The same failure from the other side, and the cheaper half of it: if
+    /// `.position` inside an `.accessibilityChildren` builder were ignored, every
+    /// card would resolve to one rect. Two cards the fixture put in different
+    /// places must not publish the same rectangle.
+    func test_twoCardsInDifferentPlacesPublishDifferentFrames() throws {
+        let window = host(CanvasView(projectRoot: try threeCardProjectRoot(),
+                                     paletteSwatchHexes: { [] }))
+        let tree = try axTree(in: window)
+        let first = try viewFrame(ofPublished: try axElement(valued: scrapText, in: tree),
+                                  in: window)
+        let second = try viewFrame(ofPublished: try axElement(valued: secondScrapText, in: tree),
+                                   in: window)
+
+        XCTAssertNotEqual(first, second,
+                          "two cards 380pt apart publish the SAME accessibility "
+                          + "frame — VoiceOver reads the canvas out correctly and "
+                          + "points its cursor at one spot for the whole of it")
+        XCTAssertGreaterThan(second.minX, first.minX,
+                             "the card the fixture placed to the right does not "
+                             + "publish a frame to the right")
+        XCTAssertGreaterThan(second.minY, first.minY,
+                             "the card the fixture placed below does not publish a "
+                             + "frame below")
+    }
+
+    /// Decision 1, asked of the published tree rather than of the list.
+    /// `CanvasAccessibilityTests.test_offscreenNodesAreStillInTheTree` proves
+    /// `elements` returns the far card; that says nothing about whether SwiftUI
+    /// keeps a synthetic child whose frame is 90 000 points outside the
+    /// container's bounds. Culling is a drawing optimisation, and a node you
+    /// cannot see is still a node you must be able to reach.
+    func test_aCardFarOutsideTheViewportIsStillInThePublishedTree() throws {
+        let window = host(CanvasView(projectRoot: try threeCardProjectRoot(),
+                                     paletteSwatchHexes: { [] }))
+        XCTAssertNoThrow(try axElement(valued: farScrapText, in: try axTree(in: window)),
+                         "the card at (90 000, 90 000) is in the element list and not "
+                         + "in the tree the window publishes, so a VoiceOver user can "
+                         + "only reach what happens to be on screen — and cannot pan "
+                         + "to the rest without being able to reach it first")
+    }
+
+    /// The state a new writer meets first, and the one state where the synthetic
+    /// layer has nothing to publish. An `.accessibilityChildren` builder that
+    /// produces ZERO children must still leave the canvas itself in the tree,
+    /// saying what it is and how to start — otherwise the empty canvas is the
+    /// blank rectangle §7A.6 is about, on the one screen where a writer most
+    /// needs to be told where they are.
+    ///
+    /// **`accessibilityValueDescription`, and not `accessibilityValue` — and that
+    /// is a fact about AppKit rather than a weakened assertion.** Measured against
+    /// a hosted window on 2026-07-26: a view carrying `.accessibilityChildren`
+    /// publishes role `AXGroup`, and that group *responds* to `accessibilityValue`
+    /// and answers **nil**, while `accessibilityValueDescription` holds the whole
+    /// of the string `.accessibilityValue(_:)` was given. Four spellings were
+    /// tried to move it — `.isStaticText` before the children modifier,
+    /// `.isStaticText` after it, `.accessibilityElement(children: .contain)`, and
+    /// value-with-no-label — and all four publish `AXGroup` with the string in the
+    /// same slot. The only thing that changes the role at all is dropping
+    /// `.accessibilityChildren`, which deletes every card from the tree.
+    ///
+    /// It is **not** a zero-children effect, and the neighbouring test rather than
+    /// this comment is what says so: a canvas holding one scrap files its own
+    /// summary in the identical slot, and
+    /// `test_theCanvasReadsOutItsScrapsRatherThanBeingABlankRectangle` asserts that
+    /// beside a card's `accessibilityValue`. So the two are different slots for
+    /// different roles, not a right one and a wrong one — `AXValue` is where an
+    /// `AXStaticText` card's words go (that is what `CanvasAXChildren`'s trait is
+    /// for), and `AXValueDescription` is the only value slot a group has.
+    func test_anEmptyCanvasStillAnnouncesItselfInThePublishedTree() throws {
+        let window = host(CanvasView(projectRoot: try emptyProjectRoot(),
+                                     paletteSwatchHexes: { [] }))
+        let canvas = try XCTUnwrap(
+            try axTree(in: window).first {
+                axString($0, "accessibilityLabel") == CanvasAccessibility.canvasLabel
+            },
+            "an empty canvas is not in the accessibility tree at all: a children "
+            + "builder that produced no children took the canvas element with it, so "
+            + "a VoiceOver user opening a new project lands on nothing")
+        XCTAssertEqual(axString(canvas, "accessibilityValueDescription"),
+                       CanvasAccessibility.emptyCanvasValue,
+                       "the empty canvas is in the tree but says nothing — the one "
+                       + "screen where a writer needs to be told how to begin")
+    }
+
     /// **The whole of spec §7A.6 in one assertion.** Everything on this surface
     /// is drawn into a `Canvas`, and drawn content has no accessibility tree —
     /// so without the synthetic one a VoiceOver user meets a blank rectangle
@@ -507,9 +693,26 @@ final class CanvasViewMountingTests: XCTestCase {
                                      paletteSwatchHexes: { [] }))
         let all = try axTree(in: window)
 
-        XCTAssertTrue(all.contains { axString($0, "accessibilityLabel") == CanvasAccessibility.canvasLabel },
-                      "the canvas itself is not in the accessibility tree, so there "
-                      + "is nothing for a VoiceOver user to land on and walk")
+        let canvas = try XCTUnwrap(
+            all.first { axString($0, "accessibilityLabel") == CanvasAccessibility.canvasLabel },
+            "the canvas itself is not in the accessibility tree, so there "
+            + "is nothing for a VoiceOver user to land on and walk")
+        // The canvas's own SUMMARY, and the only assertion anywhere that it
+        // reaches the tree at all. `accessibilityValueDescription` because this
+        // element carries `.accessibilityChildren` and is therefore an AXGroup,
+        // whose `accessibilityValue` is nil however the value is spelled — the
+        // measurement is written out on
+        // `test_anEmptyCanvasStillAnnouncesItselfInThePublishedTree`. Asserting it
+        // HERE, on a canvas that is not empty, is what makes that test's reading of
+        // the same slot a fact about groups rather than about emptiness.
+        //
+        // The literal, not `CanvasAccessibility.summary(scene:)`: the words a
+        // writer hears are the thing under test, and deriving them from the
+        // implementation would assert nothing.
+        XCTAssertEqual(axString(canvas, "accessibilityValueDescription"), "1 item",
+                       "the canvas is in the tree and does not say how much is on "
+                       + "it — a VoiceOver user lands on \"Planning canvas\" with no "
+                       + "idea whether there is one card here or forty")
         // `accessibilityValue`, deliberately, and not "wherever the words ended
         // up". It is the slot the real NSTextView publishes its text in and the
         // slot VoiceOver reads; an element that files the writer's sentence under
@@ -571,7 +774,14 @@ final class CanvasViewMountingTests: XCTestCase {
         // the INPUT to AX focus rather than what assistive technology is actually
         // handed. Verified against a standalone probe: with an NSTextView as first
         // responder, this returns that text view.
-        let focused = window.value(forKey: "accessibilityFocusedUIElement") as AnyObject?
+        //
+        // Through `axAttribute` rather than a bare `value(forKey:)`, and for the
+        // reason the rest of this file goes through it: on a key that ever stops
+        // existing, bare KVC raises NSUnknownKeyException, which Swift cannot
+        // catch — so the failure mode is this whole test process dying and taking
+        // every other test in it down, instead of this one assertion failing with
+        // the message below.
+        let focused = axAttribute(window, "accessibilityFocusedUIElement").map { $0 as AnyObject }
         XCTAssertTrue(focused === editor,
                       "assistive focus is not in the editor after entering the "
                       + "scrap, so a VoiceOver user is left on the synthetic twin "
