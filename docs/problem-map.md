@@ -25,6 +25,7 @@
 ## Holding the work in your head
 
 - ✓ **See the whole shape at a glance** — the book as a structure, not a scroll. *(binder, outline table, corkboard)*
+- ~ **Think before it's a book** — spread half-formed pieces out somewhere with no schema and no commitment, and shove them around until the shape appears. *(planning canvas in the Plan persona: scraps typed straight onto a spatial surface, moved, resized, zoomed — but the step that makes scratch pay off, turning a scrap into a real chapter or note, is still to come, and so are regions, lines and dragging research in)*
 - ✓ **Reorganize without fear** — move, rename, regroup, duplicate, and take it all back. *(binder drag-reorder, trash & undo)*
 - ✓ **Keep the research beside the draft, not in another app** — sources, images, and notes one pane away. *(research browser, research↔manuscript linking)*
 - ✓ **Follow the threads between people, places, and pieces** — connections are recorded where they occur and traversable later. *([[wiki-links]], backlinks, rename propagation)*

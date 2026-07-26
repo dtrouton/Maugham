@@ -55,10 +55,25 @@ final class CanvasPerformanceProbeTests: XCTestCase {
     }
 
     /// The property §7A.1 depends on: the drawn set is proportional to the
-    /// VIEWPORT, not to the scene. This is a complexity assertion, not a
-    /// wall-clock one — a millisecond budget on CI hardware is a flaky test
-    /// that gets disabled and then protects nothing (TypingLatencyProbeTests
-    /// is the house precedent).
+    /// VIEWPORT, not to the scene.
+    ///
+    /// **This is an OUTPUT-INVARIANCE assertion, not a complexity one**, and an
+    /// earlier draft of this comment claimed otherwise. It compares only the
+    /// output COUNT at two scene sizes, so what it honestly pins is that culling
+    /// happens at all and that its result does not grow with the scene — a
+    /// "return everything" or a count-grows-with-scene regression is caught, and
+    /// 200 vs 2,000 is unmistakably far enough apart for that.
+    ///
+    /// What it CANNOT see: `CanvasScene.nodes(intersecting:)` filters
+    /// `byID.values` before it sorts, so an O(scene) linear scan happens on
+    /// every call and is unavoidable — there is no spatial index. This test is
+    /// blind to that cost by construction. Algorithmic complexity is not pinned
+    /// here or anywhere; see `AREA.md` beside `supportedNodeCount` for what the
+    /// timing probes below do and do not defend.
+    ///
+    /// It is deliberately not a wall-clock assertion — a millisecond budget on
+    /// CI hardware is a flaky test that gets disabled and then protects nothing
+    /// (TypingLatencyProbeTests is the house precedent).
     func test_culledSetDependsOnViewportNotSceneSize() {
         let small = CanvasRenderer.visibleNodes(in: bigScene(200), camera: CanvasCamera(),
                                                 viewSize: viewSize).count
