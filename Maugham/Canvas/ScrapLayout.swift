@@ -115,15 +115,26 @@ final class ScrapLayout {
         tv.drawsBackground = false
         tv.isHorizontallyResizable = false
         tv.isVerticallyResizable = false
-        // DELIBERATELY false. The canvas undo manager reaches this view through
-        // the responder chain (`ScrapEditorContainer.undoManager`), so ⌘Z while
-        // editing runs the CANVAS stack. If the view also registered its own
-        // typing steps on that same manager, every keystroke would land twice:
-        // the writer's ⌘Z would run the canvas snapshot (reverting the edit),
-        // and the text view's queued step would still be sitting there pointed
-        // at an `NSTextStorage` that `rebuildLayouts()` has since replaced — so
-        // the second ⌘Z would appear to do nothing. Snapshots own scrap text;
-        // Task 15 states the decision and its cost in full.
+        // DELIBERATELY false. If the view registered its own typing steps on the
+        // canvas manager, every keystroke would land twice: the writer's ⌘Z would
+        // run the canvas snapshot (reverting the edit), and the text view's queued
+        // step would still be sitting there pointed at an `NSTextStorage` that
+        // `rebuildLayouts()` has since replaced — so the second ⌘Z would appear to
+        // do nothing. Snapshots own scrap text; Task 15 states the decision and
+        // its cost in full.
+        //
+        // What this costs, measured 2026-07-26 on macOS 26.5 and NOT what this
+        // comment claimed before: `NSTextView` gates its `undoManager` on
+        // `allowsUndo` and returns **nil** before consulting anything else. With
+        // `allowsUndo` false, `textView.undoManager` was nil even with the
+        // container as the view's delegate AND responding to
+        // `undoManagerForTextView:` AND sitting in `nextResponder` vending the
+        // canvas manager correctly; setting `allowsUndo = true` made the same
+        // wiring return the canvas manager immediately. So ⌘Z-while-editing does
+        // NOT reach the canvas stack through the responder chain, as this comment
+        // used to say — `ScrapEditorContainer` implements `undo:`/`redo:` and the
+        // menu action walks to it, `NSTextView` not responding to those selectors.
+        // Anything that relies on the chain here is a dead end.
         tv.allowsUndo = false
         return tv
     }
