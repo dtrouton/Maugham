@@ -290,9 +290,22 @@ enum CanvasRenderer {
     static func visibleRegions(in scene: CanvasScene,
                                camera: CanvasCamera,
                                viewSize: CGSize) -> [CanvasRegion] {
+        visibleRegions(scene.regions, camera: camera, viewSize: viewSize)
+    }
+
+    /// The same, over a region list the caller has already ordered.
+    ///
+    /// `CanvasScene.regions` SORTS on every access, and `draw` needs the list
+    /// three times a frame — for the cull, for the tethers and for the chips.
+    /// Three calls is three sorts of the whole region set per frame, which is the
+    /// `CanvasScene.nodes` mistake in a second id space; `draw` takes it once and
+    /// hands it down.
+    private static func visibleRegions(_ regions: [CanvasRegion],
+                                       camera: CanvasCamera,
+                                       viewSize: CGSize) -> [CanvasRegion] {
         let viewport = camera.visibleContentRect(viewSize: viewSize)
             .insetBy(dx: -cullingBleed, dy: -cullingBleed)
-        return scene.regions.filter { $0.frame.intersects(viewport) }
+        return regions.filter { $0.frame.intersects(viewport) }
     }
 
     /// The line drawn from a resident that has wandered out of the region that
@@ -326,9 +339,14 @@ enum CanvasRenderer {
     }
 
     static func tethers(in scene: CanvasScene) -> [Tether] {
+        tethers(in: scene, regions: scene.regions)
+    }
+
+    private static func tethers(in scene: CanvasScene,
+                                regions: [CanvasRegion]) -> [Tether] {
         // A collapsed region draws none of its residents, so a line to one
         // lands on empty ground.
-        scene.regions.filter { !$0.isCollapsed }.flatMap { region -> [Tether] in
+        regions.filter { !$0.isCollapsed }.flatMap { region -> [Tether] in
             region.homeMembers.sorted { $0.raw < $1.raw }.compactMap { id in
                 guard let frame = scene.node(id)?.frame,
                       // Only when the frames do not meet AT ALL. Tethering on
@@ -371,26 +389,57 @@ enum CanvasRenderer {
     static let chipTextInset: CGFloat = 6
 
     static func appearanceChips(in scene: CanvasScene) -> [AppearanceChip] {
-        scene.regions.filter { !$0.isCollapsed }.flatMap { region -> [AppearanceChip] in
-            region.appearances.sorted { $0.raw < $1.raw }.enumerated().compactMap { index, id in
-                guard let card = scene.node(id)?.frame else { return nil }
-                let top = region.frame.minY + CanvasRegionMetrics.chromeHeight
-                    + CGFloat(index) * (chipHeight + chipSpacing)
-                // Chips stack down the region's inside edge and stop at its
-                // bottom; a region too short to hold them all shows what fits
-                // rather than spilling references onto the ground outside it.
-                guard top + chipHeight <= region.frame.maxY else { return nil }
-                return AppearanceChip(
-                    node: id, region: region.id,
-                    frame: CGRect(x: region.frame.minX + CanvasRegionMetrics.labelInset,
-                                  y: top, width: chipWidth, height: chipHeight),
-                    homeAnchor: CGPoint(x: card.midX, y: card.midY))
-            }
+        appearanceChips(in: scene, regions: scene.regions)
+    }
+
+    private static func appearanceChips(in scene: CanvasScene,
+                                        regions: [CanvasRegion]) -> [AppearanceChip] {
+        regions.filter { !$0.isCollapsed }.flatMap { region -> [AppearanceChip] in
+            // Filtered BEFORE `enumerated()`, not inside it: the index is the
+            // chip's place in the stack, and skipping a member mid-walk would
+            // leave a gap in the column where the skipped one would have been.
+            //
+            // A hidden node is skipped for the reason `tethers` skips a
+            // collapsed region's residents — the card is not drawn, so the
+            // hairline points at bare ground. It is reachable rather than
+            // theoretical: a node can be an appearance in an expanded region and
+            // a resident of a collapsed one at the same time, because `join`
+            // only forgets it where it lives.
+            region.appearances
+                .sorted { $0.raw < $1.raw }
+                .filter { !scene.isHidden($0) && scene.node($0)?.frame != nil }
+                .enumerated().compactMap { index, id in
+                    guard let card = scene.node(id)?.frame else { return nil }
+                    let top = region.frame.minY + CanvasRegionMetrics.chromeHeight
+                        + CGFloat(index) * (chipHeight + chipSpacing)
+                    // Chips stack down the region's inside edge and stop at its
+                    // bottom; a region too short to hold them all shows what fits
+                    // rather than spilling references onto the ground outside it.
+                    guard top + chipHeight <= region.frame.maxY else { return nil }
+                    // …and the same guard on the OTHER axis, which is the one it
+                    // is easy to forget. `chipWidth` is 150 and
+                    // `CanvasRegionMetrics.minimumSide` is 80, so an unclamped
+                    // chip in a region at its own minimum hangs 80 pt outside it,
+                    // over bare ground and over whatever cards are there.
+                    let width = min(chipWidth,
+                                    region.frame.width - CanvasRegionMetrics.labelInset * 2)
+                    guard width > 0 else { return nil }
+                    return AppearanceChip(
+                        node: id, region: region.id,
+                        frame: CGRect(x: region.frame.minX + CanvasRegionMetrics.labelInset,
+                                      y: top, width: width, height: chipHeight),
+                        homeAnchor: CGPoint(x: card.midX, y: card.midY))
+                }
         }
     }
 
     /// The first non-empty line of the scrap, so a chip says WHICH card it
     /// stands for. A blank chip is indistinguishable from a rendering bug.
+    ///
+    /// "Non-empty" is judged AFTER trimming, and the difference is a real scrap:
+    /// `omittingEmptySubsequences` drops `""` but not `"   "`, so a scrap that
+    /// opens with an indented blank line would take that line, trim it to
+    /// nothing, and announce itself as empty while carrying text.
     static func chipTitle(for id: CanvasNodeID,
                           in scene: CanvasScene,
                           scraps: [CanvasNodeID: String]) -> String {
@@ -398,9 +447,10 @@ enum CanvasRenderer {
             return placeholderLabel(forReference: reference)
         }
         let line = (scraps[id] ?? "")
-            .split(separator: "\n", omittingEmptySubsequences: true)
-            .first
-            .map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .lazy
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first { !$0.isEmpty } ?? ""
         return line.isEmpty ? CanvasAccessibility.emptyScrapValue : line
     }
 
@@ -477,7 +527,11 @@ enum CanvasRenderer {
         cx.translateBy(x: camera.pan.x, y: camera.pan.y)
         cx.scaleBy(x: camera.zoom, y: camera.zoom)
 
-        for region in visibleRegions(in: scene, camera: camera, viewSize: viewSize) {
+        // Ordered ONCE and handed to all three region passes — `regions` sorts
+        // the whole set on every access, and this runs per frame.
+        let regions = scene.regions
+
+        for region in visibleRegions(regions, camera: camera, viewSize: viewSize) {
             drawRegion(region, in: scene, isSelected: selection == .region(region.id), on: cx)
         }
 
@@ -491,8 +545,8 @@ enum CanvasRenderer {
                      on: cx)
         }
 
-        for tether in tethers(in: scene) { drawTether(tether, on: cx) }
-        for chip in appearanceChips(in: scene) {
+        for tether in tethers(in: scene, regions: regions) { drawTether(tether, on: cx) }
+        for chip in appearanceChips(in: scene, regions: regions) {
             drawChip(chip, title: chipTitle(for: chip.node, in: scene, scraps: scraps), on: cx)
         }
     }
@@ -511,7 +565,8 @@ enum CanvasRenderer {
                                    in scene: CanvasScene,
                                    isSelected: Bool,
                                    on cx: GraphicsContext) {
-        let shape = Path(roundedRect: region.frame, cornerRadius: regionCornerRadius)
+        let shape = Path(roundedRect: region.frame,
+                         cornerRadius: CanvasMaterial.regionCornerRadius)
         cx.fill(shape, with: .color(Color(nsColor: regionWash)))
 
         // The chrome bar is the only part of a region a writer can grab, so it
@@ -550,10 +605,6 @@ enum CanvasRenderer {
         cx.fill(regionResizeHandle(in: region.frame),
                 with: .color(Color(nsColor: regionStroke)))
     }
-
-    /// Softer than a card's 3: a region is an area, and a tight corner on an
-    /// area reads as a panel.
-    private static let regionCornerRadius: CGFloat = 6
 
     /// The region's resize mark — the triangle below the hypotenuse of
     /// `CanvasRegionMetrics.resizeHandleRect`, exactly as a card's mark sits

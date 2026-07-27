@@ -133,6 +133,66 @@ final class CanvasRegionRenderTests: XCTestCase {
                        "a blank chip is indistinguishable from a rendering bug")
     }
 
+    /// `omittingEmptySubsequences` drops `""` but not `"   "`, so taking the
+    /// first line and *then* trimming makes a scrap that opens with an indented
+    /// blank line announce itself as empty while carrying text.
+    func test_aChipSkipsALeadingBlankLineRatherThanCallingTheScrapEmpty() {
+        var s = scene()
+        CanvasMembership.addAppearance(b, to: r1, in: &s)
+        XCTAssertEqual(CanvasRenderer.chipTitle(for: b, in: s,
+                                                scraps: [b: "   \n\t\nthe falls at night"]),
+                       "the falls at night")
+    }
+
+    /// A chip is clamped on the vertical axis and was not on the horizontal one.
+    /// `chipWidth` is 150 and `CanvasRegionMetrics.minimumSide` is 80, so a
+    /// region at its own minimum got a chip hanging 80 pt outside it — over bare
+    /// ground and over whatever cards happened to be there, which is exactly
+    /// what the vertical guard exists to prevent.
+    func test_aChipNeverHangsOutsideANarrowRegion() {
+        let side = CanvasRegionMetrics.minimumSide
+        var s = CanvasScene()
+        s.insert(CanvasNode(id: b, kind: .scrap, origin: CGPoint(x: 900, y: 50),
+                            width: 240, cachedHeight: 80))
+        s.insertRegion(CanvasRegion(id: r1, label: "Tight",
+                                    frame: CGRect(x: 0, y: 0, width: side, height: side)))
+        CanvasMembership.addAppearance(b, to: r1, in: &s)
+
+        let chips = CanvasRenderer.appearanceChips(in: s)
+        XCTAssertEqual(chips.count, 1, "a region at its minimum still shows its visitors")
+        XCTAssertTrue(s.region(r1)!.frame.contains(chips[0].frame),
+                      "the chip is \(chips[0].frame) in a region of \(s.region(r1)!.frame)")
+        XCTAssertGreaterThan(CanvasRenderer.chipWidth, side,
+                             "control: the unclamped width really is wider than this "
+                             + "region, so the containment above is not free")
+    }
+
+    /// The argument `tethers` already makes — "the resident is not drawn, so a
+    /// line to it lands on nothing" — applied to chips, where it was missing.
+    ///
+    /// Reachable rather than theoretical: `join` forgets a node only in regions
+    /// where it *lives*, so a node can be an appearance in an expanded region and
+    /// a resident of a collapsed one at the same time.
+    func test_aNodeHiddenByAnotherRegionsCollapseGetsNoChip() {
+        let r2 = CanvasRegionID("r2")
+        var s = scene()
+        s.insertRegion(CanvasRegion(id: r2, label: "Cut",
+                                    frame: CGRect(x: 800, y: 0, width: 400, height: 300)))
+        CanvasMembership.addAppearance(b, to: r1, in: &s)
+        CanvasMembership.join(b, home: r2, in: &s)
+        XCTAssertTrue(s.region(r1)!.appearsHere(b),
+                      "control: joining another region as HOME must leave the "
+                      + "appearance in place, or this fixture proves nothing")
+
+        XCTAssertEqual(CanvasRenderer.appearanceChips(in: s).map(\.node), [b],
+                       "control: while r2 is expanded the chip is there")
+        s.updateRegion(r2) { $0.isCollapsed = true }
+        XCTAssertTrue(s.isHidden(b))
+        XCTAssertTrue(CanvasRenderer.appearanceChips(in: s).isEmpty,
+                      "b's card is not drawn, so its chip's hairline would run to "
+                      + "bare ground")
+    }
+
     // MARK: - Collapse
 
     func test_aCollapsedRegionSaysHowManyCardsItIsHiding() {
@@ -189,16 +249,36 @@ final class CanvasRegionRenderTests: XCTestCase {
     /// §4: a region is *where the cards are*, not a panel they sit on. The wash
     /// has to be visible at all, and has to stay under the dosage at which the
     /// region becomes the object and the cards its decoration.
+    ///
+    /// **Backed with `lightBase`, not with the card paper.** This is a test about
+    /// what the wash does to the GROUND, and the ground is 0.930, not 1.000 —
+    /// measuring against white reported 0.039 where the writer's canvas gives
+    /// 0.031. The default backing is right for the occlusion test above, which
+    /// compares a card to itself, and wrong here.
+    ///
+    /// The FLOOR is the half that was missing. `XCTAssertNotEqual` alone accepts
+    /// one 8-bit level as "visible", so a wash faded almost to nothing passed a
+    /// test whose message says it is about visibility.
     @MainActor
     func test_theRegionWashIsFeltRatherThanSeen() throws {
-        let plain = try render(scene: CanvasScene(), size: CGSize(width: 700, height: 500))
-        let washed = try render(scene: scene(), size: CGSize(width: 700, height: 500))
+        let size = CGSize(width: 700, height: 500)
+        let plain = try render(scene: CanvasScene(), size: size,
+                               backing: CanvasMaterial.lightBase)
+        let washed = try render(scene: scene(), size: size,
+                                backing: CanvasMaterial.lightBase)
         let bare = CGPoint(x: 450, y: 300)
-        XCTAssertNotEqual(plain.color(at: bare), washed.color(at: bare),
-                          "the region has to be visible at all")
-        XCTAssertLessThan(plain.distance(to: washed, at: bare), CanvasMaterial.regionWashCeiling,
-                          "and it must not read as a filled panel — the cards are "
-                          + "the objects; the region is where they are")
+        let moved = plain.distance(to: washed, at: bare)
+
+        XCTAssertGreaterThan(moved, CanvasMaterial.lightRegionWashFloor,
+                             "the light region wash moves a bare pixel by \(moved) of "
+                             + "full scale, under the floor of "
+                             + "\(CanvasMaterial.lightRegionWashFloor) — a region the "
+                             + "writer cannot see. Raise CanvasMaterial."
+                             + "lightRegionWash's alpha, or lower the floor with it.")
+        XCTAssertLessThan(moved, CanvasMaterial.regionWashCeiling,
+                          "the light region wash moves a bare pixel by \(moved), over "
+                          + "the felt-not-seen ceiling — it reads as a filled panel "
+                          + "and the cards stop being the objects")
     }
 
     /// **Step 8 of the brief: the same measurement in the OTHER appearance.**
@@ -207,21 +287,19 @@ final class CanvasRegionRenderTests: XCTestCase {
     /// every raster fixture pinned light. The wash is a pair of constants and
     /// dark's is the one nothing else here would look at.
     ///
-    /// Measured 2026-07-27 at 700×500 scale 1, against a page backed with
-    /// `CanvasMaterial.darkBase` — the ground the wash actually lands on:
-    /// dark moves a bare pixel **0.0588** of full scale in its strongest
-    /// channel (15 of 255: 0.094/0.102/0.114 → 0.153/0.149/0.145), where light
-    /// moves **0.0392** (10 of 255: 1.000 → 0.969/0.965/0.961). Both clear the
-    /// floor by a factor of seven and both sit comfortably under the 0.10
-    /// ceiling. The floor is 0.008, which is two 8-bit levels: below that the
-    /// "wash" is quantisation.
+    /// Measured 2026-07-28 at 700×500 scale 1, against a page backed with
+    /// `CanvasMaterial.darkBase` — the ground the wash actually lands on: dark
+    /// moves a bare pixel **0.0588** of full scale in its strongest channel
+    /// (15 of 255: 0.094/0.102/0.114 → 0.153/0.149/0.145), where light over its
+    /// own ground moves **0.031**.
     ///
-    /// **What this test cannot see, and what does:** collapsing the pair —
-    /// giving dark the light wash — still moves 0.032 here and would pass. That
-    /// tidy-up is `CanvasGroundTests.test_theTwoAppearancesAreCalibratedSeparately`'s
-    /// job, and it now covers the region pair too. This one owns "the wash the
-    /// dark appearance actually resolves is visible on the dark ground, is not a
-    /// panel, and lifts it rather than sinking it".
+    /// **`darkRegionWashFloor` is 0.045, and that number is chosen, not
+    /// rounded.** The LIGHT wash over this same dark ground moves 0.032 — so a
+    /// floor anywhere between 0.032 and 0.059 makes this test fail when the pair
+    /// is collapsed and dark is drawn with light-mode values. Without it the
+    /// test passes at 0.032 (above any quantisation floor, under the ceiling,
+    /// still lifting), which is 1C-a's failure mode exactly: a green suite over
+    /// a dark surface drawn light.
     @MainActor
     func test_theDarkRegionWashClearsTheDarkGroundWithoutBecomingAPanel() throws {
         let size = CGSize(width: 700, height: 500)
@@ -232,11 +310,14 @@ final class CanvasRegionRenderTests: XCTestCase {
                                 scheme: .dark, backing: CanvasMaterial.darkBase)
         let moved = plain.distance(to: washed, at: bare)
 
-        XCTAssertGreaterThan(moved, 0.008,
+        XCTAssertGreaterThan(moved, CanvasMaterial.darkRegionWashFloor,
                              "the dark region wash moves a bare pixel by \(moved) of "
-                             + "full scale — under two 8-bit levels, i.e. a region a "
-                             + "writer cannot see on the dark ground. Raise "
-                             + "CanvasMaterial.darkRegionWash's alpha.")
+                             + "full scale, under the floor of "
+                             + "\(CanvasMaterial.darkRegionWashFloor). Either the wash "
+                             + "is too faint to see on the dark ground, or the dark "
+                             + "appearance is resolving the LIGHT constant — which "
+                             + "measures 0.032 here and is what this floor is set to "
+                             + "catch.")
         XCTAssertLessThan(moved, CanvasMaterial.regionWashCeiling,
                           "the dark region wash moves a bare pixel by \(moved), over "
                           + "the felt-not-seen ceiling of "
@@ -251,6 +332,41 @@ final class CanvasRegionRenderTests: XCTestCase {
                              + "lifting it — a region reads as a hole, not an area")
     }
 
+    /// The structural half of the same guard, and the one that survives a
+    /// recalibration.
+    ///
+    /// The floor above catches "dark resolves the light constant" only because
+    /// of where today's two dosages happen to sit; move either and the floor may
+    /// stop separating them. This asks the question directly — render the SAME
+    /// scene over the SAME backing under each appearance, and require the two to
+    /// differ by more than quantisation. Collapse the pair to one colour and the
+    /// two renders become byte-identical.
+    ///
+    /// It also covers the light side, where a floor cannot: the dark wash over
+    /// the LIGHT ground moves 0.036, *more* than light's own 0.031, so no floor
+    /// separates them and a ceiling tight enough to would freeze a constant the
+    /// writer tunes by eye.
+    ///
+    /// Measured 2026-07-28 over `darkBase`: light 0.126/0.132/0.138, dark
+    /// 0.153/0.149/0.145 — a 0.027 gap, seven 8-bit levels.
+    @MainActor
+    func test_theTwoAppearancesRenderDifferentWashes() throws {
+        let size = CGSize(width: 700, height: 500)
+        let bare = CGPoint(x: 450, y: 300)
+        let asLight = try render(scene: scene(), size: size,
+                                 scheme: .light, backing: CanvasMaterial.darkBase)
+        let asDark = try render(scene: scene(), size: size,
+                                scheme: .dark, backing: CanvasMaterial.darkBase)
+        let gap = asLight.distance(to: asDark, at: bare)
+        XCTAssertGreaterThan(gap, 0.008,
+                             "the two appearances render the region wash within "
+                             + "\(gap) of each other — under two 8-bit levels, i.e. "
+                             + "CanvasRenderer.regionWash is not resolving per "
+                             + "appearance and one material is being drawn on both. "
+                             + "§7.1: light and dark are two materials, not one "
+                             + "texture inverted.")
+    }
+
     /// Selection is drawn, not merely modelled. This samples the region's own
     /// left edge, where the outline is the only thing on the page.
     @MainActor
@@ -261,6 +377,145 @@ final class CanvasRegionRenderTests: XCTestCase {
                                   selection: .region(r1))
         let onTheStroke = CGPoint(x: 0.5, y: 200)
         XCTAssertNotEqual(unselected.color(at: onTheStroke), selected.color(at: onTheStroke))
+    }
+
+    // MARK: - Drawn output, rasterised
+    //
+    // Every one of these exists because the first round of this task pinned
+    // tethers, chips, the label, the resize mark and the collapsed summary at
+    // the GEOMETRY level only. Deleting the two loops at the foot of
+    // `CanvasRenderer.draw` left the whole suite green: no raster fixture had a
+    // resident outside its region, an appearance anywhere, or a collapsed
+    // region at all, so `tethers` and `appearanceChips` returned `[]` in every
+    // rendered scene. A structure that computes the right rectangle and draws
+    // nothing in it is the failure these close.
+    //
+    // They compare two renders differing in exactly ONE model fact and count
+    // pixels that changed. That is exact, needs no colour threshold, and cannot
+    // be satisfied by antialiasing — the control regions assert *zero* changed
+    // pixels where nothing should have moved.
+
+    /// §4.2's relationship, actually drawn. The two scenes differ only in
+    /// whether `a` is a member of `r1`; every pixel that changes is tether.
+    @MainActor
+    func test_aTetherIsActuallyDrawnBetweenTheCardAndTheRegion() throws {
+        let size = CGSize(width: 900, height: 500)
+        var tethered = scene()
+        tethered.move(a, to: CGPoint(x: 620, y: 300))          // clear of the region
+        CanvasMembership.join(a, home: r1, in: &tethered)
+        var loose = tethered
+        CanvasMembership.leave(a, from: r1, in: &loose)
+
+        XCTAssertEqual(CanvasRenderer.tethers(in: tethered).count, 1)
+        XCTAssertTrue(CanvasRenderer.tethers(in: loose).isEmpty,
+                      "control: the two fixtures must differ in exactly the tether")
+
+        let withLine = try render(scene: tethered, size: size)
+        let without = try render(scene: loose, size: size)
+
+        // The segment runs (740, 340) → (300, 200). This window is the strip
+        // between the region's right edge and the card's left one, so it is
+        // bare ground in both renders and anything in it is the line itself.
+        let onTheRun = CGRect(x: 601, y: 292, width: 18, height: 15)
+        XCTAssertGreaterThan(withLine.differingPixels(from: without, in: onTheRun), 0,
+                             "no ink appeared between the card and the region — the "
+                             + "tether is computed and never drawn")
+        XCTAssertGreaterThan(withLine.differingPixels(from: without,
+                                                      in: CGRect(origin: .zero, size: size)),
+                             100,
+                             "a handful of pixels changed over the whole page: that is "
+                             + "a speck, not a line four hundred points long")
+        XCTAssertEqual(withLine.differingPixels(from: without,
+                                                in: CGRect(x: 100, y: 420,
+                                                           width: 100, height: 60)),
+                       0,
+                       "control: pixels changed far from the segment, so the count "
+                       + "above is not measuring the whole page shifting")
+    }
+
+    /// §4.3's reference, actually drawn — and actually carrying the title, which
+    /// is the half a rectangle-shaped assertion cannot see.
+    @MainActor
+    func test_aChipIsActuallyDrawnInsideTheRegionAndCarriesItsTitle() throws {
+        let size = CGSize(width: 700, height: 500)
+        var visited = scene()
+        CanvasMembership.addAppearance(b, to: r1, in: &visited)
+        let chip = try XCTUnwrap(CanvasRenderer.appearanceChips(in: visited).first)
+
+        let withChip = try render(scene: visited, size: size)
+        let without = try render(scene: scene(), size: size)
+        XCTAssertGreaterThan(withChip.differingPixels(from: without, in: chip.frame), 500,
+                             "the chip's own rectangle is unchanged by adding the "
+                             + "appearance — appearanceChips computes a frame nothing "
+                             + "draws into")
+
+        // …and the pill is not blank. Two different titles in the same chip.
+        let named = try render(scene: visited, size: size,
+                               scraps: [b: "the falls at night"])
+        XCTAssertGreaterThan(named.differingPixels(from: withChip, in: chip.frame), 0,
+                             "the chip renders identically whatever the scrap says — "
+                             + "drawChip is ignoring its title, so every reference "
+                             + "reads as the same blank pill")
+    }
+
+    /// A collapsed region is the one state no raster fixture covered, and it is
+    /// the state with the most drawn chrome of its own.
+    @MainActor
+    func test_aCollapsedRegionDrawsItsSummaryInItsChromeBar() throws {
+        let size = CGSize(width: 700, height: 500)
+        var expanded = scene()
+        expanded.move(a, to: CGPoint(x: 50, y: 200))          // clear of the chrome bar
+        CanvasMembership.join(a, home: r1, in: &expanded)
+        var collapsed = expanded
+        collapsed.updateRegion(r1) { $0.isCollapsed = true }
+
+        let open = try render(scene: expanded, size: size)
+        let shut = try render(scene: collapsed, size: size)
+        let chrome = CanvasRegionMetrics.chromeRect(in: expanded.region(r1)!.frame)
+
+        // The drawn label is `displayLabel` in both, so the ONLY thing that can
+        // change inside the chrome bar is the summary.
+        XCTAssertGreaterThan(shut.differingPixels(from: open, in: chrome), 0,
+                             "nothing changed in the chrome bar when the region "
+                             + "collapsed — collapsedSummary is computed and never "
+                             + "drawn, so a collapsed region reads as an empty one")
+        XCTAssertGreaterThan(shut.differingPixels(from: open,
+                                                  in: CGRect(x: 0, y: 150,
+                                                             width: 600, height: 150)),
+                             0,
+                             "control: the resident did not disappear, so this "
+                             + "fixture is not comparing a region to itself")
+    }
+
+    /// The label is a region's whole identity. Two scenes differing only in the
+    /// text of it.
+    @MainActor
+    func test_theRegionLabelIsActuallyDrawn() throws {
+        let size = CGSize(width: 700, height: 500)
+        var renamed = scene()
+        renamed.updateRegion(r1) { $0.label = "Zzzzzzzzzzzzz" }
+        let first = try render(scene: scene(), size: size)
+        let second = try render(scene: renamed, size: size)
+        let chrome = CanvasRegionMetrics.chromeRect(in: scene().region(r1)!.frame)
+        XCTAssertGreaterThan(second.differingPixels(from: first, in: chrome), 0,
+                             "the region's label renders identically whatever it says "
+                             + "— it is not being drawn at all, and every region on "
+                             + "the canvas is an unnamed rectangle")
+    }
+
+    /// The resize mark is the affordance Task 5 hit-tests. A target with no mark
+    /// is a target the writer cannot find.
+    @MainActor
+    func test_theRegionResizeMarkIsActuallyDrawn() throws {
+        let page = try render(scene: scene(), size: CGSize(width: 700, height: 500),
+                              backing: CanvasMaterial.lightBase)
+        let corner = CanvasRegionMetrics.resizeHandleRect(in: scene().region(r1)!.frame)
+        // Below the hypotenuse of the corner square, where the triangle is inked.
+        let onTheMark = CGPoint(x: corner.maxX - 4, y: corner.maxY - 4)
+        let bareWash = CGPoint(x: 500, y: corner.maxY - 4)
+        XCTAssertGreaterThan(page.difference(between: onTheMark, and: bareWash), 0.05,
+                             "the region's bottom-right corner is indistinguishable "
+                             + "from the wash beside it — the resize mark is not drawn")
     }
 
     // MARK: - Rasterisation helper
@@ -299,6 +554,31 @@ final class CanvasRegionRenderTests: XCTestCase {
         func distance(to other: Page, at point: CGPoint) -> Double {
             let d = color(at: point) - other.color(at: point)
             return max(abs(d.x), max(abs(d.y), abs(d.z)))
+        }
+
+        /// The largest per-channel difference between two points on THIS page.
+        func difference(between p: CGPoint, and q: CGPoint) -> Double {
+            let d = color(at: p) - color(at: q)
+            return max(abs(d.x), max(abs(d.y), abs(d.z)))
+        }
+
+        /// How many pixels inside `rect` differ from the other page's.
+        ///
+        /// The unit the drawn-output fixtures are built on: render two scenes
+        /// that differ in exactly one model fact and every changed pixel is that
+        /// fact, drawn. Exact — no colour threshold to tune, and a control rect
+        /// asserting *zero* is a real assertion rather than a rounding allowance.
+        func differingPixels(from other: Page, in rect: CGRect) -> Int {
+            var count = 0
+            for y in Int(rect.minY)..<Int(rect.maxY) {
+                for x in Int(rect.minX)..<Int(rect.maxX) {
+                    // + 0.5 lands in the middle of the pixel; `color(at:)`
+                    // truncates, so this addresses pixel (x, y) exactly.
+                    let p = CGPoint(x: Double(x) + 0.5, y: Double(y) + 0.5)
+                    if color(at: p) != other.color(at: p) { count += 1 }
+                }
+            }
+            return count
         }
     }
 

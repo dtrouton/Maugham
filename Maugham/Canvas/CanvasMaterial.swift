@@ -213,9 +213,9 @@ enum CanvasMaterial {
     /// wash for the same reason the grain does: it is a *relative* signal, and
     /// the dark ground is an eighth of the light one's brightness, so the same
     /// alpha over a near-black ground moves fewer levels than it does over
-    /// paper. Measured 2026-07-27: light moves a bare pixel 0.039 in its
-    /// strongest channel, dark 0.056 — both under the 0.10 ceiling, both well
-    /// clear of the ~0.004 that 8-bit quantisation could account for.
+    /// paper. Measured 2026-07-28 over each appearance's OWN ground: light moves
+    /// a bare pixel 0.031 in its strongest channel, dark 0.059 — both between
+    /// their floors and the shared ceiling.
     static let lightRegionWash = NSColor(srgbRed: 0.55, green: 0.52, blue: 0.44, alpha: 0.07)
     static let darkRegionWash = NSColor(srgbRed: 0.72, green: 0.62, blue: 0.48, alpha: 0.09)
 
@@ -224,6 +224,28 @@ enum CanvasMaterial {
     /// both appearances on purpose, because "reads as a filled panel" is a
     /// perceptual threshold rather than a per-material calibration.
     static let regionWashCeiling: Double = 0.10
+
+    /// …and how far it must move it AT LEAST. The other end of the same bound: a
+    /// wash that clears the ceiling and moves nothing is a region the writer
+    /// cannot see, and `XCTAssertNotEqual` alone will accept one 8-bit level of
+    /// quantisation as "visible".
+    ///
+    /// **These are a pair and the dark one is the load-bearing half.** Dark's
+    /// 0.045 sits above the 0.032 the LIGHT wash would move over the dark ground
+    /// — so a tidy-up that gives dark the light constant is measured, in the
+    /// rendered pixels, rather than only in a comparison of two literals. That
+    /// is 1C-a's failure mode in miniature (a green suite over a dark surface
+    /// drawn with light-mode values) and the thing this whole seam exists to
+    /// stop. Light's 0.020 cannot do the same trick in reverse — the dark wash
+    /// over the light ground moves 0.036, *more* than light's own 0.031, so a
+    /// floor cannot separate them and a ceiling tight enough to would freeze a
+    /// constant the writer tunes by eye. The light side is covered by
+    /// `test_theTwoAppearancesRenderDifferentWashes` instead.
+    ///
+    /// **Raising either wash means raising its floor**, or the floor stops
+    /// discriminating; the test messages say so.
+    static let lightRegionWashFloor: Double = 0.020
+    static let darkRegionWashFloor: Double = 0.045
 
     /// The region's outline. Quieter than a card's border: a region is an area,
     /// and an area whose edge out-shouts the cards inside it has become a box.
@@ -250,6 +272,12 @@ enum CanvasMaterial {
     /// stands for — same paper, less of it — so that "which of these live here
     /// and which are visiting" is answerable at a glance without reading a word.
     static let chipOpacity: CGFloat = 0.75
+
+    /// Softer than a card's 3. A region is an *area*, and a tight corner on an
+    /// area reads as a panel — which is a look decision, not a layout one, so it
+    /// lives here with the rest of the look. Shared: the corner is the same
+    /// shape under both appearances; only its colour differs.
+    static let regionCornerRadius: CGFloat = 6
 
     // MARK: - The tilt
 

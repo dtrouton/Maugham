@@ -234,6 +234,13 @@ final class CanvasGroundTests: XCTestCase {
                           + "of the light one's brightness, so the same wash cannot "
                           + "sit at the same dosage on both")
         XCTAssertNotEqual(CanvasMaterial.lightRegionStroke, CanvasMaterial.darkRegionStroke)
+        XCTAssertNotEqual(CanvasMaterial.lightRegionWashFloor,
+                          CanvasMaterial.darkRegionWashFloor,
+                          "the floors are a pair because the washes are: dark's is "
+                          + "set above what the LIGHT wash measures over the dark "
+                          + "ground, which is what makes it catch a collapsed pair. "
+                          + "A shared floor would have to sit under light's own "
+                          + "dosage and would catch nothing.")
 
         // Light, untouched by the dark pass.
         XCTAssertEqual(CanvasMaterial.lightGrainAmplitude, 0.055, accuracy: 1e-9)
