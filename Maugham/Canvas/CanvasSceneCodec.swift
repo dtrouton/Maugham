@@ -7,10 +7,13 @@ import Foundation
 /// `CanvasScene` so the in-memory model is free to change shape without
 /// rewriting every writer's sidecar.
 struct CanvasSceneDTO: Codable {
-    static let currentSchemaVersion = 1
+    static let currentSchemaVersion = 2
 
     var schemaVersion: Int
     var nodes: [NodeDTO]
+    /// Optional so a schema-1 sidecar — every canvas 1C-a wrote — decodes
+    /// unchanged rather than throwing on a missing key.
+    var regions: [RegionDTO]?
 
     struct NodeDTO: Codable {
         var id: String
@@ -21,6 +24,22 @@ struct CanvasSceneDTO: Codable {
         var width: CGFloat
         var cachedHeight: CGFloat?
         var z: Int
+    }
+
+    struct RegionDTO: Codable {
+        var id: String
+        var label: String
+        var x: CGFloat
+        var y: CGFloat
+        var width: CGFloat
+        var height: CGFloat
+        /// Sorted on the way out. `Set` iteration order is not stable across
+        /// runs, and an unsorted array here makes saving an unchanged canvas
+        /// produce a different file every time.
+        var homeMembers: [String]
+        var appearances: [String]
+        var boundPieceID: String?
+        var isCollapsed: Bool
     }
 
     init(scene: CanvasScene) {
@@ -36,6 +55,15 @@ struct CanvasSceneDTO: Codable {
                                x: n.origin.x, y: n.origin.y, width: n.width,
                                cachedHeight: n.cachedHeight, z: n.z)
             }
+        }
+        regions = scene.regions.map { r in
+            RegionDTO(id: r.id.raw, label: r.label,
+                      x: r.frame.minX, y: r.frame.minY,
+                      width: r.frame.width, height: r.frame.height,
+                      homeMembers: r.homeMembers.map(\.raw).sorted(),
+                      appearances: r.appearances.map(\.raw).sorted(),
+                      boundPieceID: r.boundPieceID,
+                      isCollapsed: r.isCollapsed)
         }
     }
 
@@ -56,6 +84,34 @@ struct CanvasSceneDTO: Codable {
             s.insert(CanvasNode(id: CanvasNodeID(dto.id), kind: kind,
                                 origin: CGPoint(x: dto.x, y: dto.y),
                                 width: dto.width, cachedHeight: dto.cachedHeight, z: dto.z))
+        }
+
+        // AFTER the nodes, and the order is the whole of the scrub: a node of an
+        // unknown kind has already been dropped by the loop above, so a region
+        // naming it must lose that member too. Ordered by id so the one-home
+        // repair below is deterministic rather than dependent on how the file
+        // happened to be written.
+        var claimedHomes: Set<CanvasNodeID> = []
+        for dto in (regions ?? []).sorted(by: { $0.id < $1.id }) {
+            let real = { (raws: [String]) -> Set<CanvasNodeID> in
+                Set(raws.map(CanvasNodeID.init).filter { s.node($0) != nil })
+            }
+            var homes = real(dto.homeMembers)
+            // One home per node (§4.3). A node already claimed by an earlier
+            // region is demoted here rather than dropped — that region really
+            // did cite it, and inventing or discarding a relationship are both
+            // worse than recording the weaker true one.
+            let contested = homes.intersection(claimedHomes)
+            homes.subtract(contested)
+            claimedHomes.formUnion(homes)
+
+            s.insertRegion(CanvasRegion(
+                id: CanvasRegionID(dto.id), label: dto.label,
+                frame: CGRect(x: dto.x, y: dto.y, width: dto.width, height: dto.height),
+                homeMembers: homes,
+                appearances: real(dto.appearances).union(contested),
+                boundPieceID: dto.boundPieceID,
+                isCollapsed: dto.isCollapsed))
         }
         return s
     }
