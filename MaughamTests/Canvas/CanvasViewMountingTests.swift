@@ -219,7 +219,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// all. An unpulled palette and a correctly dosed 4% wash look identical.
     func test_theProjectsPaletteIsPulledWhenTheCanvasAppears() throws {
         var asked = 0
-        host(CanvasView(projectRoot: try projectRoot(),
+        host(CanvasView(model: CanvasModel(), projectRoot: try projectRoot(),
                         paletteSwatchHexes: { asked += 1; return ["#33aa88"] }))
         XCTAssertGreaterThan(asked, 0,
                              "the canvas never asked the project for its palette, so "
@@ -231,7 +231,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// still reach the canvas's own undo stack. Task 9 measured that chain in the
     /// hierarchy it built by hand; this is the hierarchy SwiftUI builds.
     func test_aDoubleClickMountsAFocusedEditorReachableFromTheResponderChain() throws {
-        let window = host(CanvasView(projectRoot: try projectRoot(),
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: try projectRoot(),
                                      paletteSwatchHexes: { [] }))
         let root = try XCTUnwrap(window.contentView)
         XCTAssertNil(firstDescendant(ScrapEditorContainer.self, in: root),
@@ -272,7 +272,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// straighten on frame one. Every test that steps the straighten by hand
     /// passed throughout — the animation simply never ran on the real surface.
     func test_theMountedEditorIsInvisibleUntilTheCardHasStraightened() throws {
-        let window = host(CanvasView(projectRoot: try projectRoot(),
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: try projectRoot(),
                                      paletteSwatchHexes: { [] }))
         // Less than the ~120 ms straighten, so this is the middle of it.
         let container = try doubleClickTheScrap(in: window, settle: 0.04)
@@ -366,7 +366,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// the camera the raw editor point instead anchors at (100,10) rather than
     /// (130,40) and shifts it by 15 points in each axis.
     func test_pinchingInsideAMountedEditorAnchorsOnTheCanvasPointUnderTheFingers() throws {
-        let window = host(CanvasView(projectRoot: try projectRoot(),
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: try projectRoot(),
                                      paletteSwatchHexes: { [] }))
         let root = try XCTUnwrap(window.contentView)
         let container = try doubleClickTheScrap(in: window)
@@ -426,7 +426,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// question the writer asks: click the card again, is it the same card?
     func test_aCornerPressThatNeverMovedLeavesTheCardOnTheCanvas() throws {
         let root = try projectRoot()
-        let window = host(CanvasView(projectRoot: root, paletteSwatchHexes: { [] }))
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root, paletteSwatchHexes: { [] }))
         let hosted = try XCTUnwrap(window.contentView)
         let events = try eventView(in: window)
 
@@ -490,7 +490,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// `rewrappingScrapText` for both measurements.
     func test_aCardBeingResizedStaysOnTheCanvasForTheWholeDrag() throws {
         let root = try rewrappingScrapProjectRoot()
-        let window = host(CanvasView(projectRoot: root, paletteSwatchHexes: { [] }))
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root, paletteSwatchHexes: { [] }))
         let hosted = try XCTUnwrap(window.contentView)
         let events = try eventView(in: window)
 
@@ -564,7 +564,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// exactly 40 — so a short pump fails this rather than fudging it.
     func test_aFlickCarriesTheCardOnPastWhereThePointerLetGo() throws {
         let root = try projectRoot()
-        let window = host(CanvasView(projectRoot: root, paletteSwatchHexes: { [] }))
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root, paletteSwatchHexes: { [] }))
         let events = try eventView(in: window)
 
         // Grab the card at (60,40) — on it, and well clear of the resize corner —
@@ -597,7 +597,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// on the identical gesture.
     func test_thePressThatEntersAScrapStopsTheCardCoastingUnderIt() throws {
         let root = try projectRoot()
-        let window = host(CanvasView(projectRoot: root, paletteSwatchHexes: { [] }))
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root, paletteSwatchHexes: { [] }))
         let hosted = try XCTUnwrap(window.contentView)
         let events = try eventView(in: window)
 
@@ -756,7 +756,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// to be real: it is measured from the font at load, not written by the
     /// fixture.
     func test_aCardsPublishedFrameLandsWhereTheCardIsDrawn() throws {
-        let window = host(CanvasView(projectRoot: try projectRoot(),
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: try projectRoot(),
                                      paletteSwatchHexes: { [] }))
         let card = try axElement(valued: scrapText, in: try axTree(in: window))
         let frame = try viewFrame(ofPublished: card, in: window)
@@ -780,7 +780,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// card would resolve to one rect. Two cards the fixture put in different
     /// places must not publish the same rectangle.
     func test_twoCardsInDifferentPlacesPublishDifferentFrames() throws {
-        let window = host(CanvasView(projectRoot: try threeCardProjectRoot(),
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: try threeCardProjectRoot(),
                                      paletteSwatchHexes: { [] }))
         let tree = try axTree(in: window)
         let first = try viewFrame(ofPublished: try axElement(valued: scrapText, in: tree),
@@ -820,7 +820,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// not this one, refreshed the tree).
     func test_aPressThatStopsACoastRefreshesTheAccessibilityFrame() throws {
         let root = try projectRoot()
-        let window = host(CanvasView(projectRoot: root, paletteSwatchHexes: { [] }))
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root, paletteSwatchHexes: { [] }))
         let events = try eventView(in: window)
 
         // The throw the flick test measures: released at x = 40, ~47.8 pt of
@@ -863,7 +863,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// container's bounds. Culling is a drawing optimisation, and a node you
     /// cannot see is still a node you must be able to reach.
     func test_aCardFarOutsideTheViewportIsStillInThePublishedTree() throws {
-        let window = host(CanvasView(projectRoot: try threeCardProjectRoot(),
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: try threeCardProjectRoot(),
                                      paletteSwatchHexes: { [] }))
         XCTAssertNoThrow(try axElement(valued: farScrapText, in: try axTree(in: window)),
                          "the card at (90 000, 90 000) is in the element list and not "
@@ -900,7 +900,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// `AXStaticText` card's words go (that is what `CanvasAXChildren`'s trait is
     /// for), and `AXValueDescription` is the only value slot a group has.
     func test_anEmptyCanvasStillAnnouncesItselfInThePublishedTree() throws {
-        let window = host(CanvasView(projectRoot: try emptyProjectRoot(),
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: try emptyProjectRoot(),
                                      paletteSwatchHexes: { [] }))
         let canvas = try XCTUnwrap(
             try axTree(in: window).first {
@@ -923,7 +923,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// that a list is right says nothing about whether SwiftUI's hosting
     /// hierarchy ever publishes it.
     func test_theCanvasReadsOutItsScrapsRatherThanBeingABlankRectangle() throws {
-        let window = host(CanvasView(projectRoot: try projectRoot(),
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: try projectRoot(),
                                      paletteSwatchHexes: { [] }))
         let all = try axTree(in: window)
 
@@ -976,7 +976,7 @@ final class CanvasViewMountingTests: XCTestCase {
     ///     an assistive client's focus into it rather than leaving it parked on
     ///     the synthetic twin of the card.
     func test_enteringAScrapLandsAssistiveFocusInARealTextField() throws {
-        let window = host(CanvasView(projectRoot: try projectRoot(),
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: try projectRoot(),
                                      paletteSwatchHexes: { [] }))
         let container = try doubleClickTheScrap(in: window)
         let editor = try XCTUnwrap(container.textView)
@@ -1033,7 +1033,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// the scrap as it was before the writer typed.
     func test_typingThenQuittingWithoutClickingAwayKeepsTheSentence() throws {
         let root = try projectRoot()
-        let window = host(CanvasView(projectRoot: root, paletteSwatchHexes: { [] }))
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root, paletteSwatchHexes: { [] }))
         let container = try doubleClickTheScrap(in: window)
         let editor = try XCTUnwrap(container.textView)
 
@@ -1062,7 +1062,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// that has nothing but `.onDisappear`.
     func test_typingThenLeavingTheCanvasKeepsTheSentence() throws {
         let root = try projectRoot()
-        let window = host(CanvasView(projectRoot: root, paletteSwatchHexes: { [] }))
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root, paletteSwatchHexes: { [] }))
         let container = try doubleClickTheScrap(in: window)
         let editor = try XCTUnwrap(container.textView)
 
@@ -1129,7 +1129,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// focused scrap's `ScrapLayout`, and the mounted editor has to come back
     /// bound to the new one rather than showing the words the undo discarded.
     func test_undoInsideAScrapTakesBackASentenceAtATime() throws {
-        let window = host(CanvasView(projectRoot: try projectRoot(),
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: try projectRoot(),
                                      paletteSwatchHexes: { [] }))
         let container = try doubleClickTheScrap(in: window)
         let editor = try XCTUnwrap(container.textView)
@@ -1176,7 +1176,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// after the fold instead and it ends one character later, swallowing the
     /// first keystroke of what came next.
     func test_aPauseInsideAScrapEndsTheStepWhereTheWriterStopped() throws {
-        let window = host(CanvasView(projectRoot: try projectRoot(),
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: try projectRoot(),
                                      paletteSwatchHexes: { [] }))
         let container = try doubleClickTheScrap(in: window)
         let editor = try XCTUnwrap(container.textView)
@@ -1219,7 +1219,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// card is at 20" passes just as well on a drag that never happened.
     func test_undoAfterADragPutsTheCardBackWhereTheWriterPickedItUp() throws {
         let root = try projectRoot()
-        let window = host(CanvasView(projectRoot: root, paletteSwatchHexes: { [] }))
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root, paletteSwatchHexes: { [] }))
         let events = try eventView(in: window)
 
         drag(events, from: CGPoint(x: 60, y: 40),
@@ -1256,7 +1256,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// Both are the same assertion from outside: after a press that moved
     /// nothing, there is nothing to undo.
     func test_aPressThatNeverMovedLeavesNothingToUndo() throws {
-        let window = host(CanvasView(projectRoot: try projectRoot(),
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: try projectRoot(),
                                      paletteSwatchHexes: { [] }))
         let events = try eventView(in: window)
 
@@ -1300,7 +1300,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// Between them they are why `rebuildLayouts` documents this as safe rather
     /// than warning against it.
     func test_anUndoInsideAScrapLeavesItsLiveEditorUsableBeforeTheRebind() throws {
-        let window = host(CanvasView(projectRoot: try projectRoot(),
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: try projectRoot(),
                                      paletteSwatchHexes: { [] }))
         let container = try doubleClickTheScrap(in: window)
         let editor = try XCTUnwrap(container.textView)
@@ -1356,7 +1356,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// to leave standing, reached from the undo path instead of the click path.
     func test_undoingAwayTheFocusedScrapTakesTheWriterOutOfIt() throws {
         let root = try projectRoot()
-        let window = host(CanvasView(projectRoot: root, paletteSwatchHexes: { [] }))
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root, paletteSwatchHexes: { [] }))
         let hosted = try XCTUnwrap(window.contentView)
         let events = try eventView(in: window)
 
@@ -1427,7 +1427,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// The sequence is the hand-smoke's, which is why it is asked at all.
     func test_undoingBackPastANewScrapLeavesTheCanvasRespondingToDrags() throws {
         let root = try projectRoot()
-        let window = host(CanvasView(projectRoot: root, paletteSwatchHexes: { [] }))
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root, paletteSwatchHexes: { [] }))
         let hosted = try XCTUnwrap(window.contentView)
         let events = try eventView(in: window)
 
@@ -1467,7 +1467,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// did not mean that throw reaches for ⌘Z.
     func test_undoDuringACoastLeavesTheCardWhereTheWriterPickedItUp() throws {
         let root = try projectRoot()
-        let window = host(CanvasView(projectRoot: root, paletteSwatchHexes: { [] }))
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root, paletteSwatchHexes: { [] }))
         let events = try eventView(in: window)
 
         // The flick `test_aFlickCarriesTheCardOnPastWhereThePointerLetGo` measures:
@@ -1501,7 +1501,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// which is the same gesture asked a different question: that one asks whether
     /// the card survives, this one asks whether ⌘Z was quietly spent on it.
     func test_aCornerPressThatNeverMovedLeavesNothingToUndo() throws {
-        let window = host(CanvasView(projectRoot: try projectRoot(),
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: try projectRoot(),
                                      paletteSwatchHexes: { [] }))
         let hosted = try XCTUnwrap(window.contentView)
         let events = try eventView(in: window)
@@ -1600,7 +1600,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// override alone does not put an action in the responder chain.
     func test_undoIsReachableFromTheEditMenuWithNoScrapFocused() throws {
         let root = try projectRoot()
-        let window = host(CanvasView(projectRoot: root, paletteSwatchHexes: { [] }))
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root, paletteSwatchHexes: { [] }))
         let hosted = try XCTUnwrap(window.contentView)
         let events = try eventView(in: window)
 
@@ -1674,7 +1674,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// Asked of the manager the surface actually vends, not of a manager the test
     /// built: a cap set on the wrong object bounds nothing.
     func test_theCanvasUndoStackIsBounded() throws {
-        let window = host(CanvasView(projectRoot: try projectRoot(),
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: try projectRoot(),
                                      paletteSwatchHexes: { [] }))
         let manager = try XCTUnwrap(try eventView(in: window).undoManager)
         XCTAssertGreaterThan(manager.levelsOfUndo, 0,
@@ -1719,7 +1719,7 @@ final class CanvasViewMountingTests: XCTestCase {
     /// edit that follows schedules none of its own, so the next fold is the quit.
     func test_quittingAfterAPauseFoldsTheTextInWithoutMovingAnUndoBoundary() throws {
         let root = try projectRoot()
-        let window = host(CanvasView(projectRoot: root, paletteSwatchHexes: { [] }))
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root, paletteSwatchHexes: { [] }))
         let container = try doubleClickTheScrap(in: window)
         let editor = try XCTUnwrap(container.textView)
         editor.setSelectedRange(NSRange(location: (editor.string as NSString).length, length: 0))

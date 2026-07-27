@@ -6,7 +6,7 @@ final class CanvasUndoTests: XCTestCase {
 
     /// `groupsByEvent = false`, which is what `CanvasView` ships: every gesture
     /// is grouped explicitly by `CanvasUndo`, so the implicit per-event group can
-    /// only collapse two gestures into one ⌘Z. See `CanvasView.undoManager`.
+    /// only collapse two gestures into one ⌘Z. See `CanvasModel.undoManager`.
     ///
     /// It is also required here for a second reason: calling `undo()`
     /// synchronously while an implicit group is open raises

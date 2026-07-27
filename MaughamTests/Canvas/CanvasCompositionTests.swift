@@ -212,7 +212,7 @@ final class CanvasCompositionTests: XCTestCase {
     /// anything on the canvas's undo stack, and it is `CanvasUndo.register`.
     ///
     /// The canvas's `UndoManager` has `groupsByEvent` **off**, which is right on
-    /// the merits (see `CanvasView.undoManager`) and carries one cost:
+    /// the merits (see `CanvasModel.undoManager`) and carries one cost:
     /// `UndoManager` no longer opens an implicit group per event, so a
     /// registration made outside an explicit group **raises** instead of being
     /// quietly absorbed. That manager is vended down the responder chain by

@@ -68,6 +68,12 @@ struct ProjectWindow: View {
     /// posture/appearance writer; EditorHost writes the annotation set (Task 5).
     /// Threaded down to the coordinator, which observes it.
     @State private var editorControl = EditorControl()
+    /// The canvas's scene, scraps, selection, sidecar store and undo recorder.
+    /// Owned HERE rather than inside `CanvasView` because the region inspector in
+    /// the right-hand column reads and mutates the same scene the centre column
+    /// draws — and region labels do not live in the manifest, so a `ProjectStore`
+    /// could not carry them.
+    @State private var canvasModel = CanvasModel()
     /// Raw share snapshot kept alongside `collaborator` for the pill's hover
     /// diagnostics (the `.help()` tooltip), so the resolver stays the single
     /// read path.
@@ -874,7 +880,7 @@ struct ProjectWindow: View {
                 control: editorControl
             )
         case .canvas:
-            CanvasView(projectRoot: store.url,
+            CanvasView(model: canvasModel, projectRoot: store.url,
                        paletteSwatchHexes: { store.paletteSwatchHexes() })
         case .research:
             if let id = selectedResearchId,

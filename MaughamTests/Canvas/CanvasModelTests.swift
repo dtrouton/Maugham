@@ -1,0 +1,169 @@
+import XCTest
+@testable import Maugham
+
+final class CanvasModelTests: XCTestCase {
+
+    private var root: URL!
+
+    override func setUpWithError() throws {
+        root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("canvas-model-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws { try? FileManager.default.removeItem(at: root) }
+
+    private let r1 = CanvasRegionID("r1")
+    private let a = CanvasNodeID("a")
+
+    private func loadedModel() -> CanvasModel {
+        let model = CanvasModel()
+        model.attach(projectRoot: root)
+        model.withScene { s in
+            s.insert(CanvasNode(id: self.a, kind: .scrap,
+                                origin: CGPoint(x: 100, y: 100), width: 240, cachedHeight: 80))
+            s.insertRegion(CanvasRegion(id: self.r1, label: "Act II fog",
+                                        frame: CGRect(x: 0, y: 0, width: 600, height: 400)))
+        }
+        return model
+    }
+
+    /// The seam, end to end: an edit made through the model — which is the ONLY
+    /// thing the inspector holds — lands in the sidecar on disk.
+    func test_aRegionEditThroughTheModelReachesDisk() {
+        let model = loadedModel()
+        model.mutate("Rename Region") { $0.updateRegion(self.r1) { $0.label = "Falls" } }
+        model.flush()
+        XCTAssertEqual(CanvasStore(projectRoot: root).load().scene.region(r1)?.label, "Falls")
+    }
+
+    func test_selectionIsModelStateSoTwoReadersSeeOneValue() {
+        let model = loadedModel()
+        model.selection = .region(r1)
+        XCTAssertEqual(model.selectedRegion?.displayLabel, "Act II fog")
+        model.selection = .node(a)
+        XCTAssertNil(model.selectedRegion, "a selected NODE is not a selected region")
+    }
+
+    func test_theModelUsesTheRecorderRatherThanASecondUndoStack() {
+        let model = loadedModel()
+        model.mutate("Rename Region") { $0.updateRegion(self.r1) { $0.label = "Falls" } }
+        XCTAssertTrue(model.undo.canUndo)
+        model.undo.undo()
+        XCTAssertEqual(model.scene.region(r1)?.label, "Act II fog")
+    }
+
+    /// `endGesture` registers nothing when the state did not move — the property
+    /// that stops a stray click leaving a ⌘Z that appears to do nothing.
+    func test_aGestureThatChangedNothingLeavesNothingToUndo() {
+        let model = loadedModel()
+        model.mutate("Rename Region") { _ in }
+        XCTAssertFalse(model.undo.canUndo)
+    }
+
+    /// `breakGesture` is what gives a long visit more than one ⌘Z. A hand-rolled
+    /// duplicate loses it silently, so this asks for it directly.
+    func test_aBrokenGestureIsTwoStepsRatherThanOne() {
+        let model = loadedModel()
+        model.beginGesture("Edit Scrap")
+        model.setScrapText("one.", for: a)
+        model.breakGesture()
+        model.setScrapText("one. two.", for: a)
+        model.endGesture()
+
+        model.undo.undo()
+        XCTAssertEqual(model.scraps[a], "one.")
+        model.undo.undo()
+        XCTAssertEqual(model.scraps[a] ?? "", "")
+    }
+
+    func test_aNestedGestureIsAbsorbedRatherThanUnbalancingTheManager() {
+        let model = loadedModel()
+        model.beginGesture("Move Region")
+        model.beginGesture("Move Scrap")
+        model.withScene { $0.move(self.a, to: CGPoint(x: 500, y: 500)) }
+        model.endGesture()
+        // Asked of the MANAGER, not the recorder. `CanvasUndo.canUndo` carries a
+        // second term for the run still inside an open gesture — deliberately,
+        // so the Edit menu is not greyed out halfway through the first sentence
+        // typed into a scrap — and the outer bracket here is still open. What
+        // "absorbed" means is that nothing reached the STACK.
+        XCTAssertFalse(model.undoManager.canUndo,
+                       "the inner close must not register a step")
+        XCTAssertTrue(model.undo.canUndo,
+                      "…and the open outer gesture is still offered as undoable")
+        model.endGesture()
+        XCTAssertTrue(model.undoManager.canUndo)
+
+        model.undo.undo()
+        XCTAssertEqual(model.scene.node(a)?.origin, CGPoint(x: 100, y: 100),
+                       "one ⌘Z, one gesture — the whole outer bracket")
+    }
+
+    func test_theStructuralCounterMovesOnAStructuralChangeAndNotOnASave() {
+        let model = loadedModel()
+        let before = model.sceneRevision
+        model.withScene { $0.move(self.a, to: CGPoint(x: 1, y: 1)) }
+        XCTAssertEqual(model.sceneRevision, before,
+                       "a move is not structural until its gesture ends — the view "
+                       + "bumps it there, exactly as 1C-a does")
+        model.bumpSceneRevision()
+        XCTAssertEqual(model.sceneRevision, before + 1)
+    }
+
+    func test_detachFoldsTheLiveEditInBeforeItWrites() {
+        let model = loadedModel()
+        model.beforeFlush = { model.setScrapText("the sentence in flight", for: self.a) }
+        model.withScene { $0.move(self.a, to: CGPoint(x: 7, y: 7)) }  // queues a save
+        model.detach()
+        XCTAssertEqual(CanvasStore(projectRoot: root).load().scraps[a],
+                       "the sentence in flight",
+                       "⌘Q mid-sentence must write the sentence")
+    }
+
+    func test_reattachingReadsWhatDetachWrote() {
+        let model = loadedModel()
+        model.mutate("Rename Region") { $0.updateRegion(self.r1) { $0.label = "Falls" } }
+        model.detach()
+        model.attach(projectRoot: root)
+        XCTAssertEqual(model.scene.region(r1)?.label, "Falls")
+    }
+
+    /// **A probe, not a bound on the machine.** `@Observable` generates a
+    /// `_modify` accessor, so `withScene` should mutate the stored scene in
+    /// place; if it ever compiles down to get-modify-set instead, every drag
+    /// frame copies the whole node dictionary. At 2,000 nodes that is ~2,000
+    /// element copies per frame, so the two timings below diverge by orders of
+    /// magnitude rather than by a few percent — which is why the bound can be
+    /// generous and still catch it.
+    func test_aSceneMutationThroughTheModelDoesNotCopyTheWholeScene() {
+        let count = CanvasPerformanceProbeTests.supportedNodeCount
+        let target = CanvasNodeID("n\(count / 2)")
+        var bare = CanvasScene()
+        for i in 0..<count {
+            bare.insert(CanvasNode(id: CanvasNodeID("n\(i)"), kind: .scrap,
+                                   origin: .zero, width: 240, cachedHeight: 40))
+        }
+        let model = CanvasModel()
+        model.attach(projectRoot: root)
+        model.withScene(persist: false) { $0 = bare }
+
+        func seconds(_ body: () -> Void) -> TimeInterval {
+            let start = Date(); body(); return -start.timeIntervalSinceNow
+        }
+        let iterations = 10_000
+        let bareTime = seconds {
+            for i in 0..<iterations { bare.move(target, to: CGPoint(x: CGFloat(i), y: 0)) }
+        }
+        let modelTime = seconds {
+            for i in 0..<iterations {
+                model.withScene(persist: false) { $0.move(target, to: CGPoint(x: CGFloat(i), y: 0)) }
+            }
+        }
+        print("[probe] \(iterations) moves over \(count) nodes — "
+              + "bare \(String(format: "%.1f", bareTime * 1000)) ms, "
+              + "through the model \(String(format: "%.1f", modelTime * 1000)) ms")
+        XCTAssertLessThan(modelTime, max(bareTime * 20, 0.1),
+                          "withScene is copying the scene per mutation")
+    }
+}

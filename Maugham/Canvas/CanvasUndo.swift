@@ -19,8 +19,8 @@ import AppKit
 /// correct.
 ///
 /// **The state is reached through two closures rather than owned**, because the
-/// owner changes between plans: `CanvasView`'s `@State` in 1C-a, `CanvasModel`
-/// in 1C-b Task 4. Only the closures get rebound; this class does not change.
+/// owner changed between plans: `CanvasView`'s `@State` in 1C-a, `CanvasModel`
+/// since 1C-b Task 3. Only the closures were rebound; this class did not change.
 ///
 /// **Scrap TEXT and scrap GEOMETRY share ONE stack, and only this class writes
 /// to it.** The mounted `NSTextView` has `allowsUndo == false` (see
@@ -61,7 +61,7 @@ import AppKit
 /// closes synchronously in one go.
 ///
 /// **The manager this is given has `groupsByEvent == false`** — see
-/// `CanvasView.undoManager` for why, at length. Every gesture here is already
+/// `CanvasModel.undoManager` for why, at length. Every gesture here is already
 /// grouped explicitly, so one gesture is one ⌘Z with no implicit group involved,
 /// and tests exercise the manager production ships rather than a second
 /// configuration of it.

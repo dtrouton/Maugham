@@ -52,6 +52,11 @@ import SwiftUI
 ///     the last task to edit this file. Both are therefore described in prose
 ///     and spelled nowhere in this file, here or below.
 struct CanvasView: View {
+    /// The scene, the scrap text, the selection, the sidecar store and the undo
+    /// recorder — owned by `ProjectWindow` because the region inspector in the
+    /// right-hand column reads and mutates the same scene this view draws.
+    /// Everything below is a property of one *view* of that state and stays here.
+    let model: CanvasModel
     let projectRoot: URL
     /// Deferred on purpose: `ProjectStore.paletteSwatchHexes()` reads every
     /// palette card off disk, and evaluating that inside `ProjectWindow.body`
@@ -59,13 +64,10 @@ struct CanvasView: View {
     let paletteSwatchHexes: () -> [String]
 
     @State private var camera = CanvasCamera()
-    @State private var scene = CanvasScene()
-    @State private var scraps: [CanvasNodeID: String] = [:]
     @State private var layouts: [CanvasNodeID: ScrapLayout] = [:]
     @State private var editingNodeID: CanvasNodeID?
     @State private var caretIndex: Int?
     @State private var wash: [Color] = []
-    @State private var store: CanvasStore?
     /// §7A.5: the focused card animates to level and settles back on blur.
     @State private var straighten = CanvasFocusStraighten()
     /// The live drag or resize, and §7.3's coast after a flick. Both are plain
@@ -73,63 +75,6 @@ struct CanvasView: View {
     /// only clock on this surface.
     @State private var interaction = CanvasInteraction()
     @State private var momentum = CanvasMomentum()
-
-    /// ⌘Z, scoped to the canvas. `@Environment(\.undoManager)` would give a
-    /// window-lifetime manager shared with the manuscript editor's op-log stack
-    /// (ADR 0023), and a persona switch mid-drag would leave a half-open group
-    /// on it. `CanvasUndo` is the only thing that ever registers here — the
-    /// mounted `NSTextView` has `allowsUndo == false` and registers nothing.
-    ///
-    /// **`groupsByEvent` is off, and that is not a test affordance.** Left at its
-    /// default it wraps everything registered during one pass of the event loop
-    /// in an implicit top-level group. `CanvasUndo` already brackets every
-    /// gesture explicitly, so that group can only take granularity away: two
-    /// gestures that happen to land in one pass — a sentence finished by the same
-    /// keystroke that a pause has already closed a step on — collapse into a
-    /// single ⌘Z, and which pairs collapse depends on how AppKit batched the
-    /// events. One gesture is one step, always, and that is what this line buys.
-    ///
-    /// It is also the only way the behaviour is observable. That implicit group
-    /// is closed by `NSApplication`'s event loop and NOT by a run-loop turn —
-    /// measured 2026-07-26 on macOS 26.5: `groupingLevel` is 1 after a
-    /// registration and still 1 after `RunLoop.run(until:)`, twice over. So with
-    /// the default, every canvas step a test makes lands in ONE group that never
-    /// closes and one ⌘Z unwinds the whole test; the sentence-granularity tests
-    /// in `CanvasViewMountingTests` were written, run, and failed exactly that way
-    /// before this line existed. Leaving it on would also mean the shipping
-    /// manager is configured differently from every manager the tests exercise,
-    /// since `undo()` called synchronously against an open implicit group raises
-    /// `NSInternalInconsistencyException` and the unit tests must turn it off
-    /// regardless.
-    ///
-    /// The cost is that a registration outside an explicit group would now raise
-    /// rather than being quietly absorbed. `CanvasUndo` is the only registrant —
-    /// pinned by `CanvasUndoTests.test_typingIntoTheMountedEditorRegistersNothingOfItsOwn`
-    /// for the text view, by `CanvasCompositionTests.test_theCanvasRegistersUndoInExactlyOnePlace`
-    /// for the area as a whole, and by the `groupingLevel` assertion in
-    /// `CanvasUndo.register` — and it registers only between `beginUndoGrouping`
-    /// and `endUndoGrouping`.
-    ///
-    /// **`levelsOfUndo` is capped, because `UndoManager`'s default is
-    /// unlimited.** Every step here retains a whole `CanvasScene` AND a whole
-    /// `[CanvasNodeID: String]` — every scrap's text, copied — and the
-    /// granularity is one step per SENTENCE typed, not per visit. Unbounded,
-    /// nothing gives any of it back until `release()` at window close.
-    ///
-    /// 200 is chosen from both ends. From the writer's: at one step per sentence
-    /// it is a long afternoon's worth of sentences, and orders of magnitude more
-    /// than a session's drags — nobody ⌘Zs past 200 steps meaning to arrive
-    /// somewhere. From memory's: a 200-scrap canvas of paragraph-sized scraps is
-    /// on the order of 10 KB of copied dictionary per step, so the stack is
-    /// bounded at roughly 2 MB per canvas rather than at the length of the
-    /// session.
-    @State private var undoManager: UndoManager = {
-        let manager = UndoManager()
-        manager.groupsByEvent = false
-        manager.levelsOfUndo = 200
-        return manager
-    }()
-    @State private var undo: CanvasUndo?
 
     /// `layouts` holds ScrapLayout REFERENCES. Typing mutates the object in
     /// place, so `@State` observes no change and the `Canvas` never redraws.
@@ -229,7 +174,7 @@ struct CanvasView: View {
             TimelineView(.animation(paused: straighten.isSettled && momentum.isAtRest)) { context in
                 Canvas { cx, size in
                     _ = drawRevision
-                    CanvasRenderer.draw(scene: scene, camera: camera, viewSize: size,
+                    CanvasRenderer.draw(scene: model.scene, camera: camera, viewSize: size,
                                         layouts: layouts,
                                         visibleEditorNodeID: visibleEditorNodeID,
                                         straighten: straighten, into: &cx)
@@ -256,7 +201,7 @@ struct CanvasView: View {
                 // `Equatable` view SwiftUI skips them unless the elements or the
                 // camera actually moved.
                 .accessibilityLabel(CanvasAccessibility.canvasLabel)
-                .accessibilityValue(CanvasAccessibility.summary(scene: scene))
+                .accessibilityValue(CanvasAccessibility.summary(scene: model.scene))
                 .accessibilityChildren {
                     CanvasAXChildren(elements: axElements, camera: camera)
                         .equatable()
@@ -271,14 +216,23 @@ struct CanvasView: View {
                     // rather than by the idle gap. Guarded on `isAtRest` so a
                     // tick that exists only to straighten a card does not reset
                     // the save debounce.
-                    if !momentum.isAtRest, !momentum.step(&scene) {
-                        store?.scheduleSave(scene: scene, scraps: scraps)
-                        // *** The card has come to rest somewhere new, so the
-                        // accessibility tree's frames are stale. KEEP THIS. ***
-                        // Bumped here and not once per coasting frame:
-                        // `sceneRevision` is the STRUCTURAL counter and a coast
-                        // is one structural change, at its end.
-                        sceneRevision += 1
+                    if !momentum.isAtRest {
+                        // `persist: false`: a coast emits a position per frame
+                        // and only the rest branch below queues a save. `step`
+                        // calls `stop()` on its last frame, so `isAtRest` cannot
+                        // be re-asked afterwards — the return value is the one
+                        // reading of "still coasting" there is.
+                        var coasting = false
+                        model.withScene(persist: false) { coasting = momentum.step(&$0) }
+                        if !coasting {
+                            model.scheduleSave()
+                            // *** The card has come to rest somewhere new, so the
+                            // accessibility tree's frames are stale. KEEP THIS. ***
+                            // Bumped here and not once per coasting frame:
+                            // `sceneRevision` is the STRUCTURAL counter and a
+                            // coast is one structural change, at its end.
+                            sceneRevision += 1
+                        }
                     }
                     revision += 1
                 }
@@ -301,7 +255,7 @@ struct CanvasView: View {
                 // runs `commitActiveEdit`, so there is never an open gesture here
                 // for `CanvasUndo.undo()` to close. A drag's gesture closes at
                 // `.ended`, before any ⌘Z can arrive.
-                undoManager: undoManager)
+                undoManager: model.undoManager)
 
             mountedEditor
         }
@@ -315,28 +269,27 @@ struct CanvasView: View {
         // somehow arrives without a bump still has an accessible canvas rather
         // than a silent one — the failure this whole layer exists to prevent.
         .onChange(of: sceneRevision, initial: true) { _, _ in
-            axElements = CanvasAccessibility.elements(scene: scene, scraps: scraps)
+            axElements = CanvasAccessibility.elements(scene: model.scene, scraps: model.scraps)
         }
+        // MIRRORED, not replaced. The model's counter is bumped by the inspector
+        // from the other column; the view's is what the grep-pinned rebuild above
+        // watches, and it must keep both its name and its home here.
+        .onChange(of: model.sceneRevision) { _, _ in sceneRevision += 1 }
         .onDisappear {
             // Fold the live editor's text in BEFORE the write, or a persona
             // switch mid-sentence loses the sentence.
             syncActiveEdit()
-            store?.flush()
-            // And then let the store go. `beforeFlush` holds a copy of this
-            // view, which holds this `@State` box, which holds the store — a
-            // cycle, so without this line the store never deinits, its
-            // termination observer outlives the window it belonged to, and app
-            // quit writes this closed window's stale scene back over whatever
-            // replaced it. Cheaper than teaching the store a weak owner.
-            store?.beforeFlush = nil
-            // The same cycle one layer down, and one edge longer: the recorder's
-            // two closures capture this view, which holds the `@State` box that
-            // holds the recorder — and the manager retains the recorder once per
-            // step on its stack. Without this a closed canvas keeps its scene,
-            // every scrap's text and every snapshot of both alive for the life of
-            // the app. No gesture is closed here: there is no writer left to
-            // press ⌘Z at teardown, and `release()` drops the stack whole.
-            undo?.release()
+            // Flush, drop `beforeFlush` and release the recorder — the three
+            // edges of the cycle, all one layer out now. `beforeFlush` holds a
+            // copy of this view, which holds the model, which holds the store, so
+            // without the clear the store never deinits, its termination observer
+            // outlives the window it belonged to, and app quit writes this closed
+            // window's stale scene back over whatever replaced it. The recorder's
+            // two closures are the same cycle one layer down, and the manager
+            // retains the recorder once per step on its stack. No gesture is
+            // closed here: there is no writer left to press ⌘Z at teardown, and
+            // `release()` drops the stack whole.
+            model.detach()
         }
     }
 
@@ -390,7 +343,7 @@ struct CanvasView: View {
     @ViewBuilder
     private var mountedEditor: some View {
         if let id = mountedEditorNodeID,
-           let node = scene.node(id),
+           let node = model.scene.node(id),
            case .scrap = node.kind,
            let layout = layouts[id],
            let frame = node.frame {
@@ -411,7 +364,7 @@ struct CanvasView: View {
                             // happened. It is the recorder rather than the
                             // manager because a ⌘Z from in here has an open
                             // gesture to close first.
-                            canvasUndo: undo,
+                            canvasUndo: model.undo,
                             onScroll: { dx, dy, precise in
                                 let factor: CGFloat = precise ? 1 : 8
                                 camera.panBy(CGSize(width: dx * factor, height: dy * factor))
@@ -441,47 +394,38 @@ struct CanvasView: View {
     // MARK: - Loading and measuring
 
     private func load() {
-        let s = CanvasStore(projectRoot: projectRoot)
+        // The model reads both files and wires the recorder's two closures to
+        // itself. What is left here is what only a VIEW can do.
+        model.attach(projectRoot: projectRoot)
         // The store's own quit hook writes whatever was last queued; this makes
         // sure what was last queued includes the sentence the writer is halfway
         // through. `.onDisappear` does not fire on ⌘Q.
-        s.beforeFlush = { syncActiveEdit() }
-        store = s
-        let loaded = s.load()
-        scene = loaded.scene
-        scraps = loaded.scraps
-        wash = CanvasGroundPalette.wash(fromHex: paletteSwatchHexes())
-        rebuildLayouts()
-
-        // `CanvasUndo` owns no state — it reads and writes this view's through
-        // two closures, which is what lets 1C-b Task 4 move the same class onto
-        // `CanvasModel` by rebinding them.
-        let recorder = CanvasUndo(undoManager: undoManager)
-        recorder.readSnapshot = { (scene: scene, scraps: scraps) }
-        recorder.applySnapshot = { snapshot in
-            // FIRST, before the scene is replaced. A coast steps `scene` directly
-            // from the timeline, outside any gesture and after the drag's own
-            // snapshot was taken at `.began`. Leave it running and a ⌘Z inside the
-            // ~1 s after a flick puts the card back at the pick-up point and the
-            // momentum then skates it away from there — so it comes to rest
-            // somewhere the writer never put it, and that is the position the
-            // save at the bottom of this closure writes.
+        model.beforeFlush = { syncActiveEdit() }
+        model.onSceneReplacedByUndo = {
+            // FIRST. A coast steps the scene directly from the timeline, outside
+            // any gesture and after the drag's own snapshot was taken at
+            // `.began`. Leave it running and a ⌘Z inside the ~1 s after a flick
+            // puts the card back at the pick-up point and the momentum then
+            // skates it away from there — so it comes to rest somewhere the
+            // writer never put it, and that is the position the save at the end
+            // of the model's apply writes. This whole closure is called
+            // synchronously inside that apply, a whole timeline tick before the
+            // coast could take another step.
             momentum.stop()
-            scene = snapshot.scene
-            scraps = snapshot.scraps
             // The undo may have taken away the scrap the writer is standing in —
             // double-click bare canvas, type, ⌘Z, ⌘Z is three keystrokes to it.
-            // `mountedEditor` guards on `scene.node(id)`, so the editor goes;
-            // without this line `editingNodeID`, `caretIndex` and `straighten`
-            // would go on naming a node that no longer exists. Every mouse-down
-            // repairs it in passing — `CanvasEventNSView.applyMouseDown` runs
-            // `onClick` strictly before `onDrag(.began)`, so `handleClick` clears
-            // the stale id before any drag guard reads it — but the state is
-            // wrong in the meantime, and ⇧⌘Z brings the card back and drops the
-            // writer into an editor they never clicked into. This is the state
-            // `.unenterableNode` in `handleClick` already refuses to leave
-            // standing, arriving from the undo path instead of the click path.
-            if let id = editingNodeID, scene.node(id) == nil { leaveTheOpenScrap() }
+            // `mountedEditor` guards on `model.scene.node(id)`, so the editor
+            // goes; without this line `editingNodeID`, `caretIndex` and
+            // `straighten` would go on naming a node that no longer exists. Every
+            // mouse-down repairs it in passing —
+            // `CanvasEventNSView.applyMouseDown` runs `onClick` strictly before
+            // `onDrag(.began)`, so `handleClick` clears the stale id before any
+            // drag guard reads it — but the state is wrong in the meantime, and
+            // ⇧⌘Z brings the card back and drops the writer into an editor they
+            // never clicked into. This is the state `.unenterableNode` in
+            // `handleClick` already refuses to leave standing, arriving from the
+            // undo path instead of the click path.
+            if let id = editingNodeID, model.scene.node(id) == nil { leaveTheOpenScrap() }
             // Heights are DERIVED, so a restored scene is re-measured rather
             // than trusted — and a scrap whose text the undo changed gets a new
             // `ScrapLayout`, which is what makes `ScrapEditorHost` rebind the
@@ -489,9 +433,9 @@ struct CanvasView: View {
             // Replacing the layout under a MOUNTED editor is safe; the
             // measurement is on `rebuildLayouts` below.
             rebuildLayouts()
-            store?.scheduleSave(scene: scene, scraps: scraps)
         }
-        undo = recorder
+        wash = CanvasGroundPalette.wash(fromHex: paletteSwatchHexes())
+        rebuildLayouts()
     }
 
     /// Build a layout per scrap and fill in the derived heights the model needs
@@ -535,28 +479,33 @@ struct CanvasView: View {
     /// care which is in front, and `CanvasScene.nodes` sorts the whole scene on
     /// every access.
     private func rebuildLayouts() {
-        for node in scene.unorderedNodes {
-            guard case .scrap = node.kind else { continue }
-            let existing = layouts[node.id]
-            let text = scraps[node.id] ?? ""
-            let layout: ScrapLayout
-            if let existing, existing.text == text {
-                existing.setWidth(CanvasCardMetrics.textWidth(forCardWidth: node.width))
-                layout = existing
-            } else {
-                layout = ScrapLayout(
-                    text: text,
-                    width: CanvasCardMetrics.textWidth(forCardWidth: node.width),
-                    font: scrapFont,
-                    textColor: CanvasRenderer.cardInk)
-                layouts[node.id] = layout
+        // ONE `withScene` around the whole loop rather than one per node, and
+        // `persist: false` because the caller owns the save.
+        let scraps = model.scraps
+        model.withScene(persist: false) { scene in
+            for node in scene.unorderedNodes {
+                guard case .scrap = node.kind else { continue }
+                let existing = layouts[node.id]
+                let text = scraps[node.id] ?? ""
+                let layout: ScrapLayout
+                if let existing, existing.text == text {
+                    existing.setWidth(CanvasCardMetrics.textWidth(forCardWidth: node.width))
+                    layout = existing
+                } else {
+                    layout = ScrapLayout(
+                        text: text,
+                        width: CanvasCardMetrics.textWidth(forCardWidth: node.width),
+                        font: scrapFont,
+                        textColor: CanvasRenderer.cardInk)
+                    layouts[node.id] = layout
+                }
+                scene.setCachedHeight(
+                    CanvasCardMetrics.cardHeight(forTextHeight: layout.measuredHeight),
+                    for: node.id)
             }
-            scene.setCachedHeight(
-                CanvasCardMetrics.cardHeight(forTextHeight: layout.measuredHeight),
-                for: node.id)
         }
         // Layouts for nodes that no longer exist would keep their text alive.
-        layouts = layouts.filter { scene.node($0.key) != nil }
+        layouts = layouts.filter { model.scene.node($0.key) != nil }
         revision += 1
         // Every caller of this — load, create, resize-end, undo — has changed the
         // shape of the scene, so the accessibility tree is stale.
@@ -578,13 +527,15 @@ struct CanvasView: View {
     /// Does NOT touch `revision` or `sceneRevision` — the caller owns both, and
     /// the structural counter must not move per frame.
     private func remeasure(_ id: CanvasNodeID) {
-        guard let node = scene.node(id),
+        guard let node = model.scene.node(id),
               case .scrap = node.kind,
               let layout = layouts[id] else { return }
         layout.setWidth(CanvasCardMetrics.textWidth(forCardWidth: node.width))
-        scene.setCachedHeight(
-            CanvasCardMetrics.cardHeight(forTextHeight: layout.measuredHeight),
-            for: id)
+        model.withScene(persist: false) {
+            $0.setCachedHeight(
+                CanvasCardMetrics.cardHeight(forTextHeight: layout.measuredHeight),
+                for: id)
+        }
     }
 
     // MARK: - The writer's words
@@ -630,25 +581,27 @@ struct CanvasView: View {
         // Read once: `ScrapLayout.text` bridges out of an `NSTextStorage` on
         // every access, and this runs on every keystroke.
         let updated = layout.text
-        guard scraps[id] != updated else { return }
-        let previous = scraps[id] ?? ""
+        guard model.scraps[id] != updated else { return }
+        let previous = model.scraps[id] ?? ""
         let now = Date()
 
         // BEFORE the fold — see the doc above.
         if fromKeystroke, ScrapUndoBeat.hasGoneIdle(since: lastKeystrokeAt, now: now) {
-            undo?.breakGesture()
+            model.breakGesture()
         }
 
-        scraps[id] = updated
-        scene.setCachedHeight(
-            CanvasCardMetrics.cardHeight(forTextHeight: layout.measuredHeight), for: id)
+        model.withScene(persist: false) {
+            $0.setCachedHeight(
+                CanvasCardMetrics.cardHeight(forTextHeight: layout.measuredHeight), for: id)
+        }
+        // The fold, and the save that carries both it and the height above.
+        model.setScrapText(updated, for: id)
         revision += 1
-        store?.scheduleSave(scene: scene, scraps: scraps)
 
         // AFTER the fold — see the doc above.
         if fromKeystroke,
            ScrapUndoBeat.completesASentence(before: previous, after: updated) {
-            undo?.breakGesture()
+            model.breakGesture()
         }
         if fromKeystroke { lastKeystrokeAt = now }
     }
@@ -680,7 +633,7 @@ struct CanvasView: View {
     /// this one to notice a change it did not make.
     private func commitActiveEdit() {
         syncActiveEdit()
-        undo?.endGesture()
+        model.endGesture()
         lastKeystrokeAt = nil
         if editingNodeID != nil { sceneRevision += 1 }
     }
@@ -707,7 +660,7 @@ struct CanvasView: View {
     }
 
     private func clickTarget(at contentPoint: CGPoint) -> ClickTarget {
-        guard let node = scene.topmostNode(at: contentPoint) else { return .emptyCanvas }
+        guard let node = model.scene.topmostNode(at: contentPoint) else { return .emptyCanvas }
         guard case .scrap = node.kind,
               let layout = layouts[node.id],
               let frame = node.frame else { return .unenterableNode }
@@ -735,7 +688,7 @@ struct CanvasView: View {
 
         guard clickCount >= 2 else {
             leaveTheOpenScrap()
-            store?.scheduleSave(scene: scene, scraps: scraps)
+            model.scheduleSave()
             return
         }
 
@@ -764,18 +717,24 @@ struct CanvasView: View {
             // The OUTER undo bracket for this visit. `commitActiveEdit` at the
             // head of this method has already closed the previous one, so a
             // click straight from one scrap into another never nests.
-            undo?.beginGesture("Edit Scrap")
+            model.beginGesture("Edit Scrap")
 
         case .emptyCanvas:
             // Creating the card is its own step, closed before the visit opens:
             // one ⌘Z takes back what the writer typed, a second takes back the
             // card. Explicit begin/end rather than `mutate` — the new id has to
-            // escape the gesture, and a closure assigning into a `var` declared
-            // outside it would leave that var at its sentinel whenever `undo` is
-            // nil, which is every moment before `load()` has run.
-            undo?.beginGesture("New Scrap")
-            let id = CanvasInteraction.createScrap(at: contentPoint, in: &scene)
-            scraps[id] = ""
+            // escape the gesture, and `mutate`'s closure returns nothing.
+            model.beginGesture("New Scrap")
+            // The sentinel is never read: `withScene`'s closure is non-escaping
+            // and runs unconditionally, so `createScrap` has always assigned by
+            // the line below. (In 1C-a the equivalent `var` was genuinely
+            // reachable at its sentinel, because the recorder was optional and
+            // nil until `load()` had run; the model never is.)
+            var id = CanvasNodeID("")
+            model.withScene(persist: false) {
+                id = CanvasInteraction.createScrap(at: contentPoint, in: &$0)
+            }
+            model.setScrapText("", for: id)
             // A new scrap has no cachedHeight, so it has no frame, so it is
             // invisible to hit testing and culling until it is measured.
             // `rebuildLayouts()` also bumps `sceneRevision`.
@@ -785,13 +744,13 @@ struct CanvasView: View {
             // scene whose new node has no `cachedHeight`, so undoing the typing
             // would restore a card with no frame — invisible to hit testing, to
             // culling and to the renderer.
-            undo?.endGesture()
+            model.endGesture()
             editingNodeID = id
             caretIndex = 0
             lastKeystrokeAt = nil
             straighten.focus(id)
             // Whatever the writer now types is a second, separate step.
-            undo?.beginGesture("Edit Scrap")
+            model.beginGesture("Edit Scrap")
 
         case .unenterableNode:
             // Nothing to enter, so this behaves like a single click. Falling
@@ -801,7 +760,7 @@ struct CanvasView: View {
             // `visibleEditorNodeID` re-reveals it the moment `isLevel` fires.
             leaveTheOpenScrap()
         }
-        store?.scheduleSave(scene: scene, scraps: scraps)
+        model.scheduleSave()
     }
 
     /// Focus leaves the canvas's open scrap: unmount the editor and let the card
@@ -860,17 +819,19 @@ struct CanvasView: View {
             // (`CanvasEventNSView.applyMouseDown` pins that order), so this sees
             // the focus state the click just set.
             guard editingNodeID == nil else { return }
-            interaction.begin(at: contentPoint, in: scene)
+            interaction.begin(at: contentPoint, in: model.scene)
             // Only when `begin` found something. A press on bare canvas leaves
             // the interaction idle, so `.ended` bails on its first guard and
             // would never close a gesture opened here — the next real drag would
             // then nest inside it and two gestures would collapse into one ⌘Z.
             if interaction.isActive {
-                undo?.beginGesture(interaction.isResizing ? "Resize Scrap" : "Move Scrap")
+                model.beginGesture(interaction.isResizing ? "Resize Scrap" : "Move Scrap")
             }
         case .changed:
             guard interaction.isActive else { return }
-            interaction.update(to: contentPoint, in: &scene)
+            // `persist: false`: a drag emits a position per frame and the save
+            // it owns is the one at `.ended`.
+            model.withScene(persist: false) { interaction.update(to: contentPoint, in: &$0) }
             // A resize rewraps, and `CanvasScene.setWidth` clears the cached
             // height to say so. Re-derive it NOW, not at `.ended`: a node with
             // no `cachedHeight` has no `frame`, and a node with no frame is
@@ -929,7 +890,7 @@ struct CanvasView: View {
                 // to `nodes(intersecting:)` and to the renderer at once.
                 // `test_aCornerPressThatNeverMovedLeavesNothingToUndo` is the one
                 // that fails if these two lines are swapped.
-                undo?.endGesture()
+                model.endGesture()
             } else {
                 // A press that never moved is not a drag. AppKit opens a drag
                 // session on EVERY mouse-down, including the first of a
@@ -944,7 +905,7 @@ struct CanvasView: View {
                 // real drag nested inside it — two gestures, one ⌘Z, and the
                 // card jumping back further than the writer asked. Nothing
                 // moved, so `endGesture` registers no step.
-                undo?.endGesture()
+                model.endGesture()
                 guard interaction.hasMoved else { return }
                 // *** KEEP THIS. *** A move is one structural change, recorded at
                 // the END of the gesture rather than once per drag frame, and the
@@ -954,7 +915,7 @@ struct CanvasView: View {
                 sceneRevision += 1
                 if let flick { momentum.launch(flick.id, velocity: flick.velocity) }
             }
-            store?.scheduleSave(scene: scene, scraps: scraps)
+            model.scheduleSave()
             revision += 1
         }
     }
