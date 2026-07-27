@@ -130,18 +130,53 @@ final class CanvasModel {
             // re-measures every card. Heights are DERIVED, so a restored scene
             // is re-measured rather than trusted.
             onSceneReplacedByUndo?()
+            // UNCONDITIONAL, and deliberately not "only when nothing is wired".
+            // Every reader of this counter must see an undo, whether or not a
+            // canvas happens to be on screen — a model that under-counts while a
+            // view is attached is a model that is no longer correct on its own.
+            // The view's own bump is suppressed on this one path instead; see
+            // `CanvasView.rebuildLayouts(bumpsStructuralCounter:)`.
             sceneRevision += 1
             scheduleSave()
         }
     }
 
-    /// Fold the live edit in, write, and let go of the cycle. `CanvasView`
-    /// calls this from `.onDisappear`, which is where 1C-a does the same work.
+    /// Write, and then let go of every closure that points back at the owner.
+    /// `CanvasView` calls this from `.onDisappear`, which is where 1C-a does the
+    /// same work.
+    ///
+    /// **The two callbacks below are the retain cycle, and they are the whole
+    /// reason this method exists.** `CanvasView` is a struct captured BY VALUE
+    /// into each of them, and it holds `let model` — so
+    /// `model → beforeFlush → CanvasView → model` is a cycle, and
+    /// `onSceneReplacedByUndo` is the same cycle a second time. Left set, a
+    /// closed Plan persona never deallocates its `CanvasModel`: the scene, every
+    /// scrap's text, the `UndoManager` and the `CanvasStore` all stay alive,
+    /// `CanvasStore.deinit` never runs so its `willTerminateNotification`
+    /// observer outlives the window, and the captured view's
+    /// `paletteSwatchHexes` closure pins one `ProjectStore` per closed project
+    /// window.
+    ///
+    /// `store.beforeFlush` is cleared too, but it is NOT part of that cycle —
+    /// it captures `[weak self]`. It is cleared so a store that outlives this
+    /// detach (it is only released when the next `attach` replaces it) cannot
+    /// call back into a canvas that is gone.
+    ///
+    /// `undo.release()` covers the third and fourth edges: the recorder's two
+    /// closures, and the manager's retain of the recorder once per step.
+    ///
+    /// `CanvasView.load()` re-sets both callbacks on the next `.onAppear`, so a
+    /// persona switch back is unaffected.
     func detach() {
-        beforeFlush?()
+        // No `beforeFlush?()` of our own: `CanvasStore.flush` calls it first
+        // thing, through the `[weak self]` hop `attach` wired. One path, so
+        // `CanvasModelTests.test_detachFoldsTheLiveEditInBeforeItWrites` fails
+        // if that wiring is ever dropped — with a second call here it could not.
         store?.flush()
         store?.beforeFlush = nil
         undo.release()
+        beforeFlush = nil
+        onSceneReplacedByUndo = nil
     }
 
     // MARK: - Mutation

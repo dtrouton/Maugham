@@ -432,7 +432,15 @@ struct CanvasView: View {
             // mounted editor instead of leaving it showing the discarded words.
             // Replacing the layout under a MOUNTED editor is safe; the
             // measurement is on `rebuildLayouts` below.
-            rebuildLayouts()
+            //
+            // The ONE call site that does not bump the structural counter, and
+            // the argument is spelled out rather than defaulted so it cannot be
+            // lost. The model bumps its own counter on the line after this
+            // closure returns, and the mirror below turns that into the view's
+            // bump — so bumping here as well rebuilds the whole accessibility
+            // tree TWICE for one ⌘Z, and a writer holding ⌘Z pays a scene sort
+            // and a copy of every scrap's string per step, twice.
+            rebuildLayouts(bumpsStructuralCounter: false)
         }
         wash = CanvasGroundPalette.wash(fromHex: paletteSwatchHexes())
         rebuildLayouts()
@@ -478,7 +486,12 @@ struct CanvasView: View {
     /// `unorderedNodes`, not `nodes`: this measures every scrap and does not
     /// care which is in front, and `CanvasScene.nodes` sorts the whole scene on
     /// every access.
-    private func rebuildLayouts() {
+    ///
+    /// `bumpsStructuralCounter` is `false` for exactly one caller — the undo
+    /// apply, where the model bumps its own counter immediately afterwards and
+    /// the mirror in `body` delivers it here. Every other caller has changed the
+    /// shape of the scene with nothing else about to say so.
+    private func rebuildLayouts(bumpsStructuralCounter: Bool = true) {
         // ONE `withScene` around the whole loop rather than one per node, and
         // `persist: false` because the caller owns the save.
         let scraps = model.scraps
@@ -508,8 +521,10 @@ struct CanvasView: View {
         layouts = layouts.filter { model.scene.node($0.key) != nil }
         revision += 1
         // Every caller of this — load, create, resize-end, undo — has changed the
-        // shape of the scene, so the accessibility tree is stale.
-        sceneRevision += 1
+        // shape of the scene, so the accessibility tree is stale. Undo is the one
+        // that has the model's mirror to deliver the bump instead; see the
+        // parameter's doc above.
+        if bumpsStructuralCounter { sceneRevision += 1 }
     }
 
     /// Re-derive ONE scrap's height from its live layout, for the resize path.

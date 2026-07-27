@@ -37,7 +37,10 @@ final class CanvasModelTests: XCTestCase {
         XCTAssertEqual(CanvasStore(projectRoot: root).load().scene.region(r1)?.label, "Falls")
     }
 
-    func test_selectionIsModelStateSoTwoReadersSeeOneValue() {
+    /// `selectedRegion` resolves a REGION selection and nothing else — the case
+    /// guard, which is what stops ⌫ and the inspector treating a selected card
+    /// as a selected region.
+    func test_selectedRegionResolvesARegionSelectionAndNothingElse() {
         let model = loadedModel()
         model.selection = .region(r1)
         XCTAssertEqual(model.selectedRegion?.displayLabel, "Act II fog")
@@ -45,7 +48,13 @@ final class CanvasModelTests: XCTestCase {
         XCTAssertNil(model.selectedRegion, "a selected NODE is not a selected region")
     }
 
-    func test_theModelUsesTheRecorderRatherThanASecondUndoStack() {
+    /// `mutate` registers a step, and its undo puts the label back.
+    ///
+    /// Deliberately NOT named for "no second undo stack" — this would pass
+    /// against a hand-rolled duplicate that happened to work. The thing that
+    /// genuinely forbids a second registrant is the area-wide census in
+    /// `CanvasCompositionTests.test_theCanvasRegistersUndoInExactlyOnePlace`.
+    func test_mutateRegistersAStepWhoseUndoRestoresTheLabel() {
         let model = loadedModel()
         model.mutate("Rename Region") { $0.updateRegion(self.r1) { $0.label = "Falls" } }
         XCTAssertTrue(model.undo.canUndo)
@@ -111,6 +120,11 @@ final class CanvasModelTests: XCTestCase {
         XCTAssertEqual(model.sceneRevision, before + 1)
     }
 
+    /// There is exactly ONE path from `detach` to the fold —
+    /// `CanvasStore.flush` → the `[weak self]` hop `attach` wired →
+    /// `model.beforeFlush` — so deleting that wiring turns this red. While
+    /// `detach` also called `beforeFlush` itself, this test stayed green with
+    /// the wiring gone and was falsifiable only for its own redundant call.
     func test_detachFoldsTheLiveEditInBeforeItWrites() {
         let model = loadedModel()
         model.beforeFlush = { model.setScrapText("the sentence in flight", for: self.a) }
@@ -119,6 +133,42 @@ final class CanvasModelTests: XCTestCase {
         XCTAssertEqual(CanvasStore(projectRoot: root).load().scraps[a],
                        "the sentence in flight",
                        "⌘Q mid-sentence must write the sentence")
+    }
+
+    /// `detach` drops the two callbacks that point back at the owner. They are
+    /// a retain cycle — `CanvasView` is a struct captured BY VALUE and holds
+    /// `let model` — and left set, a closed Plan persona keeps its scene, every
+    /// scrap's text, its `UndoManager`, its `CanvasStore` (whose termination
+    /// observer then outlives the window) and, through the captured view's
+    /// palette closure, one whole `ProjectStore`.
+    func test_detachLetsGoOfTheCallbacksThatPointBackAtTheOwner() {
+        let model = loadedModel()
+        model.beforeFlush = { }
+        model.onSceneReplacedByUndo = { }
+        model.detach()
+        XCTAssertNil(model.beforeFlush,
+                     "beforeFlush still captures the owner, which owns the model")
+        XCTAssertNil(model.onSceneReplacedByUndo,
+                     "onSceneReplacedByUndo is the same cycle a second time")
+    }
+
+    /// One structural bump per ⌘Z, whatever the wired view does inside the
+    /// apply. The counter exists because rebuilding the accessibility tree
+    /// sorts the scene and copies every scrap's string; a writer holding ⌘Z
+    /// pays that per step.
+    func test_anUndoMovesTheStructuralCounterExactlyOnce() {
+        let model = loadedModel()
+        model.mutate("Move Scrap") { $0.move(self.a, to: CGPoint(x: 400, y: 400)) }
+        // What `CanvasView` binds: re-measuring the restored cards, which
+        // mutates the scene again from inside the apply.
+        model.onSceneReplacedByUndo = {
+            model.withScene(persist: false) { $0.setCachedHeight(90, for: self.a) }
+        }
+        let before = model.sceneRevision
+        model.undo.undo()
+        XCTAssertEqual(model.sceneRevision, before + 1,
+                       "an undo is one structural change, and the re-measure the "
+                       + "view does inside the apply is part of it")
     }
 
     func test_reattachingReadsWhatDetachWrote() {
