@@ -35,7 +35,7 @@ final class CanvasAccessibilityTests: XCTestCase {
         var scene = sampleScene()
         scene.insert(scrapNode("far", x: 90_000, y: 90_000))
         let elements = CanvasAccessibility.elements(scene: scene, scraps: scraps)
-        XCTAssertTrue(elements.contains { $0.id == CanvasNodeID("far") })
+        XCTAssertTrue(elements.contains { $0.id == .node(CanvasNodeID("far")) })
     }
 
     func test_readingOrderIsRowsThenColumns() {
@@ -103,7 +103,7 @@ final class CanvasAccessibilityTests: XCTestCase {
 
     func test_aScrapCarriesItsTextAsItsValue() {
         let element = CanvasAccessibility.elements(scene: sampleScene(), scraps: scraps)
-            .first { $0.id == CanvasNodeID("s1") }
+            .first { $0.id == .node(CanvasNodeID("s1")) }
         XCTAssertEqual(element?.role, .scrap)
         XCTAssertEqual(element?.value, "The falls at night.")
         XCTAssertTrue(element?.label.contains("Scrap") == true)
@@ -111,23 +111,83 @@ final class CanvasAccessibilityTests: XCTestCase {
 
     func test_anEmptyScrapSaysSoRatherThanReadingAsBlank() {
         let element = CanvasAccessibility.elements(scene: sampleScene(), scraps: scraps)
-            .first { $0.id == CanvasNodeID("s3") }
+            .first { $0.id == .node(CanvasNodeID("s3")) }
         XCTAssertEqual(element?.value, CanvasAccessibility.emptyScrapValue)
         XCTAssertFalse(CanvasAccessibility.emptyScrapValue.isEmpty)
     }
 
     func test_anItemNodeIsLabelledAsAReference() {
         let element = CanvasAccessibility.elements(scene: sampleScene(), scraps: scraps)
-            .first { $0.id == .item("r-9") }
+            .first { $0.id == .node(.item("r-9")) }
         XCTAssertEqual(element?.role, .item)
         XCTAssertTrue(element?.value.contains("r-9") == true)
+    }
+
+    // MARK: - Regions (§7A.6 — a primitive the writer can see and the VoiceOver
+    // user cannot is precisely the failure this layer exists to prevent)
+
+    func test_aRegionIsAnAccessibilityElementAndReadsBeforeItsCards() {
+        var s = CanvasScene()
+        s.insert(CanvasNode(id: CanvasNodeID("a"), kind: .scrap, origin: CGPoint(x: 50, y: 50),
+                            width: 240, cachedHeight: 80))
+        s.insertRegion(CanvasRegion(id: CanvasRegionID("r1"), label: "Act II fog",
+                                    frame: CGRect(x: 0, y: 0, width: 600, height: 400)))
+        let elements = CanvasAccessibility.elements(scene: s, scraps: [:])
+        XCTAssertEqual(elements.first?.role, .region)
+        XCTAssertEqual(elements.first?.label, "Act II fog")
+        XCTAssertEqual(elements.count, 2)
+    }
+
+    func test_anUnlabelledRegionAnnouncesItselfRatherThanReadingAsBlank() {
+        var s = CanvasScene()
+        s.insertRegion(CanvasRegion(id: CanvasRegionID("r1"), label: "",
+                                    frame: CGRect(x: 0, y: 0, width: 600, height: 400)))
+        XCTAssertEqual(CanvasAccessibility.elements(scene: s, scraps: [:]).first?.label,
+                       CanvasRegion.untitledLabel)
+    }
+
+    func test_theResidentsOfACollapsedRegionLeaveTheTree() {
+        var s = CanvasScene()
+        s.insert(CanvasNode(id: CanvasNodeID("a"), kind: .scrap, origin: CGPoint(x: 50, y: 50),
+                            width: 240, cachedHeight: 80))
+        s.insertRegion(CanvasRegion(id: CanvasRegionID("r1"), label: "Act II fog",
+                                    frame: CGRect(x: 0, y: 0, width: 600, height: 400),
+                                    homeMembers: [CanvasNodeID("a")],
+                                    isCollapsed: true))
+        let elements = CanvasAccessibility.elements(scene: s, scraps: [:])
+        XCTAssertEqual(elements.map(\.role), [.region],
+                       "a VoiceOver user must not walk into cards that are not "
+                       + "on screen")
+        XCTAssertEqual(elements.first?.value,
+                       CanvasRenderer.collapsedSummary(for: CanvasRegionID("r1"), in: s),
+                       "and the region has to say what it is hiding")
+    }
+
+    /// The value is the card count either way, so without the state in the
+    /// LABEL a collapsed region and an expanded one holding the same cards read
+    /// out identically — and collapse is the one thing a VoiceOver user cannot
+    /// otherwise discover, because a collapsed region's cards have left the tree.
+    func test_aCollapsedRegionSoundsDifferentFromAnExpandedOneHoldingTheSameCards() {
+        func label(collapsed: Bool) -> String? {
+            var s = CanvasScene()
+            s.insert(CanvasNode(id: CanvasNodeID("a"), kind: .scrap,
+                                origin: CGPoint(x: 50, y: 50), width: 240, cachedHeight: 80))
+            s.insertRegion(CanvasRegion(id: CanvasRegionID("r1"), label: "Act II fog",
+                                        frame: CGRect(x: 0, y: 0, width: 600, height: 400),
+                                        homeMembers: [CanvasNodeID("a")],
+                                        isCollapsed: collapsed))
+            return CanvasAccessibility.elements(scene: s, scraps: [:])
+                .first { $0.role == .region }?.label
+        }
+        XCTAssertNotEqual(label(collapsed: true), label(collapsed: false))
+        XCTAssertEqual(label(collapsed: false), "Act II fog")
     }
 
     /// Frames are in VIEW coordinates, so an assistive client can point at them.
     func test_elementsAreCameraIndependentAndResolveThroughTheCamera() throws {
         let element = try XCTUnwrap(
             CanvasAccessibility.elements(scene: sampleScene(), scraps: scraps)
-                .first { $0.id == CanvasNodeID("s1") })
+                .first { $0.id == .node(CanvasNodeID("s1")) })
         XCTAssertEqual(element.contentFrame, CGRect(x: 0, y: 0, width: 240, height: 80),
                        "elements must not depend on the camera — otherwise every "
                        + "scroll event rebuilds a scene-proportional list inside a "

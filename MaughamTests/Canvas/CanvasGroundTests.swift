@@ -226,6 +226,15 @@ final class CanvasGroundTests: XCTestCase {
                              "the grain's colour is a dark-only calibration; light's grain "
                              + "is monochrome because that is what was signed off")
 
+        // Regions, added 1C-b Task 4. Same rule: a wash and an outline that
+        // read on paper do not read on slate, so each is a pair. Collapsing
+        // either to one shared colour is the tidy-up this test exists to stop.
+        XCTAssertNotEqual(CanvasMaterial.lightRegionWash, CanvasMaterial.darkRegionWash,
+                          "the region wash is a pair — the dark ground is an eighth "
+                          + "of the light one's brightness, so the same wash cannot "
+                          + "sit at the same dosage on both")
+        XCTAssertNotEqual(CanvasMaterial.lightRegionStroke, CanvasMaterial.darkRegionStroke)
+
         // Light, untouched by the dark pass.
         XCTAssertEqual(CanvasMaterial.lightGrainAmplitude, 0.055, accuracy: 1e-9)
         XCTAssertEqual(CanvasMaterial.lightLampDepth, 0.10, accuracy: 1e-9)

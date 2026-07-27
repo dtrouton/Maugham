@@ -176,6 +176,8 @@ struct CanvasView: View {
                     _ = drawRevision
                     CanvasRenderer.draw(scene: model.scene, camera: camera, viewSize: size,
                                         layouts: layouts,
+                                        scraps: model.scraps,
+                                        selection: model.selection,
                                         visibleEditorNodeID: visibleEditorNodeID,
                                         straighten: straighten, into: &cx)
                 }

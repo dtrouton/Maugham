@@ -629,7 +629,9 @@ final class CanvasRendererTests: XCTestCase {
         let viewSize = CGSize(width: 360, height: 90 + frame.height + 90)
         let page = try Self.render(size: viewSize) { cx in
             CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: viewSize,
-                                layouts: [node.id: layout], visibleEditorNodeID: nil,
+                                layouts: [node.id: layout],
+                                scraps: [:], selection: nil,
+                                visibleEditorNodeID: nil,
                                 straighten: CanvasFocusStraighten(), into: &cx)
         }
 
@@ -689,7 +691,9 @@ final class CanvasRendererTests: XCTestCase {
         func inkCount(visibleEditor: CanvasNodeID?) throws -> Int {
             let page = try Self.render(size: viewSize) { cx in
                 CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: viewSize,
-                                    layouts: [id: layout], visibleEditorNodeID: visibleEditor,
+                                    layouts: [id: layout],
+                                    scraps: [:], selection: nil,
+                                    visibleEditorNodeID: visibleEditor,
                                     straighten: CanvasFocusStraighten(), into: &cx)
             }
             return page.inkPixels(rows: Int(frame.minY)..<Int(frame.maxY),
@@ -717,7 +721,9 @@ final class CanvasRendererTests: XCTestCase {
         func page(scene: CanvasScene) throws -> Page {
             try Self.render(size: viewSize) { cx in
                 CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: viewSize,
-                                    layouts: [id: layout], visibleEditorNodeID: id,
+                                    layouts: [id: layout],
+                                    scraps: [:], selection: nil,
+                                    visibleEditorNodeID: id,
                                     straighten: CanvasFocusStraighten(), into: &cx)
             }
         }
@@ -770,7 +776,9 @@ final class CanvasRendererTests: XCTestCase {
             let viewSize = CGSize(width: 360, height: 285)
             return (try Self.render(size: viewSize) { cx in
                 CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: viewSize,
-                                    layouts: [:], visibleEditorNodeID: nil,
+                                    layouts: [:],
+                                    scraps: [:], selection: nil,
+                                    visibleEditorNodeID: nil,
                                     straighten: CanvasFocusStraighten(), into: &cx)
             }, frame)
         }

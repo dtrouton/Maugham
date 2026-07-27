@@ -172,6 +172,14 @@ enum CanvasRenderer {
                                                            dark: CanvasMaterial.darkCardPaper)
     static let cardInk: NSColor = .labelColor
 
+    /// A region's wash and its outline, resolved per appearance from the pair in
+    /// `CanvasMaterial` — the same shape as `cardPaper`, and for the same
+    /// reason: light and dark are two materials, not one inverted (§7.1).
+    static let regionWash: NSColor = CanvasMaterial.dynamic(light: CanvasMaterial.lightRegionWash,
+                                                            dark: CanvasMaterial.darkRegionWash)
+    static let regionStroke: NSColor = CanvasMaterial.dynamic(light: CanvasMaterial.lightRegionStroke,
+                                                              dark: CanvasMaterial.darkRegionStroke)
+
     /// §7.2: each card sits at a seeded fraction of a degree — nothing is rough,
     /// but everything was *put down* rather than snapped to a grid.
     ///
@@ -274,6 +282,136 @@ enum CanvasRenderer {
             .insetBy(dx: -cullingBleed, dy: -cullingBleed))
     }
 
+    /// The regions the viewport can see, culled exactly as the nodes are.
+    ///
+    /// A region carries no seeded angle and no shadow, so the `cullingBleed`
+    /// budget is generous here rather than tight — it is shared with the node
+    /// cull so the two passes cannot disagree about where the viewport ends.
+    static func visibleRegions(in scene: CanvasScene,
+                               camera: CanvasCamera,
+                               viewSize: CGSize) -> [CanvasRegion] {
+        let viewport = camera.visibleContentRect(viewSize: viewSize)
+            .insetBy(dx: -cullingBleed, dy: -cullingBleed)
+        return scene.regions.filter { $0.frame.intersects(viewport) }
+    }
+
+    /// The line drawn from a resident that has wandered out of the region that
+    /// owns it, to that region.
+    ///
+    /// §4.2 accepts that "a node can sit visually outside the region that owns
+    /// it. That is a rendering problem (draw the relationship), not a
+    /// correctness one." This is that relationship, drawn.
+    ///
+    /// **Both ends are MIDPOINTS.** `cardTransform` translates to `(midX, midY)`,
+    /// rotates and translates back, so a card's midpoint maps to itself at any
+    /// angle — a tether meets a tilted card exactly where it meets a level one
+    /// and no straighten value can make it drift. Anchor either end on a corner
+    /// and the line visibly slides for the 120 ms of every focus change.
+    ///
+    /// **Cost, stated rather than left to be found:** `tethers` and
+    /// `appearanceChips` both run per frame and both walk every region's member
+    /// sets, so together they are `O(members)` with a sort per region — the same
+    /// order as `visibleNodes`, which already scans the whole scene because
+    /// there is no spatial index (see `AREA.md`, "Scale"). Neither is culled to
+    /// the viewport: a tether's two ends are usually in different places and
+    /// clipping it correctly means testing the segment, not either endpoint.
+    /// If a canvas ever arrives where this shows, cull the SEGMENT against the
+    /// viewport — do not cull on the region, which is what hides the line
+    /// telling the writer where their card went.
+    struct Tether: Equatable {
+        let node: CanvasNodeID
+        let region: CanvasRegionID
+        let from: CGPoint
+        let to: CGPoint
+    }
+
+    static func tethers(in scene: CanvasScene) -> [Tether] {
+        // A collapsed region draws none of its residents, so a line to one
+        // lands on empty ground.
+        scene.regions.filter { !$0.isCollapsed }.flatMap { region -> [Tether] in
+            region.homeMembers.sorted { $0.raw < $1.raw }.compactMap { id in
+                guard let frame = scene.node(id)?.frame,
+                      // Only when the frames do not meet AT ALL. Tethering on
+                      // non-containment would fire a full line to the centre for
+                      // one pixel of overhang — a card straddling the edge is
+                      // still visibly IN the region.
+                      !frame.intersects(region.frame) else { return nil }
+                return Tether(node: id, region: region.id,
+                              from: CGPoint(x: frame.midX, y: frame.midY),
+                              to: CGPoint(x: region.frame.midX, y: region.frame.midY))
+            }
+        }
+    }
+
+    /// §4.3: "An appearance must not render identically to the thing itself…
+    /// An appearance reads as a reference: smaller, or a chip carrying the title
+    /// with a hairline to its home."
+    ///
+    /// The chip is the reference; the card stays where the writer put it. A copy
+    /// would make "which of these is the real one" unanswerable, which is the
+    /// failure §4.3 names.
+    struct AppearanceChip: Equatable {
+        let node: CanvasNodeID
+        let region: CanvasRegionID
+        let frame: CGRect
+        /// The midpoint of the node's own card — "where is the real one". A
+        /// midpoint for the same reason a tether's ends are: it is the one point
+        /// on a card that `cardTransform` fixes.
+        let homeAnchor: CGPoint
+    }
+
+    static let chipHeight: CGFloat = 18
+    static let chipWidth: CGFloat = 150
+    /// The gap between stacked chips. Small enough that a column of them reads
+    /// as one list, large enough that two chips never touch.
+    static let chipSpacing: CGFloat = 4
+    /// Breathing room for a chip's title inside its pill.
+    /// `CanvasRegionMetrics.labelInset`'s 10 is a card's number and swallows an
+    /// eighth of a chip.
+    static let chipTextInset: CGFloat = 6
+
+    static func appearanceChips(in scene: CanvasScene) -> [AppearanceChip] {
+        scene.regions.filter { !$0.isCollapsed }.flatMap { region -> [AppearanceChip] in
+            region.appearances.sorted { $0.raw < $1.raw }.enumerated().compactMap { index, id in
+                guard let card = scene.node(id)?.frame else { return nil }
+                let top = region.frame.minY + CanvasRegionMetrics.chromeHeight
+                    + CGFloat(index) * (chipHeight + chipSpacing)
+                // Chips stack down the region's inside edge and stop at its
+                // bottom; a region too short to hold them all shows what fits
+                // rather than spilling references onto the ground outside it.
+                guard top + chipHeight <= region.frame.maxY else { return nil }
+                return AppearanceChip(
+                    node: id, region: region.id,
+                    frame: CGRect(x: region.frame.minX + CanvasRegionMetrics.labelInset,
+                                  y: top, width: chipWidth, height: chipHeight),
+                    homeAnchor: CGPoint(x: card.midX, y: card.midY))
+            }
+        }
+    }
+
+    /// The first non-empty line of the scrap, so a chip says WHICH card it
+    /// stands for. A blank chip is indistinguishable from a rendering bug.
+    static func chipTitle(for id: CanvasNodeID,
+                          in scene: CanvasScene,
+                          scraps: [CanvasNodeID: String]) -> String {
+        if case .item(let reference)? = scene.node(id)?.kind {
+            return placeholderLabel(forReference: reference)
+        }
+        let line = (scraps[id] ?? "")
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .first
+            .map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
+        return line.isEmpty ? CanvasAccessibility.emptyScrapValue : line
+    }
+
+    /// What a collapsed region says it is holding. §7/§10 answer crowding by
+    /// collapsing rather than by minting more canvases — so a collapsed region
+    /// that showed an empty interior would read as an empty region.
+    static func collapsedSummary(for id: CanvasRegionID, in scene: CanvasScene) -> String {
+        let n = CanvasMembership.residents(of: id, in: scene).count
+        return n == 1 ? "1 card" : "\(n) cards"
+    }
+
     /// 1C-a draws item nodes as placeholders. 1C-d resolves the real title,
     /// kind glyph and thumbnail (spec §8A.1) — do not do it here.
     static func placeholderLabel(forReference referenceId: String) -> String {
@@ -313,15 +451,35 @@ enum CanvasRenderer {
     /// glyphs — the jump §7A.5 was written to prevent. `CanvasView` derives this
     /// argument and the editor's own visibility from ONE property, so they
     /// cannot flip on different frames.
+    /// Three passes, and the order is the design:
+    ///
+    /// 1. **Regions, BENEATH everything.** §4 makes a region *where the cards
+    ///    are*, not a panel they sit on — a wash that painted over a card would
+    ///    make the region the object and the cards its decoration.
+    /// 2. **Cards.**
+    /// 3. **Tethers and chips, ABOVE the cards.** A reference the writer cannot
+    ///    see is not a reference, and both of these are lines and labels that
+    ///    would otherwise be buried under the very card they point at.
+    ///
+    /// Regions draw in CANVAS space, outside any card transform, and that is
+    /// exactly right: `cardTransform` is concatenated onto a *local copy* of the
+    /// context inside `drawCard`, so it never leaks, and a region is not a card
+    /// — it has no seeded angle and never tilts.
     static func draw(scene: CanvasScene,
                      camera: CanvasCamera,
                      viewSize: CGSize,
                      layouts: [CanvasNodeID: ScrapLayout],
+                     scraps: [CanvasNodeID: String],
+                     selection: CanvasSelection?,
                      visibleEditorNodeID: CanvasNodeID?,
                      straighten: CanvasFocusStraighten,
                      into cx: inout GraphicsContext) {
         cx.translateBy(x: camera.pan.x, y: camera.pan.y)
         cx.scaleBy(x: camera.zoom, y: camera.zoom)
+
+        for region in visibleRegions(in: scene, camera: camera, viewSize: viewSize) {
+            drawRegion(region, in: scene, isSelected: selection == .region(region.id), on: cx)
+        }
 
         for node in visibleNodes(in: scene, camera: camera, viewSize: viewSize) {
             guard let frame = node.frame else { continue }
@@ -329,7 +487,132 @@ enum CanvasRenderer {
             drawCard(node, frame: frame,
                      layout: ownText ? layouts[node.id] : nil,
                      angle: drawnAngle(for: node.id, straighten: straighten),
+                     isSelected: selection == .node(node.id),
                      on: cx)
+        }
+
+        for tether in tethers(in: scene) { drawTether(tether, on: cx) }
+        for chip in appearanceChips(in: scene) {
+            drawChip(chip, title: chipTitle(for: chip.node, in: scene, scraps: scraps), on: cx)
+        }
+    }
+
+    /// The wash, the outline, the chrome bar and its label, and the resize mark.
+    ///
+    /// Takes the context BY VALUE for the same reason `drawCard` does — nothing
+    /// a region does may leak into the next thing drawn. Unlike a card it adds
+    /// no transform of its own: a region is an area on the ground, not an object
+    /// put down on it, so it never tilts.
+    ///
+    /// The chrome geometry comes from `CanvasRegionMetrics`, never spelled again
+    /// here: Task 5 hit-tests the same rects, and a second spelling puts the mark
+    /// and the target on different geometry.
+    private static func drawRegion(_ region: CanvasRegion,
+                                   in scene: CanvasScene,
+                                   isSelected: Bool,
+                                   on cx: GraphicsContext) {
+        let shape = Path(roundedRect: region.frame, cornerRadius: regionCornerRadius)
+        cx.fill(shape, with: .color(Color(nsColor: regionWash)))
+
+        // The chrome bar is the only part of a region a writer can grab, so it
+        // is the only part that is drawn as a surface rather than as an area —
+        // a second coat of the same wash, not a different colour.
+        let chrome = CanvasRegionMetrics.chromeRect(in: region.frame)
+        cx.drawLayer { bar in
+            bar.clip(to: shape)
+            bar.fill(Path(chrome), with: .color(Color(nsColor: regionWash)))
+        }
+
+        cx.stroke(shape,
+                  with: .color(Color(nsColor: isSelected
+                                     ? CanvasMaterial.regionSelectedStroke
+                                     : regionStroke)),
+                  lineWidth: isSelected ? 2 : 1)
+
+        var label = cx.resolve(Text(region.displayLabel).font(.system(size: 11, weight: .medium)))
+        label.shading = .color(Color(nsColor: .secondaryLabelColor))
+        let labelOrigin = CanvasRegionMetrics.labelOrigin(in: region.frame)
+        cx.draw(label, at: labelOrigin, anchor: .topLeading)
+
+        if region.isCollapsed {
+            // A collapsed region's interior is empty by design, so the count
+            // goes BESIDE the label rather than in the middle of nothing.
+            var summary = cx.resolve(Text(collapsedSummary(for: region.id, in: scene))
+                .font(.system(size: 11)))
+            summary.shading = .color(Color(nsColor: .tertiaryLabelColor))
+            cx.draw(summary,
+                    at: CGPoint(x: labelOrigin.x + label.measure(in: chrome.size).width
+                                + CanvasRegionMetrics.labelInset,
+                                y: labelOrigin.y),
+                    anchor: .topLeading)
+        }
+
+        cx.fill(regionResizeHandle(in: region.frame),
+                with: .color(Color(nsColor: regionStroke)))
+    }
+
+    /// Softer than a card's 3: a region is an area, and a tight corner on an
+    /// area reads as a panel.
+    private static let regionCornerRadius: CGFloat = 6
+
+    /// The region's resize mark — the triangle below the hypotenuse of
+    /// `CanvasRegionMetrics.resizeHandleRect`, exactly as a card's mark sits
+    /// inside its own corner square. The TARGET is the whole square; Task 5
+    /// tests against `resizeHandleRect` and this only inks part of it, which is
+    /// the right way round (see `resizeHandle`).
+    private static func regionResizeHandle(in frame: CGRect) -> Path {
+        let corner = CanvasRegionMetrics.resizeHandleRect(in: frame)
+        var p = Path()
+        p.move(to: CGPoint(x: corner.minX, y: corner.maxY))
+        p.addLine(to: CGPoint(x: corner.maxX, y: corner.maxY))
+        p.addLine(to: CGPoint(x: corner.maxX, y: corner.minY))
+        p.closeSubpath()
+        return p
+    }
+
+    /// §4.2's accepted cost, paid: a dashed hairline from the wandering card to
+    /// the region that owns it.
+    ///
+    /// The alpha is REPLACED rather than multiplied — `regionStroke` already
+    /// carries 0.30–0.35, and multiplying by `tetherOpacity` would give ~0.10,
+    /// which is a line the writer cannot see at all.
+    private static func drawTether(_ tether: Tether, on cx: GraphicsContext) {
+        var path = Path()
+        path.move(to: tether.from)
+        path.addLine(to: tether.to)
+        cx.stroke(path,
+                  with: .color(Color(nsColor: regionStroke
+                      .withAlphaComponent(CanvasMaterial.tetherOpacity))),
+                  style: StrokeStyle(lineWidth: 1, dash: [3, 4]))
+    }
+
+    /// §4.3's reference: a small chip carrying the title, with a hairline to the
+    /// real card. Smaller than the thing it stands for, and drawn on the card's
+    /// own paper at `chipOpacity` so it reads as lighter than a card without
+    /// reading as a different material.
+    private static func drawChip(_ chip: AppearanceChip,
+                                 title: String,
+                                 on cx: GraphicsContext) {
+        var hairline = Path()
+        hairline.move(to: CGPoint(x: chip.frame.midX, y: chip.frame.midY))
+        hairline.addLine(to: chip.homeAnchor)
+        cx.stroke(hairline,
+                  with: .color(Color(nsColor: regionStroke
+                      .withAlphaComponent(CanvasMaterial.tetherOpacity))),
+                  style: StrokeStyle(lineWidth: 0.5, dash: [2, 3]))
+
+        let shape = Path(roundedRect: chip.frame, cornerRadius: chipHeight / 2)
+        cx.fill(shape, with: .color(Color(nsColor: cardPaper)
+            .opacity(CanvasMaterial.chipOpacity)))
+        cx.stroke(shape, with: .color(Color(nsColor: regionStroke)), lineWidth: 0.5)
+
+        var text = cx.resolve(Text(title).font(.system(size: 10)))
+        text.shading = .color(Color(nsColor: .secondaryLabelColor))
+        cx.drawLayer { inner in
+            inner.clip(to: shape)
+            inner.draw(text,
+                       at: CGPoint(x: chip.frame.minX + chipTextInset, y: chip.frame.midY),
+                       anchor: .leading)
         }
     }
 
@@ -350,6 +633,7 @@ enum CanvasRenderer {
                                  frame: CGRect,
                                  layout: ScrapLayout?,
                                  angle: Angle,
+                                 isSelected: Bool,
                                  on cx: GraphicsContext) {
         let shape = Path(roundedRect: frame, cornerRadius: 3)
 
@@ -380,6 +664,13 @@ enum CanvasRenderer {
             // A placeholder reads as unfinished on purpose — 1C-d fills it in.
             card.stroke(shape, with: .color(Color(nsColor: .separatorColor)),
                         style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+        }
+
+        // Drawn OVER the kind's own border rather than replacing it, so a
+        // selected item node keeps the dashes that say it is a placeholder.
+        if isSelected {
+            card.stroke(shape, with: .color(Color(nsColor: CanvasMaterial.regionSelectedStroke)),
+                        lineWidth: 2)
         }
 
         card.fill(resizeHandle(in: frame),

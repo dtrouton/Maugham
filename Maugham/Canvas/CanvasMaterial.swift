@@ -198,6 +198,59 @@ enum CanvasMaterial {
     static let lightCardPaper: NSColor = .textBackgroundColor
     static let darkCardPaper = NSColor(srgbRed: 0.235, green: 0.232, blue: 0.226, alpha: 1)
 
+    // MARK: - Regions
+
+    /// The region wash, per appearance.
+    ///
+    /// §4 makes a region *where the cards are*, not a panel they sit on: at a
+    /// dosage anyone would call "a filled box" the cards stop reading as the
+    /// objects and the region becomes the object instead. **More legible
+    /// regions:** raise the alpha. The ceiling is not taste —
+    /// `CanvasRegionRenderTests.test_theRegionWashIsFeltRatherThanSeen` pins it
+    /// against `regionWashCeiling` in both appearances.
+    ///
+    /// A pair, like everything else here. Dark runs a warmer, slightly stronger
+    /// wash for the same reason the grain does: it is a *relative* signal, and
+    /// the dark ground is an eighth of the light one's brightness, so the same
+    /// alpha over a near-black ground moves fewer levels than it does over
+    /// paper. Measured 2026-07-27: light moves a bare pixel 0.039 in its
+    /// strongest channel, dark 0.056 — both under the 0.10 ceiling, both well
+    /// clear of the ~0.004 that 8-bit quantisation could account for.
+    static let lightRegionWash = NSColor(srgbRed: 0.55, green: 0.52, blue: 0.44, alpha: 0.07)
+    static let darkRegionWash = NSColor(srgbRed: 0.72, green: 0.62, blue: 0.48, alpha: 0.09)
+
+    /// How far, in 0–1 channel distance, the wash may move a pixel off the bare
+    /// ground. The felt-not-seen bound of §4, made falsifiable — and shared by
+    /// both appearances on purpose, because "reads as a filled panel" is a
+    /// perceptual threshold rather than a per-material calibration.
+    static let regionWashCeiling: Double = 0.10
+
+    /// The region's outline. Quieter than a card's border: a region is an area,
+    /// and an area whose edge out-shouts the cards inside it has become a box.
+    static let lightRegionStroke = NSColor(srgbRed: 0.45, green: 0.42, blue: 0.35, alpha: 0.35)
+    static let darkRegionStroke = NSColor(srgbRed: 0.78, green: 0.72, blue: 0.62, alpha: 0.30)
+
+    /// Selection is the one place on this surface that may shout a little.
+    /// Shared across appearances, because it is the system's accent and follows
+    /// the writer's own choice rather than this material's calibration — and
+    /// shared across PRIMITIVES, because `CanvasSelection` is one selection
+    /// covering both regions and cards, so two accents would be two answers to
+    /// "what is selected".
+    static let regionSelectedStroke: NSColor = .controlAccentColor
+
+    /// A tether explains a relationship the writer already knows about — that
+    /// this card lives in that region — so it must not compete with the cards.
+    ///
+    /// Applied by REPLACING the stroke colour's own alpha, not by multiplying
+    /// it: `lightRegionStroke` is already 0.35, and 0.35 × 0.30 is 0.105, which
+    /// is a line nobody can see. **Fainter tethers:** lower this.
+    static let tetherOpacity: CGFloat = 0.30
+
+    /// A chip is a reference (§4.3). It reads as lighter than the thing it
+    /// stands for — same paper, less of it — so that "which of these live here
+    /// and which are visiting" is answerable at a glance without reading a word.
+    static let chipOpacity: CGFloat = 0.75
+
     // MARK: - The tilt
 
     /// The half-width of the seeded per-card rotation: every card sits somewhere

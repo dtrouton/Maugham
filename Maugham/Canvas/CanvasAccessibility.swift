@@ -4,11 +4,34 @@ import SwiftUI
 enum CanvasAXRole: String, Equatable, Sendable {
     case scrap
     case item
+    case region
 }
 
-/// One synthetic accessibility element mirroring one node of the scene graph.
+/// What a synthetic element stands for.
+///
+/// Nodes and regions have separate id spaces — `CanvasNodeID("r1")` and
+/// `CanvasRegionID("r1")` are different things and may both exist — so the tree
+/// cannot key on a bare string without two primitives silently sharing one
+/// `Identifiable` id and one of them dropping out of the `ForEach`.
+enum CanvasAXIdentity: Hashable, Sendable {
+    case node(CanvasNodeID)
+    case region(CanvasRegionID)
+
+    /// A stable, unique string. The prefix is what keeps the two spaces apart;
+    /// nodes keep their bare id so the reading-order fixtures still read as the
+    /// ids the scene was built with.
+    var raw: String {
+        switch self {
+        case .node(let id): return id.raw
+        case .region(let id): return "region:\(id.raw)"
+        }
+    }
+}
+
+/// One synthetic accessibility element mirroring one node or region of the
+/// scene graph.
 struct CanvasAXElement: Equatable, Identifiable {
-    let id: CanvasNodeID
+    let id: CanvasAXIdentity
     let role: CanvasAXRole
     /// What the element IS, plus where — "Scrap, 3 of 12" reads badly, so the
     /// label carries the kind and the value carries the words.
@@ -71,27 +94,54 @@ enum CanvasAccessibility {
 
     static func elements(scene: CanvasScene,
                          scraps: [CanvasNodeID: String]) -> [CanvasAXElement] {
-        rowOrdered(scene.unorderedNodes)
-            .map { node in
-                let frame = CGRect(origin: node.origin,
-                                   size: CGSize(width: node.width,
-                                                height: node.cachedHeight ?? unmeasuredHeight))
-                switch node.kind {
-                case .scrap:
-                    let text = scraps[node.id] ?? ""
-                    return CanvasAXElement(
-                        id: node.id, role: .scrap,
-                        label: "Scrap",
-                        value: text.isEmpty ? emptyScrapValue : text,
-                        contentFrame: frame)
-                case .item(let referenceId):
-                    return CanvasAXElement(
-                        id: node.id, role: .item,
-                        label: "Reference",
-                        value: CanvasRenderer.placeholderLabel(forReference: referenceId),
-                        contentFrame: frame)
-                }
+        // Regions first into the list, but the ORDER is decided by `rowOrdered`
+        // over everything together — a region's frame starts at or above-left of
+        // the cards inside it, so the same rows-then-columns rule reads a region
+        // out before its contents without a special case for it.
+        var elements: [CanvasAXElement] = scene.unorderedRegions.map { region in
+            let residents = CanvasMembership.residents(of: region.id, in: scene).count
+            return CanvasAXElement(
+                id: .region(region.id), role: .region,
+                // The collapsed state rides in the LABEL: the value is the card
+                // count either way, so without this a collapsed region and an
+                // expanded one holding the same cards read out identically —
+                // and collapse is the one thing about a region a VoiceOver user
+                // cannot otherwise discover, because its cards have left the
+                // tree entirely.
+                label: region.isCollapsed ? "\(region.displayLabel), collapsed"
+                                          : region.displayLabel,
+                value: region.isCollapsed
+                    ? CanvasRenderer.collapsedSummary(for: region.id, in: scene)
+                    : "\(residents) \(residents == 1 ? "card" : "cards")",
+                contentFrame: region.frame)
+        }
+
+        // A resident of a collapsed region is not drawn, not clickable and not
+        // here: a VoiceOver user must not walk into cards that are not on
+        // screen. `unorderedNodes` deliberately still returns them, because
+        // `CanvasView.rebuildLayouts()` must keep measuring a hidden scrap.
+        for node in scene.unorderedNodes where !scene.isHidden(node.id) {
+            let frame = CGRect(origin: node.origin,
+                               size: CGSize(width: node.width,
+                                            height: node.cachedHeight ?? unmeasuredHeight))
+            switch node.kind {
+            case .scrap:
+                let text = scraps[node.id] ?? ""
+                elements.append(CanvasAXElement(
+                    id: .node(node.id), role: .scrap,
+                    label: "Scrap",
+                    value: text.isEmpty ? emptyScrapValue : text,
+                    contentFrame: frame))
+            case .item(let referenceId):
+                elements.append(CanvasAXElement(
+                    id: .node(node.id), role: .item,
+                    label: "Reference",
+                    value: CanvasRenderer.placeholderLabel(forReference: referenceId),
+                    contentFrame: frame))
             }
+        }
+
+        return rowOrdered(elements)
     }
 
     /// Reading order: rows top to bottom, then left to right within a row.
@@ -112,33 +162,39 @@ enum CanvasAccessibility {
     /// with their neighbours", it is what a fixed grid gets wrong in the other
     /// direction, and a writer who lays a canvas out that way has not drawn rows.
     ///
-    /// `unorderedNodes`, not `nodes`: `nodes` sorts into DRAW order on every
-    /// access, and this immediately re-sorts into READING order.
-    private static func rowOrdered(_ nodes: [CanvasNode]) -> [CanvasNode] {
+    /// It orders ELEMENTS rather than nodes, so a region takes its place in the
+    /// reading order by where it sits, not by a rule that says "regions first".
+    /// The two agree in the ordinary case and the general one is the honest one:
+    /// a region drawn low on the canvas should not be announced before the cards
+    /// above it.
+    private static func rowOrdered(_ elements: [CanvasAXElement]) -> [CanvasAXElement] {
         // Top to bottom first, so "the gap to the previous card" is a gap
         // between vertical neighbours. Ties break on x and then on id so the
         // walk below is deterministic: `unorderedNodes` is in hash order.
-        let byHeight = nodes.sorted { a, b in
-            if a.origin.y != b.origin.y { return a.origin.y < b.origin.y }
-            if a.origin.x != b.origin.x { return a.origin.x < b.origin.x }
+        let byHeight = elements.sorted { a, b in
+            let (p, q) = (a.contentFrame.origin, b.contentFrame.origin)
+            if p.y != q.y { return p.y < q.y }
+            if p.x != q.x { return p.x < q.x }
             return a.id.raw < b.id.raw
         }
 
         var band = 0
         var previousY: CGFloat?
-        let banded: [(band: Int, node: CanvasNode)] = byHeight.map { node in
-            if let previousY, node.origin.y - previousY > rowBand { band += 1 }
-            previousY = node.origin.y
-            return (band, node)
+        let banded: [(band: Int, element: CanvasAXElement)] = byHeight.map { element in
+            let y = element.contentFrame.origin.y
+            if let previousY, y - previousY > rowBand { band += 1 }
+            previousY = y
+            return (band, element)
         }
 
         return banded
             .sorted { a, b in
                 if a.band != b.band { return a.band < b.band }
-                if a.node.origin.x != b.node.origin.x { return a.node.origin.x < b.node.origin.x }
-                return a.node.id.raw < b.node.id.raw
+                let (p, q) = (a.element.contentFrame.origin, b.element.contentFrame.origin)
+                if p.x != q.x { return p.x < q.x }
+                return a.element.id.raw < b.element.id.raw
             }
-            .map(\.node)
+            .map(\.element)
     }
 
     /// What the canvas itself says when focused, before its children are walked.
