@@ -71,19 +71,38 @@ final class CanvasGroundTests: XCTestCase {
     /// brightness against a card of 0.118, i.e. the ground more than twice as
     /// light as the card it carries.
     ///
-    /// **The second assertion is what the dark calibration added.** The lamp only
-    /// ever *darkens* the ground (its ceiling is 1.0), so the base colours alone
-    /// would bound the relationship — except the grain swings both ways. Its
-    /// amplitude is now a per-appearance tunable, so "raise the texture until it
-    /// reads" has a point past which a grain spike out-lights the paper on it and
-    /// scraps flicker into holes, per pixel, only at high zoom. That is a real
-    /// failure mode of this exact knob, so it gets its own pin rather than a note.
+    /// **The second assertion is what the dark calibration added, and it is now
+    /// PER CHANNEL.** The lamp only ever *darkens* the ground (its ceiling is
+    /// 1.0), so the base colours alone would bound the relationship — except the
+    /// grain swings both ways. Its amplitude is a per-appearance tunable, so
+    /// "raise the texture until it reads" has a point past which a grain spike
+    /// out-lights the paper on it and scraps flicker into holes, per pixel, only
+    /// at high zoom.
+    ///
+    /// The channel split is what the grain's own colour forced. `grainTint`
+    /// scales the swing differently in R, G and B — dark's is
+    /// (1.084, 0.989, 0.856) — so a fleck can now clear the card in ONE channel
+    /// while the mean, and `brightnessComponent`, stay comfortably under. That
+    /// fleck is still a hole: a red spike that reaches the paper's red shows as a
+    /// coloured pinprick in the card's silhouette. A single-number ceiling can no
+    /// longer see it, so each channel gets its own, taken against the same
+    /// channel of the card rather than against the card's overall brightness.
+    ///
+    /// Headroom on 2026-07-27, in sRGB units: light 0.043 / 0.058 / 0.093,
+    /// dark 0.087 / 0.080 / 0.069 — the tightest is dark's blue, which is the
+    /// channel the tint damps most and the card's own darkest.
     func test_theCardIsLighterThanTheGroundInBothAppearances() throws {
-        let cases: [(NSAppearance.Name, amplitude: Double)] = [
-            (.aqua, amplitude: CanvasMaterial.lightGrainAmplitude),
-            (.darkAqua, amplitude: CanvasMaterial.darkGrainAmplitude),
+        let cases: [(NSAppearance.Name, amplitude: Double, tint: SIMD3<Double>)] = [
+            (.aqua,
+             amplitude: CanvasMaterial.lightGrainAmplitude,
+             tint: CanvasMaterial.grainTint(color: CanvasMaterial.lightGrainColor,
+                                            chroma: CanvasMaterial.lightGrainChroma)),
+            (.darkAqua,
+             amplitude: CanvasMaterial.darkGrainAmplitude,
+             tint: CanvasMaterial.grainTint(color: CanvasMaterial.darkGrainColor,
+                                            chroma: CanvasMaterial.darkGrainChroma)),
         ]
-        for (name, amplitude) in cases {
+        for (name, amplitude, tint) in cases {
             NSAppearance(named: name)!.performAsCurrentDrawingAppearance {
                 guard let ground = CanvasGround.base.usingColorSpace(.sRGB),
                       let paper = CanvasRenderer.cardPaper.usingColorSpace(.sRGB) else {
@@ -97,16 +116,26 @@ final class CanvasGroundTests: XCTestCase {
                     + "an object (spec 7.2). CanvasGround.base must stay below "
                     + "CanvasRenderer.cardPaper in BOTH appearances.")
 
-                // The shader adds +/- amplitude/2 before the lamp multiplies down.
-                let peak = ground.brightnessComponent + amplitude / 2
-                XCTAssertGreaterThan(
-                    paper.brightnessComponent - peak, 0.02,
-                    "under \(name.rawValue) the ground peaks at \(peak) once the grain "
-                    + "(amplitude \(amplitude)) is added, against a card of "
-                    + "\(paper.brightnessComponent). Raise CanvasMaterial's card paper or "
-                    + "lower its base/grain amplitude: a grain spike that reaches the "
-                    + "card's own brightness makes the scrap read as a hole wherever it "
-                    + "lands.")
+                // The shader adds `n * amplitude * tint` before the lamp
+                // multiplies down, and n peaks at +1/2.
+                let channels: [(String, ground: CGFloat, paper: CGFloat, tint: Double)] = [
+                    ("red", ground.redComponent, paper.redComponent, tint.x),
+                    ("green", ground.greenComponent, paper.greenComponent, tint.y),
+                    ("blue", ground.blueComponent, paper.blueComponent, tint.z),
+                ]
+                for (channel, groundValue, paperValue, weight) in channels {
+                    let peak = Double(groundValue) + amplitude / 2 * weight
+                    XCTAssertGreaterThan(
+                        Double(paperValue) - peak, 0.02,
+                        "under \(name.rawValue) the ground's \(channel) peaks at \(peak) "
+                        + "once the grain (amplitude \(amplitude), tint \(weight) in this "
+                        + "channel) is added, against a card's \(channel) of \(paperValue). "
+                        + "Raise CanvasMaterial's card paper, or lower its base, grain "
+                        + "amplitude, or grain chroma: a grain spike that reaches the "
+                        + "card's own value IN ANY ONE CHANNEL makes the scrap read as a "
+                        + "hole wherever it lands, and a mean that stays under says "
+                        + "nothing about it.")
+                }
             }
         }
     }
@@ -193,10 +222,15 @@ final class CanvasGroundTests: XCTestCase {
         XCTAssertLessThan(CanvasMaterial.darkLampFloor, CanvasMaterial.lightLampFloor,
                           "the floor is how far the light may drop; dark needs more room")
 
+        XCTAssertGreaterThan(CanvasMaterial.darkGrainChroma, CanvasMaterial.lightGrainChroma,
+                             "the grain's colour is a dark-only calibration; light's grain "
+                             + "is monochrome because that is what was signed off")
+
         // Light, untouched by the dark pass.
         XCTAssertEqual(CanvasMaterial.lightGrainAmplitude, 0.055, accuracy: 1e-9)
         XCTAssertEqual(CanvasMaterial.lightLampDepth, 0.10, accuracy: 1e-9)
         XCTAssertEqual(CanvasMaterial.lightLampFloor, 0.86, accuracy: 1e-9)
+        XCTAssertEqual(CanvasMaterial.lightGrainChroma, 0.0, accuracy: 1e-9)
     }
 
     // MARK: - The shader
@@ -394,6 +428,149 @@ final class CanvasGroundTests: XCTestCase {
                              + "CanvasMaterial.darkLampDepth or lower darkLampFloor.")
     }
 
+    /// "I tried adding more texture but I think the problem is that the grain
+    /// colour is just too close to the background colour." — the writer,
+    /// 2026-07-27, after raising `darkGrainAmplitude` 0.075 → 0.099 and finding
+    /// it made no difference in kind.
+    ///
+    /// He was describing the model, not the dosage. The grain was a single
+    /// monochrome offset added equally to R, G and B, so every fleck was
+    /// *exactly* the ground's hue and amplitude could only ever make a flat
+    /// colour noisier. **This is the test that says the grain has a colour of
+    /// its own**, and each assertion fails on the shader that shipped this
+    /// morning — measured against it directly, not reasoned about:
+    ///
+    /// | measure, dark, zoom 1 | monochrome | with `darkGrainColor` |
+    /// |---|---|---|
+    /// | adjacent-pixel energy R / G / B | 4.479 / 4.477 / 4.471 | 4.862 / 4.428 / 3.830 |
+    /// | chroma energy (R − B) | 0.424 | 1.089 |
+    ///
+    /// The first row is the whole diagnosis as a number: three channels varying
+    /// by the same 4.48 levels is the definition of a fleck that is the base
+    /// hue, lighter or darker.
+    @MainActor
+    func test_theGrainVariesInHueAndNotOnlyInValue() throws {
+        let size = CGSize(width: 160, height: 120)
+        let dark = try Self.renderGround(pan: .zero, zoom: 1, size: size, scheme: .dark)
+        let red = Self.channelEnergy(dark, 0)
+        let green = Self.channelEnergy(dark, 1)
+        let blue = Self.channelEnergy(dark, 2)
+
+        // 1. The channels no longer swing together. Measured 1.27; the
+        //    monochrome grain scored 1.002, which is quantisation, not colour.
+        XCTAssertGreaterThan(
+            red / blue, 1.10,
+            "the dark grain swings \(red) levels in red against \(blue) in blue — a ratio "
+            + "of \(red / blue). Under about 1.1 the three channels are moving together, "
+            + "which is a monochrome offset wearing a colour's name: every fleck is the "
+            + "ground's own hue and CanvasMaterial.darkGrainColor is not reaching the GPU "
+            + "(or its chroma is 0).")
+
+        // 2. Hue varies at grain scale at all.
+        let chroma = Self.chromaEnergy(dark)
+        XCTAssertGreaterThan(
+            chroma, 0.70,
+            "the dark ground carries \(chroma) levels of adjacent-pixel chroma energy. The "
+            + "monochrome grain scored 0.42 — pure 8-bit quantisation — so below about 0.7 "
+            + "this ground has no hue variation a writer could see.")
+
+        // 3. …but luminance still carries the grain. Hazard: per-pixel HUE
+        //    variation reads as fringing or JPEG speckle long before per-pixel
+        //    VALUE variation reads as anything but texture, so the ceiling is a
+        //    ratio against the luminance grain rather than an absolute. Measured
+        //    0.246 — hue skews about a quarter of what value does.
+        XCTAssertLessThan(
+            chroma, green * 0.5,
+            "chroma energy is \(chroma) against a luminance grain of \(green) — a ratio of "
+            + "\(chroma / green). Past about a half the ground stops reading as mineral and "
+            + "starts reading as colour noise. Lower CanvasMaterial.darkGrainChroma, or "
+            + "desaturate darkGrainColor.")
+    }
+
+    /// Light was signed off on 2026-07-26 and the grain-colour pass is dark-only,
+    /// so light must render **byte for byte** as it did before the shader learned
+    /// about colour. It does, and by two independent routes: light's grain colour
+    /// is a neutral grey, which luminance-normalises to (1, 1, 1) whatever the
+    /// chroma; and light's chroma is 0, which returns (1, 1, 1) whatever the
+    /// colour. Either alone is sufficient.
+    ///
+    /// The equality is **exact**, not approximate, and that is the claim worth
+    /// pinning: `x / x` is 1 and `1 + 0 * y` is 1 in IEEE arithmetic, the `Float`
+    /// narrowing of 1 is 1, and the shader's `half` multiply by 1 is exact — so
+    /// "unchanged" here means the same bytes, not the same look. An `accuracy:`
+    /// on this would let a tint of 1.0001 through, which is a *different* render
+    /// that no eye would catch and no other test in this file would either.
+    func test_theLightGrainTintIsExactlyNeutralSoLightIsUnchanged() {
+        let light = CanvasMaterial.grainTint(color: CanvasMaterial.lightGrainColor,
+                                             chroma: CanvasMaterial.lightGrainChroma)
+        XCTAssertEqual(light, SIMD3<Double>(1, 1, 1),
+                       "light's grain tint is \(light). Anything but exactly (1, 1, 1) "
+                       + "changes the signed-off light material.")
+        XCTAssertEqual(SIMD3<Float>(SIMD3<Float>(Float(light.x), Float(light.y),
+                                                 Float(light.z))),
+                       SIMD3<Float>(1, 1, 1),
+                       "the tint is neutral in Double but not once narrowed to the Float "
+                       + "the shader uniform actually carries")
+
+        // Both routes, independently — so removing either from CanvasMaterial
+        // fails here rather than silently halving the guarantee.
+        XCTAssertEqual(CanvasMaterial.grainTint(color: CanvasMaterial.lightGrainColor,
+                                                chroma: 1.0),
+                       SIMD3<Double>(1, 1, 1),
+                       "lightGrainColor is no longer neutral, so light's monochrome grain "
+                       + "now rests on its chroma being 0 alone")
+        XCTAssertEqual(CanvasMaterial.grainTint(color: CanvasMaterial.darkGrainColor,
+                                                chroma: 0),
+                       SIMD3<Double>(1, 1, 1),
+                       "a chroma of 0 no longer means 'no hue skew'")
+    }
+
+    /// The grain colour is a **direction, not a brightness**: `grainTint`
+    /// divides by the colour's own luminance, so the returned multiplier always
+    /// has luminance exactly 1 and moving the colour cannot move the strength of
+    /// the grain. That separation is the whole reason there are two knobs —
+    /// amplitude means "how much", the colour means "toward what" — and without
+    /// it the writer would find that darkening the grain colour also quietened
+    /// the texture, which is a knob that lies.
+    ///
+    /// It is also what makes the measured means hold still: the dark ground's
+    /// per-channel means moved by less than 0.01 of a level across this change
+    /// (20.673/22.398/24.978 → 20.674/22.399/24.972) while its per-channel grain
+    /// energies moved by 25%.
+    func test_theGrainColorIsADirectionAndNotABrightness() {
+        for chroma in [0.0, 0.3, 0.6, 1.0] {
+            for color in [CanvasMaterial.lightGrainColor, CanvasMaterial.darkGrainColor,
+                          NSColor(srgbRed: 0.05, green: 0.9, blue: 0.4, alpha: 1)] {
+                let t = CanvasMaterial.grainTint(color: color, chroma: chroma)
+                XCTAssertEqual(0.2126 * t.x + 0.7152 * t.y + 0.0722 * t.z, 1.0,
+                               accuracy: 1e-12,
+                               "tint \(t) at chroma \(chroma) has a luminance other than 1, "
+                               + "so this grain colour changes how STRONG the grain is and "
+                               + "not only which way it leans")
+            }
+        }
+
+        // Same hue, four brightnesses: the tint must not notice.
+        let base = CanvasMaterial.grainTint(color: NSColor(srgbRed: 0.72, green: 0.62,
+                                                           blue: 0.48, alpha: 1),
+                                            chroma: 0.6)
+        for scale in [0.25, 0.5, 2.0] where scale * 0.72 <= 1.0 {
+            let scaled = CanvasMaterial.grainTint(
+                color: NSColor(srgbRed: 0.72 * scale, green: 0.62 * scale,
+                               blue: 0.48 * scale, alpha: 1),
+                chroma: 0.6)
+            XCTAssertEqual(scaled.x, base.x, accuracy: 1e-9,
+                           "scaling the grain colour's brightness by \(scale) changed the "
+                           + "tint from \(base) to \(scaled)")
+            XCTAssertEqual(scaled.z, base.z, accuracy: 1e-9)
+        }
+
+        // A colour with no direction to point in falls back to neutral rather
+        // than dividing by zero.
+        XCTAssertEqual(CanvasMaterial.grainTint(color: .black, chroma: 1.0),
+                       SIMD3<Double>(1, 1, 1))
+    }
+
     // MARK: - The layering constraint
 
     /// Spec §7A.4, and the reason this view holds no content of its own: a
@@ -497,15 +674,6 @@ final class CanvasGroundTests: XCTestCase {
     /// floor rather than a tuning.
     private static let grainFloor: Double = 1.0
 
-    /// Mean absolute difference between horizontally adjacent pixels, in 8-bit
-    /// levels of the green channel.
-    ///
-    /// This is a HIGH-FREQUENCY measure, which is the point: the shader's grain
-    /// cell is ~1.1 content points across, so it moves between neighbours, while
-    /// the corner falloff takes the whole image to travel a few levels and
-    /// contributes essentially nothing here. That separation is what lets the
-    /// zoom test attribute a drop to the amplitude fade rather than to the
-    /// viewport covering more content.
     /// Mean green channel over a region, in 8-bit levels. A LOW-frequency
     /// measure, and the complement of `grainEnergy`: it sees the base colour and
     /// the lamp, and averages the grain away.
@@ -520,6 +688,50 @@ final class CanvasGroundTests: XCTestCase {
         return count == 0 ? 0 : Double(total) / Double(count)
     }
 
+    /// Mean absolute difference between horizontally adjacent pixels in one
+    /// channel, in 8-bit levels — `grainEnergy` generalised off green, so the
+    /// three channels can be compared against each other.
+    private static func channelEnergy(_ g: Ground, _ i: Int) -> Double {
+        var total = 0, count = 0
+        for y in 0..<g.height {
+            for x in 0..<(g.width - 1) {
+                total += abs(Int(g.rgb(x: x, y: y)[i]) - Int(g.rgb(x: x + 1, y: y)[i]))
+                count += 1
+            }
+        }
+        return count == 0 ? 0 : Double(total) / Double(count)
+    }
+
+    /// Mean absolute adjacent-pixel difference of `R − B`, in 8-bit levels.
+    ///
+    /// The complement of `grainEnergy`: a HIGH-FREQUENCY measure that is blind
+    /// to value and sees only hue. A monochrome grain adds the same offset to
+    /// every channel, so `R − B` is constant across the ground and this scores
+    /// essentially zero (0.42 dark / 0.36 light on 2026-07-27 — pure 8-bit
+    /// quantisation, since the lamp scales the channels by a shared factor).
+    /// A grain with a colour of its own moves it.
+    private static func chromaEnergy(_ g: Ground) -> Double {
+        var total = 0, count = 0
+        for y in 0..<g.height {
+            for x in 0..<(g.width - 1) {
+                let a = g.rgb(x: x, y: y), b = g.rgb(x: x + 1, y: y)
+                let da = Int(a[0]) - Int(a[2]), db = Int(b[0]) - Int(b[2])
+                total += abs(da - db)
+                count += 1
+            }
+        }
+        return count == 0 ? 0 : Double(total) / Double(count)
+    }
+
+    /// Mean absolute difference between horizontally adjacent pixels, in 8-bit
+    /// levels of the green channel.
+    ///
+    /// This is a HIGH-FREQUENCY measure, which is the point: the shader's grain
+    /// cell is ~1.1 content points across, so it moves between neighbours, while
+    /// the corner falloff takes the whole image to travel a few levels and
+    /// contributes essentially nothing here. That separation is what lets the
+    /// zoom test attribute a drop to the amplitude fade rather than to the
+    /// viewport covering more content.
     private static func grainEnergy(_ g: Ground) -> Double {
         var total = 0, count = 0
         for y in stride(from: 0, to: g.height, by: 1) {

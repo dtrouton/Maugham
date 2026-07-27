@@ -54,7 +54,91 @@ enum CanvasMaterial {
     /// on it turns a scrap into a hole (§7.2), and that is the same failure the
     /// base-colour pin exists to prevent, just intermittent and per-pixel.
     static let lightGrainAmplitude: Double = 0.055
-    static let darkGrainAmplitude: Double = 0.075
+    static let darkGrainAmplitude: Double = 0.099
+
+    /// **The colour the grain is made of** — which way a fleck leans, where
+    /// `grainAmplitude` is how far it travels.
+    ///
+    /// The grain used to be a single monochrome offset added equally to R, G and
+    /// B, so every fleck was *exactly the ground's hue*, lighter or darker. That
+    /// is why raising the amplitude could only ever make a flat colour noisier:
+    /// stone varies in hue as well as in value, and the shader had no way to say
+    /// so. The writer's reading was "the grain colour is just too close to the
+    /// background colour", and he was describing the model, not the dosage.
+    ///
+    /// The colour is **luminance-normalised** before it reaches the GPU (see
+    /// `grainTint`), so it carries a *direction* and not a brightness: making it
+    /// lighter or darker changes nothing, making it warmer or cooler changes
+    /// everything. That is deliberate — amplitude owns "how much" and this owns
+    /// "toward what", and the two stay independent knobs.
+    ///
+    /// Because the noise is signed, one colour gives variation in **both**
+    /// directions: bright flecks lean toward this colour, dark flecks lean away
+    /// from it, which on a cool slate ground means warm mineral highlights and
+    /// cooler shadows from a single number. A second, opposed colour would let
+    /// the two directions be chosen independently, and is the thing to reach for
+    /// if that ever proves too coupled; until it does, one colour is one fewer
+    /// knob whose interaction with the other has to be held in the head.
+    ///
+    /// **Dark** is a sandy ochre against the ground's blue-slate — feldspar in
+    /// stone. **Light is deliberately neutral**: a grey normalises to (1, 1, 1)
+    /// and reproduces the pre-colour monochrome grain exactly, which is what
+    /// keeps the signed-off light material byte-for-byte unchanged.
+    static let lightGrainColor = NSColor(srgbRed: 0.5, green: 0.5, blue: 0.5, alpha: 1)
+    static let darkGrainColor = NSColor(srgbRed: 0.72, green: 0.62, blue: 0.48, alpha: 1)
+
+    /// How much of `grainColor`'s lean actually lands: 0 is the old monochrome
+    /// grain, 1 is the full hue of the grain colour.
+    ///
+    /// **This exists because hue and value are not equally safe at grain scale.**
+    /// Per-pixel *hue* variation reads as colour fringing or JPEG-ish speckle
+    /// long before per-pixel *value* variation reads as anything but texture, so
+    /// the hue skew needs its own ceiling rather than being smuggled into the
+    /// saturation of the colour — otherwise "warmer flecks" and "more colour
+    /// noise" are the same gesture and neither can be tuned without the other.
+    ///
+    /// At dark's 0.6 the rendered ground carries about 1.0 levels of adjacent-
+    /// pixel *chroma* energy against 4.5 levels of luminance energy — hue skews
+    /// by roughly a quarter of what value does, which is the ratio §7.1's
+    /// "material, not texture" wants: luminance still carries the grain and hue
+    /// only tells you what it is made of. `CanvasGroundTests`
+    /// `test_theGrainVariesInHueAndNotOnlyInValue` pins both the floor (there IS
+    /// hue variation) and that ceiling (it stays under the luminance).
+    ///
+    /// **Light is 0**, so light's grain stays monochrome no matter what colour
+    /// sits above — the second of two independent reasons light renders exactly
+    /// as it did before this pass.
+    static let lightGrainChroma: Double = 0.0
+    static let darkGrainChroma: Double = 0.6
+
+    /// The per-channel multiplier the shader scales the signed grain by.
+    ///
+    /// `1 + chroma * (color / luminance(color) - 1)`. Dividing by the colour's
+    /// own Rec.709 luminance is what makes this a direction rather than a
+    /// brightness: the result's luminance is exactly 1 for *any* colour and
+    /// *any* chroma, so moving the grain colour cannot move the strength of the
+    /// grain — that stays `grainAmplitude`'s job alone.
+    ///
+    /// Computed here rather than in the shader on purpose: `CanvasGround.metal`
+    /// holds no material literals, and a number a test can read is a number the
+    /// writer can be shown.
+    ///
+    /// A neutral grey, or a chroma of 0, returns exactly (1, 1, 1) — exactly,
+    /// not nearly: `x / x` is 1 and `1 + 0 * y` is 1 in IEEE arithmetic, and the
+    /// shader's multiply by 1 is likewise exact. That is what lets light mode be
+    /// byte-for-byte identical to the monochrome grain rather than merely close.
+    /// A black or unresolvable colour has no direction to point in, so it falls
+    /// back to neutral rather than dividing by zero.
+    static func grainTint(color: NSColor, chroma: Double) -> SIMD3<Double> {
+        let neutral = SIMD3<Double>(1, 1, 1)
+        guard let c = color.usingColorSpace(.sRGB) else { return neutral }
+        let rgb = SIMD3<Double>(Double(c.redComponent),
+                                Double(c.greenComponent),
+                                Double(c.blueComponent))
+        let luminance = 0.2126 * rgb.x + 0.7152 * rgb.y + 0.0722 * rgb.z
+        guard luminance > 0.001 else { return neutral }
+        return neutral + chroma * (rgb / luminance - neutral)
+    }
 
     /// The lamp (§7.1: "Light falls from one corner. Light ages better than
     /// texture."). The ground is multiplied by a falloff that starts near 1 at

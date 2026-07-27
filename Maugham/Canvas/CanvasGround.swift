@@ -15,7 +15,8 @@ import MaughamCore
 /// isolation it was once credited with actually comes from the ZStack.
 struct CanvasGround: View {
     /// Which material this ground is made of. Light and dark differ by more than
-    /// a fill colour — grain amplitude and lamp depth are per-appearance too
+    /// a fill colour — grain amplitude, the grain's own colour, and lamp depth
+    /// are all per-appearance too
     /// (§7.1: "a different material, not the same texture inverted") — and the
     /// shader cannot ask, so the branch happens here and arrives as uniforms.
     ///
@@ -56,6 +57,15 @@ struct CanvasGround: View {
         isDark ? CanvasMaterial.darkGrainAmplitude : CanvasMaterial.lightGrainAmplitude
     }
 
+    /// The grain's own colour, as the per-channel multiplier the shader wants.
+    /// `CanvasMaterial` owns both the colour and the normalisation — the branch
+    /// here is only which appearance's pair to ask for.
+    private var grainTint: SIMD3<Double> {
+        CanvasMaterial.grainTint(
+            color: isDark ? CanvasMaterial.darkGrainColor : CanvasMaterial.lightGrainColor,
+            chroma: isDark ? CanvasMaterial.darkGrainChroma : CanvasMaterial.lightGrainChroma)
+    }
+
     private var lampDepth: Double {
         isDark ? CanvasMaterial.darkLampDepth : CanvasMaterial.lightLampDepth
     }
@@ -75,6 +85,7 @@ struct CanvasGround: View {
                     .float(camera.zoom),
                     .float(Self.grainScale),
                     .float(grainAmplitude),
+                    .float3(Float(grainTint.x), Float(grainTint.y), Float(grainTint.z)),
                     .float(lampDepth),
                     .float(lampFloor),
                     .float(CanvasMaterial.lampReach)))

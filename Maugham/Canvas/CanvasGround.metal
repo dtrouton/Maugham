@@ -45,6 +45,7 @@ half4 canvasGround(float2 position,
                    float zoom,
                    float grainScale,
                    float grainAmplitude,
+                   float3 grainTint,
                    float lampDepth,
                    float lampFloor,
                    float lampReach) {
@@ -57,9 +58,21 @@ half4 canvasGround(float2 position,
 
     // Peak-to-peak `amplitude`: valueNoise is 0...1, so this term is +/- half of
     // it. CanvasGroundTests pins that the ground at its peak stays below the
-    // card's paper.
+    // card's paper -- PER CHANNEL, now that the swing is no longer equal across
+    // the three.
+    //
+    // `grainTint` is what gives the grain a colour of its own: a per-channel
+    // multiplier from CanvasMaterial, luminance-normalised there so it can only
+    // lean the swing and never strengthen it. Neutral is (1, 1, 1), which
+    // reproduces the monochrome grain this shader used to have exactly -- the
+    // multiply by 1 is exact, which is what light mode's byte-for-byte pin
+    // rests on.
+    //
+    // The tint applies to the SIGNED noise, so bright flecks lean toward the
+    // grain colour and dark flecks lean away from it. One uniform, variation in
+    // both directions, which is what stone does.
     float n = valueNoise(content * grainScale) - 0.5;
-    half3 rgb = currentColor.rgb + half3(half(n * amplitude));
+    half3 rgb = currentColor.rgb + half3(half(n * amplitude)) * half3(grainTint);
 
     // Light falls from one corner (§7.1). Light ages better than texture.
     // The falloff only ever DARKENS (its ceiling is 1.0), which is what lets the
