@@ -216,7 +216,7 @@ enum CanvasMaterial {
     /// `CanvasRendererTests.test_theCullingBleedCoversTheRotationOverhangAtTheCalibratedTilt`
     /// re-does that arithmetic against whatever this is set to, so raising it
     /// further fails loudly rather than clipping a card corner at the window edge.
-    static let maximumTiltDegrees: Double = 1.2
+    static let maximumTiltDegrees: Double = 1.0
 
     // MARK: -
 
