@@ -166,8 +166,10 @@ interaction the writer has with the surface.
 
 ### 4. The whole card carries its seeded angle; focus straightens it over ~120 ms
 
-§7.2 puts each card at a seeded fraction of a degree (±0.6°, derived from the node id,
-stable across renders — deterministic irregularity, never random per frame). §7A.5 makes
+§7.2 puts each card at a seeded angle (±`CanvasMaterial.maximumTiltDegrees`, derived from
+the node id, stable across renders — deterministic irregularity, never random per frame).
+Calibrated by eye against the running app: 0.6° at first, **1.2° from 2026-07-27** at the
+writer's request. §7A.5 makes
 the straighten the focus affordance: **click a card and the entire card animates to level,
 chrome and text together, over ~120 ms, settling back to its angle on blur.** The card
 being edited is the only square one on the canvas. The rotation is a value the renderer
@@ -182,7 +184,7 @@ callback, no new machinery.
 between two failures that pull in opposite directions:
 
 - Make the editor **visible on the click** and axis-aligned glyphs land at the unrotated
-  text origin over a card still up to 0.6° off level, with the drawn text already
+  text origin over a card still up to 1.2° off level, with the drawn text already
   suppressed: they snap straight and the card catches up behind them. That is §7A.2's
   failure, reached by §7A.5's own route.
 - Defer the **mount** to `CanvasFocusStraighten.isLevel(_:)` and there is no first
@@ -332,18 +334,27 @@ downsampling exists anywhere in the app today.
 - **Six tripwires (25–30)** and `Maugham/Canvas/AREA.md`. The tripwires exist because five
   of the six defects behind them are invisible to a subview count, a geometry assertion or
   a green suite.
-- **Hit testing is on the unrotated rect**, so there is a mismatch band of ~1.4 pt at the
-  corner of a default 240×80 card. It sits exactly where the resize mark is drawn and
-  tested, and is accepted because 1.4 pt is inside pointer slop and the 14 pt target
-  absorbs it.
+- **Hit testing is on the unrotated rect**, so there is a mismatch band of `r·θ` — ~2.6 pt
+  at the corner of a default 240×80 card at the calibrated 1.2° tilt. It sits exactly where
+  the resize mark is drawn and tested, and is accepted because 2.6 pt is inside pointer
+  slop and the 14 pt target absorbs it. It is also the ceiling on further tilt
+  calibration, and `CanvasRenderer.cullingBleed` carries the same term (a card culled while
+  a corner is still on screen) with a test that re-does the arithmetic.
 - **The canvas is Mac-only** (§9). `Packages/MaughamCore` and `MaughamPhone` are untouched,
   exactly as 1B was.
 - **Open for the manual smoke**, recorded here rather than resolved on paper:
-  - **The ground uses one grain algorithm in both appearances**, so light and dark differ
-    only by base fill colour. §7.1 asks for "slate under a lamp — *a different material,
-    not the same texture inverted*". As built it is the same texture, recoloured. Resolving
-    it means giving the shader a second noise character, which is an aesthetic judgment
-    that wants eyes on the running app.
+  - ~~**The ground uses one grain algorithm in both appearances**, so light and dark differ
+    only by base fill colour.~~ **CLOSED 2026-07-27 by the smoke.** The writer's reading was
+    "the canvas looks a little bland and black, the texture isn't coming in… this also leads
+    to the cards not feeling differentiated enough". The cause was not the noise *character*
+    but the *range*: the whole dark scene lived between 0.060 and 0.118, in which a ±0.028
+    grain and a 14% lamp are a handful of 8-bit levels. Resolved by giving dark its own
+    material rather than a second noise function — ground 0.060 → 0.115, grain 0.055 →
+    0.075, lamp 0.10/0.86 → 0.26/0.66, and a **dedicated dark card paper of 0.235** in place
+    of `textBackgroundColor`, whose 0.118 now sits below the ground. Card-to-ground
+    separation goes 0.058 → 0.120. Every knob moved to `CanvasMaterial` as a named
+    per-appearance constant, with the shader taking uniforms, because the writer calibrates
+    these by eye and a literal in a `.metal` file is not findable. Light is untouched.
   - **The focused scrap is announced twice to VoiceOver**, once stale (decision 6). Whether
     `elements` needs to know the focused id is a question a VoiceOver walk settles.
 - **Left to later slices:** regions and `CanvasModel` (1C-b); lines and promotion (1C-c);

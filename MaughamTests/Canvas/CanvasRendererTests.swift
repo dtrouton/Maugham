@@ -18,11 +18,46 @@ final class CanvasRendererTests: XCTestCase {
                              "rotation must actually vary, or nothing was put down by hand")
     }
 
-    func test_seededRotation_staysUnderOneDegree() {
+    /// The tilt is a calibrated number now (`CanvasMaterial.maximumTiltDegrees`),
+    /// not a literal, so this pins two different things: that every card lands
+    /// inside whatever it is set to, and that the setting itself stays inside a
+    /// band where §7.2 still holds.
+    ///
+    /// The band replaces a flat `< 1.0`, which the writer's doubling to 1.2°
+    /// would have failed. "A seeded fraction of a degree" was a description of
+    /// the first calibration, not the requirement; the requirement is that a
+    /// scrap reads as *put down by hand* rather than as snapped to a grid at one
+    /// end or knocked over at the other. A degree or two is the honest reading of
+    /// that, and the ceiling is what stops a calibration round drifting into
+    /// cards that look broken.
+    func test_seededRotation_staysWithinTheCalibratedTilt() {
+        XCTAssertGreaterThan(CanvasMaterial.maximumTiltDegrees, 0,
+                             "a zero tilt snaps every card to the grid, which is the one "
+                             + "thing §7.2 names")
+        XCTAssertLessThanOrEqual(CanvasMaterial.maximumTiltDegrees, 3.0,
+                                 "past a few degrees a scrap reads as knocked over rather "
+                                 + "than put down, and the hit-test mismatch band (r·θ) "
+                                 + "grows past the pointer slop that absorbs it")
         for i in 0..<400 {
             let d = CanvasRenderer.seededRotation(for: CanvasNodeID("node-\(i)")).degrees
-            XCTAssertLessThan(abs(d), 1.0, "§7.2 says a seeded FRACTION of a degree")
+            XCTAssertLessThanOrEqual(abs(d), CanvasMaterial.maximumTiltDegrees,
+                                     "a card leaned further than the calibrated maximum")
         }
+    }
+
+    /// The seeded angles must SPREAD across the calibrated range, not huddle near
+    /// zero. Without this, `maximumTiltDegrees` could be raised to any number and
+    /// the canvas would look identical — the writer would be calibrating a knob
+    /// that does nothing, and every test above would still pass.
+    func test_theSeededTiltActuallyUsesTheCalibratedRange() {
+        let degrees = (0..<400).map {
+            CanvasRenderer.seededRotation(for: CanvasNodeID("node-\($0)")).degrees
+        }
+        let extreme = CanvasMaterial.maximumTiltDegrees * 0.9
+        XCTAssertTrue(degrees.contains { $0 > extreme },
+                      "no card leans near the positive limit")
+        XCTAssertTrue(degrees.contains { $0 < -extreme },
+                      "no card leans near the negative limit")
     }
 
     // MARK: - §7A.5, focus straightens the card
@@ -91,7 +126,7 @@ final class CanvasRendererTests: XCTestCase {
     /// VISIBLE text and the renderer stops drawing that card's own. §7A.5
     /// requirement 1 orders it: caret, then animate, then hand the text over.
     /// Showing the editor at progress 0 puts axis-aligned glyphs on a card that
-    /// is still up to 0.6° off level, at the unrotated text origin, with the
+    /// is still up to 1.2° off level, at the unrotated text origin, with the
     /// drawn text already suppressed — the glyphs jump straight the instant the
     /// writer clicks and the card catches up afterwards, which is precisely the
     /// §7A.2 failure.
@@ -303,8 +338,39 @@ final class CanvasRendererTests: XCTestCase {
         XCTAssertEqual(visible.first?.id, CanvasNodeID("n0"))
     }
 
+    /// The culling bleed must cover the drop shadow AND the rotation overhang at
+    /// whatever tilt the canvas is calibrated to — the arithmetic, re-done in
+    /// code, so a calibration round cannot quietly invalidate it.
+    ///
+    /// The overhang is `r·θ` and `r` is half the card's diagonal, so it scales
+    /// with the card as well as with the angle. It is measured here against a
+    /// **generously wide** card rather than the default 240×80: a writer widens a
+    /// scrap by dragging its corner, and the failure this guards — a card culled
+    /// while a corner of it is still on screen, so the card blinks out at the
+    /// window edge as they pan — bites the widest card on the canvas first.
+    ///
+    /// At the original θ = 0.6° a bleed of 8 pt cleared this by a wide margin;
+    /// doubling the tilt to 1.2° without touching the bleed would have left a
+    /// 480-wide card overhanging 5.3 pt against a 3 pt allowance over the shadow.
+    func test_theCullingBleedCoversTheRotationOverhangAtTheCalibratedTilt() {
+        // `drawCard`'s shadow: radius 3 at offset (1, 2).
+        let shadowReach: CGFloat = 5
+        let card = CGSize(width: 480, height: 160)
+        let radius = (card.width * card.width + card.height * card.height).squareRoot() / 2
+        let overhang = radius * CGFloat(CanvasMaterial.maximumTiltDegrees * .pi / 180)
+
+        XCTAssertGreaterThan(
+            CanvasRenderer.cullingBleed, shadowReach + overhang,
+            "at \(CanvasMaterial.maximumTiltDegrees)° a \(Int(card.width))×"
+            + "\(Int(card.height)) card's corner swings \(overhang) pt outside its own "
+            + "frame, and the drop shadow reaches \(shadowReach) pt — but the bleed is "
+            + "only \(CanvasRenderer.cullingBleed) pt, so a card still partly on screen "
+            + "can be culled and blink out at the window edge. Raise "
+            + "CanvasRenderer.cullingBleed to match the tilt.")
+    }
+
     /// A card paints outside its own frame — `drawCard`'s shadow reaches ~5 pt
-    /// past the edge, and the seeded rotation carries a corner ~1.4 pt out — so
+    /// past the edge, and the seeded rotation carries a corner further still — so
     /// culling on the bare frame drops a card whose shadow would still have
     /// fallen inside the viewport. The writer sees shadows appear and vanish at
     /// the window edge as they pan, which reads as the surface flickering.

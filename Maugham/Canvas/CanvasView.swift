@@ -373,7 +373,7 @@ struct CanvasView: View {
     ///
     /// Making the editor visible from the click was the first draft's defect:
     /// axis-aligned glyphs at the unrotated text origin over chrome that was
-    /// still up to 0.6° off level, so they snapped straight on the click and the
+    /// still up to 1.2° off level, so they snapped straight on the click and the
     /// card caught up behind them — spec §7A.2's failure by §7A.5's own route.
     private var visibleEditorNodeID: CanvasNodeID? {
         guard let id = editingNodeID, straighten.isLevel(id) else { return nil }

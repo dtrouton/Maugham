@@ -154,16 +154,22 @@ enum CanvasRenderer {
     /// not sit under the textured ground in dark mode, and because §7.2 wants
     /// honest objects rather than a light-mode skeuomorph pasted into the dark.
     ///
-    /// Measured under both appearances on 2026-07-26: `textBackgroundColor` is
-    /// 1.00 / 0.12 brightness and `labelColor` is 0.00 / 1.00, so the contrast
-    /// survives the switch in both directions.
+    /// **The paper is `textBackgroundColor` in light and a dedicated value in
+    /// dark** — see `CanvasMaterial.darkCardPaper` for why the split, which is a
+    /// real departure from Task 7's single semantic colour and not a drift. The
+    /// short version: `textBackgroundColor` is 0.118 in dark, which sat 0.058
+    /// above the old ground and vanishes entirely against the raised one.
+    /// `labelColor` is 0.00 / 1.00, so the ink survives the switch in both
+    /// directions either way — `test_theCardsInkContrastsWithItsPaperInBothAppearances`
+    /// is what says so, and it is the ceiling on how light the dark paper may go.
     ///
     /// **Task 9 and Task 10 must construct every `ScrapLayout` with
     /// `textColor: CanvasRenderer.cardInk`.** Taking `ScrapLayout`'s default
     /// happens to give the same colour today, but naming it here is what keeps
     /// the two ends of the pairing findable from one another — and what
     /// `test_theCardsInkContrastsWithItsPaperInBothAppearances` reads.
-    static let cardPaper: NSColor = .textBackgroundColor
+    static let cardPaper: NSColor = CanvasMaterial.dynamic(light: CanvasMaterial.lightCardPaper,
+                                                           dark: CanvasMaterial.darkCardPaper)
     static let cardInk: NSColor = .labelColor
 
     /// §7.2: each card sits at a seeded fraction of a degree — nothing is rough,
@@ -185,9 +191,11 @@ enum CanvasRenderer {
         z = (z ^ (z >> 27)) &* 0x94d0_49bb_1331_11eb
         z = z ^ (z >> 31)
 
-        // Map to ±0.6°, comfortably a fraction of a degree.
+        // Map into ±CanvasMaterial.maximumTiltDegrees — the ONE definition of how
+        // far a card may lean. Everything downstream derives from it, including
+        // `cullingBleed`'s overhang budget.
         let unit = Double(z % 10_000) / 10_000.0        // 0..<1
-        return .degrees((unit * 2 - 1) * 0.6)
+        return .degrees((unit * 2 - 1) * CanvasMaterial.maximumTiltDegrees)
     }
 
     /// The angle a card is ACTUALLY drawn at right now: its seeded angle, scaled
@@ -231,15 +239,25 @@ enum CanvasRenderer {
     ///
     /// Two things reach past `CanvasNode.frame`: `drawCard`'s drop shadow, which
     /// is radius 3 at offset (1, 2) and so extends ~5 pt past the edge it falls
-    /// from; and the seeded rotation, which carries a corner of a default
-    /// 240×80 card ~1.4 pt outside the unrotated rect (r·θ at r = 126.5 pt,
-    /// θ = 0.6°). 8 pt covers both with room to spare.
+    /// from; and the seeded rotation, which swings a corner out by `r·θ`.
+    ///
+    /// **The rotation term scales with the tilt AND with the card's diagonal, so
+    /// this budget is re-done whenever `CanvasMaterial.maximumTiltDegrees`
+    /// moves.** At θ = 1.2° a default 240×80 card overhangs ~2.6 pt (r = 126.5)
+    /// and a generous 480×160 card ~5.3 pt (r = 253) — so 12 pt covers the
+    /// shadow and a wide card together with room left. At the original θ = 0.6°
+    /// the same arithmetic gave 1.4 pt and 8 pt sufficed; doubling the tilt
+    /// without re-doing this would let a wide card's corner be culled while it
+    /// was still on screen.
+    /// `CanvasRendererTests.test_theCullingBleedCoversTheRotationOverhangAtTheCalibratedTilt`
+    /// recomputes it, so a further tilt increase fails loudly rather than
+    /// clipping a corner at the window edge.
     ///
     /// Culling on the bare frame drops a card whose frame is 1 pt off-screen
     /// while up to 4 pt of its shadow would still have landed inside the
     /// viewport — so shadows pop in and out at the edge as the writer pans,
     /// which reads as the surface flickering rather than as objects on a ground.
-    static let cullingBleed: CGFloat = 8
+    static let cullingBleed: CGFloat = 12
 
     /// Virtualisation, entire (spec §7A.1): an intersection test in the draw
     /// loop. No `ForEach` identity to preserve, so culling cannot destroy focus

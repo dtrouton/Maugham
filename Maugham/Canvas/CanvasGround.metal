@@ -31,25 +31,42 @@ static float valueNoise(float2 p) {
 //
 // pan/zoom arrive as uniforms so the grain is sampled in CONTENT space and
 // stays put under the writer's hand.
+//
+// EVERY MATERIAL NUMBER IS A UNIFORM, and deliberately so: the look is
+// calibrated by eye against the running app, and a constant buried in a shader
+// is a constant the writer cannot find. `CanvasMaterial` holds them all and
+// `CanvasGround` picks the light or dark set. Nothing below is a literal except
+// the two things that are geometry rather than taste — the lit corner's
+// direction, and the zoom band the grain fades over.
 [[ stitchable ]]
 half4 canvasGround(float2 position,
                    half4 currentColor,
                    float2 pan,
                    float zoom,
-                   float grainScale) {
+                   float grainScale,
+                   float grainAmplitude,
+                   float lampDepth,
+                   float lampFloor,
+                   float lampReach) {
     float2 content = (position - pan) / max(zoom, 0.0001);
 
     // Fade grain amplitude as a function of zoom to kill moire on zoom-out.
     // Analytically fwidth(content) == 1.0/zoom, so no derivative functions are
-    // needed (spec §7A.4).
-    float amplitude = 0.055 * smoothstep(0.25, 1.0, zoom);
+    // needed (spec §7A.4). Below 0.25 the ground is deliberately flat.
+    float amplitude = grainAmplitude * smoothstep(0.25, 1.0, zoom);
 
+    // Peak-to-peak `amplitude`: valueNoise is 0...1, so this term is +/- half of
+    // it. CanvasGroundTests pins that the ground at its peak stays below the
+    // card's paper.
     float n = valueNoise(content * grainScale) - 0.5;
     half3 rgb = currentColor.rgb + half3(half(n * amplitude));
 
     // Light falls from one corner (§7.1). Light ages better than texture.
-    float2 lit = content * 0.0004;
-    half fall = half(clamp(1.0 - 0.10 * length(lit - float2(-0.35, -0.35)), 0.86, 1.0));
+    // The falloff only ever DARKENS (its ceiling is 1.0), which is what lets the
+    // card-above-ground pin be made against the base colours alone.
+    float2 lit = content * lampReach;
+    half fall = half(clamp(1.0 - lampDepth * length(lit - float2(-0.35, -0.35)),
+                           lampFloor, 1.0));
 
     return half4(rgb * fall, currentColor.a);
 }

@@ -128,7 +128,7 @@ final class CanvasCompositionTests: XCTestCase {
     }
 
     /// …and must be INVISIBLE until the card is level. Axis-aligned glyphs at
-    /// the unrotated text origin over a card still up to 0.6° off level, with
+    /// the unrotated text origin over a card still up to 1.2° off level, with
     /// the drawn text already suppressed, snap straight the instant the writer
     /// clicks — the §7A.2 failure by the route §7A.5 exists to close.
     func test_theEditorIsInvisibleUntilTheCardIsLevel() throws {

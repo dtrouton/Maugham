@@ -60,24 +60,30 @@ final class CanvasGroundTests: XCTestCase {
 
     // MARK: - The card sits ON the ground, not IN it
 
-    /// Task 7, Minor 1. `CanvasRenderer.cardPaper` is `textBackgroundColor` —
-    /// 1.00 brightness in light, 0.12 in dark. Nothing pinned the card against
-    /// the GROUND, only against its own ink, and dark mode is where that bites:
-    /// the ground is dark too, and a ground *lighter* than the card turns every
-    /// scrap into a hole punched in the paper rather than an object resting on
-    /// it. §7.2 wants honest objects; a hole fails it as surely as unreadable
-    /// text does.
+    /// Task 7, Minor 1. Nothing pinned the card against the GROUND, only against
+    /// its own ink, and dark mode is where that bites: the ground is dark too,
+    /// and a ground *lighter* than the card turns every scrap into a hole punched
+    /// in the paper rather than an object resting on it. §7.2 wants honest
+    /// objects; a hole fails it as surely as unreadable text does.
     ///
     /// The direction is the load-bearing claim, and it fails against the exact
-    /// value this task was handed: an sRGB-resolved (0.16, 0.17, 0.19) is 0.249
-    /// brightness against a card of 0.118, i.e. the ground is more than twice as
+    /// value Task 8 was handed: an sRGB-resolved (0.16, 0.17, 0.19) is 0.249
+    /// brightness against a card of 0.118, i.e. the ground more than twice as
     /// light as the card it carries.
     ///
-    /// The shader only ever *darkens* the ground from here — its corner falloff
-    /// multiplies by 0.86...1.0 and the grain swings +/-0.028 — so pinning the
-    /// base colours pins the rendered relationship too.
+    /// **The second assertion is what the dark calibration added.** The lamp only
+    /// ever *darkens* the ground (its ceiling is 1.0), so the base colours alone
+    /// would bound the relationship — except the grain swings both ways. Its
+    /// amplitude is now a per-appearance tunable, so "raise the texture until it
+    /// reads" has a point past which a grain spike out-lights the paper on it and
+    /// scraps flicker into holes, per pixel, only at high zoom. That is a real
+    /// failure mode of this exact knob, so it gets its own pin rather than a note.
     func test_theCardIsLighterThanTheGroundInBothAppearances() throws {
-        for name in [NSAppearance.Name.aqua, .darkAqua] {
+        let cases: [(NSAppearance.Name, amplitude: Double)] = [
+            (.aqua, amplitude: CanvasMaterial.lightGrainAmplitude),
+            (.darkAqua, amplitude: CanvasMaterial.darkGrainAmplitude),
+        ]
+        for (name, amplitude) in cases {
             NSAppearance(named: name)!.performAsCurrentDrawingAppearance {
                 guard let ground = CanvasGround.base.usingColorSpace(.sRGB),
                       let paper = CanvasRenderer.cardPaper.usingColorSpace(.sRGB) else {
@@ -90,27 +96,41 @@ final class CanvasGroundTests: XCTestCase {
                     + "is not lighter than the ground under it reads as a hole, not as "
                     + "an object (spec 7.2). CanvasGround.base must stay below "
                     + "CanvasRenderer.cardPaper in BOTH appearances.")
+
+                // The shader adds +/- amplitude/2 before the lamp multiplies down.
+                let peak = ground.brightnessComponent + amplitude / 2
+                XCTAssertGreaterThan(
+                    paper.brightnessComponent - peak, 0.02,
+                    "under \(name.rawValue) the ground peaks at \(peak) once the grain "
+                    + "(amplitude \(amplitude)) is added, against a card of "
+                    + "\(paper.brightnessComponent). Raise CanvasMaterial's card paper or "
+                    + "lower its base/grain amplitude: a grain spike that reaches the "
+                    + "card's own brightness makes the scrap read as a hole wherever it "
+                    + "lands.")
             }
         }
     }
 
-    /// `CanvasGround.base` is authored in sRGB on purpose: what is written is
-    /// what is rendered.
+    /// `CanvasMaterial`'s colours are authored in sRGB on purpose: what is
+    /// written is what is rendered.
     ///
     /// `NSColor(calibratedRed:...)` is a *different* colour space, and the lift
     /// is large and completely invisible in the source — the values handed to
-    /// this task went in as 0.16/0.17/0.19 and come out of
-    /// `usingColorSpace(.sRGB)` as 0.212/0.225/0.249. That ~30% lift is most of
-    /// why the ground out-lit the card it carries.
+    /// Task 8 went in as 0.16/0.17/0.19 and come out of `usingColorSpace(.sRGB)`
+    /// as 0.212/0.225/0.249. That ~30% lift is most of why the ground out-lit the
+    /// card it carries.
     ///
     /// So this pins the RESOLVED components against the authored literals, which
     /// is a claim that can fail: swapping `srgbRed:` for `calibratedRed:` without
-    /// touching a digit moves the dark ground from 0.060 to 0.073 and this test
-    /// says so. (The contrast pin above would not: 0.073 still clears its floor.)
+    /// touching a digit moves the dark ground from 0.115 to ~0.135 and this test
+    /// says so. (The contrast pin above would not: 0.135 still clears its floor.)
+    /// This matters more now than it did, not less — the writer is calibrating
+    /// these numbers by eye, and a constant that renders 30% off the digit he
+    /// typed makes the next round of calibration meaningless.
     func test_theGroundResolvesToTheValuesItIsAuthoredWith() {
         let authored: [(NSAppearance.Name, r: CGFloat, g: CGFloat, b: CGFloat)] = [
             (.aqua, r: 0.930, g: 0.915, b: 0.880),
-            (.darkAqua, r: 0.049, g: 0.054, b: 0.060),
+            (.darkAqua, r: 0.094, g: 0.103, b: 0.115),
         ]
         for (name, wantR, wantG, wantB) in authored {
             NSAppearance(named: name)!.performAsCurrentDrawingAppearance {
@@ -126,6 +146,57 @@ final class CanvasGroundTests: XCTestCase {
                 XCTAssertEqual(c.blueComponent, wantB, accuracy: 0.002, message)
             }
         }
+    }
+
+    /// The same colour-space pin on the card, which now has a hand-authored dark
+    /// value of its own and so can go wrong the same way the ground did.
+    ///
+    /// It also pins the SPLIT: light must still resolve to `textBackgroundColor`
+    /// (the semantically right colour for a card, per Task 7 — the departure is
+    /// dark-only and deliberate), and dark must NOT, because
+    /// `textBackgroundColor`'s 0.118 is now below the ground.
+    func test_theCardPaperIsTextBackgroundInLightAndItsOwnValueInDark() {
+        NSAppearance(named: .aqua)!.performAsCurrentDrawingAppearance {
+            guard let paper = CanvasRenderer.cardPaper.usingColorSpace(.sRGB),
+                  let system = NSColor.textBackgroundColor.usingColorSpace(.sRGB) else {
+                return XCTFail("could not resolve the light card paper")
+            }
+            XCTAssertEqual(paper.brightnessComponent, system.brightnessComponent,
+                           accuracy: 0.002,
+                           "light mode was signed off on textBackgroundColor and the dark "
+                           + "calibration must not have moved it")
+        }
+        NSAppearance(named: .darkAqua)!.performAsCurrentDrawingAppearance {
+            guard let paper = CanvasRenderer.cardPaper.usingColorSpace(.sRGB) else {
+                return XCTFail("could not resolve the dark card paper")
+            }
+            let message = "the dark card resolves to \(paper.redComponent)/"
+                + "\(paper.greenComponent)/\(paper.blueComponent) but is authored "
+                + "0.235/0.232/0.226"
+            XCTAssertEqual(paper.redComponent, 0.235, accuracy: 0.002, message)
+            XCTAssertEqual(paper.greenComponent, 0.232, accuracy: 0.002, message)
+            XCTAssertEqual(paper.blueComponent, 0.226, accuracy: 0.002, message)
+        }
+    }
+
+    /// Light and dark are two materials, not one texture inverted (§7.1), and
+    /// the writer's calibration is dark-only. A "tidy-up" that collapses the
+    /// per-appearance pairs back to one shared number would put dark's amplitude
+    /// and lamp on light, which was signed off and is not up for change.
+    func test_theTwoAppearancesAreCalibratedSeparately() {
+        XCTAssertNotEqual(CanvasMaterial.lightGrainAmplitude,
+                          CanvasMaterial.darkGrainAmplitude,
+                          "the dark ground is an eighth of the light one's brightness, so "
+                          + "the same absolute grain swing cannot read the same on both")
+        XCTAssertGreaterThan(CanvasMaterial.darkLampDepth, CanvasMaterial.lightLampDepth,
+                             "a lamp on near-black needs a deeper falloff to be felt at all")
+        XCTAssertLessThan(CanvasMaterial.darkLampFloor, CanvasMaterial.lightLampFloor,
+                          "the floor is how far the light may drop; dark needs more room")
+
+        // Light, untouched by the dark pass.
+        XCTAssertEqual(CanvasMaterial.lightGrainAmplitude, 0.055, accuracy: 1e-9)
+        XCTAssertEqual(CanvasMaterial.lightLampDepth, 0.10, accuracy: 1e-9)
+        XCTAssertEqual(CanvasMaterial.lightLampFloor, 0.86, accuracy: 1e-9)
     }
 
     // MARK: - The shader
@@ -260,6 +331,69 @@ final class CanvasGroundTests: XCTestCase {
                              "the fade must be a fade, not a rounding difference")
     }
 
+    // MARK: - The dark material, rendered
+
+    /// "The canvas looks a little bland and black, the texture isn't coming in.
+    /// I think this also leads to the cards not feeling differentiated enough."
+    /// — the writer, looking at a real dark-mode canvas, 2026-07-26.
+    ///
+    /// **Nothing in this file could have said so**, and that is why it is here:
+    /// every render fixture was pinned to `.light`, so the dark ground was never
+    /// rasterised by any test. It could be, and was, unusable while the suite was
+    /// entirely green — the shader ran, the grain was anchored, the zoom faded,
+    /// and the result was still black.
+    ///
+    /// All three assertions are measurements in 8-bit levels, taken 2026-07-27 at
+    /// 160×120 scale 1, with the numbers the material shipped *before* this pass
+    /// alongside — because "bland" is a comparison, and a floor with nothing to
+    /// compare against is a number someone will later lower to make a test pass.
+    @MainActor
+    func test_theDarkGroundIsAMaterialRatherThanABlackFill() throws {
+        let size = CGSize(width: 160, height: 120)
+        let near = try Self.renderGround(pan: .zero, zoom: 1, size: size, scheme: .dark)
+
+        // 1. NOT BLACK. The ground has to sit high enough that grain and lamp
+        //    have levels to move through at all. Measured 23.1; the old
+        //    0.049/0.054/0.060 base measured ~14, and the whole dark scene —
+        //    ground, grain, lamp, card — lived between 15 and 30 of 255.
+        let mean = Self.meanGreen(near)
+        XCTAssertGreaterThan(mean, 20.0,
+                             "the dark ground renders at \(mean) of 255. Below about 20 "
+                             + "there is no room for a material: the grain and the lamp "
+                             + "are quantised into a handful of levels and the canvas "
+                             + "reads as flat black. Raise CanvasMaterial.darkBase.")
+
+        // 2. TEXTURED. Pinned in light since Task 8; dark was never measured, and
+        //    dark is where it was reported missing. Measured 3.39 against light's
+        //    2.72 — deliberately hotter, because grain is a relative signal and
+        //    this ground is an eighth of light's brightness.
+        let grain = Self.grainEnergy(near)
+        XCTAssertGreaterThan(grain, Self.grainFloor,
+                             "the dark ground scores \(grain) — at or below the flat "
+                             + "floor of \(Self.grainFloor), i.e. indistinguishable from "
+                             + "a ground with no shader at all")
+        XCTAssertGreaterThan(grain, 2.0,
+                             "the dark ground scores \(grain), which clears 'a shader "
+                             + "ran' but not 'a writer can see tooth'. Raise "
+                             + "CanvasMaterial.darkGrainAmplitude.")
+
+        // 3. LIT FROM A CORNER. Sampled at zoom 0.1 so the viewport spans ~1600
+        //    content points and the lamp's whole travel is inside one image;
+        //    below the 0.25 fade floor the grain is off, so this measures the
+        //    lamp alone. Measured 22.6 at the lit corner against 17.1 at the far
+        //    one — a 5.5-level sweep. The old 0.10/0.86 lamp swept 1.3 levels,
+        //    which is a rounding difference wearing a light source's name.
+        let wide = try Self.renderGround(pan: .zero, zoom: 0.1, size: size, scheme: .dark)
+        let lit = Self.meanGreen(wide, rows: 0..<8, columns: 0..<8)
+        let unlit = Self.meanGreen(wide, rows: 112..<120, columns: 152..<160)
+        XCTAssertGreaterThan(lit - unlit, 3.5,
+                             "the lamp sweeps \(lit - unlit) levels across the whole of "
+                             + "its falloff (\(lit) at the lit corner, \(unlit) at the "
+                             + "far one). §7.1 asks for light falling from one corner; "
+                             + "under about 3 levels a writer sees an even fill. Raise "
+                             + "CanvasMaterial.darkLampDepth or lower darkLampFloor.")
+    }
+
     // MARK: - The layering constraint
 
     /// Spec §7A.4, and the reason this view holds no content of its own: a
@@ -372,6 +506,20 @@ final class CanvasGroundTests: XCTestCase {
     /// contributes essentially nothing here. That separation is what lets the
     /// zoom test attribute a drop to the amplitude fade rather than to the
     /// viewport covering more content.
+    /// Mean green channel over a region, in 8-bit levels. A LOW-frequency
+    /// measure, and the complement of `grainEnergy`: it sees the base colour and
+    /// the lamp, and averages the grain away.
+    private static func meanGreen(_ g: Ground,
+                                  rows: Range<Int>? = nil,
+                                  columns: Range<Int>? = nil) -> Double {
+        let ys = rows ?? 0..<g.height
+        let xs = columns ?? 0..<g.width
+        var total = 0
+        for y in ys { for x in xs { total += Int(g.rgb(x: x, y: y)[1]) } }
+        let count = ys.count * xs.count
+        return count == 0 ? 0 : Double(total) / Double(count)
+    }
+
     private static func grainEnergy(_ g: Ground) -> Double {
         var total = 0, count = 0
         for y in stride(from: 0, to: g.height, by: 1) {
@@ -411,14 +559,15 @@ final class CanvasGroundTests: XCTestCase {
     @MainActor
     private static func renderGround(pan: CGPoint,
                                      zoom: CGFloat = 1,
-                                     size: CGSize) throws -> Ground {
+                                     size: CGSize,
+                                     scheme: ColorScheme = .light) throws -> Ground {
         var camera = CanvasCamera()
         camera.pan = pan
         camera.zoom = zoom
         let renderer = ImageRenderer(
             content: CanvasGround(camera: camera, wash: [])
                 .frame(width: size.width, height: size.height)
-                .environment(\.colorScheme, .light))
+                .environment(\.colorScheme, scheme))
         renderer.scale = 1
         let image = try XCTUnwrap(renderer.cgImage, "ImageRenderer produced no image")
 

@@ -24,7 +24,7 @@ Three requirements. Each is verbatim from the spike; each breaks the surface sil
 2. **`lineFragmentPadding = 0`** (`NSTextContainer` defaults to 5), **`widthTracksTextView = false`**, **`textContainerInset = .zero`**. *Symptom:* any one left at its default shifts drawn against edited. `textContainerInset` is the nastiest: it feeds `textContainerOrigin` (where the *view* paints) and reaches the shared container through nothing, so **27% of pixels move while every geometry assertion still passes** — measured during Task 3. Geometry equality is structurally incapable of seeing this class, which is why `ScrapLayoutTests` carries a bitmap diff alongside the signature comparison.
 3. **Draw at the window's true `backingScaleFactor` × camera zoom, and NEVER derive that scale by hand.** *Symptom:* deriving it from pixel width bakes in AppKit's frame rounding and shifts glyphs by a subpixel — "text jumps" wearing a measurement-artifact disguise. `CanvasRenderer` satisfies this by doing nothing; `GraphicsContext.withCGContext` already hands over a context at backing scale under the camera CTM. A grep test forbids `backingScaleFactor`/`convertToBacking`/`convertFromBacking`/`pixelsWide`/`pixelsHigh` in code anywhere in this directory.
 
-`ScrapLayout.init(textColor:)` defaults to `.labelColor`, but **every construction under `Maugham/Canvas/` must name `textColor: CanvasRenderer.cardInk`** — grep-enforced, because taking the default gives the same colour today and so nothing would break if you forgot. `cardPaper`/`cardInk` are appearance-dynamic (`textBackgroundColor`/`labelColor`; measured 1.00/0.00 under Aqua and 0.12/1.00 under DarkAqua). A paper-white card in dark mode is a light-mode skeuomorph, not an honest object on the ground (§7.2).
+`ScrapLayout.init(textColor:)` defaults to `.labelColor`, but **every construction under `Maugham/Canvas/` must name `textColor: CanvasRenderer.cardInk`** — grep-enforced, because taking the default gives the same colour today and so nothing would break if you forgot. `cardPaper`/`cardInk` are appearance-dynamic (paper 1.000 under Aqua / 0.235 under DarkAqua, ink `labelColor` 0.00 / 1.00). A paper-white card in dark mode is a light-mode skeuomorph, not an honest object on the ground (§7.2).
 
 ---
 
@@ -38,7 +38,7 @@ Three requirements. Each is verbatim from the spike; each breaks the surface sil
 
 ## Focus straightens the card (§7A.5)
 
-The whole card carries a seeded sub-degree angle (±0.6°, FNV-1a over `id.raw` through a SplitMix64 finaliser — stable, never random per frame, chrome and text together). **The focused card animates to level over ~120 ms and settles back to its angle on blur.** That is the focus affordance: you pick the paper up and square it to write on, and the card being edited is the only square one on the canvas.
+The whole card carries a seeded angle (±`CanvasMaterial.maximumTiltDegrees`, currently **1.2°** — FNV-1a over `id.raw` through a SplitMix64 finaliser, stable, never random per frame, chrome and text together). **The focused card animates to level over ~120 ms and settles back to its angle on blur.** That is the focus affordance: you pick the paper up and square it to write on, and the card being edited is the only square one on the canvas.
 
 It also makes §7A.2 *easier*: at the moment the editor becomes the visible text, both layouts are unrotated, so the glyph-origin pin compares two axis-aligned layouts and `.rotationEffect` never enters the picture. `rotationEffect(`/`rotate(by:)` are grep-banned across this directory.
 
@@ -48,7 +48,7 @@ Four parts are load-bearing, and each has failed in draft:
 
 - **The editor MOUNTS on the click; it becomes VISIBLE on `isLevel`.** Two properties, and merging them back into one is how this has failed twice, in opposite directions.
   - `CanvasView.mountedEditorNodeID` is just `editingNodeID`: the editor exists, is first responder and takes keystrokes from frame one. Gate the *mount* on the straighten instead and there is no first responder for ~120 ms — double-click empty canvas, type immediately, and **the first character or two reach nothing at all.** §7A.5 allows a beat between click and caret; it does not allow discarded keystrokes.
-  - `CanvasView.visibleEditorNodeID` adds `straighten.isLevel(_:)`, and **the same property feeds both `ScrapEditorHost.isEditorVisible` and `CanvasRenderer.draw`'s `visibleEditorNodeID:`** — one value, read once per body pass. So the card keeps drawing its own text (live, off the shared `NSTextStorage`, rotating as it goes) right up to the one frame the editor takes over, and the swap reveals nothing that was not already on screen. Make the editor visible on the click instead and axis-aligned glyphs land at the unrotated text origin over a card still up to 0.6° off level with the drawn text already suppressed: they snap straight and the card catches up behind them — **§7A.2's failure by §7A.5's own route.**
+  - `CanvasView.visibleEditorNodeID` adds `straighten.isLevel(_:)`, and **the same property feeds both `ScrapEditorHost.isEditorVisible` and `CanvasRenderer.draw`'s `visibleEditorNodeID:`** — one value, read once per body pass. So the card keeps drawing its own text (live, off the shared `NSTextStorage`, rotating as it goes) right up to the one frame the editor takes over, and the swap reveals nothing that was not already on screen. Make the editor visible on the click instead and axis-aligned glyphs land at the unrotated text origin over a card still up to 1.2° off level with the drawn text already suppressed: they snap straight and the card catches up behind them — **§7A.2's failure by §7A.5's own route.**
 - **While it is invisible the editor is also transparent to the pointer.** `ScrapEditorContainer.isEditorVisible` drives `alphaValue` *and* `hitTest(_:)`, so through the straighten a click or a pinch reaches `CanvasEventNSView` — whose space is canvas space — rather than being resolved against the editor's unrotated box under a tilted card. That is what keeps `ScrapEditorGeometry.viewPoint`'s "no rotation term" honest: the function is only ever reached from an event the container received, and it receives none while invisible. **Never `isHidden` / `.hidden()`** — AppKit moves first responder off a hidden view, which loses the keystrokes the early mount exists to keep, and (measured) a hidden view leaves the accessibility tree while `alphaValue = 0` does not.
 - **`CanvasFocusStraighten.isSettled` means "every card is at ITS target", not "every progress value is 1".** The naive `allSatisfy { $0.value >= 1 }` reports settled the instant focus leaves — the departing entry is still at 1 while its target is now 0 — so `TimelineView` pauses, `step` is never called again, and **the card stays level for the rest of the session** (and nothing else on the canvas animates either). `step(elapsed:)` returns `!isSettled` for a non-positive delta on purpose; do not "fix" that to `false`.
 - **The caret index is resolved in the card's unrotated space BEFORE the animation starts**, or the click point moves out from under the cursor. `CanvasRenderer.cardTransform` is the one definition of the card rotation; `localPoint` inverts *it*, never a second hand-written `R(−θ)`. A flipped sign convention doubles the caret error instead of removing it, and a round-trip test passes either way — which is why the grep ban above exists.
@@ -57,7 +57,7 @@ Four parts are load-bearing, and each has failed in draft:
 
 ## Hit testing, and the resize corner
 
-**Hit testing is on the unrotated rect.** The mismatch band is `r·θ` — about **1.4 pt at the corner of a default 240×80 card** (r = 126.5 pt, θ = 0.6°), growing with the diagonal. It is not somewhere a writer never aims: it sits exactly where `CanvasRenderer.resizeHandle` draws and `CanvasInteraction.begin` tests. Accepted because 1.4 pt is inside pointer slop and the 14 pt target absorbs it.
+**Hit testing is on the unrotated rect.** The mismatch band is `r·θ` — about **2.6 pt at the corner of a default 240×80 card** (r = 126.5 pt, θ = 1.2°), growing with the diagonal and with the tilt. It is not somewhere a writer never aims: it sits exactly where `CanvasRenderer.resizeHandle` draws and `CanvasInteraction.begin` tests. Accepted because 2.6 pt is inside pointer slop and the 14 pt target absorbs it — **but this is the reason `CanvasMaterial.maximumTiltDegrees` has a ceiling.** A calibration round that keeps raising the tilt eventually pushes this band past the target that absorbs it. `CanvasRenderer.cullingBleed` carries the same `r·θ` term for a different reason (a card culled while a corner is still on screen) and `CanvasRendererTests.test_theCullingBleedCoversTheRotationOverhangAtTheCalibratedTilt` re-does that arithmetic on every run.
 
 **The resize TARGET is the whole 14 pt corner square; the MARK is the triangle below its hypotenuse.** One constant (`CanvasRenderer.resizeHandleSize`) fixes the size of both so they cannot drift, and the shapes differ deliberately: a target slightly larger than its mark forgives a near miss, where the reverse would swallow drags the writer aimed at the card. **Do not shrink the target to the ink** — `CanvasInteractionTests.test_theUnmarkedHalfOfTheCornerSquareStillResizes` exists to stop a tidy-up doing exactly that.
 
@@ -72,6 +72,30 @@ Four parts are load-bearing, and each has failed in draft:
 Pass the ground the **same live camera `@State`** the draw pass uses. A stale or default camera makes the grain crawl under the cards as you pan, and `CanvasGroundTests` constructs its own cameras so it cannot see that.
 
 **`CanvasScene.nodes` sorts on every access.** Per-frame and per-`body` callers use `count` or `unorderedNodes`; `topmostNode(at:)` and `nodes(intersecting:)` filter first and order the survivors. `CanvasAccessibility.summary` reading `scene.nodes.count` from `body` was a 2,000-element sort per body evaluation.
+
+---
+
+## The material — `CanvasMaterial`
+
+**Every number the canvas's *look* is calibrated with lives in `CanvasMaterial.swift`, and nowhere else.** The look is tuned by eye against the running app by the writer, so a constant he wants to move must be findable without reading a Metal file: `CanvasGround.metal` holds no material literals at all and takes grain amplitude, lamp depth, lamp floor and lamp reach as uniforms. **Do not inline a number back into the shader** — a shader constant is a constant nobody can find, and this whole seam exists because the first calibration round could not.
+
+| To change | Edit |
+|---|---|
+| more / less texture | `lightGrainAmplitude`, `darkGrainAmplitude` |
+| stronger / weaker lamp | `lightLampDepth`/`darkLampDepth` (how fast), `lightLampFloor`/`darkLampFloor` (how far); `lampReach` for the throw |
+| lighter / darker ground | `lightBase`, `darkBase` |
+| more / less card separation | `darkCardPaper` up, or `darkBase` down |
+| more / less tilt | `maximumTiltDegrees` |
+
+**Light and dark are two materials, not one texture inverted** (§7.1: "Dark: slate under a lamp… Paper is a light-mode idea"). Every knob that differs is a *pair*, and `CanvasGroundTests.test_theTwoAppearancesAreCalibratedSeparately` stops a tidy-up collapsing them — light was signed off on 2026-07-26 and dark was recalibrated on 2026-07-27; putting dark's hotter grain on light undoes an approval.
+
+Three constraints bind any further calibration:
+
+- **The card must stay lighter than the ground in both appearances, including at peak grain.** A card darker than its surface reads as a hole cut out, not an object resting on it (§7.2) — as fatal as unreadable text. Pinned by `test_theCardIsLighterThanTheGroundInBothAppearances`, which reads the grain amplitude, so raising the texture has a ceiling and the test names it.
+- **Author colours in sRGB.** `NSColor(calibratedRed:)` with the same digits resolves ~30% lighter and the lift is invisible in the source. `test_theGroundResolvesToTheValuesItIsAuthoredWith` and `test_theCardPaperIsTextBackgroundInLightAndItsOwnValueInDark` pin the resolved components against the literals.
+- **`cardPaper` is `textBackgroundColor` in LIGHT ONLY.** Dark takes a dedicated 0.235: the system colour is 0.118 in dark, which is *below* the raised ground and turns every scrap into a hole. `cardInk` is still `labelColor` (white in dark) and is the ceiling on how light the dark paper may go — `test_theCardsInkContrastsWithItsPaperInBothAppearances` says when.
+
+**Test the dark ground by rendering it.** Every fixture here was pinned to `.light` through Task 8, so a dark canvas that was flat black shipped with the suite entirely green — the shader ran, the grain was anchored, the zoom faded, and it was still unusable. `renderGround(pan:zoom:size:scheme:)` takes a scheme; `test_theDarkGroundIsAMaterialRatherThanABlackFill` measures brightness, grain energy and the lamp's sweep in 8-bit levels.
 
 ---
 

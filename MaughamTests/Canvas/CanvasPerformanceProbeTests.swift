@@ -11,11 +11,11 @@ final class CanvasPerformanceProbeTests: XCTestCase {
     /// A FIXED 20-column grid, so the grid's extent in both axes is independent
     /// of the node count. Cards are 240x100 on a 300x200 pitch, so a 1200x800
     /// viewport at zoom 1 covers content rect (0,0,1200,800) — but
-    /// `CanvasRenderer.visibleNodes` insets that by `cullingBleed` (8pt) on
+    /// `CanvasRenderer.visibleNodes` insets that by `cullingBleed` (12pt) on
     /// every side before intersecting, so the QUERY rect is actually
-    /// (-8,-8,1216,816). That extra 8pt is enough to catch the edge-contact
-    /// column at x=1200 ([1200,1440), now overlapping up to x=1208) and the
-    /// edge-contact row at y=800 ([800,900), now overlapping up to y=808) — so
+    /// (-12,-12,1224,824). That extra bleed is enough to catch the edge-contact
+    /// column at x=1200 ([1200,1440), now overlapping up to x=1212) and the
+    /// edge-contact row at y=800 ([800,900), now overlapping up to y=812) — so
     /// the true admitted set is columns x=0,300,600,900,1200 and rows
     /// y=0,200,400,600,800, i.e. **5 x 5 = 25 nodes**, not the 4 x 4 = 16 an
     /// earlier draft computed against the bare camera viewport without the
