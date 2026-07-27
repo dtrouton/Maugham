@@ -28,7 +28,7 @@ enum CanvasDragPhase: Equatable, Sendable {
 /// spike had two synthetic-event harnesses fail their own control cases, and
 /// discovered that `NSTextView.mouseDown` runs a modal tracking loop that
 /// deadlocks a post-then-pump harness.
-final class CanvasEventNSView: NSView {
+final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
 
     var camera = CanvasCamera()
     var canvasUndoManager: UndoManager?
@@ -46,12 +46,92 @@ final class CanvasEventNSView: NSView {
     /// activating it — on a canvas that is a lost thought.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    /// ⌘Z with nothing being edited must reach the canvas's own undo stack.
-    /// `NSWindow.undo(_:)` asks the first responder for its `undoManager`, so
-    /// this view has to be able to hold first responder and vend it.
+    /// ⌘Z with nothing being edited must reach the canvas's own undo stack, and
+    /// holding first responder is half of what that takes. The other half is the
+    /// `undo:`/`redo:` pair below — being first responder is not, on its own,
+    /// enough for the Edit menu to reach anything here.
     override var acceptsFirstResponder: Bool { true }
 
+    /// The canvas's manager, vended to anything that walks the responder chain
+    /// asking for one — `NSResponder.undoManager` walks `nextResponder` upward,
+    /// so this is the honest answer for this view and everything under it. It is
+    /// also the only handle the tests have on the manager production ships.
+    ///
+    /// **It is not what makes ⌘Z work, and the Edit menu never reads it.**
+    /// Measured 2026-07-27 on macOS 26.5, with this view genuinely first
+    /// responder inside the real SwiftUI hosting hierarchy: `window.undoManager`
+    /// was a DIFFERENT manager, because `NSWindow` does not ask its first
+    /// responder — it asks its delegate for `windowWillReturnUndoManager:` and
+    /// otherwise vends one of its own. This comment used to assert the opposite,
+    /// which is the same responder-chain theory Task 9 measured false one file
+    /// away in `ScrapLayout.makeEditor`; the container there got the explicit
+    /// `undo:`/`redo:` treatment and this view kept the disproven belief, so the
+    /// 1C-a hand-smoke found undo greyed out on a bare canvas — a whole feature,
+    /// twenty-two tests deep, reachable only from inside a scrap.
     override var undoManager: UndoManager? { canvasUndoManager ?? super.undoManager }
+
+    // MARK: - ⌘Z with nothing focused
+
+    /// **These two methods are the whole of ⌘Z on a bare canvas.**
+    ///
+    /// AppKit resolves a nil-targeted menu action by walking the responder chain
+    /// for the first object that RESPONDS to the selector, then validates against
+    /// that object and sends to it. Without these, the walk out of this view
+    /// reached `NSWindow`, whose own `undo:` runs the manager above — the
+    /// window's, not the canvas's. Measured in that state, with a real "Move
+    /// Scrap" step on the canvas stack: the Edit item validated **false**, so ⌘Z
+    /// was greyed out, and performing `undo:` on the window left the card exactly
+    /// where the drag had put it.
+    ///
+    /// The BARE manager rather than `CanvasUndo`, and deliberately — see the
+    /// `undoManager:` argument in `CanvasView`. This path is only reachable with
+    /// no scrap focused, every route out of a scrap runs `commitActiveEdit`, and
+    /// a drag's gesture closes at `.ended`, so there is never an open gesture
+    /// here for `CanvasUndo.undo()` to close first.
+    @objc func undo(_ sender: Any?) {
+        canvasUndoManager?.undo()
+    }
+
+    @objc func redo(_ sender: Any?) {
+        canvasUndoManager?.redo()
+    }
+
+    /// Claiming an action obliges this view to validate it — AppKit enables a
+    /// menu item whose responder merely responds to the selector, so without this
+    /// the Edit menu offers a live Undo over an empty canvas stack.
+    ///
+    /// And it obliges this view to TITLE it. `NSWindow` retitles Undo/Redo from
+    /// whichever manager it resolves, and the whole point of the two methods
+    /// above is that the action never reaches `NSWindow` — so left alone the item
+    /// keeps whatever the nib gave it and every canvas step reads a bare "Undo".
+    /// `CanvasUndo` names every gesture through `setActionName`, so
+    /// `undoMenuItemTitle` reads "Undo Move Scrap" here without this file knowing
+    /// any of those names, and it already reads a plain "Undo" on an empty stack.
+    ///
+    /// Guarded on `NSMenuItem` rather than assumed: the protocol is
+    /// `NSValidatedUserInterfaceItem`, which a toolbar item or a control also
+    /// satisfies, and `title` is not on it.
+    ///
+    /// The same shape as `ScrapEditorContainer.validateUserInterfaceItem`, asked
+    /// of the bare manager instead of the recorder. There is no pending-gesture
+    /// term here and there must not be one: the recorder's `canUndo` carries one
+    /// for the run of typing inside a focused scrap, and nothing is focused on
+    /// this path.
+    func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        switch item.action {
+        case #selector(undo(_:)):
+            (item as? NSMenuItem)?.title = canvasUndoManager?.undoMenuItemTitle
+                ?? NSLocalizedString("Undo", comment: "Edit menu item, nothing to undo")
+            return canvasUndoManager?.canUndo ?? false
+        case #selector(redo(_:)):
+            (item as? NSMenuItem)?.title = canvasUndoManager?.redoMenuItemTitle
+                ?? NSLocalizedString("Redo", comment: "Edit menu item, nothing to redo")
+            return canvasUndoManager?.canRedo ?? false
+        // AppKit only asks the responder that will handle the action, so
+        // anything else reaching here is not this view's to veto.
+        default: return true
+        }
+    }
 
     // MARK: - Testable seams
 

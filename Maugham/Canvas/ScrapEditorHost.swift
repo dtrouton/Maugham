@@ -123,18 +123,20 @@ final class ScrapEditorContainer: NSView, NSTextViewDelegate, NSUserInterfaceVal
     /// its stack reachable from inside an editor, and `validateUserInterfaceItem`
     /// below is what gives the menu item its name once it is.
     ///
-    /// There is deliberately no `undoManager` override on this view, and this is
-    /// the one place it differs from `CanvasEventNSView`, which has one. That
-    /// difference is not an oversight: there the view itself is first responder,
-    /// so `NSWindow` asks it directly. Here the TEXT VIEW is first responder, and
-    /// it short-circuits — `NSResponder.undoManager` walks `nextResponder` by
-    /// default, but `NSTextView` overrides it and returns nil, so the walk never
-    /// arrives. The override was measured to be inert twice over: with it in
-    /// place `window.undoManager` was still not the canvas manager with either
-    /// the text view OR the container as first responder — and it cannot become
-    /// first responder in the first place, since `acceptsFirstResponder` defaults
-    /// to false here, unlike `CanvasEventNSView`. Nothing reads `self.undoManager`.
-    /// These two methods reach `canvasUndo` directly, which is the whole route.
+    /// There is deliberately no `undoManager` override on this view. It would be
+    /// inert, measured twice over: with one in place `window.undoManager` was
+    /// still not the canvas manager with either the text view OR the container as
+    /// first responder — and this view cannot become first responder in the first
+    /// place, since `acceptsFirstResponder` defaults to false here. Nothing reads
+    /// `self.undoManager`. These two methods reach `canvasUndo` directly, which is
+    /// the whole route.
+    ///
+    /// `CanvasEventNSView` does have one, and that is NOT because being first
+    /// responder makes `NSWindow` ask it — measured 2026-07-27, it does not; see
+    /// that file. It has one because `NSResponder.undoManager` is a chain walk
+    /// anything under it might make, and because the tests need a handle on the
+    /// shipping manager. The route that actually carries ⌘Z is the same one as
+    /// here: an explicit `undo:`/`redo:` pair with a validator beside it.
     @objc func undo(_ sender: Any?) {
         canvasUndo?.undo()
     }

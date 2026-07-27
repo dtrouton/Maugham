@@ -1541,6 +1541,130 @@ final class CanvasViewMountingTests: XCTestCase {
                       + "handle has no undo at all")
     }
 
+    // MARK: - ⌘Z, through the Edit menu
+
+    /// Find the object AppKit would send a nil-targeted Edit-menu action to.
+    ///
+    /// **`NSApp.target(forAction:to:from:)` cannot be used here, and that is a
+    /// fact about the test process rather than a shortcut.** It resolves through
+    /// `NSApp.keyWindow`, and a test host that is never activated has none —
+    /// measured 2026-07-27: it returns nil with the canvas first responder in an
+    /// ordered-front window. So this does the walk AppKit does, from the window's
+    /// first responder up `nextResponder` to the first object that RESPONDS to
+    /// the selector. That object is the one AppKit validates against and the one
+    /// it sends to, which is the whole of what a menu item does.
+    private func editMenuTarget(_ selector: Selector, in window: NSWindow) -> NSObject? {
+        var responder: NSResponder? = window.firstResponder
+        while let current = responder {
+            if current.responds(to: selector) { return current }
+            responder = current.nextResponder
+        }
+        return nil
+    }
+
+    /// The Edit menu item for `selector`, resolved and validated the way AppKit
+    /// does — including letting the validator rewrite the item's `title`, which
+    /// is how "Undo" becomes "Undo Move Scrap".
+    private func editMenuItem(_ selector: Selector,
+                              in window: NSWindow) throws -> (item: NSMenuItem,
+                                                              target: NSObject,
+                                                              isEnabled: Bool) {
+        let item = NSMenuItem(title: "Undo", action: selector, keyEquivalent: "z")
+        let target = try XCTUnwrap(editMenuTarget(selector, in: window),
+                                   "nothing in the responder chain responds to "
+                                   + "\(selector) at all, so AppKit greys the Edit "
+                                   + "menu item out and the keystroke does nothing")
+        item.target = target
+        guard let validator = target as? NSUserInterfaceValidations else {
+            return (item, target, true)
+        }
+        return (item, target, validator.validateUserInterfaceItem(item))
+    }
+
+    /// **⌘Z must be reachable with NO scrap focused**, which is the 1C-a
+    /// hand-smoke defect: "undo is available but only when a scrap is focussed
+    /// and in edit mode".
+    ///
+    /// Every other undo test in this slice drives the recorder or the manager
+    /// directly — `container.undo(nil)`, `manager.undo()` — so twenty-two of them
+    /// pass while the writer's ⌘Z does nothing at all. What is untested is the
+    /// app's real delivery path: an Edit-menu item with a nil target, resolved
+    /// against the responder chain, VALIDATED, and only then sent. All three
+    /// steps are asked here, because the failure was in the first two.
+    ///
+    /// The measured before-state, with the drag below on the stack: the chain
+    /// walk found `NSWindow` (nothing nearer responded to `undo:`),
+    /// `NSWindow.validateUserInterfaceItem` returned **false**, and performing
+    /// the action left the card where the drag had put it. `CanvasEventNSView`
+    /// held an `undoManager` override and nothing else, and an `undoManager`
+    /// override alone does not put an action in the responder chain.
+    func test_undoIsReachableFromTheEditMenuWithNoScrapFocused() throws {
+        let root = try projectRoot()
+        let window = host(CanvasView(projectRoot: root, paletteSwatchHexes: { [] }))
+        let hosted = try XCTUnwrap(window.contentView)
+        let events = try eventView(in: window)
+
+        // A real step on the canvas's own stack: 40pt right, last two samples
+        // identical so nothing flicks and the assertion is about the undo.
+        drag(events, from: CGPoint(x: 60, y: 40),
+             through: [CGPoint(x: 100, y: 40), CGPoint(x: 100, y: 40)])
+        pump(1.0)
+        XCTAssertEqual(try XCTUnwrap(sceneOnDisk(root).node(scrapID)).origin.x, 60,
+                       accuracy: 0.5,
+                       "precondition: the card really moved, so there is something "
+                       + "for the menu to take back")
+        XCTAssertTrue(try XCTUnwrap(events.undoManager).canUndo,
+                      "precondition: the drag left a step on the canvas's own stack, "
+                      + "so what follows is about REACHING it rather than about "
+                      + "whether it exists")
+
+        // What a click on bare canvas does. `CanvasEventNSView.mouseDown(with:)`
+        // claims first responder; the testable seam `drag` goes through does no
+        // event-level responder work (synthesizing `NSEvent`s is unreliable — see
+        // that file), so the claim is made here in its place.
+        XCTAssertTrue(window.makeFirstResponder(events),
+                      "the canvas cannot hold first responder, so a writer who "
+                      + "clicks out of a scrap has no ⌘Z at all")
+        XCTAssertNil(firstDescendant(ScrapEditorContainer.self, in: hosted),
+                     "precondition: no scrap is focused — this is exactly the state "
+                     + "the writer reported undo greyed out in")
+
+        let undoSelector = #selector(CanvasEventNSView.undo(_:))
+        let undo = try editMenuItem(undoSelector, in: window)
+        XCTAssertTrue(undo.target === events,
+                      "the Edit menu's Undo resolves to \(undo.target) rather "
+                      + "than to the canvas: an `undoManager` override does not put "
+                      + "`undo:` in the responder chain, so the action walks past the "
+                      + "canvas to the window and drives the window's stack instead")
+        XCTAssertTrue(undo.isEnabled,
+                      "Undo is greyed out on a canvas with a move on its stack — the "
+                      + "writer's report, exactly: the feature is built, tested and "
+                      + "unreachable unless a scrap happens to be focused")
+        XCTAssertTrue(undo.item.title.contains("Move Scrap"),
+                      "the menu item reads \"\(undo.item.title)\" rather than naming the "
+                      + "gesture it will take back — the action never reaches "
+                      + "NSWindow, so nothing else retitles it")
+
+        // Sent the way the menu sends it, to the target the walk found.
+        _ = undo.target.perform(undoSelector, with: undo.item)
+        pump(1.2)
+        XCTAssertEqual(try XCTUnwrap(sceneOnDisk(root).node(scrapID)).origin.x, 20,
+                       accuracy: 0.5,
+                       "the Edit menu's Undo was enabled and did nothing to the "
+                       + "canvas — it is wired to some other stack")
+
+        // The other half of the pair, which nothing else asks through the menu.
+        let redo = try editMenuItem(#selector(CanvasEventNSView.redo(_:)), in: window)
+        XCTAssertTrue(redo.target === events,
+                      "⇧⌘Z does not resolve to the canvas even though ⌘Z does")
+        XCTAssertTrue(redo.isEnabled,
+                      "there is nothing to redo straight after an undo, so ⇧⌘Z is "
+                      + "greyed out and the writer cannot take the undo back")
+        XCTAssertTrue(redo.item.title.contains("Move Scrap"),
+                      "the Redo item reads \"\(redo.item.title)\" rather than naming the "
+                      + "gesture it will re-apply")
+    }
+
     /// **The undo stack is bounded.** `UndoManager`'s default `levelsOfUndo` is
     /// 0, meaning unlimited, and every step here retains a whole `CanvasScene`
     /// plus every scrap's text — at one step per SENTENCE typed. Unbounded, a
