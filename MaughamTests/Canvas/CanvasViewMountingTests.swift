@@ -44,6 +44,23 @@ final class CanvasViewMountingTests: XCTestCase {
     private let farScrapID = CanvasNodeID("far")
     private let farScrapText = "ninety thousand points east"
 
+    /// A scrap chosen so that NARROWING it to the resize floor actually rewraps.
+    ///
+    /// `scrapText` cannot do that job and no assertion should pretend otherwise:
+    /// measured through `ScrapLayout`'s own stack at Iowan Old Style 13, "the
+    /// falls at night" is 94.62pt wide, so it still sits on ONE line inside the
+    /// 100pt text box of a card at `CanvasInteraction.minimumScrapWidth`. Its
+    /// card is 38pt tall at every width from 240 down to the floor.
+    ///
+    /// This string, measured the same way: 2 lines and a 54pt card at the
+    /// fixture's 240pt width, 4 lines and an 88pt card once narrowed. The 34pt
+    /// of new card below the old bottom edge is what
+    /// `test_aCardBeingResizedStaysOnTheCanvasForTheWholeDrag` reads, and the
+    /// margin is deliberate — the height is 88 at every card width from 124 down
+    /// to the 120 floor, so the exact pixel the drag lands on does not decide the
+    /// result.
+    private let rewrappingScrapText = "the falls at night seen from the road below the town"
+
     override func tearDown() {
         windows.removeAll()
         for root in roots { try? FileManager.default.removeItem(at: root) }
@@ -62,6 +79,19 @@ final class CanvasViewMountingTests: XCTestCase {
                                 origin: CGPoint(x: 20, y: 20), width: 240,
                                 cachedHeight: 60))
         return try projectRoot(scene: scene, scraps: [scrapID: scrapText])
+    }
+
+    /// `projectRoot()`'s scene with `rewrappingScrapText` in the scrap — same id,
+    /// same origin, same width, so `doubleClickTheScrap` still lands on it and
+    /// only the wrapping differs. `cachedHeight` is the measured 54; the view
+    /// re-derives it on load either way, so it is here as documentation of the
+    /// starting shape rather than as an input.
+    private func rewrappingScrapProjectRoot() throws -> URL {
+        var scene = CanvasScene()
+        scene.insert(CanvasNode(id: scrapID, kind: .scrap,
+                                origin: CGPoint(x: 20, y: 20), width: 240,
+                                cachedHeight: 54))
+        return try projectRoot(scene: scene, scraps: [scrapID: rewrappingScrapText])
     }
 
     /// An empty directory — no canvas on disk at all, which is the state a writer
@@ -275,6 +305,49 @@ final class CanvasViewMountingTests: XCTestCase {
                       width: f.width, height: f.height)
     }
 
+    /// How many pixels inside `box` are something other than bare ground.
+    ///
+    /// The drawn layer is a `Canvas`: a card is not a view, has no frame and is
+    /// not in the hierarchy at all, so "is the card on the canvas" can only be
+    /// asked of the pixels. Card paper and the ground resolve to nearly the same
+    /// colour, so what this actually counts is the card's border stroke and its
+    /// glyphs — which is the right thing to count, since both are absent exactly
+    /// when the card is not drawn.
+    ///
+    /// `box` is in the same SwiftUI space `swiftUIFrame` returns. The hosting
+    /// view is flipped, so a bitmap row IS a point y; the scale comes from the
+    /// rep rather than from `backingScaleFactor` so a Retina and a 1x machine
+    /// both read the same box.
+    private func ink(in box: CGRect, of hosted: NSView) throws -> Int {
+        let rep = try XCTUnwrap(hosted.bitmapImageRepForCachingDisplay(in: hosted.bounds),
+                                "the hosted canvas could not be rasterised")
+        hosted.cacheDisplay(in: hosted.bounds, to: rep)
+        XCTAssertTrue(hosted.isFlipped,
+                      "the hosting view is no longer flipped, so bitmap rows and "
+                      + "SwiftUI y no longer agree and every box below is upside down")
+        let scale = CGFloat(rep.pixelsWide) / hosted.bounds.width
+
+        func brightness(_ x: Int, _ y: Int) -> CGFloat? {
+            guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { return nil }
+            return (c.redComponent + c.greenComponent + c.blueComponent) / 3
+        }
+        // Bare ground, read from a corner the fixture puts no card near.
+        let ground = try XCTUnwrap(brightness(rep.pixelsWide - 8, rep.pixelsHigh - 8),
+                                   "could not read the canvas ground")
+
+        var count = 0
+        let x0 = max(0, Int(box.minX * scale)), x1 = min(rep.pixelsWide, Int(box.maxX * scale))
+        let y0 = max(0, Int(box.minY * scale)), y1 = min(rep.pixelsHigh, Int(box.maxY * scale))
+        // Every other pixel in each axis: a quarter of the reads, and the border
+        // stroke and the glyph stems are both wider than one pixel at 2x.
+        for y in stride(from: y0, to: y1, by: 2) {
+            for x in stride(from: x0, to: x1, by: 2) {
+                if let b = brightness(x, y), abs(b - ground) > 0.04 { count += 1 }
+            }
+        }
+        return count
+    }
+
     /// A pinch inside the MOUNTED editor must zoom about the canvas point under
     /// the writer's fingers.
     ///
@@ -382,6 +455,98 @@ final class CanvasViewMountingTests: XCTestCase {
                        + "the writer's words")
         XCTAssertEqual(savedScene(after: window, root: root).count, 1,
                        "the canvas has two scraps where the writer made one")
+    }
+
+    /// **The card must stay on the canvas for the WHOLE of a resize, not just
+    /// after the writer lets go.**
+    ///
+    /// Every other resize test in this file asserts after `.ended`, and the
+    /// re-measure that lands there hides the middle of the gesture completely.
+    /// What the writer reported from the 1C-a smoke is the middle: "the entire
+    /// card disappears and suddenly reappears when released". `setWidth` clears
+    /// `cachedHeight` on every `.changed`, so between the first drag sample and
+    /// the release the node has no `frame` — invisible to `topmostNode(at:)`, to
+    /// `nodes(intersecting:)` and to the renderer at once — and a card that
+    /// vanishes while being resized tells the writer nothing about the size they
+    /// are choosing.
+    ///
+    /// Read in PIXELS because there is nothing else to read: the cards are drawn
+    /// into a `Canvas`, so a card has no view, no frame and no accessibility
+    /// element that is fresh mid-gesture (the tree is keyed on `sceneRevision`,
+    /// which a drag frame must not bump). `ScrapEditorHostTests` rasterises the
+    /// same way.
+    ///
+    /// The drag NARROWS the card, so the last assertion can ask a stronger
+    /// question than "is anything drawn": the fixture rewraps from 2 lines to 4
+    /// at the floor, so ink below where the 2-line card used to end can only be
+    /// there if the height was re-derived from a real re-layout during the drag.
+    /// That is the live rewrap the handle exists to show, and the band is
+    /// asserted EMPTY first so the ink found during the drag is provably new.
+    ///
+    /// It uses `rewrappingScrapProjectRoot()`, not the shared fixture, and that
+    /// is load-bearing: `scrapText` is 94.62pt wide and fits on one line even in
+    /// the 100pt text box of a card at the floor, so against it this assertion
+    /// would be demanding a rewrap the fixture cannot produce. See
+    /// `rewrappingScrapText` for both measurements.
+    func test_aCardBeingResizedStaysOnTheCanvasForTheWholeDrag() throws {
+        let root = try rewrappingScrapProjectRoot()
+        let window = host(CanvasView(projectRoot: root, paletteSwatchHexes: { [] }))
+        let hosted = try XCTUnwrap(window.contentView)
+        let events = try eventView(in: window)
+
+        // The card's box, read off the surface rather than recomputed from font
+        // metrics: the mounted editor's frame IS the text box, inset on all four
+        // sides. Then click away so the drag below is a resize and not a text
+        // selection inside a focused scrap.
+        let textBox = swiftUIFrame(of: try doubleClickTheScrap(in: window), in: hosted)
+        let cardBox = textBox.insetBy(dx: -CanvasCardMetrics.inset,
+                                      dy: -CanvasCardMetrics.inset)
+        events.applyMouseDown(at: CGPoint(x: 600, y: 500), clickCount: 1)
+        events.applyMouseUp(at: CGPoint(x: 600, y: 500))
+        pump()
+
+        XCTAssertGreaterThan(try ink(in: cardBox, of: hosted), 0,
+                             "precondition: the card is drawn at all before anything "
+                             + "is dragged")
+
+        // Below where the 2-line card ends, and clear of the tilt (a card sits up
+        // to 0.6° off level, which moves an edge by ~2pt over this width).
+        let wrapBand = CGRect(x: cardBox.minX, y: cardBox.maxY + 4, width: 120, height: 24)
+        XCTAssertEqual(try ink(in: wrapBand, of: hosted), 0,
+                       "precondition: nothing is drawn below the card yet, so ink "
+                       + "found there during the drag can only be the card having "
+                       + "grown")
+
+        // Press in the corner square and drag left to the narrow end — and DO NOT
+        // release. This is the state the writer complained about, and the state
+        // no other test in this file ever looks at.
+        //
+        // The press is 2pt inside the corner, so the width this lands on is 122,
+        // not the 120 floor itself. Measured: the card is 88pt tall at every
+        // width from 124 down to 120, so the band below reads the same either
+        // way — see `rewrappingScrapText`.
+        let press = CGPoint(x: cardBox.maxX - 2, y: cardBox.maxY - 2)
+        events.applyMouseDown(at: press, clickCount: 1)
+        events.applyMouseDragged(to: CGPoint(x: cardBox.minX + 120, y: press.y))
+        pump(0.05)
+
+        let narrowed = CGRect(x: cardBox.minX, y: cardBox.minY,
+                              width: 120, height: cardBox.height)
+        XCTAssertGreaterThan(try ink(in: narrowed, of: hosted), 0,
+                             "the card is not on the canvas while the writer is "
+                             + "resizing it: `setWidth` cleared the cached height on "
+                             + "the first `.changed` and nothing refills it until "
+                             + "`.ended`, so the card blinks out for the whole drag "
+                             + "and reappears on release")
+
+        XCTAssertGreaterThan(try ink(in: wrapBand, of: hosted), 0,
+                             "the card is drawn at its old height while being "
+                             + "narrowed, so the writer cannot see the text rewrap "
+                             + "as they drag — the height has to be re-derived from "
+                             + "the live re-layout, not carried over")
+
+        events.applyMouseUp(at: CGPoint(x: cardBox.minX + 120, y: press.y))
+        pump()
     }
 
     /// §7.3, on the real surface: a card let go while moving carries on and comes

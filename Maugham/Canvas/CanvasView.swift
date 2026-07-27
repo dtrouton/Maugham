@@ -563,6 +563,30 @@ struct CanvasView: View {
         sceneRevision += 1
     }
 
+    /// Re-derive ONE scrap's height from its live layout, for the resize path.
+    ///
+    /// This is `rebuildLayouts()`'s reuse branch for a single node, and it is
+    /// deliberately the same two calls in the same order — `setWidth` on the
+    /// layout, then `cardHeight(forTextHeight:)` into the scene — so there is
+    /// one spelling of card geometry. A second measurement path is precisely how
+    /// drawn and edited text end up on different rects (spec §7A.2).
+    ///
+    /// A resize never changes the text, so the layout is always the reused one;
+    /// the guard is for an item node or a scrap whose layout has not been built,
+    /// neither of which can be resized.
+    ///
+    /// Does NOT touch `revision` or `sceneRevision` — the caller owns both, and
+    /// the structural counter must not move per frame.
+    private func remeasure(_ id: CanvasNodeID) {
+        guard let node = scene.node(id),
+              case .scrap = node.kind,
+              let layout = layouts[id] else { return }
+        layout.setWidth(CanvasCardMetrics.textWidth(forCardWidth: node.width))
+        scene.setCachedHeight(
+            CanvasCardMetrics.cardHeight(forTextHeight: layout.measuredHeight),
+            for: id)
+    }
+
     // MARK: - The writer's words
 
     /// Fold the live editor's text back into the model and re-measure the card.
@@ -847,6 +871,24 @@ struct CanvasView: View {
         case .changed:
             guard interaction.isActive else { return }
             interaction.update(to: contentPoint, in: &scene)
+            // A resize rewraps, and `CanvasScene.setWidth` clears the cached
+            // height to say so. Re-derive it NOW, not at `.ended`: a node with
+            // no `cachedHeight` has no `frame`, and a node with no frame is
+            // invisible to `nodes(intersecting:)` — so without this the card
+            // blinks out for the whole drag and reappears on release, which is
+            // what the writer reported. Re-measuring live is also the point of
+            // a resize handle: the text visibly rewraps under the pointer.
+            //
+            // ONE node, not `rebuildLayouts()`, which measures every scrap on
+            // the canvas and runs at drag-frame rate here. And deliberately no
+            // `sceneRevision` bump — that is the STRUCTURAL counter and the
+            // accessibility tree is gated on it (tripwire 30); bumping it per
+            // frame would sort the scene and copy every scrap's string at
+            // 60–120 Hz. The end of the resize bumps it once, via
+            // `rebuildLayouts()`.
+            if interaction.isResizing, let id = interaction.activeNodeID {
+                remeasure(id)
+            }
             revision += 1
         case .ended:
             guard interaction.isActive else { return }
