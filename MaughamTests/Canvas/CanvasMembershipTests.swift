@@ -104,6 +104,32 @@ final class CanvasMembershipTests: XCTestCase {
                        "leaving one region must not touch another")
     }
 
+    /// `join` cannot produce a node with two homes, but a hand-edited sidecar or
+    /// a caller that builds regions directly can — `insertRegion` and
+    /// `CanvasRegion.init` both admit one. The answer must not depend on the
+    /// order the regions were inserted, and must not depend on `Dictionary`
+    /// iteration order either: it is the first region in ID order, which is what
+    /// the loader repairs a malformed file down to.
+    func test_aNodeHomeInTwoRegionsResolvesToTheFirstInIDOrderWhicheverWayItWasBuilt() {
+        func built(inserting order: [CanvasRegionID]) -> CanvasScene {
+            var s = CanvasScene()
+            s.insert(CanvasNode(id: a, kind: .scrap, origin: .zero,
+                                width: 240, cachedHeight: 80))
+            for id in order {
+                s.insertRegion(CanvasRegion(id: id, label: id.raw,
+                                            frame: CGRect(x: 0, y: 0, width: 600, height: 400),
+                                            homeMembers: [a]))
+            }
+            return s
+        }
+
+        // r2 first, so "the first one I find" is the WRONG answer.
+        XCTAssertEqual(CanvasMembership.homeRegion(of: a, in: built(inserting: [r2, r1])), r1)
+        XCTAssertEqual(CanvasMembership.homeRegion(of: a, in: built(inserting: [r1, r2])), r1,
+                       "the reverse insertion order must agree — a rule that "
+                       + "depends on insertion order is not a repair rule")
+    }
+
     // MARK: - What travels
 
     func test_onlyResidentsTravelWithTheirRegion() {

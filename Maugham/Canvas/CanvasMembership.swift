@@ -36,9 +36,22 @@ public enum CanvasMembership {
         scene.updateRegion(region) { $0.forget(node) }
     }
 
+    /// The region a node lives in — **the first in id order**, when a malformed
+    /// scene offers more than one.
+    ///
+    /// `join` keeps the one-home rule on the mutation path, but neither
+    /// `CanvasScene.insertRegion` nor `CanvasRegion.init` does: a hand-edited
+    /// sidecar, or a caller that builds regions directly, can hand us a node
+    /// that is home in two. In a well-formed scene at most one region matches
+    /// and the order is free; in a malformed one this must still answer the
+    /// same thing twice running — and the same thing the loader decides when it
+    /// repairs the file, which is also first-in-id-order. Walking
+    /// `unorderedRegions` instead would answer whichever way `Dictionary`
+    /// happened to iterate that run. `appearanceRegions` walks `regions` for
+    /// the same reason.
     public static func homeRegion(of node: CanvasNodeID,
                                   in scene: CanvasScene) -> CanvasRegionID? {
-        scene.unorderedRegions.first { $0.livesHere(node) }?.id
+        scene.regions.first { $0.livesHere(node) }?.id
     }
 
     /// In `regions` order, so the inspector and the renderer list a node's
