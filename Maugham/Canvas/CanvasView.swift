@@ -676,6 +676,20 @@ struct CanvasView: View {
         case unenterableNode
     }
 
+    /// What a single click selects. The SAME precedence the drag uses — a card
+    /// beats the region chrome under it — so clicking a thing and dragging it
+    /// never disagree about which thing it was.
+    ///
+    /// A click on a region's interior selects nothing, for the same reason the
+    /// interior is not a grab handle: it belongs to the cards in it.
+    private func selectionTarget(at contentPoint: CGPoint) -> CanvasSelection? {
+        if let node = model.scene.topmostNode(at: contentPoint) { return .node(node.id) }
+        switch CanvasInteraction.regionHit(at: contentPoint, in: model.scene) {
+        case .chrome(let id), .resizeCorner(let id): return .region(id)
+        case nil: return nil
+        }
+    }
+
     private func clickTarget(at contentPoint: CGPoint) -> ClickTarget {
         guard let node = model.scene.topmostNode(at: contentPoint) else { return .emptyCanvas }
         guard case .scrap = node.kind,
@@ -704,6 +718,23 @@ struct CanvasView: View {
         commitActiveEdit()
 
         guard clickCount >= 2 else {
+            model.selection = selectionTarget(at: contentPoint)
+            // The selection is read INSIDE the draw closure, where a model value
+            // is not in SwiftUI's dependency graph — that is what this counter
+            // is for. `revision` and never `sceneRevision`: a selection change
+            // is not a structural one.
+            //
+            // **No test can see this line today, and that is measured rather
+            // than assumed** (mutation, 2026-07-27: removing it leaves the
+            // mounting and composition suites entirely green). `leaveTheOpenScrap()`
+            // on the next line writes three pieces of `@State`, which invalidates
+            // `body` and gets the redraw for free — so the bump is currently
+            // belt and braces. It stays because that cover is incidental: a
+            // selection set from anywhere that does NOT also move focus — the
+            // inspector in the other column, a keyboard selection — has nothing
+            // else to invalidate on, and the symptom is an accent that appears
+            // whenever something unrelated next redraws.
+            revision += 1
             leaveTheOpenScrap()
             model.scheduleSave()
             return
@@ -792,12 +823,30 @@ struct CanvasView: View {
 
     // MARK: - Drags
 
-    /// A left-drag that begins over empty canvas (no node under the point) is
-    /// intentionally a no-op: `CanvasInteraction.begin` finds nothing to move or
-    /// resize and sets its mode to idle, so `.changed`/`.ended` below never
-    /// register. Panning is `scrollWheel`/`magnify` (Task 6), not click-and-drag,
-    /// and this slice has no marquee-select — that is out of scope here, not
-    /// merely unbuilt.
+    /// What the Edit menu will call this gesture. The writer reads these — the
+    /// item says "Undo Move Region", not "Undo" — so every mode `begin` can
+    /// enter needs one, and the compiler is what says so.
+    ///
+    /// `nil` cannot arrive: the one caller asks only when `isActive`. It has a
+    /// name anyway rather than a `!`, because the alternative to a harmless
+    /// fallback here is a crash on a surface the writer is dragging.
+    private static func gestureName(for kind: CanvasInteraction.Kind?) -> String {
+        switch kind {
+        case .movingNode: return "Move Scrap"
+        case .resizingNode: return "Resize Scrap"
+        case .movingRegion: return "Move Region"
+        case .resizingRegion: return "Resize Region"
+        case .drawingRegion: return "New Region"
+        case nil: return "Canvas"
+        }
+    }
+
+    /// A left-drag that begins over empty canvas now DRAWS A REGION, and one
+    /// that begins inside an existing region's interior is still a no-op:
+    /// `CanvasInteraction.begin` leaves the mode idle there, so `.changed` and
+    /// `.ended` below never register. Nested regions are out of scope (§9).
+    /// Panning is `scrollWheel`/`magnify`, not click-and-drag, and there is no
+    /// marquee-select — that is out of scope here, not merely unbuilt.
     ///
     /// **A drag that starts inside a FOCUSED scrap belongs to the editor**, which
     /// is in front and takes the mouse itself, so it is a text selection rather
@@ -841,8 +890,13 @@ struct CanvasView: View {
             // the interaction idle, so `.ended` bails on its first guard and
             // would never close a gesture opened here — the next real drag would
             // then nest inside it and two gestures would collapse into one ⌘Z.
+            // Only when `begin` found something. A press on bare canvas INSIDE a
+            // region leaves the interaction idle, so `.ended` bails on its first
+            // guard and would never close a gesture opened here — the next real
+            // drag would then nest inside it and two gestures would collapse
+            // into one ⌘Z.
             if interaction.isActive {
-                model.beginGesture(interaction.isResizing ? "Resize Scrap" : "Move Scrap")
+                model.beginGesture(Self.gestureName(for: interaction.kind))
             }
         case .changed:
             guard interaction.isActive else { return }
@@ -871,7 +925,34 @@ struct CanvasView: View {
         case .ended:
             guard interaction.isActive else { return }
             let wasResizing = interaction.isResizing
+            // Both read BEFORE `end()` clears the mode. The swept rect lives in
+            // the interaction and nowhere else, so there is no second copy of it
+            // to go stale.
+            let drawnRegion = interaction.pendingRegionDraw
+            let movedNode = interaction.kind == .movingNode ? interaction.activeNodeID : nil
             let flick = interaction.end()
+
+            if let drawnRegion {
+                // A sweep under `minimumSide` mints nothing — which is what
+                // every single click on bare canvas is, since `applyMouseDown`
+                // opens a drag session on every mouse-down.
+                model.withScene(persist: false) {
+                    if let id = CanvasInteraction.createRegion(drawnRegion, in: &$0) {
+                        model.selection = .region(id)
+                    }
+                }
+            } else if let movedNode, interaction.hasMoved {
+                // The drop, INSIDE the move's own gesture — so one ⌘Z takes back
+                // the move and the join together. Dropping outside every region
+                // removes nothing: removal is always its own act (§4.2), and the
+                // tether is what makes the resulting state legible.
+                model.withScene(persist: false) {
+                    if let target = CanvasInteraction.joinTarget(for: movedNode, in: $0) {
+                        CanvasMembership.join(movedNode, home: target, in: &$0)
+                    }
+                }
+            }
+
             if wasResizing {
                 // The rewrap cleared the cached height; re-measure before the
                 // card is hit-tested or culled again. `rebuildLayouts()` bumps

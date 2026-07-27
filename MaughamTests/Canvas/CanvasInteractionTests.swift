@@ -20,13 +20,22 @@ final class CanvasInteractionTests: XCTestCase {
         XCTAssertEqual(scene.node(CanvasNodeID("s1"))?.origin, CGPoint(x: 150, y: 120))
     }
 
+    /// A drag on empty space DRAWS A REGION — it does not touch the cards.
+    ///
+    /// 1C-a documented this gesture as a deliberate no-op and this test asserted
+    /// `isActive == false` to say so; 1C-b Task 5 gave the gesture a job, which
+    /// is the one thing that could ever have changed the assertion. What the
+    /// test is really about is unchanged and is the second line: a drag that
+    /// begins on bare canvas must not pick up, move or resize a card.
     func test_dragOnEmptySpaceMovesNothing() {
         var scene = sceneWithOneScrap()
         var i = CanvasInteraction()
         i.begin(at: CGPoint(x: 900, y: 900), in: scene)
-        XCTAssertFalse(i.isActive)
+        XCTAssertEqual(i.kind, .drawingRegion)
+        XCTAssertNil(i.activeNodeID)
         i.update(to: CGPoint(x: 950, y: 950), in: &scene)
         XCTAssertEqual(scene.node(CanvasNodeID("s1"))?.origin, CGPoint(x: 100, y: 100))
+        XCTAssertEqual(scene.node(CanvasNodeID("s1"))?.width, 240)
     }
 
     func test_dragPreservesWidthAndDoesNotReMeasure() {

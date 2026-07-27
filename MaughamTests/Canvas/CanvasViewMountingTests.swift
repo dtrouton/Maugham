@@ -100,6 +100,21 @@ final class CanvasViewMountingTests: XCTestCase {
         try makeRoot()
     }
 
+    /// The fixture scrap at (60,60), owned by a region at (20,20).
+    ///
+    /// The card is clear of the region's 24pt chrome bar, so a press on the bar
+    /// is unambiguously a press on the region — `topmostNode(at:)` is asked
+    /// first and a card overlapping the chrome would win.
+    private func regionProjectRoot() throws -> URL {
+        var scene = CanvasScene()
+        scene.insert(CanvasNode(id: scrapID, kind: .scrap, origin: CGPoint(x: 60, y: 60),
+                                width: 240, cachedHeight: 60))
+        scene.insertRegion(CanvasRegion(id: CanvasRegionID("r1"), label: "Act II fog",
+                                        frame: CGRect(x: 20, y: 20, width: 400, height: 300),
+                                        homeMembers: [scrapID]))
+        return try projectRoot(scene: scene, scraps: [scrapID: scrapText])
+    }
+
     private func projectRoot(scene: CanvasScene,
                              scraps: [CanvasNodeID: String]) throws -> URL {
         let root = try makeRoot()
@@ -1756,5 +1771,230 @@ final class CanvasViewMountingTests: XCTestCase {
                        + "gesture on a view that is going away — `beforeFlush` took "
                        + "`fromKeystroke: true`, and only a real keystroke may move "
                        + "an undo boundary")
+    }
+
+    // MARK: - Regions, through the real event view
+
+    /// **The other half of `CanvasRegionInteractionTests`, and the half that
+    /// would have caught both of 1C-a's shipped defects.** That file drives the
+    /// state machine directly; these four drive a real `CanvasEventNSView`
+    /// through the same `mouseDown`/`mouseDragged`/`mouseUp` seam the AppKit
+    /// overrides call, and assert on what reached disk through the real
+    /// debounced save. A gesture that never reaches `handleDrag`, or a routing
+    /// change that sends it somewhere else, is invisible to the state machine's
+    /// own tests and fails here.
+    ///
+    /// `pump(1.0)`, not `waitOut`: the 750 ms save debounce is itself a
+    /// scheduled run-loop source, so `pump` really does wait for it — and
+    /// nothing below turns on wall clock elapsing with the loop empty, which is
+    /// the one thing `waitOut` is for.
+    func test_aDragOnBareCanvasDrawsARegionThatReachesDisk() throws {
+        let root = try projectRoot()
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+
+        drag(events, from: CGPoint(x: 400, y: 300),
+             through: [CGPoint(x: 600, y: 460), CGPoint(x: 600, y: 460)])
+        pump(1.0)
+
+        let regions = sceneOnDisk(root).regions
+        XCTAssertEqual(regions.count, 1,
+                       "a drag on bare canvas made no region: 1C-a documents an "
+                       + "empty-canvas drag as a no-op, so nothing but this task's "
+                       + "wiring can turn it into the create gesture")
+        XCTAssertEqual(regions.first?.frame.width, 200)
+        XCTAssertEqual(regions.first?.frame.height, 160)
+        XCTAssertTrue(regions.first!.homeMembers.isEmpty,
+                      "the fixture's scrap is at (20,20) and this rect starts at "
+                      + "(400,300), so nothing was in the way — the absorption "
+                      + "rule is asserted in CanvasRegionInteractionTests")
+        XCTAssertEqual(model.selection, .region(regions.first!.id),
+                       "the region the writer just drew is not selected, so the "
+                       + "inspector in the other column has nothing to name it with")
+    }
+
+    func test_draggingARegionByItsLabelBarCarriesItsResidentToDisk() throws {
+        let root = try regionProjectRoot()
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+
+        // Onto the chrome bar, then 100pt right and 40pt down.
+        drag(events, from: CGPoint(x: 200, y: 30),
+             through: [CGPoint(x: 300, y: 70), CGPoint(x: 300, y: 70)])
+        pump(1.0)
+
+        let onDisk = sceneOnDisk(root)
+        XCTAssertEqual(onDisk.region(CanvasRegionID("r1"))?.frame.origin,
+                       CGPoint(x: 120, y: 60))
+        XCTAssertEqual(onDisk.node(scrapID)?.origin, CGPoint(x: 160, y: 100),
+                       "the resident travelled — through the real event view, the "
+                       + "real gesture routing and the real debounced save")
+    }
+
+    func test_oneUndoTakesBackARegionDragAndTheCardsItCarried() throws {
+        let root = try regionProjectRoot()
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+
+        drag(events, from: CGPoint(x: 200, y: 30),
+             through: [CGPoint(x: 300, y: 70), CGPoint(x: 300, y: 70)])
+        pump(1.0)
+        XCTAssertEqual(sceneOnDisk(root).node(scrapID)?.origin, CGPoint(x: 160, y: 100),
+                       "precondition: the drag really happened")
+
+        // What a click on bare canvas does. The testable seam `drag` goes
+        // through does no event-level responder work — synthesizing `NSEvent`s
+        // is unreliable, see `CanvasEventNSView` — so the claim
+        // `mouseDown(with:)` makes is made here in its place. Without it the
+        // chain walk below starts at the window, finds `NSWindow.undo:`, and
+        // measures the window's stack rather than the canvas's.
+        XCTAssertTrue(window.makeFirstResponder(events))
+
+        let undo = try editMenuItem(#selector(CanvasEventNSView.undo(_:)), in: window)
+        XCTAssertTrue(undo.isEnabled,
+                      "a ⌘Z the Edit menu greys out is a feature the writer cannot reach")
+        XCTAssertTrue(undo.item.title.contains("Move Region"),
+                      "the menu item reads \"\(undo.item.title)\" rather than naming the "
+                      + "gesture it will take back — a region drag opened a bracket "
+                      + "under some other gesture's name")
+        _ = undo.target.perform(undo.item.action, with: undo.item)
+        pump(1.0)
+
+        let onDisk = sceneOnDisk(root)
+        XCTAssertEqual(onDisk.region(CanvasRegionID("r1"))?.frame.origin, CGPoint(x: 20, y: 20))
+        XCTAssertEqual(onDisk.node(scrapID)?.origin, CGPoint(x: 60, y: 60),
+                       "one ⌘Z takes back the frame AND every resident it carried — "
+                       + "which is why the recorder snapshots the scene rather than "
+                       + "inverting properties")
+    }
+
+    func test_droppingACardIntoARegionJoinsItAndOneUndoTakesBackBoth() throws {
+        // The same region, and a scrap that starts OUTSIDE it.
+        var scene = CanvasScene()
+        scene.insert(CanvasNode(id: scrapID, kind: .scrap, origin: CGPoint(x: 500, y: 60),
+                                width: 240, cachedHeight: 60))
+        scene.insertRegion(CanvasRegion(id: CanvasRegionID("r1"), label: "Act II fog",
+                                        frame: CGRect(x: 20, y: 20, width: 400, height: 300)))
+        let root = try projectRoot(scene: scene, scraps: [scrapID: scrapText])
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+
+        XCTAssertFalse(sceneOnDisk(root).region(CanvasRegionID("r1"))!.livesHere(scrapID),
+                       "precondition: it starts outside and unowned")
+
+        // Grab the card at (540, 90) and carry it 340pt left, so its centre
+        // lands at (250, 130) — squarely inside the region.
+        drag(events, from: CGPoint(x: 540, y: 90),
+             through: [CGPoint(x: 200, y: 90), CGPoint(x: 200, y: 90)])
+        pump(1.0)
+
+        XCTAssertTrue(sceneOnDisk(root).region(CanvasRegionID("r1"))!.livesHere(scrapID),
+                      "the drop joined it")
+
+        XCTAssertTrue(window.makeFirstResponder(events))
+        let undo = try editMenuItem(#selector(CanvasEventNSView.undo(_:)), in: window)
+        _ = undo.target.perform(undo.item.action, with: undo.item)
+        pump(1.0)
+
+        let onDisk = sceneOnDisk(root)
+        XCTAssertEqual(onDisk.node(scrapID)?.origin, CGPoint(x: 500, y: 60))
+        XCTAssertFalse(onDisk.region(CanvasRegionID("r1"))!.livesHere(scrapID),
+                       "ONE ⌘Z, because the join lands inside the move's own "
+                       + "gesture — a second bracket would leave the card back "
+                       + "outside a region that still claimed it")
+    }
+
+    /// **A resize is not a drop.** The join is read off `interaction.kind ==
+    /// .movingNode`, and dropping that filter is invisible everywhere else: a
+    /// region drag reports no `activeNodeID`, so the only gesture the filter
+    /// actually excludes is a card RESIZE — where `hasMoved` is true and the
+    /// card's centre walks as the width changes.
+    ///
+    /// The geometry is chosen so it walks across the line: the card starts with
+    /// its centre exactly on the region's right edge, and narrowing it to the
+    /// floor carries the centre 60pt inside. Without the filter the writer
+    /// rewraps a card near a region and it silently changes owner.
+    func test_narrowingACardUntilItsCentreIsInsideARegionDoesNotJoinIt() throws {
+        var scene = CanvasScene()
+        scene.insert(CanvasNode(id: scrapID, kind: .scrap, origin: CGPoint(x: 300, y: 60),
+                                width: 240, cachedHeight: 38))
+        scene.insertRegion(CanvasRegion(id: CanvasRegionID("r1"), label: "Act II fog",
+                                        frame: CGRect(x: 20, y: 20, width: 400, height: 300)))
+        let root = try projectRoot(scene: scene, scraps: [scrapID: scrapText])
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+
+        // 2pt inside the card's bottom-right corner square. The card is 38pt
+        // tall — `rewrappingScrapText` records the measurement, and `scrapText`
+        // is one line at every width from 240 down to the floor — so the corner
+        // is at (540, 98). A press that missed it would leave the width at 240,
+        // which the first assertion below reads.
+        drag(events, from: CGPoint(x: 538, y: 96),
+             through: [CGPoint(x: 100, y: 96)])
+        pump(1.0)
+
+        let onDisk = sceneOnDisk(root)
+        let card = try XCTUnwrap(onDisk.node(scrapID))
+        XCTAssertEqual(card.width, CanvasInteraction.minimumScrapWidth,
+                       "precondition: the resize really ran to the floor")
+        XCTAssertEqual(card.origin, CGPoint(x: 300, y: 60),
+                       "precondition: a resize holds the origin, so the centre "
+                       + "moved by half the width it lost and by nothing else")
+        XCTAssertTrue(onDisk.region(CanvasRegionID("r1"))!.frame
+                        .contains(CGPoint(x: card.frame!.midX, y: card.frame!.midY)),
+                      "precondition: the narrowed card's centre really is inside "
+                      + "the region, so a missing filter WOULD have joined it")
+        XCTAssertFalse(onDisk.region(CanvasRegionID("r1"))!.livesHere(scrapID),
+                       "rewrapping a card near a region silently changed its owner "
+                       + "— the drop is a DROP, and only a move ends in one")
+    }
+
+    /// **A single click on bare canvas opens a `.drawingRegion` gesture on every
+    /// press, including the first of every double-click**, because
+    /// `applyMouseDown` fires `onClick` and `onDrag(.began)` together. It ends
+    /// immediately with a zero-size rect, which `createRegion` refuses — so the
+    /// double-click that makes a scrap must still make exactly one scrap and no
+    /// region, and must leave exactly one thing on the undo stack.
+    ///
+    /// This is the path point 2 of the task brief asks to be traced. It is
+    /// asserted rather than reasoned about because the failure is silent: a
+    /// `createRegion` with no minimum, or an `endGesture` that registered an
+    /// unchanged scene, leaves the writer pressing ⌘Z twice to take back one
+    /// card.
+    func test_aDoubleClickOnBareCanvasStillMakesOneScrapAndNoRegion() throws {
+        let root = try projectRoot()
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let hosted = try XCTUnwrap(window.contentView)
+        let events = try eventView(in: window)
+
+        // The first press of the double-click, released — the whole of the
+        // zero-size sweep, on its own.
+        events.applyMouseDown(at: CGPoint(x: 500, y: 400), clickCount: 1)
+        events.applyMouseUp(at: CGPoint(x: 500, y: 400))
+        pump()
+        XCTAssertFalse(try XCTUnwrap(events.undoManager).canUndo,
+                       "a single click on bare canvas left a step on the stack: the "
+                       + "sweep it opened registered a scene that never moved")
+
+        events.applyMouseDown(at: CGPoint(x: 500, y: 400), clickCount: 2)
+        pump(0.3)
+        type("Rain.", into: try XCTUnwrap(
+            try XCTUnwrap(firstDescendant(ScrapEditorContainer.self, in: hosted),
+                          "the double-click made no scrap").textView))
+        pump(1.0)
+
+        let onDisk = sceneOnDisk(root)
+        XCTAssertEqual(onDisk.regionCount, 0,
+                       "the zero-size sweep that every press opens minted a region: "
+                       + "double-clicking bare canvas now leaves a stray region "
+                       + "behind every new scrap")
+        XCTAssertEqual(onDisk.count, 2, "precondition: the new scrap is on the canvas")
     }
 }

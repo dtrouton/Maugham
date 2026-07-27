@@ -53,6 +53,33 @@ struct CanvasInteraction {
         case idle
         case moving(CanvasNodeID, grabOffset: CGSize)
         case resizing(CanvasNodeID, startWidth: CGFloat, startX: CGFloat)
+        /// The residents are captured at `.began` because membership cannot
+        /// change during a drag (§4.2: only a deliberate act moves it), and
+        /// re-deriving them per frame is a set-union over every region in the
+        /// scene at pointer rate.
+        case movingRegion(CanvasRegionID, grabOffset: CGSize, residents: Set<CanvasNodeID>)
+        /// The START frame, not the live one: a resize accumulated frame by
+        /// frame drifts, and one clamped at `minimumSide` accumulates the clamp
+        /// as well — drag past the floor and back and the region never returns
+        /// to the size it was.
+        case resizingRegion(CanvasRegionID, startFrame: CGRect, startPoint: CGPoint)
+        case drawingRegion(start: CGPoint, current: CGPoint)
+    }
+
+    /// What this gesture is, for callers that need to name it without knowing
+    /// how the machine stores it — `CanvasView` titles the undo bracket from
+    /// this, and reads it at `.ended` to tell a card drop from a region sweep.
+    enum Kind: Equatable {
+        case movingNode, resizingNode, movingRegion, resizingRegion, drawingRegion
+    }
+
+    /// Where a press on a region landed.
+    ///
+    /// There is deliberately no `.interior` case. The interior is not a grab
+    /// handle at all — see `regionHit(at:in:)`.
+    enum RegionHit: Equatable {
+        case chrome(CanvasRegionID)
+        case resizeCorner(CanvasRegionID)
     }
 
     /// One drag sample: where the pointer was, and when.
@@ -102,12 +129,46 @@ struct CanvasInteraction {
         case .idle: return nil
         case .moving(let id, _): return id
         case .resizing(let id, _, _): return id
+        case .movingRegion, .resizingRegion, .drawingRegion: return nil
         }
     }
 
+    var activeRegionID: CanvasRegionID? {
+        switch mode {
+        case .movingRegion(let id, _, _), .resizingRegion(let id, _, _): return id
+        case .idle, .moving, .resizing, .drawingRegion: return nil
+        }
+    }
+
+    var kind: Kind? {
+        switch mode {
+        case .idle: return nil
+        case .moving: return .movingNode
+        case .resizing: return .resizingNode
+        case .movingRegion: return .movingRegion
+        case .resizingRegion: return .resizingRegion
+        case .drawingRegion: return .drawingRegion
+        }
+    }
+
+    /// A NODE resize, and only that. `CanvasView` reads it to re-measure the
+    /// card under the pointer and to take the `.ended` branch that rebuilds
+    /// layouts; a region has no text to rewrap and no height to re-derive, so
+    /// widening this to cover `.resizingRegion` would measure every scrap on the
+    /// canvas for a gesture that touched none of them.
     var isResizing: Bool {
         if case .resizing = mode { return true }
         return false
+    }
+
+    /// The rect a `.drawingRegion` gesture has swept, normalised so a drag up
+    /// and to the left is the same region as a drag down and to the right.
+    /// `nil` in every other mode — `CanvasView` reads it at `.ended` to decide
+    /// whether this gesture was a sweep at all.
+    var pendingRegionDraw: CGRect? {
+        guard case .drawingRegion(let start, let current) = mode else { return nil }
+        return CGRect(x: min(start.x, current.x), y: min(start.y, current.y),
+                      width: abs(current.x - start.x), height: abs(current.y - start.y))
     }
 
     /// A press inside the card's bottom-right corner square starts a resize;
@@ -118,21 +179,47 @@ struct CanvasInteraction {
     /// half of this target is live but uninked — deliberately, because a target
     /// larger than its mark forgives a near miss and the reverse swallows drags
     /// the writer aimed at the card. See `CanvasRenderer.resizeHandle`.
+    /// The precedence, in one place: **card, then a region's resize corner, then
+    /// a region's label bar, then nothing, then a sweep.**
+    ///
+    /// Cards are hit-tested FIRST and unconditionally, so a card overlapping a
+    /// region's chrome is still picked up by a press on it — most cards live in
+    /// a region, and a region that stole them would make the ones near its top
+    /// edge unmovable.
+    ///
+    /// A press inside a region's INTERIOR that missed every card leaves this
+    /// idle rather than starting a sweep: nested regions are out of scope (§9)
+    /// and silently making one is worse than refusing.
     mutating func begin(at contentPoint: CGPoint, in scene: CanvasScene) {
         lastSample = nil
         previousSample = nil
         startPoint = contentPoint
         hasMoved = false
-        guard let node = scene.topmostNode(at: contentPoint), let frame = node.frame else {
-            mode = .idle
+        if let node = scene.topmostNode(at: contentPoint), let frame = node.frame {
+            let handle = CanvasRenderer.resizeHandleSize
+            if contentPoint.x >= frame.maxX - handle && contentPoint.y >= frame.maxY - handle {
+                beginResize(node.id, at: contentPoint, in: scene)
+            } else {
+                mode = .moving(node.id, grabOffset: CGSize(width: contentPoint.x - node.origin.x,
+                                                           height: contentPoint.y - node.origin.y))
+            }
             return
         }
-        let handle = CanvasRenderer.resizeHandleSize
-        if contentPoint.x >= frame.maxX - handle && contentPoint.y >= frame.maxY - handle {
-            beginResize(node.id, at: contentPoint, in: scene)
-        } else {
-            mode = .moving(node.id, grabOffset: CGSize(width: contentPoint.x - node.origin.x,
-                                                       height: contentPoint.y - node.origin.y))
+
+        switch Self.regionHit(at: contentPoint, in: scene) {
+        case .resizeCorner(let id):
+            guard let frame = scene.region(id)?.frame else { mode = .idle; return }
+            mode = .resizingRegion(id, startFrame: frame, startPoint: contentPoint)
+        case .chrome(let id):
+            guard let frame = scene.region(id)?.frame else { mode = .idle; return }
+            mode = .movingRegion(id,
+                                 grabOffset: CGSize(width: contentPoint.x - frame.minX,
+                                                    height: contentPoint.y - frame.minY),
+                                 residents: CanvasMembership.residents(of: id, in: scene))
+        case nil:
+            mode = scene.unorderedRegions.contains { $0.frame.contains(contentPoint) }
+                ? .idle
+                : .drawingRegion(start: contentPoint, current: contentPoint)
         }
     }
 
@@ -169,12 +256,49 @@ struct CanvasInteraction {
             // ends.
             scene.setWidth(max(Self.minimumScrapWidth, startWidth + (contentPoint.x - startX)),
                            for: id)
+        case .movingRegion(let id, let grab, let residents):
+            // §4.1: the region and its residents travel together, by the SAME
+            // delta — derived from where the frame actually is rather than from
+            // the pointer, so a frame the clamp or another writer moved cannot
+            // send the cards somewhere the region did not go.
+            guard let frame = scene.region(id)?.frame else { break }
+            let origin = CGPoint(x: contentPoint.x - grab.width,
+                                 y: contentPoint.y - grab.height)
+            let delta = CGSize(width: origin.x - frame.minX, height: origin.y - frame.minY)
+            scene.setRegionFrame(CGRect(origin: origin, size: frame.size), for: id)
+            // Residents only. An appearance is a reference, not a copy (§4.3),
+            // and dragging the region it is cited in must not move the card it
+            // cites — `CanvasMembership.residents` is what draws that line.
+            for resident in residents {
+                guard let at = scene.node(resident)?.origin else { continue }
+                scene.move(resident, to: CGPoint(x: at.x + delta.width,
+                                                 y: at.y + delta.height))
+            }
+        case .resizingRegion(let id, let startFrame, let startPoint):
+            // The ORIGIN is held: the corner the writer has hold of moves and
+            // the opposite one stays. Nothing here touches membership — §4.2's
+            // whole point is that geometry never adds or removes a member, and
+            // a resize that ejected the cards it no longer covers is tldraw's
+            // #6017.
+            let size = CGSize(
+                width: max(CanvasRegionMetrics.minimumSide,
+                           startFrame.width + (contentPoint.x - startPoint.x)),
+                height: max(CanvasRegionMetrics.minimumSide,
+                            startFrame.height + (contentPoint.y - startPoint.y)))
+            scene.setRegionFrame(CGRect(origin: startFrame.origin, size: size), for: id)
+        case .drawingRegion(let start, _):
+            mode = .drawingRegion(start: start, current: contentPoint)
         }
     }
 
     /// Ends the gesture and reports the flick, if there was one: the node that
     /// moved and its final per-frame velocity. A resize never flicks — rewrapping
     /// a scrap must not send it skating.
+    ///
+    /// **Neither does anything a region does.** A region full of cards skating
+    /// away from where the writer put it is not §7.3's "objects coming to rest",
+    /// and a sweep has nothing to throw at all — so all three region modes fall
+    /// out of the `case .moving` guard below with `nil`.
     ///
     /// A drag the writer PAUSED before letting go does not flick either, and
     /// that is what `now` is for: see `maximumFlickAge`. Without it the writer
@@ -222,6 +346,87 @@ struct CanvasInteraction {
         scene.insert(CanvasNode(id: id, kind: .scrap, origin: contentPoint,
                                 width: defaultScrapWidth, cachedHeight: nil,
                                 z: scene.topZ + 1))
+        return id
+    }
+
+    // MARK: - Regions
+
+    /// The label bar moves a region; the bottom-right corner resizes it. The
+    /// INTERIOR is deliberately neither: grabbing anywhere inside would make it
+    /// impossible to pick up a card that sits in a region, which is most of them.
+    ///
+    /// Both rects come from `CanvasRegionMetrics`, the same functions
+    /// `CanvasRenderer.drawRegion` draws from. A second spelling puts the mark
+    /// and the target on different geometry — the failure `CanvasCardMetrics`
+    /// exists to prevent for cards, in a second place.
+    ///
+    /// The corner is tested before the chrome so a region short enough for the
+    /// two to meet still resizes; and the target is the whole 14pt square while
+    /// the mark is the triangle below its hypotenuse, because a target larger
+    /// than its mark forgives a near miss where the reverse swallows drags the
+    /// writer aimed at the region.
+    ///
+    /// **Smallest region first**, so a small region overlapping a large one is
+    /// reachable — nested regions are out of scope, overlapping ones are not.
+    /// The id is the tiebreak because `Array.sorted` is not stable: on area
+    /// alone, two equal-sized regions would answer differently between two runs
+    /// of the same click.
+    static func regionHit(at point: CGPoint, in scene: CanvasScene) -> RegionHit? {
+        let candidates = scene.unorderedRegions.sorted {
+            ($0.frame.width * $0.frame.height, $0.id.raw)
+                < ($1.frame.width * $1.frame.height, $1.id.raw)
+        }
+        for r in candidates
+        where CanvasRegionMetrics.resizeHandleRect(in: r.frame).contains(point) {
+            return .resizeCorner(r.id)
+        }
+        for r in candidates where CanvasRegionMetrics.chromeRect(in: r.frame).contains(point) {
+            return .chrome(r.id)
+        }
+        return nil
+    }
+
+    /// Which region a DROP meant. Deciding lives here; recording lives in
+    /// `CanvasMembership`, and keeping the two apart is what stops geometry
+    /// leaking into membership.
+    ///
+    /// The node's CENTRE must be inside the region — predictable, and
+    /// explainable in one sentence to a writer ("drop it so its middle is
+    /// inside"), where corner-based targeting is the one-pixel absurdity §4.2
+    /// cites against Obsidian. Overlap area only breaks ties between regions
+    /// that all contain it, with the id after it so the answer is the same
+    /// twice running when two regions cover the card identically.
+    ///
+    /// An unmeasured node has no frame and so joins nothing: it has no centre
+    /// to test, and `CGRect.null`'s is not a place.
+    static func joinTarget(for node: CanvasNodeID, in scene: CanvasScene) -> CanvasRegionID? {
+        guard let frame = scene.node(node)?.frame else { return nil }
+        let centre = CGPoint(x: frame.midX, y: frame.midY)
+        return scene.regions
+            .filter { $0.frame.contains(centre) }
+            .max { lhs, rhs in
+                let l = lhs.frame.intersection(frame), r = rhs.frame.intersection(frame)
+                return (l.width * l.height, lhs.id.raw) < (r.width * r.height, rhs.id.raw)
+            }?.id
+    }
+
+    /// Mint a region for a swept rect, or nothing if the sweep was a twitch —
+    /// which is what makes a stray drag on bare canvas cost nothing.
+    ///
+    /// Ids get the same uniqueness loop `createScrap` uses, never a bare random
+    /// call (tripwire 23's lesson in a second id space).
+    static func createRegion(_ rect: CGRect, in scene: inout CanvasScene) -> CanvasRegionID? {
+        guard rect.width >= CanvasRegionMetrics.minimumSide,
+              rect.height >= CanvasRegionMetrics.minimumSide else { return nil }
+        var id = CanvasRegionID(UUID().uuidString.prefix(8).lowercased())
+        while scene.region(id) != nil {
+            id = CanvasRegionID(UUID().uuidString.prefix(8).lowercased())
+        }
+        // Deliberately EMPTY, and deliberately unlabelled. §4.2: drawing a
+        // region around cards absorbs none of them — the writer drops in what
+        // belongs, and `CanvasRegion.untitledLabel` carries the name until they
+        // give it one.
+        scene.insertRegion(CanvasRegion(id: id, label: "", frame: rect))
         return id
     }
 }

@@ -1,0 +1,347 @@
+import XCTest
+@testable import Maugham
+
+/// The region half of the gesture state machine: where a region can be grabbed,
+/// what travels when it moves, what a corner drag does, what a sweep on bare
+/// canvas makes, and which region a drop meant.
+///
+/// **This file is necessary and not sufficient**, and saying so is the point of
+/// the comment. 1C-a shipped a resize that vanished the card for the whole drag
+/// with every resize test in the suite green, because all of them asserted after
+/// `.ended`. The other half — a real `CanvasEventNSView` driven through
+/// `drag(_:from:through:)`, asserting on what reached disk — is in
+/// `CanvasViewMountingTests`.
+final class CanvasRegionInteractionTests: XCTestCase {
+
+    private let r1 = CanvasRegionID("r1")
+    private let a = CanvasNodeID("a")
+    private let b = CanvasNodeID("b")
+
+    /// 'a' sits inside r1; 'b' sits well outside it.
+    private func scene() -> CanvasScene {
+        var s = CanvasScene()
+        s.insert(CanvasNode(id: a, kind: .scrap, origin: CGPoint(x: 100, y: 100),
+                            width: 240, cachedHeight: 80))
+        s.insert(CanvasNode(id: b, kind: .scrap, origin: CGPoint(x: 900, y: 100),
+                            width: 240, cachedHeight: 80))
+        s.insertRegion(CanvasRegion(id: r1, label: "Act II fog",
+                                    frame: CGRect(x: 0, y: 0, width: 600, height: 400)))
+        return s
+    }
+
+    // MARK: - Where a region can be grabbed
+
+    func test_theInteriorOfARegionIsNotAGrabHandle() {
+        XCTAssertNil(CanvasInteraction.regionHit(at: CGPoint(x: 400, y: 300), in: scene()))
+    }
+
+    func test_theLabelBarGrabsTheRegion() {
+        XCTAssertEqual(CanvasInteraction.regionHit(at: CGPoint(x: 300, y: 8), in: scene()),
+                       .chrome(r1))
+    }
+
+    func test_theBottomRightCornerResizesTheRegion() {
+        XCTAssertEqual(CanvasInteraction.regionHit(at: CGPoint(x: 596, y: 396), in: scene()),
+                       .resizeCorner(r1))
+    }
+
+    /// The unmarked half of the corner square is still live, for the reason
+    /// `CanvasInteractionTests.test_theUnmarkedHalfOfTheCornerSquareStillResizes`
+    /// gives for a card: the MARK is the triangle below the hypotenuse and the
+    /// TARGET is the whole square, because a target larger than its mark forgives
+    /// a near miss where the reverse swallows drags the writer aimed at the
+    /// region. Shrinking the target to the ink is a tidy-up that looks right.
+    func test_theUnmarkedHalfOfTheRegionsCornerSquareStillResizes() {
+        // 1pt inside the top-left corner of the 14pt square — above the
+        // hypotenuse, so nothing is drawn here.
+        XCTAssertEqual(CanvasInteraction.regionHit(at: CGPoint(x: 587, y: 387), in: scene()),
+                       .resizeCorner(r1))
+    }
+
+    /// A small region overlapping a large one must stay reachable. Sorting the
+    /// candidates the other way puts the big region's chrome in front of the
+    /// small one's and the small one can never be picked up again.
+    func test_theSmallerRegionWinsWhenTwoChromeBarsOverlap() {
+        var s = scene()
+        s.insertRegion(CanvasRegion(id: CanvasRegionID("small"), label: "Inset",
+                                    frame: CGRect(x: 200, y: 0, width: 120, height: 100)))
+        XCTAssertEqual(CanvasInteraction.regionHit(at: CGPoint(x: 250, y: 8), in: s),
+                       .chrome(CanvasRegionID("small")))
+    }
+
+    func test_aCardOverTheLabelBarStillWins() {
+        var s = scene()
+        s.move(a, to: CGPoint(x: 200, y: 0))
+        var i = CanvasInteraction()
+        i.begin(at: CGPoint(x: 300, y: 8), in: s)
+        XCTAssertEqual(i.activeNodeID, a)
+        XCTAssertNil(i.activeRegionID)
+    }
+
+    // MARK: - Dragging a region
+
+    /// §4.1: drag a region and its members travel. This is what makes
+    /// reorganising one gesture rather than a marquee-select.
+    func test_draggingARegionCarriesItsResidents() {
+        var s = scene()
+        CanvasMembership.join(a, home: r1, in: &s)
+        var i = CanvasInteraction()
+        i.begin(at: CGPoint(x: 300, y: 8), in: s)
+        i.update(to: CGPoint(x: 400, y: 58), in: &s)
+        XCTAssertEqual(s.region(r1)?.frame.origin, CGPoint(x: 100, y: 50))
+        XCTAssertEqual(s.node(a)?.origin, CGPoint(x: 200, y: 150))
+    }
+
+    /// The region keeps its SIZE while it travels. A move written as "set the
+    /// frame from the pointer" rather than "translate the frame" resizes it to
+    /// wherever the pointer happens to be.
+    func test_draggingARegionDoesNotResizeIt() {
+        var s = scene()
+        var i = CanvasInteraction()
+        i.begin(at: CGPoint(x: 300, y: 8), in: s)
+        i.update(to: CGPoint(x: 400, y: 58), in: &s)
+        XCTAssertEqual(s.region(r1)?.frame.size, CGSize(width: 600, height: 400))
+    }
+
+    func test_draggingARegionLeavesVisitorsWhereTheyAre() {
+        var s = scene()
+        CanvasMembership.addAppearance(b, to: r1, in: &s)
+        var i = CanvasInteraction()
+        i.begin(at: CGPoint(x: 300, y: 8), in: s)
+        i.update(to: CGPoint(x: 400, y: 58), in: &s)
+        XCTAssertEqual(s.node(b)?.origin, CGPoint(x: 900, y: 100), "a visitor is not luggage")
+    }
+
+    func test_draggingARegionDoesNotChangeMembership() {
+        var s = scene()
+        CanvasMembership.join(a, home: r1, in: &s)
+        var i = CanvasInteraction()
+        i.begin(at: CGPoint(x: 300, y: 8), in: s)
+        i.update(to: CGPoint(x: 4_000, y: 4_000), in: &s)
+        i.end()
+        XCTAssertTrue(s.region(r1)!.livesHere(a))
+        XCTAssertFalse(s.region(r1)!.livesHere(b),
+                       "and the region has now swept across b without absorbing it")
+    }
+
+    func test_aRegionNeverFlicks() {
+        var s = scene()
+        var i = CanvasInteraction()
+        i.begin(at: CGPoint(x: 300, y: 8), in: s)
+        i.update(to: CGPoint(x: 340, y: 8), in: &s, now: 0)
+        i.update(to: CGPoint(x: 400, y: 8), in: &s, now: 0.01)
+        XCTAssertNil(i.end(now: 0.011),
+                     "a region full of cards skating away is not §7.3's 'objects "
+                     + "coming to rest'")
+    }
+
+    // MARK: - Resizing a region
+
+    func test_resizingARegionMovesOnlyItsFrame() {
+        var s = scene()
+        CanvasMembership.join(a, home: r1, in: &s)
+        var i = CanvasInteraction()
+        i.begin(at: CGPoint(x: 596, y: 396), in: s)
+        i.update(to: CGPoint(x: 300, y: 250), in: &s)
+        XCTAssertEqual(s.region(r1)?.frame.width, 304)
+        XCTAssertEqual(s.region(r1)?.frame.height, 254)
+        XCTAssertEqual(s.node(a)?.origin, CGPoint(x: 100, y: 100),
+                       "resizing must not drag the residents")
+        XCTAssertTrue(s.region(r1)!.livesHere(a), "and must never eject one — tldraw #6017")
+    }
+
+    /// The bottom-right corner moves and the top-left stays put. A resize
+    /// written off the frame's centre, or one that translates the origin too,
+    /// walks the region across the canvas as the writer sizes it.
+    func test_resizingARegionLeavesItsTopLeftWhereItWas() {
+        var s = scene()
+        var i = CanvasInteraction()
+        i.begin(at: CGPoint(x: 596, y: 396), in: s)
+        i.update(to: CGPoint(x: 900, y: 700), in: &s)
+        XCTAssertEqual(s.region(r1)?.frame.origin, CGPoint(x: 0, y: 0))
+        XCTAssertEqual(s.region(r1)?.frame.width, 904)
+        XCTAssertEqual(s.region(r1)?.frame.height, 704)
+    }
+
+    func test_resizeIsClampedToAWorkableMinimum() {
+        var s = scene()
+        var i = CanvasInteraction()
+        i.begin(at: CGPoint(x: 596, y: 396), in: s)
+        i.update(to: CGPoint(x: -900, y: -900), in: &s)
+        XCTAssertEqual(s.region(r1)?.frame.width, CanvasRegionMetrics.minimumSide)
+        XCTAssertEqual(s.region(r1)?.frame.height, CanvasRegionMetrics.minimumSide)
+    }
+
+    // MARK: - Drawing a region
+
+    func test_aDragOnEmptyCanvasDrawsARegion() throws {
+        var s = scene()
+        var i = CanvasInteraction()
+        i.begin(at: CGPoint(x: 1_000, y: 1_000), in: s)
+        XCTAssertEqual(i.kind, .drawingRegion)
+        i.update(to: CGPoint(x: 1_300, y: 1_250), in: &s)
+        let rect = try XCTUnwrap(i.pendingRegionDraw)
+        XCTAssertEqual(rect, CGRect(x: 1_000, y: 1_000, width: 300, height: 250))
+        XCTAssertNotNil(CanvasInteraction.createRegion(rect, in: &s))
+        XCTAssertEqual(s.regionCount, 2)
+    }
+
+    func test_aDragBackwardsAndUpwardsStillDrawsARegion() {
+        var s = scene()
+        var i = CanvasInteraction()
+        i.begin(at: CGPoint(x: 1_300, y: 1_250), in: s)
+        i.update(to: CGPoint(x: 1_000, y: 1_000), in: &s)
+        XCTAssertEqual(i.pendingRegionDraw, CGRect(x: 1_000, y: 1_000, width: 300, height: 250))
+    }
+
+    /// Every other mode must answer `nil`, or `CanvasView`'s `.ended` reads a
+    /// swept rect off a gesture that swept nothing and mints a region on the end
+    /// of every card drag.
+    /// A scene each, because every gesture below MOVES something: sharing one
+    /// would leave the third grabbing a corner that is no longer there, and an
+    /// idle interaction reports no pending rect either — passing for the wrong
+    /// reason. The `kind` assertions are what make each one non-vacuous.
+    func test_onlyASweepHasAPendingRect() {
+        var movingScene = scene()
+        var moving = CanvasInteraction()
+        moving.begin(at: CGPoint(x: 110, y: 110), in: movingScene)
+        moving.update(to: CGPoint(x: 400, y: 400), in: &movingScene)
+        XCTAssertEqual(moving.kind, .movingNode, "precondition")
+        XCTAssertNil(moving.pendingRegionDraw, "a card move is not a sweep")
+
+        var regionScene = scene()
+        var movingRegion = CanvasInteraction()
+        movingRegion.begin(at: CGPoint(x: 300, y: 8), in: regionScene)
+        movingRegion.update(to: CGPoint(x: 400, y: 58), in: &regionScene)
+        XCTAssertEqual(movingRegion.kind, .movingRegion, "precondition")
+        XCTAssertNil(movingRegion.pendingRegionDraw, "a region move is not a sweep")
+
+        var resizeScene = scene()
+        var resizing = CanvasInteraction()
+        resizing.begin(at: CGPoint(x: 596, y: 396), in: resizeScene)
+        resizing.update(to: CGPoint(x: 700, y: 500), in: &resizeScene)
+        XCTAssertEqual(resizing.kind, .resizingRegion, "precondition")
+        XCTAssertNil(resizing.pendingRegionDraw, "a region resize is not a sweep")
+    }
+
+    func test_aTwitchMakesNoRegion() {
+        var s = scene()
+        XCTAssertNil(CanvasInteraction.createRegion(
+            CGRect(x: 1_000, y: 1_000,
+                   width: CanvasRegionMetrics.minimumSide - 1,
+                   height: 300),
+            in: &s))
+        XCTAssertEqual(s.regionCount, 1)
+    }
+
+    /// The control for the test above: the same rect one point wider is a real
+    /// region. Without it a `createRegion` that refused EVERYTHING — the whole
+    /// draw gesture deleted — would satisfy the twitch assertion in silence.
+    func test_aSweepAtExactlyTheMinimumMakesARegion() {
+        var s = scene()
+        XCTAssertNotNil(CanvasInteraction.createRegion(
+            CGRect(x: 1_000, y: 1_000,
+                   width: CanvasRegionMetrics.minimumSide,
+                   height: CanvasRegionMetrics.minimumSide),
+            in: &s))
+        XCTAssertEqual(s.regionCount, 2)
+    }
+
+    /// Nested regions are out of scope (§9), and silently making one is worse
+    /// than refusing.
+    func test_aDragInsideAnExistingRegionDrawsNothing() {
+        var s = scene()
+        var i = CanvasInteraction()
+        i.begin(at: CGPoint(x: 400, y: 300), in: s)
+        XCTAssertFalse(i.isActive)
+        i.update(to: CGPoint(x: 500, y: 380), in: &s)
+        XCTAssertNil(i.pendingRegionDraw)
+        XCTAssertEqual(s.regionCount, 1)
+    }
+
+    func test_aNewRegionIsUnlabelledAndOwnsNothing() {
+        var s = scene()
+        let id = CanvasInteraction.createRegion(
+            CGRect(x: 1_000, y: 1_000, width: 300, height: 250), in: &s)!
+        XCTAssertEqual(s.region(id)?.label, "")
+        XCTAssertEqual(s.region(id)?.displayLabel, CanvasRegion.untitledLabel)
+        XCTAssertTrue(s.region(id)!.homeMembers.isEmpty,
+                      "§4.2: drawing a region around cards absorbs NONE of them — "
+                      + "and this rect was drawn nowhere near any, so the fixture "
+                      + "below is the one that actually tests it")
+    }
+
+    func test_drawingARegionAroundExistingCardsAbsorbsNoneOfThem() {
+        var s = scene()
+        let id = CanvasInteraction.createRegion(
+            CGRect(x: 50, y: 50, width: 400, height: 300), in: &s)!
+        XCTAssertTrue(s.region(id)!.homeMembers.isEmpty,
+                      "'a' is squarely inside this rect and must not have joined")
+    }
+
+    /// A new region takes the rect it was swept, not a default one — otherwise
+    /// the writer sweeps out an area and gets a box somewhere else.
+    func test_aNewRegionTakesTheSweptRect() {
+        var s = scene()
+        let rect = CGRect(x: 1_000, y: 1_000, width: 300, height: 250)
+        let id = CanvasInteraction.createRegion(rect, in: &s)!
+        XCTAssertEqual(s.region(id)?.frame, rect)
+    }
+
+    // MARK: - Drop to join
+
+    func test_droppingACardIntoARegionJoinsIt() {
+        var s = scene()
+        s.move(b, to: CGPoint(x: 200, y: 200))
+        XCTAssertEqual(CanvasInteraction.joinTarget(for: b, in: s), r1)
+    }
+
+    func test_aCardWhoseMiddleIsOutsideDoesNotJoin() {
+        var s = scene()
+        // Overlapping by 20pt of a 240pt card: its centre is well outside.
+        s.move(b, to: CGPoint(x: 580, y: 200))
+        XCTAssertNil(CanvasInteraction.joinTarget(for: b, in: s),
+                     "corner-based targeting is the one-pixel absurdity §4.2 cites")
+    }
+
+    /// **The ids are chosen so an id-order tiebreak gives the WRONG answer.**
+    /// `wide` covers the whole card and `narrow` clips it, and `narrow` sorts
+    /// last — so an implementation that broke the tie on id alone, or that took
+    /// the last region it found, would return `narrow` and fail here. Written
+    /// against a bespoke scene rather than the shared fixture because r1
+    /// contains this card entirely too, which would make the overlaps equal and
+    /// the assertion vacuous.
+    func test_overlappingRegionsBreakTheTieOnGreatestOverlap() {
+        var s = CanvasScene()
+        s.insert(CanvasNode(id: b, kind: .scrap, origin: CGPoint(x: 200, y: 200),
+                            width: 240, cachedHeight: 80))
+        s.insertRegion(CanvasRegion(id: CanvasRegionID("a-wide"), label: "Wide",
+                                    frame: CGRect(x: 150, y: 150, width: 400, height: 300)))
+        s.insertRegion(CanvasRegion(id: CanvasRegionID("z-narrow"), label: "Narrow",
+                                    frame: CGRect(x: 300, y: 150, width: 200, height: 300)))
+        // Centre is (320, 240): inside both. Overlap with the card is the whole
+        // 240×80 for 'a-wide' and 140×80 for 'z-narrow'.
+        XCTAssertEqual(CanvasInteraction.joinTarget(for: b, in: s), CanvasRegionID("a-wide"))
+    }
+
+    func test_droppingACardOutsideEveryRegionDoesNotRemoveItFromItsHome() {
+        var s = scene()
+        CanvasMembership.join(a, home: r1, in: &s)
+        s.move(a, to: CGPoint(x: 5_000, y: 5_000))
+        XCTAssertNil(CanvasInteraction.joinTarget(for: a, in: s))
+        XCTAssertTrue(s.region(r1)!.livesHere(a),
+                      "removal is always its own act (§4.2) — the tether is what "
+                      + "makes this state legible")
+    }
+
+    /// An unmeasured card has no frame, so it has no centre to test. Answering
+    /// anything but `nil` here means reading `CGRect.null`'s infinities, and
+    /// `CGRect.contains` says a null rect's centre is nowhere.
+    func test_anUnmeasuredCardJoinsNothing() {
+        var s = scene()
+        s.insert(CanvasNode(id: CanvasNodeID("new"), kind: .scrap,
+                            origin: CGPoint(x: 200, y: 200), width: 240,
+                            cachedHeight: nil))
+        XCTAssertNil(CanvasInteraction.joinTarget(for: CanvasNodeID("new"), in: s))
+    }
+}
