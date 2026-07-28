@@ -3651,7 +3651,7 @@ final class CanvasViewMountingTests: XCTestCase {
         let events = try eventView(in: window)
 
         let crossing = CGPoint(x: 300, y: 112)
-        XCTAssertEqual(CanvasView.selectionTarget(at: crossing, in: model.scene),
+        XCTAssertEqual(model.scene.selectionTarget(at: crossing),
                        .line(crossingLineID),
                        "precondition: the click resolves to the line here — which is "
                        + "the whole reason the drag must not resolve to the region")

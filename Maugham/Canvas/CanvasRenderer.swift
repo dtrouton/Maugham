@@ -442,45 +442,15 @@ enum CanvasRenderer {
 
     // MARK: - Lines
 
-    /// A line, resolved to two points on the canvas.
-    ///
-    /// The projection is separated from the draw pass for the same reason
-    /// `Tether` and `AppearanceChip` are: the geometry is then a pure function
-    /// testable against literal arithmetic, and `CanvasLineHit` can hit-test the
-    /// same segment the renderer strokes without either one spelling it twice.
-    struct LineGeometry: Equatable {
-        let id: CanvasLineID
-        let from: CGPoint
-        let to: CGPoint
-        let label: String?
-    }
-
-    /// Endpoints resolve to node CENTRES. A node that has never been measured
-    /// has no frame, so its lines are not projected — drawing to a guessed
-    /// position would twitch as soon as the real measurement arrived.
-    ///
-    /// This is the UNCULLED projection: the geometry tests assert against it,
-    /// and `visibleLines` is what the draw pass calls.
-    static func lineGeometry(in scene: CanvasScene) -> [LineGeometry] {
-        scene.lines.compactMap { line in
-            // A hidden node is skipped for the reason `tethers` skips a collapsed
-            // region's residents and `appearanceChips` skips a hidden visitor: the
-            // card is not drawn, so a line to it lands on bare ground. Its frame
-            // survives the collapse — `CanvasScene` hides it through
-            // `hiddenNodes`, not by unmeasuring it — so `endpoints(of:)` answers
-            // happily and this is the only thing standing between the writer and
-            // a line running into nothing.
-            //
-            // It is not cosmetic: Task 5 hit-tests what this pass draws, and a
-            // line the writer can click and cannot see is worse than one that is
-            // merely wrong.
-            guard !scene.isHidden(line.from), !scene.isHidden(line.to),
-                  let ends = scene.endpoints(of: line) else { return nil }
-            return LineGeometry(id: line.id, from: ends.0, to: ends.1, label: line.label)
-        }
-    }
-
     /// The lines whose bounding box meets the viewport, and only those.
+    ///
+    /// **The projection itself is `CanvasScene.drawnLines`, not a pass of this
+    /// file's.** It reads node frames and the scene's hidden set and applies no
+    /// camera and no appearance, so it is scene knowledge — and it has a second
+    /// caller in `CanvasLineHit`, which is a pure geometry enum one layer below
+    /// drawing. Kept here it left a `public` type resting on an `internal` nested
+    /// one. What stays here is the part that is genuinely the renderer's: the
+    /// culling, which is about a viewport.
     ///
     /// Per-frame work on this surface is viewport-proportional by design — the
     /// rule `visibleNodes` and `visibleRegions` follow, and the reason the
@@ -515,10 +485,10 @@ enum CanvasRenderer {
     /// assertion on `visibleLines`'s output alone cannot see this inset today.
     static func visibleLines(in scene: CanvasScene,
                              camera: CanvasCamera,
-                             viewSize: CGSize) -> [LineGeometry] {
+                             viewSize: CGSize) -> [CanvasDrawnLine] {
         let viewport = camera.visibleContentRect(viewSize: viewSize)
             .insetBy(dx: -cullingBleed, dy: -cullingBleed)
-        return lineGeometry(in: scene).filter { boundingBox(of: $0).intersects(viewport) }
+        return scene.drawnLines.filter { boundingBox(of: $0).intersects(viewport) }
     }
 
     /// Half a point on every side — enough to give an axis-aligned segment a
@@ -527,7 +497,7 @@ enum CanvasRenderer {
 
     /// The rect `visibleLines` culls against — internal rather than private
     /// because it is the only place the inset above is observable. See there.
-    static func boundingBox(of line: LineGeometry) -> CGRect {
+    static func boundingBox(of line: CanvasDrawnLine) -> CGRect {
         CGRect(x: min(line.from.x, line.to.x),
                y: min(line.from.y, line.to.y),
                width: abs(line.to.x - line.from.x),
@@ -544,7 +514,7 @@ enum CanvasRenderer {
     /// with a mounted editor's, and no editor ever mounts on a line. The pill is
     /// clipped to itself when it draws, so an under-estimate costs a truncated
     /// label rather than text spilling onto the ground.
-    static func lineLabelBox(for geometry: LineGeometry) -> CGRect {
+    static func lineLabelBox(for geometry: CanvasDrawnLine) -> CGRect {
         guard let label = geometry.label,
               !label.trimmingCharacters(in: .whitespaces).isEmpty else { return .null }
         let width = CGFloat(label.count) * CanvasMaterial.lineLabelFontSize * labelAdvanceRatio
@@ -750,7 +720,7 @@ enum CanvasRenderer {
     /// Takes the context BY VALUE, exactly as `drawCard`, `drawRegion`,
     /// `drawTether` and `drawChip` do — nothing a pass does may leak into the
     /// next thing drawn.
-    private static func drawLine(_ line: LineGeometry,
+    private static func drawLine(_ line: CanvasDrawnLine,
                                  isSelected: Bool,
                                  on cx: GraphicsContext) {
         var path = Path()

@@ -735,51 +735,10 @@ struct CanvasView: View {
         case line
     }
 
-    /// What a single click selects: **a card, then a line, then a region's
-    /// chrome or resize corner, then nothing.**
-    ///
-    /// **That order is the draw order read backwards, and that is the whole
-    /// justification.** The thing drawn on top takes the click. Cards come first
-    /// and unconditionally, matching `CanvasInteraction.begin`'s own precedence,
-    /// so clicking a thing and dragging it never disagree about which thing it
-    /// was; lines come next because they are drawn above every part of a region
-    /// — its wash, its chrome bar, its label and its resize triangle
-    /// (`CanvasLineRenderTests.test_theLineDrawsBeneathTheCardsAndAboveEveryPartOfTheRegion`).
-    ///
-    /// **A draft of this had the chrome bar beat the line**, on the ground that
-    /// the bar is a region's only grab handle. It reads perfectly plausible and
-    /// it is wrong: it leaves the line drawn OVER the bar while the bar takes the
-    /// click, so hit testing disagrees with what is visibly frontmost. Neither
-    /// loss is worth a special case — a near-perpendicular crossing costs the
-    /// line ~24 pt of a length in the hundreds, and the bar ~12 pt of a width in
-    /// the hundreds. What one rule buys is that a later tidy-up cannot drift away
-    /// from it, and it is not a NEW rule: cards already beat region chrome and
-    /// already draw above it. If someone re-opens this, the question to put to
-    /// them is which package they are proposing WHOLE — draw order and click
-    /// order move together, or the defect comes straight back.
-    /// `CanvasLineGestureTests.test_theClickOrderIsTheDrawOrderReadBackwards`
-    /// asserts the two orders against each other for that reason.
-    ///
-    /// A click on a region's interior selects nothing, for the same reason the
-    /// interior is not a grab handle: it belongs to the cards in it.
-    ///
-    /// A `static func` over its inputs rather than a method on the view, for the
-    /// reason `pressStartsALine` is one: a routing decision one level above a
-    /// primitive is exactly where this area has shipped unreachable halves, and
-    /// this way it is reachable from a test that does not host SwiftUI.
-    static func selectionTarget(at contentPoint: CGPoint,
-                                in scene: CanvasScene) -> CanvasSelection? {
-        if let node = scene.topmostNode(at: contentPoint) { return .node(node.id) }
-        if let line = CanvasLineHit.line(at: contentPoint, in: scene) { return .line(line) }
-        switch CanvasInteraction.regionHit(at: contentPoint, in: scene) {
-        case .chrome(let id), .resizeCorner(let id): return .region(id)
-        case nil: return nil
-        }
-    }
-
     private func clickTarget(at contentPoint: CGPoint) -> ClickTarget {
         guard let node = model.scene.topmostNode(at: contentPoint) else {
-            // The SAME precedence as `selectionTarget` above, and it has to be:
+            // The SAME precedence as `CanvasScene.selectionTarget`, and it has
+            // to be:
             // the `clickCount: 1` AppKit sends first has already selected
             // whatever this resolves to, so a double click that answered a
             // different question would act on something the writer is not
@@ -818,7 +777,7 @@ struct CanvasView: View {
         commitActiveEdit()
 
         guard clickCount >= 2 else {
-            model.selection = Self.selectionTarget(at: contentPoint, in: model.scene)
+            model.selection = model.scene.selectionTarget(at: contentPoint)
             // The selection is read INSIDE the draw closure, where a model value
             // is not in SwiftUI's dependency graph — that is what this counter
             // is for. `revision` and never `sceneRevision`: a selection change

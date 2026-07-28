@@ -358,8 +358,7 @@ final class CanvasLineGestureTests: XCTestCase {
     private let onTheLineBetweenTheCards = CGPoint(x: 320, y: 40)
 
     func test_clickingALineSelectsIt() {
-        XCTAssertEqual(CanvasView.selectionTarget(at: onTheLineBetweenTheCards,
-                                                  in: linkedCards()),
+        XCTAssertEqual(linkedCards().selectionTarget(at: onTheLineBetweenTheCards),
                        .line(l1),
                        "a click on a line does not select it, so nothing the writer "
                        + "can see reaches ⌫ or the inspector")
@@ -377,11 +376,11 @@ final class CanvasLineGestureTests: XCTestCase {
         let scene = linkedCards()
         // Same x, well clear of the 6 pt tolerance around y = 40.
         let bare = CGPoint(x: 320, y: 300)
-        XCTAssertNil(CanvasView.selectionTarget(at: bare, in: scene),
+        XCTAssertNil(scene.selectionTarget(at: bare),
                      "a click on bare ground away from every line still resolved to "
                      + "something — the accent stays on a thing the writer has "
                      + "clicked away from, and ⌫ is still pointed at it")
-        XCTAssertEqual(CanvasView.selectionTarget(at: onTheLineBetweenTheCards, in: scene),
+        XCTAssertEqual(scene.selectionTarget(at: onTheLineBetweenTheCards),
                        .line(l1),
                        "control: this scene does answer `.line` a few hundred points "
                        + "away, so the nil above is the bare ground and not a hit "
@@ -389,7 +388,7 @@ final class CanvasLineGestureTests: XCTestCase {
     }
 
     /// **Drawing and hit testing take ONE rule about a collapsed region.**
-    /// `CanvasRenderer.lineGeometry` skips a line to a hidden node, so the line
+    /// `CanvasScene.drawnLines` skips a line to a hidden node, so the line
     /// is not on screen — and a target the writer cannot see is a click they
     /// cannot explain.
     ///
@@ -404,17 +403,17 @@ final class CanvasLineGestureTests: XCTestCase {
         XCTAssertTrue(scene.isHidden(b),
                       "precondition: `b` is a resident of a collapsed region, so it "
                       + "is not drawn and neither is the line to it")
-        XCTAssertTrue(CanvasRenderer.lineGeometry(in: scene).isEmpty,
+        XCTAssertTrue(scene.drawnLines.isEmpty,
                       "precondition: the renderer is not drawing this line, so the "
                       + "assertion below is about hit testing agreeing with it")
 
-        XCTAssertNil(CanvasView.selectionTarget(at: onTheLineBetweenTheCards, in: scene),
+        XCTAssertNil(scene.selectionTarget(at: onTheLineBetweenTheCards),
                      "a line running to a card inside a collapsed region is still "
                      + "clickable: the writer selects — and can then ⌫ — a line that "
                      + "is nowhere on the screen")
 
         scene.updateRegion(region) { $0.isCollapsed = false }
-        XCTAssertEqual(CanvasView.selectionTarget(at: onTheLineBetweenTheCards, in: scene),
+        XCTAssertEqual(scene.selectionTarget(at: onTheLineBetweenTheCards),
                        .line(l1),
                        "control: expanding the region must bring the line back under "
                        + "the pointer, or \"not clickable while collapsed\" is "
@@ -441,7 +440,7 @@ final class CanvasLineGestureTests: XCTestCase {
                        "precondition: and the line really does run under it, so the "
                        + "assertion below is a precedence and not an absent line")
 
-        XCTAssertEqual(CanvasView.selectionTarget(at: point, in: scene), .node(over),
+        XCTAssertEqual(scene.selectionTarget(at: point), .node(over),
                        "the line under a card took the click: the writer aims at a "
                        + "card, gets a line, and the drag they start moves the card "
                        + "they thought they had selected")
@@ -460,7 +459,7 @@ final class CanvasLineGestureTests: XCTestCase {
         XCTAssertEqual(CanvasLineHit.line(at: onTheChromeBar, in: scene), l1,
                        "precondition: and the line really does cross it there")
 
-        XCTAssertEqual(CanvasView.selectionTarget(at: onTheChromeBar, in: scene), .line(l1),
+        XCTAssertEqual(scene.selectionTarget(at: onTheChromeBar), .line(l1),
                        "the chrome bar took a click on a line drawn over it — hit "
                        + "testing disagreeing with what is visibly frontmost, which "
                        + "is the one thing the draw-order rule exists to prevent")
@@ -475,7 +474,7 @@ final class CanvasLineGestureTests: XCTestCase {
         let along = CGPoint(x: onTheChromeBar.x + 200, y: onTheChromeBar.y)
         XCTAssertNil(CanvasLineHit.line(at: along, in: scene),
                      "precondition: this end of the bar is clear of the line")
-        XCTAssertEqual(CanvasView.selectionTarget(at: along, in: scene), .region(chromeRegion),
+        XCTAssertEqual(scene.selectionTarget(at: along), .region(chromeRegion),
                        "a region whose bar a line happens to cross can no longer be "
                        + "grabbed at all — the line costs the bar 12 pt of a width in "
                        + "the hundreds, not the whole of it")
@@ -550,7 +549,7 @@ final class CanvasLineGestureTests: XCTestCase {
         var clickOrder: [Layer] = []
         var remaining = Layer.allCases
         while !remaining.isEmpty {
-            let answer = CanvasView.selectionTarget(at: point, in: keeping(remaining))
+            let answer = keeping(remaining).selectionTarget(at: point)
             let winner = try XCTUnwrap(
                 Layer.allCases.first { $0.matches(answer) },
                 "with \(remaining) still on the canvas, a click at \(point) resolved "

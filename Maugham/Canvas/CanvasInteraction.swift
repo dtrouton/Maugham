@@ -217,20 +217,23 @@ struct CanvasInteraction {
     /// is selectable and not draggable, so there is nothing here to pick up.
     /// Without it the click and the drag disagree about what the press was —
     /// where a line crosses a region's chrome bar, the click selects the LINE
-    /// (spec §5 / `CanvasView.selectionTarget`, since the line is drawn on top)
+    /// (spec §5 / `CanvasScene.selectionTarget`, since the line is drawn on top)
     /// while this opened `.movingRegion`. That is not theoretical: a trackpad
     /// press routinely drifts a point, `endGesture` registers whenever the state
     /// moved, and the writer would get the region **and every resident** shifted
     /// under a "Move Region" step their next ⌘Z takes, with the inspector and ⌫
     /// still pointed at the line.
     ///
-    /// It is asked through `CanvasView.selectionTarget` rather than through
+    /// It is asked through `CanvasScene.selectionTarget` rather than through
     /// `CanvasLineHit` directly, and that direction is deliberate. The
     /// precedence on this surface is ONE rule — the thing drawn on top takes the
     /// click — and a second copy of it here is exactly what the rule exists to
     /// prevent. This is a read of that decision, so the two cannot drift; a
     /// local `CanvasLineHit` call would compile, behave identically today, and
-    /// be free to disagree tomorrow.
+    /// be free to disagree tomorrow. **It was a `static func` on `CanvasView`
+    /// until 1C-c1's sweep**, which made this state machine reach into a SwiftUI
+    /// view for a fact about the scene; the sharing was right and the direction
+    /// was not.
     ///
     /// **`connecting` matters only when the press lands on a NODE**, which is why
     /// the branch is inside the block below: a ⇧-drag on bare canvas falls
@@ -274,7 +277,7 @@ struct CanvasInteraction {
         // ABOVE the region switch (that is where the disagreement was) and it
         // applies to a connecting press too, since a ⇧-drag that starts on a
         // line is still a press on a line.
-        if case .line = CanvasView.selectionTarget(at: contentPoint, in: scene) {
+        if case .line = scene.selectionTarget(at: contentPoint) {
             mode = .idle
             return
         }

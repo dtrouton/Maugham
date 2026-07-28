@@ -39,6 +39,30 @@ public struct CanvasLine: Equatable, Sendable {
     public func touches(_ node: CanvasNodeID) -> Bool { from == node || to == node }
 }
 
+/// A line resolved to two points on the canvas: what the renderer strokes, and
+/// what the hit test measures a click against.
+///
+/// **It lives here, beside the line, and not inside `CanvasRenderer`.** The
+/// projection is scene knowledge — it reads node frames and the scene's own
+/// hidden set and it applies no camera, no culling and no appearance. Parked on
+/// the renderer it was reached for by `CanvasLineHit`, which is a pure geometry
+/// enum one layer *below* drawing, so a `public` type came to rest on an
+/// `internal` nested one and the dependency pointed the wrong way. See
+/// `CanvasScene.drawnLines`.
+public struct CanvasDrawnLine: Equatable, Sendable {
+    public let id: CanvasLineID
+    public let from: CGPoint
+    public let to: CGPoint
+    public let label: String?
+
+    public init(id: CanvasLineID, from: CGPoint, to: CGPoint, label: String?) {
+        self.id = id
+        self.from = from
+        self.to = to
+        self.label = label
+    }
+}
+
 /// Clicking a line. Kept out of `CanvasScene` so the geometry is a pure function
 /// with no scene state to get wrong, testable against literal arithmetic rather
 /// than against itself.
@@ -67,7 +91,7 @@ public enum CanvasLineHit {
     /// writer cannot predict.
     ///
     /// **What is clickable is exactly what is DRAWN**, and that is why this walks
-    /// `CanvasRenderer.lineGeometry` rather than `scene.lines` with an
+    /// `CanvasScene.drawnLines` rather than `scene.lines` with an
     /// `endpoints(of:)` of its own. Two conditions take a line off the canvas —
     /// an unmeasured endpoint (no frame, so nothing was drawn) and a hidden one
     /// (a resident of a collapsed region) — and both are already stated there,
@@ -75,14 +99,16 @@ public enum CanvasLineHit {
     /// the worst direction: a line the writer can click and cannot see is worse
     /// than one they can see and cannot click.
     ///
-    /// The renderer's own doc says this is what the split is for: the projection
-    /// is separated from the draw pass so the hit test can ask about the same
-    /// segment the renderer strokes without either one spelling it twice. This
-    /// is the UNCULLED projection deliberately — culling is about the viewport,
-    /// and a click always arrives inside it.
+    /// **It used to walk `CanvasRenderer.lineGeometry`, and the sharing was right
+    /// while the direction was wrong.** The projection is what the renderer
+    /// strokes *and* what a click is measured against; parked on the renderer it
+    /// pointed this pure geometry enum at the draw layer and left a `public` type
+    /// resting on an `internal` nested one. The single spelling survives; it is
+    /// now underneath both callers. This is the UNCULLED projection deliberately
+    /// — culling is about the viewport, and a click always arrives inside it.
     public static func line(at point: CGPoint, in scene: CanvasScene) -> CanvasLineID? {
         var best: (id: CanvasLineID, distance: CGFloat)?
-        for line in CanvasRenderer.lineGeometry(in: scene) {
+        for line in scene.drawnLines {
             let d = distance(from: point, toSegment: line.from, line.to)
             guard d <= tolerance, best == nil || d < best!.distance else { continue }
             best = (line.id, d)

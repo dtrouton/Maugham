@@ -245,4 +245,79 @@ public struct CanvasScene: Equatable, Sendable {
         return (CGPoint(x: fromFrame.midX, y: fromFrame.midY),
                 CGPoint(x: toFrame.midX, y: toFrame.midY))
     }
+
+    /// Every line that is actually ON the canvas, resolved to two points. The
+    /// UNCULLED projection: `CanvasRenderer.visibleLines` culls it for the draw
+    /// pass, and `CanvasLineHit` walks it whole, because a click always arrives
+    /// inside the viewport.
+    ///
+    /// **Two conditions take a line off the canvas, and they are stated once,
+    /// here.** An unmeasured endpoint has no frame, so nothing was drawn to run
+    /// a line to — and drawing to a guessed position would twitch the instant
+    /// the real measurement arrived. A HIDDEN endpoint (a resident of a
+    /// collapsed region) is the one that is easy to miss, because the geometry
+    /// says nothing: collapsing keeps the node's frame and hides it through
+    /// `hiddenNodes`, so `endpoints(of:)` answers happily and this filter is the
+    /// only thing between the writer and a line running into bare ground. It is
+    /// the rule `CanvasRenderer.tethers` and `.appearanceChips` already follow.
+    ///
+    /// **Drawing and hit testing take the identical rule because they read the
+    /// identical function.** Spelled twice they would drift, and the failure is
+    /// silent in the worse direction: a line the writer can click and cannot see
+    /// is worse than one they can see and cannot click.
+    ///
+    /// Ordered, because `lines` is — see there for why that sort is accepted on
+    /// the frame path and what to do if it ever stops being.
+    public var drawnLines: [CanvasDrawnLine] {
+        lines.compactMap { line in
+            guard !isHidden(line.from), !isHidden(line.to),
+                  let ends = endpoints(of: line) else { return nil }
+            return CanvasDrawnLine(id: line.id, from: ends.0, to: ends.1, label: line.label)
+        }
+    }
+
+    // MARK: - What a click selects
+
+    /// What a click at `contentPoint` selects, or nil for bare ground.
+    ///
+    /// **ONE RULE: cards over lines over regions — and that order is the DRAW
+    /// order read backwards.** The thing drawn on top takes the click. Cards come
+    /// first and unconditionally, matching `CanvasInteraction.begin`'s own
+    /// precedence, so clicking a thing and dragging it never disagree about which
+    /// thing it was; lines come next because they draw above every part of a
+    /// region — its wash, its chrome bar, its label and its resize triangle.
+    /// `CanvasLineGestureTests.test_theClickOrderIsTheDrawOrderReadBackwards`
+    /// asserts the two orders against each other rather than each against a
+    /// literal, so a change to one that is not made to the other goes red.
+    ///
+    /// **A draft of this had the chrome bar beat the line**, on the ground that
+    /// the bar is a region's only grab handle. It reads perfectly plausible and
+    /// it is wrong: it leaves the line drawn OVER the bar while the bar takes the
+    /// click, so hit testing disagrees with what is visibly frontmost. Neither
+    /// loss is worth a special case — a near-perpendicular crossing costs the
+    /// line ~24 pt of a length in the hundreds, and the bar ~12 pt of a width in
+    /// the hundreds. If someone re-opens this, the question to put to them is
+    /// which package they are proposing WHOLE: draw order and click order move
+    /// together, or the defect comes straight back.
+    ///
+    /// A click on a region's interior selects nothing, for the same reason the
+    /// interior is not a grab handle: it belongs to the cards in it.
+    ///
+    /// **It lives on the SCENE, and it was a `static func` on `CanvasView`.** The
+    /// second caller is `CanvasInteraction.begin`, which asks it so that a press
+    /// and a click cannot disagree about what was under the pointer — the right
+    /// sharing, pointing the wrong way: the gesture state machine had to reach
+    /// into a SwiftUI `View` to learn a fact about the scene. One spelling
+    /// survives, with every caller above it. Being a plain function of its inputs
+    /// is what keeps it reachable from a test that hosts no SwiftUI, and a
+    /// routing decision one level above a primitive is exactly where this area
+    /// has shipped unreachable halves.
+    public func selectionTarget(at contentPoint: CGPoint) -> CanvasSelection? {
+        if let node = topmostNode(at: contentPoint) { return .node(node.id) }
+        if let line = CanvasLineHit.line(at: contentPoint, in: self) { return .line(line) }
+        switch CanvasInteraction.regionHit(at: contentPoint, in: self) {
+        case .chrome(let id), .resizeCorner(let id): return .region(id)
+        case nil: return nil
+        }
+    }
 }

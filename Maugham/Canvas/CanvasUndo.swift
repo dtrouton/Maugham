@@ -170,7 +170,7 @@ final class CanvasUndo {
     /// to be — a double-click on a CARD cannot reach this state. AppKit delivers
     /// `clickCount: 1` on the first mouse-down of a double-click
     /// (`CanvasEventNSView.applyMouseDown` says so outright), and that first
-    /// click runs `selection = selectionTarget(at:)`, which resolves the card —
+    /// click runs `selection = scene.selectionTarget(at:)`, which resolves the card —
     /// so the region is deselected before "Edit Scrap" ever opens and the
     /// inspector is showing its empty state. On the chrome bar: click 1 selects
     /// the region; click 2 finds no node under the point, takes the

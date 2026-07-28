@@ -40,8 +40,8 @@ final class CanvasLineRenderTests: XCTestCase {
 
     // MARK: - Projection
 
-    func test_lineGeometryResolvesToNodeCentresAndCarriesTheLabel() throws {
-        let geometry = CanvasRenderer.lineGeometry(in: linked(label: "because"))
+    func test_theDrawnLineResolvesToNodeCentresAndCarriesTheLabel() throws {
+        let geometry = linked(label: "because").drawnLines
         XCTAssertEqual(geometry.count, 1)
         let line = try XCTUnwrap(geometry.first)
         XCTAssertEqual(line.id, l1)
@@ -68,7 +68,7 @@ final class CanvasLineRenderTests: XCTestCase {
                        "control: BOTH lines are genuinely in the scene, so the "
                        + "filter below is not measuring an insert that failed")
         XCTAssertNil(s.node(c)?.frame, "control: c really is unmeasured")
-        XCTAssertEqual(CanvasRenderer.lineGeometry(in: s).map(\.id), [l1])
+        XCTAssertEqual(s.drawnLines.map(\.id), [l1])
     }
 
     /// **A resident of a collapsed region keeps its frame**, so `endpoints(of:)`
@@ -87,7 +87,7 @@ final class CanvasLineRenderTests: XCTestCase {
                                     frame: CGRect(x: 400, y: 0, width: 400, height: 200)))
         CanvasMembership.join(b, home: hiding, in: &s)
 
-        XCTAssertEqual(CanvasRenderer.lineGeometry(in: s).map(\.id), [l1],
+        XCTAssertEqual(s.drawnLines.map(\.id), [l1],
                        "control: while the region is expanded the line is projected, "
                        + "so the absence below is the collapse and not the membership")
 
@@ -97,7 +97,7 @@ final class CanvasLineRenderTests: XCTestCase {
                         "precondition — and the whole trap: a hidden node KEEPS its "
                         + "frame, so endpoints(of:) still answers and only an "
                         + "isHidden guard can catch this")
-        XCTAssertTrue(CanvasRenderer.lineGeometry(in: s).isEmpty,
+        XCTAssertTrue(s.drawnLines.isEmpty,
                       "a line to a card inside a collapsed region is still projected — "
                       + "it draws into bare ground, and Task 5 will hit-test a line "
                       + "the writer cannot see")
@@ -106,7 +106,7 @@ final class CanvasLineRenderTests: XCTestCase {
     // MARK: - The label pill
 
     func test_theLabelBoxIsCentredOnTheSegmentMidpoint() throws {
-        let line = try XCTUnwrap(CanvasRenderer.lineGeometry(in: linked(label: "because")).first)
+        let line = try XCTUnwrap(linked(label: "because").drawnLines.first)
         let box = CanvasRenderer.lineLabelBox(for: line)
         XCTAssertEqual(box.midX, 320, accuracy: 0.001)
         XCTAssertEqual(box.midY, 40, accuracy: 0.001)
@@ -115,12 +115,12 @@ final class CanvasLineRenderTests: XCTestCase {
     }
 
     func test_theLabelBoxIsEmptyForAnUnlabelledLine() throws {
-        let bare = try XCTUnwrap(CanvasRenderer.lineGeometry(in: linked()).first)
+        let bare = try XCTUnwrap(linked().drawnLines.first)
         XCTAssertTrue(CanvasRenderer.lineLabelBox(for: bare).isEmpty,
                       "an unlabelled line reserves a pill of empty ground in the "
                       + "middle of the segment")
 
-        let named = try XCTUnwrap(CanvasRenderer.lineGeometry(in: linked(label: "because")).first)
+        let named = try XCTUnwrap(linked(label: "because").drawnLines.first)
         XCTAssertFalse(CanvasRenderer.lineLabelBox(for: named).isEmpty,
                        "control: the same geometry WITH a label does reserve one, "
                        + "so the emptiness above is not lineLabelBox returning "
@@ -141,7 +141,7 @@ final class CanvasLineRenderTests: XCTestCase {
                             width: 200, cachedHeight: 40))
         s.insertLine(CanvasLine(id: CanvasLineID("l2"), from: far1, to: far2))
 
-        XCTAssertEqual(CanvasRenderer.lineGeometry(in: s).count, 2,
+        XCTAssertEqual(s.drawnLines.count, 2,
                        "control: the unculled projection still sees both, so the "
                        + "cull below is not hiding a projection failure")
         XCTAssertEqual(CanvasRenderer.visibleLines(in: s, camera: CanvasCamera(),
@@ -185,7 +185,7 @@ final class CanvasLineRenderTests: XCTestCase {
                             width: 200, cachedHeight: 40))
         s.insertLine(CanvasLine(id: l1, from: a, to: b))
 
-        let line = try XCTUnwrap(CanvasRenderer.lineGeometry(in: s).first)
+        let line = try XCTUnwrap(s.drawnLines.first)
         XCTAssertEqual(line.from.y, line.to.y,
                        "precondition: this fixture is EXACTLY horizontal, which is "
                        + "what gives its bounding box zero height")
