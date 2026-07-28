@@ -22,6 +22,9 @@ enum PromotionFailure: LocalizedError, Equatable {
     case linkAlreadyPresent
     case artifactMissing(String)
     case itemHasNoFile(String)
+    /// The destination exists on disk and could not be READ. Distinct from
+    /// "no file there", which is legitimately empty — see `readBody`.
+    case unreadableFile(String)
 
     var errorDescription: String? {
         switch self {
@@ -33,6 +36,9 @@ enum PromotionFailure: LocalizedError, Equatable {
         case .artifactMissing(let id):
             return "The artifact this card produced is no longer in the project (\(id))."
         case .itemHasNoFile(let id): return "That artifact has no file on disk (\(id))."
+        case .unreadableFile(let path):
+            return "Maugham could not read what is already in \(path), so it did not "
+                + "write over it."
         }
     }
 }
@@ -70,7 +76,7 @@ struct PromotionPerformer {
         case .researchNote: return try await performResearchNote(plan)
         case .paletteCard: return try await performPaletteCard(plan)
         case .intentStatement: return try await performCraftIntent(plan)
-        case .pieceBinding: return performPieceBinding(plan)
+        case .pieceBinding: return try performPieceBinding(plan)
         case .wikiLink: return try await performWikiLink(plan)
         }
     }
@@ -112,13 +118,24 @@ struct PromotionPerformer {
         }
         try await writeBody(plan.body, toItem: itemID)
         let title = TreeWalk.find(id: itemID, in: store.manifest.research)?.title ?? plan.title
-        try await writeOfferedLinks(plan, artifactTitle: title)
+        // The mark BEFORE the offer: a link-write failure must not leave an
+        // artifact the canvas has forgotten it produced, because the writer's
+        // retry would then mint a second one.
         mark(itemID, for: plan.source, named: "Promote Scrap")
+        let written = try await writeOfferedLinks(plan, artifactTitle: title)
         return PromotionResult(createdItemID: itemID, title: title,
-                               writtenLinks: writtenLinks(plan), boundPieceID: nil)
+                               writtenLinks: written, boundPieceID: nil)
     }
 
     private func performPaletteCard(_ plan: PromotionPlan) async throws -> PromotionResult {
+        // **The flush is not optional here either**, and this is the path that
+        // escaped it: `ProjectStore+Palette.paletteCoordinatedWrite` does not
+        // flush, so a queued 750 ms `scheduleFileSave` for this card — the
+        // writer was editing it in the research pane a moment ago — would fire
+        // AFTER the promotion and restore the pre-promotion prose. It runs
+        // before the `loadPaletteCards()` read-back too, or the swatches and
+        // images carried across would themselves be stale.
+        try? await store.documentStore?.flushPendingSave()
         let itemID: String
         switch plan.mode {
         case .new:
@@ -138,11 +155,11 @@ struct PromotionPerformer {
             imagePaths: current.imagePaths, body: plan.body))
 
         let title = TreeWalk.find(id: itemID, in: store.manifest.research)?.title ?? plan.title
-        try await writeOfferedLinks(plan, artifactTitle: title)
         mark(itemID, for: plan.source,
              named: isRegion(plan.source) ? "Promote Region" : "Promote Scrap")
+        let written = try await writeOfferedLinks(plan, artifactTitle: title)
         return PromotionResult(createdItemID: itemID, title: title,
-                               writtenLinks: writtenLinks(plan), boundPieceID: nil)
+                               writtenLinks: written, boundPieceID: nil)
     }
 
     private func performCraftIntent(_ plan: PromotionPlan) async throws -> PromotionResult {
@@ -152,7 +169,7 @@ struct PromotionPerformer {
         guard let path = item.path else { throw PromotionFailure.itemHasNoFile(item.id) }
         // AFTER the flush, so what we append to is what is on disk.
         try? await store.documentStore?.flushPendingSave()
-        let existing = readBody(atPath: path)
+        let existing = try readBody(atPath: path)
         let joined = existing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? plan.body
             : existing + "\n\n" + plan.body
@@ -162,10 +179,13 @@ struct PromotionPerformer {
                                writtenLinks: [], boundPieceID: nil)
     }
 
-    private func performPieceBinding(_ plan: PromotionPlan) -> PromotionResult {
+    private func performPieceBinding(_ plan: PromotionPlan) throws -> PromotionResult {
+        // Unreachable through `Promotion.plan` — a piece binding needs a region
+        // and a piece to exist at all — and it REFUSES rather than reporting a
+        // success that bound nothing. Fail loudly on a silent no-op is the house
+        // lesson (`project_publishing_namespace_footgun`).
         guard let pieceID = plan.pieceID, case .region(let regionID) = plan.source else {
-            return PromotionResult(createdItemID: nil, title: plan.title,
-                                   writtenLinks: [], boundPieceID: nil)
+            throw PromotionFailure.missingPiece
         }
         // The SAME undo name the region inspector's Picker uses, so one act
         // reads one way in the Edit menu however the writer reached it.
@@ -184,7 +204,7 @@ struct PromotionPerformer {
             throw PromotionFailure.artifactMissing(link.intoItemID)
         }
         try? await store.documentStore?.flushPendingSave()
-        let body = readBody(atPath: path)
+        let body = try readBody(atPath: path)
         // The plan's own check was against a SNAPSHOT taken when the sheet
         // opened. This one is against the file.
         guard !body.contains(link.linkText) else { throw PromotionFailure.linkAlreadyPresent }
@@ -197,23 +217,30 @@ struct PromotionPerformer {
 
     // MARK: - The offer (§6.1: may suggest, must never impose)
 
-    private func writtenLinks(_ plan: PromotionPlan) -> [CanvasNodeID] {
-        plan.linksAccepted ? plan.offeredLinks.map(\.node) : []
-    }
-
     /// Append `[[artifact]]` to each offered member's OWN note — the member
     /// pointing at what the region produced. Runs only when the writer accepted.
-    private func writeOfferedLinks(_ plan: PromotionPlan, artifactTitle: String) async throws {
-        guard plan.linksAccepted, !plan.offeredLinks.isEmpty else { return }
+    ///
+    /// **Returns what it actually WROTE, not what was offered.** Two members are
+    /// skipped rather than written: one whose note already holds the link, and
+    /// one whose item or path has since gone. The count reaches the writer, and
+    /// "linked 2 notes" when it linked none is a lie on a surface whose whole
+    /// promise is that you can see what a command will do.
+    @discardableResult
+    private func writeOfferedLinks(_ plan: PromotionPlan,
+                                   artifactTitle: String) async throws -> [CanvasNodeID] {
+        guard plan.linksAccepted, !plan.offeredLinks.isEmpty else { return [] }
         let link = Promotion.linkText(to: artifactTitle, label: nil)
         try? await store.documentStore?.flushPendingSave()
+        var written: [CanvasNodeID] = []
         for offer in plan.offeredLinks {
             guard let item = TreeWalk.find(id: offer.itemID, in: store.manifest.research),
                   let path = item.path else { continue }
-            let body = readBody(atPath: path)
+            let body = try readBody(atPath: path)
             guard !body.contains(link) else { continue }
             try await write(body + "\n\n" + link + "\n", toPath: path)
+            written.append(offer.node)
         }
+        return written
     }
 
     // MARK: - Disk
@@ -243,11 +270,29 @@ struct PromotionPerformer {
                        atomically: true, encoding: .utf8)
     }
 
-    /// The annotation sits on the line the read STARTS on, which is what the
-    /// whole-tree ADR 0018 guard scans for.
-    private func readBody(atPath path: String) -> String {
+    /// What is already in the destination, for the three paths that APPEND to it
+    /// and write the result back.
+    ///
+    /// **"Absent" and "unreadable" are not the same answer, and a `try?` cannot
+    /// tell them apart.** No file at that URL is legitimately empty — a
+    /// just-created research note is a zero-byte file, and the craft intent is
+    /// created empty by design. But a file that exists and will not read —
+    /// manifest/disk drift, a decoding failure, an uncoordinated read racing an
+    /// iCloud materialise — must REFUSE, because every caller appends to this
+    /// return value and writes it back: swallowed, an unreadable note becomes
+    /// the link and nothing else, and the writer's words are gone. That is
+    /// constitution must #1 failing on an append path, so it throws.
+    ///
+    /// The `// adr-0018-ok:` annotation sits on the line the read STARTS on,
+    /// which is what the whole-tree ADR 0018 guard scans for.
+    private func readBody(atPath path: String) throws -> String {
         let url = store.url.appendingPathComponent(path)
-        return (try? String(contentsOf: url, encoding: .utf8)) ?? ""  // adr-0018-ok: a research note is not manuscript — no op log, no second representation to drift from
+        guard FileManager.default.fileExists(atPath: url.path) else { return "" }
+        do {
+            return try String(contentsOf: url, encoding: .utf8)  // adr-0018-ok: a research note is not manuscript — no op log, no second representation to drift from
+        } catch {
+            throw PromotionFailure.unreadableFile(path)
+        }
     }
 
     // MARK: - The mark
