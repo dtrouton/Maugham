@@ -933,7 +933,7 @@ was wrong, and the next free number is 33."
   3. the Inspector shows the line → type a name → ⌘Z → the name goes → ⌘⇧Z → it comes back, and the Edit menu said "Undo Label Line"
   4. click a card that a line runs under → the **card** is selected, not the line
   5. click a region's chrome bar **where a line crosses it** → the **line** is selected, because it is the thing drawn on top. Then click the same bar a little to one side → the **region**. Does the rule read as obvious, or as the region having become hard to grab?
-  5a. **press and drag starting exactly ON a line over bare canvas → nothing happens**, and starting a few points off it sweeps a region as before. This is the price of the click and the drag agreeing: a line is not draggable, so a press on one is idle rather than starting a sweep the writer did not aim at. **The question for you is whether a canvas with many lines becomes fiddly to sweep regions on** — if so the answer is a smaller line tolerance, not a special case that lets a press on a line mean two different things.
+  5a. ~~**press and drag starting exactly ON a line over bare canvas → nothing happens**~~ — **SMOKED AND RULED FINE (Denver, 2026-07-28).** The ~12 pt corridor around each line is accepted; only the press point is affected, the press still selects the line so the surface says what it grabbed, and the fix if it ever bites is a smaller `CanvasLineHit.tolerance` — never a rule that lets a press on a line mean two different things. Recorded in `AREA.md`; do not reopen it from this list.
   6. **double-click a line → no scrap is created** (this is the one the earlier draft would have shipped broken)
   7. select the line → ⌫ → the line goes and both cards stay → ⌘Z → it comes back
   8. delete a card the line touched → the line goes with it → one ⌘Z brings back both the card, its words and the line
@@ -941,7 +941,9 @@ was wrong, and the next free number is 33."
   10. zoom out until the cards are small → the lines still land on the cards' middles; zoom in past 2× → clicking a line still selects it, and the connect mark is still aimable
   11. lay two cards exactly side by side so their line is perfectly horizontal → **it draws** (the axis-aligned culling case)
   12. quit and reopen → lines, labels, and everything but the selection survive
-  13. **Is the connect mark enough?** Item 1 is the test. If a writer who has not read the guide does not find it, the remaining fallback is a hover-revealed handle — and that costs `NSTrackingArea`, `mouseMoved` and a hovered-node redraw, so it is a real change and not a tweak. If instead the mark reads as *clutter* on the selected card, the answer is the opposite one: drop it and keep ⇧ alone. Both are UI changes, not model ones.
+  13. ~~**Is the connect mark enough?**~~ — **SMOKED AND RULED GOOD (Denver, 2026-07-28).** The mark on the selected card is findable, and it does not read as clutter. **The hover-revealed handle is off the table** — it would have cost `NSTrackingArea`, `mouseMoved` and a hovered-node redraw, i.e. new per-frame state on a surface whose architecture is keeping per-frame work viewport-proportional. Do not reopen it without new evidence from a writer who could not find the mark.
+
+**The whole list was smoked on 2026-07-28 and passed.** Both open design questions — this one and 5a — were ruled by Denver and are recorded in `AREA.md`. What remains open is not on this list: the VoiceOver select-a-line gap, which wants a screen-reader session rather than a smoke pass.
 
 ---
 
