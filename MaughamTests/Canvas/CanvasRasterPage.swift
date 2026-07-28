@@ -12,16 +12,42 @@ import AppKit
 /// the second copy silently dropped the buffer-row note below, which is the one
 /// comment standing between a reader and an upside-down page.
 ///
-/// `CanvasRendererTests` keeps a `Page` of its own on purpose and is NOT folded in
-/// here. Its readers are about INK — "is this pixel darker than paper by 100
-/// levels", rows and columns of glyph coverage — where these are about COLOUR.
-/// Two different questions that happen to share a byte layout; merging them would
-/// give one type two vocabularies.
+/// **The BUFFER is shared; the READERS stay with their callers.** Ink and colour
+/// are two vocabularies — "is this pixel darker than paper by 100 levels, and
+/// which rows carry glyphs" is a different question from "what colour is this and
+/// how many pixels changed" — and the two even want opposite answers off the end
+/// of the page: a colour reader returns a sentinel no pixel can equal, an ink
+/// reader returns the paper so an off-page read is never mistaken for ink. So the
+/// bitmap, its geometry and the one way a scene becomes pixels live here, the
+/// colour vocabulary lives here with the two suites that reason in it, and
+/// `CanvasRendererTests` carries its ink vocabulary as an extension on this type.
 struct CanvasPage {
     let bytes: [UInt8]
     let bytesPerRow: Int
     let width: Int
     let height: Int
+    /// What an unpainted pixel on this page reads — the green byte of the
+    /// backing, measured off the context **before anything is drawn over it**
+    /// rather than assumed.
+    ///
+    /// A buffer fact rather than an ink one, which is why it is stored here and
+    /// not in the ink extension: it can only be taken at the moment the page is
+    /// filled, and by then the reader is long gone. Reading it back from pixel
+    /// (0, 0) afterwards would work only for fixtures that happen to paint
+    /// nothing in the corner.
+    let paper: UInt8
+
+}
+
+// MARK: - The COLOUR vocabulary
+//
+// Shared by `CanvasRegionRenderTests` and `CanvasLineRenderTests`, which both
+// reason in "what colour is this pixel" and "how many pixels changed between two
+// renders". It is an extension rather than part of the type above so the seam
+// between the buffer and a vocabulary is visible in the source — the ink
+// vocabulary in `CanvasRendererTests` is the same shape on the other side of it.
+
+extension CanvasPage {
 
     /// R, G, B at `point`, in 0–1.
     ///
@@ -134,6 +160,9 @@ func renderCanvasPage(size: CGSize,
         }
     ctx.setFillColor(try XCTUnwrap(backingColor, "could not resolve the page backing"))
     ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+    // Read the backing back BEFORE anything is drawn over it, so `paper` is the
+    // value an unpainted pixel actually holds. Green, index 2 — see `color(at:)`.
+    let paper = ctx.data!.bindMemory(to: UInt8.self, capacity: 4)[2]
     ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
 
     let count = ctx.bytesPerRow * h
@@ -143,5 +172,6 @@ func renderCanvasPage(size: CGSize,
     let bytes = Array(UnsafeBufferPointer(start: ctx.data!.bindMemory(to: UInt8.self,
                                                                      capacity: count),
                                           count: count))
-    return CanvasPage(bytes: bytes, bytesPerRow: ctx.bytesPerRow, width: w, height: h)
+    return CanvasPage(bytes: bytes, bytesPerRow: ctx.bytesPerRow,
+                      width: w, height: h, paper: paper)
 }
