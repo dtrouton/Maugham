@@ -550,6 +550,46 @@ final class CanvasAccessibilityTests: XCTestCase {
                        + "`body` — a full sort of the line set per render")
     }
 
+    func test_aPromotedCardSaysSoAndTheKindStillComesFirst() {
+        var s = CanvasScene()
+        s.insert(CanvasNode(id: CanvasNodeID("a"), kind: .scrap, origin: .zero,
+                            width: 240, cachedHeight: 80, promotedItemID: "res-a"))
+        let label = CanvasAccessibility.elements(scene: s, scraps: [:]).first?.label
+        XCTAssertEqual(label, "Scrap, promoted",
+                       "the kind stays FIRST because CanvasAXRole never reaches an "
+                       + "assistive client")
+    }
+
+    func test_anUnpromotedCardSaysNothingExtra() {
+        var s = CanvasScene()
+        s.insert(CanvasNode(id: CanvasNodeID("a"), kind: .scrap, origin: .zero,
+                            width: 240, cachedHeight: 80))
+        XCTAssertEqual(CanvasAccessibility.elements(scene: s, scraps: [:]).first?.label,
+                       "Scrap")
+    }
+
+    func test_aPromotedCardWithConnectionsNamesBoth() {
+        var s = CanvasScene()
+        s.insert(CanvasNode(id: CanvasNodeID("a"), kind: .scrap, origin: .zero,
+                            width: 240, cachedHeight: 80, promotedItemID: "res-a"))
+        s.insert(CanvasNode(id: CanvasNodeID("b"), kind: .scrap, origin: CGPoint(x: 0, y: 200),
+                            width: 240, cachedHeight: 80))
+        s.insertLine(CanvasLine(id: CanvasLineID("l1"), from: CanvasNodeID("a"),
+                                to: CanvasNodeID("b"), label: "because"))
+        let label = try? XCTUnwrap(CanvasAccessibility.elements(scene: s, scraps: [:])
+            .first { $0.id == .node(CanvasNodeID("a")) }?.label)
+        XCTAssertTrue(label?.hasPrefix("Scrap, promoted,") == true, "found: \(label ?? "nil")")
+    }
+
+    func test_aPromotedRegionSaysSoAfterItsName() {
+        var s = CanvasScene()
+        s.insertRegion(CanvasRegion(id: CanvasRegionID("r1"), label: "Act II fog",
+                                    frame: CGRect(x: 0, y: 0, width: 400, height: 300),
+                                    promotedItemID: "res-fog"))
+        XCTAssertEqual(CanvasAccessibility.elements(scene: s, scraps: [:]).first?.label,
+                       "Region, Act II fog, promoted")
+    }
+
     private func accessibilitySource() throws -> String {
         try String(contentsOf: URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
