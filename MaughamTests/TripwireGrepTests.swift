@@ -1616,9 +1616,10 @@ final class TripwireGrepTests: XCTestCase {
         let census = try canvasBracketCensus(in: sourceDir)
         XCTAssertEqual(
             census,
-            ["RegionInspector.swift": [Self.canvasOutsideVerb]],
+            ["LineInspector.swift": [Self.canvasOutsideVerb],
+             "RegionInspector.swift": [Self.canvasOutsideVerb]],
             "The canvas's undo bracket is reached from outside `CanvasView.swift` "
-            + "by exactly one file, using exactly one verb.\n\n"
+            + "by the inspector column only, using exactly one verb.\n\n"
             + "If you have ADDED a surface that changes the canvas scene: it must "
             + "use `CanvasModel.mutateFromInspector`, and it belongs in the "
             + "expectation above. `mutate`/`beginGesture`/`endGesture` nest "
