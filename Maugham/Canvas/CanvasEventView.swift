@@ -39,7 +39,11 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
     var onDrag: ((CGPoint, CanvasDragPhase) -> Void)?
     /// ⌫ / ⌦, with the canvas holding first responder. What it does with the
     /// selection is `CanvasView.deleteSelection()`'s business, not this view's.
-    var onDeleteKey: (() -> Void)?
+    ///
+    /// **It returns whether anything was actually deleted**, and that return
+    /// value is the whole of `keyDown`'s decision below — see it for why the
+    /// canvas must not claim a key it did not use.
+    var onDeleteKey: (() -> Bool)?
 
     private var isDragging = false
 
@@ -216,12 +220,25 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
     /// frontmost and first responder while the writer is in a scrap, so ⌫ there
     /// deletes a character, which is what they meant.
     /// `CanvasViewMountingTests.test_backspaceInsideAScrapDeletesACharacterAndNotTheCard`
-    /// pins that rather than assuming it. Unhandled keys go to `super` so nothing
-    /// else is swallowed.
+    /// pins that rather than assuming it.
+    ///
+    /// **A ⌫ that deleted nothing goes to `super` — the canvas does not claim a
+    /// key it did not use**, and this is a rule rather than a tidiness. A key
+    /// that does nothing *and* suppresses the beep is indistinguishable from a
+    /// broken app: `super.keyDown` beeping is the platform saying "that key
+    /// means nothing here", and it is the one signal that separates "nothing was
+    /// selected" from "delete is broken". Which is why `onDeleteKey` reports
+    /// back instead of returning `Void` — the first draft of this method
+    /// swallowed every ⌫ unconditionally and read identically at the call site.
+    /// Spelled with an `if` inside the case rather than a `where` on it: a
+    /// `where` clause binds to the LAST pattern of a multi-pattern case only, so
+    /// `case "\u{7F}", "\u{8}" where …` would take the backspace branch without
+    /// ever asking the condition. It compiles, and it is silent.
     override func keyDown(with event: NSEvent) {
         switch event.charactersIgnoringModifiers {
         case "\u{7F}", "\u{8}":
-            onDeleteKey?()
+            if onDeleteKey?() == true { return }
+            super.keyDown(with: event)
         default:
             super.keyDown(with: event)
         }
@@ -234,7 +251,8 @@ struct CanvasEventView: NSViewRepresentable {
     @Binding var camera: CanvasCamera
     var onClick: (CGPoint, Int) -> Void
     var onDrag: (CGPoint, CanvasDragPhase) -> Void
-    var onDeleteKey: () -> Void
+    /// Returns whether anything was deleted — see `CanvasEventNSView.keyDown`.
+    var onDeleteKey: () -> Bool
     var undoManager: UndoManager?
 
     func makeNSView(context: Context) -> CanvasEventNSView {

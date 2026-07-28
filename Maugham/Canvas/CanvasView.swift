@@ -844,14 +844,19 @@ struct CanvasView: View {
     /// §3.1, generalised). Its membership records die with it, which is all
     /// `CanvasScene.removeRegion` touches.
     ///
-    /// Nothing selected is a no-op rather than a guess.
-    private func deleteSelection() {
+    /// Nothing selected is a no-op rather than a guess — and it says so, by
+    /// returning **whether anything was actually deleted**. `CanvasEventNSView`
+    /// sends the key on to `super` when this is `false`, so a ⌫ over an empty
+    /// selection beeps rather than being silently swallowed; the reasoning is on
+    /// `keyDown`. A selection that no longer resolves is the same answer for the
+    /// same reason: nothing went, so nothing was used.
+    private func deleteSelection() -> Bool {
         switch model.selection {
         case .region(let id):
-            guard model.scene.region(id) != nil else { return }
+            guard model.scene.region(id) != nil else { return false }
             model.mutate("Delete Region") { $0.removeRegion(id) }
         case .node(let id):
-            guard model.scene.node(id) != nil else { return }
+            guard model.scene.node(id) != nil else { return false }
             // The writer cannot be standing in it — a single click both selected
             // it and left the open scrap — but an undo can have moved focus
             // since, and an editor bound to a node that no longer exists is the
@@ -879,7 +884,7 @@ struct CanvasView: View {
             // to run one.
             rebuildLayouts(bumpsStructuralCounter: false)
         case .none:
-            return
+            return false
         }
         model.selection = nil
         // A delete IS a structural change. `CanvasView`'s own doc for
@@ -887,6 +892,7 @@ struct CanvasView: View {
         // 1C-a had no delete path; this is the line that changes that.
         model.bumpSceneRevision()
         model.scheduleSave()
+        return true
     }
 
     // MARK: - Drags

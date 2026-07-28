@@ -119,7 +119,7 @@ final class CanvasEventViewTests: XCTestCase {
     func test_theDeleteKeyIsReportedAndOtherKeysAreNot() {
         let v = view()
         var deletes = 0
-        v.onDeleteKey = { deletes += 1 }
+        v.onDeleteKey = { deletes += 1; return true }
 
         v.keyDown(with: key("\u{7F}"))          // ⌫
         XCTAssertEqual(deletes, 1, "a backspace on the canvas reported nothing, so "
@@ -130,10 +130,51 @@ final class CanvasEventViewTests: XCTestCase {
         XCTAssertEqual(deletes, 2, "an ordinary key must pass through")
     }
 
-    /// An unwired view must not crash on the key it is now interested in — the
-    /// state every `CanvasEventNSView` is in between `init` and `wire`.
-    func test_aDeleteKeyWithNothingWiredIsHarmless() {
-        XCTAssertNoThrow(view().keyDown(with: key("\u{7F}")))
+    /// **The canvas must not claim a key it did not use.** A ⌫ that deleted
+    /// nothing carries on up the responder chain, where AppKit's `noResponder`
+    /// beeps — the platform's way of saying "that key means nothing here", and
+    /// the one signal that separates "nothing was selected" from "delete is
+    /// broken". Swallowing it silently reads exactly like a broken app, which is
+    /// the failure this whole slice keeps finding in other forms.
+    ///
+    /// The three cases are one sequence on purpose: an implementation that
+    /// always forwarded fails the second, one that never forwards fails the
+    /// first, and one that forwards only when the callback is wired fails the
+    /// third.
+    func test_aDeleteThatDeletedNothingTravelsOnAndOneThatDeletedDoesNot() {
+        let v = view()
+        let beyond = KeyRecorder()
+        v.nextResponder = beyond
+
+        v.onDeleteKey = { false }
+        v.keyDown(with: key("\u{7F}"))
+        XCTAssertEqual(beyond.keys, ["\u{7F}"],
+                       "a ⌫ that deleted nothing was swallowed: the writer gets "
+                       + "silence where the platform would have beeped, and cannot "
+                       + "tell an empty selection from a broken delete")
+
+        v.onDeleteKey = { true }
+        v.keyDown(with: key("\u{7F}"))
+        XCTAssertEqual(beyond.keys, ["\u{7F}"],
+                       "a ⌫ that DID delete something also travelled on — the "
+                       + "canvas took the card and beeped at the writer for it")
+
+        // The state every view is in between `init` and `wire`.
+        v.onDeleteKey = nil
+        v.keyDown(with: key("\u{7F}"))
+        XCTAssertEqual(beyond.keys, ["\u{7F}", "\u{7F}"],
+                       "an unwired canvas swallows ⌫ rather than passing it on")
+    }
+
+    /// Whatever `super.keyDown(with:)` hands to the next responder. `NSResponder`
+    /// walks `nextResponder` and calls `noResponder(for:)` — the beep — when it
+    /// runs out, so standing in that slot is how "the key travelled on" is
+    /// observable at all.
+    private final class KeyRecorder: NSResponder {
+        var keys: [String] = []
+        override func keyDown(with event: NSEvent) {
+            keys.append(event.charactersIgnoringModifiers ?? "")
+        }
     }
 
     private func key(_ character: String) -> NSEvent {
