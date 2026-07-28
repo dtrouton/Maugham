@@ -233,12 +233,13 @@ final class PromotionCommandTests: XCTestCase {
     /// matches something else, or a predicate inverted by a tidy-up all read as
     /// green — so the repo's convention is to pair one with a planted offender.
     ///
-    /// **Both plants are deliberately unspellable in production.** An earlier
-    /// draft planted `.onKeyWindowCommand(.maughamPromotePiece` — a *plausible*
-    /// defect — and that made this self-check go red under the very mutation it
-    /// was written to survive: breaking the receiver's name made the "absent"
-    /// token present. A self-check whose plant a real bug can satisfy is a false
-    /// alarm waiting to happen, so both plants name symbols that cannot exist.
+    /// **All three plants are deliberately unspellable in production.** An
+    /// earlier draft planted `.onKeyWindowCommand(.maughamPromotePiece` — a
+    /// *plausible* defect — and that made this self-check go red under the very
+    /// mutation it was written to survive: breaking the receiver's name made the
+    /// "absent" token present. A self-check whose plant a real bug can satisfy is
+    /// a false alarm waiting to happen, so every plant names a symbol that cannot
+    /// exist.
     func test_theCensusFailsWhenPointedAtWiringThatIsNotThere() throws {
         XCTAssertEqual(
             try missingTokens(in: "Maugham/Views/ProjectWindow.swift",

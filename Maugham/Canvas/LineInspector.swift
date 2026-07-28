@@ -34,16 +34,20 @@ import SwiftUI
 /// what the guard buys is the rest of it: no snapshot, no queued disk write, and
 /// no redraw of the canvas.
 ///
-/// **If a thing has an inspector, its inspector can delete it.** A region could
-/// be removed from this pane or with ⌫ from the moment 1C-b shipped; a line
-/// arriving with only the key would have made two arms of ONE
+/// **If a thing has an inspector, its inspector can delete it — unless deletion
+/// through the inspector was ruled against, which is the scrap's own case.** A
+/// region could be removed from this pane or with ⌫ from the moment 1C-b
+/// shipped; a line arriving with only the key would have made two arms of ONE
 /// `RegionInspectorPane` offer different affordances for the same act — and ⌫
 /// needs `CanvasEventNSView` to hold first responder, so a writer who has just
 /// typed a name into the field above would have to click back onto the canvas
-/// before they could delete the thing they were editing. A scrap is still
-/// ⌫-only and stays that way here: it has no inspector to put a button in, which
-/// is the gap the roadmap already records rather than a fourth spelling of this
-/// rule.
+/// before they could delete the thing they were editing. **A scrap gained an
+/// inspector too, in 1C-c2 (`ScrapInspector`), and it deliberately has no
+/// Delete button** — ⌫ stays the only route to deleting a scrap, which is a
+/// standing ADR 0026 consequence and Denver's ruling, not the gap this
+/// paragraph used to say it was: adding one there for symmetry with this pane
+/// would be a design change wearing a tidy-up's clothes, not a fourth spelling
+/// of the rule above.
 ///
 /// **Tripwire 16 does not apply.** That rule is about an inline rename
 /// `TextField` that *appears* inside a `List(selection:)` row and has to win a

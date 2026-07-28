@@ -372,6 +372,13 @@ final class LineInspectorTests: XCTestCase {
         XCTAssertNil(m.selectedLine, "a card is neither a line…")
         XCTAssertNil(m.selectedRegion, "…nor a region — it is `selectedNode`, "
                      + "which is `ScrapInspector`'s to answer")
+        XCTAssertEqual(m.selectedNode?.id, a,
+                       "the positive half of this test's name: a card selection "
+                       + "resolves through `selectedNode`, which is what routes "
+                       + "the pane to `ScrapInspector` rather than the empty "
+                       + "state — the two negatives above are equally consistent "
+                       + "with falling through to neither, so this is the "
+                       + "assertion that tells them apart")
         _ = RegionInspectorPane(model: m, pieces: [],
                                 artifactTitle: { _ in nil },
                                 onOpenResearchItem: { _ in }).body
