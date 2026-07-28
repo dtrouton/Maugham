@@ -347,6 +347,57 @@ final class RegionBindingTests: XCTestCase {
         XCTAssertFalse(m.undo.canUndo)
     }
 
+    /// **The member lists are gated on the STRUCTURAL counter**, because
+    /// building them is scene-proportional and `body` runs on every drag, coast
+    /// and straighten frame (tripwire 30's shape, one column over).
+    ///
+    /// Both directions. A membership change that does NOT bump the counter must
+    /// not appear — that is the gate doing its job; and one that DOES bump it
+    /// must, or the gate has frozen the list. Every production path that changes
+    /// membership bumps: a drop at `.ended`, and every commit on this inspector.
+    func test_theMemberListsAreRebuiltOnlyOnAStructuralChange() {
+        let m = model()
+        m.withScene { CanvasMembership.join(self.a, home: self.r1, in: &$0) }
+        m.bumpSceneRevision()
+        let i = inspector(m)
+
+        var rows = i.refreshedRows(from: RegionInspector.MemberRows())
+        XCTAssertEqual(rows.residents.map(\.node), [a])
+
+        // A membership change smuggled in WITHOUT a structural bump — which no
+        // production path does, and which is what the gate trades away.
+        m.withScene { CanvasMembership.leave(self.a, from: self.r1, in: &$0) }
+        rows = i.refreshedRows(from: rows)
+        XCTAssertEqual(rows.residents.map(\.node), [a],
+                       "no bump, no rebuild — this is the frame-path saving")
+
+        m.bumpSceneRevision()
+        rows = i.refreshedRows(from: rows)
+        XCTAssertTrue(rows.residents.isEmpty,
+                      "and a real structural change is picked up, or the gate has "
+                      + "simply frozen the list")
+    }
+
+    /// Selecting a different region is NOT a structural change, so the counter
+    /// does not move — and the rows would otherwise still be the old region's.
+    func test_theMemberListsAlsoRebuildWhenTheSelectedRegionChanges() {
+        let m = model()
+        m.withScene {
+            CanvasMembership.join(self.a, home: self.r1, in: &$0)
+            CanvasMembership.join(self.b, home: self.r2, in: &$0)
+        }
+        m.bumpSceneRevision()
+        let showingR1 = inspector(m)
+        let rows = showingR1.refreshedRows(from: RegionInspector.MemberRows())
+        XCTAssertEqual(rows.residents.map(\.node), [a])
+
+        let showingR2 = RegionInspector(model: m, regionID: r2, pieces: [])
+        let carriedOver = showingR2.refreshedRows(from: rows)
+        XCTAssertEqual(carriedOver.residents.map(\.node), [b],
+                       "the counter has not moved, so `regionID` is the term that "
+                       + "has to force this rebuild")
+    }
+
     // MARK: - The inspector edits a scene the canvas is still holding open
 
     /// **A visit to a scrap holds "Edit Scrap" open, and nothing on the
@@ -468,20 +519,37 @@ final class RegionBindingTests: XCTestCase {
                        + "`RegionInspectorPane` does the resolving one leaf down")
     }
 
-    /// The runtime half of the same fact: building what `ProjectWindow.body`
-    /// builds registers no observation of the scene.
-    func test_buildingThePaneObservesNothingTheDragLoopWrites() {
+    /// **The control that says where the dependency stops.**
+    ///
+    /// The first version of this asserted the opposite — that constructing the
+    /// pane observes nothing — and it could not fail:
+    /// `withObservationTracking` registers only reads performed inside its
+    /// closure, and that closure ran a memberwise `init` touching no observable
+    /// property, so `fired` was false unconditionally. It stayed green with the
+    /// pane's body reading the whole scene, which it does and must.
+    ///
+    /// Inverted, it is honest and it is falsifiable: the pane's BODY observes
+    /// the scene, which is the whole design — the per-frame dependency exists,
+    /// one leaf below `ProjectWindow.body`, where re-evaluating it is cheap.
+    /// The pin on the arm above it is
+    /// `test_theCanvasInspectorArmReadsNothingOffTheModel`, and that is the test
+    /// the M22 mutation dies on.
+    func test_thePanesBodyIsWhereTheSceneDependencyStops() {
         let m = model()
         var fired = false
         withObservationTracking {
-            _ = RegionInspectorPane(model: m, pieces: [])
+            _ = RegionInspectorPane(model: m, pieces: []).body
         } onChange: {
             fired = true
         }
         m.withScene(persist: false) {
             $0.setRegionFrame(CGRect(x: 40, y: 40, width: 600, height: 400), for: self.r1)
         }
-        XCTAssertFalse(fired, "a drag frame must not invalidate the window's body")
+        XCTAssertTrue(fired,
+                      "the pane's body reads the scene, so a drag frame invalidates "
+                      + "THIS view — and nothing above it. If this ever goes false "
+                      + "the pane has stopped reading the model and the inspector "
+                      + "is showing a frozen region.")
     }
 
     // MARK: - Source helpers

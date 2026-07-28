@@ -91,6 +91,11 @@ struct RegionInspector: View {
     @State private var draftLabel = ""
     @FocusState private var labelFocused: Bool
 
+    /// The member lists, recomputed only when the STRUCTURAL counter moves.
+    /// See `MemberRows` for what that costs and why it is not computed in
+    /// `body`.
+    @State private var memberRows = MemberRows()
+
     private var region: CanvasRegion? { model.scene.region(regionID) }
 
     var body: some View {
@@ -125,9 +130,9 @@ struct RegionInspector: View {
                     .foregroundStyle(.secondary)
             }
 
-            memberSection("Lives here", rows: residents,
+            memberSection("Lives here", rows: memberRows.residents,
                           empty: "No cards live in this region yet.")
-            memberSection("Appears here", rows: visitors,
+            memberSection("Appears here", rows: memberRows.visitors,
                           empty: "No cards are referenced here.")
 
             Section {
@@ -167,6 +172,31 @@ struct RegionInspector: View {
         .onChange(of: labelFocused) { _, focused in
             if !focused { commitLabel(draftLabel) }
         }
+        // **Tripwire 30's rule, one column over.** Building the member lists is
+        // scene-proportional: a `Set` filter over the scene twice, one
+        // `chipTitle` per member — which splits that member's WHOLE scrap text
+        // on newlines and trims each line — and a sort whose comparator is
+        // `localizedStandardCompare`. Computed in `body` it ran on every drag,
+        // coast and straighten frame, because `body` reads `model.scene` and
+        // every one of those frames writes it. A 30-card region is ~30 whole-text
+        // splits and ~150 localized comparisons at 60–120 Hz, and a region drag
+        // is exactly when the list is longest.
+        //
+        // `sceneRevision` exists for this, and membership cannot change except
+        // at a structural boundary — a drop bumps it at `.ended`, and every
+        // inspector commit bumps it too. `regionID` is the second key because
+        // selecting a DIFFERENT region is not a structural change and would
+        // otherwise leave the previous region's members on screen.
+        //
+        // **What goes stale in exchange, on the record:** a row's title is the
+        // first line of its scrap, so typing into a card that is a member of the
+        // selected region leaves that row's title showing the text as of the last
+        // structural bump. It refreshes when the writer leaves the scrap, which
+        // is itself a bump (`commitActiveEdit`). Membership, which is what these
+        // lists are actually for, cannot go stale at all.
+        .onChange(of: currentRowsKey, initial: true) { _, _ in
+            memberRows = refreshedRows(from: memberRows)
+        }
     }
 
     @ViewBuilder
@@ -186,10 +216,53 @@ struct RegionInspector: View {
                         }
                         .buttonStyle(.borderless)
                         .help("Remove from this region — the card stays on the canvas")
+                        // `.help` is a tooltip, not an accessibility label, and
+                        // this button's only content is a glyph. Without this a
+                        // VoiceOver user meets an unnamed button per row — on a
+                        // surface that owns its whole accessibility tree by hand
+                        // precisely because §7A.6 calls one non-optional in a
+                        // writing tool.
+                        .accessibilityLabel("Remove \(row.title) from this region")
                     }
                 }
             }
         }
+    }
+
+    /// The two member lists, plus the key they were computed at.
+    ///
+    /// A named type rather than two `@State` arrays so a refresh cannot update
+    /// one and forget the other, and so the gate has something to test.
+    struct MemberRows: Equatable {
+        /// What the rows are keyed on. Both terms are needed: `revision` alone
+        /// misses a change of selected region (selection is not structural),
+        /// `region` alone misses a drop.
+        struct Key: Equatable {
+            let revision: Int
+            let region: CanvasRegionID
+        }
+
+        var key: Key?
+        var residents: [Row] = []
+        var visitors: [Row] = []
+    }
+
+    /// What the rows would be keyed on right now. Read in `body`, which is what
+    /// registers `sceneRevision` as a dependency.
+    var currentRowsKey: MemberRows.Key {
+        MemberRows.Key(revision: model.sceneRevision, region: regionID)
+    }
+
+    /// Rebuild the member lists — **but only if the key has moved.**
+    ///
+    /// The one function both the view and the test drive, so the gate that ships
+    /// is the gate that is pinned. The internal check is not redundant with the
+    /// `.onChange` that calls it: it is what makes the rule testable without a
+    /// SwiftUI host, and it is what a second, careless caller would run into.
+    func refreshedRows(from current: MemberRows) -> MemberRows {
+        let key = currentRowsKey
+        guard current.key != key else { return current }
+        return MemberRows(key: key, residents: residents, visitors: visitors)
     }
 
     // MARK: - What the region holds
@@ -236,8 +309,11 @@ struct RegionInspector: View {
 
     /// Every one of these goes through `mutateFromInspector`, never `mutate`:
     /// the canvas may be holding "Edit Scrap" open behind us, and a nested
-    /// gesture registers nothing at all. See
-    /// `CanvasUndo.mutateFromOutsideTheCanvas`.
+    /// gesture registers nothing at all. Reached by double-clicking a region's
+    /// CHROME BAR — which selects the region on click 1 and opens the bracket on
+    /// click 2 — and NOT by double-clicking a card, which deselects the region on
+    /// its own first click. `CanvasUndo.mutateFromOutsideTheCanvas` has the
+    /// mechanism at length.
     ///
     /// Every one of them also bumps the STRUCTURAL counter afterwards. The
     /// canvas draws the region's label, its collapsed state and its members from

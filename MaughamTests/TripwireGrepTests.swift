@@ -1490,13 +1490,29 @@ final class TripwireGrepTests: XCTestCase {
     /// bracket by construction, so it uses the inside verbs.
     private static let theCanvasSurface = "CanvasView.swift"
 
-    /// `CanvasModel`'s entry points into the canvas's undo bracket. Reaching the
-    /// bracket from another column through any of these is the defect; only
-    /// `mutateFromInspector(` is safe there.
+    /// Every `CanvasModel` entry point that changes state the undo stack owns,
+    /// EXCEPT the one that is safe from another column.
+    ///
+    /// **`withScene` and the two scrap-text mutators are the point of this
+    /// list, not an afterthought.** They are `internal`, they are the primitives
+    /// `mutate` wraps, and a surface written as `model.withScene { … }` changes
+    /// the scene and schedules the save with **no undo bracket at all** — which
+    /// is strictly worse than nesting, and which a census of `mutate` alone
+    /// records as nothing, because that file's verb set comes up empty and it
+    /// never enters the dictionary. Censusing one spelling of the invariant is
+    /// not censusing the invariant.
+    ///
+    /// **Bare member names, with no trailing `(`.** The paren spelling misses the
+    /// call that matters most: `withScene`'s only argument is its closure, so an
+    /// outside caller writes `model.withScene { … }` with a trailing closure and
+    /// no paren at all — and a pattern of `.withScene(` sails straight past the
+    /// worst case in the list. Caught by the self-check below, which is why that
+    /// companion exists.
     private static let canvasInsideVerbs = [
-        ".mutate(", ".beginGesture(", ".endGesture(", ".breakGesture(",
+        "mutate", "beginGesture", "endGesture", "breakGesture",
+        "withScene", "setScrapText", "removeScrapText",
     ]
-    private static let canvasOutsideVerb = ".mutateFromInspector("
+    private static let canvasOutsideVerb = "mutateFromInspector"
 
     /// Which bracket verbs each production file *outside* the canvas surface
     /// uses. Only files that could hold a `CanvasModel` at all are considered,
@@ -1516,13 +1532,47 @@ final class TripwireGrepTests: XCTestCase {
             var found: Set<String> = []
             for line in Self.codeLines(of: text) {
                 for verb in Self.canvasInsideVerbs + [Self.canvasOutsideVerb]
-                where line.contains(verb) {
+                where Self.callsOnAnInstance(verb, in: line) {
                     found.insert(verb)
                 }
             }
             if !found.isEmpty { census[name] = found.sorted() }
         }
         return census
+    }
+
+    /// Whether `line` calls `verb` on an INSTANCE rather than on a type.
+    ///
+    /// Two filters, and both earn their place:
+    ///
+    /// - **The receiver must be lowercase-initial.** `CanvasModel`'s verbs are
+    ///   instance methods, so the receiver is `model.`, `canvasModel.`,
+    ///   `self.model.`. A capitalised receiver is a static call on some other
+    ///   type — `TreeWalk` and `ScreenplayLineMutator` both vend a `mutate`, and
+    ///   `ProjectWindow` (which names `CanvasModel`, so it is in the candidate
+    ///   set) already calls `TreeWalk.find`/`collect`. One ordinary
+    ///   `TreeWalk.mutate(id:in:)` added there would otherwise fail this census
+    ///   with a message about undo brackets. A rule rather than a name list, so
+    ///   an unrelated type added later needs no maintenance here.
+    /// - **The character after the name must not continue an identifier**, or
+    ///   `mutate` would match `mutateFromInspector` and the safe verb would be
+    ///   recorded as the unsafe one. It is deliberately allowed to be `(` OR a
+    ///   space OR `{`, so a trailing-closure call is caught.
+    private static func callsOnAnInstance(_ verb: String, in line: String) -> Bool {
+        var search = line[...]
+        while let hit = search.range(of: "." + verb) {
+            let continues = line[hit.upperBound...].first.map {
+                $0.isLetter || $0.isNumber || $0 == "_"
+            } ?? false
+            let receiver = line[..<hit.lowerBound]
+                .reversed()
+                .prefix { $0.isLetter || $0.isNumber || $0 == "_" }
+            if !continues, let initial = receiver.last, initial.isLowercase || initial == "_" {
+                return true
+            }
+            search = line[hit.upperBound...]
+        }
+        return false
     }
 
     /// Source lines with comments removed, so a verb NAMED in a doc comment is
@@ -1574,10 +1624,11 @@ final class TripwireGrepTests: XCTestCase {
             + "expectation above. `mutate`/`beginGesture`/`endGesture` nest "
             + "inside the \"Edit Scrap\" gesture a focused scrap holds open — "
             + "nothing outside `CanvasView.handleClick` closes it, and a "
-            + "double-click deliberately leaves the selection alone, so a region "
-            + "can be selected in the inspector while a card is focused. Nested, "
-            + "your edit registers NO undo step and rides into the writer's next "
-            + "one.\n\n"
+            + "double-click never reassigns the selection. Repro: double-click a "
+            + "region's CHROME BAR — click 1 selects it, click 2 mints a scrap "
+            + "and opens the bracket. NOT a card: AppKit sends clickCount 1 "
+            + "first and that click selects the card. Nested, your edit "
+            + "registers NO undo step and rides into the writer's next one.\n\n"
             + "From the canvas itself the answer is the opposite — refuse "
             + "mid-gesture (`deleteSelection`'s `isInGesture` guard), because "
             + "closing the bracket would end one the writer still holds.\n\n"
@@ -1630,20 +1681,35 @@ final class TripwireGrepTests: XCTestCase {
         """.write(to: tmp.appendingPathComponent("CanvasMenuCommands.swift"),
                   atomically: true, encoding: .utf8)
         try """
+        struct CanvasQuickAdd {
+            let model: CanvasModel
+            func add() {
+                // The worse offender: no bracket AT ALL, not even a nested one.
+                model.withScene { $0.insert(node) }
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("CanvasQuickAdd.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
         struct Unrelated {
+            let model: CanvasModel
             func go() { TreeWalk.mutate(id: id, in: items) { _ in } }
         }
         """.write(to: tmp.appendingPathComponent("Unrelated.swift"),
                   atomically: true, encoding: .utf8)
 
         let census = try canvasBracketCensus(in: tmp)
-        XCTAssertEqual(census["CanvasMenuCommands.swift"], [".mutate("],
+        XCTAssertEqual(census["CanvasMenuCommands.swift"], ["mutate"],
             "Self-check: the planted inside-verb call site should be caught.")
         XCTAssertEqual(census["RegionInspector.swift"], [Self.canvasOutsideVerb],
             "Self-check: the sanctioned outside verb is still recorded.")
+        XCTAssertEqual(census["CanvasQuickAdd.swift"], ["withScene"],
+            "Self-check: a surface that mutates the scene with NO bracket at all "
+            + "is the worst case this census exists for, and is exactly what a "
+            + "census of `.mutate(` alone would record as nothing.")
         XCTAssertNil(census["Unrelated.swift"],
-            "Self-check: a `.mutate(` in a file that could not hold a CanvasModel "
-            + "is not this tripwire's business — `TreeWalk.mutate` is unrelated "
-            + "and must not be swept in.")
+            "Self-check: `TreeWalk.mutate(` is a static call on another type and "
+            + "must not be swept in — even though this file names CanvasModel, "
+            + "which is the only pre-filter.")
     }
 }

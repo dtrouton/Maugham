@@ -2593,4 +2593,109 @@ final class CanvasViewMountingTests: XCTestCase {
                        + "up in the inspector's \"lives here\" list for a card the "
                        + "writer deleted")
     }
+
+
+    // MARK: - The inspector edits a scene whose gesture is still open
+
+    /// **The repro for `CanvasUndo.mutateFromOutsideTheCanvas`, driven through
+    /// the real click path.**
+    ///
+    /// Both of the unit tests for that method hand-open the bracket with
+    /// `model.beginGesture("Edit Scrap")`, which is the 1C-a lesson in
+    /// miniature — a mechanism exercised only by the test that drives it
+    /// directly. This one reaches the state the way a writer does, and it is the
+    /// test that says the documented repro is real.
+    ///
+    /// The chrome bar is load-bearing: click 1 selects the region, click 2 finds
+    /// no node under the point, takes the `.emptyCanvas` branch, mints a scrap
+    /// and opens "Edit Scrap" — and `handleClick`'s `guard clickCount >= 2`
+    /// returns before the selection is ever reassigned.
+    func test_aRegionStaysSelectedWhileADoubleClickOpensAScrap() throws {
+        let root = try regionProjectRoot()
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+        let region = CanvasRegionID("r1")
+
+        // The chrome bar runs y 20..44; the fixture's card starts at y 60.
+        let onTheChrome = CGPoint(x: 200, y: 30)
+        events.applyMouseDown(at: onTheChrome, clickCount: 1)
+        events.applyMouseUp(at: onTheChrome)
+        events.applyMouseDown(at: onTheChrome, clickCount: 2)
+        events.applyMouseUp(at: onTheChrome)
+        pump()
+
+        XCTAssertEqual(model.selection, .region(region),
+                       "click 1 selected the region and the double-click never "
+                       + "reassigned it — so the inspector is showing this region")
+        XCTAssertTrue(model.isInGesture,
+                      "and click 2 minted a scrap and opened \"Edit Scrap\" — the "
+                      + "bracket an inspector edit must not nest inside")
+
+        // The inspector, in the other column, renames the region while that
+        // bracket is open. Through `mutate` this would register nothing at all.
+        RegionInspector(model: model, regionID: region, pieces: [])
+            .commitLabel("Falls at night")
+        XCTAssertEqual(model.scene.region(region)?.label, "Falls at night")
+
+        // **This is the assertion that sees the nesting, and the scene is not.**
+        // Measured (mutation, 2026-07-28): with `mutateFromInspector` swapped for
+        // `mutate`, the rename nests, registers nothing of its own, and rides
+        // into the open "Edit Scrap" bracket — which the ⌘Z below then closes and
+        // undoes, leaving the label back at "Act II fog" and the card in place.
+        // Every scene assertion here is satisfied by that coincidence. What
+        // differs is the NAME, and the name is what the writer reads off the Edit
+        // menu.
+        XCTAssertTrue(model.undo.undoMenuItemTitle.contains("Rename Region"),
+                      "the rename must be its own named step. Got: "
+                      + model.undo.undoMenuItemTitle)
+
+        model.undo.undo()
+        XCTAssertEqual(model.scene.region(region)?.label, "Act II fog",
+                       "one ⌘Z takes the rename back, which it cannot do if the "
+                       + "rename never became a step")
+        XCTAssertEqual(model.scene.count, 2,
+                       "and the scrap the double-click minted is untouched — the "
+                       + "⌘Z landed on the rename, not on the card")
+    }
+
+    /// The other half, and the reason the doc says CHROME BAR rather than card:
+    /// **a double-click on a CARD cannot reach that state.** AppKit delivers
+    /// `clickCount: 1` on the first mouse-down of a double-click, and that click
+    /// selects the card — so the region is deselected before the bracket opens
+    /// and the inspector is showing its empty state.
+    ///
+    /// Pinned because the first draft of this slice documented the card version
+    /// in four places. A repro nobody can reproduce is worse than none: the next
+    /// author tries it, fails, and concludes the rule is stale.
+    func test_aDoubleClickOnACardDeselectsTheRegion() throws {
+        let root = try regionProjectRoot()
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+        let region = CanvasRegionID("r1")
+
+        let onTheChrome = CGPoint(x: 200, y: 30)
+        events.applyMouseDown(at: onTheChrome, clickCount: 1)
+        events.applyMouseUp(at: onTheChrome)
+        pump()
+        XCTAssertEqual(model.selection, .region(region), "the control: it starts selected")
+
+        // The fixture's card sits at (60, 60); its measured height is well under
+        // 40pt, so this point is inside it.
+        let onTheCard = CGPoint(x: 100, y: 75)
+        events.applyMouseDown(at: onTheCard, clickCount: 1)
+        events.applyMouseUp(at: onTheCard)
+        events.applyMouseDown(at: onTheCard, clickCount: 2)
+        events.applyMouseUp(at: onTheCard)
+        pump()
+
+        XCTAssertEqual(model.selection, .node(scrapID),
+                       "clickCount 1 arrives first and selects the card")
+        XCTAssertNil(model.selectedRegion,
+                     "so `selectedRegion` is nil, the inspector is showing \"Select "
+                     + "a region\", and there is no label field to type into")
+    }
 }

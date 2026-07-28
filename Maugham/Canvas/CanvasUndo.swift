@@ -157,16 +157,33 @@ final class CanvasUndo {
     /// "Edit Scrap" open for as long as focus is in it, and *nothing on the
     /// inspector's side of the window closes it*: `CanvasView.commitActiveEdit`
     /// runs from `handleClick`, which only fires for clicks on the canvas. And a
-    /// double-click deliberately does not touch `selection`, so the region the
-    /// writer selected a moment ago is still what the inspector is showing. So:
-    /// click a region's chrome, double-click a card, rename the region in the
-    /// inspector — and through `mutate` the rename nests. Depth 2 takes no
-    /// snapshot, depth 1 registers nothing, and **the rename is not on the undo
-    /// stack at all.** It is worse than absent: the open gesture's baseline
-    /// predates it, so the next thing the writer types carries the rename into a
-    /// step called "Edit Scrap", and a ⌘Z aimed at a sentence takes the region's
-    /// name with it. Quit without returning to the canvas and `release()` drops
-    /// the lot.
+    /// double-click never reassigns `selection`, so a region selected a moment
+    /// ago is still what the inspector is showing. Rename it there and through
+    /// `mutate` the rename nests: depth 2 takes no snapshot, depth 1 registers
+    /// nothing, and **the rename is not on the undo stack at all.** Worse than
+    /// absent — the open gesture's baseline predates it, so the next thing the
+    /// writer types carries the rename into a step called "Edit Scrap", and a ⌘Z
+    /// aimed at a sentence takes the region's name with it. Quit without
+    /// returning to the canvas and `release()` drops the lot.
+    ///
+    /// **The repro is a double-click on the region's own CHROME BAR**, and it has
+    /// to be — a double-click on a CARD cannot reach this state. AppKit delivers
+    /// `clickCount: 1` on the first mouse-down of a double-click
+    /// (`CanvasEventNSView.applyMouseDown` says so outright), and that first
+    /// click runs `selection = selectionTarget(at:)`, which resolves the card —
+    /// so the region is deselected before "Edit Scrap" ever opens and the
+    /// inspector is showing its empty state. On the chrome bar: click 1 selects
+    /// the region; click 2 finds no node under the point, takes the
+    /// `.emptyCanvas` branch, mints a scrap and opens "Edit Scrap" — and the
+    /// `guard clickCount >= 2` returns before the selection is ever reassigned.
+    ///
+    /// Second path to the same state: an uncommitted rename in the label field,
+    /// committed on focus loss by the very click that opens the gesture.
+    ///
+    /// `CanvasViewMountingTests` drives both the working repro and the one that
+    /// does not work, because **a repro nobody can reproduce is worse than
+    /// none** — the next author tries it, fails, and concludes the rule is
+    /// stale.
     ///
     /// This is the same close-run-reopen `undo()` performs, for the same reason:
     /// the run of typing in progress becomes its own step first, under its own
