@@ -3541,10 +3541,21 @@ final class CanvasViewMountingTests: XCTestCase {
     /// inside somebody else's bracket collapses into it under the wrong name —
     /// and if that bracket never closes it cannot be taken back at all.
     ///
-    /// The reachable state is the one this drives: press and HOLD on the line
-    /// itself. Geometrically that point is bare canvas, so `onClick` re-resolves
-    /// the same line (the selection does not move) while `onDrag(.began)` opens a
-    /// "New Region" sweep — a live bracket with a line still selected behind it.
+    /// **The gesture is opened by hand, and that is a deliberate exception with
+    /// a reason — read it before "fixing" it to a pointer sequence.**
+    ///
+    /// This test first drove the state the way the card arm's does: press and
+    /// HOLD on the line, which used to leave the line selected while
+    /// `onDrag(.began)` opened a "New Region" sweep. **The click/drag agreement
+    /// fix closed that door.** A press on a line is now idle, so it opens no
+    /// bracket at all — and every OTHER press moves the selection onto whatever
+    /// is under it, so there is no pointer sequence left that ends with a line
+    /// selected and a gesture open. That is the fix working, not a gap.
+    ///
+    /// So the bracket is opened directly and the KEY is still a real `NSEvent`
+    /// through `window.sendEvent(_:)` — the delivery path is what the 1C-a
+    /// defect was in, and it stays real. If a later gesture makes the state
+    /// reachable again, the assertion is already here.
     func test_deleteWithALineSelectedMidGestureIsRefused() throws {
         let root = try twoCardProjectRoot()
         let model = CanvasModel()
@@ -3553,15 +3564,21 @@ final class CanvasViewMountingTests: XCTestCase {
         let events = try eventView(in: window)
         let line = try drawALine(in: window, model)
 
-        // Press and do NOT release.
-        events.applyMouseDown(at: line.midpoint, clickCount: 1)
+        // The door this used to come through, asserted rather than assumed —
+        // so if a press on a line ever opens a bracket again, this says so
+        // here rather than leaving the hand-driven setup looking arbitrary.
+        var probe = CanvasInteraction()
+        probe.begin(at: line.midpoint, in: model.scene, connecting: false)
+        XCTAssertFalse(probe.isActive,
+                       "a press on a line opens a gesture again — drive this test "
+                       + "through the pointer instead of by hand")
+
         XCTAssertTrue(window.makeFirstResponder(events))
-        pump()
         XCTAssertEqual(model.selection, .line(line.id),
-                       "precondition: the press left the line selected, so there is "
-                       + "something for ⌫ to take")
-        XCTAssertTrue(model.isInGesture,
-                      "precondition: the press opened a gesture that is still open")
+                       "precondition: the line the ⇧-drag made is still selected, so "
+                       + "there is something for ⌫ to take")
+        model.beginGesture("Move Scrap")
+        XCTAssertTrue(model.isInGesture, "precondition: a bracket is open")
 
         window.sendEvent(deleteKeyEvent(for: window))
         pump(1.0)
@@ -3570,10 +3587,117 @@ final class CanvasViewMountingTests: XCTestCase {
                        "⌫ mid-gesture deleted the line from inside somebody else's "
                        + "undo bracket: it registers no step of its own, and a "
                        + "bracket that never closes takes the line with it")
-        events.applyMouseUp(at: line.midpoint)
+        model.endGesture()
         pump(1.0)
         XCTAssertEqual(sceneOnDisk(root).lines.count, 1,
                        "the line came back only to go when the gesture ended")
+    }
+
+    /// A region at (100,100)–(500,400) with one resident, and a line crossing
+    /// its chrome bar (y 100–124) at x = 300.
+    ///
+    /// The line's two cards sit above and below the region, both 120 wide at
+    /// x = 240, so **both centres are at x = 300 whatever height the view
+    /// re-derives** — the segment is vertical at that x and meets the bar at one
+    /// place only. That is what makes a second sample along the same bar a real
+    /// control rather than a second point on the line.
+    private func lineCrossingARegionsBarRoot() throws -> URL {
+        var scene = CanvasScene()
+        scene.insert(CanvasNode(id: scrapID, kind: .scrap, origin: CGPoint(x: 150, y: 200),
+                                width: 240, cachedHeight: 38))
+        scene.insert(CanvasNode(id: secondScrapID, kind: .scrap, origin: CGPoint(x: 240, y: 20),
+                                width: 120, cachedHeight: 54))
+        scene.insert(CanvasNode(id: farScrapID, kind: .scrap, origin: CGPoint(x: 240, y: 450),
+                                width: 120, cachedHeight: 54))
+        scene.insertLine(CanvasLine(id: crossingLineID, from: secondScrapID, to: farScrapID))
+        scene.insertRegion(CanvasRegion(id: crossingRegionID, label: "Act II fog",
+                                        frame: CGRect(x: 100, y: 100, width: 400, height: 300),
+                                        homeMembers: [scrapID]))
+        return try projectRoot(scene: scene,
+                               scraps: [scrapID: scrapText,
+                                        secondScrapID: secondScrapText,
+                                        farScrapID: farScrapText])
+    }
+
+    private let crossingLineID = CanvasLineID("cross")
+    private let crossingRegionID = CanvasRegionID("r1")
+
+    /// **The click and the drag must agree about what the press was.**
+    ///
+    /// Where a line crosses a region's chrome bar the click selects the LINE —
+    /// it is drawn on top, and that is the whole of this slice's precedence
+    /// rule. `CanvasInteraction.begin` had no line branch, so the same press
+    /// fell through to `regionHit` and opened "Move Region": **select one thing,
+    /// drag another.**
+    ///
+    /// It bites rather than being theoretical, which is why the drag here is one
+    /// point. A trackpad press routinely drifts that far, and `endGesture`
+    /// registers whenever the state moved — so the writer gets the region and
+    /// every resident shifted under a step their next ⌘Z takes, while the
+    /// inspector and ⌫ are still pointed at the line.
+    ///
+    /// **The undo assertion is not decoration.** The frames alone can pass while
+    /// a step still lands, and a stray step is the half the writer meets later,
+    /// on a ⌘Z aimed at something else.
+    ///
+    /// The control is the same bar, the same drag, 150 pt along it and clear of
+    /// the line: without it "nothing moved" is satisfied by a build where a
+    /// region can no longer be dragged at all.
+    func test_aPressWhereALineCrossesARegionsBarMovesNeitherAndPushesNoUndoStep() throws {
+        let root = try lineCrossingARegionsBarRoot()
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+
+        let crossing = CGPoint(x: 300, y: 112)
+        XCTAssertEqual(CanvasView.selectionTarget(at: crossing, in: model.scene),
+                       .line(crossingLineID),
+                       "precondition: the click resolves to the line here — which is "
+                       + "the whole reason the drag must not resolve to the region")
+        XCTAssertEqual(CanvasInteraction.regionHit(at: crossing, in: model.scene),
+                       .chrome(crossingRegionID),
+                       "precondition: and the region's chrome bar is genuinely under "
+                       + "the same point, so this is the disagreement and not an "
+                       + "absent region")
+        let frameBefore = try XCTUnwrap(model.scene.region(crossingRegionID)?.frame)
+        let residentBefore = try XCTUnwrap(model.scene.node(scrapID)?.origin)
+
+        // A press with a one-point drift — the ordinary trackpad click.
+        drag(events, from: crossing, through: [CGPoint(x: crossing.x + 1, y: crossing.y + 1)])
+        pump(1.0)
+
+        XCTAssertEqual(model.scene.region(crossingRegionID)?.frame, frameBefore,
+                       "a press on the line moved the REGION: the click selected the "
+                       + "line and the drag picked up the region under it")
+        XCTAssertEqual(model.scene.node(scrapID)?.origin, residentBefore,
+                       "and it carried the region's resident with it — the card the "
+                       + "writer was not touching moved because of where they clicked")
+        XCTAssertEqual(model.selection, .line(crossingLineID),
+                       "and the line is what they are holding, which is exactly why "
+                       + "the region moving is a disagreement rather than a choice")
+        XCTAssertFalse(try XCTUnwrap(events.undoManager).canUndo,
+                       "the press pushed an undo step for a gesture the writer never "
+                       + "made: their next ⌘Z takes back a region move instead of "
+                       + "whatever they were actually doing")
+        XCTAssertEqual(sceneOnDisk(root).region(crossingRegionID)?.frame, frameBefore,
+                       "and it reached disk")
+
+        // The control: the same bar, the same drift, clear of the line.
+        let alongTheBar = CGPoint(x: crossing.x + 150, y: crossing.y)
+        XCTAssertNil(CanvasLineHit.line(at: alongTheBar, in: model.scene),
+                     "precondition: this end of the bar is clear of the line")
+        drag(events, from: alongTheBar,
+             through: [CGPoint(x: alongTheBar.x + 40, y: alongTheBar.y + 30)])
+        pump(1.0)
+
+        XCTAssertNotEqual(model.scene.region(crossingRegionID)?.frame, frameBefore,
+                          "the region can no longer be dragged by its bar at all — "
+                          + "\"the line wins\" must cost the bar the width of the "
+                          + "line, not the whole of it")
+        XCTAssertTrue(model.undo.undoMenuItemTitle.contains("Move Region"),
+                      "and that drag is its own named step. Got: "
+                      + model.undo.undoMenuItemTitle)
     }
 
     /// **A card delete takes its lines, and ONE ⌘Z brings both back** — one

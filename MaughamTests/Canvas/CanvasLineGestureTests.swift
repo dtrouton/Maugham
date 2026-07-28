@@ -368,7 +368,12 @@ final class CanvasLineGestureTests: XCTestCase {
     /// The control the one above needs: bare canvas still selects nothing, so
     /// "the line is selected" is not satisfied by a build that answers `.line`
     /// for every point on the surface.
-    func test_aClickOnBareCanvasClearsALineSelection() {
+    ///
+    /// Named for what it checks — the ROUTING function's answer on bare ground.
+    /// The assignment that actually clears `model.selection` is covered through
+    /// the real click path in
+    /// `CanvasViewMountingTests.test_aSingleClickSelectsTheThingUnderIt`.
+    func test_aClickOnBareCanvasResolvesToNothing() {
         let scene = linkedCards()
         // Same x, well clear of the 6 pt tolerance around y = 40.
         let bare = CGPoint(x: 320, y: 300)
@@ -474,6 +479,40 @@ final class CanvasLineGestureTests: XCTestCase {
                        "a region whose bar a line happens to cross can no longer be "
                        + "grabbed at all — the line costs the bar 12 pt of a width in "
                        + "the hundreds, not the whole of it")
+    }
+
+    /// **The drag agrees with the click, or the writer selects one thing and
+    /// moves another.**
+    ///
+    /// `CanvasInteraction.begin` had no line branch, so a press where a line
+    /// crosses a region's chrome bar opened `.movingRegion` while the click
+    /// selected the line. A line is not draggable, so idle is the honest answer
+    /// — the same one a press on a region's INTERIOR already gets.
+    ///
+    /// Three presses, one sequence, and each asserts a different mode: an
+    /// implementation that was always idle fails the control, and one that never
+    /// is fails the first two.
+    func test_aPressOnALineDragsNothing() {
+        let scene = lineAcrossAChromeBar()
+        var i = CanvasInteraction()
+
+        i.begin(at: onTheChromeBar, in: scene, connecting: false)
+        XCTAssertFalse(i.isActive,
+                       "a press where the line crosses the bar opened \(String(describing: i.kind)) "
+                       + "— the click selects the line there, so this drag moves the "
+                       + "region under a line the writer is holding")
+
+        // ⇧ changes nothing: a connecting press on a line is still a press on a
+        // line, and `begin` only opens a line gesture from a NODE.
+        i.begin(at: onTheChromeBar, in: scene, connecting: true)
+        XCTAssertFalse(i.isActive)
+
+        // The control, on the same bar, clear of the line.
+        i.begin(at: CGPoint(x: onTheChromeBar.x + 200, y: onTheChromeBar.y),
+                in: scene, connecting: false)
+        XCTAssertEqual(i.kind, .movingRegion,
+                       "the bar is a region's only grab handle and it must still work "
+                       + "everywhere the line is not")
     }
 
     /// **The two orders, asserted against each other rather than each against a
