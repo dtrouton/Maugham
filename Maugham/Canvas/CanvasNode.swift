@@ -46,19 +46,35 @@ public struct CanvasNode: Equatable, Sendable {
     public var width: CGFloat
     public var cachedHeight: CGFloat?
     public var z: Int
+    /// The durable artifact this scrap has been promoted into, if any (spec §6).
+    ///
+    /// **Provenance, not a live link.** A promotion is a SNAPSHOT taken by an
+    /// explicit act and it never syncs — edit the card afterwards and the note
+    /// does not change, edit the note and the card does not. Spec §6.1's
+    /// 2026-07-28 amendment records why: the region row already works that way
+    /// (promoting a region joins six cards' text while all six stay), so a
+    /// scrap that behaved differently would give one verb two rules.
+    ///
+    /// **Nothing here validates it against the manifest, and nothing can** —
+    /// the scene has never seen one. A writer who deletes the note leaves an id
+    /// that resolves to nothing, and every reader resolves it through
+    /// `ArtifactIndex` rather than trusting it.
+    public var promotedItemID: String?
 
     public init(id: CanvasNodeID,
                 kind: CanvasNodeKind,
                 origin: CGPoint,
                 width: CGFloat,
                 cachedHeight: CGFloat? = nil,
-                z: Int = 0) {
+                z: Int = 0,
+                promotedItemID: String? = nil) {
         self.id = id
         self.kind = kind
         self.origin = origin
         self.width = width
         self.cachedHeight = cachedHeight
         self.z = z
+        self.promotedItemID = promotedItemID
     }
 
     /// The node's rect in canvas content coordinates, or nil if it has never

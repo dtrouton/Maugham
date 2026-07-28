@@ -98,10 +98,11 @@ final class CanvasRegionCodecTests: XCTestCase {
     /// The forward-compatibility promise the schema-3 bump makes to every
     /// canvas 1C-b wrote: a schema-2 file — no `lines` key at all — carrying
     /// REAL, populated regions (not `test_aSchemaV1SidecarLoadsItsNodesAndNoRegions`'s
-    /// empty case) still decodes those regions intact under
-    /// `currentSchemaVersion == 3`. The version literal itself is asserted
-    /// once, in `CanvasLineCodecTests.test_theSchemaVersionIsThree` — this
-    /// test's job is the region content surviving the bump, not the number.
+    /// empty case) still decodes those regions intact, regardless of how many
+    /// bumps `currentSchemaVersion` has taken since (now 4, 1C-c2's
+    /// `promotedItemID`). The version literal itself is asserted once, in
+    /// `CanvasLineCodecTests.test_theSchemaVersionIsFour` — this test's job is
+    /// the region content surviving the bump, not the number.
     func test_aSchemaV2SidecarsPopulatedRegionsSurviveTheBumpToSchemaThree() throws {
         try writeSidecar("""
         {"schemaVersion":2,"nodes":[{"id":"a","kind":"scrap","x":0,"y":0,\

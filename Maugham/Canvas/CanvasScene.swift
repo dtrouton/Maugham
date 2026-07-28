@@ -96,6 +96,14 @@ public struct CanvasScene: Equatable, Sendable {
         byID[id]?.cachedHeight = height
     }
 
+    /// Record (or clear) the artifact a scrap was promoted into.
+    ///
+    /// A region's mark goes through `updateRegion(_:_:)`, which already exists —
+    /// a second spelling would be two ways to write one field.
+    public mutating func setPromotedItem(_ itemID: String?, for id: CanvasNodeID) {
+        byID[id]?.promotedItemID = itemID
+    }
+
     /// Highest node whose measured frame contains `point`, in content
     /// coordinates. Front-most wins.
     ///

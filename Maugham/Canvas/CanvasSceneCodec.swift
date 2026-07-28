@@ -7,15 +7,17 @@ import Foundation
 /// `CanvasScene` so the in-memory model is free to change shape without
 /// rewriting every writer's sidecar.
 struct CanvasSceneDTO: Codable {
-    static let currentSchemaVersion = 3   // was 2 (regions, 1C-b)
+    static let currentSchemaVersion = 4   // was 3 (lines, 1C-c1)
 
     var schemaVersion: Int
     var nodes: [NodeDTO]
     /// Optional so a schema-1 sidecar — every canvas 1C-a wrote — decodes
     /// unchanged rather than throwing on a missing key.
     var regions: [RegionDTO]?
-    /// Optional so a schema-2 sidecar — every canvas 1C-b wrote — decodes
-    /// unchanged rather than throwing on a missing key.
+    /// Optional so a schema-3 sidecar — every canvas 1C-c1 wrote — decodes
+    /// unchanged. **1C-c2 added `promotedItemID` to nodes and regions rather
+    /// than a key of its own here**, which is why this bump has no new
+    /// top-level collection: the mark belongs to the thing it marks.
     var lines: [LineDTO]?
 
     struct NodeDTO: Codable {
@@ -27,6 +29,7 @@ struct CanvasSceneDTO: Codable {
         var width: CGFloat
         var cachedHeight: CGFloat?
         var z: Int
+        var promotedItemID: String?
     }
 
     struct RegionDTO: Codable {
@@ -43,6 +46,7 @@ struct CanvasSceneDTO: Codable {
         var appearances: [String]
         var boundPieceID: String?
         var isCollapsed: Bool
+        var promotedItemID: String?
     }
 
     struct LineDTO: Codable {
@@ -57,11 +61,13 @@ struct CanvasSceneDTO: Codable {
             case .scrap:
                 return NodeDTO(id: n.id.raw, kind: "scrap", referenceId: nil,
                                x: n.origin.x, y: n.origin.y, width: n.width,
-                               cachedHeight: n.cachedHeight, z: n.z)
+                               cachedHeight: n.cachedHeight, z: n.z,
+                               promotedItemID: n.promotedItemID)
             case .item(let ref):
                 return NodeDTO(id: n.id.raw, kind: "item", referenceId: ref,
                                x: n.origin.x, y: n.origin.y, width: n.width,
-                               cachedHeight: n.cachedHeight, z: n.z)
+                               cachedHeight: n.cachedHeight, z: n.z,
+                               promotedItemID: n.promotedItemID)
             }
         }
         regions = scene.regions.map { r in
@@ -71,7 +77,8 @@ struct CanvasSceneDTO: Codable {
                       homeMembers: r.homeMembers.map(\.raw).sorted(),
                       appearances: r.appearances.map(\.raw).sorted(),
                       boundPieceID: r.boundPieceID,
-                      isCollapsed: r.isCollapsed)
+                      isCollapsed: r.isCollapsed,
+                      promotedItemID: r.promotedItemID)
         }
         // `scene.lines` is already id-sorted (that's its own doc comment's
         // reason); a second `.sorted()` here would be a second opinion about
@@ -95,7 +102,8 @@ struct CanvasSceneDTO: Codable {
             guard let kind else { continue }
             s.insert(CanvasNode(id: CanvasNodeID(dto.id), kind: kind,
                                 origin: CGPoint(x: dto.x, y: dto.y),
-                                width: dto.width, cachedHeight: dto.cachedHeight, z: dto.z))
+                                width: dto.width, cachedHeight: dto.cachedHeight, z: dto.z,
+                                promotedItemID: dto.promotedItemID))
         }
 
         // AFTER the nodes, and the order is the whole of the scrub: a node of an
@@ -123,7 +131,8 @@ struct CanvasSceneDTO: Codable {
                 homeMembers: homes,
                 appearances: real(dto.appearances).union(contested),
                 boundPieceID: dto.boundPieceID,
-                isCollapsed: dto.isCollapsed))
+                isCollapsed: dto.isCollapsed,
+                promotedItemID: dto.promotedItemID))
         }
 
         // Endpoint validation, the same shape the region loader applies to
