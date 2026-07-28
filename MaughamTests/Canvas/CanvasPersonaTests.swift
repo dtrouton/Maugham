@@ -2,10 +2,17 @@ import XCTest
 @testable import Maugham
 import MaughamCore
 
+/// **`ProjectType.allCases`, never a hand-written list.** These loops read
+/// `[.novel, .screenplay, .collection]` until 2026-07-28 and `ProjectType` has
+/// four cases — `.shortStory` was never asked. Nothing was broken (both
+/// functions are total, and Plan offers `.canvas` for every type), but the point
+/// of extracting a decision into a pure function is to ask it over *all* its
+/// inputs, and a hardcoded list is the sampling that defeats it. A case added to
+/// `ProjectType` must arrive here on its own.
 final class CanvasPersonaTests: XCTestCase {
 
     func test_planOffersTheCanvasFirstOnEveryProjectType() {
-        for type in [ProjectType.novel, .screenplay, .collection] {
+        for type in ProjectType.allCases {
             let segments = Persona.plan.binderSegments(for: type)
             XCTAssertEqual(segments.first, .canvas,
                            "Plan's centre column is the canvas (umbrella §6.3) — \(type)")
@@ -21,7 +28,7 @@ final class CanvasPersonaTests: XCTestCase {
 
     func test_noOtherPersonaOffersTheCanvas() {
         for persona in [Persona.author, .review, .publish] {
-            for type in [ProjectType.novel, .screenplay, .collection] {
+            for type in ProjectType.allCases {
                 XCTAssertFalse(persona.binderSegments(for: type).contains(.canvas),
                                "\(persona) must not offer the canvas")
             }
@@ -51,7 +58,7 @@ final class CanvasPersonaTests: XCTestCase {
     /// inspector paths. This test asks the question the reviews could not:
     /// exhaustively, over the product of segment and project type.
     func test_theCanvasSegmentReachesTheRegionInspectorOnEveryProjectType() {
-        for type in [ProjectType.novel, .screenplay, .collection] {
+        for type in ProjectType.allCases {
             XCTAssertEqual(
                 ProjectWindow.inspectorRoute(binderSegment: .canvas, projectType: type),
                 .canvas,

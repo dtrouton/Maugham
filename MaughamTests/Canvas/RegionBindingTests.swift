@@ -841,9 +841,11 @@ final class RegionBindingTests: XCTestCase {
         XCTAssertTrue(arms[0].contains("CanvasView("),
                       "the centre column's `.canvas` arm is the canvas itself")
         XCTAssertTrue(arms[1].contains("canvasInspector("),
-                      "and the inspector's `.canvas` arm is the region inspector — "
-                      + "move it to any other segment and it can be on screen "
-                      + "with no live canvas behind it")
+                      "and the inspector's `.canvas` arm is the region inspector. "
+                      + "This pins WHICH arm builds it, not that the segment is "
+                      + "unreachable elsewhere — that guarantee lives in "
+                      + "`Persona.binderSegments(for:)`, which is where the "
+                      + "Collections fix put it")
 
         XCTAssertEqual(occurrences(of: "CanvasView(", in: source), 1)
         XCTAssertEqual(occurrences(of: "RegionInspectorPane(", in: source), 1,

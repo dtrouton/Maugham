@@ -830,6 +830,17 @@ struct CanvasView: View {
             model.withScene(persist: false) {
                 if let home = CanvasInteraction.joinTarget(for: id, in: $0) {
                     CanvasMembership.join(id, home: home, in: &$0)
+                    // The membership changed AFTER `rebuildLayouts()` bumped the
+                    // structural counter, and that bump is the only one on this
+                    // path — so without this the region inspector in the other
+                    // column is reading a scene from before the join, and the
+                    // new card is missing from "Lives here" until some unrelated
+                    // structural change happens along. It works today only
+                    // because SwiftUI reads the post-join scene in a later body
+                    // pass, which is an accident of ordering rather than a
+                    // guarantee: this is the exact shape of the stale-inspector
+                    // defect the first whole-branch review caught.
+                    model.bumpSceneRevision()
                 }
             }
             // Closed AFTER the measure, so the next gesture's baseline holds a

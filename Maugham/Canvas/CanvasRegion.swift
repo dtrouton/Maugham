@@ -20,9 +20,17 @@ public enum CanvasSelection: Equatable, Sendable {
 /// (spec §4).
 ///
 /// **Membership is stored here and is changed only by a deliberate act.**
-/// Coordinates never add or remove a member: not on move, not on resize, not on
-/// creation. See `CanvasMembership` for the mutations and `AREA.md` for the
-/// three shipping tools that each get this wrong differently.
+/// **CREATION ABSORBS; TRANSITIONS DO NOT** (Denver, 2026-07-28 — spec §4.2
+/// amendment, ADR 0026 §8). Moving or resizing a region never adds or removes a
+/// member; a sweep takes in every card whose **centre** it was drawn around, a
+/// scrap made inside a region joins it, and a card dropped so its centre lands
+/// inside joins. The transition half is the load-bearing one — all three tools
+/// `AREA.md` cites were bitten deciding whether an *existing* relationship
+/// survives a geometry change, which creation cannot be.
+///
+/// See `CanvasMembership` for the mutations, `CanvasInteraction.absorbedNodes`
+/// and `.joinTarget` for the two places geometry is legitimately read, and
+/// `AREA.md` for the three tools.
 ///
 /// The two sets are disjoint by construction — `addHome` drops the node from
 /// `appearances` and `addAppearance` declines when the node already lives here.
