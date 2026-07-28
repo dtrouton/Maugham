@@ -9,11 +9,17 @@ public struct CanvasRegionID: Hashable, Codable, Sendable, CustomStringConvertib
     public var description: String { raw }
 }
 
-/// What the canvas has selected. ONE selection covers both primitives, so ⌫
+/// What the canvas has selected. ONE selection covers every primitive, so ⌫
 /// has a single meaning and the inspector has a single thing to read.
+///
+/// **A new case is added at the RENDERER's request, not at the click handler's**
+/// — the renderer is the first consumer that needs one, and adding the case makes
+/// the compiler enumerate every reader at once. In this area a caller count is
+/// what has found every unreachable half; here the compiler does it for free.
 public enum CanvasSelection: Equatable, Sendable {
     case node(CanvasNodeID)
     case region(CanvasRegionID)
+    case line(CanvasLineID)
 }
 
 /// A labelled area drawn on the canvas — the canvas's only grouping primitive

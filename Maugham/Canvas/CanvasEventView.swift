@@ -36,7 +36,13 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
     /// (view point, click count). Click count 2 is "enter the scrap under this
     /// point, or make a new one here".
     var onClick: ((CGPoint, Int) -> Void)?
-    var onDrag: ((CGPoint, CanvasDragPhase) -> Void)?
+    /// (content-space point, phase, ⇧ held). The modifier is THREADED through
+    /// here rather than read off `NSEvent.modifierFlags` where it is used: a
+    /// static global read is untestable except by faking it, and this callback is
+    /// the one place a real event's flags can reach the gesture through
+    /// production code — `window.sendEvent(_:)` with a ⇧-flagged `NSEvent` runs
+    /// the whole route end to end.
+    var onDrag: ((CGPoint, CanvasDragPhase, Bool) -> Void)?
     /// ⌫ / ⌦, with the canvas holding first responder. What it does with the
     /// selection is `CanvasView.deleteSelection()`'s business, not this view's.
     ///
@@ -157,7 +163,13 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
         onCameraChange?(camera)
     }
 
-    func applyMouseDown(at point: CGPoint, clickCount: Int) {
+    /// - Parameter shiftHeld: whether ⇧ was down for this press — a ⇧-drag from a
+    ///   card draws a line. Defaulted at this SEAM and nowhere below it: the one
+    ///   production caller (`mouseDown(with:)`) always passes the real flag, and
+    ///   `CanvasInteraction.begin` takes its `connecting:` with no default at all
+    ///   so the single call site there has to say what it means. The default is
+    ///   here only so the many tests that are not about ⇧ do not have to.
+    func applyMouseDown(at point: CGPoint, clickCount: Int, shiftHeld: Bool = false) {
         // Both callbacks fire on every mouse-down, with onClick strictly before onDrag(.began).
         // A zero-distance drag (mouseDown → mouseUp with no mouseDragged) emits .began then .ended
         // with no .changed. AppKit delivers clickCount: 1 on the first mouse-down of a double-click,
@@ -168,18 +180,25 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
         // contract, not an incidental detail — do not reorder these calls.
         isDragging = true
         onClick?(point, clickCount)
-        onDrag?(point, .began)
+        onDrag?(point, .began, shiftHeld)
     }
 
+    /// **`false`, and not the live modifier state — deliberately.** Only `.began`
+    /// reads the flag, because what the gesture IS is decided by the press. A
+    /// writer who lets ⇧ go halfway through drawing a line must not have the line
+    /// abandoned under them, and one who presses it late has not started a
+    /// different gesture. This is exactly the kind of thing a later "consistency"
+    /// edit removes, so it is written down rather than left to be inferred.
     func applyMouseDragged(to point: CGPoint) {
         guard isDragging else { return }
-        onDrag?(point, .changed)
+        onDrag?(point, .changed, false)
     }
 
+    /// `false` for the same reason as `applyMouseDragged` — see it.
     func applyMouseUp(at point: CGPoint) {
         guard isDragging else { return }
         isDragging = false
-        onDrag?(point, .ended)
+        onDrag?(point, .ended, false)
     }
 
     // MARK: - AppKit entry points
@@ -199,8 +218,13 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
         // Take first responder so ⌘Z lands on the canvas undo stack once the
         // writer has clicked out of a scrap.
         window?.makeFirstResponder(self)
+        // `modifierFlags` and nothing else. `charactersIgnoringModifiers` — the
+        // property `keyDown` two screens down switches on — belongs to keys and
+        // says nothing about a mouse press; the note there about which modifiers
+        // it strips is about that method, not this one.
         applyMouseDown(at: convert(event.locationInWindow, from: nil),
-                       clickCount: event.clickCount)
+                       clickCount: event.clickCount,
+                       shiftHeld: event.modifierFlags.contains(.shift))
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -275,7 +299,8 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
 struct CanvasEventView: NSViewRepresentable {
     @Binding var camera: CanvasCamera
     var onClick: (CGPoint, Int) -> Void
-    var onDrag: (CGPoint, CanvasDragPhase) -> Void
+    /// (point, phase, ⇧ held) — see `CanvasEventNSView.onDrag`.
+    var onDrag: (CGPoint, CanvasDragPhase, Bool) -> Void
     /// Returns whether anything was deleted — see `CanvasEventNSView.keyDown`.
     var onDeleteKey: () -> Bool
     var undoManager: UndoManager?

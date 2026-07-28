@@ -948,8 +948,16 @@ final class TripwireGrepTests: XCTestCase {
     /// `contentUnavailableViewFrameWindow` lines. Canonical examples:
     /// HistoryPane, AnnotationsPane, OutlinePane (CLAUDE.md tripwire 15).
     func test_contentUnavailableViewAlwaysChainsFullFrame() throws {
-        let viewsDir = repoRoot.appendingPathComponent("Maugham/Views", isDirectory: true)
-        let offenders = try Self.findFramelessContentUnavailableViews(in: viewsDir)
+        // **`Maugham/`, not `Maugham/Views`.** 1C-c1's docs sweep found the scan
+        // pointed at one directory while the panes it protects had spread out of
+        // it: both canvas inspector panes live in `Maugham/Canvas/`, so the
+        // full-frame chain was correct there and enforced nowhere. A tidy-up
+        // dropping it would have shipped green, and this is a bug that has
+        // recurred four or more times. Any new pane anywhere under the app target
+        // is now covered by default, which is the point — a rule that only holds
+        // in the directory it was written in is a rule about a directory.
+        let appDir = repoRoot.appendingPathComponent("Maugham", isDirectory: true)
+        let offenders = try Self.findFramelessContentUnavailableViews(in: appDir)
         XCTAssertTrue(offenders.isEmpty,
             "ContentUnavailableView( without a .frame(maxWidth: .infinity within "
             + "\(Self.contentUnavailableViewFrameWindow) lines (tripwire 15). "
@@ -964,11 +972,27 @@ final class TripwireGrepTests: XCTestCase {
     /// `ContentUnavailableView(` opener, look ahead up to
     /// `contentUnavailableViewFrameWindow` lines for the required frame
     /// chain. SHARED between the production check and the self-test.
+    ///
+    /// **Offenders are reported by PATH, not by basename.** Over the 103 files
+    /// of one directory a basename was unambiguous; over the 338 of the whole
+    /// app target — `Views/`, `Canvas/`, `Editor/`, `Stores/`, `MCP/`,
+    /// `Publish/` — two panes can share a name and the message would not say
+    /// which one to open. The path is taken relative to `dir`'s PARENT, so the
+    /// production scan reports `Maugham/Canvas/RegionInspector.swift` and the
+    /// self-check's temporary directory still reads sensibly; anything that
+    /// does not sit under that base falls back to the basename rather than
+    /// printing an absolute path from someone else's machine.
     static func findFramelessContentUnavailableViews(in dir: URL) throws -> [String] {
         let fm = FileManager.default
         guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
             return []
         }
+        // Resolved on BOTH sides, or the prefix match is defeated by a symlink
+        // in the path — `/var` against the enumerator's `/private/var` is the
+        // one this test hit, and a repo checked out under a symlinked home is
+        // the same shape in production. Without it the fallback silently hands
+        // back basenames, which is the thing this is here to stop.
+        let base = dir.deletingLastPathComponent().resolvingSymlinksInPath().path
         var offenders: [String] = []
         for case let url as URL in walker where url.pathExtension == "swift" {
             let text = try String(contentsOf: url, encoding: .utf8)
@@ -987,11 +1011,63 @@ final class TripwireGrepTests: XCTestCase {
                     return trimmed.contains(".frame(maxWidth: .infinity")
                 }
                 if !hasFrame {
-                    offenders.append("\(url.lastPathComponent):\(i + 1): \(line.trimmingCharacters(in: .whitespaces))")
+                    let resolved = url.resolvingSymlinksInPath().path
+                    let shown = resolved.hasPrefix(base + "/")
+                        ? String(resolved.dropFirst(base.count + 1))
+                        : url.lastPathComponent
+                    offenders.append("\(shown):\(i + 1): \(line.trimmingCharacters(in: .whitespaces))")
                 }
             }
         }
         return offenders
+    }
+
+    /// **An offender names its PATH, so two panes sharing a basename are
+    /// distinguishable.** Over one directory the basename was enough; the scan
+    /// now covers the whole app target — `Views/`, `Canvas/`, `Editor/`,
+    /// `Stores/`, `MCP/`, `Publish/` — where a repeated name is ordinary, and a
+    /// failure message naming `Inspector.swift` twice tells the reader nothing
+    /// about which file to open.
+    ///
+    /// Two frameless panes with the SAME file name in different subdirectories
+    /// is the fixture, because that is the only shape that can fail: under
+    /// `lastPathComponent` both offenders render as one identical string, so the
+    /// set below collapses to a single element.
+    func test_aFramelessPaneIsReportedByPathSoTwoOfTheSameNameAreDistinguishable() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-cuv-path-selfcheck-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: tmp) }
+
+        let frameless = """
+        struct Pane: View {
+            var body: some View {
+                ContentUnavailableView("Nothing here", systemImage: "tray")
+            }
+        }
+        """
+        for area in ["Views", "Canvas"] {
+            let dir = tmp.appendingPathComponent(area, isDirectory: true)
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            try frameless.write(to: dir.appendingPathComponent("Inspector.swift"),
+                                atomically: true, encoding: .utf8)
+        }
+
+        let offenders = try Self.findFramelessContentUnavailableViews(in: tmp)
+        XCTAssertEqual(offenders.count, 2,
+            "control: both planted panes must be caught, or the distinctness "
+            + "assertion below is about one string. Got:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertEqual(Set(offenders).count, 2,
+            "two frameless panes in different directories report as the SAME "
+            + "string, so the message cannot say which file to open — the scan "
+            + "now covers 338 files across six directories, where a repeated "
+            + "basename is ordinary. Got:\n" + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.contains { $0.hasPrefix("\(tmp.lastPathComponent)/Canvas/") },
+            "the path is reported relative to the scanned root's PARENT, so a "
+            + "production offender reads Maugham/Canvas/RegionInspector.swift "
+            + "rather than an absolute path from someone else's machine. Got:\n"
+            + offenders.joined(separator: "\n"))
     }
 
     /// Self-check: prove the frame guard FIRES on a planted frameless
@@ -1616,9 +1692,10 @@ final class TripwireGrepTests: XCTestCase {
         let census = try canvasBracketCensus(in: sourceDir)
         XCTAssertEqual(
             census,
-            ["RegionInspector.swift": [Self.canvasOutsideVerb]],
+            ["LineInspector.swift": [Self.canvasOutsideVerb],
+             "RegionInspector.swift": [Self.canvasOutsideVerb]],
             "The canvas's undo bracket is reached from outside `CanvasView.swift` "
-            + "by exactly one file, using exactly one verb.\n\n"
+            + "by the inspector column only, using exactly one verb.\n\n"
             + "If you have ADDED a surface that changes the canvas scene: it must "
             + "use `CanvasModel.mutateFromInspector`, and it belongs in the "
             + "expectation above. `mutate`/`beginGesture`/`endGesture` nest "

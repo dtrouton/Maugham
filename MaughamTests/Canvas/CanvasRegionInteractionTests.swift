@@ -73,7 +73,7 @@ final class CanvasRegionInteractionTests: XCTestCase {
         var s = scene()
         s.move(a, to: CGPoint(x: 200, y: 0))
         var i = CanvasInteraction()
-        i.begin(at: CGPoint(x: 300, y: 8), in: s)
+        i.begin(at: CGPoint(x: 300, y: 8), in: s, connecting: false)
         XCTAssertEqual(i.activeNodeID, a)
         XCTAssertNil(i.activeRegionID)
     }
@@ -86,7 +86,7 @@ final class CanvasRegionInteractionTests: XCTestCase {
         var s = scene()
         CanvasMembership.join(a, home: r1, in: &s)
         var i = CanvasInteraction()
-        i.begin(at: CGPoint(x: 300, y: 8), in: s)
+        i.begin(at: CGPoint(x: 300, y: 8), in: s, connecting: false)
         i.update(to: CGPoint(x: 400, y: 58), in: &s)
         XCTAssertEqual(s.region(r1)?.frame.origin, CGPoint(x: 100, y: 50))
         XCTAssertEqual(s.node(a)?.origin, CGPoint(x: 200, y: 150))
@@ -98,7 +98,7 @@ final class CanvasRegionInteractionTests: XCTestCase {
     func test_draggingARegionDoesNotResizeIt() {
         var s = scene()
         var i = CanvasInteraction()
-        i.begin(at: CGPoint(x: 300, y: 8), in: s)
+        i.begin(at: CGPoint(x: 300, y: 8), in: s, connecting: false)
         i.update(to: CGPoint(x: 400, y: 58), in: &s)
         XCTAssertEqual(s.region(r1)?.frame.size, CGSize(width: 600, height: 400))
     }
@@ -107,7 +107,7 @@ final class CanvasRegionInteractionTests: XCTestCase {
         var s = scene()
         CanvasMembership.addAppearance(b, to: r1, in: &s)
         var i = CanvasInteraction()
-        i.begin(at: CGPoint(x: 300, y: 8), in: s)
+        i.begin(at: CGPoint(x: 300, y: 8), in: s, connecting: false)
         i.update(to: CGPoint(x: 400, y: 58), in: &s)
         XCTAssertEqual(s.node(b)?.origin, CGPoint(x: 900, y: 100), "a visitor is not luggage")
     }
@@ -126,7 +126,7 @@ final class CanvasRegionInteractionTests: XCTestCase {
         var s = scene()
         CanvasMembership.join(a, home: r1, in: &s)
         var i = CanvasInteraction()
-        i.begin(at: CGPoint(x: 300, y: 8), in: s)
+        i.begin(at: CGPoint(x: 300, y: 8), in: s, connecting: false)
         i.update(to: CGPoint(x: 1_150, y: 8), in: &s)
         i.end()
         XCTAssertTrue(s.region(r1)!.frame.contains(s.node(b)!.frame!),
@@ -142,7 +142,7 @@ final class CanvasRegionInteractionTests: XCTestCase {
     func test_aRegionNeverFlicks() {
         var s = scene()
         var i = CanvasInteraction()
-        i.begin(at: CGPoint(x: 300, y: 8), in: s)
+        i.begin(at: CGPoint(x: 300, y: 8), in: s, connecting: false)
         i.update(to: CGPoint(x: 340, y: 8), in: &s, now: 0)
         i.update(to: CGPoint(x: 400, y: 8), in: &s, now: 0.01)
         XCTAssertNil(i.end(now: 0.011),
@@ -156,7 +156,7 @@ final class CanvasRegionInteractionTests: XCTestCase {
         var s = scene()
         CanvasMembership.join(a, home: r1, in: &s)
         var i = CanvasInteraction()
-        i.begin(at: CGPoint(x: 596, y: 396), in: s)
+        i.begin(at: CGPoint(x: 596, y: 396), in: s, connecting: false)
         i.update(to: CGPoint(x: 300, y: 250), in: &s)
         XCTAssertEqual(s.region(r1)?.frame.width, 304)
         XCTAssertEqual(s.region(r1)?.frame.height, 254)
@@ -171,7 +171,7 @@ final class CanvasRegionInteractionTests: XCTestCase {
     func test_resizingARegionLeavesItsTopLeftWhereItWas() {
         var s = scene()
         var i = CanvasInteraction()
-        i.begin(at: CGPoint(x: 596, y: 396), in: s)
+        i.begin(at: CGPoint(x: 596, y: 396), in: s, connecting: false)
         i.update(to: CGPoint(x: 900, y: 700), in: &s)
         XCTAssertEqual(s.region(r1)?.frame.origin, CGPoint(x: 0, y: 0))
         XCTAssertEqual(s.region(r1)?.frame.width, 904)
@@ -181,7 +181,7 @@ final class CanvasRegionInteractionTests: XCTestCase {
     func test_resizeIsClampedToAWorkableMinimum() {
         var s = scene()
         var i = CanvasInteraction()
-        i.begin(at: CGPoint(x: 596, y: 396), in: s)
+        i.begin(at: CGPoint(x: 596, y: 396), in: s, connecting: false)
         i.update(to: CGPoint(x: -900, y: -900), in: &s)
         XCTAssertEqual(s.region(r1)?.frame.width, CanvasRegionMetrics.minimumSide)
         XCTAssertEqual(s.region(r1)?.frame.height, CanvasRegionMetrics.minimumSide)
@@ -192,7 +192,7 @@ final class CanvasRegionInteractionTests: XCTestCase {
     func test_aDragOnEmptyCanvasDrawsARegion() throws {
         var s = scene()
         var i = CanvasInteraction()
-        i.begin(at: CGPoint(x: 1_000, y: 1_000), in: s)
+        i.begin(at: CGPoint(x: 1_000, y: 1_000), in: s, connecting: false)
         XCTAssertEqual(i.kind, .drawingRegion)
         i.update(to: CGPoint(x: 1_300, y: 1_250), in: &s)
         let rect = try XCTUnwrap(i.pendingRegionDraw)
@@ -204,7 +204,7 @@ final class CanvasRegionInteractionTests: XCTestCase {
     func test_aDragBackwardsAndUpwardsStillDrawsARegion() {
         var s = scene()
         var i = CanvasInteraction()
-        i.begin(at: CGPoint(x: 1_300, y: 1_250), in: s)
+        i.begin(at: CGPoint(x: 1_300, y: 1_250), in: s, connecting: false)
         i.update(to: CGPoint(x: 1_000, y: 1_000), in: &s)
         XCTAssertEqual(i.pendingRegionDraw, CGRect(x: 1_000, y: 1_000, width: 300, height: 250))
     }
@@ -219,21 +219,21 @@ final class CanvasRegionInteractionTests: XCTestCase {
     func test_onlyASweepHasAPendingRect() {
         var movingScene = scene()
         var moving = CanvasInteraction()
-        moving.begin(at: CGPoint(x: 110, y: 110), in: movingScene)
+        moving.begin(at: CGPoint(x: 110, y: 110), in: movingScene, connecting: false)
         moving.update(to: CGPoint(x: 400, y: 400), in: &movingScene)
         XCTAssertEqual(moving.kind, .movingNode, "precondition")
         XCTAssertNil(moving.pendingRegionDraw, "a card move is not a sweep")
 
         var regionScene = scene()
         var movingRegion = CanvasInteraction()
-        movingRegion.begin(at: CGPoint(x: 300, y: 8), in: regionScene)
+        movingRegion.begin(at: CGPoint(x: 300, y: 8), in: regionScene, connecting: false)
         movingRegion.update(to: CGPoint(x: 400, y: 58), in: &regionScene)
         XCTAssertEqual(movingRegion.kind, .movingRegion, "precondition")
         XCTAssertNil(movingRegion.pendingRegionDraw, "a region move is not a sweep")
 
         var resizeScene = scene()
         var resizing = CanvasInteraction()
-        resizing.begin(at: CGPoint(x: 596, y: 396), in: resizeScene)
+        resizing.begin(at: CGPoint(x: 596, y: 396), in: resizeScene, connecting: false)
         resizing.update(to: CGPoint(x: 700, y: 500), in: &resizeScene)
         XCTAssertEqual(resizing.kind, .resizingRegion, "precondition")
         XCTAssertNil(resizing.pendingRegionDraw, "a region resize is not a sweep")
@@ -267,7 +267,7 @@ final class CanvasRegionInteractionTests: XCTestCase {
     func test_aDragInsideAnExistingRegionDrawsNothing() {
         var s = scene()
         var i = CanvasInteraction()
-        i.begin(at: CGPoint(x: 400, y: 300), in: s)
+        i.begin(at: CGPoint(x: 400, y: 300), in: s, connecting: false)
         XCTAssertFalse(i.isActive)
         i.update(to: CGPoint(x: 500, y: 380), in: &s)
         XCTAssertNil(i.pendingRegionDraw)

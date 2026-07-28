@@ -70,7 +70,7 @@ final class CanvasEventViewTests: XCTestCase {
         let v = view()
         var phases: [CanvasDragPhase] = []
         var points: [CGPoint] = []
-        v.onDrag = { p, phase in points.append(p); phases.append(phase) }
+        v.onDrag = { p, phase, _ in points.append(p); phases.append(phase) }
 
         v.applyMouseDown(at: CGPoint(x: 10, y: 10), clickCount: 1)
         v.applyMouseDragged(to: CGPoint(x: 40, y: 20))
@@ -85,7 +85,7 @@ final class CanvasEventViewTests: XCTestCase {
     func test_draggedWithoutAMouseDownEmitsNothing() {
         let v = view()
         var phases: [CanvasDragPhase] = []
-        v.onDrag = { _, phase in phases.append(phase) }
+        v.onDrag = { _, phase, _ in phases.append(phase) }
         v.applyMouseDragged(to: CGPoint(x: 40, y: 20))
         v.applyMouseUp(at: CGPoint(x: 40, y: 20))
         XCTAssertTrue(phases.isEmpty, "a drag that never began must not end")
@@ -106,12 +106,33 @@ final class CanvasEventViewTests: XCTestCase {
         let v = view()
         var events: [String] = []
         v.onClick = { _, _ in events.append("click") }
-        v.onDrag = { _, phase in if phase == .began { events.append("dragBegan") } }
+        v.onDrag = { _, phase, _ in if phase == .began { events.append("dragBegan") } }
         v.applyMouseDown(at: .zero, clickCount: 1)
         XCTAssertEqual(events, ["click", "dragBegan"],
                       "onClick must fire before onDrag(.began) in the same mouseDown; "
                       + "Task 13's gesture state machine depends on onClick setting editingNodeID "
                       + "before onDrag(.began) observes it")
+    }
+
+    /// ⇧ reaches the gesture on the OPENING press and on nothing after it.
+    ///
+    /// What the gesture is gets decided by the press, so the samples that follow
+    /// report `false` rather than the live modifier state: a writer who lets ⇧ go
+    /// halfway through drawing a line must not have it abandoned under them, and
+    /// one who presses it late has not started a different gesture.
+    func test_theShiftFlagIsReportedOnTheOpeningPressAndOnNothingAfterIt() {
+        let v = view()
+        var flags: [Bool] = []
+        v.onDrag = { _, _, shift in flags.append(shift) }
+
+        v.applyMouseDown(at: .zero, clickCount: 1, shiftHeld: true)
+        v.applyMouseDragged(to: CGPoint(x: 40, y: 20))
+        v.applyMouseUp(at: CGPoint(x: 40, y: 20))
+
+        XCTAssertEqual(flags, [true, false, false],
+                       "the press must carry the modifier through to the gesture, and "
+                       + "the samples after it must not carry it again — a line half "
+                       + "drawn is not abandoned by letting ⇧ go")
     }
 
     // MARK: - ⌫

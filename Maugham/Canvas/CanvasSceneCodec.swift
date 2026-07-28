@@ -7,13 +7,16 @@ import Foundation
 /// `CanvasScene` so the in-memory model is free to change shape without
 /// rewriting every writer's sidecar.
 struct CanvasSceneDTO: Codable {
-    static let currentSchemaVersion = 2
+    static let currentSchemaVersion = 3   // was 2 (regions, 1C-b)
 
     var schemaVersion: Int
     var nodes: [NodeDTO]
     /// Optional so a schema-1 sidecar — every canvas 1C-a wrote — decodes
     /// unchanged rather than throwing on a missing key.
     var regions: [RegionDTO]?
+    /// Optional so a schema-2 sidecar — every canvas 1C-b wrote — decodes
+    /// unchanged rather than throwing on a missing key.
+    var lines: [LineDTO]?
 
     struct NodeDTO: Codable {
         var id: String
@@ -42,6 +45,11 @@ struct CanvasSceneDTO: Codable {
         var isCollapsed: Bool
     }
 
+    struct LineDTO: Codable {
+        var id, from, to: String
+        var label: String?
+    }
+
     init(scene: CanvasScene) {
         schemaVersion = Self.currentSchemaVersion
         nodes = scene.nodes.map { n in
@@ -65,6 +73,10 @@ struct CanvasSceneDTO: Codable {
                       boundPieceID: r.boundPieceID,
                       isCollapsed: r.isCollapsed)
         }
+        // `scene.lines` is already id-sorted (that's its own doc comment's
+        // reason); a second `.sorted()` here would be a second opinion about
+        // the order.
+        lines = scene.lines.map { LineDTO(id: $0.id.raw, from: $0.from.raw, to: $0.to.raw, label: $0.label) }
     }
 
     /// Unknown node kinds are DROPPED, not fatal (ADR 0015's spirit): a canvas
@@ -112,6 +124,16 @@ struct CanvasSceneDTO: Codable {
                 appearances: real(dto.appearances).union(contested),
                 boundPieceID: dto.boundPieceID,
                 isCollapsed: dto.isCollapsed))
+        }
+
+        // Endpoint validation, the same shape the region loader applies to
+        // memberships: a line naming a node that is not in this file would draw
+        // into nowhere. Through `insertLine` rather than the dictionary, so the
+        // self-line rule has exactly one definition.
+        for dto in lines ?? [] {
+            let from = CanvasNodeID(dto.from), to = CanvasNodeID(dto.to)
+            guard s.node(from) != nil, s.node(to) != nil else { continue }
+            s.insertLine(CanvasLine(id: CanvasLineID(dto.id), from: from, to: to, label: dto.label))
         }
         return s
     }

@@ -3,6 +3,11 @@ import SwiftUI
 import AppKit
 @testable import Maugham
 
+/// The rendered page is `CanvasPage` from `CanvasRasterPage.swift` — one buffer
+/// for the whole directory. The alias keeps this suite's own signatures reading
+/// as they did when the struct was private here.
+private typealias Page = CanvasPage
+
 final class CanvasRendererTests: XCTestCase {
 
     func test_seededRotation_isStableForTheSameID() {
@@ -633,7 +638,7 @@ final class CanvasRendererTests: XCTestCase {
                                 scraps: [:], selection: nil,
                                 visibleEditorNodeID: nil,
                                 straighten: CanvasFocusStraighten(),
-                                pendingRegionDraw: nil, into: &cx)
+                                pendingRegionDraw: nil, pendingLine: nil, into: &cx)
         }
 
         let inkRows = page.inkRows(0..<Int(viewSize.height),
@@ -696,7 +701,7 @@ final class CanvasRendererTests: XCTestCase {
                                     scraps: [:], selection: nil,
                                     visibleEditorNodeID: visibleEditor,
                                     straighten: CanvasFocusStraighten(),
-                                    pendingRegionDraw: nil, into: &cx)
+                                    pendingRegionDraw: nil, pendingLine: nil, into: &cx)
             }
             return page.inkPixels(rows: Int(frame.minY)..<Int(frame.maxY),
                                   columns: Self.textColumns(inCard: frame))
@@ -727,7 +732,7 @@ final class CanvasRendererTests: XCTestCase {
                                     scraps: [:], selection: nil,
                                     visibleEditorNodeID: id,
                                     straighten: CanvasFocusStraighten(),
-                                    pendingRegionDraw: nil, into: &cx)
+                                    pendingRegionDraw: nil, pendingLine: nil, into: &cx)
             }
         }
         let drawn = try page(scene: scene)
@@ -783,7 +788,7 @@ final class CanvasRendererTests: XCTestCase {
                                     scraps: [:], selection: nil,
                                     visibleEditorNodeID: nil,
                                     straighten: CanvasFocusStraighten(),
-                                    pendingRegionDraw: nil, into: &cx)
+                                    pendingRegionDraw: nil, pendingLine: nil, into: &cx)
             }, frame)
         }
         let (item, frame) = try page(.item(referenceId: "r-9"))
@@ -864,72 +869,6 @@ final class CanvasRendererTests: XCTestCase {
 
     // MARK: - Rasterisation helper
 
-    /// One rendered page, addressed in POINTS from the top-left — the same
-    /// coordinates `CanvasRenderer.draw` works in.
-    ///
-    /// **The page is backed with the card's own paper, and `isInk` means
-    /// "materially darker than that paper".** That is what "a glyph landed here"
-    /// looks like, and it is the only thing these fixtures ever ask.
-    ///
-    /// An earlier version backed the page with magenta, so that "unpainted"
-    /// could be told from "painted white". It cannot work, and the way it fails
-    /// is worth writing down: a `Canvas` paints more than glyphs. `drawCard`'s
-    /// drop shadow reaches ~5 pt beyond every card, and even its faintest
-    /// pixels, composited over magenta, swing a colour channel by ~190 — so
-    /// every shadow row above and below the card counts as ink, `firstRow` lands
-    /// on the shadow instead of the text origin, and the y-flip pin below stops
-    /// measuring the flip. (That version was green only because it sampled the
-    /// RED channel while its comment said green, and magenta and white are both
-    /// 255 in red. Two errors cancelling.) Backing the page with the paper
-    /// leaves the shadow 54 levels below paper and a glyph 233 below, so the two
-    /// stop being confusable at all.
-    ///
-    /// Measured 2026-07-26 in the light appearance, whole page: glyph pixels
-    /// reach 0–22; the darkest non-glyph pixel anywhere is the drop shadow at
-    /// 201, the card border sits at 233 and the resize mark at 235.
-    /// `inkThreshold` at 100 sits in the middle of that gap, and the y-flip
-    /// pin's `firstRow` is 103 at a threshold of 60, 100 or 140 alike.
-    private struct Page {
-        /// How much darker than the paper a pixel must be to count as a glyph.
-        static let inkThreshold = 100
-
-        let bytes: [UInt8]
-        let bytesPerRow: Int
-        let width: Int
-        let height: Int
-        /// What an unpainted pixel reads — measured off this page's own backing
-        /// rather than assumed.
-        let paper: UInt8
-
-        /// The GREEN channel at `(x, y)`; `paper` outside the page, so an
-        /// off-page read can never be mistaken for ink.
-        ///
-        /// The context is `premultipliedFirst` with the default byte order, so
-        /// the bytes run **A, R, G, B** and green is index 2 — measured
-        /// 2026-07-26 by filling a known colour and reading the four bytes back,
-        /// not inferred. Index 1 is red.
-        func value(x: Int, y: Int) -> UInt8 {
-            guard (0..<width).contains(x), (0..<height).contains(y) else { return paper }
-            return bytes[y * bytesPerRow + x * 4 + 2]
-        }
-
-        func isInk(x: Int, y: Int) -> Bool {
-            Int(paper) - Int(value(x: x, y: y)) > Self.inkThreshold
-        }
-
-        /// Which of `rows` carry any ink in `columns`.
-        func inkRows(_ rows: Range<Int>, columns: Range<Int>) -> [Int] {
-            rows.filter { y in columns.contains { isInk(x: $0, y: y) } }
-        }
-
-        /// How many pixels in the rect carry ink.
-        func inkPixels(rows: Range<Int>, columns: Range<Int>) -> Int {
-            rows.reduce(into: 0) { total, y in
-                total += columns.count { isInk(x: $0, y: y) }
-            }
-        }
-    }
-
     /// The columns inside a card's text box, clear of the border stroke and of
     /// the resize mark in the bottom-right corner.
     private static func textColumns(inCard frame: CGRect) -> Range<Int> {
@@ -939,46 +878,88 @@ final class CanvasRendererTests: XCTestCase {
 
     /// Render a `Canvas` draw closure at scale 1 and read its pixels.
     ///
-    /// The colour scheme is pinned to `.light` so `Color(nsColor:)` resolves the
-    /// same way on a dark-mode Mac as on a light-mode CI box — the same reason
-    /// `ScrapLayoutTests` pins its bitmap comparison to `.aqua`. The page's
-    /// backing is `cardPaper` resolved under the MATCHING appearance: this test
-    /// process runs under DarkAqua, so resolving it plainly would paint a dark
-    /// page behind a light card.
+    /// A one-line forwarder to the shared rasteriser in `CanvasRasterPage.swift`,
+    /// now the only definition in this directory of how a `Canvas` becomes a
+    /// bitmap. **Its defaults ARE what this function used to hardcode:** `.light`,
+    /// so `Color(nsColor:)` resolves on a dark-mode Mac as it does on a light-mode
+    /// CI box — the same reason `ScrapLayoutTests` pins `.aqua` — and a nil
+    /// backing, which the shared renderer fills with `cardPaper` resolved under
+    /// the MATCHING appearance, because this process runs under DarkAqua and
+    /// resolving it plainly would paint a dark page behind a light card.
     @MainActor
     private static func render(size: CGSize,
                                _ draw: @escaping (inout GraphicsContext) -> Void) throws -> Page {
-        let renderer = ImageRenderer(
-            content: Canvas { cx, _ in draw(&cx) }
-                .frame(width: size.width, height: size.height)
-                .environment(\.colorScheme, .light))
-        renderer.scale = 1
-        let image = try XCTUnwrap(renderer.cgImage, "ImageRenderer produced no image")
+        try renderCanvasPage(size: size, scheme: .light, backing: nil, draw)
+    }
+}
 
-        let w = image.width, h = image.height
-        let ctx = try XCTUnwrap(CGContext(data: nil, width: w, height: h, bitsPerComponent: 8,
-                                          bytesPerRow: w * 4,
-                                          space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                          bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue))
-        var paperColor: CGColor?
-        NSAppearance(named: .aqua)!.performAsCurrentDrawingAppearance {
-            paperColor = CanvasRenderer.cardPaper.usingColorSpace(.sRGB)?.cgColor
+/// **The INK vocabulary**, on the shared `CanvasPage`.
+///
+/// The buffer, its geometry and the rasteriser live in `CanvasRasterPage.swift` —
+/// one copy for the whole directory, because this was the third. These readers
+/// stay here because this is the only suite that reasons in ink, and the colour
+/// vocabulary in the shared file sits on the other side of the same seam.
+///
+/// **The two want OPPOSITE answers off the end of the page, which is the clearest
+/// reason they are not one reader:** `value(x:y:)` returns the paper so an
+/// off-page read can never be mistaken for ink, where `color(at:)` returns a
+/// sentinel no rendered pixel can equal so an off-page read can never satisfy an
+/// equality.
+///
+/// The page itself is addressed in POINTS from the top-left — the same
+/// coordinates `CanvasRenderer.draw` works in.
+///
+/// **The page is backed with the card's own paper, and `isInk` means
+/// "materially darker than that paper".** That is what "a glyph landed here"
+/// looks like, and it is the only thing these fixtures ever ask.
+///
+/// An earlier version backed the page with magenta, so that "unpainted"
+/// could be told from "painted white". It cannot work, and the way it fails
+/// is worth writing down: a `Canvas` paints more than glyphs. `drawCard`'s
+/// drop shadow reaches ~5 pt beyond every card, and even its faintest
+/// pixels, composited over magenta, swing a colour channel by ~190 — so
+/// every shadow row above and below the card counts as ink, `firstRow` lands
+/// on the shadow instead of the text origin, and the y-flip pin below stops
+/// measuring the flip. (That version was green only because it sampled the
+/// RED channel while its comment said green, and magenta and white are both
+/// 255 in red. Two errors cancelling.) Backing the page with the paper
+/// leaves the shadow 54 levels below paper and a glyph 233 below, so the two
+/// stop being confusable at all.
+///
+/// Measured 2026-07-26 in the light appearance, whole page: glyph pixels
+/// reach 0–22; the darkest non-glyph pixel anywhere is the drop shadow at
+/// 201, the card border sits at 233 and the resize mark at 235.
+/// `inkThreshold` at 100 sits in the middle of that gap, and the y-flip
+/// pin's `firstRow` is 103 at a threshold of 60, 100 or 140 alike.
+private extension CanvasPage {
+    /// How much darker than the paper a pixel must be to count as a glyph.
+    static var inkThreshold: Int { 100 }
+
+    /// The GREEN channel at `(x, y)`; `paper` outside the page, so an
+    /// off-page read can never be mistaken for ink.
+    ///
+    /// The context is `premultipliedFirst` with the default byte order, so
+    /// the bytes run **A, R, G, B** and green is index 2 — measured
+    /// 2026-07-26 by filling a known colour and reading the four bytes back,
+    /// not inferred. Index 1 is red.
+    func value(x: Int, y: Int) -> UInt8 {
+        guard (0..<width).contains(x), (0..<height).contains(y) else { return paper }
+        return bytes[y * bytesPerRow + x * 4 + 2]
+    }
+
+    func isInk(x: Int, y: Int) -> Bool {
+        Int(paper) - Int(value(x: x, y: y)) > Self.inkThreshold
+    }
+
+    /// Which of `rows` carry any ink in `columns`.
+    func inkRows(_ rows: Range<Int>, columns: Range<Int>) -> [Int] {
+        rows.filter { y in columns.contains { isInk(x: $0, y: y) } }
+    }
+
+    /// How many pixels in the rect carry ink.
+    func inkPixels(rows: Range<Int>, columns: Range<Int>) -> Int {
+        rows.reduce(into: 0) { total, y in
+            total += columns.count { isInk(x: $0, y: y) }
         }
-        ctx.setFillColor(try XCTUnwrap(paperColor, "could not resolve the card paper"))
-        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
-        // Read the backing back before anything is drawn over it, so `paper` is
-        // the value an unpainted pixel actually holds.
-        let paper = ctx.data!.bindMemory(to: UInt8.self, capacity: 4)[2]
-        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
-
-        let count = ctx.bytesPerRow * h
-        // Row 0 of a CGBitmapContext's buffer is the TOP row of the drawn image,
-        // so buffer row == point y. Verified against a GraphicsContext fill at
-        // y = 0, which inks buffer rows 0...9.
-        let bytes = Array(UnsafeBufferPointer(start: ctx.data!.bindMemory(to: UInt8.self,
-                                                                         capacity: count),
-                                              count: count))
-        return Page(bytes: bytes, bytesPerRow: ctx.bytesPerRow,
-                    width: w, height: h, paper: paper)
     }
 }

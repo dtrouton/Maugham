@@ -64,13 +64,20 @@ struct CanvasInteraction {
         /// to the size it was.
         case resizingRegion(CanvasRegionID, startFrame: CGRect, startPoint: CGPoint)
         case drawingRegion(start: CGPoint, current: CGPoint)
+        /// A line being pulled out of a card. `origin` is the SOURCE CARD'S
+        /// CENTRE, captured once at `begin` — the band and the finished line must
+        /// describe the same geometry (`CanvasScene.endpoints` reads centres), or
+        /// the line visibly jumps the instant it is created. It is captured
+        /// rather than re-derived per frame so a card that moves under the
+        /// pointer cannot drag the anchor with it.
+        case drawingLine(from: CanvasNodeID, origin: CGPoint, current: CGPoint)
     }
 
     /// What this gesture is, for callers that need to name it without knowing
     /// how the machine stores it — `CanvasView` titles the undo bracket from
     /// this, and reads it at `.ended` to tell a card drop from a region sweep.
     enum Kind: Equatable {
-        case movingNode, resizingNode, movingRegion, resizingRegion, drawingRegion
+        case movingNode, resizingNode, movingRegion, resizingRegion, drawingRegion, drawingLine
     }
 
     /// Where a press on a region landed.
@@ -124,19 +131,23 @@ struct CanvasInteraction {
     /// it either side of `end()` gets the same answer about the same gesture.
     private(set) var hasMoved = false
 
+    /// The node this gesture is MANIPULATING. A line drag reports nil: it reads
+    /// the source card's position and changes nothing about it, and a caller that
+    /// re-measured or re-drew "the active node" for a line would be working on a
+    /// card the gesture never touches.
     var activeNodeID: CanvasNodeID? {
         switch mode {
         case .idle: return nil
         case .moving(let id, _): return id
         case .resizing(let id, _, _): return id
-        case .movingRegion, .resizingRegion, .drawingRegion: return nil
+        case .movingRegion, .resizingRegion, .drawingRegion, .drawingLine: return nil
         }
     }
 
     var activeRegionID: CanvasRegionID? {
         switch mode {
         case .movingRegion(let id, _, _), .resizingRegion(let id, _, _): return id
-        case .idle, .moving, .resizing, .drawingRegion: return nil
+        case .idle, .moving, .resizing, .drawingRegion, .drawingLine: return nil
         }
     }
 
@@ -148,6 +159,7 @@ struct CanvasInteraction {
         case .movingRegion: return .movingRegion
         case .resizingRegion: return .resizingRegion
         case .drawingRegion: return .drawingRegion
+        case .drawingLine: return .drawingLine
         }
     }
 
@@ -171,6 +183,15 @@ struct CanvasInteraction {
                       width: abs(current.x - start.x), height: abs(current.y - start.y))
     }
 
+    /// The rubber band a `.drawingLine` gesture is pulling: the source card's
+    /// centre, and the pointer. `nil` in every other mode, so `CanvasView` reads
+    /// it exactly as it reads `pendingRegionDraw` and the renderer draws nothing
+    /// when there is no drag.
+    var pendingLine: (from: CGPoint, to: CGPoint)? {
+        guard case .drawingLine(_, let origin, let current) = mode else { return nil }
+        return (origin, current)
+    }
+
     /// A press inside the card's bottom-right corner square starts a resize;
     /// anywhere else starts a move. The square's side is
     /// `CanvasRenderer.resizeHandleSize`, the same constant the mark is drawn
@@ -179,8 +200,9 @@ struct CanvasInteraction {
     /// half of this target is live but uninked — deliberately, because a target
     /// larger than its mark forgives a near miss and the reverse swallows drags
     /// the writer aimed at the card. See `CanvasRenderer.resizeHandle`.
-    /// The precedence, in one place: **card, then a region's resize corner, then
-    /// a region's label bar, then nothing, then a sweep.**
+    /// The precedence, in one place: **card, then a LINE (which is idle), then a
+    /// region's resize corner, then a region's label bar, then nothing, then a
+    /// sweep.**
     ///
     /// Cards are hit-tested FIRST and unconditionally, so a card overlapping a
     /// region's chrome is still picked up by a press on it — most cards live in
@@ -190,12 +212,57 @@ struct CanvasInteraction {
     /// A press inside a region's INTERIOR that missed every card leaves this
     /// idle rather than starting a sweep: nested regions are out of scope (§9)
     /// and silently making one is worse than refusing.
-    mutating func begin(at contentPoint: CGPoint, in scene: CanvasScene) {
+    ///
+    /// **A press that resolves to a line is idle for the same reason**: a line
+    /// is selectable and not draggable, so there is nothing here to pick up.
+    /// Without it the click and the drag disagree about what the press was —
+    /// where a line crosses a region's chrome bar, the click selects the LINE
+    /// (spec §5 / `CanvasScene.selectionTarget`, since the line is drawn on top)
+    /// while this opened `.movingRegion`. That is not theoretical: a trackpad
+    /// press routinely drifts a point, `endGesture` registers whenever the state
+    /// moved, and the writer would get the region **and every resident** shifted
+    /// under a "Move Region" step their next ⌘Z takes, with the inspector and ⌫
+    /// still pointed at the line.
+    ///
+    /// It is asked through `CanvasScene.selectionTarget` rather than through
+    /// `CanvasLineHit` directly, and that direction is deliberate. The
+    /// precedence on this surface is ONE rule — the thing drawn on top takes the
+    /// click — and a second copy of it here is exactly what the rule exists to
+    /// prevent. This is a read of that decision, so the two cannot drift; a
+    /// local `CanvasLineHit` call would compile, behave identically today, and
+    /// be free to disagree tomorrow. **It was a `static func` on `CanvasView`
+    /// until 1C-c1's sweep**, which made this state machine reach into a SwiftUI
+    /// view for a fact about the scene; the sharing was right and the direction
+    /// was not.
+    ///
+    /// **`connecting` matters only when the press lands on a NODE**, which is why
+    /// the branch is inside the block below: a ⇧-drag on bare canvas falls
+    /// through to the sweep — unless it lands on a LINE, which is idle for every
+    /// press, connecting or not, per the branch two paragraphs above. There is no
+    /// marquee select on this surface (§9), so ⇧ is not overloaded. It is tested BEFORE the
+    /// resize corner, so a connecting press on a card's corner draws a line
+    /// rather than resizing — the writer has already said which gesture they
+    /// mean, by holding ⇧ or by aiming at the mark.
+    ///
+    /// It is a plain `Bool` and has **no default**, because there is exactly one
+    /// caller and it should have to say so. `CanvasView` resolves the two routes
+    /// into it — ⇧, and a press inside the selected card's connect mark — so
+    /// there is one implementation of what a connect drag does and the
+    /// discoverable route cannot drift from the fast one. Deciding it there and
+    /// not here is deliberate: the mark test needs the selection, and this type
+    /// having a second opinion about what is selected is the thing to avoid.
+    mutating func begin(at contentPoint: CGPoint, in scene: CanvasScene, connecting: Bool) {
         lastSample = nil
         previousSample = nil
         startPoint = contentPoint
         hasMoved = false
         if let node = scene.topmostNode(at: contentPoint), let frame = node.frame {
+            if connecting {
+                mode = .drawingLine(from: node.id,
+                                    origin: CGPoint(x: frame.midX, y: frame.midY),
+                                    current: contentPoint)
+                return
+            }
             let handle = CanvasRenderer.resizeHandleSize
             if contentPoint.x >= frame.maxX - handle && contentPoint.y >= frame.maxY - handle {
                 beginResize(node.id, at: contentPoint, in: scene)
@@ -203,6 +270,16 @@ struct CanvasInteraction {
                 mode = .moving(node.id, grabOffset: CGSize(width: contentPoint.x - node.origin.x,
                                                            height: contentPoint.y - node.origin.y))
             }
+            return
+        }
+
+        // No card is under the point — so the surface's precedence puts a line
+        // next, and a line is not draggable. See the doc comment: this must be
+        // ABOVE the region switch (that is where the disagreement was) and it
+        // applies to a connecting press too, since a ⇧-drag that starts on a
+        // line is still a press on a line.
+        if case .line = scene.selectionTarget(at: contentPoint) {
+            mode = .idle
             return
         }
 
@@ -288,6 +365,13 @@ struct CanvasInteraction {
             scene.setRegionFrame(CGRect(origin: startFrame.origin, size: size), for: id)
         case .drawingRegion(let start, _):
             mode = .drawingRegion(start: start, current: contentPoint)
+        case .drawingLine(let from, let origin, _):
+            // The free end follows the pointer and NOTHING ELSE happens: the
+            // source card does not move, does not resize and does not come
+            // forward. This arm is the whole of that guarantee — without it the
+            // compiler would still be satisfied by a `break`, and the card the
+            // writer is drawing FROM would sit still only by luck.
+            mode = .drawingLine(from: from, origin: origin, current: contentPoint)
         }
     }
 
@@ -346,6 +430,59 @@ struct CanvasInteraction {
         scene.insert(CanvasNode(id: id, kind: .scrap, origin: contentPoint,
                                 width: defaultScrapWidth, cachedHeight: nil,
                                 z: scene.topZ + 1))
+        return id
+    }
+
+    // MARK: - Lines
+
+    /// A line id that is not already in the scene. `createScrap` and
+    /// `createRegion` mint theirs exactly this way, so the canvas has ONE id
+    /// shape and not three, and never a bare random call (tripwire 23's lesson
+    /// in a third id space).
+    static func newLineID(in scene: CanvasScene) -> CanvasLineID {
+        var id = CanvasLineID(UUID().uuidString.prefix(8).lowercased())
+        while scene.line(id) != nil {
+            id = CanvasLineID(UUID().uuidString.prefix(8).lowercased())
+        }
+        return id
+    }
+
+    /// Close a line drag over `contentPoint`, and report the line it made.
+    ///
+    /// **Three ways to make nothing, and all three are the same rule:** a line
+    /// needs two distinct ends. There is no pending line at all (the gesture was
+    /// a move, or there was none); the drop landed on bare canvas; or it landed
+    /// back on the card it started from. A dangling line is not a thought, and a
+    /// line from a card to itself draws as a blob — `CanvasScene.insertLine`
+    /// refuses that second one at the model boundary too.
+    ///
+    /// Nothing is registered for a refusal and nothing needs cleaning up:
+    /// `CanvasUndo.endGesture` declines to register a gesture that changed
+    /// nothing, so a connect drag the writer thought better of leaves no empty
+    /// step behind.
+    ///
+    /// **Called BEFORE `end()`**, not after — it resolves the source card off the
+    /// live mode, which `end()` clears. See the `.ended` arm of
+    /// `CanvasView.handleDrag`, where the ordering is written down beside the
+    /// other two values that must be read before the mode goes.
+    ///
+    /// `hasMoved` is deliberately not cleared here, exactly as `end()` leaves it:
+    /// a caller reading it either side of this gets the same answer about the
+    /// same gesture.
+    @discardableResult
+    mutating func endLine(at contentPoint: CGPoint, in scene: inout CanvasScene) -> CanvasLineID? {
+        defer {
+            mode = .idle
+            lastSample = nil
+            previousSample = nil
+            startPoint = nil
+        }
+        guard case .drawingLine(let from, _, _) = mode,
+              let target = scene.topmostNode(at: contentPoint),
+              target.id != from else { return nil }
+        let id = Self.newLineID(in: scene)
+        // No label: a new line asserts nothing until the writer says so (§5).
+        scene.insertLine(CanvasLine(id: id, from: from, to: target.id))
         return id
     }
 
