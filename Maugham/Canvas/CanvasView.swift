@@ -892,10 +892,6 @@ struct CanvasView: View {
             // the focus state the click just set.
             guard editingNodeID == nil else { return }
             interaction.begin(at: contentPoint, in: model.scene)
-            // Only when `begin` found something. A press on bare canvas leaves
-            // the interaction idle, so `.ended` bails on its first guard and
-            // would never close a gesture opened here — the next real drag would
-            // then nest inside it and two gestures would collapse into one ⌘Z.
             // Only when `begin` found something. A press on bare canvas INSIDE a
             // region leaves the interaction idle, so `.ended` bails on its first
             // guard and would never close a gesture opened here — the next real

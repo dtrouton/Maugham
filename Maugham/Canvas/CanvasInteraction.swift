@@ -393,25 +393,52 @@ struct CanvasInteraction {
     /// The node's CENTRE must be inside the region — predictable, and
     /// explainable in one sentence to a writer ("drop it so its middle is
     /// inside"), where corner-based targeting is the one-pixel absurdity §4.2
-    /// cites against Obsidian. Overlap area only breaks ties between regions
-    /// that all contain it, with the id after it so the answer is the same
-    /// twice running when two regions cover the card identically.
+    /// cites against Obsidian.
+    ///
+    /// **A COLLAPSED region is never a target.** Its residents are not drawn, so
+    /// the writer cannot see what they would be joining — and the card would
+    /// vanish into `hiddenNodes` in the same gesture that dropped it. A thing
+    /// disappearing on drop is the worst failure available on a spatial surface,
+    /// because the writer is left with no account of what happened. Refusing
+    /// leaves the card where they put it, which is legible.
+    ///
+    /// **Ties are broken the way `regionHit` breaks them: the SMALLER region
+    /// wins.** Overlap decides first, but two regions that both contain the card
+    /// overlap it identically, and then the two rules must not disagree — the
+    /// grab rule is the one the writer can see, so a card must join the region a
+    /// click at that spot would have picked up. The id is last and is there only
+    /// so the answer is the same twice running.
     ///
     /// An unmeasured node has no frame and so joins nothing: it has no centre
     /// to test, and `CGRect.null`'s is not a place.
     static func joinTarget(for node: CanvasNodeID, in scene: CanvasScene) -> CanvasRegionID? {
         guard let frame = scene.node(node)?.frame else { return nil }
         let centre = CGPoint(x: frame.midX, y: frame.midY)
+        // `min` over a key whose first term is NEGATED overlap: largest overlap,
+        // then smallest region, then smallest id. One total order, so there is
+        // no stability to depend on.
         return scene.regions
-            .filter { $0.frame.contains(centre) }
-            .max { lhs, rhs in
+            .filter { !$0.isCollapsed && $0.frame.contains(centre) }
+            .min { lhs, rhs in
                 let l = lhs.frame.intersection(frame), r = rhs.frame.intersection(frame)
-                return (l.width * l.height, lhs.id.raw) < (r.width * r.height, rhs.id.raw)
+                return (-(l.width * l.height), lhs.frame.width * lhs.frame.height, lhs.id.raw)
+                    < (-(r.width * r.height), rhs.frame.width * rhs.frame.height, rhs.id.raw)
             }?.id
     }
 
     /// Mint a region for a swept rect, or nothing if the sweep was a twitch —
     /// which is what makes a stray drag on bare canvas cost nothing.
+    ///
+    /// **A rect that overlaps or entirely contains another region is fine, and
+    /// nothing here refuses it.** §9 rules out *nested regions* — a containment
+    /// relationship in the model — and this model has none: membership is
+    /// explicit and geometry means nothing, so one frame enclosing another
+    /// implies precisely nothing about either. Two regions that overlap a lot
+    /// are two regions that overlap a lot. `begin` declines to START a sweep
+    /// inside a region because a press there is far more likely to be aimed at
+    /// something in it, and that is a pointer-precedence rule rather than a
+    /// statement about what regions may look like; refusing at RELEASE instead
+    /// would sweep out a large area and give back nothing, with no signal why.
     ///
     /// Ids get the same uniqueness loop `createScrap` uses, never a bare random
     /// call (tripwire 23's lesson in a second id space).

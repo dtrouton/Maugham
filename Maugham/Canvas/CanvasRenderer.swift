@@ -578,6 +578,12 @@ enum CanvasRenderer {
     /// Every length here is in CONTENT points, under the camera CTM the caller
     /// has already applied, exactly like the region outline this becomes.
     private static func drawSweep(_ rect: CGRect, on cx: GraphicsContext) {
+        // Every bare-canvas mouse-down opens a sweep and ends it again with a
+        // 0×0 rect — `applyMouseDown` fires `onDrag(.began)` on every press — so
+        // a degenerate rect arrives here on every click the writer makes. What a
+        // zero-area rounded rect inks under a miter join is not a question worth
+        // leaving open when one line closes it.
+        guard rect.width > 0 || rect.height > 0 else { return }
         cx.stroke(Path(roundedRect: rect, cornerRadius: CanvasMaterial.regionCornerRadius),
                   with: .color(Color(nsColor: sweepStroke)),
                   style: StrokeStyle(lineWidth: CanvasMaterial.sweepLineWidth,

@@ -1828,10 +1828,15 @@ final class CanvasViewMountingTests: XCTestCase {
     /// and no accessibility element — so `CanvasRegionRenderTests` can pin the
     /// renderer and only this can pin that anything ever hands it the rect.
     ///
-    /// It is also the one test that covers the REDRAW mechanism: the band is a
-    /// value read inside the `Canvas` draw closure and it changes per drag
-    /// frame, so a `.changed` that mutates the world without invalidating the
-    /// body leaves the band frozen at the first sample.
+    /// **It does NOT cover the `revision` counter, and an earlier draft of this
+    /// comment claimed it did.** Measured: deleting `revision += 1` from
+    /// `handleDrag(.changed)` leaves this test and all its neighbours green.
+    /// `.changed` mutates `interaction`, which is `@State`, so the mutation is
+    /// itself an invalidation and the redraw arrives either way. The band was
+    /// never a client of that counter in the first place — `CanvasView` reads it
+    /// in `body` and passes it as a view ARGUMENT, so it is recomputed on any
+    /// invalidated pass. Nothing here can pin the counter; do not write that it
+    /// does.
     func test_theSweptRegionOutlineIsOnScreenForTheWholeDrag() throws {
         let root = try projectRoot()
         let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
@@ -1886,6 +1891,101 @@ final class CanvasViewMountingTests: XCTestCase {
         XCTAssertEqual(onDisk.node(scrapID)?.origin, CGPoint(x: 160, y: 100),
                        "the resident travelled — through the real event view, the "
                        + "real gesture routing and the real debounced save")
+    }
+
+    /// **A region resize, through the real event view, asserted DURING the drag
+    /// as well as after it.**
+    ///
+    /// Every other region test here drives a move or a sweep, so nothing proved
+    /// that a press in a region's corner square is routed to `.resizingRegion`
+    /// at all. And 1C-a's shipped defect was precisely a resize whose every test
+    /// asserted after `.ended` — the card was gone for the whole gesture and the
+    /// suite was green. That is the one shape this slice cannot afford to leave
+    /// unasked of a new gesture.
+    ///
+    /// The fixture's region is (20,20)–(420,320), so its corner square is
+    /// (406,306)–(420,320); the drag adds 200pt on each axis.
+    func test_resizingARegionByItsCornerKeepsItDrawnAndReachesDisk() throws {
+        let root = try regionProjectRoot()
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let hosted = try XCTUnwrap(window.contentView)
+        let events = try eventView(in: window)
+
+        // A strip across where the region's RIGHT edge will land. Bare ground
+        // now — the region ends at x = 420 — and the outline is what will cross
+        // it. The region's own wash is far below `ink`'s threshold, so what this
+        // counts is the stroke.
+        let newEdge = CGRect(x: 617, y: 380, width: 6, height: 80)
+        XCTAssertEqual(try ink(in: newEdge, of: hosted), 0,
+                       "precondition: nothing is drawn out here yet, so ink found "
+                       + "during the drag can only be the region having grown")
+
+        events.applyMouseDown(at: CGPoint(x: 414, y: 314), clickCount: 1)
+        events.applyMouseDragged(to: CGPoint(x: 614, y: 514))
+        pump(0.05)
+
+        XCTAssertGreaterThan(try ink(in: newEdge, of: hosted), 0,
+                             "the region is not drawn at its new size while the "
+                             + "writer is dragging its corner — a region that only "
+                             + "resizes on release tells the writer nothing about "
+                             + "the size they are choosing, which is the 1C-a resize "
+                             + "defect in a second place")
+
+        events.applyMouseUp(at: CGPoint(x: 614, y: 514))
+        pump(1.0)
+
+        let onDisk = sceneOnDisk(root)
+        XCTAssertEqual(onDisk.region(CanvasRegionID("r1"))?.frame,
+                       CGRect(x: 20, y: 20, width: 600, height: 500),
+                       "the resized frame did not reach disk — the likeliest cause "
+                       + "is a corner press being routed to a MOVE, which would "
+                       + "have shifted the origin instead")
+        XCTAssertEqual(onDisk.node(scrapID)?.origin, CGPoint(x: 60, y: 60),
+                       "resizing a region dragged its residents along with it: only "
+                       + "a MOVE carries the cards, and a resize that moves them "
+                       + "rearranges the writer's canvas behind their back")
+        XCTAssertTrue(onDisk.region(CanvasRegionID("r1"))!.livesHere(scrapID),
+                      "the resize ejected its resident — tldraw #6017, which §4.2 "
+                      + "exists to make impossible")
+    }
+
+    /// **Dropping a card outside every region does NOT take it out of its home**
+    /// (§4.2: removal is always its own act), and the tether is what makes the
+    /// resulting state legible.
+    ///
+    /// `CanvasRegionInteractionTests` asks this of `joinTarget`, which is a pure
+    /// query with no removal in it to omit — so that assertion cannot fail for
+    /// the reason it gives. The real constraint is the ABSENCE of an `else`
+    /// beside the join in `handleDrag(.ended)`, and nothing would notice one
+    /// being added. This is what notices.
+    func test_draggingAResidentOutOfItsRegionLeavesItAMemberAndTethered() throws {
+        let root = try regionProjectRoot()
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+
+        // Grab the card at (100,80) — on it, clear of its resize corner — and
+        // carry it out to the right of the region, which ends at x = 420.
+        drag(events, from: CGPoint(x: 100, y: 80),
+             through: [CGPoint(x: 700, y: 80), CGPoint(x: 700, y: 80)])
+        pump(1.0)
+
+        let onDisk = sceneOnDisk(root)
+        XCTAssertEqual(onDisk.node(scrapID)?.origin, CGPoint(x: 660, y: 60),
+                       "precondition: the card really was carried out of the region")
+        XCTAssertFalse(onDisk.region(CanvasRegionID("r1"))!.frame
+                        .intersects(onDisk.node(scrapID)!.frame!),
+                       "precondition: and it is entirely outside it now")
+        XCTAssertTrue(onDisk.region(CanvasRegionID("r1"))!.livesHere(scrapID),
+                      "dragging a card out of its region silently took it out of "
+                      + "the region: removal is its own act (§4.2), and a drop that "
+                      + "quietly unmakes a relationship is how a writer loses track "
+                      + "of what belongs where")
+        XCTAssertEqual(CanvasRenderer.tethers(in: onDisk).map(\.node), [scrapID],
+                       "the card is a member sitting outside its region and no "
+                       + "tether explains why — which is the only thing that makes "
+                       + "this state readable rather than a bug")
     }
 
     func test_oneUndoTakesBackARegionDragAndTheCardsItCarried() throws {
@@ -2007,6 +2107,60 @@ final class CanvasViewMountingTests: XCTestCase {
         XCTAssertFalse(onDisk.region(CanvasRegionID("r1"))!.livesHere(scrapID),
                        "rewrapping a card near a region silently changed its owner "
                        + "— the drop is a DROP, and only a move ends in one")
+    }
+
+    /// **What a single click selects**, which nothing pinned until this test:
+    /// replacing `selectionTarget`'s body with `return nil` left the whole suite
+    /// green. The one existing assertion on `model.selection` pins the *create*
+    /// branch's assignment, which is a different line.
+    ///
+    /// It matters beyond the accent stroke: this value is what the region
+    /// inspector reads and what ⌫ will act on, so a selection that names the
+    /// wrong thing is an edit to the wrong thing.
+    ///
+    /// The four presses are one sequence on purpose. Each asserts a different
+    /// answer, so an implementation that always returned `nil` fails the first
+    /// two and one that never cleared fails the last two.
+    func test_aSingleClickSelectsTheThingUnderIt() throws {
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: try regionProjectRoot(),
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+
+        func click(at point: CGPoint) {
+            events.applyMouseDown(at: point, clickCount: 1)
+            events.applyMouseUp(at: point)
+            pump(0.05)
+        }
+
+        // On the card at (60,60)–(300,98), clear of its resize corner.
+        click(at: CGPoint(x: 100, y: 80))
+        XCTAssertEqual(model.selection, .node(scrapID),
+                       "clicking a card does not select it")
+
+        // On the region's chrome bar, (20,20)–(420,44).
+        click(at: CGPoint(x: 200, y: 30))
+        XCTAssertEqual(model.selection, .region(CanvasRegionID("r1")),
+                       "clicking a region's label bar does not select the region — "
+                       + "which is the only way to reach one, since its interior "
+                       + "deliberately belongs to the cards in it")
+
+        // The region's INTERIOR, below the card.
+        click(at: CGPoint(x: 200, y: 200))
+        XCTAssertNil(model.selection,
+                     "clicking inside a region selected it: the interior is not a "
+                     + "handle, and a click there that selects the region is the "
+                     + "same rule the drag refuses, arriving from the click path")
+
+        click(at: CGPoint(x: 200, y: 30))
+        XCTAssertEqual(model.selection, .region(CanvasRegionID("r1")),
+                       "precondition: something is selected again, so the clear "
+                       + "below is a real clear")
+        // Bare canvas, outside everything.
+        click(at: CGPoint(x: 700, y: 500))
+        XCTAssertNil(model.selection, "clicking bare canvas does not clear the "
+                     + "selection, so the accent stays on a thing the writer has "
+                     + "clicked away from")
     }
 
     /// **A single click on bare canvas opens a `.drawingRegion` gesture on every

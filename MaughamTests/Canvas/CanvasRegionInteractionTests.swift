@@ -112,16 +112,31 @@ final class CanvasRegionInteractionTests: XCTestCase {
         XCTAssertEqual(s.node(b)?.origin, CGPoint(x: 900, y: 100), "a visitor is not luggage")
     }
 
+    /// §4.2: coordinates never add or remove a member.
+    ///
+    /// **The destination is chosen so the second assertion is about something.**
+    /// An earlier draft dragged the region to (4 000, 4 000), which put it at
+    /// (3 700, 3 992)–(4 300, 4 392) — nowhere near `b` at (900, 100), so the
+    /// claim in the message was false and the assertion could not fail for the
+    /// reason it gave. This lands the frame at (850, 0)–(1 450, 400), which
+    /// contains `b` entirely: the region really has been dragged over a node it
+    /// does not own, and an implementation that absorbed what it covered fails
+    /// here.
     func test_draggingARegionDoesNotChangeMembership() {
         var s = scene()
         CanvasMembership.join(a, home: r1, in: &s)
         var i = CanvasInteraction()
         i.begin(at: CGPoint(x: 300, y: 8), in: s)
-        i.update(to: CGPoint(x: 4_000, y: 4_000), in: &s)
+        i.update(to: CGPoint(x: 1_150, y: 8), in: &s)
         i.end()
+        XCTAssertTrue(s.region(r1)!.frame.contains(s.node(b)!.frame!),
+                      "precondition: the region now covers b entirely, so the "
+                      + "assertion below has something to be about")
         XCTAssertTrue(s.region(r1)!.livesHere(a))
         XCTAssertFalse(s.region(r1)!.livesHere(b),
-                       "and the region has now swept across b without absorbing it")
+                       "the region was dragged clean over b and absorbed it — "
+                       + "geometry decided membership, which is the whole of what "
+                       + "§4.2 forbids")
     }
 
     func test_aRegionNeverFlicks() {
@@ -322,6 +337,74 @@ final class CanvasRegionInteractionTests: XCTestCase {
         // Centre is (320, 240): inside both. Overlap with the card is the whole
         // 240×80 for 'a-wide' and 140×80 for 'z-narrow'.
         XCTAssertEqual(CanvasInteraction.joinTarget(for: b, in: s), CanvasRegionID("a-wide"))
+    }
+
+    /// **Two regions that both CONTAIN the card overlap it identically**, so
+    /// overlap cannot decide and the tiebreak is the whole answer. The smaller
+    /// region wins, because that is the one `regionHit` would grab — and a card
+    /// that joins a region a click at the same spot would not pick up is two
+    /// rules disagreeing about which region the writer is pointing at.
+    ///
+    /// Asked twice with the ids MIRRORED, which is what makes it an assertion
+    /// about size rather than about ids: a tiebreak on the largest id passes the
+    /// first fixture and fails the second, one on the smallest id does the
+    /// reverse, and only "the smaller region" passes both.
+    func test_aCardInsideTwoRegionsJoinsTheSmallerOne() {
+        func target(smallID: String, bigID: String) -> CanvasRegionID? {
+            var s = CanvasScene()
+            s.insert(CanvasNode(id: b, kind: .scrap, origin: CGPoint(x: 200, y: 200),
+                                width: 240, cachedHeight: 80))
+            // Both contain the card (200,200)–(440,280) entirely.
+            s.insertRegion(CanvasRegion(id: CanvasRegionID(smallID), label: "Small",
+                                        frame: CGRect(x: 150, y: 150, width: 400, height: 400)))
+            s.insertRegion(CanvasRegion(id: CanvasRegionID(bigID), label: "Big",
+                                        frame: CGRect(x: 0, y: 0, width: 900, height: 900)))
+            return CanvasInteraction.joinTarget(for: b, in: s)
+        }
+        XCTAssertEqual(target(smallID: "z-small", bigID: "a-big"), CanvasRegionID("z-small"))
+        XCTAssertEqual(target(smallID: "a-small", bigID: "z-big"), CanvasRegionID("a-small"))
+    }
+
+    /// The same rule the grab uses, asked of both functions at once. They are
+    /// two answers to "which region is the writer pointing at" and they must not
+    /// differ — `regionHit` is the visible one, so `joinTarget` follows it.
+    func test_theDropAndTheGrabAgreeAboutWhichRegionIsMeant() {
+        var s = CanvasScene()
+        s.insert(CanvasNode(id: b, kind: .scrap, origin: CGPoint(x: 200, y: 200),
+                            width: 240, cachedHeight: 80))
+        let small = CanvasRegionID("z-small"), big = CanvasRegionID("a-big")
+        s.insertRegion(CanvasRegion(id: small, label: "Small",
+                                    frame: CGRect(x: 150, y: 150, width: 400, height: 400)))
+        s.insertRegion(CanvasRegion(id: big, label: "Big",
+                                    frame: CGRect(x: 0, y: 0, width: 900, height: 900)))
+        // A point on BOTH chrome bars is impossible — they are at different y —
+        // so this asks the question the writer's pointer asks: at the small
+        // region's own bar, both rules must name the small region.
+        XCTAssertEqual(CanvasInteraction.regionHit(at: CGPoint(x: 300, y: 158), in: s),
+                       .chrome(small))
+        XCTAssertEqual(CanvasInteraction.joinTarget(for: b, in: s), small,
+                       "the drop and the grab disagree: a click at the small "
+                       + "region's bar picks it up, and dropping a card in the same "
+                       + "place puts the card in the big one")
+    }
+
+    /// **A collapsed region is not a drop target.** Its residents are not drawn,
+    /// so the writer cannot see what they would be joining — and joining would
+    /// put the card straight into `hiddenNodes`, i.e. the card vanishes in the
+    /// same gesture that dropped it. Unreachable until Task 7 ships the toggle,
+    /// and cheaper to refuse now than to explain later.
+    func test_aCollapsedRegionIsNotADropTarget() {
+        var s = scene()
+        s.move(b, to: CGPoint(x: 200, y: 200))
+        XCTAssertEqual(CanvasInteraction.joinTarget(for: b, in: s), r1,
+                       "control: it IS a target while the region is open, so the "
+                       + "assertion below is about collapsing and nothing else")
+
+        s.updateRegion(r1) { $0.isCollapsed = true }
+        XCTAssertNil(CanvasInteraction.joinTarget(for: b, in: s),
+                     "a card dropped into a collapsed region joins it and "
+                     + "disappears into the hidden set in the same gesture — the "
+                     + "writer is left with no account of where their card went")
     }
 
     func test_droppingACardOutsideEveryRegionDoesNotRemoveItFromItsHome() {

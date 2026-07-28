@@ -48,6 +48,40 @@ final class CanvasModelTests: XCTestCase {
         XCTAssertNil(model.selectedRegion, "a selected NODE is not a selected region")
     }
 
+    /// **An undo that takes back the selected thing must take back the
+    /// selection with it.** A snapshot carries the scene and the scrap text and
+    /// not the selection, so without this the model hands out an id that
+    /// resolves to nothing — and every reader of it (`selectedRegion`, which is
+    /// what ⌫ and the region inspector both go through) has to guess.
+    ///
+    /// Both halves are asserted. The second is the control: an undo that cleared
+    /// the selection unconditionally would satisfy the first and quietly deselect
+    /// the writer's card on every ⌘Z.
+    func test_anUndoThatRemovesTheSelectedThingClearsTheSelection() {
+        let model = loadedModel()
+        let drawn = CanvasRegionID("drawn")
+        model.mutate("New Region") {
+            $0.insertRegion(CanvasRegion(id: drawn, label: "",
+                                         frame: CGRect(x: 700, y: 0, width: 200, height: 200)))
+        }
+        model.selection = .region(drawn)
+
+        model.undo.undo()
+        XCTAssertNil(model.scene.region(drawn), "precondition: the undo took the region back")
+        XCTAssertNil(model.selection,
+                     "the selection still names a region that is no longer in the "
+                     + "scene — `selectedRegion` resolves to nil and the inspector "
+                     + "and ⌫ are both left guessing what is selected")
+
+        // The control: a selection that STILL resolves must survive an undo.
+        model.selection = .node(a)
+        model.mutate("Rename Region") { $0.updateRegion(self.r1) { $0.label = "Falls" } }
+        model.undo.undo()
+        XCTAssertEqual(model.selection, .node(a),
+                       "an undo that had nothing to do with the selected card "
+                       + "deselected it anyway")
+    }
+
     /// `mutate` registers a step, and its undo puts the label back.
     ///
     /// Deliberately NOT named for "no second undo stack" — this would pass

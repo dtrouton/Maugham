@@ -125,6 +125,15 @@ final class CanvasModel {
         undo.applySnapshot = { [unowned self] snapshot in
             scene = snapshot.scene
             scraps = snapshot.scraps
+            // A snapshot carries the scene and the scrap text, NOT the
+            // selection — so an undo that takes back a region or a card can
+            // leave `selection` naming something that is no longer in the scene.
+            // The renderer shrugs (it compares ids against what it is drawing),
+            // and every READER does not: `selectedRegion` resolves it, and the
+            // ⌫ path and the region inspector both go through that. Cleared
+            // here rather than at each reader, because a model that hands out a
+            // dangling id is the thing that is wrong.
+            clearSelectionIfItNoLongerResolves()
             // Synchronous, and before any timeline tick can run: the view stops
             // its coast, drops focus on a scrap the undo took away, and
             // re-measures every card. Heights are DERIVED, so a restored scene
@@ -208,6 +217,18 @@ final class CanvasModel {
     /// Bumped by whoever finished a structural change — the end of a gesture,
     /// the end of a coast, a create, a delete. Never per frame.
     func bumpSceneRevision() { sceneRevision += 1 }
+
+    /// Drop a selection whose subject has left the scene.
+    ///
+    /// Called from the undo apply, which is the one path that replaces the scene
+    /// wholesale underneath a selection that was made against the old one.
+    private func clearSelectionIfItNoLongerResolves() {
+        switch selection {
+        case .node(let id) where scene.node(id) == nil: selection = nil
+        case .region(let id) where scene.region(id) == nil: selection = nil
+        case .node, .region, nil: break
+        }
+    }
 
     // MARK: - Undo, forwarded
 
