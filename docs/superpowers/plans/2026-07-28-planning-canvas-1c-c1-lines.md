@@ -857,6 +857,10 @@ Add a **"Lines"** section, in the file's existing voice — the rule, then the n
 
 Extend the two-counter table's `sceneRevision` row with drawing and deleting a line, and add the VoiceOver divergence beside the existing one.
 
+**Add a third bullet to AREA.md's existing "Delete" section**, beside the region and node ones already there: *selection is a line → the line goes and both cards stay.* Deleting a card already takes its lines with it (`CanvasScene.remove`), so the two directions are not symmetric and the section should say both.
+
+**Delete `CanvasScene.lines(touching:)` unless Task 6 gave it a production caller.** Task 5's census found it at zero with none in prospect — `CanvasScene.remove` scrubs over `linesByID.keys` itself. This area has shipped three functions that were built, exercised and unreachable, every one found by counting callers rather than by a test; shipping a fourth while holding the census that names it would be the worst of both.
+
 Update the **"What the canvas does not do yet"** section: 1C-c's entry becomes promotion only, and **lines move out of it into the body of the file** — the same treatment regions and delete got, recorded rather than quietly deleted.
 
 - [ ] **Step 6: Sweep the guide, the roadmap and the problem map**
