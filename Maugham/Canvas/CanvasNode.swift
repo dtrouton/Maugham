@@ -50,15 +50,16 @@ public struct CanvasNode: Equatable, Sendable {
     ///
     /// **Provenance, not a live link.** A promotion is a SNAPSHOT taken by an
     /// explicit act and it never syncs — edit the card afterwards and the note
-    /// does not change, edit the note and the card does not. Spec §6.1's
-    /// 2026-07-28 amendment records why: the region row already works that way
-    /// (promoting a region joins six cards' text while all six stay), so a
-    /// scrap that behaved differently would give one verb two rules.
+    /// does not change, edit the note and the card does not. Spec §6's table is
+    /// what makes a region promote to a palette card while its members stay on
+    /// the canvas; §6.1's 2026-07-28 amendment rules that a scrap must follow
+    /// the same snapshot rule, so one verb does not end up with two behaviours.
     ///
     /// **Nothing here validates it against the manifest, and nothing can** —
     /// the scene has never seen one. A writer who deletes the note leaves an id
-    /// that resolves to nothing, and every reader resolves it through
-    /// `ArtifactIndex` rather than trusting it.
+    /// that resolves to nothing; a promoted id is resolved against the project
+    /// manifest by its READERS rather than trusted here, and the index that
+    /// does that arrives with the promotion model (this slice's Task 2).
     public var promotedItemID: String?
 
     public init(id: CanvasNodeID,

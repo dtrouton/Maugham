@@ -103,7 +103,7 @@ final class CanvasRegionCodecTests: XCTestCase {
     /// `promotedItemID`). The version literal itself is asserted once, in
     /// `CanvasLineCodecTests.test_theSchemaVersionIsFour` — this test's job is
     /// the region content surviving the bump, not the number.
-    func test_aSchemaV2SidecarsPopulatedRegionsSurviveTheBumpToSchemaThree() throws {
+    func test_aSchemaV2SidecarsPopulatedRegionsSurviveTheBumpToSchemaFour() throws {
         try writeSidecar("""
         {"schemaVersion":2,"nodes":[{"id":"a","kind":"scrap","x":0,"y":0,\
         "width":240,"cachedHeight":80,"z":1},{"id":"b","kind":"scrap","x":50,"y":60,\
