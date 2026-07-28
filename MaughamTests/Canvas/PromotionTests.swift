@@ -121,11 +121,21 @@ final class PromotionTests: XCTestCase {
         XCTAssertNotNil(Promotion.blockedReason(for: .line(l1), in: s, artifacts: stale))
     }
 
+    /// `img` is given a mark that genuinely RESOLVES — the only thing left
+    /// refusing this line is the `case .scrap = node.kind` guard in
+    /// `resolvedArtifact`. Without a resolving mark on `img`, this would pass
+    /// for the "no mark" reason `test_aLineWithOnlyOneEndPromotedOffersNothing`
+    /// already covers, and the kind guard could be deleted with the suite
+    /// still green. The `blockedReason` assertion pins the specific message
+    /// that branch produces, not merely non-nil.
     func test_aLineTouchingANonTextNodeOffersNothing() {
         var s = scene()
         s.setPromotedItem("res-a", for: a)
-        XCTAssertTrue(Promotion.targets(for: .line(l2), in: s,
-                                        artifacts: index(["res-a": "The falls"])).isEmpty)
+        s.setPromotedItem("res-9", for: img)
+        let idx = index(["res-a": "The falls", "res-9": "Some placeholder title"])
+        XCTAssertTrue(Promotion.targets(for: .line(l2), in: s, artifacts: idx).isEmpty)
+        XCTAssertEqual(Promotion.blockedReason(for: .line(l2), in: s, artifacts: idx),
+                       "A line becomes a wiki-link only between two cards of text.")
     }
 
     // MARK: - The plan is a PREVIEW

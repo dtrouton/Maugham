@@ -107,7 +107,7 @@ struct ArtifactIndex: Equatable {
 }
 
 /// Everything `Promotion.plan` needs. A struct rather than eight parameters,
-/// because the sheet builds one and mutates two fields on it as the writer
+/// because the sheet builds one and holds it, editing its fields as the writer
 /// works.
 struct PromotionRequest {
     let source: PromotionSource
