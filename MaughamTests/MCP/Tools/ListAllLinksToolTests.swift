@@ -258,13 +258,20 @@ final class ListAllLinksToolTests: XCTestCase {
         try "October's doctor was kind about it.\n\n[[Nobody]]\n".write(
             to: tmp.appendingPathComponent("research/doctor.md"),
             atomically: true, encoding: .utf8)
+        // Names itself: the only fixture shape that can actually falsify the
+        // self-edge guard — a note whose body wiki-links its OWN title.
+        try "This place always echoes back. [[Echo Chamber]] never really left.\n".write(
+            to: tmp.appendingPathComponent("research/echo.md"),
+            atomically: true, encoding: .utf8)
         let falls = ResearchItem(id: "res-falls", title: "The falls at night", type: .asset,
                                  kind: .document, path: "research/falls.md", addedAt: Date())
         let doctor = ResearchItem(id: "res-doctor", title: "October's doctor", type: .asset,
                                   kind: .document, path: "research/doctor.md", addedAt: Date())
+        let echo = ResearchItem(id: "res-echo", title: "Echo Chamber", type: .asset,
+                                kind: .document, path: "research/echo.md", addedAt: Date())
         let manifest = ProjectManifest(
             type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
-            structure: [], research: [falls, doctor])
+            structure: [], research: [falls, doctor, echo])
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(manifest).write(to: tmp.appendingPathComponent("project.maugham.json"))
@@ -304,6 +311,10 @@ final class ListAllLinksToolTests: XCTestCase {
         let (url, reg) = try await makeResearchLinkedProject()
         let all = try await edges(url, reg)
         XCTAssertFalse(all.contains { $0.from_id == $0.to_id })
+        // Falsifiable: "res-echo" (Echo Chamber) wiki-links its own title, so
+        // this fixture is the one that can actually exercise the guard above —
+        // without it the generic assertion is vacuously true.
+        XCTAssertFalse(all.contains { $0.from_id == "res-echo" && $0.to_id == "res-echo" })
     }
 
     /// The existing fixture's research note has no links in it, so the new loop

@@ -211,9 +211,7 @@ public enum FindReferencesTool: MCPTool {
                                          where: { $0.kind == .document }) {
                 guard item.id != resolvedId,          // not a reference to itself
                       let path = item.path,
-                      let text = try? String(
-                          contentsOf: entry.url.appendingPathComponent(path),
-                          encoding: .utf8),  // adr-0018-ok: research note, not manuscript
+                      let text = try? String(contentsOf: entry.url.appendingPathComponent(path), encoding: .utf8),  // adr-0018-ok: research note, not manuscript
                       !text.isEmpty else { continue }
                 for title in titles where text.contains("[[\(title)]]") {
                     if seenFromIds.insert(item.id).inserted {

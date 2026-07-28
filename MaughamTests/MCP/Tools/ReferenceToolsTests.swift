@@ -516,13 +516,20 @@ extension ReferenceToolsTests {
         try "October's doctor was kind about it.\n\n[[Nobody]]\n".write(
             to: tmp.appendingPathComponent("research/doctor.md"),
             atomically: true, encoding: .utf8)
+        // Names itself: the only fixture shape that can actually falsify the
+        // self-reference guard — a note whose body wiki-links its OWN title.
+        try "This place always echoes back. [[Echo Chamber]] never really left.\n".write(
+            to: tmp.appendingPathComponent("research/echo.md"),
+            atomically: true, encoding: .utf8)
         let falls = ResearchItem(id: "res-falls", title: "The falls at night", type: .asset,
                                  kind: .document, path: "research/falls.md", addedAt: Date())
         let doctor = ResearchItem(id: "res-doctor", title: "October's doctor", type: .asset,
                                   kind: .document, path: "research/doctor.md", addedAt: Date())
+        let echo = ResearchItem(id: "res-echo", title: "Echo Chamber", type: .asset,
+                                kind: .document, path: "research/echo.md", addedAt: Date())
         let manifest = ProjectManifest(
             type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
-            structure: [], research: [falls, doctor])
+            structure: [], research: [falls, doctor, echo])
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(manifest).write(to: tmp.appendingPathComponent("project.maugham.json"))
@@ -545,11 +552,16 @@ extension ReferenceToolsTests {
 
     func test_findReferencesDoesNotReportANoteAsAReferenceToItself() async throws {
         let (url, reg) = try await makeResearchLinkedProject()
+        // "Echo Chamber" is the fixture note whose body wiki-links its own
+        // title — the only shape that can falsify the `item.id != resolvedId`
+        // guard. (Targeting "The falls at night" would be vacuous: falls.md
+        // never wiki-links its own title, so the assertion would hold whether
+        // or not the guard exists.)
         let req = "{\"project_id\":\"\(ProjectIdentifier.id(for: url))\","
-            + "\"target\":\"The falls at night\"}"
+            + "\"target\":\"Echo Chamber\"}"
         let refs = try JSONDecoder().decode(
             [FindReferencesTool.Reference].self,
             from: try await FindReferencesTool.handle(paramsJSON: Data(req.utf8), registry: reg))
-        XCTAssertFalse(refs.contains { $0.from_id == "res-falls" })
+        XCTAssertFalse(refs.contains { $0.from_id == "res-echo" })
     }
 }
