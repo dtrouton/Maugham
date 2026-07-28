@@ -105,6 +105,45 @@ final class CanvasEventViewTests: XCTestCase {
                       + "before onDrag(.began) observes it")
     }
 
+    // MARK: - ⌫
+
+    /// The view's half of delete: a delete key is REPORTED and an ordinary key
+    /// is not. What the callback then does is `CanvasView`'s business, and
+    /// `CanvasViewMountingTests` is where the two meet on a real surface.
+    ///
+    /// `charactersIgnoringModifiers` is what `keyDown` switches on, so it is what
+    /// these events carry. Both spellings are here because AppKit sends ⌫ as
+    /// U+007F and ⌦ as U+0008 — swapping the two is a long-standing confusion,
+    /// and a `keyDown` that handles only one leaves half the writers on a
+    /// keyboard whose delete key does nothing.
+    func test_theDeleteKeyIsReportedAndOtherKeysAreNot() {
+        let v = view()
+        var deletes = 0
+        v.onDeleteKey = { deletes += 1 }
+
+        v.keyDown(with: key("\u{7F}"))          // ⌫
+        XCTAssertEqual(deletes, 1, "a backspace on the canvas reported nothing, so "
+                       + "the writer's ⌫ never reaches the selection")
+        v.keyDown(with: key("\u{8}"))           // forward delete's character
+        XCTAssertEqual(deletes, 2)
+        v.keyDown(with: key("a"))
+        XCTAssertEqual(deletes, 2, "an ordinary key must pass through")
+    }
+
+    /// An unwired view must not crash on the key it is now interested in — the
+    /// state every `CanvasEventNSView` is in between `init` and `wire`.
+    func test_aDeleteKeyWithNothingWiredIsHarmless() {
+        XCTAssertNoThrow(view().keyDown(with: key("\u{7F}")))
+    }
+
+    private func key(_ character: String) -> NSEvent {
+        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                         timestamp: ProcessInfo.processInfo.systemUptime,
+                         windowNumber: 0, context: nil,
+                         characters: character, charactersIgnoringModifiers: character,
+                         isARepeat: false, keyCode: 51)!
+    }
+
     /// ⌘Z on the canvas reaches `CanvasUndo` through the responder chain:
     /// `NSWindow.undo(_:)` asks the first responder for its `undoManager`.
     func test_theViewVendsTheCanvasUndoManagerToTheResponderChain() {

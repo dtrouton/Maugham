@@ -87,19 +87,18 @@ struct CanvasView: View {
     @State private var revision = 0
 
     /// The STRUCTURAL counter: bumped only when the shape or content of the
-    /// scene changes — load, create, undo, the end of a drag or resize, a coast
-    /// ending (at rest, or truncated by a press), and leaving a scrap. Task 14's
-    /// accessibility tree is rebuilt from this and never from `revision`, which
-    /// every frame of every straighten, coast and drag increments.
+    /// scene changes — load, create, DELETE, undo, the end of a drag or resize,
+    /// a coast ending (at rest, or truncated by a press), and leaving a scrap.
+    /// Task 14's accessibility tree is rebuilt from this and never from
+    /// `revision`, which every frame of every straighten, coast and drag
+    /// increments.
     ///
-    /// **Deletion is not on that list because 1C-a has no delete path**, and the
-    /// list used to say otherwise. `CanvasScene.remove` and the whole undo route
-    /// behind it are built and have no production caller: no key, no menu item,
-    /// no gesture. Writer-visible consequence — a stray double-click leaves an
-    /// empty scrap that ⌘Z takes back only until the writer clicks away, after
-    /// which the card is on the canvas for good. Which slice builds the trigger
-    /// is an open M1C decision (`Maugham/Canvas/AREA.md`, "What 1C-a
-    /// deliberately does not do"); whichever it is adds a bump here.
+    /// **Deletion joined that list in 1C-b**, and this doc twice said the
+    /// opposite before it did. 1C-a built `CanvasScene.remove`, its inverse and
+    /// the "Delete Scrap" undo step and shipped no production caller for any of
+    /// them: no key, no menu item, no gesture. `deleteSelection()` is that
+    /// caller, and its bump arrives through the model's counter and the mirror
+    /// in `body` rather than from `rebuildLayouts` — see the comment there.
     @State private var sceneRevision = 0
 
     /// The synthetic accessibility tree — spec §7A.6's "AX layer mirroring the
@@ -255,6 +254,7 @@ struct CanvasView: View {
                 onDrag: { viewPoint, phase in
                     handleDrag(at: camera.contentPoint(fromView: viewPoint), phase: phase)
                 },
+                onDeleteKey: { deleteSelection() },
                 // The bare manager, vended down the responder chain so ⌘Z with
                 // nothing focused runs the canvas stack rather than the window's.
                 //
@@ -495,10 +495,15 @@ struct CanvasView: View {
     /// care which is in front, and `CanvasScene.nodes` sorts the whole scene on
     /// every access.
     ///
-    /// `bumpsStructuralCounter` is `false` for exactly one caller — the undo
-    /// apply, where the model bumps its own counter immediately afterwards and
-    /// the mirror in `body` delivers it here. Every other caller has changed the
-    /// shape of the scene with nothing else about to say so.
+    /// `bumpsStructuralCounter` is `false` for the two callers that have a bump
+    /// arriving by another route — the undo apply and `deleteSelection()`, both
+    /// of which bump the MODEL's counter, which reaches this view through the
+    /// mirror in `body`. Every other caller has changed the shape of the scene
+    /// with nothing else about to say so. The test that catches a mirror which
+    /// stops delivering is
+    /// `CanvasViewMountingTests.test_backspaceDeletesTheSelectedScrapThroughTheRealResponderChain`,
+    /// which asks the published accessibility tree whether the deleted card has
+    /// left it.
     private func rebuildLayouts(bumpsStructuralCounter: Bool = true) {
         // ONE `withScene` around the whole loop rather than one per node, and
         // `persist: false` because the caller owns the save.
@@ -825,6 +830,63 @@ struct CanvasView: View {
         editingNodeID = nil
         caretIndex = nil
         straighten.focus(nil)
+    }
+
+    // MARK: - Delete
+
+    /// ⌫, from `CanvasEventNSView.keyDown`. The one thing the canvas has never
+    /// had: 1C-a built `CanvasScene.remove`, its inverse and the "Delete Scrap"
+    /// undo step and shipped no caller for any of them, so a stray double-click
+    /// left an empty card that ⌘Z took back only until the writer clicked away.
+    ///
+    /// The region case is the one with a rule behind it: **deleting a region
+    /// never deletes cards** — the canvas owns arrangement, not existence (spec
+    /// §3.1, generalised). Its membership records die with it, which is all
+    /// `CanvasScene.removeRegion` touches.
+    ///
+    /// Nothing selected is a no-op rather than a guess.
+    private func deleteSelection() {
+        switch model.selection {
+        case .region(let id):
+            guard model.scene.region(id) != nil else { return }
+            model.mutate("Delete Region") { $0.removeRegion(id) }
+        case .node(let id):
+            guard model.scene.node(id) != nil else { return }
+            // The writer cannot be standing in it — a single click both selected
+            // it and left the open scrap — but an undo can have moved focus
+            // since, and an editor bound to a node that no longer exists is the
+            // state `.unenterableNode` already refuses to leave standing.
+            if editingNodeID == id { leaveTheOpenScrap() }
+            model.beginGesture("Delete Scrap")
+            model.withScene(persist: false) { $0.remove(id) }
+            model.removeScrapText(id)
+            model.endGesture()
+            // The SECOND caller that does not bump the structural counter, for
+            // the same reason as the first: `model.bumpSceneRevision()` below
+            // reaches this view through the mirror in `body`, so bumping here as
+            // well rebuilds the whole accessibility tree twice for one ⌫. The
+            // deleted card leaving that tree is what
+            // `CanvasViewMountingTests.test_backspaceDeletesTheSelectedScrapThroughTheRealResponderChain`
+            // asserts, so the delivery of that single bump is pinned rather than
+            // assumed.
+            //
+            // **No test can see this CALL today, and that is measured rather
+            // than assumed** (mutation, 2026-07-28: removing it leaves the whole
+            // mounting suite green). What it does that nothing observes is drop
+            // the deleted node's `ScrapLayout` — the filter at the end of
+            // `rebuildLayouts` — which otherwise keeps that scrap's whole
+            // `NSTextStorage` alive until some later structural change happens
+            // to run one.
+            rebuildLayouts(bumpsStructuralCounter: false)
+        case .none:
+            return
+        }
+        model.selection = nil
+        // A delete IS a structural change. `CanvasView`'s own doc for
+        // `sceneRevision` used to say deletion was absent from the list because
+        // 1C-a had no delete path; this is the line that changes that.
+        model.bumpSceneRevision()
+        model.scheduleSave()
     }
 
     // MARK: - Drags

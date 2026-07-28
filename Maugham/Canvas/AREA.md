@@ -118,9 +118,9 @@ Three constraints bind any further calibration:
 | | ticks on | keyed to it |
 |---|---|---|
 | `revision` | every animation frame — every drag frame, straighten frame, coast frame, keystroke | the `Canvas` redraw, and nothing else |
-| `sceneRevision` | load, create, undo, the end of a drag or resize, a coast ending (at rest, or truncated by a press), leaving a scrap | the accessibility tree |
+| `sceneRevision` | load, create, delete, undo, the end of a drag or resize, a coast ending (at rest, or truncated by a press), leaving a scrap | the accessibility tree |
 
-**Deletion is deliberately absent from that list: 1C-a has no delete path** — `CanvasScene.remove` and its undo route are built and have no production caller. See "What 1C-a deliberately does not do" below. Whichever slice builds the trigger adds a bump beside it.
+**Delete joined that list in 1C-b**, and this file twice said it never would. Its bump is the one place a caller does not spell it: `CanvasView.deleteSelection()` bumps the MODEL's counter and lets the mirror in `body` deliver it, so `rebuildLayouts(bumpsStructuralCounter: false)` is right there beside it — the undo apply is the only other caller that spells it that way, and for the same reason.
 
 `commitActiveEdit`'s bump is guarded on a scrap having been focused. It runs at the head of `handleClick`, and `onClick` precedes `onDrag(.began)`, so unguarded it rebuilt the whole tree on **every mouse-down** — including the press that starts a drag. The coast's second bump (`handleDrag(.began)`) exists because of that guard: a press truncates a coast, so the timeline's rest branch never runs, and without it the tree keeps the frame the card had when the writer let go.
 
@@ -164,6 +164,20 @@ Keying anything scene-proportional on `revision` runs it at 60–120 Hz through 
 The undo apply replaces the scene and then calls `CanvasModel.onSceneReplacedByUndo` — synchronously, inside the apply and a whole timeline tick before the coast could take another step. `CanvasView` binds that to `momentum.stop()` FIRST (a ⌘Z within ~1 s of a flick otherwise puts the card back at the pick-up point and lets the coast skate it away from there) and reconciles focus AFTER (an undo can remove the scrap the writer is standing in — double-click bare canvas, type, ⌘Z, ⌘Z is three keystrokes to it, and without the reconcile every drag is ignored until the writer happens to click somewhere).
 
 **A replaced `ScrapLayout` under a live editor is SAFE, and the file says so with the measurement.** Measured 2026-07-26 on macOS 26.5: an `NSTextView` built through `NSTextView(frame:textContainer:)` **owns its TextKit 2 stack** — with the `ScrapLayout` released, the layout manager, content storage and text storage are all still alive and the view lays out and draws. Safe is not the same as correct: through that window the view still shows the text the undo discarded, and showing the restored words is the *rebind's* job. Which is why the replacement must be a **new** `ScrapLayout` rather than the old one mutated in place.
+
+---
+
+## Delete
+
+**⌫ is `CanvasEventNSView.keyDown` → `CanvasView.deleteSelection()`, and it is deliberately a `keyDown` rather than `deleteBackward(_:)`** — the event view is not a text responder, never calls `interpretKeyEvents`, and so would never receive the action message.
+
+- **Selection is a region → the region goes and its cards stay.** The canvas owns arrangement, not existence (§3.1, generalised); the membership records die with it, which is all `CanvasScene.removeRegion` touches.
+- **Selection is a node → the node goes, its text goes from `canvas.md`, and `CanvasScene.remove` scrubs it from every region.** One gesture, so one ⌘Z brings back the card *and* its words — a snapshot carries the scene and the scrap text together and they cannot be restored out of step.
+- **Nothing selected is a no-op, not a guess.**
+
+**⌫ never fights the editor**, and that is a fact about first responder rather than about z-order: while a scrap is focused the mounted `NSTextView` holds it, so the window delivers the key there and the writer deletes a character. Measured 2026-07-28 by mutation — putting the event view in FRONT of the editor does not change it, while stopping the editor claiming focus deletes the whole card mid-sentence. `CanvasViewMountingTests.test_backspaceInsideAScrapDeletesACharacterAndNotTheCard` is the one that says so, and it clicks the card once before entering it so there is a live selection for the event view to destroy if it ever wins.
+
+**1C-a shipped this feature's other half with no caller at all** — `CanvasScene.remove`, its inverse and the `"Delete Scrap"` undo step, all built, all exercised, no key and no menu item — which is the same shape as its ⌘Z defect. So `test_backspaceDeletesTheSelectedScrapThroughTheRealResponderChain` sends a real `NSEvent` through `window.sendEvent(_:)` and reads what reached DISK. **Do not replace it with a test that calls `deleteSelection()`**; that is precisely the test that would have passed throughout 1C-a.
 
 ---
 
@@ -212,6 +226,6 @@ Item nodes render as **placeholder cards carrying their reference id** — dashe
 - **1C-b:** regions, and `CanvasModel`.
 - **1C-c:** lines, and promotion.
 
-**Deleting a scrap — no slice owns it yet, and that is the one gap here that nobody decided.** There is no delete path at all: `CanvasScene.remove`, the inverse it needs and the `"Delete Scrap"` undo step are all built and exercised (`CanvasUndoTests.test_undoRestoresADeletedScrapAndItsText`), and nothing in production calls any of them — no key handler, no menu item, no gesture. The undo layer is ready for a caller that does not exist. What the writer meets: double-click is the create gesture, so a stray double-click makes an empty card, ⌘Z takes it back, and once they have clicked away it is on the canvas permanently. **1C-b and 1C-d are the candidates** — 1C-b because regions raise "what happens to the contents" the moment they exist and the `CanvasModel` move is where a command would land; 1C-d because it is the other slice that adds node-level behaviour. Pick one before M1C closes; this is not a defer bucket, and no slice may cite this line as authorising the omission from the milestone.
+**Deleting a scrap was that gap, and 1C-b closed it.** ⌫ with something selected is `CanvasView.deleteSelection()`, reached from `CanvasEventNSView.keyDown` — see "Delete" below.
 
 **This is a slice boundary, not a milestone one.** Spec §8A.1 puts **images inside milestone M1C** — "not deferred past it" — and says in the same breath that no plan may cite it as authorising their omission. Nothing here may be quoted to that end either. What 1C-a defers is the order of work, not the work.

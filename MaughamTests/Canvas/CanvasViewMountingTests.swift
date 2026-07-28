@@ -1130,6 +1130,45 @@ final class CanvasViewMountingTests: XCTestCase {
         CanvasStore(projectRoot: root).load().scene
     }
 
+    /// The other half of what a delete has to reach: `canvas.md` is the ONLY
+    /// place a scrap's words live, so a card removed from the scene while its
+    /// text stays behind leaves an orphan paragraph in the writer's file.
+    private func scrapsOnDisk(_ root: URL) -> [CanvasNodeID: String] {
+        CanvasStore(projectRoot: root).load().scraps
+    }
+
+    /// A real ⌫, built the way AppKit delivers one. `charactersIgnoringModifiers`
+    /// is what `CanvasEventNSView.keyDown` switches on, so it is what this has to
+    /// carry, and the window number is what lets `window.sendEvent(_:)` route it.
+    private func deleteKeyEvent(for window: NSWindow) -> NSEvent {
+        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                         timestamp: ProcessInfo.processInfo.systemUptime,
+                         windowNumber: window.windowNumber, context: nil,
+                         characters: "\u{7F}", charactersIgnoringModifiers: "\u{7F}",
+                         isARepeat: false, keyCode: 51)!
+    }
+
+    /// A single click on the canvas, plus the first-responder claim that goes
+    /// with it.
+    ///
+    /// `applyMouseDown` is the testable seam and does no event-level responder
+    /// work — synthesizing AppKit mouse events is unreliable, which is the whole
+    /// reason that seam exists (see `CanvasEventView`) — so the claim
+    /// `CanvasEventNSView.mouseDown(with:)` makes is made here in its place.
+    /// `test_undoIsReachableFromTheEditMenuWithNoScrapFocused` does the same
+    /// thing for the same reason. **The key event itself is not simulated this
+    /// way**: it goes through `window.sendEvent(_:)`, which is the point.
+    private func clickAndFocusTheCanvas(_ events: CanvasEventNSView,
+                                        at point: CGPoint,
+                                        in window: NSWindow) {
+        events.applyMouseDown(at: point, clickCount: 1)
+        events.applyMouseUp(at: point)
+        XCTAssertTrue(window.makeFirstResponder(events),
+                      "the canvas cannot hold first responder, so no key the "
+                      + "writer presses can ever reach it")
+        pump()
+    }
+
     /// `ScrapUndoBeat`'s sentence rule, running for real. The rule itself is unit
     /// tested in `CanvasUndoTests`; what only this view can show is that anything
     /// ASKS it, and that it is asked AFTER the keystroke is folded in.
@@ -2204,5 +2243,202 @@ final class CanvasViewMountingTests: XCTestCase {
                        + "double-clicking bare canvas now leaves a stray region "
                        + "behind every new scrap")
         XCTAssertEqual(onDisk.count, 2, "precondition: the new scrap is on the canvas")
+    }
+
+    // MARK: - ⌫, through the real responder chain
+
+    /// **The delivery path, end to end, and it is the point of this task.**
+    ///
+    /// 1C-a built `CanvasScene.remove`, its inverse and the "Delete Scrap" undo
+    /// step, exercised all three, and shipped no production caller — the same
+    /// shape as its undo defect, which was twenty-two green tests deep on a ⌘Z
+    /// that could not reach the canvas stack at all, because every one of those
+    /// tests drove the recorder directly. So this one presses a real key: an
+    /// `NSEvent` handed to `window.sendEvent(_:)`, routed by AppKit to whatever
+    /// holds first responder, and asserted on what reached DISK.
+    ///
+    /// A `deleteSelection()` called by hand would pass this task's model-level
+    /// tests and do nothing whatsoever for the writer.
+    func test_backspaceDeletesTheSelectedScrapThroughTheRealResponderChain() throws {
+        let root = try projectRoot()
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+
+        // Single click on the card: selects it and takes first responder.
+        clickAndFocusTheCanvas(events, at: CGPoint(x: 60, y: 40), in: window)
+        XCTAssertEqual(model.selection, .node(scrapID), "precondition: it is selected")
+        XCTAssertTrue(window.firstResponder === events,
+                      "precondition: the key will actually arrive here")
+        XCTAssertTrue(try axTree(in: window)
+            .compactMap { axString($0, "accessibilityValue") }.contains(scrapText),
+                      "precondition: the card is in the published accessibility "
+                      + "tree, so its absence below is a removal rather than a "
+                      + "tree that never had it")
+
+        window.sendEvent(deleteKeyEvent(for: window))
+        pump(1.0)
+
+        XCTAssertNil(sceneOnDisk(root).node(scrapID),
+                     "⌫ with a card selected did not delete it. The likeliest cause "
+                     + "is that the key never reached CanvasEventNSView at all — "
+                     + "which is exactly the defect this test exists for, and which "
+                     + "every model-level assertion in this task is blind to")
+        XCTAssertNil(scrapsOnDisk(root)[scrapID],
+                     "the words go with the card — canvas.md is the only place "
+                     + "they live, so a scrap left behind is an orphan paragraph in "
+                     + "the writer's own file")
+        XCTAssertFalse(try axTree(in: window)
+            .compactMap { axString($0, "accessibilityValue") }.contains(scrapText),
+                       "the deleted card is still in the accessibility tree: the "
+                       + "structural bump never arrived, so a VoiceOver user goes on "
+                       + "meeting a card that is not on the canvas until some "
+                       + "unrelated change happens to rebuild the tree")
+    }
+
+    /// ⌫ over an empty selection is a no-op, not a guess.
+    ///
+    /// The control the assertion needs is the test above: the same key, the same
+    /// window, the same first responder, and there it removes the card. So a
+    /// scrap still on disk here can only be the empty selection.
+    func test_backspaceWithNothingSelectedChangesNothing() throws {
+        let root = try projectRoot()
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+
+        // Bare canvas, far from the fixture scrap at (20,20).
+        clickAndFocusTheCanvas(events, at: CGPoint(x: 500, y: 400), in: window)
+        XCTAssertNil(model.selection, "precondition: clicking nothing selects nothing")
+
+        window.sendEvent(deleteKeyEvent(for: window))
+        pump(1.0)
+        XCTAssertNotNil(sceneOnDisk(root).node(scrapID),
+                        "⌫ over an empty selection must be a no-op, not a guess — "
+                        + "a canvas that deletes the topmost card when nothing is "
+                        + "selected loses the writer's work to a stray keystroke")
+        XCTAssertEqual(scrapsOnDisk(root)[scrapID], scrapText)
+    }
+
+    /// **⌫ never fights the editor.** While a scrap is focused the mounted text
+    /// view is frontmost and first responder, so the key deletes a character —
+    /// which is what the writer meant. If the event view ever won that race, a
+    /// backspace mid-sentence would delete the whole card.
+    ///
+    /// Pinned rather than assumed, because the two ways it could break are both
+    /// invisible from the model: an event view that took first responder back, or
+    /// a `keyDown` moved onto a responder the editor's chain walks through.
+    ///
+    /// **The scrap is SELECTED before it is entered, and that is what makes this
+    /// test about the race at all.** A double-click on its own leaves
+    /// `model.selection` nil, so the card would survive ⌫ however the key was
+    /// routed — the assertion would be vacuous and would stay green with the
+    /// editor removed from in front of the event view entirely. Clicking once
+    /// first leaves the selection standing through the visit, so this is a canvas
+    /// where the event view has something to delete and does not get the chance.
+    func test_backspaceInsideAScrapDeletesACharacterAndNotTheCard() throws {
+        let root = try projectRoot()
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+        clickAndFocusTheCanvas(events, at: CGPoint(x: 60, y: 40), in: window)
+
+        // The helper's own settle already outlasts the straighten, so the editor
+        // is level, visible and first responder by the time it returns.
+        _ = try doubleClickTheScrap(in: window)
+        XCTAssertEqual(model.selection, .node(scrapID),
+                       "precondition: the card is still SELECTED while the writer "
+                       + "is inside it, so ⌫ reaching the event view would take the "
+                       + "whole card")
+        let editor = try XCTUnwrap(
+            firstDescendant(NSTextView.self, in: try XCTUnwrap(window.contentView)))
+        XCTAssertTrue(window.firstResponder === editor,
+                      "precondition: the editor holds first responder, so the key "
+                      + "never reaches CanvasEventNSView at all")
+
+        editor.setSelectedRange(NSRange(location: (scrapText as NSString).length, length: 0))
+        window.sendEvent(deleteKeyEvent(for: window))
+        pump(1.0)
+
+        XCTAssertNotNil(sceneOnDisk(root).node(scrapID),
+                        "a backspace mid-sentence deleted the whole card: the event "
+                        + "view won the race with the mounted editor")
+        XCTAssertEqual(scrapsOnDisk(root)[scrapID], String(scrapText.dropLast()),
+                       "exactly one character, and it reached disk")
+    }
+
+    /// The undo layer has been waiting for this caller since 1C-a. One ⌘Z brings
+    /// the card back **with its words** — the scene and the scrap text are one
+    /// snapshot, which is why they cannot be restored out of step.
+    ///
+    /// Driven through the Edit menu's own resolve → validate → send, because that
+    /// is the path the 1C-a defect was in.
+    func test_undoBringsBackADeletedScrapWithItsWords() throws {
+        let root = try projectRoot()
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+
+        clickAndFocusTheCanvas(events, at: CGPoint(x: 60, y: 40), in: window)
+        window.sendEvent(deleteKeyEvent(for: window))
+        pump(1.0)
+        XCTAssertNil(sceneOnDisk(root).node(scrapID), "precondition: it is gone")
+
+        let undoSelector = #selector(CanvasEventNSView.undo(_:))
+        let undo = try editMenuItem(undoSelector, in: window)
+        XCTAssertTrue(undo.target === events,
+                      "the Edit menu's Undo does not resolve to the canvas after a "
+                      + "delete")
+        XCTAssertTrue(undo.isEnabled,
+                      "a delete left nothing on the undo stack, so the stray ⌫ that "
+                      + "takes a card away is permanent")
+        XCTAssertTrue(undo.item.title.contains("Delete Scrap"),
+                      "the menu item reads \"\(undo.item.title)\" rather than naming "
+                      + "what it will take back")
+        _ = undo.target.perform(undoSelector, with: undo.item)
+        pump(1.0)
+
+        XCTAssertNotNil(sceneOnDisk(root).node(scrapID))
+        XCTAssertEqual(scrapsOnDisk(root)[scrapID], scrapText,
+                       "the words come back with the card — the scene and the "
+                       + "scrap text are one snapshot, which is why they cannot "
+                       + "be restored out of step")
+    }
+
+    /// Spec §3.1, generalised: the canvas owns arrangement, not existence.
+    ///
+    /// Deleting a region takes its membership records and nothing else. The card
+    /// it held stays exactly where it was — asserted at its coordinates rather
+    /// than merely as "still present", because a region delete that dragged its
+    /// residents somewhere would satisfy the weaker question.
+    func test_deletingARegionLeavesItsCardsWhereTheyWere() throws {
+        let root = try regionProjectRoot()
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+
+        // The region's label bar: frame starts at (20,20), so y=30 is inside the
+        // 24pt chrome, and x=200 is clear of the card at (60,60)…(300,120).
+        clickAndFocusTheCanvas(events, at: CGPoint(x: 200, y: 30), in: window)
+        XCTAssertEqual(model.selection, .region(CanvasRegionID("r1")),
+                       "precondition: the label bar selected the region")
+        XCTAssertEqual(sceneOnDisk(root).regionCount, 1,
+                       "precondition: the region is on disk, so the zero below is a "
+                       + "removal")
+
+        window.sendEvent(deleteKeyEvent(for: window))
+        pump(1.0)
+
+        let onDisk = sceneOnDisk(root)
+        XCTAssertEqual(onDisk.regionCount, 0, "⌫ with a region selected left it there")
+        XCTAssertEqual(onDisk.node(scrapID)?.origin, CGPoint(x: 60, y: 60),
+                       "deleting a region never deletes cards, and never moves them")
+        XCTAssertEqual(scrapsOnDisk(root)[scrapID], scrapText,
+                       "the resident's words went with the region that merely held it")
     }
 }

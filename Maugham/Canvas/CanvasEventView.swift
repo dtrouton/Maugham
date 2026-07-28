@@ -37,6 +37,9 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
     /// point, or make a new one here".
     var onClick: ((CGPoint, Int) -> Void)?
     var onDrag: ((CGPoint, CanvasDragPhase) -> Void)?
+    /// ⌫ / ⌦, with the canvas holding first responder. What it does with the
+    /// selection is `CanvasView.deleteSelection()`'s business, not this view's.
+    var onDeleteKey: (() -> Void)?
 
     private var isDragging = false
 
@@ -203,6 +206,26 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
     override func mouseUp(with event: NSEvent) {
         applyMouseUp(at: convert(event.locationInWindow, from: nil))
     }
+
+    /// **This is the whole of ⌫ on the canvas**, and it is deliberately a
+    /// `keyDown` rather than `deleteBackward(_:)`: this view is not a text
+    /// responder, does not call `interpretKeyEvents`, and so would never receive
+    /// the action message.
+    ///
+    /// It only ever reaches here with NO scrap focused — the mounted editor is
+    /// frontmost and first responder while the writer is in a scrap, so ⌫ there
+    /// deletes a character, which is what they meant.
+    /// `CanvasViewMountingTests.test_backspaceInsideAScrapDeletesACharacterAndNotTheCard`
+    /// pins that rather than assuming it. Unhandled keys go to `super` so nothing
+    /// else is swallowed.
+    override func keyDown(with event: NSEvent) {
+        switch event.charactersIgnoringModifiers {
+        case "\u{7F}", "\u{8}":
+            onDeleteKey?()
+        default:
+            super.keyDown(with: event)
+        }
+    }
 }
 
 /// Bridges `CanvasEventNSView` into SwiftUI. Transparent — it contributes no
@@ -211,6 +234,7 @@ struct CanvasEventView: NSViewRepresentable {
     @Binding var camera: CanvasCamera
     var onClick: (CGPoint, Int) -> Void
     var onDrag: (CGPoint, CanvasDragPhase) -> Void
+    var onDeleteKey: () -> Void
     var undoManager: UndoManager?
 
     func makeNSView(context: Context) -> CanvasEventNSView {
@@ -231,6 +255,7 @@ struct CanvasEventView: NSViewRepresentable {
         v.onCameraChange = { camera = $0 }
         v.onClick = onClick
         v.onDrag = onDrag
+        v.onDeleteKey = onDeleteKey
         v.canvasUndoManager = undoManager
     }
 }
