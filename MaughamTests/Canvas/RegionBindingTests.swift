@@ -849,10 +849,20 @@ final class RegionBindingTests: XCTestCase {
         XCTAssertEqual(occurrences(of: "RegionInspectorPane(", in: source), 1,
                        "one mount point each; a second would not be gated on the "
                        + "arm above")
-        XCTAssertEqual(occurrences(of: "canvasInspector(", in: source), 2,
-                       "the declaration and exactly ONE call. A second call is a "
-                       + "second mount — and the arm assertions above cannot see "
-                       + "it, because they only ask what the canvas arm contains.")
+        XCTAssertEqual(occurrences(of: "canvasInspector(", in: source), 3,
+                       "the declaration and exactly TWO calls, both of which go to "
+                       + "the same destination so they cannot drift:\n"
+                       + " 1. `inspectorPane`'s `.canvas` route — the live one, "
+                       + "taken ABOVE the project-type split so a Collection "
+                       + "reaches it (smoke, 2026-07-28).\n"
+                       + " 2. `existingInspectorSwitch`'s `.canvas` arm — now "
+                       + "UNREACHABLE, kept only because that switch is exhaustive "
+                       + "over `BinderSegment` and the compiler requires the case.\n"
+                       + "A THIRD call is a real second mount. Which route the "
+                       + "canvas actually takes is pinned behaviourally and "
+                       + "exhaustively by `CanvasPersonaTests.test_theCanvasSegment"
+                       + "ReachesTheRegionInspectorOnEveryProjectType`, which is "
+                       + "the test this census could not be.")
     }
 
     /// Tripwire 30's rule, one column over: `CanvasModel` is `@Observable` and

@@ -824,14 +824,24 @@ struct ProjectWindow: View {
         currentElement
     }
 
+    /// Whether the selected item is a Collection reference piece.
+    private func selectedPieceIsReference(in store: ProjectStore) -> Bool {
+        guard let id = selectedItemId,
+              let piece = store.manifest.structure.first(where: { $0.id == id })
+        else { return false }
+        return piece.pieceKind == .reference
+    }
+
     @ViewBuilder
     private func editorPane(
         store: ProjectStore, documentStore: DocumentStore
     ) -> some View {
-        if store.manifest.type == .collection,
+        if Self.editorRoute(binderSegment: binderSegment,
+                            projectType: store.manifest.type,
+                            selectedPieceIsReference: selectedPieceIsReference(in: store))
+            == .collectionReference,
            let id = selectedItemId,
-           let piece = store.manifest.structure.first(where: { $0.id == id }),
-           piece.pieceKind == .reference {
+           let piece = store.manifest.structure.first(where: { $0.id == id }) {
             ReferencePlaceholderCard(piece: piece) {
                 openReferenceInWindow(piece: piece, store: store)
             }
@@ -951,6 +961,57 @@ struct ProjectWindow: View {
         }
     }
 
+    // MARK: - Which column shows what
+
+    /// **The canvas check sits ABOVE the project-type split, in both columns.**
+    ///
+    /// That is the more correct shape rather than merely the shorter one: there
+    /// is ONE canvas per project regardless of type (spec §2), and which view the
+    /// canvas segment wants has nothing to do with whether the project is a
+    /// collection or which piece happened to be selected in some other segment.
+    /// Leaving the decision *below* the split is what let the two paths disagree
+    /// — the region inspector shipped built, reviewed and reachable on only one
+    /// of them, and a Collection writer selecting a region got the piece
+    /// inspector for whatever manuscript item was last selected. Found by smoke,
+    /// 2026-07-28; the editor column had the same defect and it was found by
+    /// asking the same question of every sibling split.
+    ///
+    /// Pure and named rather than nested `if`s inside a `@ViewBuilder`, so a test
+    /// can be exhaustive over (segment × type) instead of over the one path a
+    /// plan happened to name. `CanvasPersonaTests` is that test.
+    enum InspectorRoute: Equatable {
+        case canvas
+        /// A Collection's per-piece inspector, which never consults the segment.
+        case collectionPiece
+        /// `existingInspectorSwitch`, which dispatches on the segment.
+        case segment
+    }
+
+    static func inspectorRoute(binderSegment: BinderSegment,
+                               projectType: ProjectType) -> InspectorRoute {
+        if binderSegment == .canvas { return .canvas }
+        return projectType == .collection ? .collectionPiece : .segment
+    }
+
+    enum EditorRoute: Equatable {
+        /// A Collection's placeholder for a linked-project reference piece.
+        case collectionReference
+        /// `existingEditorSwitch` — which is where the canvas itself lives.
+        case segment
+    }
+
+    static func editorRoute(binderSegment: BinderSegment,
+                            projectType: ProjectType,
+                            selectedPieceIsReference: Bool) -> EditorRoute {
+        // The canvas draws whatever else is selected. A reference piece chosen in
+        // the Pieces segment stays selected across a persona switch — nothing
+        // clears `selectedItemId` but a delete — so without this the centre
+        // column shows the placeholder and the canvas never appears at all.
+        if binderSegment == .canvas { return .segment }
+        return projectType == .collection && selectedPieceIsReference
+            ? .collectionReference : .segment
+    }
+
     @ViewBuilder
     private func inspectorPane(store: ProjectStore, documentStore: DocumentStore) -> some View {
         DetailPaneToggle(
@@ -970,9 +1031,13 @@ struct ProjectWindow: View {
             documentStore: documentStore,
             editorControl: editorControl
         ) {
-            if store.manifest.type == .collection {
+            switch Self.inspectorRoute(binderSegment: binderSegment,
+                                       projectType: store.manifest.type) {
+            case .canvas:
+                canvasInspector(store: store)
+            case .collectionPiece:
                 collectionInspector(store: store)
-            } else {
+            case .segment:
                 existingInspectorSwitch(store: store)
             }
         }
@@ -1037,6 +1102,10 @@ struct ProjectWindow: View {
                 onOpenCraftIntent: openCraftIntent
             )
         case .canvas:
+            // Unreachable — `inspectorRoute` takes the canvas above the
+            // project-type split, so this arm never runs. Kept because the switch
+            // is exhaustive over `BinderSegment` and the compiler requires it;
+            // it routes to the same place so the two cannot drift.
             canvasInspector(store: store)
         case .research:
             if let id = selectedResearchId,
