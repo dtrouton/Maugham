@@ -204,6 +204,16 @@ public struct CanvasScene: Equatable, Sendable {
         linesByID.values.sorted { $0.id.raw < $1.id.raw }
     }
 
+    /// One line by id — a dictionary lookup, and the peer of `node(_:)` and
+    /// `region(_:)`.
+    ///
+    /// **Reach for this and not `lines.first { … }`**: the ordered accessor
+    /// above sorts the whole set on every access, and a single-line lookup is
+    /// exactly the reader that ends up inside a `body` evaluation. That is the
+    /// `CanvasAccessibility.summary` regression — `scene.nodes.count` read from
+    /// `body`, a full sort per render — in a second id space.
+    public func line(_ id: CanvasLineID) -> CanvasLine? { linesByID[id] }
+
     /// Rejects a line from a node to itself — it has nothing to say and draws
     /// as a blob.
     public mutating func insertLine(_ line: CanvasLine) {

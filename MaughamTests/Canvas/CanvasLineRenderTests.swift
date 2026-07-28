@@ -71,6 +71,38 @@ final class CanvasLineRenderTests: XCTestCase {
         XCTAssertEqual(CanvasRenderer.lineGeometry(in: s).map(\.id), [l1])
     }
 
+    /// **A resident of a collapsed region keeps its frame**, so `endpoints(of:)`
+    /// answers happily for a card that is not drawn at all — and the line runs
+    /// into bare ground. The two neighbouring per-frame passes in the renderer
+    /// already guard exactly this (`tethers` skips a collapsed region's
+    /// residents, `appearanceChips` filters `!scene.isHidden`), and lines shipped
+    /// without it for one commit.
+    ///
+    /// It decides Task 5's hit test as well as the draw: a line the writer can
+    /// click and cannot see is worse than one that is merely wrong.
+    func test_aLineToACardInsideACollapsedRegionIsNotDrawn() {
+        let hiding = CanvasRegionID("hiding")
+        var s = linked()
+        s.insertRegion(CanvasRegion(id: hiding, label: "Cut",
+                                    frame: CGRect(x: 400, y: 0, width: 400, height: 200)))
+        CanvasMembership.join(b, home: hiding, in: &s)
+
+        XCTAssertEqual(CanvasRenderer.lineGeometry(in: s).map(\.id), [l1],
+                       "control: while the region is expanded the line is projected, "
+                       + "so the absence below is the collapse and not the membership")
+
+        s.updateRegion(hiding) { $0.isCollapsed = true }
+        XCTAssertTrue(s.isHidden(b), "precondition: b is hidden by the collapse")
+        XCTAssertNotNil(s.node(b)?.frame,
+                        "precondition — and the whole trap: a hidden node KEEPS its "
+                        + "frame, so endpoints(of:) still answers and only an "
+                        + "isHidden guard can catch this")
+        XCTAssertTrue(CanvasRenderer.lineGeometry(in: s).isEmpty,
+                      "a line to a card inside a collapsed region is still projected — "
+                      + "it draws into bare ground, and Task 5 will hit-test a line "
+                      + "the writer cannot see")
+    }
+
     // MARK: - The label pill
 
     func test_theLabelBoxIsCentredOnTheSegmentMidpoint() throws {
@@ -245,7 +277,14 @@ final class CanvasLineRenderTests: XCTestCase {
     /// `CanvasInteractionTests.test_theUnmarkedHalfOfTheCornerSquareStillResizes`
     /// exists. A target slightly larger than its ink forgives a near miss, where
     /// the reverse swallows drags the writer aimed at the card.
-    func test_theConnectHandleAndItsMarkComeFromOneConstant() {
+    ///
+    /// There are deliberately TWO constants, not one, and the split is the
+    /// design: `CanvasMaterial.connectMarkDiameter` is a look number the writer
+    /// tunes by eye, `CanvasRenderer.connectHandleSize` is target geometry. What
+    /// has to hold between them is a containment, which is what this asserts —
+    /// an earlier name here claimed they came from one constant, which was never
+    /// true and would have been the wrong design if it were.
+    func test_theConnectTargetContainsItsMarkAndIsLargerThanIt() {
         let card = CGRect(x: 100, y: 100, width: 240, height: 80)
         let target = CanvasRenderer.connectHandleRect(inCard: card)
         let mark = CanvasRenderer.connectMarkRect(inCard: card)
@@ -347,15 +386,66 @@ final class CanvasLineRenderTests: XCTestCase {
         var noRegion = s
         noRegion.removeRegion(regionID)
 
-        // Region (100, 100)–(500, 400): chrome bar y 100–124, resize corner
-        // square (486, 386)–(500, 400) whose inked triangle is y + x >= 886.
+        // **Every sample is DERIVED from the region's own metrics, not written
+        // down.** Hardcoded, a shrunk `chromeHeight` would move the bar out from
+        // under the "chrome bar" sample and turn it into a second wash sample —
+        // and the test would keep passing under a quietly narrower claim, which
+        // the `beside` control cannot see because the wash differs from bare
+        // ground too. The preconditions below fail loudly instead, and say to
+        // re-derive.
+        let chrome = CanvasRegionMetrics.chromeRect(in: regionFrame)
+        let corner = CanvasRegionMetrics.resizeHandleRect(in: regionFrame)
+
         let parts: [(CanvasLineID, CGPoint, CGPoint, String)] = [
-            (chromeLine, CGPoint(x: 300.5, y: 112.5), CGPoint(x: 300.5, y: 106.5), "chrome bar"),
-            (washLine, CGPoint(x: 200.5, y: 250.5), CGPoint(x: 200.5, y: 260.5), "wash"),
-            (cornerLine, CGPoint(x: 496.5, y: 396.5), CGPoint(x: 496.5, y: 392.5), "resize triangle")
+            (chromeLine,
+             CGPoint(x: regionFrame.midX + 0.5, y: chromeY + 0.5),
+             CGPoint(x: regionFrame.midX + 0.5, y: (chrome.minY + chromeY) / 2 + 0.5),
+             "chrome bar"),
+            (washLine,
+             CGPoint(x: regionFrame.minX + 100.5, y: washY + 0.5),
+             CGPoint(x: regionFrame.minX + 100.5, y: washY + 10.5),
+             "wash"),
+            (cornerLine,
+             CGPoint(x: corner.maxX - Self.markInset + 0.5, y: cornerY + 0.5),
+             CGPoint(x: corner.maxX - Self.markInset + 0.5, y: cornerY - Self.markInset + 0.5),
+             "resize triangle")
         ]
 
         for (line, onTheLine, beside, part) in parts {
+            // Each sample must still be in the part it claims, and the control
+            // must still be clear of the stroke. Both go stale together whenever
+            // a metric moves.
+            for point in [onTheLine, beside] {
+                XCTAssertTrue(regionFrame.contains(point),
+                              "the \(part) sample \(point) has left the region — "
+                              + "re-derive it from CanvasRegionMetrics")
+                XCTAssertNil(s.unorderedNodes.first { $0.frame?.contains(point) == true },
+                             "the \(part) sample \(point) has ended up under a card, "
+                             + "which draws over the line and would satisfy the "
+                             + "equality below for the wrong reason")
+                switch part {
+                case "chrome bar":
+                    XCTAssertTrue(chrome.contains(point),
+                                  "the chrome-bar sample \(point) is no longer in the "
+                                  + "chrome rect \(chrome) — CanvasRegionMetrics."
+                                  + "chromeHeight has moved and this has silently "
+                                  + "become a second wash sample")
+                case "resize triangle":
+                    XCTAssertTrue(corner.contains(point) && point.x + point.y >= corner.minX + corner.maxY,
+                                  "the resize sample \(point) is outside the INKED "
+                                  + "half of the corner square \(corner) — below the "
+                                  + "hypotenuse is where the triangle is, and above "
+                                  + "it this is a wash sample wearing the wrong name")
+                default:
+                    XCTAssertFalse(chrome.contains(point) || corner.contains(point),
+                                   "the wash sample \(point) has drifted into the "
+                                   + "chrome bar or the resize corner")
+                }
+            }
+            XCTAssertGreaterThan(abs(beside.y - onTheLine.y), CanvasMaterial.selectedLineWidth,
+                                 "the \(part) control sits inside the line's own "
+                                 + "stroke, so it is not a control at all")
+
             let over = try render(scene: s, size: size, selection: .line(line))
             let bare = try render(scene: noRegion, size: size, selection: .line(line))
 
@@ -486,6 +576,22 @@ final class CanvasLineRenderTests: XCTestCase {
     private let washLine = CanvasLineID("wash")
     private let cornerLine = CanvasLineID("corner")
 
+    private let regionFrame = CGRect(x: 100, y: 100, width: 400, height: 300)
+
+    /// How far inside the corner square the resize sample sits. Small enough to
+    /// stay below the hypotenuse — the triangle is the inked half — and the
+    /// precondition in the test says so if this ever stops being true.
+    private static let markInset: CGFloat = 4
+
+    /// **The three line heights, DERIVED from the region's own metrics.** They
+    /// have to move with `chromeHeight` and `resizeHandleSide`, or the samples
+    /// taken at them stop being samples of the parts they are named for.
+    private var chromeY: CGFloat { CanvasRegionMetrics.chromeRect(in: regionFrame).midY }
+    private var washY: CGFloat { regionFrame.midY }
+    private var cornerY: CGFloat {
+        CanvasRegionMetrics.resizeHandleRect(in: regionFrame).maxY - Self.markInset
+    }
+
     /// A region at (100, 100)–(500, 400) and three horizontal lines crossing it
     /// at the heights of its three drawn parts, each strung between a pair of
     /// cards parked outside the region on either side.
@@ -496,118 +602,25 @@ final class CanvasLineRenderTests: XCTestCase {
     /// beneath-the-cards half.
     private func crossingScene() -> CanvasScene {
         var s = CanvasScene()
-        s.insertRegion(CanvasRegion(id: regionID, label: "Act II fog",
-                                    frame: CGRect(x: 100, y: 100, width: 400, height: 300)))
+        s.insertRegion(CanvasRegion(id: regionID, label: "Act II fog", frame: regionFrame))
 
         func card(_ id: CanvasNodeID, centre: CGPoint) {
             s.insert(CanvasNode(id: id, kind: .scrap,
                                 origin: CGPoint(x: centre.x - 30, y: centre.y - 20),
                                 width: 60, cachedHeight: 40))
         }
-        let ends: [(CanvasLineID, CGFloat)] = [(chromeLine, 112), (washLine, 250),
-                                               (cornerLine, 396)]
+        let ends: [(CanvasLineID, CGFloat)] = [(chromeLine, chromeY), (washLine, washY),
+                                               (cornerLine, cornerY)]
         for (line, y) in ends {
             let left = CanvasNodeID("\(line.raw)L"), right = CanvasNodeID("\(line.raw)R")
             card(left, centre: CGPoint(x: 60, y: y))
             card(right, centre: CGPoint(x: 560, y: y))
             s.insertLine(CanvasLine(id: line, from: left, to: right))
         }
-        card(CanvasNodeID("middle"), centre: CGPoint(x: 340, y: 250))
+        card(CanvasNodeID("middle"), centre: CGPoint(x: 340, y: washY))
         return s
     }
 
-    // MARK: - Rasterisation helper
-
-    /// Mirrors `CanvasRegionRenderTests`' own `Page` — same bitmap layout, same
-    /// byte order, same reasoning.
-    private struct Page {
-        let bytes: [UInt8]
-        let bytesPerRow: Int
-        let width: Int
-        let height: Int
-
-        /// R, G, B at `point`, in 0–1. The context is `premultipliedFirst` with
-        /// the default byte order, so the bytes run A, R, G, B. A point outside
-        /// the page returns a sentinel no rendered pixel can equal, so an
-        /// off-page read can never pass an equality assertion by accident.
-        func color(at point: CGPoint) -> SIMD3<Double> {
-            let x = Int(point.x), y = Int(point.y)
-            guard (0..<width).contains(x), (0..<height).contains(y) else {
-                return SIMD3<Double>(-1, -1, -1)
-            }
-            let o = y * bytesPerRow + x * 4
-            return SIMD3<Double>(Double(bytes[o + 1]) / 255,
-                                 Double(bytes[o + 2]) / 255,
-                                 Double(bytes[o + 3]) / 255)
-        }
-
-        func differingPixels(from other: Page, in rect: CGRect) -> Int {
-            var count = 0
-            for y in Int(rect.minY)..<Int(rect.maxY) {
-                for x in Int(rect.minX)..<Int(rect.maxX) {
-                    let p = CGPoint(x: Double(x) + 0.5, y: Double(y) + 0.5)
-                    if color(at: p) != other.color(at: p) { count += 1 }
-                }
-            }
-            return count
-        }
-    }
-
-    @MainActor
-    private func render(scene: CanvasScene,
-                        size: CGSize,
-                        selection: CanvasSelection? = nil,
-                        pendingLine: (from: CGPoint, to: CGPoint)? = nil,
-                        scheme: ColorScheme = .light,
-                        backing: NSColor? = nil) throws -> Page {
-        try Self.render(size: size, scheme: scheme, backing: backing) { cx in
-            CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: size,
-                                layouts: [:], scraps: [:], selection: selection,
-                                visibleEditorNodeID: nil,
-                                straighten: CanvasFocusStraighten(),
-                                pendingRegionDraw: nil,
-                                pendingLine: pendingLine, into: &cx)
-        }
-    }
-
-    /// Render a `Canvas` draw closure at scale 1 and read its pixels.
-    ///
-    /// The colour scheme is PINNED rather than inherited: this test process runs
-    /// under DarkAqua, so an unpinned dynamic `NSColor` resolves dark inside a
-    /// light render — which is how a white-bitmap ink test came to measure zero
-    /// ink and pass everywhere except a dark-mode Mac. The backing is resolved
-    /// under the matching appearance for the same reason.
-    @MainActor
-    private static func render(size: CGSize,
-                               scheme: ColorScheme,
-                               backing: NSColor?,
-                               _ draw: @escaping (inout GraphicsContext) -> Void) throws -> Page {
-        let renderer = ImageRenderer(
-            content: Canvas { cx, _ in draw(&cx) }
-                .frame(width: size.width, height: size.height)
-                .environment(\.colorScheme, scheme))
-        renderer.scale = 1
-        let image = try XCTUnwrap(renderer.cgImage, "ImageRenderer produced no image")
-
-        let w = image.width, h = image.height
-        let ctx = try XCTUnwrap(CGContext(data: nil, width: w, height: h, bitsPerComponent: 8,
-                                          bytesPerRow: w * 4,
-                                          space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                          bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue))
-        var backingColor: CGColor?
-        NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)!
-            .performAsCurrentDrawingAppearance {
-                backingColor = (backing ?? CanvasRenderer.cardPaper)
-                    .usingColorSpace(.sRGB)?.cgColor
-            }
-        ctx.setFillColor(try XCTUnwrap(backingColor, "could not resolve the page backing"))
-        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
-        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
-
-        let count = ctx.bytesPerRow * h
-        let bytes = Array(UnsafeBufferPointer(start: ctx.data!.bindMemory(to: UInt8.self,
-                                                                         capacity: count),
-                                              count: count))
-        return Page(bytes: bytes, bytesPerRow: ctx.bytesPerRow, width: w, height: h)
-    }
+    // The rasterisation harness — `CanvasPage` and `render(scene:size:…)`
+    // — lives in `CanvasRasterPage.swift`, shared with the region fixtures.
 }

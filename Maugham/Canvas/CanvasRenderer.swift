@@ -463,7 +463,19 @@ enum CanvasRenderer {
     /// and `visibleLines` is what the draw pass calls.
     static func lineGeometry(in scene: CanvasScene) -> [LineGeometry] {
         scene.lines.compactMap { line in
-            guard let ends = scene.endpoints(of: line) else { return nil }
+            // A hidden node is skipped for the reason `tethers` skips a collapsed
+            // region's residents and `appearanceChips` skips a hidden visitor: the
+            // card is not drawn, so a line to it lands on bare ground. Its frame
+            // survives the collapse — `CanvasScene` hides it through
+            // `hiddenNodes`, not by unmeasuring it — so `endpoints(of:)` answers
+            // happily and this is the only thing standing between the writer and
+            // a line running into nothing.
+            //
+            // It is not cosmetic: Task 5 hit-tests what this pass draws, and a
+            // line the writer can click and cannot see is worse than one that is
+            // merely wrong.
+            guard !scene.isHidden(line.from), !scene.isHidden(line.to),
+                  let ends = scene.endpoints(of: line) else { return nil }
             return LineGeometry(id: line.id, from: ends.0, to: ends.1, label: line.label)
         }
     }

@@ -33,9 +33,13 @@ final class CanvasModel {
     /// The selected line, RESOLVED through the scene rather than reconstructed
     /// from the selection — so a stale id left behind by an undo answers nil here
     /// rather than being handed out as a line that no longer exists.
+    ///
+    /// Through `scene.line(_:)` and never `scene.lines.first { … }`: the ordered
+    /// accessor sorts the whole set, and the line inspector reads this per body
+    /// evaluation. Off the frame path is not the same as off the render path.
     var selectedLine: CanvasLine? {
         guard case .line(let id) = selection else { return nil }
-        return scene.lines.first { $0.id == id }
+        return scene.line(id)
     }
 
     /// The STRUCTURAL counter. `CanvasView` keeps its own `@State` copy — that
@@ -236,7 +240,7 @@ final class CanvasModel {
         case .region(let id) where scene.region(id) == nil: selection = nil
         // A snapshot carries the SCENE, not the selection, so an undo that takes
         // back a line otherwise leaves the inspector holding a dangling id.
-        case .line(let id) where !scene.lines.contains(where: { $0.id == id }): selection = nil
+        case .line(let id) where scene.line(id) == nil: selection = nil
         case .node, .region, .line, nil: break
         }
     }
