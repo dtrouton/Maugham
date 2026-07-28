@@ -46,7 +46,7 @@ A **region** is an area you draw around cards that belong together — an act, a
 - **Drag the label bar** to move the region, and the cards that live in it travel with it. One ⌘Z puts the whole thing back. Drag the bottom-right corner to resize it — resizing never adds or drops a member.
 - **Click the label bar** to select the region. The Inspector (⌘⌥I) is where you name it, and where the rest of this lives.
 
-In the Inspector, a region lists its cards two ways: the ones that **live** in it — those are the ones that travel with it — and any that merely **appear** in it, drawn on the canvas as a small chip hairlined back to the real card rather than as a second copy of it. The minus button on a row takes a card out of the region; the card itself stays on the canvas.
+**Living in a region and appearing in one are different things**, and the Inspector lists them separately. A card **lives** in exactly one region — that's the region it travels with, and the one that counts it as its own. A card can also **appear** in another: a reference to the card, not a second copy of it, drawn on the canvas as a small chip hairlined back to the real one so there's never a question about which is the actual card. The minus button on a row takes a card out of a region; the card itself stays on the canvas.
 
 **Collapse** a region (the toggle in the Inspector) and the cards that live in it are put away — the label says how many, and the space they occupied is yours again. Expand it and they come back exactly as they were.
 

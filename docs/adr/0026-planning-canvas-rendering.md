@@ -497,7 +497,13 @@ regions forced into the open — see decision 5.
 - **Appearances are stored, drawn, listed and removable — and nothing creates one.**
   `CanvasMembership.addAppearance` has no production caller after 1C-b: the drop gesture
   makes homes, and the inspector only removes. This is decision 7's own failure shape (built,
-  exercised, unreachable) recurring one slice later, and it is recorded rather than left for
-  a reader to discover. Whichever slice adds the citing gesture owns it.
+  exercised, unreachable) recurring one slice later, found the same way — by counting
+  production callers of a function the slice had just built, which no green suite can do.
+  **It is not being left recorded:** *one home, many appearances* (§4.3) is what makes this a
+  planning surface rather than a filing one, and without a way to say "this card belongs to
+  that piece *and* is referenced here" the writer is pushed back into the premature single
+  choice the design exists to avoid. A follow-up adds the creation path **in the inspector**
+  — an add control symmetric with the existing remove — rather than as a canvas gesture, so
+  no modifier plumbing reaches `CanvasEventNSView`.
 - **⌫ is the only route to deleting a scrap**, because a scrap has no inspector to put a
   button in. Regions have one. See decision 7.
