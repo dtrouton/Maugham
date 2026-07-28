@@ -487,7 +487,7 @@ final class RegionBindingTests: XCTestCase {
     /// correctly, and runs the whole walk on every drag frame. No behavioural
     /// test can see that; only the source can.
     func test_theOfferReachesTheViewOnlyThroughTheGatedSnapshot() throws {
-        let source = try commentsStripped(regionInspectorSource())
+        let source = try CanvasSourceCensus.commentsStripped(regionInspectorSource())
         XCTAssertTrue(source.contains("citeAffordance(from: memberRows)"),
                       "the control is HANDED the gated snapshot — that call is the "
                       + "whole wiring, and without it the branch below has nothing "
@@ -507,7 +507,7 @@ final class RegionBindingTests: XCTestCase {
     func test_theMenusRowsAreWiredToTheCommit() throws {
         let control = try XCTUnwrap(
             declaration(named: "private var citeControl: some View {",
-                        in: commentsStripped(regionInspectorSource())))
+                        in: CanvasSourceCensus.commentsStripped(regionInspectorSource())))
         XCTAssertTrue(control.contains("cite(row.node)"),
                       "the offer is rendered and the click does nothing")
     }
@@ -562,9 +562,12 @@ final class RegionBindingTests: XCTestCase {
     /// with no production caller at all, exactly as `CanvasScene.remove` was one
     /// slice before it. Only a caller count sees that.
     func test_makingAnAppearanceHasAProductionCaller() throws {
-        let callers = try productionFiles()
+        let callers = try CanvasSourceCensus.productionFiles()
             .filter { $0.name != "CanvasMembership.swift" && $0.name != "CanvasRegion.swift" }
-            .filter { commentsStripped($0.source).contains("CanvasMembership.addAppearance(") }
+            .filter {
+                CanvasSourceCensus.commentsStripped($0.source)
+                    .contains("CanvasMembership.addAppearance(")
+            }
             .map(\.name)
             .sorted()
         XCTAssertEqual(callers, ["RegionInspector.swift"],
@@ -917,68 +920,12 @@ final class RegionBindingTests: XCTestCase {
 
     // MARK: - Source helpers
 
-    private var repoRoot: URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // Canvas
-            .deletingLastPathComponent()   // MaughamTests
-            .deletingLastPathComponent()   // repo
-    }
-
     private func projectWindowSource() throws -> String {
-        try String(
-            contentsOf: repoRoot.appendingPathComponent("Maugham/Views/ProjectWindow.swift"),
-            encoding: .utf8)
+        try CanvasSourceCensus.source(at: "Maugham/Views/ProjectWindow.swift")
     }
 
     private func regionInspectorSource() throws -> String {
-        try String(
-            contentsOf: repoRoot.appendingPathComponent("Maugham/Canvas/RegionInspector.swift"),
-            encoding: .utf8)
-    }
-
-    /// Every production `.swift` under `Maugham/`. Comments are the caller's
-    /// problem — a doc comment naming a call is not a call.
-    private func productionFiles() throws -> [(name: String, source: String)] {
-        let app = repoRoot.appendingPathComponent("Maugham")
-        let walker = FileManager.default.enumerator(at: app,
-                                                    includingPropertiesForKeys: nil)
-        var out: [(String, String)] = []
-        while let url = walker?.nextObject() as? URL {
-            guard url.pathExtension == "swift" else { continue }
-            out.append((url.lastPathComponent, try String(contentsOf: url, encoding: .utf8)))
-        }
-        XCTAssertGreaterThan(out.count, 100,
-                             "the walk found almost nothing — a caller census over "
-                             + "an empty tree passes for the wrong reason")
-        return out
-    }
-
-    /// Line and block comments removed, so a doc comment naming a symbol is not
-    /// read as using it. Deliberately naive about `//` inside a string literal —
-    /// neither file scanned here has one, and a stricter parser here would be
-    /// more code than the thing it is guarding.
-    private func commentsStripped(_ source: String) -> String {
-        var out = ""
-        var inBlock = false
-        for line in source.components(separatedBy: "\n") {
-            var line = Substring(line)
-            if inBlock {
-                guard let end = line.range(of: "*/") else { continue }
-                line = line[end.upperBound...]
-                inBlock = false
-            }
-            while let start = line.range(of: "/*") {
-                if let end = line.range(of: "*/", range: start.upperBound..<line.endIndex) {
-                    line = line[..<start.lowerBound] + line[end.upperBound...]
-                } else {
-                    line = line[..<start.lowerBound]
-                    inBlock = true
-                }
-            }
-            if let slashes = line.range(of: "//") { line = line[..<slashes.lowerBound] }
-            out += line + "\n"
-        }
-        return out
+        try CanvasSourceCensus.source(at: "Maugham/Canvas/RegionInspector.swift")
     }
 
     /// Every mention of `candidates` outside the three places allowed to build or

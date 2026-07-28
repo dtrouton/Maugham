@@ -285,11 +285,11 @@ final class LineInspectorTests: XCTestCase {
     /// `CanvasMembership.addAppearance` — and every one was found by a caller
     /// count rather than by a test. So the counts are written down.
     func test_theLineInspectorAndItsMutatorBothHaveProductionCallers() throws {
-        let files = try productionFiles()
+        let files = try CanvasSourceCensus.productionFiles()
 
         let mounts = files
             .filter { $0.name != "LineInspector.swift" }
-            .filter { commentsStripped($0.source).contains("LineInspector(") }
+            .filter { CanvasSourceCensus.commentsStripped($0.source).contains("LineInspector(") }
             .map(\.name)
             .sorted()
         XCTAssertEqual(mounts, ["RegionInspector.swift"],
@@ -299,62 +299,12 @@ final class LineInspectorTests: XCTestCase {
 
         let mutators = files
             .filter { $0.name != "CanvasScene.swift" }
-            .filter { commentsStripped($0.source).contains(".updateLine(") }
+            .filter { CanvasSourceCensus.commentsStripped($0.source).contains(".updateLine(") }
             .map(\.name)
             .sorted()
         XCTAssertEqual(mutators, ["LineInspector.swift"],
                        "`CanvasScene.updateLine` had no production caller at all "
                        + "until this task; the inspector is the only thing that "
                        + "changes a line after it is drawn.")
-    }
-
-    // MARK: - Source helpers
-
-    private var repoRoot: URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // Canvas
-            .deletingLastPathComponent()   // MaughamTests
-            .deletingLastPathComponent()   // repo
-    }
-
-    private func productionFiles() throws -> [(name: String, source: String)] {
-        let app = repoRoot.appendingPathComponent("Maugham")
-        let walker = FileManager.default.enumerator(at: app, includingPropertiesForKeys: nil)
-        var out: [(String, String)] = []
-        while let url = walker?.nextObject() as? URL {
-            guard url.pathExtension == "swift" else { continue }
-            out.append((url.lastPathComponent, try String(contentsOf: url, encoding: .utf8)))
-        }
-        XCTAssertGreaterThan(out.count, 100,
-                             "the walk found almost nothing — a caller census over "
-                             + "an empty tree passes for the wrong reason")
-        return out
-    }
-
-    /// Line and block comments removed, so a doc comment naming a symbol is not
-    /// read as using it. Both files censused above discuss the other at length in
-    /// prose, which is the whole point of them.
-    private func commentsStripped(_ source: String) -> String {
-        var out = ""
-        var inBlock = false
-        for line in source.components(separatedBy: "\n") {
-            var line = Substring(line)
-            if inBlock {
-                guard let end = line.range(of: "*/") else { continue }
-                line = line[end.upperBound...]
-                inBlock = false
-            }
-            while let start = line.range(of: "/*") {
-                if let end = line.range(of: "*/", range: start.upperBound..<line.endIndex) {
-                    line = line[..<start.lowerBound] + line[end.upperBound...]
-                } else {
-                    line = line[..<start.lowerBound]
-                    inBlock = true
-                }
-            }
-            if let slashes = line.range(of: "//") { line = line[..<slashes.lowerBound] }
-            out += line + "\n"
-        }
-        return out
     }
 }
