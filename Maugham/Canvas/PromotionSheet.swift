@@ -34,17 +34,32 @@ final class PromotionSheetModel: Identifiable {
 
     private(set) var selectedTarget: PromotionTarget?
     private(set) var availableModes: [PromotionMode] = [.new]
+    /// What the sheet shows under "Preview" — `previewSection` reads this, and
+    /// only this, for the destination line and the body excerpt. It must track
+    /// `mode` live: it is the thing on screen when the writer chooses Update,
+    /// and a frozen `.new`-mode snapshot there is the exact lie §6.1 exists to
+    /// prevent before an overwrite.
     private(set) var preview: PromotionPlan?
 
     var editedTitle = ""
     var linksAccepted = false
     var selectedPieceID: String?
     var paletteKind: PaletteCard.Kind = .other
-    var mode: PromotionMode = .new
+    /// Changing this after a target is chosen re-derives `preview` in place —
+    /// see the `didSet` below. Picking Update must move what "Goes to" shows,
+    /// not just what Commit would do.
+    var mode: PromotionMode = .new {
+        didSet {
+            guard oldValue != mode, selectedTarget != nil else { return }
+            preview = Promotion.plan(request(), in: scene)
+        }
+    }
 
     /// The destination's body as of the last `select(_:)`. A SNAPSHOT — the
     /// performer checks the live file again before it writes.
     private var destinationBody: String?
+
+    let sourceDescription: String
 
     init(source: PromotionSource,
          scene: CanvasScene,
@@ -60,17 +75,18 @@ final class PromotionSheetModel: Identifiable {
         self.readBody = readBody
         self.availableTargets = Promotion.targets(for: source, in: scene, artifacts: artifacts)
         self.blockedReason = Promotion.blockedReason(for: source, in: scene, artifacts: artifacts)
-    }
-
-    /// What the writer invoked this on, in their own words.
-    var sourceDescription: String {
+        // Resolved once here, and held as a plain value — the same discipline
+        // every other property on this class follows (read the scene once at
+        // init), rather than re-touching `scene`/`scraps` on every access.
         switch source {
         case .scrap(let id):
-            return "The card “\(CanvasRenderer.chipTitle(for: id, in: scene, scraps: scraps))”"
+            self.sourceDescription =
+                "The card “\(CanvasRenderer.chipTitle(for: id, in: scene, scraps: scraps))”"
         case .region(let id):
-            return "The region “\(scene.region(id)?.displayLabel ?? CanvasRegion.untitledLabel)”"
+            self.sourceDescription =
+                "The region “\(scene.region(id)?.displayLabel ?? CanvasRegion.untitledLabel)”"
         case .line:
-            return "This line"
+            self.sourceDescription = "This line"
         }
     }
 
@@ -83,20 +99,29 @@ final class PromotionSheetModel: Identifiable {
                                                   in: scene, artifacts: artifacts)
         availableModes = Promotion.modes(for: target, existing: existing)
         // Never carried over: an update chosen for one target must not survive
-        // into a target that cannot update.
+        // into a target that cannot update. Assigned directly (not through a
+        // helper) so the `didSet` above is free to fire on a later, genuine
+        // mode change without this reset being mistaken for one.
         mode = .new
         destinationBody = nil
         if target == .wikiLink, case .line(let id) = source, let line = scene.line(id),
            let itemID = scene.node(line.from)?.promotedItemID {
             destinationBody = readBody(itemID)
         }
-        preview = Promotion.plan(request(applyingEdits: false), in: scene)
+        preview = Promotion.plan(request(), in: scene)
         editedTitle = preview?.title ?? ""
     }
 
     /// The plan as it stands with the writer's edits applied — what Commit sends.
+    ///
+    /// Nil until a target is chosen. `request()` would otherwise fall back to
+    /// `.researchNote` for a scrap source — a valid target — and produce a
+    /// plan before the writer has picked anything, which is not "the writer
+    /// hasn't chosen a target" so much as it is a guess wearing that plan's
+    /// shape.
     var resolvedPlan: PromotionPlan? {
-        guard var plan = Promotion.plan(request(applyingEdits: true), in: scene) else { return nil }
+        guard selectedTarget != nil else { return nil }
+        guard var plan = Promotion.plan(request(), in: scene) else { return nil }
         plan.title = editedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         plan.linksAccepted = linksAccepted
         return plan
@@ -137,11 +162,15 @@ final class PromotionSheetModel: Identifiable {
             + ". The canvas keeps them."
     }
 
-    private func request(applyingEdits: Bool) -> PromotionRequest {
+    /// Both `preview` and `resolvedPlan` build off the same live `mode` now —
+    /// there is no longer a forced-`.new` variant. `preview` tracked `mode`
+    /// through the `didSet` above; a second, disagreeing reading here would
+    /// just move the bug rather than fix it.
+    private func request() -> PromotionRequest {
         PromotionRequest(
             source: source,
             target: selectedTarget ?? .researchNote,
-            mode: applyingEdits ? mode : .new,
+            mode: mode,
             scraps: scraps,
             piece: pieces.first { $0.id == selectedPieceID },
             paletteKind: paletteKind,

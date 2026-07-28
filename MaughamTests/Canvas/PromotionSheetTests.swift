@@ -55,6 +55,12 @@ final class PromotionSheetTests: XCTestCase {
         XCTAssertNil(m.selectedTarget)
         XCTAssertNil(m.preview)
         XCTAssertFalse(m.canCommit)
+        // Nothing is wrong yet — the reason Commit is off is simply "choose a
+        // target", which `refusal` explicitly does not speak to (its own doc
+        // comment says so). Before this fix, `resolvedPlan` fell back to
+        // `.researchNote` even with no target chosen, so this read
+        // "This needs a name." at the moment the sheet first appears.
+        XCTAssertNil(m.refusal)
     }
 
     func test_aBlockedSourceSaysWhyInsteadOfShowingAnEmptyList() {
@@ -135,6 +141,29 @@ final class PromotionSheetTests: XCTestCase {
         m.select(.researchNote)
         m.mode = .update(itemID: "res-a", title: "The falls")
         XCTAssertTrue(m.resolvedPlan!.destinationDescription.contains("The falls"))
+    }
+
+    /// `previewSection` renders `model.preview` — and only `model.preview` —
+    /// for the "Goes to" line and the body excerpt. Before this fix, `preview`
+    /// was captured once inside `select(_:)` under a hardcoded `mode: .new`,
+    /// so choosing "Rewrite "The falls"" from the mode picker left the sheet
+    /// still showing "research/" a line above the Promote button, while
+    /// Commit was about to overwrite the existing note. That is the one
+    /// signal §6.1 requires before an overwrite, and it was the value the
+    /// view actually renders that lied — not `resolvedPlan`, which was always
+    /// correct and is what `test_choosingUpdateNamesTheNoteThatWillBeRewritten`
+    /// above already pins.
+    func test_thePreviewDisplayTracksTheChosenModeRatherThanAFrozenNewSnapshot() {
+        var s = scene()
+        s.setPromotedItem("res-a", for: a)
+        let m = model(.scrap(a), scene: s, artifacts: ["res-a": "The falls"])
+        m.select(.researchNote)
+        XCTAssertEqual(m.preview?.destinationDescription, "research/")
+        m.mode = .update(itemID: "res-a", title: "The falls")
+        XCTAssertTrue(m.preview!.destinationDescription.contains("The falls"),
+                      "the sheet's own \"Goes to\" line must show the note "
+                      + "Commit is about to overwrite, not a snapshot frozen "
+                      + "at the moment the target was chosen")
     }
 
     func test_switchingToATargetThatCannotUpdateResetsTheMode() {
