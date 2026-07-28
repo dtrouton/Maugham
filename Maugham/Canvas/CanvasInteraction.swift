@@ -237,8 +237,9 @@ struct CanvasInteraction {
     ///
     /// **`connecting` matters only when the press lands on a NODE**, which is why
     /// the branch is inside the block below: a ⇧-drag on bare canvas falls
-    /// straight through to the sweep, since there is no marquee select on this
-    /// surface (§9) and ⇧ is therefore not overloaded. It is tested BEFORE the
+    /// through to the sweep — unless it lands on a LINE, which is idle for every
+    /// press, connecting or not, per the branch two paragraphs above. There is no
+    /// marquee select on this surface (§9), so ⇧ is not overloaded. It is tested BEFORE the
     /// resize corner, so a connecting press on a card's corner draws a line
     /// rather than resizing — the writer has already said which gesture they
     /// mean, by holding ⇧ or by aiming at the mark.

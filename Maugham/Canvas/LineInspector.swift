@@ -34,6 +34,17 @@ import SwiftUI
 /// what the guard buys is the rest of it: no snapshot, no queued disk write, and
 /// no redraw of the canvas.
 ///
+/// **If a thing has an inspector, its inspector can delete it.** A region could
+/// be removed from this pane or with ⌫ from the moment 1C-b shipped; a line
+/// arriving with only the key would have made two arms of ONE
+/// `RegionInspectorPane` offer different affordances for the same act — and ⌫
+/// needs `CanvasEventNSView` to hold first responder, so a writer who has just
+/// typed a name into the field above would have to click back onto the canvas
+/// before they could delete the thing they were editing. A scrap is still
+/// ⌫-only and stays that way here: it has no inspector to put a button in, which
+/// is the gap the roadmap already records rather than a fourth spelling of this
+/// rule.
+///
 /// **Tripwire 16 does not apply.** That rule is about an inline rename
 /// `TextField` that *appears* inside a `List(selection:)` row and has to win a
 /// focus race against the list's own focus pass. This field is always present in
@@ -61,6 +72,13 @@ struct LineInspector: View {
             } footer: {
                 Text("A line says these two cards have something to do with each "
                      + "other. What that is, is yours to say — or to leave unsaid.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Button("Delete Line", role: .destructive) { deleteLine() }
+                Text("Both cards stay on the canvas.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -125,6 +143,25 @@ struct LineInspector: View {
         model.mutateFromInspector(label == nil ? "Clear Line Label" : "Label Line") {
             $0.updateLine(target) { $0.label = label }
         }
+        model.bumpSceneRevision()
+    }
+
+    /// The same rule ⌫ follows: the line goes and both cards stay. The mirror of
+    /// `RegionInspector.deleteRegion`, and no `isInGesture` refusal like
+    /// `CanvasView.deleteSelection`'s — that guard exists because a KEY can reach
+    /// the event view mid-drag, and this button cannot be clicked while the mouse
+    /// is down on the canvas. `mutateFromInspector` covers the gesture that *can*
+    /// be open here.
+    ///
+    /// **Clearing the selection is not tidiness.** It names a line that is no
+    /// longer in the scene, and every reader resolves it — `CanvasModel
+    /// .selectedLine` above all, which is what decides whether this view is on
+    /// screen at all. Left dangling, the writer deletes a line and keeps looking
+    /// at its empty inspector.
+    func deleteLine() {
+        guard model.scene.line(lineID) != nil else { return }
+        model.mutateFromInspector("Delete Line") { $0.removeLine(lineID) }
+        model.selection = nil
         model.bumpSceneRevision()
     }
 }

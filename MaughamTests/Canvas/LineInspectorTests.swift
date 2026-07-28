@@ -187,6 +187,103 @@ final class LineInspectorTests: XCTestCase {
                      + "writer has to press ⌘Z twice to get past")
     }
 
+    // MARK: - Delete, from the pane rather than from the canvas
+    //
+    // A region could be deleted from this pane from the moment 1C-b shipped.
+    // A line arriving with only ⌫ would have made two arms of ONE
+    // RegionInspectorPane offer different affordances for the same act — and ⌫
+    // needs the event view to hold first responder, so a writer who has just
+    // typed a name into the field has to click back onto the canvas first.
+
+    func test_deletingTheLineFromTheInspectorLeavesBothCards() {
+        let m = model()
+        inspector(m).deleteLine()
+
+        XCTAssertNil(m.scene.line(l1))
+        XCTAssertNotNil(m.scene.line(l2), "the other line survives")
+        XCTAssertNotNil(m.scene.node(a), "the cards are not the canvas's to delete")
+        XCTAssertNotNil(m.scene.node(b))
+    }
+
+    /// **The selection must not be left naming a line that is gone.** Every
+    /// reader resolves it, `CanvasModel.selectedLine` above all — which is what
+    /// decides whether this view is on screen. Left dangling, the writer deletes
+    /// a line and goes on looking at its inspector.
+    ///
+    /// The control is the second assertion: `selectedLine` has to answer nil
+    /// *and* the raw selection has to be clear, or a build that relies on the
+    /// resolver returning nil for a stale id passes while ⌫ still points at the
+    /// dead line.
+    func test_deletingTheLineClearsTheSelectionRatherThanLeavingItDangling() {
+        let m = model()
+        XCTAssertEqual(m.selection, .line(l1), "premise: the line is selected")
+
+        inspector(m).deleteLine()
+
+        XCTAssertNil(m.selection,
+                     "the selection still names the deleted line, so ⌫ and the "
+                     + "inspector are both pointed at something not in the scene")
+        XCTAssertNil(m.selectedLine,
+                     "and the pane that resolves it must fall to its empty state")
+    }
+
+    /// The discriminator is the step's NAME, for this suite's stated reason: a
+    /// test whose only observable is the post-⌘Z scene cannot tell "its own step"
+    /// from "folded into the neighbouring one".
+    func test_deletingTheLineIsOneUndoStepCalledDeleteLine() throws {
+        let m = model()
+        inspector(m).deleteLine()
+
+        XCTAssertTrue(m.undo.undoMenuItemTitle.contains("Delete Line"),
+                      "the delete is not its own undo step — the Edit menu says "
+                      + m.undo.undoMenuItemTitle)
+
+        m.undo.undo()
+        let restored = try XCTUnwrap(m.scene.line(l1))
+        XCTAssertEqual(restored.from, a, "the line comes back with both its ends")
+        XCTAssertEqual(restored.to, b)
+    }
+
+    /// Tripwire 32, on the delete path rather than the label path. Nested, the
+    /// mutation takes no snapshot at depth 2 and registers nothing at depth 1, so
+    /// the delete lands on no step at all and rides into the writer's next
+    /// sentence — a ⌘Z aimed at a sentence takes the line with it.
+    ///
+    /// The premise is asserted rather than described, for the reason the label
+    /// version of this test states at length.
+    func test_deletingFromTheInspectorWhileAScrapIsFocusedIsItsOwnStep() {
+        let m = model()
+        m.beginGesture("Edit Scrap")
+        m.setScrapText("The fog came down.", for: a)
+
+        XCTAssertTrue(m.isInGesture, "premise: the bracket is open")
+        XCTAssertFalse(m.undoManager.canUndo,
+                       "premise: the run of typing has registered nothing yet")
+
+        inspector(m).deleteLine()
+
+        XCTAssertTrue(m.undo.undoMenuItemTitle.contains("Delete Line"),
+                      "the delete nested into the open \"Edit Scrap\" bracket and "
+                      + "registered no step of its own — the Edit menu says "
+                      + m.undo.undoMenuItemTitle)
+    }
+
+    /// Reachable with a stale `lineID`: an undo, or a ⌫ on the canvas, can take
+    /// the line away a frame before the button is pressed. It must not trap and
+    /// must not push a step.
+    func test_deletingALineThatIsAlreadyGoneIsANoOp() {
+        let m = model()
+        m.withScene { $0.removeLine(self.l1) }
+        let before = m.sceneRevision
+
+        inspector(m).deleteLine()
+
+        XCTAssertEqual(m.sceneRevision, before)
+        XCTAssertFalse(m.undo.canUndo,
+                       "a delete of a line that is already gone pushed a step the "
+                       + "writer has to press ⌘Z past")
+    }
+
     // MARK: - The inspector edits a scene the canvas is still holding open
 
     /// **The test this whole task exists to keep green, and it goes red the
