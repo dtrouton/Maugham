@@ -328,6 +328,8 @@ struct ProjectWindow: View {
             showInspector: $showInspector,
             inspectorWasVisibleBeforePalette: $inspectorWasVisibleBeforePalette,
             selectedPaletteCardId: $selectedPaletteCardId))
+        .modifier(CanvasPromotionModifier(window: window, store: store,
+                                          model: canvasModel, binderSegment: binderSegment))
         .preferredColorScheme(preferredColorScheme)
     }
 
@@ -1785,3 +1787,108 @@ private struct TranslationReviewModifier: ViewModifier {
     }
 }
 
+/// The canvas's `Promote…` command: enablement, presentation and performance,
+/// all in one place so `ProjectWindow.body` gains a single line.
+///
+/// **`internal`, not `private`, and that is required rather than a style
+/// choice**: `@testable import` reaches `internal` and cannot see `private`, and
+/// `isPromotable` below is the enablement rule a test drives. `PersonaModifier`
+/// in this same file is non-private for exactly that reason; the ones that are
+/// private have nothing a test needs.
+///
+/// **It reads `model.selection` and must NEVER read `model.scene`.**
+/// `CanvasModel` is `@Observable` with the whole scene in one stored property,
+/// and every drag frame and every coast frame writes it — a read here would put
+/// the window's body on the drag loop at 60–120 Hz. `selection` moves on a
+/// click. The same rule keeps `store` off this path except inside the two
+/// actions below, which run from a user gesture: `begin()` snapshots the
+/// manifest once, and `commit(_:)` performs.
+///
+/// **Measured 2026-07-28** (Debug, macOS 26.5), through a real `CanvasView` in a
+/// real `NSHostingView` with the drag driven through the production
+/// `CanvasEventNSView` seam: **120 drag frames evaluated this modifier's body
+/// once** — the one selection change the opening mouse-down makes — and
+/// evaluated the enclosing `ProjectWindow`-shaped body **zero** times. The
+/// instrument was calibrated rather than trusted: ten writes to `model.selection`
+/// produced exactly ten evaluations, so a result of 1 is a real 1 and not a
+/// blind counter. The read is safe because a `ViewModifier`'s body is its own
+/// view — SwiftUI's tracking records `selection`, not the window that built it.
+struct CanvasPromotionModifier: ViewModifier {
+    let window: NSWindow?
+    let store: ProjectStore?
+    let model: CanvasModel
+    let binderSegment: BinderSegment
+
+    @State private var sheet: PromotionSheetModel?
+    @State private var failure: String?
+
+    /// Pure and static so the enablement rule is reachable from a test that
+    /// hosts no SwiftUI — and so adding a `CanvasSelection` case makes the
+    /// compiler enumerate this decision with everything else.
+    static func isPromotable(binderSegment: BinderSegment,
+                             selection: CanvasSelection?) -> Bool {
+        guard binderSegment == .canvas else { return false }
+        switch selection {
+        case .node, .region, .line: return true
+        case nil: return false
+        }
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .focusedSceneValue(\.canvasPromotable,
+                               Self.isPromotable(binderSegment: binderSegment,
+                                                 selection: model.selection))
+            .onKeyWindowCommand(.maughamPromoteCanvasSelection, window: window) { _ in begin() }
+            .sheet(item: $sheet) { model in
+                PromotionSheet(model: model,
+                               onCommit: { commit($0) },
+                               onCancel: { sheet = nil })
+            }
+            .alert("Promotion failed",
+                   isPresented: Binding(get: { failure != nil },
+                                        set: { if !$0 { failure = nil } })) {
+                Button("OK", role: .cancel) { failure = nil }
+            } message: {
+                Text(failure ?? "")
+            }
+    }
+
+    /// The manifest is read ONCE, here, and handed to the sheet as plain values.
+    private func begin() {
+        guard let store, let selection = model.selection,
+              Self.isPromotable(binderSegment: binderSegment, selection: selection) else { return }
+        let source: PromotionSource
+        switch selection {
+        case .node(let id): source = .scrap(id)
+        case .region(let id): source = .region(id)
+        case .line(let id): source = .line(id)
+        }
+        let root = store.url
+        let research = store.manifest.research
+        sheet = PromotionSheetModel(
+            source: source, scene: model.scene, scraps: model.scraps,
+            pieces: ProjectWindow.pieceChoices(in: store.manifest.structure),
+            artifacts: ArtifactIndex.over(research: research),
+            readBody: { itemID in
+                guard let item = TreeWalk.find(id: itemID, in: research),
+                      let path = item.path else { return nil }
+                // The annotation sits ON the read's own line: the ADR 0018 grep
+                // matches per line and a marker one line above is not seen.
+                return try? String(contentsOf: // adr-0018-ok: a research note is not manuscript
+                                    root.appendingPathComponent(path), encoding: .utf8)
+            })
+    }
+
+    private func commit(_ plan: PromotionPlan) {
+        guard let store else { return }
+        sheet = nil
+        Task { @MainActor in
+            do {
+                _ = try await PromotionPerformer(store: store, model: model).perform(plan)
+            } catch {
+                failure = error.localizedDescription
+            }
+        }
+    }
+}

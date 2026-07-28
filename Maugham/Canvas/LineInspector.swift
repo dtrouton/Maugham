@@ -77,6 +77,25 @@ struct LineInspector: View {
             }
 
             Section {
+                Button("Promote…") {
+                    // The SAME command the menu item and ⌘⇧↩ post, so the
+                    // button and the keystroke cannot drift into behaving
+                    // differently. A closure of our own would be a second path.
+                    //
+                    // Safe from this column, and the reason is worth knowing:
+                    // a `.keyWindow` post made from inside a SHEET is dropped,
+                    // because the sheet's own window holds key status (the
+                    // v0.24.0 "enter does nothing" bug, `TranslationReviewModifier`).
+                    // This button is in the project window itself.
+                    MaughamEvent.post(.maughamPromoteCanvasSelection, to: .keyWindow)
+                }
+                Text("A line becomes a [[wiki-link]] once both of its cards have "
+                     + "been promoted.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 Button("Delete Line", role: .destructive) { deleteLine() }
                 Text("Both cards stay on the canvas.")
                     .font(.caption)
