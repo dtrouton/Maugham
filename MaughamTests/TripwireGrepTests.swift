@@ -1477,4 +1477,173 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertTrue(offenders.contains { $0.contains("\"audio\"") },
             "Self-check: the planted \"audio\" literal should be caught.")
     }
+
+    // MARK: - The canvas's undo bracket, reached from another column
+
+    /// Files that DEFINE the bracket rather than reach it from outside. Both
+    /// necessarily spell every verb; censusing them would say nothing.
+    private static let canvasBracketDefiners: Set<String> = [
+        "CanvasModel.swift", "CanvasUndo.swift",
+    ]
+
+    /// The one view that IS the canvas. Everything it does is inside its own
+    /// bracket by construction, so it uses the inside verbs.
+    private static let theCanvasSurface = "CanvasView.swift"
+
+    /// `CanvasModel`'s entry points into the canvas's undo bracket. Reaching the
+    /// bracket from another column through any of these is the defect; only
+    /// `mutateFromInspector(` is safe there.
+    private static let canvasInsideVerbs = [
+        ".mutate(", ".beginGesture(", ".endGesture(", ".breakGesture(",
+    ]
+    private static let canvasOutsideVerb = ".mutateFromInspector("
+
+    /// Which bracket verbs each production file *outside* the canvas surface
+    /// uses. Only files that could hold a `CanvasModel` at all are considered,
+    /// so an unrelated `.mutate(` elsewhere in the app cannot land here.
+    private func canvasBracketCensus(in dir: URL) throws -> [String: [String]] {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            return [:]
+        }
+        var census: [String: [String]] = [:]
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let name = url.lastPathComponent
+            guard name != Self.theCanvasSurface,
+                  !Self.canvasBracketDefiners.contains(name) else { continue }
+            let text = try String(contentsOf: url, encoding: .utf8)
+            guard text.contains("CanvasModel") else { continue }
+            var found: Set<String> = []
+            for line in Self.codeLines(of: text) {
+                for verb in Self.canvasInsideVerbs + [Self.canvasOutsideVerb]
+                where line.contains(verb) {
+                    found.insert(verb)
+                }
+            }
+            if !found.isEmpty { census[name] = found.sorted() }
+        }
+        return census
+    }
+
+    /// Source lines with comments removed, so a verb NAMED in a doc comment is
+    /// not counted as a call. Both files in this census discuss the other verb
+    /// at length in prose, which is the whole point of them.
+    private static func codeLines(of text: String) -> [String] {
+        text.split(separator: "\n", omittingEmptySubsequences: false).compactMap { raw in
+            let line = String(raw)
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("//") || trimmed.hasPrefix("*") { return nil }
+            guard let comment = line.range(of: "//") else { return line }
+            return String(line[..<comment.lowerBound])
+        }
+    }
+
+    /// **A scene change made from another column must use `mutateFromInspector`,
+    /// never `mutate`** — and the two verbs are not interchangeable in either
+    /// direction.
+    ///
+    /// The failure is silent and has now been reached twice in one slice, from
+    /// opposite sides. 1C-b Task 6 shipped a ⌫ that opened a bracket inside an
+    /// open one; Task 7's inspector reached the same state from the other
+    /// column. In both, the nested `beginGesture` takes no snapshot and the
+    /// nested `endGesture` registers nothing, so **the edit is on no undo step
+    /// at all** — and rides into whatever step the open gesture eventually
+    /// closes, where a ⌘Z aimed at a sentence takes something else with it.
+    ///
+    /// Why the two verbs differ, which is the thing the next author needs:
+    ///
+    /// - **From the canvas**, a mutation arriving mid-gesture is the writer's
+    ///   own gesture, and the right answer is to REFUSE — see
+    ///   `CanvasView.deleteSelection`'s `isInGesture` guard. Closing it would
+    ///   end a bracket the writer still believes they hold.
+    /// - **From another column**, there is no gesture of the caller's own to
+    ///   protect, so close-run-reopen is correct, and it is exactly what
+    ///   `CanvasUndo.undo()` already does.
+    ///
+    /// This is a CENSUS, not a ban: it names the call sites, so adding a
+    /// legitimate one is a deliberate edit here rather than a mystery failure.
+    func test_theCanvasUndoBracketIsReachedFromAnotherColumnByOneVerbOnly() throws {
+        let census = try canvasBracketCensus(in: sourceDir)
+        XCTAssertEqual(
+            census,
+            ["RegionInspector.swift": [Self.canvasOutsideVerb]],
+            "The canvas's undo bracket is reached from outside `CanvasView.swift` "
+            + "by exactly one file, using exactly one verb.\n\n"
+            + "If you have ADDED a surface that changes the canvas scene: it must "
+            + "use `CanvasModel.mutateFromInspector`, and it belongs in the "
+            + "expectation above. `mutate`/`beginGesture`/`endGesture` nest "
+            + "inside the \"Edit Scrap\" gesture a focused scrap holds open — "
+            + "nothing outside `CanvasView.handleClick` closes it, and a "
+            + "double-click deliberately leaves the selection alone, so a region "
+            + "can be selected in the inspector while a card is focused. Nested, "
+            + "your edit registers NO undo step and rides into the writer's next "
+            + "one.\n\n"
+            + "From the canvas itself the answer is the opposite — refuse "
+            + "mid-gesture (`deleteSelection`'s `isInGesture` guard), because "
+            + "closing the bracket would end one the writer still holds.\n\n"
+            + "Found:\n\(census)")
+    }
+
+    /// The converse, so the two verbs cannot simply be swapped: the canvas
+    /// surface uses the inside verbs and never the outside one. Reaching for
+    /// `mutateFromInspector` from `CanvasView` would close a bracket the writer
+    /// is still inside.
+    func test_theCanvasSurfaceItselfUsesTheInsideVerbs() throws {
+        let url = sourceDir.appendingPathComponent("Canvas/\(Self.theCanvasSurface)")
+        let code = Self.codeLines(of: try String(contentsOf: url, encoding: .utf8))
+        XCTAssertTrue(code.contains { $0.contains(".mutate(") },
+            "\(Self.theCanvasSurface) is the canvas's own surface and mutates "
+            + "through the inside verb. If this moved, the census above needs to "
+            + "know where it moved to.")
+        XCTAssertFalse(code.contains { $0.contains(Self.canvasOutsideVerb) },
+            "\(Self.theCanvasSurface) must NOT use \(Self.canvasOutsideVerb): "
+            + "close-run-reopen from inside the canvas ends a gesture the writer "
+            + "is still in the middle of.")
+    }
+
+    /// Self-check: prove the census FIRES on a planted offender — a second
+    /// column reaching the bracket with the inside verb. A census of a REQUIRED
+    /// token is exactly the shape that can pass while blind, so it is measured
+    /// rather than assumed.
+    func test_canvasUndoBracketCensusFiresOnAPlantedInsideVerb() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-canvas-bracket-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        struct RegionInspector {
+            let model: CanvasModel
+            func commitLabel(_ new: String) { model.mutateFromInspector("Rename") { _ in } }
+        }
+        """.write(to: tmp.appendingPathComponent("RegionInspector.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
+        /// A doc comment naming model.mutate( must not count as a call.
+        struct CanvasMenuCommands {
+            let model: CanvasModel
+            func tidy() {
+                model.mutate("Tidy") { _ in }   // the planted offender
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("CanvasMenuCommands.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
+        struct Unrelated {
+            func go() { TreeWalk.mutate(id: id, in: items) { _ in } }
+        }
+        """.write(to: tmp.appendingPathComponent("Unrelated.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let census = try canvasBracketCensus(in: tmp)
+        XCTAssertEqual(census["CanvasMenuCommands.swift"], [".mutate("],
+            "Self-check: the planted inside-verb call site should be caught.")
+        XCTAssertEqual(census["RegionInspector.swift"], [Self.canvasOutsideVerb],
+            "Self-check: the sanctioned outside verb is still recorded.")
+        XCTAssertNil(census["Unrelated.swift"],
+            "Self-check: a `.mutate(` in a file that could not hold a CanvasModel "
+            + "is not this tripwire's business — `TreeWalk.mutate` is unrelated "
+            + "and must not be swept in.")
+    }
 }
