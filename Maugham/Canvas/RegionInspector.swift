@@ -18,16 +18,28 @@ import SwiftUI
 /// what says whether it still names anything — `selectedRegion` and
 /// `selectedLine` both answer nil for a stale one, so a switch on the raw case
 /// would need an else of its own on every arm to say the same thing.
+/// **`selectedNode` joined them in 1C-c2** — a card's dedicated arm,
+/// `ScrapInspector`.
 struct RegionInspectorPane: View {
 
     let model: CanvasModel
     let pieces: [RegionInspector.PieceChoice]
+    /// Deferred manifest lookups for the scrap arm — see `ScrapInspector`.
+    let artifactTitle: (String) -> String?
+    let onOpenResearchItem: (String) -> Void
 
     var body: some View {
         if let region = model.selectedRegion {
             RegionInspector(model: model, regionID: region.id, pieces: pieces)
         } else if let line = model.selectedLine {
             LineInspector(model: model, lineID: line.id)
+        } else if let node = model.selectedNode {
+            // 1C-c2's arm. A card used to land in the empty state below, which
+            // was right while a scrap had nothing to say about itself — the
+            // promoted mark is what changed that.
+            ScrapInspector(model: model, nodeID: node.id,
+                           artifactTitle: artifactTitle,
+                           onOpenResearchItem: onOpenResearchItem)
         } else {
             // Tripwire 15: the full-frame chain is required, and so is the
             // enclosing stack's top alignment — `DetailPaneToggle` supplies the
@@ -36,11 +48,7 @@ struct RegionInspectorPane: View {
             // collapses, and the segment picker floats to the middle of the
             // window. It has recurred four or more times; `HistoryPane` is the
             // canonical example.
-            //
-            // **A selected CARD lands here too, deliberately.** A scrap
-            // inspector is not this slice's, and a stub one would be a surface
-            // with nothing to say — the card's text is edited on the card.
-            ContentUnavailableView("Select a region or a line",
+            ContentUnavailableView("Select something on the canvas",
                                    systemImage: "square.dashed")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }

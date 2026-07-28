@@ -1079,11 +1079,11 @@ struct ProjectWindow: View {
                 if let path = piece.path, path.hasSuffix(".fountain") {
                     PieceInspector(
                         store: store, pieceId: id, kind: .screenplay,
-                        onOpenCraftIntent: openCraftIntent)
+                        onOpenCraftIntent: openResearchItem)
                 } else {
                     PieceInspector(
                         store: store, pieceId: id, kind: .prose,
-                        onOpenCraftIntent: openCraftIntent)
+                        onOpenCraftIntent: openResearchItem)
                 }
             }
         } else {
@@ -1101,7 +1101,7 @@ struct ProjectWindow: View {
                 selectedItemId: selectedItemId,
                 metrics: metrics,
                 onOpenProjectSettings: { activeSheet = .projectSettings },
-                onOpenCraftIntent: openCraftIntent
+                onOpenCraftIntent: openResearchItem
             )
         case .canvas:
             // Unreachable — `inspectorRoute` takes the canvas above the
@@ -1142,8 +1142,12 @@ struct ProjectWindow: View {
     /// dependency of the drag loop and re-evaluate all of it at 60–120 Hz.
     /// `RegionInspectorPane` does the resolving, one leaf down.
     private func canvasInspector(store: ProjectStore) -> some View {
-        RegionInspectorPane(model: canvasModel,
-                            pieces: Self.pieceChoices(in: store.manifest.structure))
+        RegionInspectorPane(
+            model: canvasModel,
+            pieces: Self.pieceChoices(in: store.manifest.structure),
+            // Deferred — walked only when a promoted card is selected.
+            artifactTitle: { TreeWalk.find(id: $0, in: store.manifest.research)?.title },
+            onOpenResearchItem: openResearchItem)
     }
 
     /// Every `.document` in the structure tree, as the region inspector's piece
@@ -1153,10 +1157,12 @@ struct ProjectWindow: View {
             .map { RegionInspector.PieceChoice(id: $0.id, title: $0.title) }
     }
 
-    /// Navigate to a craft-intent research doc surfaced from an inspector's
-    /// quiet Add/Open affordance — switches the right pane to Research and
-    /// selects the item, which the existing research click-to-edit flow opens.
-    private func openCraftIntent(_ itemId: String) {
+    /// Navigate to a research item in the right pane: switch to Research and
+    /// select it, which the existing click-to-edit flow opens.
+    ///
+    /// Reached from the craft-intent inspector affordance and, since 1C-c2, from
+    /// a promoted card's **Open** button.
+    private func openResearchItem(_ itemId: String) {
         binderSegment = .research
         selectedResearchId = itemId
     }

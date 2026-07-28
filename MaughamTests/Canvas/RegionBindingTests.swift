@@ -904,7 +904,9 @@ final class RegionBindingTests: XCTestCase {
         let m = model()
         var fired = false
         withObservationTracking {
-            _ = RegionInspectorPane(model: m, pieces: []).body
+            _ = RegionInspectorPane(model: m, pieces: [],
+                                    artifactTitle: { _ in nil },
+                                    onOpenResearchItem: { _ in }).body
         } onChange: {
             fired = true
         }

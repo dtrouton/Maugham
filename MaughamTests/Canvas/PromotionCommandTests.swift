@@ -195,10 +195,6 @@ final class PromotionCommandTests: XCTestCase {
     /// were found by counting production sites, never by a test. This is the
     /// count, written down.
     func test_theInspectorButtonsPostTheSameCommandAsTheMenu() throws {
-        // Task 6 adds "Maugham/Canvas/ScrapInspector.swift" to this list in its
-        // own commit — see that task's steps. It is not listed here because a
-        // task must end green: a deliberately-red test is indistinguishable from
-        // a broken one by the time anybody else looks at it.
         let census: [(path: String, required: [String], why: String)] = [
             ("Maugham/Canvas/RegionInspector.swift", [".maughamPromoteCanvasSelection"],
              "the region inspector's Promote… button must post the ONE command; a "
@@ -206,11 +202,20 @@ final class PromotionCommandTests: XCTestCase {
             ("Maugham/Canvas/LineInspector.swift", [".maughamPromoteCanvasSelection"],
              "the line inspector's Promote… button must post the ONE command; a "
              + "closure of its own would be a second path that can drift from the keystroke"),
+            ("Maugham/Canvas/ScrapInspector.swift", [".maughamPromoteCanvasSelection"],
+             "the scrap inspector's Promote… button must post the ONE command; a "
+             + "closure of its own would be a second path that can drift from the keystroke"),
             ("Maugham/Views/ProjectWindow.swift",
-             [".onKeyWindowCommand(.maughamPromoteCanvasSelection"],
+             [".onKeyWindowCommand(.maughamPromoteCanvasSelection",
+              ".modifier(CanvasPromotionModifier("],
              "nothing in the window RECEIVES the command — every button and the "
              + "keystroke post into nothing, and no test that hosts its own "
-             + "onKeyWindowCommand can see it"),
+             + "onKeyWindowCommand can see it. The second token is the mount line "
+             + "itself: `.onKeyWindowCommand(.maughamPromoteCanvasSelection` lives "
+             + "inside `CanvasPromotionModifier`'s own struct body, in the SAME "
+             + "file, so deleting the line that mounts the modifier on "
+             + "`ProjectWindow.body` leaves the first token present and every test "
+             + "green while `Promote…` is unreachable from the real window"),
             ("Maugham/MaughamApp.swift",
              ["FocusedPromoteButton()", ".maughamPromoteCanvasSelection"],
              "the File-menu item is not IN the menu (or does not post this command), "
@@ -247,6 +252,22 @@ final class PromotionCommandTests: XCTestCase {
             "the census reports the ABSENT token and not the present one — a "
             + "census that reported both, or neither, would be blind in the "
             + "direction that matters")
+        // The mount-line token: falsify it the same way, with a plant that
+        // cannot be a real production spelling. If a future tidy-up deletes
+        // `.modifier(CanvasPromotionModifier(` from `ProjectWindow.body`, this
+        // is the shape that must go red — the receiver token alone
+        // (`.onKeyWindowCommand(.maughamPromoteCanvasSelection`) stays present
+        // because it lives inside the modifier's own struct body, in the same
+        // file, so a census that named only that token would stay green while
+        // `Promote…` is unreachable from the real window.
+        XCTAssertEqual(
+            try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
+                              required: [".onKeyWindowCommand(.maughamPromoteCanvasSelection",
+                                         ".modifier(CanvasNotAPromotionModifier("]),
+            [".modifier(CanvasNotAPromotionModifier("],
+            "the census reports the ABSENT mount-line token and not the present "
+            + "receiver token — a census that reported both, or neither, would "
+            + "be blind in the direction that matters")
     }
 
     /// The name must not collide with the collection-piece promotion that
