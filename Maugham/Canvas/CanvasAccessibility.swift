@@ -121,13 +121,27 @@ enum CanvasAccessibility {
     /// design (spec §5), so most of them have nothing to say, and reading
     /// "unnamed" out three times says less than "3 lines" does.
     ///
+    /// **Whitespace is no name, and the trim is `.whitespacesAndNewlines`** —
+    /// the rule `LineInspector.normalise` applies on the way in. A label that
+    /// arrived from a hand-edited sidecar never passed through it, and
+    /// `.whitespaces` is space and tab only: a label of `"\n"` survives that
+    /// narrower trim, and an assistive client is handed `"1 line:"` followed by
+    /// silence, which is indistinguishable from a bug.
+    ///
+    /// It deliberately does NOT match `CanvasRenderer.lineLabelBox`, which
+    /// still trims `.whitespaces` and so draws an empty pill for that same
+    /// label. "Announce what is drawn" would be the tempting precedent and it
+    /// is the wrong one here: what is drawn in that case is the defect
+    /// `normalise`'s own doc comment describes — visible, unreadable, and
+    /// removable only by finding the field and clearing it twice. See AREA.md.
+    ///
     /// Internal rather than private so the tests assert against the wording
     /// production ships, and pure so they can do it without a scene.
     static func connectionPhrase(for lines: [CanvasLine]) -> String? {
         guard !lines.isEmpty else { return nil }
         let count = "\(lines.count) \(lines.count == 1 ? "line" : "lines")"
         let names = lines
-            .compactMap { $0.label?.trimmingCharacters(in: .whitespaces) }
+            .compactMap { $0.label?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         return names.isEmpty ? count : "\(count): \(names.joined(separator: ", "))"
     }

@@ -972,11 +972,27 @@ final class TripwireGrepTests: XCTestCase {
     /// `ContentUnavailableView(` opener, look ahead up to
     /// `contentUnavailableViewFrameWindow` lines for the required frame
     /// chain. SHARED between the production check and the self-test.
+    ///
+    /// **Offenders are reported by PATH, not by basename.** Over the 103 files
+    /// of one directory a basename was unambiguous; over the 338 of the whole
+    /// app target — `Views/`, `Canvas/`, `Editor/`, `Stores/`, `MCP/`,
+    /// `Publish/` — two panes can share a name and the message would not say
+    /// which one to open. The path is taken relative to `dir`'s PARENT, so the
+    /// production scan reports `Maugham/Canvas/RegionInspector.swift` and the
+    /// self-check's temporary directory still reads sensibly; anything that
+    /// does not sit under that base falls back to the basename rather than
+    /// printing an absolute path from someone else's machine.
     static func findFramelessContentUnavailableViews(in dir: URL) throws -> [String] {
         let fm = FileManager.default
         guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
             return []
         }
+        // Resolved on BOTH sides, or the prefix match is defeated by a symlink
+        // in the path — `/var` against the enumerator's `/private/var` is the
+        // one this test hit, and a repo checked out under a symlinked home is
+        // the same shape in production. Without it the fallback silently hands
+        // back basenames, which is the thing this is here to stop.
+        let base = dir.deletingLastPathComponent().resolvingSymlinksInPath().path
         var offenders: [String] = []
         for case let url as URL in walker where url.pathExtension == "swift" {
             let text = try String(contentsOf: url, encoding: .utf8)
@@ -995,11 +1011,63 @@ final class TripwireGrepTests: XCTestCase {
                     return trimmed.contains(".frame(maxWidth: .infinity")
                 }
                 if !hasFrame {
-                    offenders.append("\(url.lastPathComponent):\(i + 1): \(line.trimmingCharacters(in: .whitespaces))")
+                    let resolved = url.resolvingSymlinksInPath().path
+                    let shown = resolved.hasPrefix(base + "/")
+                        ? String(resolved.dropFirst(base.count + 1))
+                        : url.lastPathComponent
+                    offenders.append("\(shown):\(i + 1): \(line.trimmingCharacters(in: .whitespaces))")
                 }
             }
         }
         return offenders
+    }
+
+    /// **An offender names its PATH, so two panes sharing a basename are
+    /// distinguishable.** Over one directory the basename was enough; the scan
+    /// now covers the whole app target — `Views/`, `Canvas/`, `Editor/`,
+    /// `Stores/`, `MCP/`, `Publish/` — where a repeated name is ordinary, and a
+    /// failure message naming `Inspector.swift` twice tells the reader nothing
+    /// about which file to open.
+    ///
+    /// Two frameless panes with the SAME file name in different subdirectories
+    /// is the fixture, because that is the only shape that can fail: under
+    /// `lastPathComponent` both offenders render as one identical string, so the
+    /// set below collapses to a single element.
+    func test_aFramelessPaneIsReportedByPathSoTwoOfTheSameNameAreDistinguishable() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-cuv-path-selfcheck-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: tmp) }
+
+        let frameless = """
+        struct Pane: View {
+            var body: some View {
+                ContentUnavailableView("Nothing here", systemImage: "tray")
+            }
+        }
+        """
+        for area in ["Views", "Canvas"] {
+            let dir = tmp.appendingPathComponent(area, isDirectory: true)
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            try frameless.write(to: dir.appendingPathComponent("Inspector.swift"),
+                                atomically: true, encoding: .utf8)
+        }
+
+        let offenders = try Self.findFramelessContentUnavailableViews(in: tmp)
+        XCTAssertEqual(offenders.count, 2,
+            "control: both planted panes must be caught, or the distinctness "
+            + "assertion below is about one string. Got:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertEqual(Set(offenders).count, 2,
+            "two frameless panes in different directories report as the SAME "
+            + "string, so the message cannot say which file to open — the scan "
+            + "now covers 338 files across six directories, where a repeated "
+            + "basename is ordinary. Got:\n" + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.contains { $0.hasPrefix("\(tmp.lastPathComponent)/Canvas/") },
+            "the path is reported relative to the scanned root's PARENT, so a "
+            + "production offender reads Maugham/Canvas/RegionInspector.swift "
+            + "rather than an absolute path from someone else's machine. Got:\n"
+            + offenders.joined(separator: "\n"))
     }
 
     /// Self-check: prove the frame guard FIRES on a planted frameless

@@ -396,15 +396,23 @@ final class CanvasAccessibilityTests: XCTestCase {
     /// Whitespace is no label — the same rule `LineInspector.normalise` applies
     /// on the way in, asserted here because a label that arrived from a
     /// hand-edited sidecar never passed through it.
+    ///
+    /// **The newline case is the one that made the trims matter.**
+    /// `.whitespaces` is space and tab only, so `"\n"` survives it — and
+    /// `CanvasRenderer.lineLabelBox` still trims that narrower set, which is
+    /// why "match the renderer" is not the precedent here. Both fixtures are
+    /// driven, so widening one trim and not the other cannot pass.
     func test_aWhitespaceLabelIsNotReadOutAsAName() {
-        var scene = CanvasScene()
-        scene.insert(scrapNode("a", x: 0, y: 0))
-        scene.insert(scrapNode("b", x: 400, y: 0))
-        scene.insertLine(CanvasLine(id: CanvasLineID("l1"), from: CanvasNodeID("a"),
-                                    to: CanvasNodeID("b"), label: "   "))
-        XCTAssertEqual(label("a", in: scene), "Scrap, 1 line",
-                       "a label of spaces is read out as a name, so the card "
-                       + "announces \"1 line:\" and then stops")
+        for blank in ["   ", "\n", " \t\n "] {
+            var scene = CanvasScene()
+            scene.insert(scrapNode("a", x: 0, y: 0))
+            scene.insert(scrapNode("b", x: 400, y: 0))
+            scene.insertLine(CanvasLine(id: CanvasLineID("l1"), from: CanvasNodeID("a"),
+                                        to: CanvasNodeID("b"), label: blank))
+            XCTAssertEqual(label("a", in: scene), "Scrap, 1 line",
+                           "a label of \(blank.debugDescription) is read out as a "
+                           + "name, so the card announces \"1 line:\" and then stops")
+        }
     }
 
     func test_severalLinesOnOneCardAreCountedAndNamedTogether() {
