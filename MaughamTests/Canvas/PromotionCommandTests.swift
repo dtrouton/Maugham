@@ -29,9 +29,16 @@ final class PromotionCommandTests: XCTestCase {
     }
 
     func test_everySelectionKindIsPromotable() {
-        // A caller census in enum form: adding a `CanvasSelection` case makes
-        // this fail to compile rather than silently shipping a fourth primitive
-        // the command ignores.
+        // **The compiler is the enforcer, and it is not this loop.** Adding a
+        // `CanvasSelection` case breaks `CanvasPromotionModifier.isPromotable`'s
+        // `switch`, which is exhaustive and has no `default`; this array literal
+        // would happily go on omitting a fourth case and stay green. So this is
+        // the behavioural companion to that switch — it says what the three
+        // present cases must ANSWER — and not the thing that catches a new one.
+        //
+        // Written out because the guarantee is real and the obvious place to
+        // look for it is wrong: a rule whose stated reason is false gets
+        // deleted by the next author who checks the reason.
         for selection: CanvasSelection in [.node(a), .region(CanvasRegionID("r")),
                                            .line(CanvasLineID("l"))] {
             XCTAssertTrue(CanvasPromotionModifier.isPromotable(binderSegment: .canvas,
@@ -153,25 +160,93 @@ final class PromotionCommandTests: XCTestCase {
         }
     }
 
-    /// The inspector buttons post the SAME command the menu posts, so a writer
-    /// who clicks and a writer who presses ⌘⇧↩ take the same path.
-    func test_theInspectorButtonsPostTheSameCommandAsTheMenu() throws {
-        let dir = URL(fileURLWithPath: #filePath)
+    // MARK: - The wiring census
+
+    private static var repoRoot: URL {
+        URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()   // Canvas
             .deletingLastPathComponent()   // MaughamTests
             .deletingLastPathComponent()   // repo root
-            .appendingPathComponent("Maugham/Canvas")
-        // Task 6 adds "ScrapInspector.swift" to this list in its own commit —
-        // see that task's steps. It is not listed here because a task must end
-        // green: a deliberately-red test is indistinguishable from a broken one
-        // by the time anybody else looks at it.
-        for file in ["RegionInspector.swift", "LineInspector.swift"] {
-            let text = try String(contentsOf: dir.appendingPathComponent(file), encoding: .utf8)
-            XCTAssertTrue(text.contains(".maughamPromoteCanvasSelection"),
-                          "\(file) must reach promotion through the one command. A "
-                          + "closure of its own would be a second path that can "
-                          + "drift from the keystroke.")
+    }
+
+    /// Which of `required` are absent from the file at `path`. Shared by the
+    /// census and by its planted-offender companion, so there is exactly one
+    /// implementation to get wrong.
+    private func missingTokens(in path: String, required: [String]) throws -> [String] {
+        let url = Self.repoRoot.appendingPathComponent(path)
+        let text = try String(contentsOf: url, encoding: .utf8)
+        return required.filter { !text.contains($0) }
+    }
+
+    /// The inspector buttons post the SAME command the menu posts, so a writer
+    /// who clicks and a writer who presses ⌘⇧↩ take the same path — **and both
+    /// halves of the wiring outside this directory are named here too.**
+    ///
+    /// **Why the census reaches past `Maugham/Canvas/`.** Every other test in
+    /// this file exercises an *equivalent* of the production wiring rather than
+    /// the wiring itself: `isPromotable` is a pure function, and the
+    /// real-delivery test hosts its own `Color.clear.onKeyWindowCommand(...)`.
+    /// So with a census confined to the two inspectors, `CanvasPromotionModifier`
+    /// could subscribe to `.maughamPromotePiece`, or `FocusedPromoteButton()`
+    /// could be left out of the `CommandGroup` entirely, and **all six tests
+    /// stay green** while `Promote…` is greyed out or deaf. That is this
+    /// directory's signature defect — 1C-a's ⌘Z was built, twenty-two tests
+    /// deep, and unreachable from the Edit menu — and all four instances of it
+    /// were found by counting production sites, never by a test. This is the
+    /// count, written down.
+    func test_theInspectorButtonsPostTheSameCommandAsTheMenu() throws {
+        // Task 6 adds "Maugham/Canvas/ScrapInspector.swift" to this list in its
+        // own commit — see that task's steps. It is not listed here because a
+        // task must end green: a deliberately-red test is indistinguishable from
+        // a broken one by the time anybody else looks at it.
+        let census: [(path: String, required: [String], why: String)] = [
+            ("Maugham/Canvas/RegionInspector.swift", [".maughamPromoteCanvasSelection"],
+             "the region inspector's Promote… button must post the ONE command; a "
+             + "closure of its own would be a second path that can drift from the keystroke"),
+            ("Maugham/Canvas/LineInspector.swift", [".maughamPromoteCanvasSelection"],
+             "the line inspector's Promote… button must post the ONE command; a "
+             + "closure of its own would be a second path that can drift from the keystroke"),
+            ("Maugham/Views/ProjectWindow.swift",
+             [".onKeyWindowCommand(.maughamPromoteCanvasSelection"],
+             "nothing in the window RECEIVES the command — every button and the "
+             + "keystroke post into nothing, and no test that hosts its own "
+             + "onKeyWindowCommand can see it"),
+            ("Maugham/MaughamApp.swift",
+             ["FocusedPromoteButton()", ".maughamPromoteCanvasSelection"],
+             "the File-menu item is not IN the menu (or does not post this command), "
+             + "so ⌘⇧↩ reaches nothing — the 1C-a shape exactly: built, tested, greyed out"),
+        ]
+        for entry in census {
+            let missing = try missingTokens(in: entry.path, required: entry.required)
+            XCTAssertTrue(missing.isEmpty,
+                          "\(entry.path) is missing \(missing) — \(entry.why).")
         }
+    }
+
+    /// Self-check: prove the census can FAIL. A census over a REQUIRED token is
+    /// exactly the shape that passes while blind — a typo'd path, a token that
+    /// matches something else, or a predicate inverted by a tidy-up all read as
+    /// green — so the repo's convention is to pair one with a planted offender.
+    ///
+    /// **Both plants are deliberately unspellable in production.** An earlier
+    /// draft planted `.onKeyWindowCommand(.maughamPromotePiece` — a *plausible*
+    /// defect — and that made this self-check go red under the very mutation it
+    /// was written to survive: breaking the receiver's name made the "absent"
+    /// token present. A self-check whose plant a real bug can satisfy is a false
+    /// alarm waiting to happen, so both plants name symbols that cannot exist.
+    func test_theCensusFailsWhenPointedAtWiringThatIsNotThere() throws {
+        XCTAssertEqual(
+            try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
+                              required: [".onKeyWindowCommand(.maughamNotARealCommand"]).count, 1,
+            "the census reports a token that is genuinely absent")
+        XCTAssertEqual(
+            try missingTokens(in: "Maugham/MaughamApp.swift",
+                              required: ["FocusedNotAButton()",
+                                         ".maughamPromoteCanvasSelection"]),
+            ["FocusedNotAButton()"],
+            "the census reports the ABSENT token and not the present one — a "
+            + "census that reported both, or neither, would be blind in the "
+            + "direction that matters")
     }
 
     /// The name must not collide with the collection-piece promotion that

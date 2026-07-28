@@ -1836,9 +1836,19 @@ struct CanvasPromotionModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            // `sheet == nil` is joined HERE rather than inside `isPromotable`,
+            // and that is deliberate: the pure function stays a fact about the
+            // canvas (segment plus selection) that a test can drive, while
+            // presentation state stays where presentation lives. Without it the
+            // File item is still enabled while the sheet is up — selection and
+            // segment have not moved — and a ⌘⇧↩ there is dropped by the very
+            // rule the inspector buttons' comments cite, because the sheet's own
+            // window holds key status. An enabled command that does nothing is
+            // the condition `.disabled(promotable != true)` exists to prevent.
             .focusedSceneValue(\.canvasPromotable,
-                               Self.isPromotable(binderSegment: binderSegment,
-                                                 selection: model.selection))
+                               sheet == nil
+                               && Self.isPromotable(binderSegment: binderSegment,
+                                                    selection: model.selection))
             .onKeyWindowCommand(.maughamPromoteCanvasSelection, window: window) { _ in begin() }
             .sheet(item: $sheet) { model in
                 PromotionSheet(model: model,
