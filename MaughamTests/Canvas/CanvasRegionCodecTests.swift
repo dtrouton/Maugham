@@ -95,8 +95,29 @@ final class CanvasRegionCodecTests: XCTestCase {
         XCTAssertEqual(scene.regionCount, 0)
     }
 
-    func test_theSchemaVersionIsActuallyBumped() {
-        XCTAssertEqual(CanvasSceneDTO.currentSchemaVersion, 3)
+    /// The forward-compatibility promise the schema-3 bump makes to every
+    /// canvas 1C-b wrote: a schema-2 file — no `lines` key at all — carrying
+    /// REAL, populated regions (not `test_aSchemaV1SidecarLoadsItsNodesAndNoRegions`'s
+    /// empty case) still decodes those regions intact under
+    /// `currentSchemaVersion == 3`. The version literal itself is asserted
+    /// once, in `CanvasLineCodecTests.test_theSchemaVersionIsThree` — this
+    /// test's job is the region content surviving the bump, not the number.
+    func test_aSchemaV2SidecarsPopulatedRegionsSurviveTheBumpToSchemaThree() throws {
+        try writeSidecar("""
+        {"schemaVersion":2,"nodes":[{"id":"a","kind":"scrap","x":0,"y":0,\
+        "width":240,"cachedHeight":80,"z":1},{"id":"b","kind":"scrap","x":50,"y":60,\
+        "width":240,"cachedHeight":80,"z":1}],"regions":[\
+        {"id":"r1","label":"Act II fog","x":10,"y":20,"width":300,"height":200,\
+        "homeMembers":["a"],"appearances":["b"],"boundPieceID":"piece-3",\
+        "isCollapsed":true}]}
+        """)
+        let r = CanvasStore(projectRoot: root).load().scene.region(CanvasRegionID("r1"))
+        XCTAssertEqual(r?.label, "Act II fog")
+        XCTAssertEqual(r?.frame, CGRect(x: 10, y: 20, width: 300, height: 200))
+        XCTAssertEqual(r?.homeMembers, [CanvasNodeID("a")])
+        XCTAssertEqual(r?.appearances, [CanvasNodeID("b")])
+        XCTAssertEqual(r?.boundPieceID, "piece-3")
+        XCTAssertEqual(r?.isCollapsed, true)
     }
 
     /// The repair, not the crash. Both regions claim 'a' as home.
