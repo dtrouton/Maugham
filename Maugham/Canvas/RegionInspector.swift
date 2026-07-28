@@ -132,8 +132,16 @@ struct RegionInspector: View {
 
             memberSection("Lives here", rows: memberRows.residents,
                           empty: "No cards live in this region yet.")
-            memberSection("Appears here", rows: memberRows.visitors,
-                          empty: "No cards are referenced here.")
+
+            // The one section with an add control, because it is the one
+            // membership a writer can *declare*. Living here is decided by where
+            // the card was dropped (§4.2's deliberate act, and the drop is it);
+            // appearing here is a claim about meaning that no gesture can infer.
+            Section("Appears here") {
+                memberRowsOrEmpty(memberRows.visitors,
+                                  empty: "No cards are referenced here.")
+                citeControl
+            }
 
             Section {
                 Button("Delete Region", role: .destructive) { deleteRegion() }
@@ -182,6 +190,12 @@ struct RegionInspector: View {
         // splits and ~150 localized comparisons at 60–120 Hz, and a region drag
         // is exactly when the list is longest.
         //
+        // **The candidate list rides the same gate and needs it more**: it is
+        // the same work over EVERY node in the scene rather than one region's
+        // members, so it grows with the canvas instead of with the region. It is
+        // in `MemberRows` for that reason — a second cache with a second key is
+        // how a control comes to offer a card that is already listed above it.
+        //
         // `sceneRevision` exists for this, and membership cannot change except
         // at a structural boundary — a drop bumps it at `.ended`, and every
         // inspector commit bumps it too. `regionID` is the second key because
@@ -201,38 +215,113 @@ struct RegionInspector: View {
 
     @ViewBuilder
     private func memberSection(_ title: String, rows: [Row], empty: String) -> some View {
-        Section(title) {
-            if rows.isEmpty {
-                Text(empty).font(.caption).foregroundStyle(.secondary)
-            } else {
-                ForEach(rows) { row in
-                    HStack(spacing: 6) {
-                        Text(row.title).lineLimit(1).truncationMode(.tail)
-                        Spacer(minLength: 0)
-                        Button {
-                            remove(row.node)
-                        } label: {
-                            Image(systemName: "minus.circle")
-                        }
-                        .buttonStyle(.borderless)
-                        .help("Remove from this region — the card stays on the canvas")
-                        // `.help` is a tooltip, not an accessibility label, and
-                        // this button's only content is a glyph. Without this a
-                        // VoiceOver user meets an unnamed button per row — on a
-                        // surface that owns its whole accessibility tree by hand
-                        // precisely because §7A.6 calls one non-optional in a
-                        // writing tool.
-                        .accessibilityLabel("Remove \(row.title) from this region")
+        Section(title) { memberRowsOrEmpty(rows, empty: empty) }
+    }
+
+    /// Factored out of `memberSection` so the "Appears here" section can put its
+    /// add control after the same rows. A second copy of the row body is how the
+    /// two lists would drift apart.
+    @ViewBuilder
+    private func memberRowsOrEmpty(_ rows: [Row], empty: String) -> some View {
+        if rows.isEmpty {
+            Text(empty).font(.caption).foregroundStyle(.secondary)
+        } else {
+            ForEach(rows) { row in
+                HStack(spacing: 6) {
+                    Text(row.title).lineLimit(1).truncationMode(.tail)
+                    Spacer(minLength: 0)
+                    Button {
+                        remove(row.node)
+                    } label: {
+                        Image(systemName: "minus.circle")
                     }
+                    .buttonStyle(.borderless)
+                    .help("Remove from this region — the card stays on the canvas")
+                    // `.help` is a tooltip, not an accessibility label, and
+                    // this button's only content is a glyph. Without this a
+                    // VoiceOver user meets an unnamed button per row — on a
+                    // surface that owns its whole accessibility tree by hand
+                    // precisely because §7A.6 calls one non-optional in a
+                    // writing tool.
+                    .accessibilityLabel("Remove \(row.title) from this region")
                 }
             }
         }
     }
 
-    /// The two member lists, plus the key they were computed at.
+    /// **The other half of the minus button**, and the only way anything ever
+    /// enters "Appears here".
     ///
-    /// A named type rather than two `@State` arrays so a refresh cannot update
-    /// one and forget the other, and so the gate has something to test.
+    /// A `Menu` rather than a `Picker` or a sheet. A `Picker` is the wrong verb:
+    /// its binding says *which one is chosen*, and there is no such state here —
+    /// citing is an action that happens repeatedly and leaves nothing selected,
+    /// so a `Picker` would need a write-only binding with a sentinel it snaps
+    /// back to, which is the shape of a bug rather than a control. A sheet is the
+    /// right answer when the choice needs search, multi-select or preview, and
+    /// none of those is true of a list of card titles on one canvas. A `Menu` is
+    /// a button that happens to offer a list — which is exactly the act.
+    ///
+    /// **It is handed the gated snapshot; it never reads `candidates`.** That
+    /// property walks the whole scene, and this is `body` — see `candidates`.
+    @ViewBuilder
+    private var citeControl: some View {
+        switch citeAffordance(from: memberRows) {
+        case .explanation(let why):
+            Text(why).font(.caption).foregroundStyle(.secondary)
+        case .menu(let offer):
+            Menu {
+                ForEach(offer) { row in
+                    Button(row.title) { cite(row.node) }
+                }
+            } label: {
+                Label("Cite a Card", systemImage: "plus.circle")
+            }
+            .help("Reference a card here without moving it — it keeps its home region")
+            // The label carries text, so this is not the icon-only case the
+            // remove button is. It is here anyway because "Cite a Card" alone
+            // does not say *where*, and this menu is one of two controls in the
+            // section that read identically out of context.
+            .accessibilityLabel("Cite a card in this region")
+        }
+    }
+
+    /// What the add control is, right now — a live menu or a sentence saying why
+    /// there isn't one.
+    ///
+    /// **A decision, lifted out of the view so it can be tested.** The rule it
+    /// carries is that there must be **no live control onto an empty list**: a
+    /// `Menu` that opens on nothing is worse than absent, because it says a thing
+    /// is possible and then shows the writer a blank rectangle they cannot tell
+    /// from a bug. Left as an `if` inside `citeControl` that rule would be
+    /// unreachable from any test that does not host SwiftUI.
+    enum CiteAffordance: Equatable {
+        case menu([Row])
+        case explanation(String)
+    }
+
+    /// Takes the snapshot rather than reading `memberRows`, for the same reason
+    /// `refreshedRows` does: the one function the view and the test both drive,
+    /// so what ships is what is pinned.
+    func citeAffordance(from rows: MemberRows) -> CiteAffordance {
+        guard !rows.candidates.isEmpty else {
+            // The two reasons are different acts for the writer — make a card,
+            // or accept that this region already holds the lot — and one message
+            // covering both would be wrong half the time.
+            return .explanation(model.scene.isEmpty
+                ? "There are no cards on the canvas to cite."
+                : "Every card on the canvas is already in this region.")
+        }
+        return .menu(rows.candidates)
+    }
+
+    /// The two member lists and the candidate list, plus the key they were
+    /// computed at.
+    ///
+    /// A named type rather than three `@State` arrays so a refresh cannot update
+    /// one and forget the others, and so the gate has something to test. The
+    /// candidates ride in the same box on purpose: they are the complement of
+    /// the other two over the same scene, and a second cache with a second key
+    /// is how a control comes to offer a card that is already listed above it.
     struct MemberRows: Equatable {
         /// What the rows are keyed on. Both terms are needed: `revision` alone
         /// misses a change of selected region (selection is not structural),
@@ -245,6 +334,8 @@ struct RegionInspector: View {
         var key: Key?
         var residents: [Row] = []
         var visitors: [Row] = []
+        /// What the add control offers: every card not already in either list.
+        var candidates: [Row] = []
     }
 
     /// What the rows would be keyed on right now. Read in `body`, which is what
@@ -262,7 +353,8 @@ struct RegionInspector: View {
     func refreshedRows(from current: MemberRows) -> MemberRows {
         let key = currentRowsKey
         guard current.key != key else { return current }
-        return MemberRows(key: key, residents: residents, visitors: visitors)
+        return MemberRows(key: key, residents: residents, visitors: visitors,
+                          candidates: candidates)
     }
 
     // MARK: - What the region holds
@@ -277,6 +369,33 @@ struct RegionInspector: View {
 
     var visitors: [Row] {
         rows(region?.appearances ?? [])
+    }
+
+    /// Every card that is not already in this region — what the add control
+    /// offers, and nothing else.
+    ///
+    /// **This is `residents`' shape and strictly larger.** Those two walk one
+    /// region's member sets; this walks *every node in the scene*, and then pays
+    /// the same `chipTitle` per card — which splits that card's whole scrap text
+    /// on newlines and trims each line — and the same `localizedStandardCompare`
+    /// per comparison. It is behind the same `(sceneRevision, regionID)` gate for
+    /// exactly that reason: read from `body` it would run on every drag, coast
+    /// and straighten frame, and unlike the member lists it gets *more*
+    /// expensive as the canvas fills rather than as the region does.
+    ///
+    /// `unorderedNodes`, not `nodes`: `rows` imposes its own title order, and
+    /// `CanvasScene.nodes` sorts the whole scene on every access and says in its
+    /// own doc not to be reached for by anyone who is about to re-sort.
+    ///
+    /// **A card hidden inside another, collapsed region is still offered.**
+    /// Excluding it would make a collapsed region's residents permanently
+    /// uncitable — collapse is a view state, not a quarantine — and the renderer
+    /// already declines to draw a chip for a hidden node, so the citation is
+    /// simply recorded and the chip appears when that region is expanded.
+    var candidates: [Row] {
+        guard let region else { return [] }
+        let alreadyHere = region.homeMembers.union(region.appearances)
+        return rows(Set(model.scene.unorderedNodes.map(\.id)).subtracting(alreadyHere))
     }
 
     /// Ordered by the title the canvas shows, then by id.
@@ -352,6 +471,34 @@ struct RegionInspector: View {
             } else {
                 RegionBinding.unbind(regionID, in: &scene)
             }
+        }
+        model.bumpSceneRevision()
+    }
+
+    /// Cite a card here without moving it — §4.3's *one home, many appearances*,
+    /// and the act that makes this a planning surface rather than a filing one.
+    /// The street photo belongs to the piece it illustrates **and** to the book's
+    /// visual language; without this the writer is pushed back into the premature
+    /// single choice the design exists to avoid.
+    ///
+    /// **Inspector-only, deliberately.** The alternative — a modifier-held drop —
+    /// would put a modifier flag through `CanvasEventNSView`'s callbacks, which
+    /// is the signature this slice has kept stable throughout, for a gesture
+    /// nobody would discover. `CanvasRegion.addAppearance` refuses a node that
+    /// already lives here, so the disjointness of the two sets survives a caller
+    /// that has not thought about it; the guard below is not relying on that.
+    ///
+    /// **The guard is `remove`'s, in the mirror, and it is not decoration.** The
+    /// candidate list is a gated snapshot, so between the menu opening and the
+    /// writer choosing a row, an undo can put that card into this region — and a
+    /// citation of a card already here would push an undo step that changes
+    /// nothing. `scene.node(node) != nil` covers the same window closing the
+    /// other way: an undo that took the card off the canvas entirely.
+    func cite(_ node: CanvasNodeID) {
+        guard let region, model.scene.node(node) != nil,
+              !region.mentions(node) else { return }
+        model.mutateFromInspector("Cite in Region") {
+            CanvasMembership.addAppearance(node, to: regionID, in: &$0)
         }
         model.bumpSceneRevision()
     }

@@ -172,6 +172,12 @@ final class RegionBindingTests: XCTestCase {
         XCTAssertEqual(m.sceneRevision, before + 3,
                        "and a guard that swallows a REAL change is the same defect "
                        + "wearing the opposite sign")
+        i.cite(a)
+        XCTAssertEqual(m.sceneRevision, before + 4,
+                       "a citation changes what the canvas DRAWS — a chip inside "
+                       + "the region, hairlined back to the card — and nothing in "
+                       + "`CanvasView`'s own state moved, so this bump is the only "
+                       + "thing that gets the redraw")
     }
 
     func test_collapsingThroughTheInspectorHidesTheResidents() {
@@ -231,6 +237,340 @@ final class RegionBindingTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(m.scene.region(r1)).appearsHere(a))
         XCTAssertTrue(try XCTUnwrap(m.scene.region(r2)).livesHere(a),
                       "the inspector removes from THIS region, not from every region")
+    }
+
+    // MARK: - Citing a card, which is the only way an appearance is ever made
+
+    /// §4.3, and the reason this control exists: a citation is a REFERENCE, so
+    /// the card keeps whatever home it had.
+    ///
+    /// The home assertion is the one that fails on the obvious bug — `cite`
+    /// reaching for `CanvasMembership.join` instead of `addAppearance` satisfies
+    /// "r1 now mentions the card" and quietly moves it out of r2.
+    func test_citingACardMakesItAVisitorAndLeavesItsHomeAlone() throws {
+        let m = model()
+        m.withScene { CanvasMembership.join(self.a, home: self.r2, in: &$0) }
+        inspector(m).cite(a)
+
+        let r1After = try XCTUnwrap(m.scene.region(r1))
+        XCTAssertTrue(r1After.appearsHere(a))
+        XCTAssertFalse(r1After.livesHere(a), "cited, not moved")
+        XCTAssertTrue(try XCTUnwrap(m.scene.region(r2)).livesHere(a),
+                      "one home, many appearances — the citation does not take "
+                      + "the card away from the region it lives in")
+        XCTAssertNotNil(m.scene.node(a), "and it is still one card, not two")
+    }
+
+    /// The full round trip the smoke script walks: cite → it is listed under
+    /// "Appears here" → it is drawn as a chip hairlined back to the real card.
+    /// Before this control, every one of those three was reachable only from a
+    /// test.
+    func test_aCitedCardIsListedAsAVisitorAndDrawnAsAChip() throws {
+        let m = model()
+        // Parked well outside the region, which is the interesting case: the
+        // chip is drawn inside r1 and hairlined back to where the card actually
+        // is. Nothing about that geometry decides membership (§4.2).
+        m.withScene { $0.move(self.a, to: CGPoint(x: 900, y: 900)) }
+        m.setScrapText("The lamp on the bridge", for: a)
+        inspector(m).cite(a)
+
+        XCTAssertEqual(inspector(m).visitors.map(\.title), ["The lamp on the bridge"])
+        let chips = CanvasRenderer.appearanceChips(in: m.scene)
+        XCTAssertEqual(chips.map(\.node), [a],
+                       "Task 4 draws this and nothing could put anything in it")
+        XCTAssertEqual(try XCTUnwrap(chips.first).region, r1)
+    }
+
+    func test_citingReachesDiskAndIsUndoable() throws {
+        let m = model()
+        inspector(m).cite(a)
+        m.flush()
+        XCTAssertEqual(CanvasStore(projectRoot: root).load().scene.region(r1)?.appearances,
+                       [a], "Task 2 round-trips appearances; this is the first "
+                       + "production write that makes one")
+        m.undo.undo()
+        XCTAssertTrue(try XCTUnwrap(m.scene.region(r1)).appearances.isEmpty)
+    }
+
+    /// **The nesting test, and the one that needs the step's NAME.** A visit to a
+    /// scrap holds "Edit Scrap" open and nothing on the inspector's side closes
+    /// it; through `CanvasModel.mutate` the citation nests, registers nothing of
+    /// its own, and rides into the writer's next keystroke.
+    ///
+    /// Asserting only the post-⌘Z scene cannot see that: the enclosing bracket's
+    /// snapshot predates the citation too, so undoing it also removes the
+    /// appearance and every scene assertion is satisfied by the coincidence.
+    /// Measured twice already in this task (M13, M31). The discriminator is what
+    /// the writer reads in the Edit menu.
+    func test_aCitationIsItsOwnStepWithAScrapStillFocused() throws {
+        let m = model()
+        m.beginGesture("Edit Scrap")
+        m.setScrapText("The fog came down.", for: b)
+
+        inspector(m).cite(a)
+        XCTAssertTrue(m.undo.undoMenuItemTitle.contains("Cite in Region"),
+                      "the step on top must be the citation's own — through "
+                      + "`mutate` it would be \"Edit Scrap\", and the scene "
+                      + "assertions below pass either way. Got: "
+                      + m.undo.undoMenuItemTitle)
+
+        m.undo.undo()
+        XCTAssertTrue(try XCTUnwrap(m.scene.region(r1)).appearances.isEmpty,
+                      "one ⌘Z takes back the citation…")
+        XCTAssertEqual(m.scraps[b], "The fog came down.",
+                       "…and the sentence in flight is not collateral damage")
+    }
+
+    /// The offer: everything on the canvas that is not already in this region,
+    /// counted from both sides so a filter that drops the wrong set is visible.
+    func test_theOfferIsEveryCardNotAlreadyInThisRegion() {
+        let m = model()
+        m.withScene {
+            CanvasMembership.join(self.a, home: self.r1, in: &$0)
+            CanvasMembership.addAppearance(self.b, to: self.r1, in: &$0)
+        }
+        XCTAssertEqual(inspector(m).candidates.map(\.node), [c],
+                       "a resident is not offered (it is already here) and neither "
+                       + "is an existing visitor (citing it twice is a no-op step)")
+    }
+
+    /// A card that lives in ANOTHER region is the whole point of the control, so
+    /// it must be on the list. This is the assertion that dies if the candidate
+    /// filter is written against every region's membership rather than this
+    /// region's.
+    func test_aCardLivingInAnotherRegionIsOffered() {
+        let m = model()
+        m.withScene { CanvasMembership.join(self.a, home: self.r2, in: &$0) }
+        XCTAssertTrue(inspector(m).candidates.map(\.node).contains(a),
+                      "the street photo belongs to the piece it illustrates AND "
+                      + "to the book's visual language — offering only homeless "
+                      + "cards is the premature single choice again")
+    }
+
+    /// Same comparator as the member lists, and the same reason: every empty card
+    /// answers `chipTitle` with the same placeholder, so title alone leaves a
+    /// `Set`'s iteration order deciding a menu the writer is reading.
+    func test_theOfferIsOrderedByTitleThenId() {
+        let m = model()
+        m.setScrapText("Zermatt", for: a)
+        m.setScrapText("Aare", for: b)
+        m.setScrapText("Matterhorn", for: c)
+        XCTAssertEqual(inspector(m).candidates.map(\.title),
+                       ["Aare", "Matterhorn", "Zermatt"])
+    }
+
+    /// **Empty state: no live control onto nothing.** Both ways in — a region
+    /// that already holds everything, and a canvas with no cards at all — and
+    /// they get different sentences, because they are different acts for the
+    /// writer (make a card, or accept that this region holds the lot).
+    func test_aRegionWithNothingLeftToOfferPresentsNoControl() throws {
+        let m = model()
+        m.withScene {
+            for id in [self.a, self.b, self.c] {
+                CanvasMembership.join(id, home: self.r1, in: &$0)
+            }
+        }
+        m.bumpSceneRevision()
+        let i = inspector(m)
+        XCTAssertEqual(i.citeAffordance(from: i.refreshedRows(from: .init())),
+                       .explanation("Every card on the canvas is already in this region."))
+
+        let bare = CanvasModel()
+        bare.attach(projectRoot: root.appendingPathComponent("bare"))
+        bare.withScene {
+            $0.insertRegion(CanvasRegion(id: self.r1, label: "Only",
+                                         frame: CGRect(x: 0, y: 0, width: 600, height: 400)))
+        }
+        let onEmptyCanvas = RegionInspector(model: bare, regionID: r1, pieces: [])
+        XCTAssertEqual(onEmptyCanvas.citeAffordance(from: onEmptyCanvas.refreshedRows(from: .init())),
+                       .explanation("There are no cards on the canvas to cite."),
+                       "and it is a DIFFERENT sentence — the writer's next act is "
+                       + "to make a card, not to accept a full region")
+    }
+
+    /// The control, and the other side of the rule above: with something to
+    /// offer, the affordance is the live menu carrying exactly the gated list.
+    func test_aRegionWithSomethingToOfferPresentsTheMenu() {
+        let m = model()
+        m.bumpSceneRevision()
+        let i = inspector(m)
+        let rows = i.refreshedRows(from: .init())
+        guard case .menu(let offer) = i.citeAffordance(from: rows) else {
+            return XCTFail("a canvas with three uncited cards must offer a live menu")
+        }
+        XCTAssertEqual(offer.map(\.node), [a, b, c])
+        XCTAssertEqual(offer, rows.candidates,
+                       "the menu offers the gated snapshot and nothing it "
+                       + "recomputed for itself")
+    }
+
+    /// Citing something already here must not push a step. It is reachable: the
+    /// candidate list is a gated snapshot, so an undo can put the card into this
+    /// region between the menu opening and the writer choosing.
+    func test_citingACardThatIsAlreadyHereIsANoOp() {
+        let m = model()
+        m.withScene {
+            CanvasMembership.join(self.a, home: self.r1, in: &$0)
+            CanvasMembership.addAppearance(self.b, to: self.r1, in: &$0)
+        }
+        m.bumpSceneRevision()
+        let before = m.sceneRevision
+        inspector(m).cite(a)
+        inspector(m).cite(b)
+        XCTAssertEqual(m.sceneRevision, before,
+                       "two citations of cards already in the region — without the "
+                       + "guard each one redraws the canvas and costs a ⌘Z")
+        XCTAssertFalse(m.undo.canUndo)
+    }
+
+    /// The other half of that window: an undo took the card off the canvas
+    /// entirely while the menu was open.
+    func test_citingACardThatHasLeftTheCanvasIsANoOp() throws {
+        let m = model()
+        let stale = inspector(m).candidates
+        XCTAssertTrue(stale.map(\.node).contains(a), "the control: it was offered")
+        m.withScene { $0.remove(self.a) }
+        m.bumpSceneRevision()
+        let before = m.sceneRevision
+        inspector(m).cite(a)
+        XCTAssertEqual(m.sceneRevision, before)
+        XCTAssertTrue(try XCTUnwrap(m.scene.region(r1)).appearances.isEmpty,
+                      "a stale menu row must not cite a card that is gone — the "
+                      + "region would carry an id nothing on the canvas answers to")
+    }
+
+    /// The candidate list is behind the SAME gate as the member lists, and it
+    /// needs it more: it walks every node in the scene rather than one region's
+    /// members. Both directions, exactly as the member-list gate is tested.
+    func test_theCandidateListIsGatedOnTheStructuralCounterToo() {
+        let m = model()
+        m.bumpSceneRevision()
+        let i = inspector(m)
+
+        var rows = i.refreshedRows(from: RegionInspector.MemberRows())
+        XCTAssertEqual(rows.candidates.map(\.node), [a, b, c])
+
+        // A membership change with no structural bump — a drag frame's shape.
+        m.withScene(persist: false) { CanvasMembership.addAppearance(self.a, to: self.r1, in: &$0) }
+        rows = i.refreshedRows(from: rows)
+        XCTAssertEqual(rows.candidates.map(\.node), [a, b, c],
+                       "no bump, no rebuild — this is the frame-path saving, and "
+                       + "the candidate walk is the biggest thing behind the gate")
+
+        m.bumpSceneRevision()
+        rows = i.refreshedRows(from: rows)
+        XCTAssertEqual(rows.candidates.map(\.node), [b, c],
+                       "and a real structural change is picked up, or the gate has "
+                       + "simply frozen the offer")
+    }
+
+    /// **A drag frame does not move the key.** The gate above is only worth
+    /// anything if the thing it is keyed on is genuinely still during a drag —
+    /// this is the half of the claim that names the frame path.
+    func test_aDragFrameDoesNotMoveTheKeyTheOfferIsGatedOn() {
+        let m = model()
+        let i = inspector(m)
+        let before = i.currentRowsKey
+        for x in stride(from: 0.0, through: 200.0, by: 10.0) {
+            m.withScene(persist: false) { $0.move(self.a, to: CGPoint(x: x, y: x)) }
+        }
+        XCTAssertEqual(i.currentRowsKey, before,
+                       "twenty-one frames of a card drag. If this ever fails, "
+                       + "something started bumping the STRUCTURAL counter per "
+                       + "frame and every list in this inspector is back on the "
+                       + "drag loop (tripwire 30).")
+    }
+
+    /// **The view must read the gated snapshot, not the computed property.** The
+    /// gate is what keeps a scene-wide walk off the frame path, and `body` is one
+    /// character away from bypassing it — `ForEach(candidates)` compiles, reads
+    /// correctly, and runs the whole walk on every drag frame. No behavioural
+    /// test can see that; only the source can.
+    func test_theOfferReachesTheViewOnlyThroughTheGatedSnapshot() throws {
+        let source = try commentsStripped(regionInspectorSource())
+        XCTAssertTrue(source.contains("citeAffordance(from: memberRows)"),
+                      "the control is HANDED the gated snapshot — that call is the "
+                      + "whole wiring, and without it the branch below has nothing "
+                      + "to police")
+        XCTAssertTrue(bypassesTheGate(source).isEmpty,
+                      "outside the snapshot type, the computed property and the "
+                      + "refresh, `candidates` may only be read off a VALUE "
+                      + "(`rows.candidates`) and never as this view's own "
+                      + "scene-walking property. Found: \(bypassesTheGate(source))")
+    }
+
+    /// The menu's rows must actually call `cite`. This is a source assertion and
+    /// it is the weakest thing in this file — a mounted-`Menu` test that opens
+    /// the menu and clicks a row is the real delivery path, and it is not worth
+    /// the flake. It fires on the one bug it can see: a control that renders the
+    /// offer and wires it to nothing.
+    func test_theMenusRowsAreWiredToTheCommit() throws {
+        let control = try XCTUnwrap(
+            declaration(named: "private var citeControl: some View {",
+                        in: commentsStripped(regionInspectorSource())))
+        XCTAssertTrue(control.contains("cite(row.node)"),
+                      "the offer is rendered and the click does nothing")
+    }
+
+    /// The house self-check (`test_applyExternalTextCensusFiresOnPlantedSecondCallSite`
+    /// is the precedent), because a scan over a token that is REQUIRED to be
+    /// present is exactly the shape that passes while blind — this task shipped
+    /// one such census and only the planted offender caught it.
+    func test_theGateScanFiresOnAPlantedBypass() {
+        let offender = """
+            struct RegionInspector: View {
+                struct MemberRows: Equatable {
+                    var candidates: [Row] = []
+                }
+                var body: some View {
+                    Menu { ForEach(candidates) { row in Button(row.title) {} } }
+                }
+                var candidates: [Row] {
+                    rows([])
+                }
+                func refreshedRows(from current: MemberRows) -> MemberRows {
+                    MemberRows(candidates: candidates)
+                }
+            }
+            """
+        XCTAssertFalse(bypassesTheGate(offender).isEmpty,
+                       "a `ForEach(candidates)` in the body is the bug this scan "
+                       + "exists for, and the scan must see it")
+
+        let sanctioned = offender.replacingOccurrences(of: "ForEach(candidates)",
+                                                       with: "ForEach(memberRows.candidates)")
+        XCTAssertTrue(bypassesTheGate(sanctioned).isEmpty,
+                      "and the control: the same file reading the snapshot passes")
+
+        // The nesting case, which an indentation-based block finder gets wrong:
+        // `MemberRows` holds `Key`, so stopping at the FIRST close brace at
+        // member indentation would leave the struct's own field behind and this
+        // scan would fail on a clean file.
+        XCTAssertTrue(bypassesTheGate("""
+            struct RegionInspector: View {
+                struct MemberRows: Equatable {
+                    struct Key: Equatable { let revision: Int }
+                    var candidates: [Row] = []
+                }
+            }
+            """).isEmpty, "the stored field inside a nested type is not a bypass")
+    }
+
+    /// **The check that would have caught this gap a task earlier.** A green
+    /// suite cannot tell a fully-exercised function from a reachable one;
+    /// `CanvasMembership.addAppearance` was stored, drawn, listed and removable
+    /// with no production caller at all, exactly as `CanvasScene.remove` was one
+    /// slice before it. Only a caller count sees that.
+    func test_makingAnAppearanceHasAProductionCaller() throws {
+        let callers = try productionFiles()
+            .filter { $0.name != "CanvasMembership.swift" && $0.name != "CanvasRegion.swift" }
+            .filter { commentsStripped($0.source).contains("CanvasMembership.addAppearance(") }
+            .map(\.name)
+            .sorted()
+        XCTAssertEqual(callers, ["RegionInspector.swift"],
+                       "if this is ever empty again, appearances are persisted, "
+                       + "drawn, listed and removable — and uncreatable. If it "
+                       + "grows, the new caller is a deliberate edit here.")
     }
 
     func test_theInspectorListsResidentsAndVisitorsSeparately() {
@@ -342,6 +682,7 @@ final class RegionBindingTests: XCTestCase {
         i.commitCollapsed(true)
         i.commitBinding("piece-3")
         i.remove(a)
+        i.cite(b)
         i.deleteRegion()
         XCTAssertEqual(m.sceneRevision, before)
         XCTAssertFalse(m.undo.canUndo)
@@ -554,14 +895,120 @@ final class RegionBindingTests: XCTestCase {
 
     // MARK: - Source helpers
 
-    private func projectWindowSource() throws -> String {
-        let repoRoot = URL(fileURLWithPath: #filePath)
+    private var repoRoot: URL {
+        URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()   // Canvas
             .deletingLastPathComponent()   // MaughamTests
             .deletingLastPathComponent()   // repo
-        return try String(
+    }
+
+    private func projectWindowSource() throws -> String {
+        try String(
             contentsOf: repoRoot.appendingPathComponent("Maugham/Views/ProjectWindow.swift"),
             encoding: .utf8)
+    }
+
+    private func regionInspectorSource() throws -> String {
+        try String(
+            contentsOf: repoRoot.appendingPathComponent("Maugham/Canvas/RegionInspector.swift"),
+            encoding: .utf8)
+    }
+
+    /// Every production `.swift` under `Maugham/`. Comments are the caller's
+    /// problem — a doc comment naming a call is not a call.
+    private func productionFiles() throws -> [(name: String, source: String)] {
+        let app = repoRoot.appendingPathComponent("Maugham")
+        let walker = FileManager.default.enumerator(at: app,
+                                                    includingPropertiesForKeys: nil)
+        var out: [(String, String)] = []
+        while let url = walker?.nextObject() as? URL {
+            guard url.pathExtension == "swift" else { continue }
+            out.append((url.lastPathComponent, try String(contentsOf: url, encoding: .utf8)))
+        }
+        XCTAssertGreaterThan(out.count, 100,
+                             "the walk found almost nothing — a caller census over "
+                             + "an empty tree passes for the wrong reason")
+        return out
+    }
+
+    /// Line and block comments removed, so a doc comment naming a symbol is not
+    /// read as using it. Deliberately naive about `//` inside a string literal —
+    /// neither file scanned here has one, and a stricter parser here would be
+    /// more code than the thing it is guarding.
+    private func commentsStripped(_ source: String) -> String {
+        var out = ""
+        var inBlock = false
+        for line in source.components(separatedBy: "\n") {
+            var line = Substring(line)
+            if inBlock {
+                guard let end = line.range(of: "*/") else { continue }
+                line = line[end.upperBound...]
+                inBlock = false
+            }
+            while let start = line.range(of: "/*") {
+                if let end = line.range(of: "*/", range: start.upperBound..<line.endIndex) {
+                    line = line[..<start.lowerBound] + line[end.upperBound...]
+                } else {
+                    line = line[..<start.lowerBound]
+                    inBlock = true
+                }
+            }
+            if let slashes = line.range(of: "//") { line = line[..<slashes.lowerBound] }
+            out += line + "\n"
+        }
+        return out
+    }
+
+    /// Every mention of `candidates` outside the three places allowed to build or
+    /// store it — the `MemberRows` type, the computed property, and the refresh
+    /// that fills one from the other — **that is not read off a value**.
+    ///
+    /// The rule is deliberately about the character before it rather than a list
+    /// of blessed spellings: `rows.candidates` and `memberRows.candidates` are
+    /// both reads of a snapshot somebody already paid for, and `ForEach(candidates)`
+    /// is the scene-wide walk landing in `body`. A whitelist of names would have
+    /// to be edited every time the snapshot is passed under a new label; this
+    /// does not.
+    private func bypassesTheGate(_ strippedSource: String) -> [String] {
+        var rest = strippedSource
+        for header in ["struct MemberRows: Equatable {",
+                       "var candidates: [Row] {",
+                       "func refreshedRows(from current: MemberRows) -> MemberRows {"] {
+            rest = removingBracedBlock(startingAt: header, in: rest)
+        }
+        var found: [String] = []
+        var search = rest.startIndex..<rest.endIndex
+        while let hit = rest.range(of: "candidates", range: search) {
+            let precededByADot = hit.lowerBound > rest.startIndex
+                && rest[rest.index(before: hit.lowerBound)] == "."
+            if !precededByADot {
+                let line = rest[..<hit.lowerBound].components(separatedBy: "\n").count
+                found.append("line \(line) of the stripped source")
+            }
+            search = hit.upperBound..<rest.endIndex
+        }
+        return found
+    }
+
+    /// Deletes from `header` to its matching close brace, counted rather than
+    /// found by indentation — the three blocks above nest (`MemberRows` holds
+    /// `Key`), and an indentation rule would stop at the inner one.
+    private func removingBracedBlock(startingAt header: String, in source: String) -> String {
+        guard let start = source.range(of: header) else { return source }
+        var depth = 0
+        var index = start.lowerBound
+        while index < source.endIndex {
+            if source[index] == "{" { depth += 1 }
+            if source[index] == "}" {
+                depth -= 1
+                if depth == 0 {
+                    return String(source[..<start.lowerBound])
+                        + String(source[source.index(after: index)...])
+                }
+            }
+            index = source.index(after: index)
+        }
+        return String(source[..<start.lowerBound])
     }
 
     private func occurrences(of needle: String, in haystack: String) -> Int {

@@ -401,6 +401,18 @@ loser is demoted to an appearance rather than dropped — that region really did
 card, and inventing or discarding a relationship are both worse than recording the weaker
 true one.
 
+**Citing is an inspector act; the drop only makes homes.** A drop is a statement about where
+a card *is*, and geometry can carry that. A citation is a statement about what a card *means
+here*, and no gesture can infer it — so the "Appears here" section of the region inspector
+carries a **Cite a Card** menu offering every card not already in the region, and
+`RegionInspector.cite` is the only production caller of `CanvasMembership.addAppearance`.
+The alternative considered was a modifier-held drop; it was rejected because it would thread
+a modifier flag through `CanvasEventNSView`'s callbacks — the event signature this slice
+kept stable throughout — to buy a gesture nobody would discover. The offer is behind the
+same structural gate as the member lists (tripwire 30's rule, one column over) and needs it
+more, because it walks the whole scene rather than one region's members; and a region with
+nothing left to offer shows a sentence rather than a menu that opens on nothing.
+
 **A drop is the only gesture that changes membership**, and it targets by the node's
 **centre** — predictable and sayable ("drop it so its middle is inside"), where a corner is
 the one-pixel absurdity §4.2 cites against Obsidian. Ties resolve on greatest overlap, then
@@ -494,16 +506,14 @@ regions forced into the open — see decision 5.
   drops and images (1C-d). Regions, `CanvasModel` and deleting a scrap were on this list and
   1C-b built all three. §8A.2's Claude write path is designed and unbuilt; its
   constitutional reasoning is recorded in the spec, not here.
-- **Appearances are stored, drawn, listed and removable — and nothing creates one.**
-  `CanvasMembership.addAppearance` has no production caller after 1C-b: the drop gesture
-  makes homes, and the inspector only removes. This is decision 7's own failure shape (built,
-  exercised, unreachable) recurring one slice later, found the same way — by counting
-  production callers of a function the slice had just built, which no green suite can do.
-  **It is not being left recorded:** *one home, many appearances* (§4.3) is what makes this a
-  planning surface rather than a filing one, and without a way to say "this card belongs to
-  that piece *and* is referenced here" the writer is pushed back into the premature single
-  choice the design exists to avoid. A follow-up adds the creation path **in the inspector**
-  — an add control symmetric with the existing remove — rather than as a canvas gesture, so
-  no modifier plumbing reaches `CanvasEventNSView`.
+- **Appearances had no creator for one commit, and 1C-b closed that too** *(2026-07-28)*.
+  `CanvasMembership.addAppearance` shipped persisted, drawn as a chip, listed in the
+  inspector and removable from it — every part under test, and no production caller. That is
+  decision 7's own failure shape (built, exercised, unreachable) recurring inside the slice
+  that closed it, found the same way: by counting production callers of a function the slice
+  had just built, which no green suite can do. The creation path is the inspector's **Cite a
+  Card** menu (decision 8), and a caller census now asserts the list by name so it fails both
+  when it empties and when it grows. The lesson is kept rather than the gap: **a green suite
+  cannot distinguish a fully-exercised function from a reachable one.**
 - **⌫ is the only route to deleting a scrap**, because a scrap has no inspector to put a
   button in. Regions have one. See decision 7.
