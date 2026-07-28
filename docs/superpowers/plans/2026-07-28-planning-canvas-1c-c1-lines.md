@@ -368,7 +368,13 @@ Neither loss is worth a special case in the first place. A near-perpendicular cr
 
 **Lines are culled to the viewport.** `lineGeometry(in:)` is the unculled projection the geometry tests assert against; `visibleLines` is what the draw pass calls. The whole architecture rests on per-frame work being viewport-proportional (`visibleNodes`, `visibleRegions`, and the 2,000-node probe) and "there are fewer lines than nodes" is an assertion nothing bounds — a writer can draw one per card. AREA.md's Scale section already names tethers and chips as the known unbounded per-frame work; lines joining that list uncounted would be a regression on the one number this surface defends.
 
-**The hairline inset in `visibleLines` is load-bearing and needs its own test.** A perfectly horizontal or vertical line has a zero-height or zero-width bounding box, and `CGRect.intersects` is **false** for an empty rect — so without it every axis-aligned line on the canvas silently stops drawing. Two cards side by side is the ordinary case, not the corner one.
+**The hairline inset in `visibleLines` is DEFENSIVE, and the reason it is there is not the one this plan first gave.** *(Corrected 2026-07-28 during Task 3, by measurement on macOS 26.5. The original claim — that `CGRect.intersects` is false for an empty rect, so an axis-aligned line would silently stop drawing — is **false**, and an assertion written from it is green with the inset deleted.)*
+
+What was measured: `intersects` is false only for a **null** rect, not an empty one. `CGRect(x: 100, y: 20, width: 440, height: 0).intersects(CGRect(x: 0, y: 0, width: 800, height: 600))` is **true**. So a horizontal line's zero-height box survives culling on its own.
+
+The real hazard is one spelling over. `box.intersection(viewport)` of that same rect is not null and **is** empty — so a tidy-up to `!box.intersection(viewport).isEmpty`, which reads as an obvious equivalent, culls every horizontal and vertical line on the canvas. Two cards side by side is the ordinary case, not a corner one, and the failure is silent and total.
+
+**Keep the inset** — two lines against a silent, total failure, in the same spirit as the resize target being larger than its mark and `cullingBleed`'s rotation overhang. But pin it with an assertion that can actually fail: assert the inset on the bounding box directly, and do not write a `visibleLines` test claiming to isolate something it cannot see. **Carry the measurement in the doc comment**, not the story — a rule whose stated reason is false is worse than no rule, because the next author tests the reason, finds it holds without the code, and deletes the code.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -381,7 +387,7 @@ Pure:
 - `test_theLabelBoxIsEmptyForAnUnlabelledLine` — an unlabelled line must not reserve a pill of empty ground.
 - `test_aLineFarOutsideTheViewportIsCulled` — `lineGeometry` still sees both; `visibleLines` returns only the near one.
 - `test_aLineInsideTheViewportSurvivesCulling` — **the control the negative test needs.** Every negative result in this area needs one that passed.
-- `test_anAxisAlignedLineIsNotCulledByItsZeroHeightBox` — asserts the fixture is horizontal as a stated precondition, then that it survives. This is the one that fails if the inset is ever tidied away, and its message says so.
+- The axis-aligned-culling assertion. **The obvious shape of this test cannot fail** — see the corrected paragraph above: a zero-height box survives `intersects` unaided, so a `visibleLines` test asserting "the horizontal line is still there" is green with the inset deleted. Assert the **inset on the bounding box directly** instead, and verify by mutation that removing the inset turns it red. If you keep a `visibleLines`-level test beside it, name it for the true behavioural claim (an axis-aligned line survives culling) and do not claim in its message that it guards the inset.
 
 The connect handle, pure:
 - `test_theConnectHandleSitsOnTheCardsRightEdgeAndInsideIt`
@@ -391,7 +397,9 @@ The connect handle, pure:
 Raster (all under `performAsCurrentDrawingAppearance` for the scheme they claim — the test process runs under DarkAqua, and a dynamic `NSColor` resolved without it gives the dark value under a light render):
 - `test_aLineIsActuallyDrawnBetweenItsTwoCards` — the same scene with and without the line differs in pixels **on the segment's midpoint band**, not merely somewhere.
 - `test_aSelectedLineDrawsHeavierThanAnUnselectedOne` — more ink, same geometry.
-- `test_theLineDrawsBeneathTheCardsAndAboveEveryPartOfTheRegion` — a line routed under a card leaves the card's pixels untouched; a line crossing a region's **wash**, its **chrome bar** and its **resize triangle** changes pixels in all three. **This is the pass-order assertion, and it is what binds the draw order to Task 5's click order** — the earlier draft's shape passes a wash-only version of this test and still ships the defect. Raster because there is no constant to read.
+- `test_theLineDrawsBeneathTheCardsAndAboveEveryPartOfTheRegion` — a line routed under a card leaves the card's pixels untouched; a line crossing a region's **wash**, its **chrome bar** and its **resize triangle** is on top in all three. **This is the pass-order assertion, and it is what binds the draw order to Task 5's click order.**
+
+  **"Pixels changed" is NOT that assertion, and the first draft of this bullet said it was.** *(Corrected 2026-07-28 during Task 3.)* Every part of a region is translucent, so a line drawn **underneath** still shows through and still changes pixels — `differingPixels > 0` is green under both orderings, which is precisely the unfalsifiable shape this plan keeps warning about. Render the line **selected** so its stroke is fully opaque, pick a pixel row the stroke fully covers, and assert the colour there is **byte-identical** over the region and over bare ground. Verify by mutation that moving the line loop ahead of the region loop fails all three parts independently.
 - `test_thePendingLineIsDashedAndTheFinishedOneIsNot` — the two differ, so "in progress" is legible without the writer being told.
 - `test_theConnectMarkIsDrawnOnlyOnTheSelectedCard` — two cards, one selected: the mark's rect differs from the unselected scene on one card and not the other. The negative half is what stops it becoming permanent chrome by accident.
 
@@ -436,10 +444,14 @@ Constants beside the existing card and region ones — and **every look-calibrat
     /// positives are long diagonals whose box straddles the viewport, which are
     /// cheap to stroke and correct to draw.
     ///
-    /// *** The hairline inset is not a rounding nicety. *** A horizontal or
-    /// vertical line has a zero-height or zero-width box, and `CGRect.intersects`
-    /// is FALSE for an empty rect — so without it every axis-aligned line on the
-    /// canvas stops drawing, and two cards side by side is the ordinary case.
+    /// *** The hairline inset is defensive, and the doc comment must carry the
+    /// MEASUREMENT rather than the story. *** Measured on macOS 26.5:
+    /// `intersects` is false only for a NULL rect, not an empty one, so a
+    /// horizontal line's zero-height box survives culling unaided. What the
+    /// inset defends against is the neighbouring spelling —
+    /// `!box.intersection(viewport).isEmpty` reads as an obvious equivalent and
+    /// culls every horizontal and vertical line on the canvas, silently and
+    /// totally.
     static func visibleLines(in scene: CanvasScene, camera: CanvasCamera,
                              viewSize: CGSize) -> [LineGeometry] { … }
 
@@ -824,7 +836,8 @@ Add a **"Lines"** section, in the file's existing voice — the rule, then the n
   *Open, for a smoke session and not for a unit test:* a hairline at `lineOpacity` crossing a region's 11 pt label, which only happens for a line entering a region from directly above. If it reads as damage, nudge the label.
 - **A double-click on a line mints nothing.** It fell to `.emptyCanvas` in the first draft and made a scrap under the line the `clickCount: 1` click had just selected — tripwire 32's repro shape arriving through a new door.
 - **Lines draw as a pass INSIDE `CanvasRenderer.draw`, between regions and cards** — above the *whole* region pass, which inks the wash, the bar, the label, the collapsed count and the region's resize triangle in one go. The order is the sequence of calls, exactly as it is for the other four passes. **There are no layer-depth constants and adding some would enforce nothing.**
-- **The draw pass culls** — `visibleLines`, never `lineGeometry`. Lines are the one collection on this surface that nothing bounds. **Note the hairline inset:** an axis-aligned line has a zero-height or zero-width bounding box and `CGRect.intersects` is false for an empty rect, so without it every horizontal and vertical line silently stops drawing, and two cards side by side is the ordinary case.
+- **The draw pass culls** — `visibleLines`, never `lineGeometry`. Lines are the one collection on this surface that nothing bounds.
+- **The hairline inset in `visibleLines` is DEFENSIVE, and the obvious story about it is false.** Measured 2026-07-28 on macOS 26.5: `CGRect.intersects` is false only for a **null** rect, not an empty one — `CGRect(x: 100, y: 20, width: 440, height: 0).intersects(CGRect(x: 0, y: 0, width: 800, height: 600))` is **true**, so a horizontal line's zero-height box survives culling unaided. What the inset defends against is one spelling over: `!box.intersection(viewport).isEmpty` reads as an obvious equivalent, is false for that same box, and culls every horizontal and vertical line on the canvas — silently, totally, and two cards side by side is the ordinary case. **Do not write the version of this note that says `intersects` fails on an empty rect.** The 1C-c1 plan said exactly that, an assertion written from it was green with the inset deleted, and a rule whose stated reason is false is worse than no rule: the next author tests the reason, finds it holds without the code, and deletes the code.
 - **`CanvasScene.lines` sorts on every access and that is currently safe**, unlike `nodes`. If a canvas ever makes it measurable the fix is an `unorderedLines` peer, exactly as `nodes`/`unorderedNodes` split — not a cache.
 - **Deleting a node deletes its lines** (`CanvasScene.remove`), and self-lines are rejected in `insertLine` — the codec goes through `insertLine`, so that rule has one definition.
 - **The label is edited in the RIGHT-HAND COLUMN through `mutateFromInspector`**, never in a sheet and never through `mutate`. The census in `TripwireGrepTests` names `LineInspector.swift` for that reason.
@@ -891,7 +904,7 @@ was wrong, and the next free number is 33."
   8. delete a card the line touched → the line goes with it → one ⌘Z brings back both the card, its words and the line
   9. ⇧-drag from a card back onto itself, and onto bare canvas → nothing is created either time
   10. zoom out until the cards are small → the lines still land on the cards' middles; zoom in past 2× → clicking a line still selects it, and the connect mark is still aimable
-  11. lay two cards exactly side by side so their line is perfectly horizontal → **it draws** (the culling inset)
+  11. lay two cards exactly side by side so their line is perfectly horizontal → **it draws** (the axis-aligned culling case)
   12. quit and reopen → lines, labels, and everything but the selection survive
   13. **Is the connect mark enough?** Item 1 is the test. If a writer who has not read the guide does not find it, the remaining fallback is a hover-revealed handle — and that costs `NSTrackingArea`, `mouseMoved` and a hovered-node redraw, so it is a real change and not a tweak. If instead the mark reads as *clutter* on the selected card, the answer is the opposite one: drop it and keep ⇧ alone. Both are UI changes, not model ones.
 
