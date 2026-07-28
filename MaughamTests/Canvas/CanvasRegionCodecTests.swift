@@ -96,7 +96,7 @@ final class CanvasRegionCodecTests: XCTestCase {
     }
 
     func test_theSchemaVersionIsActuallyBumped() {
-        XCTAssertEqual(CanvasSceneDTO.currentSchemaVersion, 2)
+        XCTAssertEqual(CanvasSceneDTO.currentSchemaVersion, 3)
     }
 
     /// The repair, not the crash. Both regions claim 'a' as home.
