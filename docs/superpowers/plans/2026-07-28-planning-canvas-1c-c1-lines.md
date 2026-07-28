@@ -824,6 +824,12 @@ ride into the writer's next sentence."
 
 - [ ] **Step 2–4: RED, implement, GREEN**
 
+- [ ] **Step 4b: Close the tripwire-15 enforcement hole this slice uncovered**
+
+`TripwireGrepTests.test_contentUnavailableViewAlwaysChainsFullFrame` scans **`Maugham/Views` only**, and both canvas inspector panes live in `Maugham/Canvas` — so the full-frame chain that tripwire 15 exists to protect is **unenforced for every pane this area ships**. The chain is present and correct in `RegionInspector.swift` today; nothing is broken. But a tidy-up that dropped it would ship green, and tripwire 15 has recurred four or more times.
+
+Point that scan at `Maugham/` rather than `Maugham/Views`. **Expect it to surface pre-existing violations elsewhere in the app** — if it does, that is the hole being real rather than the change being wrong: fix what it finds, or report the list and say why each is legitimate. Do not narrow the scan back to make it pass.
+
 - [ ] **Step 5: `Maugham/Canvas/AREA.md`**
 
 Add a **"Lines"** section, in the file's existing voice — the rule, then the named symptom if it is broken:
@@ -857,6 +863,9 @@ Add a **"Lines"** section, in the file's existing voice — the rule, then the n
 - **`CanvasScene.lines` sorts on every access and that is currently safe**, unlike `nodes`. If a canvas ever makes it measurable the fix is an `unorderedLines` peer, exactly as `nodes`/`unorderedNodes` split — not a cache.
 - **Deleting a node deletes its lines** (`CanvasScene.remove`), and self-lines are rejected in `insertLine` — the codec goes through `insertLine`, so that rule has one definition.
 - **The label is edited in the RIGHT-HAND COLUMN through `mutateFromInspector`**, never in a sheet and never through `mutate`. The census in `TripwireGrepTests` names `LineInspector.swift` for that reason.
+- **Clearing a label is its own undo step, "Clear Line Label"** — not "Label Line" again. `CanvasLine.label` is `String?` and the renderer skips the pill entirely on nil, so clearing reaches a genuinely different state. This is `commitBinding`'s Bind/Unbind precedent, and it does **not** transfer from `RegionInspector.commitLabel`, which says "Rename Region" both ways because `CanvasRegion.label` is non-optional with a placeholder and has no clear-state to name.
+- **The pane names no endpoints, and the reason is scope, not impossibility.** `chipTitle` × 2 ungated would put a whole-scrap-text read on a body that re-evaluates every drag and coast frame — tripwire 30's shape. **A gated route does exist** and is used one file over: `RegionInspector` caches its scene-proportional work in `@State` behind `(sceneRevision, regionID)`, and a caption keyed on `(sceneRevision, lineID)` would be the same shape. Do not record this as "there is no gated way"; the next author will believe it.
+- **Which arm the pane renders cannot be asserted** — `_ConditionalContent`'s type is branch-invariant — so it is pinned by a caller census plus both resolvers' behaviour. Arm *order* cannot be wrong: `selection` is one enum, so `selectedRegion` and `selectedLine` are mutually exclusive by construction. The one stronger instrument available is a hosted render diff through `ImageRenderer`, which this area already does for the canvas; slow and appearance-sensitive, and not worth it here.
 - **A line drag that minted nothing is not a structural change**, and it shares the sweep's guard rather than growing a second one.
 
 Extend the two-counter table's `sceneRevision` row with drawing and deleting a line, and add the VoiceOver divergence beside the existing one.
