@@ -1,5 +1,11 @@
 # Planning canvas 1C-b — regions and membership Implementation Plan
 
+> # ⛔ SUPERSEDED — DO NOT EXECUTE
+>
+> **Replaced 2026-07-27 by [`2026-07-27-planning-canvas-1c-b-regions.md`](2026-07-27-planning-canvas-1c-b-regions.md).**
+>
+> This draft was written against 1C-a *before 1C-a existed*. Roughly half of it restates signatures that are now greppable, and several of them are wrong — 1C-a went through three fix rounds and one interaction change after this was written. Kept for its design reasoning only; every API spelling in it is unverified. Read the built code, or the re-derived plan.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add labelled regions — the canvas's only grouping primitive — with membership that is stored rather than computed, one home region per node plus any number of appearances, and an optional binding from a region to a piece.

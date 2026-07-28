@@ -69,13 +69,19 @@ A **region** is a labelled area you draw on the canvas. Regions are the canvas's
 
 Drag a region and its members travel. This is what makes reorganising one gesture rather than a marquee-select.
 
-### 4.2 Membership is explicit, and geometry never changes it
+### 4.2 Membership is explicit, and no *transition* changes it
 
-Membership changes **only** by deliberate act: dropping a node onto a region adds it; an explicit remove takes it out. Coordinates never add or remove a member.
+Membership changes **only** by deliberate act: dropping a node onto a region adds it; drawing a region around cards adds them; an explicit remove takes it out. **Moving or resizing a region changes nothing.**
 
 **This eliminates a bug class every surveyed tool has.** Obsidian leaves behind a card poking one pixel outside a group. tldraw ejects children when a frame is resized — *despite* storing membership explicitly ([issue #6017](https://github.com/tldraw/tldraw/issues/6017)) — because the geometry→membership transition rule is the hazard, independent of storage. Scapple recomputes from live geometry and has an unfixed bug where a note shared by two overlapping shapes moves with whichever shape you happen to grab.
 
 The cost is that a node can sit visually outside the region that owns it. That is a rendering problem (draw the relationship), not a correctness one, and it is the better trade.
+
+> **Amendment, 2026-07-28 (Denver, after the 1C-b smoke).** This section first read "Coordinates never add or remove a member", and creation was covered by that. It is not any more: **sweeping a region around cards takes in every card whose centre is inside the swept rect, and a scrap made inside a region joins it.**
+>
+> The reason the original rule survives the change is that all three bugs above are **transitions** — a tool deciding whether an *existing* relationship survives a change to geometry. Creation is not a transition: there is no prior state for it to contradict, and sweeping a rectangle around five particular cards is as deliberate an act as this surface offers. The partial-overlap objection is answered the way drops already answer it, by the card's centre.
+>
+> So the firewall now reads: **creation absorbs, transitions do not.** Move and resize are the load-bearing half and are unchanged. Two exclusions, both cases where "the writer swept around it" is untrue: an unmeasured card (no frame, so nothing was drawn to sweep around) and a card hidden inside a collapsed region (not drawn at all). A card that already lives in another region *is* taken in — one home, always (§4.3), and this is the writer moving it.
 
 ### 4.3 Membership is not exclusive — one home, many appearances
 

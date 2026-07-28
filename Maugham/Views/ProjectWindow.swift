@@ -68,6 +68,12 @@ struct ProjectWindow: View {
     /// posture/appearance writer; EditorHost writes the annotation set (Task 5).
     /// Threaded down to the coordinator, which observes it.
     @State private var editorControl = EditorControl()
+    /// The canvas's scene, scraps, selection, sidecar store and undo recorder.
+    /// Owned HERE rather than inside `CanvasView` because the region inspector in
+    /// the right-hand column reads and mutates the same scene the centre column
+    /// draws — and region labels do not live in the manifest, so a `ProjectStore`
+    /// could not carry them.
+    @State private var canvasModel = CanvasModel()
     /// Raw share snapshot kept alongside `collaborator` for the pill's hover
     /// diagnostics (the `.help()` tooltip), so the resolver stays the single
     /// read path.
@@ -786,6 +792,8 @@ struct ProjectWindow: View {
 
     private var shouldShowStatusFooter: Bool {
         guard userPreferences.goalIndicatorsVisible else { return false }
+        // `.canvas` is deliberately absent: the footer reports manuscript
+        // metrics, and readiness stays silent about the canvas (umbrella §7, §9).
         guard binderSegment == .manuscript || binderSegment == .scenes else {
             return false
         }
@@ -816,14 +824,24 @@ struct ProjectWindow: View {
         currentElement
     }
 
+    /// Whether the selected item is a Collection reference piece.
+    private func selectedPieceIsReference(in store: ProjectStore) -> Bool {
+        guard let id = selectedItemId,
+              let piece = store.manifest.structure.first(where: { $0.id == id })
+        else { return false }
+        return piece.pieceKind == .reference
+    }
+
     @ViewBuilder
     private func editorPane(
         store: ProjectStore, documentStore: DocumentStore
     ) -> some View {
-        if store.manifest.type == .collection,
+        if Self.editorRoute(binderSegment: binderSegment,
+                            projectType: store.manifest.type,
+                            selectedPieceIsReference: selectedPieceIsReference(in: store))
+            == .collectionReference,
            let id = selectedItemId,
-           let piece = store.manifest.structure.first(where: { $0.id == id }),
-           piece.pieceKind == .reference {
+           let piece = store.manifest.structure.first(where: { $0.id == id }) {
             ReferencePlaceholderCard(piece: piece) {
                 openReferenceInWindow(piece: piece, store: store)
             }
@@ -871,6 +889,9 @@ struct ProjectWindow: View {
                 // (lockEditing) via `effectivePosture` mirrored into the control.
                 control: editorControl
             )
+        case .canvas:
+            CanvasView(model: canvasModel, projectRoot: store.url,
+                       paletteSwatchHexes: { store.paletteSwatchHexes() })
         case .research:
             if let id = selectedResearchId,
                let item = TreeWalk.find(
@@ -940,6 +961,57 @@ struct ProjectWindow: View {
         }
     }
 
+    // MARK: - Which column shows what
+
+    /// **The canvas check sits ABOVE the project-type split, in both columns.**
+    ///
+    /// That is the more correct shape rather than merely the shorter one: there
+    /// is ONE canvas per project regardless of type (spec §2), and which view the
+    /// canvas segment wants has nothing to do with whether the project is a
+    /// collection or which piece happened to be selected in some other segment.
+    /// Leaving the decision *below* the split is what let the two paths disagree
+    /// — the region inspector shipped built, reviewed and reachable on only one
+    /// of them, and a Collection writer selecting a region got the piece
+    /// inspector for whatever manuscript item was last selected. Found by smoke,
+    /// 2026-07-28; the editor column had the same defect and it was found by
+    /// asking the same question of every sibling split.
+    ///
+    /// Pure and named rather than nested `if`s inside a `@ViewBuilder`, so a test
+    /// can be exhaustive over (segment × type) instead of over the one path a
+    /// plan happened to name. `CanvasPersonaTests` is that test.
+    enum InspectorRoute: Equatable {
+        case canvas
+        /// A Collection's per-piece inspector, which never consults the segment.
+        case collectionPiece
+        /// `existingInspectorSwitch`, which dispatches on the segment.
+        case segment
+    }
+
+    static func inspectorRoute(binderSegment: BinderSegment,
+                               projectType: ProjectType) -> InspectorRoute {
+        if binderSegment == .canvas { return .canvas }
+        return projectType == .collection ? .collectionPiece : .segment
+    }
+
+    enum EditorRoute: Equatable {
+        /// A Collection's placeholder for a linked-project reference piece.
+        case collectionReference
+        /// `existingEditorSwitch` — which is where the canvas itself lives.
+        case segment
+    }
+
+    static func editorRoute(binderSegment: BinderSegment,
+                            projectType: ProjectType,
+                            selectedPieceIsReference: Bool) -> EditorRoute {
+        // The canvas draws whatever else is selected. A reference piece chosen in
+        // the Pieces segment stays selected across a persona switch — nothing
+        // clears `selectedItemId` but a delete — so without this the centre
+        // column shows the placeholder and the canvas never appears at all.
+        if binderSegment == .canvas { return .segment }
+        return projectType == .collection && selectedPieceIsReference
+            ? .collectionReference : .segment
+    }
+
     @ViewBuilder
     private func inspectorPane(store: ProjectStore, documentStore: DocumentStore) -> some View {
         DetailPaneToggle(
@@ -959,9 +1031,13 @@ struct ProjectWindow: View {
             documentStore: documentStore,
             editorControl: editorControl
         ) {
-            if store.manifest.type == .collection {
+            switch Self.inspectorRoute(binderSegment: binderSegment,
+                                       projectType: store.manifest.type) {
+            case .canvas:
+                canvasInspector(store: store)
+            case .collectionPiece:
                 collectionInspector(store: store)
-            } else {
+            case .segment:
                 existingInspectorSwitch(store: store)
             }
         }
@@ -1025,6 +1101,12 @@ struct ProjectWindow: View {
                 onOpenProjectSettings: { activeSheet = .projectSettings },
                 onOpenCraftIntent: openCraftIntent
             )
+        case .canvas:
+            // Unreachable — `inspectorRoute` takes the canvas above the
+            // project-type split, so this arm never runs. Kept because the switch
+            // is exhaustive over `BinderSegment` and the compiler requires it;
+            // it routes to the same place so the two cannot drift.
+            canvasInspector(store: store)
         case .research:
             if let id = selectedResearchId,
                let item = TreeWalk.find(
@@ -1045,6 +1127,28 @@ struct ProjectWindow: View {
                 systemImage: "trash")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    /// The canvas's inspector arm — the selected region, or an empty state.
+    ///
+    /// **One expression, and it reads NOTHING off `canvasModel`.** Both halves
+    /// matter. `ProjectWindow.body` has a zero expression budget (the Release
+    /// type-check ceiling), so the arm above is a call and not a body. And
+    /// `CanvasModel` is `@Observable` with the whole scene in one stored
+    /// property, which every drag frame and every coast frame writes — so
+    /// resolving `selectedRegion` *here* would register this window's body as a
+    /// dependency of the drag loop and re-evaluate all of it at 60–120 Hz.
+    /// `RegionInspectorPane` does the resolving, one leaf down.
+    private func canvasInspector(store: ProjectStore) -> some View {
+        RegionInspectorPane(model: canvasModel,
+                            pieces: Self.pieceChoices(in: store.manifest.structure))
+    }
+
+    /// Every `.document` in the structure tree, as the region inspector's piece
+    /// choices. Ids, so a binding survives a rename.
+    static func pieceChoices(in items: [StructureItem]) -> [RegionInspector.PieceChoice] {
+        TreeWalk.collect(in: items, where: { $0.type == .document })
+            .map { RegionInspector.PieceChoice(id: $0.id, title: $0.title) }
     }
 
     /// Navigate to a craft-intent research doc surfaced from an inspector's

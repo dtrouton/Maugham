@@ -71,7 +71,7 @@ final class PersonaMemoryTests: XCTestCase {
     /// `BinderSegment.isTransient` rather than re-declared here, so a future
     /// runtime-gated segment cannot be remembered by accident.
     func test_recordThenRestore_honoursOfferedAndTransientForEverySegment() {
-        let all: [BinderSegment] = [.manuscript, .research, .palette, .scenes, .trash, .find]
+        let all = BinderSegment.allCases
         for type in ProjectType.allCases {
             for persona in Persona.allCases {
                 let offered = persona.binderSegments(for: type)
@@ -129,7 +129,7 @@ final class PersonaMemoryTests: XCTestCase {
     /// something the persona actually offers. Personas are lenses, not gates —
     /// but the LANDING segment must always be renderable.
     func test_restore_alwaysYieldsAnOfferedSegment() {
-        let allBinder: [BinderSegment] = [.manuscript, .research, .palette, .scenes, .trash, .find]
+        let allBinder = BinderSegment.allCases
         for type in ProjectType.allCases {
             for persona in Persona.allCases {
                 for candidate in allBinder {

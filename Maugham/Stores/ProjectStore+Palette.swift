@@ -68,6 +68,16 @@ extension ProjectStore {
         PaletteLookup.paletteCards(in: manifest.research)
     }
 
+    /// Every palette card's swatches, flattened in card order then swatch
+    /// order. The canvas ground washes itself 3–5% with these (spec §7.1).
+    ///
+    /// A FUNCTION, not a computed property: `loadPaletteCards()` reads every
+    /// card off disk, and a property would invite a call from inside
+    /// `ProjectWindow.body`. `CanvasView` calls it once, on appear.
+    public func paletteSwatchHexes() -> [String] {
+        loadPaletteCards().flatMap(\.swatches)
+    }
+
     /// Read + parse every card. Unreadable files are skipped, not fatal.
     public func loadPaletteCards() -> [PaletteCard] {
         paletteCardItems().compactMap { item in

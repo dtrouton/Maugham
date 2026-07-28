@@ -2,11 +2,14 @@ import Foundation
 import MaughamCore
 
 /// Which top-level segment is active in the binder pane.
-public enum BinderSegment: String, Codable, Equatable, Sendable {
+public enum BinderSegment: String, Codable, Equatable, Sendable, CaseIterable {
     case manuscript
     case research
     case palette
     case scenes
+    /// The Plan persona's centre column — the freeform planning canvas (M1C).
+    /// One canvas per project (spec §2); regions do all the dividing.
+    case canvas
     case trash
     case find
 
@@ -33,7 +36,7 @@ public enum BinderSegment: String, Codable, Equatable, Sendable {
     public var isTransient: Bool {
         switch self {
         case .trash, .find: return true
-        case .manuscript, .research, .palette, .scenes: return false
+        case .manuscript, .research, .palette, .scenes, .canvas: return false
         }
     }
 }
@@ -50,6 +53,7 @@ public extension BinderSegment {
         case .research: return "Research"
         case .palette: return "Palette"
         case .scenes: return "Scenes"
+        case .canvas: return "Canvas"
         case .trash: return "Trash"
         case .find: return "Find"
         }
@@ -84,6 +88,7 @@ public extension BinderSegment {
         case .research: return "books.vertical"
         case .palette: return "paintpalette"
         case .scenes: return "film"
+        case .canvas: return "square.on.circle"
         case .trash: return "trash"
         case .find: return "magnifyingglass"
         }

@@ -1,0 +1,984 @@
+import XCTest
+import SwiftUI
+import AppKit
+@testable import Maugham
+
+final class CanvasRendererTests: XCTestCase {
+
+    func test_seededRotation_isStableForTheSameID() {
+        let a = CanvasRenderer.seededRotation(for: CanvasNodeID("s1"))
+        let b = CanvasRenderer.seededRotation(for: CanvasNodeID("s1"))
+        XCTAssertEqual(a.degrees, b.degrees, accuracy: 1e-12,
+                       "a card that shimmers between renders is the failure §7.2 forbids")
+    }
+
+    func test_seededRotation_differsAcrossIDs() {
+        let angles = (0..<40).map { CanvasRenderer.seededRotation(for: CanvasNodeID("s\($0)")).degrees }
+        XCTAssertGreaterThan(Set(angles.map { Int($0 * 1_000_000) }).count, 30,
+                             "rotation must actually vary, or nothing was put down by hand")
+    }
+
+    /// The tilt is a calibrated number now (`CanvasMaterial.maximumTiltDegrees`),
+    /// not a literal, so this pins two different things: that every card lands
+    /// inside whatever it is set to, and that the setting itself stays inside a
+    /// band where §7.2 still holds.
+    ///
+    /// The band replaces a flat `< 1.0`, which the writer's doubling to 1.2°
+    /// would have failed. "A seeded fraction of a degree" was a description of
+    /// the first calibration, not the requirement; the requirement is that a
+    /// scrap reads as *put down by hand* rather than as snapped to a grid at one
+    /// end or knocked over at the other. A degree or two is the honest reading of
+    /// that, and the ceiling is what stops a calibration round drifting into
+    /// cards that look broken.
+    func test_seededRotation_staysWithinTheCalibratedTilt() {
+        XCTAssertGreaterThan(CanvasMaterial.maximumTiltDegrees, 0,
+                             "a zero tilt snaps every card to the grid, which is the one "
+                             + "thing §7.2 names")
+        XCTAssertLessThanOrEqual(CanvasMaterial.maximumTiltDegrees, 3.0,
+                                 "past a few degrees a scrap reads as knocked over rather "
+                                 + "than put down, and the hit-test mismatch band (r·θ) "
+                                 + "grows past the pointer slop that absorbs it")
+        for i in 0..<400 {
+            let d = CanvasRenderer.seededRotation(for: CanvasNodeID("node-\(i)")).degrees
+            XCTAssertLessThanOrEqual(abs(d), CanvasMaterial.maximumTiltDegrees,
+                                     "a card leaned further than the calibrated maximum")
+        }
+    }
+
+    /// The seeded angles must SPREAD across the calibrated range, not huddle near
+    /// zero. Without this, `maximumTiltDegrees` could be raised to any number and
+    /// the canvas would look identical — the writer would be calibrating a knob
+    /// that does nothing, and every test above would still pass.
+    func test_theSeededTiltActuallyUsesTheCalibratedRange() {
+        let degrees = (0..<400).map {
+            CanvasRenderer.seededRotation(for: CanvasNodeID("node-\($0)")).degrees
+        }
+        let extreme = CanvasMaterial.maximumTiltDegrees * 0.9
+        XCTAssertTrue(degrees.contains { $0 > extreme },
+                      "no card leans near the positive limit")
+        XCTAssertTrue(degrees.contains { $0 < -extreme },
+                      "no card leans near the negative limit")
+    }
+
+    // MARK: - §7A.5, focus straightens the card
+
+    func test_anUnfocusedCardIsDrawnAtItsFullSeededAngle() {
+        let straighten = CanvasFocusStraighten()
+        XCTAssertEqual(CanvasRenderer.drawnAngle(for: CanvasNodeID("s1"), straighten: straighten).degrees,
+                       CanvasRenderer.seededRotation(for: CanvasNodeID("s1")).degrees,
+                       accuracy: 1e-12)
+    }
+
+    func test_theFocusedCardEndsUpExactlyLevel() {
+        var straighten = CanvasFocusStraighten()
+        straighten.focus(CanvasNodeID("s1"))
+        while straighten.step(elapsed: 1.0 / 60) { }
+        XCTAssertEqual(CanvasRenderer.drawnAngle(for: CanvasNodeID("s1"), straighten: straighten).degrees,
+                       0, accuracy: 1e-12,
+                       "the editor mounts on this card — anything but level and the "
+                       + "glyph-origin pin is comparing a rotated layout to a flat one")
+    }
+
+    /// §7A.5 requirement 2: an instant jump reads as a rendering bug.
+    func test_straighteningIsAnimatedRatherThanSnapped() {
+        var straighten = CanvasFocusStraighten()
+        straighten.focus(CanvasNodeID("s1"))
+        XCTAssertTrue(straighten.step(elapsed: 1.0 / 60), "still animating after one frame")
+        let p = straighten.progress(for: CanvasNodeID("s1"))
+        XCTAssertGreaterThan(p, 0)
+        XCTAssertLessThan(p, 1, "one frame must not complete the straighten")
+    }
+
+    func test_straighteningTakesAboutTheSpecifiedTime() {
+        var straighten = CanvasFocusStraighten()
+        straighten.focus(CanvasNodeID("s1"))
+        var elapsed: TimeInterval = 0
+        while straighten.step(elapsed: 1.0 / 60) { elapsed += 1.0 / 60 }
+        XCTAssertEqual(elapsed, CanvasFocusStraighten.secondsToLevel, accuracy: 1.0 / 30,
+                       "~120ms reads as the card responding; much longer reads as lag")
+    }
+
+    /// `isSettled` gates the `TimelineView`'s clock, so it must mean "every card
+    /// is at ITS target", not "every progress value is 1". A completed focus
+    /// leaves the entry at 1; blur clears `focusedNodeID` and that entry's target
+    /// becomes 0 — but an `allSatisfy { $0.value >= 1 }` reads it as settled, the
+    /// clock pauses on the spot, `step` is never called again, and the card stays
+    /// level forever. Click in, click out onto empty canvas — the commonest path
+    /// there is — and "the card being edited is the only square one on the canvas"
+    /// is simply false.
+    func test_blurSettlesTheCardBackToItsSeededAngle() {
+        var straighten = CanvasFocusStraighten()
+        straighten.focus(CanvasNodeID("s1"))
+        while straighten.step(elapsed: 1.0 / 60) { }
+        XCTAssertTrue(straighten.isSettled, "a completed focus must pause the clock")
+
+        straighten.focus(nil)
+        XCTAssertFalse(straighten.isSettled, "blur must animate back, not snap back")
+        while straighten.step(elapsed: 1.0 / 60) { }
+        XCTAssertEqual(CanvasRenderer.drawnAngle(for: CanvasNodeID("s1"), straighten: straighten).degrees,
+                       CanvasRenderer.seededRotation(for: CanvasNodeID("s1")).degrees,
+                       accuracy: 1e-12)
+        XCTAssertTrue(straighten.isSettled, "a settled canvas must pause its clock")
+    }
+
+    /// The gate Task 10 REVEALS the editor behind. The editor is mounted and
+    /// taking keystrokes well before this; `isLevel` is when it becomes the
+    /// VISIBLE text and the renderer stops drawing that card's own. §7A.5
+    /// requirement 1 orders it: caret, then animate, then hand the text over.
+    /// Showing the editor at progress 0 puts axis-aligned glyphs on a card that
+    /// is still up to 1.2° off level, at the unrotated text origin, with the
+    /// drawn text already suppressed — the glyphs jump straight the instant the
+    /// writer clicks and the card catches up afterwards, which is precisely the
+    /// §7A.2 failure.
+    func test_aCardIsNotLevelUntilTheStraightenCompletes() {
+        var straighten = CanvasFocusStraighten()
+        let id = CanvasNodeID("s1")
+        XCTAssertFalse(straighten.isLevel(id), "an untouched card is at its seeded angle")
+
+        straighten.focus(id)
+        XCTAssertFalse(straighten.isLevel(id), "the animation has not started yet")
+        straighten.step(elapsed: 1.0 / 60)
+        XCTAssertFalse(straighten.isLevel(id), "one frame in, the card is still tilted")
+
+        while straighten.step(elapsed: 1.0 / 60) { }
+        XCTAssertTrue(straighten.isLevel(id))
+        XCTAssertEqual(CanvasRenderer.drawnAngle(for: id, straighten: straighten).degrees,
+                       0, accuracy: 1e-12,
+                       "isLevel must not be able to be true while the card is tilted")
+    }
+
+    /// A paused-then-resumed `TimelineView` hands `step` a zero or negative
+    /// delta, and Task 10 owns that clock. Zero is a wasted frame; NEGATIVE is
+    /// the damaging one — without a guard the `abs(target - current) <= delta`
+    /// test can never be true, so every entry takes the moving branch and walks
+    /// away from its target instead of toward it.
+    func test_aNonPositiveFrameNeitherAdvancesNorRewindsTheStraighten() {
+        var straighten = CanvasFocusStraighten()
+        let id = CanvasNodeID("s1")
+        straighten.focus(id)
+        straighten.step(elapsed: 1.0 / 60)
+        let afterOneFrame = straighten.progress(for: id)
+        XCTAssertGreaterThan(afterOneFrame, 0)
+
+        XCTAssertTrue(straighten.step(elapsed: 0),
+                      "a zero-length frame must still report the card in flight — "
+                      + "reporting settled pauses the clock on a half-straightened card")
+        XCTAssertEqual(straighten.progress(for: id), afterOneFrame, accuracy: 1e-12,
+                       "a zero-length frame advanced the straighten")
+
+        straighten.step(elapsed: -1.0 / 60)
+        XCTAssertEqual(straighten.progress(for: id), afterOneFrame, accuracy: 1e-12,
+                       "a negative frame ran the straighten backwards — the card is "
+                       + "now further from level than it was and will never settle")
+    }
+
+    func test_blurStopsTheCardBeingLevelImmediately() {
+        var straighten = CanvasFocusStraighten()
+        let id = CanvasNodeID("s1")
+        straighten.focus(id)
+        while straighten.step(elapsed: 1.0 / 60) { }
+        straighten.focus(nil)
+        XCTAssertFalse(straighten.isLevel(id),
+                       "focus has left, so the editor must not still be the "
+                       + "visible text on a card that is on its way back to its angle")
+    }
+
+    func test_onlyTheFocusedCardIsEverLevel() {
+        var straighten = CanvasFocusStraighten()
+        straighten.focus(CanvasNodeID("s1"))
+        while straighten.step(elapsed: 1.0 / 60) { }
+        straighten.focus(CanvasNodeID("s2"))
+        XCTAssertFalse(straighten.isLevel(CanvasNodeID("s1")),
+                       "s1 is settling back and must not report level")
+        XCTAssertFalse(straighten.isLevel(CanvasNodeID("s2")), "s2 has only just started")
+        while straighten.step(elapsed: 1.0 / 60) { }
+        XCTAssertTrue(straighten.isLevel(CanvasNodeID("s2")))
+        XCTAssertFalse(straighten.isLevel(CanvasNodeID("s1")))
+    }
+
+    // MARK: - The handover from drawn text to editor
+
+    /// The half of the swap the renderer owns. While the card is straightening
+    /// its editor is mounted but invisible, so the words on screen are the ones
+    /// this pass draws — and they are drawn from the shared `NSTextStorage` the
+    /// editor is mutating, so they update as the writer types. The renderer
+    /// stops only when the editor becomes visible, at `isLevel`.
+    ///
+    /// Both halves flip on the same value — `CanvasView.visibleEditorNodeID` —
+    /// so there is never a frame with both drawing and never a frame with
+    /// neither. A card blank for a tenth of a second and then full of straight
+    /// glyphs is the §7A.2 jump.
+    func test_theCardKeepsDrawingItsOwnTextUntilTheEditorIsVisible() {
+        var straighten = CanvasFocusStraighten()
+        let id = CanvasNodeID("s1")
+        straighten.focus(id)
+        straighten.step(elapsed: 1.0 / 60)
+
+        // Mid-straighten: nothing is visible-editing, so the card draws its own.
+        XCTAssertFalse(straighten.isLevel(id))
+        XCTAssertTrue(CanvasRenderer.drawsOwnText(id, visibleEditorNodeID: nil),
+                      "the card stopped drawing its text while the editor was "
+                      + "still invisible — the words vanish for ~120ms")
+
+        while straighten.step(elapsed: 1.0 / 60) { }
+        XCTAssertTrue(straighten.isLevel(id))
+        XCTAssertFalse(CanvasRenderer.drawsOwnText(id, visibleEditorNodeID: id),
+                       "the editor is the visible text now; drawing it again "
+                       + "double-draws every glyph (spec §7A.2, the Excalidraw rule)")
+    }
+
+    /// Click from scrap A straight to scrap B while A is still settling back and
+    /// both `isLevel` values are false — so NEITHER is suppressed. At most one
+    /// node is ever suppressed, because the suppression is keyed on a single
+    /// optional rather than on a per-node predicate.
+    func test_atMostOneNodeEverStopsDrawingItsOwnText() {
+        let a = CanvasNodeID("s1")
+        let b = CanvasNodeID("s2")
+        var straighten = CanvasFocusStraighten()
+        straighten.focus(a)
+        while straighten.step(elapsed: 1.0 / 60) { }
+        straighten.focus(b)
+        straighten.step(elapsed: 1.0 / 60)
+
+        XCTAssertFalse(straighten.isLevel(a))
+        XCTAssertFalse(straighten.isLevel(b))
+        XCTAssertTrue(CanvasRenderer.drawsOwnText(a, visibleEditorNodeID: nil),
+                      "A is settling back with no editor on it — it must draw "
+                      + "its own text again the frame focus leaves")
+        XCTAssertTrue(CanvasRenderer.drawsOwnText(b, visibleEditorNodeID: nil))
+
+        while straighten.step(elapsed: 1.0 / 60) { }
+        XCTAssertTrue(CanvasRenderer.drawsOwnText(a, visibleEditorNodeID: b))
+        XCTAssertFalse(CanvasRenderer.drawsOwnText(b, visibleEditorNodeID: b))
+    }
+
+    /// The sign of the card rotation, pinned against literal trigonometry.
+    ///
+    /// A round-trip test cannot catch a flipped convention: if `cardTransform`
+    /// and `localPoint` both flipped, the round trip would still close, and the
+    /// caret error at a card corner would silently double instead of vanishing.
+    /// This asserts the transform's actual matrix, at an exaggerated angle where
+    /// a flip is unmissable.
+    func test_cardTransformRotatesInTheDirectionTheRendererDraws() {
+        let frame = CGRect(x: 100, y: 100, width: 240, height: 80)
+        let angle = Angle.degrees(30)
+        let t = CanvasRenderer.cardTransform(inCard: frame, angle: angle)
+        XCTAssertEqual(t.a, cos(angle.radians), accuracy: 1e-9)
+        XCTAssertEqual(t.b, sin(angle.radians), accuracy: 1e-9)
+        XCTAssertEqual(t.c, -sin(angle.radians), accuracy: 1e-9)
+        XCTAssertEqual(t.d, cos(angle.radians), accuracy: 1e-9)
+
+        XCTAssertEqual(CGPoint(x: frame.midX, y: frame.midY).applying(t).x,
+                       frame.midX, accuracy: 1e-9, "the centre is the fixed point")
+        XCTAssertEqual(CGPoint(x: frame.midX, y: frame.midY).applying(t).y,
+                       frame.midY, accuracy: 1e-9)
+        XCTAssertGreaterThan(CGPoint(x: frame.midX + 10, y: frame.midY).applying(t).y,
+                             frame.midY,
+                             "in the canvas's flipped, y-down space a positive "
+                             + "angle carries the right-hand edge downward")
+    }
+
+    /// There must be exactly ONE definition of a card's rotation. A second one —
+    /// `GraphicsContext.rotate(by:)` in the draw pass, say — is a convention the
+    /// caret inverse has no way to check itself against.
+    func test_noFileInTheCanvasAreaRotatesOutsideCardTransform() throws {
+        var offenders: [String] = []
+        for line in try Self.canvasSourceLines() {
+            // Comments may NAME it; `code` has them stripped.
+            if line.code.contains(".rotate(by:") || line.code.contains("rotationEffect(") {
+                offenders.append(line.description)
+            }
+        }
+        XCTAssertTrue(offenders.isEmpty,
+                      "a card's rotation has one definition — CanvasRenderer."
+                      + "cardTransform — which localPoint inverts. A second "
+                      + "rotation is a sign convention nothing checks: \(offenders)")
+    }
+
+    /// §7A.5 requirement 1: resolve the caret in the card's own unrotated space,
+    /// at click time. Straightening first moves the click point out from under
+    /// the cursor.
+    func test_localPointInvertsTheCardsRotation() {
+        let frame = CGRect(x: 100, y: 100, width: 240, height: 80)
+        let angle = Angle.degrees(0.6)
+        let centre = CGPoint(x: frame.midX, y: frame.midY)
+        XCTAssertEqual(CanvasRenderer.localPoint(centre, inCard: frame, angle: angle).x,
+                       centre.x, accuracy: 1e-9, "the centre is the fixed point")
+        XCTAssertEqual(CanvasRenderer.localPoint(centre, inCard: frame, angle: angle).y,
+                       centre.y, accuracy: 1e-9)
+
+        // A corner of the drawn (rotated) card maps back onto the corner of the
+        // unrotated one.
+        let corner = CGPoint(x: frame.maxX, y: frame.maxY)
+        let rotated = CGPoint(
+            x: centre.x + (corner.x - centre.x) * cos(angle.radians) - (corner.y - centre.y) * sin(angle.radians),
+            y: centre.y + (corner.x - centre.x) * sin(angle.radians) + (corner.y - centre.y) * cos(angle.radians))
+        let back = CanvasRenderer.localPoint(rotated, inCard: frame, angle: angle)
+        XCTAssertEqual(back.x, corner.x, accuracy: 1e-6)
+        XCTAssertEqual(back.y, corner.y, accuracy: 1e-6)
+
+        // And it is the inverse of the transform the renderer actually applies,
+        // not of a second hand-written one.
+        let drawn = corner.applying(CanvasRenderer.cardTransform(inCard: frame, angle: angle))
+        XCTAssertEqual(drawn.x, rotated.x, accuracy: 1e-9)
+        XCTAssertEqual(drawn.y, rotated.y, accuracy: 1e-9)
+    }
+
+    func test_visibleNodes_cullsOffscreenNodes() {
+        var scene = CanvasScene()
+        for i in 0..<50 {
+            var n = CanvasNode(id: CanvasNodeID("n\(i)"), kind: .scrap,
+                               origin: CGPoint(x: CGFloat(i) * 1000, y: 0), width: 240)
+            n.cachedHeight = 100
+            scene.insert(n)
+        }
+        let visible = CanvasRenderer.visibleNodes(in: scene, camera: CanvasCamera(),
+                                                  viewSize: CGSize(width: 800, height: 600))
+        XCTAssertEqual(visible.count, 1)
+        XCTAssertEqual(visible.first?.id, CanvasNodeID("n0"))
+    }
+
+    /// The culling bleed must cover the drop shadow AND the rotation overhang at
+    /// whatever tilt the canvas is calibrated to — the arithmetic, re-done in
+    /// code, so a calibration round cannot quietly invalidate it.
+    ///
+    /// The overhang is `r·θ` and `r` is half the card's diagonal, so it scales
+    /// with the card as well as with the angle. It is measured here against a
+    /// **generously wide** card rather than the default 240×80: a writer widens a
+    /// scrap by dragging its corner, and the failure this guards — a card culled
+    /// while a corner of it is still on screen, so the card blinks out at the
+    /// window edge as they pan — bites the widest card on the canvas first.
+    ///
+    /// At the original θ = 0.6° a bleed of 8 pt cleared this by a wide margin;
+    /// doubling the tilt to 1.2° without touching the bleed would have left a
+    /// 480-wide card overhanging 5.3 pt against a 3 pt allowance over the shadow.
+    func test_theCullingBleedCoversTheRotationOverhangAtTheCalibratedTilt() {
+        // `drawCard`'s shadow: radius 3 at offset (1, 2).
+        let shadowReach: CGFloat = 5
+        let card = CGSize(width: 480, height: 160)
+        let radius = (card.width * card.width + card.height * card.height).squareRoot() / 2
+        let overhang = radius * CGFloat(CanvasMaterial.maximumTiltDegrees * .pi / 180)
+
+        XCTAssertGreaterThan(
+            CanvasRenderer.cullingBleed, shadowReach + overhang,
+            "at \(CanvasMaterial.maximumTiltDegrees)° a \(Int(card.width))×"
+            + "\(Int(card.height)) card's corner swings \(overhang) pt outside its own "
+            + "frame, and the drop shadow reaches \(shadowReach) pt — but the bleed is "
+            + "only \(CanvasRenderer.cullingBleed) pt, so a card still partly on screen "
+            + "can be culled and blink out at the window edge. Raise "
+            + "CanvasRenderer.cullingBleed to match the tilt.")
+    }
+
+    /// A card paints outside its own frame — `drawCard`'s shadow reaches ~5 pt
+    /// past the edge, and the seeded rotation carries a corner further still — so
+    /// culling on the bare frame drops a card whose shadow would still have
+    /// fallen inside the viewport. The writer sees shadows appear and vanish at
+    /// the window edge as they pan, which reads as the surface flickering.
+    func test_visibleNodes_keepsACardWhoseShadowStillFallsInsideTheViewport() {
+        let viewSize = CGSize(width: 800, height: 600)
+        func isVisible(atX x: CGFloat) -> Bool {
+            var node = CanvasNode(id: CanvasNodeID("n1"), kind: .scrap,
+                                  origin: CGPoint(x: x, y: 0), width: 240)
+            node.cachedHeight = 100
+            var scene = CanvasScene()
+            scene.insert(node)
+            return !CanvasRenderer.visibleNodes(in: scene, camera: CanvasCamera(),
+                                                viewSize: viewSize).isEmpty
+        }
+        // Frame entirely off the right edge, but by less than the bleed.
+        XCTAssertTrue(isVisible(atX: viewSize.width + CanvasRenderer.cullingBleed / 2),
+                      "a card just past the edge was culled with its shadow, so the "
+                      + "shadow pops in rather than sliding in")
+        XCTAssertFalse(isVisible(atX: viewSize.width + CanvasRenderer.cullingBleed * 4),
+                       "the bleed must not become a licence to draw the whole scene")
+    }
+
+    func test_visibleNodes_growsAsYouZoomOut() {
+        var scene = CanvasScene()
+        for i in 0..<50 {
+            var n = CanvasNode(id: CanvasNodeID("n\(i)"), kind: .scrap,
+                               origin: CGPoint(x: CGFloat(i) * 300, y: 0), width: 240)
+            n.cachedHeight = 100
+            scene.insert(n)
+        }
+        var wide = CanvasCamera(); wide.zoom = 0.15
+        XCTAssertGreaterThan(
+            CanvasRenderer.visibleNodes(in: scene, camera: wide,
+                                        viewSize: CGSize(width: 800, height: 600)).count,
+            CanvasRenderer.visibleNodes(in: scene, camera: CanvasCamera(),
+                                        viewSize: CGSize(width: 800, height: 600)).count)
+    }
+
+    /// Asserted against the literal `[1, 3, 5]` rather than against `zs.sorted()`.
+    /// A self-comparison here is green on the empty array, so a culling bug that
+    /// dropped every node — the one failure this test sits next to — would pass
+    /// it. The literal pins the count and the order together.
+    func test_visibleNodes_returnsDrawOrderBackToFront() {
+        var scene = CanvasScene()
+        for (i, z) in [5, 1, 3].enumerated() {
+            var n = CanvasNode(id: CanvasNodeID("n\(i)"), kind: .scrap,
+                               origin: .zero, width: 240, z: z)
+            n.cachedHeight = 100
+            scene.insert(n)
+        }
+        let zs = CanvasRenderer.visibleNodes(in: scene, camera: CanvasCamera(),
+                                             viewSize: CGSize(width: 800, height: 600)).map(\.z)
+        XCTAssertEqual(zs, [1, 3, 5])
+    }
+
+    /// 1C-a draws item nodes as placeholders; 1C-d gives them titles and
+    /// thumbnails (spec §8A.1). The label must name the reference so a writer
+    /// looking at a canvas from a newer build can tell what is on it.
+    func test_itemPlaceholderLabelNamesItsReference() {
+        XCTAssertTrue(CanvasRenderer.placeholderLabel(forReference: "r-9").contains("r-9"))
+    }
+
+    /// Spike requirement 3: draw at the window's true backingScaleFactor ×
+    /// camera zoom, and NEVER derive that scale. `GraphicsContext.withCGContext`
+    /// already supplies exactly that product, so the correct implementation
+    /// computes nothing — and this test says so out loud, because "helpfully"
+    /// adding a scale is the shape of the bug.
+    func test_noFileInTheCanvasAreaDerivesItsOwnRasterScale() throws {
+        let forbidden = ["backingScaleFactor", "convertToBacking", "convertFromBacking",
+                         "NSScreen.main?.backingScaleFactor", "pixelsWide", "pixelsHigh"]
+        var offenders: [String] = []
+        for line in try Self.canvasSourceLines() {
+            // Comments may NAME the hazard; only code may not use it.
+            for pat in forbidden where line.code.contains(pat) {
+                offenders.append(line.description)
+            }
+        }
+        XCTAssertTrue(offenders.isEmpty,
+                      "the canvas must never derive a raster scale — withCGContext "
+                      + "already supplies backingScaleFactor x camera zoom, and a "
+                      + "hand-derived scale bakes in AppKit frame rounding and shifts "
+                      + "glyphs by a subpixel (spike requirement 3): \(offenders)")
+    }
+
+    /// The card's ink is only safe because the paper under it moves with the
+    /// appearance, and `test_theCardsInkContrastsWithItsPaperInBothAppearances`
+    /// pins those two CONSTANTS against each other. It does not pin the SEAM —
+    /// that whoever builds a `ScrapLayout` actually passes `cardInk`.
+    ///
+    /// That seam is the one likely to break, and the nearest worked examples are
+    /// this file's own raster fixtures, which pass a static `.black` because they
+    /// are about geometry. A static ink over dynamic paper is exactly the mutation
+    /// the contrast test proves is broken — white-on-white in dark mode — and
+    /// nothing else here would notice: the contrast test reads the constants, both
+    /// raster tests are pinned to `.light`, and `lineGeometrySignature` compares
+    /// geometry. So the seam gets a grep rather than another comment.
+    ///
+    /// Production only, so the test fixtures' `.black` stays legal. The window is
+    /// the construction line plus the eight after it, because the argument list
+    /// is normally wrapped.
+    func test_everyScrapLayoutInProductionNamesTheCardInk() throws {
+        let lines = try Self.canvasSourceLines()
+        var offenders: [String] = []
+        for (index, line) in lines.enumerated() where line.code.contains("ScrapLayout(") {
+            let window = lines[index..<min(index + 9, lines.count)]
+                .prefix { $0.file == line.file }
+                .map(\.code).joined(separator: "\n")
+            if !window.contains("textColor: CanvasRenderer.cardInk") {
+                offenders.append(line.description)
+            }
+        }
+        XCTAssertTrue(offenders.isEmpty,
+                      "a ScrapLayout built in Maugham/Canvas must name "
+                      + "CanvasRenderer.cardInk. Its default is the same colour "
+                      + "today, and a literal colour is the same colour in light "
+                      + "mode — both go invisible on dark paper, and no other test "
+                      + "in this file rasterises dark mode: \(offenders)")
+    }
+
+    /// All three greps above walk `Maugham/Canvas/`. If that walk ever silently
+    /// found nothing — a moved directory, a renamed area — every offender list
+    /// would be empty and all three tests would pass for the wrong reason.
+    func test_theCanvasSourceWalkActuallyFindsTheCanvasFiles() throws {
+        let names = Set(try Self.canvasSourceLines().map(\.file))
+        XCTAssertTrue(names.contains("CanvasRenderer.swift"),
+                      "the grep tripwires are scanning the wrong directory: \(names)")
+        XCTAssertGreaterThan(names.count, 4)
+    }
+
+    /// One line of Swift under `Maugham/Canvas/`.
+    private struct SourceLine {
+        let file: String
+        /// 1-based, so it matches what an editor shows.
+        let number: Int
+        /// The whole line, trimmed — for the offender message.
+        let text: String
+        /// The line with comment text removed. The tripwires match on THIS, so a
+        /// doc comment may name a banned spelling and a comment may not smuggle
+        /// one in either.
+        let code: String
+
+        var description: String { "\(file):\(number): \(text)" }
+    }
+
+    /// Every Swift line under `Maugham/Canvas/`, in file order.
+    private static func canvasSourceLines() throws -> [SourceLine] {
+        let dir = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()    // MaughamTests/Canvas
+            .deletingLastPathComponent()    // MaughamTests
+            .deletingLastPathComponent()    // repo root
+            .appendingPathComponent("Maugham/Canvas", isDirectory: true)
+
+        var out: [SourceLine] = []
+        let walker = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil)
+        for case let url as URL in walker! where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            var inBlockComment = false
+            for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+                let (code, stillInBlock) = strippingComments(String(line),
+                                                             inBlockComment: inBlockComment)
+                inBlockComment = stillInBlock
+                out.append(SourceLine(file: url.lastPathComponent,
+                                      number: i + 1,
+                                      text: line.trimmingCharacters(in: .whitespaces),
+                                      code: code))
+            }
+        }
+        return out
+    }
+
+    /// The code half of a line, and whether a `/* */` block is still open after
+    /// it.
+    ///
+    /// Skipping only lines that START with `//` — which is all the first version
+    /// of these tripwires did — lets a trailing comment or a block comment
+    /// naming a banned spelling fail a build against a file that never used it.
+    /// A red build for a comment is a worse failure than the one being guarded.
+    ///
+    /// String literals are not tracked, so a banned spelling inside a literal
+    /// containing `//` is missed. That direction is safe: it can only lose a
+    /// match, never invent one.
+    private static func strippingComments(_ line: String,
+                                          inBlockComment: Bool) -> (String, Bool) {
+        var code = ""
+        var inBlock = inBlockComment
+        var i = line.startIndex
+        while i < line.endIndex {
+            let rest = line[i...]
+            if inBlock {
+                if rest.hasPrefix("*/") {
+                    inBlock = false
+                    i = line.index(i, offsetBy: 2)
+                    continue
+                }
+            } else {
+                if rest.hasPrefix("//") { break }
+                if rest.hasPrefix("/*") {
+                    inBlock = true
+                    i = line.index(i, offsetBy: 2)
+                    continue
+                }
+                code.append(line[i])
+            }
+            i = line.index(after: i)
+        }
+        return (code, inBlock)
+    }
+
+    // MARK: - What the draw pass actually puts on the page
+
+    private static let sample = "The falls at night: sodium light on the spray, and "
+        + "nobody there but the man selling ponchos. October says the doctor "
+        + "was kind about it, which is not the same as being right."
+
+    /// THE Y-FLIP PIN, and the only test in this file that runs the draw loop.
+    ///
+    /// `ScrapLayout.draw(into:at:)` requires a context in TOP-LEFT, y-downward
+    /// text coordinates — its own bitmap test builds that by hand with
+    /// `translateBy(0, h)` then `scaleBy(1, -1)`. `drawCard` applies no flip of
+    /// its own, which is correct only because `GraphicsContext.withCGContext`
+    /// hands back a context that is already y-down. The spike never measured
+    /// that step: it drew into a bitmap it constructed itself.
+    ///
+    /// Measured on 2026-07-26: a `withCGContext` fill of `CGRect(0, 0, 100, 10)`
+    /// inks the TOP ten rows of the rendered image, identical to a
+    /// `GraphicsContext.fill` of the same rect. So no flip belongs here. If that
+    /// ever changes, the fix belongs in `drawCard` and NOT in `ScrapLayout` —
+    /// changing `ScrapLayout` would move the §7A.2 glyph-origin pin out from
+    /// under the mounted editor it exists to compare against.
+    ///
+    /// The scrap is five-ish lines tall and its card sits 90 pt down the page, so
+    /// a spurious flip is unmissable rather than marginal: the glyphs would run
+    /// UPWARD from the text origin and most of them would land above the card
+    /// entirely. Asserting "ink exists" would not catch that; this asserts where.
+    @MainActor
+    func test_theDrawnTextRunsDownwardFromTheTextOriginInsideItsCard() throws {
+        let layout = ScrapLayout(
+            text: Self.sample,
+            width: CanvasCardMetrics.textWidth(forCardWidth: 240),
+            font: NSFont(name: "Iowan Old Style", size: 13) ?? .systemFont(ofSize: 13),
+            // Static ink and a light colour scheme below: this test is about
+            // GEOMETRY, and the appearance pairing is pinned separately by
+            // test_theCardsInkContrastsWithItsPaperInBothAppearances.
+            textColor: .black)
+        let textHeight = layout.measuredHeight
+        XCTAssertGreaterThan(textHeight, 60, "the fixture must wrap to several lines")
+
+        let cardOrigin = CGPoint(x: 40, y: 90)
+        var node = CanvasNode(id: CanvasNodeID("s1"), kind: .scrap,
+                              origin: cardOrigin, width: 240)
+        node.cachedHeight = CanvasCardMetrics.cardHeight(forTextHeight: textHeight)
+        var scene = CanvasScene()
+        scene.insert(node)
+        let frame = try XCTUnwrap(node.frame)
+
+        let viewSize = CGSize(width: 360, height: 90 + frame.height + 90)
+        let page = try Self.render(size: viewSize) { cx in
+            CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: viewSize,
+                                layouts: [node.id: layout],
+                                scraps: [:], selection: nil,
+                                visibleEditorNodeID: nil,
+                                straighten: CanvasFocusStraighten(),
+                                pendingRegionDraw: nil, into: &cx)
+        }
+
+        let inkRows = page.inkRows(0..<Int(viewSize.height),
+                                   columns: Self.textColumns(inCard: frame))
+
+        XCTAssertFalse(inkRows.isEmpty, "the draw pass put no text on the page at all")
+        let firstRow = try XCTUnwrap(inkRows.first), lastRow = try XCTUnwrap(inkRows.last)
+
+        let textTop = frame.minY + CanvasCardMetrics.inset
+        XCTAssertEqual(CGFloat(firstRow), textTop, accuracy: 8,
+                       "the first inked row must be the top of the text box "
+                       + "(CanvasCardMetrics.textOrigin), not somewhere else — under a "
+                       + "flip the glyphs run upward from the text origin and the clip "
+                       + "crops them to the card's top edge, 10 pt higher")
+        XCTAssertGreaterThan(CGFloat(lastRow - firstRow), textHeight * 0.6,
+                             "only part of the scrap was drawn — under a flip most of "
+                             + "it is outside the card and the clip removes it")
+
+        // Nothing may be drawn outside the card at all. This replaces a pair of
+        // assertions that could not fire: they tested that `firstRow` was not
+        // above `frame.minY` and `lastRow` not below `frame.maxY`, but `drawCard`
+        // clips the text layer to the card shape, so a glyph cannot rasterise
+        // outside the frame for either of them to catch. Asserting on the rows
+        // OUTSIDE the card can fail — a flip plus a lost clip puts the glyphs on
+        // the page above the card — and it guards the clip itself, which is the
+        // only reason the two lines it replaces were unreachable.
+        let fullWidth = 0..<Int(viewSize.width)
+        XCTAssertEqual(page.inkPixels(rows: 0..<Int(frame.minY), columns: fullWidth), 0,
+                       "something inked the page ABOVE the card — the text is running "
+                       + "upward from the text origin, i.e. drawCard and ScrapLayout "
+                       + "disagree about which way y runs, and nothing clipped it")
+        XCTAssertEqual(page.inkPixels(rows: Int(frame.maxY)..<Int(viewSize.height),
+                                      columns: fullWidth), 0,
+                       "something inked the page BELOW the card")
+    }
+
+    /// The other half of the draw pass: `visibleEditorNodeID` suppresses that
+    /// node's TEXT and nothing else. Its CARD must still be drawn — §7A.5 makes
+    /// the focused card the only square one on the canvas, and there is nothing
+    /// to be square if the card vanishes the moment it is clicked.
+    @MainActor
+    func test_theEditedNodeLosesItsTextButKeepsItsCard() throws {
+        let layout = ScrapLayout(
+            text: Self.sample,
+            width: CanvasCardMetrics.textWidth(forCardWidth: 240),
+            font: NSFont(name: "Iowan Old Style", size: 13) ?? .systemFont(ofSize: 13),
+            textColor: .black)
+        let id = CanvasNodeID("s1")
+        var node = CanvasNode(id: id, kind: .scrap, origin: CGPoint(x: 40, y: 90), width: 240)
+        node.cachedHeight = CanvasCardMetrics.cardHeight(forTextHeight: layout.measuredHeight)
+        var scene = CanvasScene()
+        scene.insert(node)
+        let frame = try XCTUnwrap(node.frame)
+        let viewSize = CGSize(width: 360, height: 90 + frame.height + 90)
+
+        func inkCount(visibleEditor: CanvasNodeID?) throws -> Int {
+            let page = try Self.render(size: viewSize) { cx in
+                CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: viewSize,
+                                    layouts: [id: layout],
+                                    scraps: [:], selection: nil,
+                                    visibleEditorNodeID: visibleEditor,
+                                    straighten: CanvasFocusStraighten(),
+                                    pendingRegionDraw: nil, into: &cx)
+            }
+            return page.inkPixels(rows: Int(frame.minY)..<Int(frame.maxY),
+                                  columns: Self.textColumns(inCard: frame))
+        }
+
+        XCTAssertGreaterThan(try inkCount(visibleEditor: nil), 300)
+        XCTAssertEqual(try inkCount(visibleEditor: id), 0,
+                       "the editor is the visible text now — drawing the scrap's own "
+                       + "text as well double-draws every glyph (§7A.2)")
+
+        // …and the card itself survives. Asserted DIFFERENTIALLY, against the
+        // same viewport with the node absent from the scene altogether. Sampling
+        // one pixel inside the card and comparing it to one outside does not
+        // work and is worth recording: in light mode the card's paper is
+        // `textBackgroundColor`, pure white, and so is the page behind it — the
+        // comparison is 255 against 255 whether or not a card was ever drawn.
+        // What only a drawn card can produce is a CHANGE where the card is.
+        //
+        // Because the paper matches the page, what that change consists of is
+        // the card's CHROME — border, shadow, resize mark — not its body: 629
+        // pixels measured, against a threshold of 200. That is the honest
+        // reading of this number, and it is enough, because a card that drew no
+        // chrome at all drew nothing at all (verified: 0).
+        func page(scene: CanvasScene) throws -> Page {
+            try Self.render(size: viewSize) { cx in
+                CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: viewSize,
+                                    layouts: [id: layout],
+                                    scraps: [:], selection: nil,
+                                    visibleEditorNodeID: id,
+                                    straighten: CanvasFocusStraighten(),
+                                    pendingRegionDraw: nil, into: &cx)
+            }
+        }
+        let drawn = try page(scene: scene)
+        let blank = try page(scene: CanvasScene())
+
+        var differing = 0
+        for y in Int(frame.minY)..<Int(frame.maxY) {
+            for x in Int(frame.minX)..<Int(frame.maxX)
+            where drawn.value(x: x, y: y) != blank.value(x: x, y: y) {
+                differing += 1
+            }
+        }
+        XCTAssertGreaterThan(differing, 200,
+                             "the focused card was not drawn at all — §7A.5 needs it "
+                             + "there to be the one square card on the canvas")
+
+        // Specifically at the resize mark, which is chrome nothing else paints.
+        let handle = CGPoint(x: frame.maxX - CanvasRenderer.resizeHandleSize / 3,
+                             y: frame.maxY - CanvasRenderer.resizeHandleSize / 3)
+        XCTAssertNotEqual(drawn.value(x: Int(handle.x), y: Int(handle.y)),
+                          blank.value(x: Int(handle.x), y: Int(handle.y)),
+                          "the card's resize mark is missing from the focused card")
+    }
+
+    /// Item placeholders are 1C-a's ONLY delivered behaviour for item nodes
+    /// (1C-d resolves the real title, kind glyph and thumbnail), and until this
+    /// test the whole `case .item` draw path could have been deleted with every
+    /// other test in this file still green: `placeholderLabel` was unit-tested
+    /// but never shown to be DRAWN, and the dashed stroke that distinguishes a
+    /// placeholder from a real scrap was not exercised at all. 1C-d rewrites
+    /// exactly this code.
+    ///
+    /// The border is asserted against a `.scrap` card at the SAME geometry
+    /// rather than against absolute values, because what makes a placeholder
+    /// read as unfinished is the contrast with a finished card: the dash leaves
+    /// gaps a solid stroke does not (columns LIGHTER than the scrap's edge) and
+    /// its 1 pt line is heavier where it does land (columns DARKER). A solid
+    /// item stroke would be uniformly darker and produce no lighter columns at
+    /// all.
+    @MainActor
+    func test_anItemNodeDrawsAPlaceholderCardWithADashedBorder() throws {
+        let origin = CGPoint(x: 40, y: 90)
+        func page(_ kind: CanvasNodeKind) throws -> (Page, CGRect) {
+            var node = CanvasNode(id: CanvasNodeID("n1"), kind: kind, origin: origin, width: 240)
+            node.cachedHeight = 105
+            var scene = CanvasScene()
+            scene.insert(node)
+            let frame = try XCTUnwrap(node.frame)
+            let viewSize = CGSize(width: 360, height: 285)
+            return (try Self.render(size: viewSize) { cx in
+                CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: viewSize,
+                                    layouts: [:],
+                                    scraps: [:], selection: nil,
+                                    visibleEditorNodeID: nil,
+                                    straighten: CanvasFocusStraighten(),
+                                    pendingRegionDraw: nil, into: &cx)
+            }, frame)
+        }
+        let (item, frame) = try page(.item(referenceId: "r-9"))
+        let (scrap, _) = try page(.scrap)
+
+        // The label is drawn, inside the card, near the text origin. A scrap
+        // with no layout draws no text at all, so this ink can only be the
+        // placeholder.
+        let body = Int(frame.minY)..<Int(frame.maxY)
+        let band = Self.textColumns(inCard: frame)
+        XCTAssertGreaterThan(item.inkPixels(rows: body, columns: band), 20,
+                             "an item node drew no placeholder label — nothing on the "
+                             + "canvas says what the card points at")
+        XCTAssertEqual(scrap.inkPixels(rows: body, columns: band), 0,
+                       "the comparison card must be blank, or the border check below "
+                       + "is measuring text")
+        // Bounded rather than pinned with a tolerance: the gap between a text
+        // origin and the first inked row is the font's own ascent slack, ~3 pt
+        // here, so any tolerance wide enough to survive a font metric change is
+        // also wide enough to swallow the card's 10 pt inset — an `accuracy: 8`
+        // version of this line passed with the label drawn at `frame.origin`.
+        let labelTop = CGFloat(try XCTUnwrap(item.inkRows(0..<285, columns: band).first))
+        let textOrigin = CanvasCardMetrics.textOrigin(inCard: frame).y
+        XCTAssertGreaterThanOrEqual(labelTop, textOrigin,
+                                    "the placeholder label is inked above the card's text "
+                                    + "origin — it must start where 1C-d will put the real "
+                                    + "title, or the placeholder and the thing replacing it "
+                                    + "sit on different rects")
+        XCTAssertLessThan(labelTop, textOrigin + 20,
+                          "the placeholder label has drifted down the card")
+
+        // The dashed border, against the solid one at the same geometry.
+        let edge = Int(frame.minY) - 2...Int(frame.minY) + 2
+        func topEdge(_ p: Page) -> [Int] {
+            (Int(frame.minX) + 6..<Int(frame.maxX) - 6).map { x in
+                edge.map { Int(p.value(x: x, y: $0)) }.min() ?? 0
+            }
+        }
+        let pairs = Array(zip(topEdge(item), topEdge(scrap)))
+        XCTAssertGreaterThan(pairs.count { $0 > $1 + 3 }, 40,
+                             "the item card's top border has no gaps — a placeholder "
+                             + "must read as unfinished, and a solid stroke is what a "
+                             + "finished scrap gets")
+        XCTAssertGreaterThan(pairs.count { $0 + 3 < $1 }, 40,
+                             "the item card's border is nowhere heavier than a scrap's, "
+                             + "so it is not being stroked at all")
+    }
+
+    /// FINDING 3, pinned. `ScrapLayout`'s ink defaults to `NSColor.labelColor`,
+    /// which resolves against whatever appearance is current when the glyphs
+    /// rasterise. That default is right ONLY because the paper under it is
+    /// appearance-dynamic too. Make the card paper-coloured in both appearances
+    /// and every scrap is white-on-paper in dark mode — and nothing else in the
+    /// suite would say so, because `lineGeometrySignature` compares geometry and
+    /// the one test that rasterises glyphs is deliberately pinned to `.aqua`.
+    ///
+    /// Fails in both directions: static paper with dynamic ink loses the gap in
+    /// dark mode, and static ink with dynamic paper loses it too.
+    func test_theCardsInkContrastsWithItsPaperInBothAppearances() throws {
+        for name in [NSAppearance.Name.aqua, .darkAqua] {
+            NSAppearance(named: name)!.performAsCurrentDrawingAppearance {
+                guard let paper = CanvasRenderer.cardPaper.usingColorSpace(.sRGB),
+                      let ink = CanvasRenderer.cardInk.usingColorSpace(.sRGB) else {
+                    return XCTFail("could not resolve the card colours under \(name.rawValue)")
+                }
+                // Composite the ink over the paper — labelColor is not opaque.
+                let composited = ink.brightnessComponent * ink.alphaComponent
+                    + paper.brightnessComponent * (1 - ink.alphaComponent)
+                XCTAssertGreaterThan(
+                    abs(paper.brightnessComponent - composited), 0.5,
+                    "under \(name.rawValue) the ink is \(composited) on paper of "
+                    + "\(paper.brightnessComponent) — a scrap's text is unreadable. "
+                    + "CanvasRenderer.cardInk and cardPaper must track the same "
+                    + "appearance signal; Task 9/10 pass cardInk into ScrapLayout.")
+            }
+        }
+    }
+
+    // MARK: - Rasterisation helper
+
+    /// One rendered page, addressed in POINTS from the top-left — the same
+    /// coordinates `CanvasRenderer.draw` works in.
+    ///
+    /// **The page is backed with the card's own paper, and `isInk` means
+    /// "materially darker than that paper".** That is what "a glyph landed here"
+    /// looks like, and it is the only thing these fixtures ever ask.
+    ///
+    /// An earlier version backed the page with magenta, so that "unpainted"
+    /// could be told from "painted white". It cannot work, and the way it fails
+    /// is worth writing down: a `Canvas` paints more than glyphs. `drawCard`'s
+    /// drop shadow reaches ~5 pt beyond every card, and even its faintest
+    /// pixels, composited over magenta, swing a colour channel by ~190 — so
+    /// every shadow row above and below the card counts as ink, `firstRow` lands
+    /// on the shadow instead of the text origin, and the y-flip pin below stops
+    /// measuring the flip. (That version was green only because it sampled the
+    /// RED channel while its comment said green, and magenta and white are both
+    /// 255 in red. Two errors cancelling.) Backing the page with the paper
+    /// leaves the shadow 54 levels below paper and a glyph 233 below, so the two
+    /// stop being confusable at all.
+    ///
+    /// Measured 2026-07-26 in the light appearance, whole page: glyph pixels
+    /// reach 0–22; the darkest non-glyph pixel anywhere is the drop shadow at
+    /// 201, the card border sits at 233 and the resize mark at 235.
+    /// `inkThreshold` at 100 sits in the middle of that gap, and the y-flip
+    /// pin's `firstRow` is 103 at a threshold of 60, 100 or 140 alike.
+    private struct Page {
+        /// How much darker than the paper a pixel must be to count as a glyph.
+        static let inkThreshold = 100
+
+        let bytes: [UInt8]
+        let bytesPerRow: Int
+        let width: Int
+        let height: Int
+        /// What an unpainted pixel reads — measured off this page's own backing
+        /// rather than assumed.
+        let paper: UInt8
+
+        /// The GREEN channel at `(x, y)`; `paper` outside the page, so an
+        /// off-page read can never be mistaken for ink.
+        ///
+        /// The context is `premultipliedFirst` with the default byte order, so
+        /// the bytes run **A, R, G, B** and green is index 2 — measured
+        /// 2026-07-26 by filling a known colour and reading the four bytes back,
+        /// not inferred. Index 1 is red.
+        func value(x: Int, y: Int) -> UInt8 {
+            guard (0..<width).contains(x), (0..<height).contains(y) else { return paper }
+            return bytes[y * bytesPerRow + x * 4 + 2]
+        }
+
+        func isInk(x: Int, y: Int) -> Bool {
+            Int(paper) - Int(value(x: x, y: y)) > Self.inkThreshold
+        }
+
+        /// Which of `rows` carry any ink in `columns`.
+        func inkRows(_ rows: Range<Int>, columns: Range<Int>) -> [Int] {
+            rows.filter { y in columns.contains { isInk(x: $0, y: y) } }
+        }
+
+        /// How many pixels in the rect carry ink.
+        func inkPixels(rows: Range<Int>, columns: Range<Int>) -> Int {
+            rows.reduce(into: 0) { total, y in
+                total += columns.count { isInk(x: $0, y: y) }
+            }
+        }
+    }
+
+    /// The columns inside a card's text box, clear of the border stroke and of
+    /// the resize mark in the bottom-right corner.
+    private static func textColumns(inCard frame: CGRect) -> Range<Int> {
+        let inset = CanvasCardMetrics.inset
+        return Int(frame.minX + inset)..<Int(frame.maxX - CanvasRenderer.resizeHandleSize - inset)
+    }
+
+    /// Render a `Canvas` draw closure at scale 1 and read its pixels.
+    ///
+    /// The colour scheme is pinned to `.light` so `Color(nsColor:)` resolves the
+    /// same way on a dark-mode Mac as on a light-mode CI box — the same reason
+    /// `ScrapLayoutTests` pins its bitmap comparison to `.aqua`. The page's
+    /// backing is `cardPaper` resolved under the MATCHING appearance: this test
+    /// process runs under DarkAqua, so resolving it plainly would paint a dark
+    /// page behind a light card.
+    @MainActor
+    private static func render(size: CGSize,
+                               _ draw: @escaping (inout GraphicsContext) -> Void) throws -> Page {
+        let renderer = ImageRenderer(
+            content: Canvas { cx, _ in draw(&cx) }
+                .frame(width: size.width, height: size.height)
+                .environment(\.colorScheme, .light))
+        renderer.scale = 1
+        let image = try XCTUnwrap(renderer.cgImage, "ImageRenderer produced no image")
+
+        let w = image.width, h = image.height
+        let ctx = try XCTUnwrap(CGContext(data: nil, width: w, height: h, bitsPerComponent: 8,
+                                          bytesPerRow: w * 4,
+                                          space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue))
+        var paperColor: CGColor?
+        NSAppearance(named: .aqua)!.performAsCurrentDrawingAppearance {
+            paperColor = CanvasRenderer.cardPaper.usingColorSpace(.sRGB)?.cgColor
+        }
+        ctx.setFillColor(try XCTUnwrap(paperColor, "could not resolve the card paper"))
+        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        // Read the backing back before anything is drawn over it, so `paper` is
+        // the value an unpainted pixel actually holds.
+        let paper = ctx.data!.bindMemory(to: UInt8.self, capacity: 4)[2]
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+
+        let count = ctx.bytesPerRow * h
+        // Row 0 of a CGBitmapContext's buffer is the TOP row of the drawn image,
+        // so buffer row == point y. Verified against a GraphicsContext fill at
+        // y = 0, which inks buffer rows 0...9.
+        let bytes = Array(UnsafeBufferPointer(start: ctx.data!.bindMemory(to: UInt8.self,
+                                                                         capacity: count),
+                                              count: count))
+        return Page(bytes: bytes, bytesPerRow: ctx.bytesPerRow,
+                    width: w, height: h, paper: paper)
+    }
+}

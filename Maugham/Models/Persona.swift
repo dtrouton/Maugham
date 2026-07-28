@@ -142,26 +142,25 @@ public extension Persona {
     /// Reconciled against the three-column table in §6.3 of
     /// `docs/superpowers/specs/2026-07-25-mode-based-ux-redesign-design.md`,
     /// which gives each persona a Left surface: Plan "Research tree", Author
-    /// "Binder", Review "Pieces by review state", Publish "Editions". Two of
-    /// those four surfaces do not exist yet (M1C builds the canvas, M1D the
-    /// editions list), so the deviations are recorded at their cases below.
+    /// "Binder", Review "Pieces by review state", Publish "Editions". One of
+    /// those four surfaces does not exist yet (M1D builds the editions list), so the deviations are recorded at their cases below.
     func binderSegments(for projectType: ProjectType) -> [BinderSegment] {
         let home = BinderSegment.documentHome(for: projectType)
         switch self {
         case .plan:
-            // §6.3 Left = "Research tree", so Research leads. Palette joins it:
-            // it is a Plan primary in the same section's pane matrix, and the
-            // binder is where a palette card is picked.
+            // §6.3 gives Plan a canvas centre column, so the canvas leads and is
+            // therefore `binderHome` — entering Plan lands on it. Research and
+            // Palette follow: Research is §6.3's Left surface, and the binder is
+            // where a palette card is picked.
             //
-            // The manuscript segment is deliberately ABSENT — including it
-            // would defeat the point, because the coercion rule below (and in
-            // the right pane) keeps any segment the destination offers, so a
-            // writer entering Plan from the manuscript would simply stay on
-            // it and never see the research tree. Not a gate: a forced
-            // navigation (wiki-link, MCP note banner) still selects the
-            // manuscript segment and `BinderSegmentPicker.visibleSegments`
+            // The manuscript segment stays deliberately ABSENT, for the reason
+            // recorded before the canvas existed: the coercion rule keeps any
+            // segment the destination offers, so including it would let a writer
+            // entering Plan from the manuscript simply stay on it and never see
+            // the planning surfaces at all. Not a gate — a forced navigation
+            // still selects the manuscript segment and `visibleSegments`
             // renders it, and ⌘2 is one keystroke away.
-            return [.research, .palette]
+            return [.canvas, .research, .palette]
         case .author:
             // §6.3 Left = "Binder". Exactly today's segment list, in today's
             // order — the default persona must look unchanged to an upgrading

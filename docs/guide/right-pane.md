@@ -17,6 +17,8 @@ Switching persona while sitting on a pane the destination doesn't offer falls ba
 
 Default in Author. Shows metadata for whatever's selected in the binder.
 
+**On the planning canvas** (Plan → Canvas) it shows the selected **region** instead: its name, whether it's collapsed, the piece it's bound to, which cards live in it and which only appear in it, and a Delete Region button. Select nothing and it says so. See [Getting Started → The planning canvas](getting-started.md#the-planning-canvas).
+
 ### Research mode (⌘⌥R)
 
 Shows research for the current manuscript document in up to two sections:
