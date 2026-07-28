@@ -131,6 +131,26 @@ struct CanvasView: View {
     /// Moved only by a real keystroke — see `syncActiveEdit(fromKeystroke:)`.
     @State private var lastKeystrokeAt: Date?
 
+    /// What was selected when the current mouse-down arrived — which is what the
+    /// writer could SEE when they aimed it.
+    ///
+    /// **The connect mark is selection chrome, so the gesture that starts from it
+    /// has to ask about the selection as DRAWN, and `model.selection` is already
+    /// the new one by the time a drag begins.** `CanvasEventNSView.applyMouseDown`
+    /// fires `onClick` strictly before `onDrag(.began)` — a contract that file
+    /// states outright — and `handleClick` reassigns the selection to whatever is
+    /// under the pointer. Read live at `.began`, the first press on an *unselected*
+    /// card would therefore find that card selected and start a line out of a mark
+    /// that was not on screen when the writer pressed: a 14 pt patch on the right
+    /// edge of every card on the canvas that refuses to move it. Click, then
+    /// press, is two gestures, and this is the one value that keeps them two.
+    ///
+    /// Written in exactly one place — the head of `handleClick`, before anything
+    /// can move the selection — and read in exactly one, `handleDrag(.began)`. A
+    /// stale value is harmless: `pressStartsALine` also requires the selected card
+    /// to be the one under the pointer.
+    @State private var selectionWhenPressed: CanvasSelection?
+
     private let scrapFont = NSFont(name: "Iowan Old Style", size: 13)
         ?? .systemFont(ofSize: 13)
 
@@ -165,6 +185,8 @@ struct CanvasView: View {
         // inside the draw closure it would register nothing, and the rubber band
         // would appear a frame late or not at all.
         let sweep = interaction.pendingRegionDraw
+        // The line being pulled, read here for the same reason and beside it.
+        let band = interaction.pendingLine
 
         // No GeometryReader: `Canvas`'s own `size` is the viewport the renderer
         // culls against, and `.position` below resolves in this ZStack's space.
@@ -193,14 +215,7 @@ struct CanvasView: View {
                                         visibleEditorNodeID: visibleEditorNodeID,
                                         straighten: straighten,
                                         pendingRegionDraw: sweep,
-                                        // Task 4 owns the gesture that fills
-                                        // this in, and it arrives as a `let`
-                                        // read in `body` beside `sweep` above,
-                                        // for the same @State reason. Literal
-                                        // nil until then: a call that reads a
-                                        // symbol no task has written is the
-                                        // failure this plan exists to avoid.
-                                        pendingLine: nil, into: &cx)
+                                        pendingLine: band, into: &cx)
                 }
                 .allowsHitTesting(false)
                 // Spec §7A.6: drawn content has no AX tree, so this view owns
@@ -267,8 +282,9 @@ struct CanvasView: View {
                     handleClick(at: camera.contentPoint(fromView: viewPoint),
                                 clickCount: clickCount)
                 },
-                onDrag: { viewPoint, phase in
-                    handleDrag(at: camera.contentPoint(fromView: viewPoint), phase: phase)
+                onDrag: { viewPoint, phase, shiftHeld in
+                    handleDrag(at: camera.contentPoint(fromView: viewPoint), phase: phase,
+                               shiftHeld: shiftHeld)
                 },
                 onDeleteKey: { deleteSelection() },
                 // The bare manager, vended down the responder chain so ⌘Z with
@@ -756,6 +772,11 @@ struct CanvasView: View {
     /// the editor in front. A second double-click inside a tenth of a second
     /// keeps the first one's caret.
     private func handleClick(at contentPoint: CGPoint, clickCount: Int) {
+        // FIRST, above everything else in this method: the selection as the
+        // writer saw it when they pressed. The connect-mark drag reads it at
+        // `.began`, which runs after this whole method — see
+        // `selectionWhenPressed`.
+        selectionWhenPressed = model.selection
         commitActiveEdit()
 
         guard clickCount >= 2 else {
@@ -991,8 +1012,55 @@ struct CanvasView: View {
         case .movingRegion: return "Move Region"
         case .resizingRegion: return "Resize Region"
         case .drawingRegion: return "New Region"
+        case .drawingLine: return "Draw Line"
         case nil: return "Canvas"
         }
+    }
+
+    /// Whether this press begins a LINE rather than a move, a resize or a sweep.
+    ///
+    /// **Two routes, resolved into one `Bool` before `CanvasInteraction` sees
+    /// anything**: ⇧ held over any card, and a drag out of the connect mark on
+    /// the *selected* card. One answer means one implementation of what a connect
+    /// drag does, so the discoverable route and the fast one cannot drift into
+    /// behaving differently. It is a `static func` over its inputs rather than a
+    /// computed property on the view so it is reachable from a test without
+    /// hosting SwiftUI — a decision one level above a primitive is exactly where
+    /// this area has shipped unreachable halves before.
+    ///
+    /// **⇧ owes nothing to the selection**, and the mark route owes nothing to ⇧.
+    /// ⇧ on bare canvas still sweeps a region: `CanvasInteraction.begin` only
+    /// consults this when the press lands on a node, and there is no marquee
+    /// select here (§9) for ⇧ to collide with.
+    ///
+    /// Three things must all hold for the mark route, and each is a way for the
+    /// writer to have aimed at something else:
+    ///
+    /// - **A NODE is selected.** The mark is selection chrome and is drawn
+    ///   nowhere else, so on an unselected card — or with a region selected —
+    ///   there is nothing there to press. This is what stops the press that
+    ///   *selects* a card from also starting a line out of it: `applyMouseDown`
+    ///   fires `onClick` strictly before `onDrag(.began)`, so the first press
+    ///   would otherwise both reveal the mark and act on it, and the writer would
+    ///   have drawn a line at a mark that was not on screen when they pressed.
+    ///   Click, then press, is two gestures and is correct.
+    /// - **The press is inside `connectHandleRect`**, which is `.null` on a card
+    ///   too short to hold the mark above the resize corner. `CGRect.null`
+    ///   contains no point, so such a card simply has no connect target and ⇧ is
+    ///   the way in — pinned by test rather than assumed.
+    /// - **The selected card is the one under the pointer.** Another card in
+    ///   front hides the mark, and `begin` resolves the source with
+    ///   `topmostNode(at:)` — so without this the writer would press a card they
+    ///   can see and get a line out of one they cannot.
+    static func pressStartsALine(at contentPoint: CGPoint,
+                                 selection: CanvasSelection?,
+                                 in scene: CanvasScene,
+                                 shiftHeld: Bool) -> Bool {
+        if shiftHeld { return true }
+        guard case .node(let id)? = selection,
+              let frame = scene.node(id)?.frame,
+              scene.topmostNode(at: contentPoint)?.id == id else { return false }
+        return CanvasRenderer.connectHandleRect(inCard: frame).contains(contentPoint)
     }
 
     /// A left-drag that begins over empty canvas now DRAWS A REGION, and one
@@ -1007,7 +1075,14 @@ struct CanvasView: View {
     /// than a card move. Nothing currently lets a writer drag a focused card by
     /// its text; whether that is right is a product question nobody has answered,
     /// and it is flagged rather than decided here.
-    private func handleDrag(at contentPoint: CGPoint, phase: CanvasDragPhase) {
+    ///
+    /// **A ⇧-drag from a card, or a drag out of the selected card's connect mark,
+    /// draws a LINE.** Both are resolved into one `Bool` here — see
+    /// `pressStartsALine` — and after the focus guard rather than before it: a
+    /// drag inside a focused scrap belongs to the editor, which is in front and
+    /// takes the mouse itself, so asking about connect marks above that guard
+    /// would compute an answer for a press this view never sees.
+    private func handleDrag(at contentPoint: CGPoint, phase: CanvasDragPhase, shiftHeld: Bool) {
         switch phase {
         case .began:
             // ANY press stops a coast — this one included, and one on bare
@@ -1039,7 +1114,16 @@ struct CanvasView: View {
             // (`CanvasEventNSView.applyMouseDown` pins that order), so this sees
             // the focus state the click just set.
             guard editingNodeID == nil else { return }
-            interaction.begin(at: contentPoint, in: model.scene)
+            // The two routes into a line, answered once, HERE — the gesture
+            // layer deliberately has no opinion about what is selected.
+            // `selectionWhenPressed` and NOT `model.selection`: `handleClick` has
+            // already run for this same mouse-down and moved the selection onto
+            // whatever is under the pointer. See that property.
+            let connecting = Self.pressStartsALine(at: contentPoint,
+                                                   selection: selectionWhenPressed,
+                                                   in: model.scene,
+                                                   shiftHeld: shiftHeld)
+            interaction.begin(at: contentPoint, in: model.scene, connecting: connecting)
             // Only when `begin` found something. A press on bare canvas INSIDE a
             // region leaves the interaction idle, so `.ended` bails on its first
             // guard and would never close a gesture opened here — the next real
@@ -1080,6 +1164,20 @@ struct CanvasView: View {
             // to go stale.
             let drawnRegion = interaction.pendingRegionDraw
             let movedNode = interaction.kind == .movingNode ? interaction.activeNodeID : nil
+            // A line is CLOSED up here rather than merely read, and it is the one
+            // of these that is not symmetrical with the sweep. The swept rect is
+            // a value and survives in a `let`; the SOURCE CARD of a line lives in
+            // the mode and nowhere else, so `endLine` has to run while the mode
+            // is still live. It leaves the interaction idle itself, so `end()`
+            // below reports no flick — the second guarantee that a line drag
+            // never sends the card it started from skating.
+            let wasDrawingLine = interaction.kind == .drawingLine
+            var mintedLine: CanvasLineID?
+            if wasDrawingLine {
+                model.withScene(persist: false) {
+                    mintedLine = interaction.endLine(at: contentPoint, in: &$0)
+                }
+            }
             let flick = interaction.end()
 
             // Whether the sweep actually minted a region, read below. A sweep
@@ -1097,6 +1195,15 @@ struct CanvasView: View {
                         mintedRegion = true
                     }
                 }
+            } else if wasDrawingLine {
+                // The line itself was inserted above; what belongs here is what
+                // the writer is left holding. Selecting it puts the new line
+                // under the inspector and under ⌫ straight away, which is the
+                // same courtesy a swept region gets. A drag that minted nothing
+                // — bare canvas, or back onto the source card — leaves the
+                // selection exactly as it was: the writer changed nothing, so
+                // nothing they had should move.
+                if let mintedLine { model.selection = .line(mintedLine) }
             } else if let movedNode, interaction.hasMoved {
                 // The drop, INSIDE the move's own gesture — so one ⌘Z takes back
                 // the move and the join together. Dropping outside every region
@@ -1181,7 +1288,19 @@ struct CanvasView: View {
                 // `drawnRegion == nil` is the other half of the same question and
                 // not a second rule: outside a sweep, `hasMoved` and a live
                 // interaction together mean a card or a region really moved.
-                if drawnRegion == nil || mintedRegion { model.bumpSceneRevision() }
+                //
+                // **A line drag that minted nothing takes the same guard**, and
+                // it GROWS this predicate rather than adding a second `if`
+                // beside it, because it is the same question asked of a third
+                // gesture. It is reachable the same way: every ⇧-press on a card
+                // opens a drag session, a trackpad press routinely drifts a
+                // point, and a release over bare canvas makes no line — without
+                // this each one would sort the scene, copy every scrap's string
+                // and rebuild two cached lists in the other column.
+                let mintedSomething = mintedRegion || mintedLine != nil
+                if (drawnRegion == nil && !wasDrawingLine) || mintedSomething {
+                    model.bumpSceneRevision()
+                }
                 if let flick { momentum.launch(flick.id, velocity: flick.velocity) }
             }
             model.scheduleSave()

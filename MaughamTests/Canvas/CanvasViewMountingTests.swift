@@ -3073,4 +3073,271 @@ final class CanvasViewMountingTests: XCTestCase {
                      "so `selectedRegion` is nil, the inspector is showing \"Select "
                      + "a region\", and there is no label field to type into")
     }
+
+    // MARK: - Drawing a line, through real events
+
+    /// Two measured cards, well apart: the fixture scrap at (20,20) and a second
+    /// at (400,200), both 240 wide.
+    ///
+    /// The heights here are the measured ones, but the view re-derives them on
+    /// load — so every test below reads the LIVE frame out of the scene rather
+    /// than arithmetic of its own. The connect target in particular is clamped
+    /// against the card's height, and a test that computed it from the fixture
+    /// would be aiming at a card that is not there.
+    private func twoCardProjectRoot() throws -> URL {
+        var scene = CanvasScene()
+        scene.insert(CanvasNode(id: scrapID, kind: .scrap, origin: CGPoint(x: 20, y: 20),
+                                width: 240, cachedHeight: 38))
+        scene.insert(CanvasNode(id: secondScrapID, kind: .scrap, origin: CGPoint(x: 400, y: 200),
+                                width: 240, cachedHeight: 38))
+        return try projectRoot(scene: scene,
+                               scraps: [scrapID: scrapText, secondScrapID: secondScrapText])
+    }
+
+    /// A real AppKit mouse event, in the window's own coordinates.
+    ///
+    /// `view.convert(_:to: nil)` rather than arithmetic on the window height: the
+    /// event view is flipped and sits wherever SwiftUI's hosting hierarchy put
+    /// it, and a test that did that sum itself would be asserting about its own
+    /// arithmetic.
+    private func mouseEvent(_ type: NSEvent.EventType,
+                            at viewPoint: CGPoint,
+                            in view: NSView,
+                            window: NSWindow,
+                            shift: Bool = false) -> NSEvent? {
+        NSEvent.mouseEvent(with: type,
+                           location: view.convert(viewPoint, to: nil),
+                           modifierFlags: shift ? [.shift] : [],
+                           timestamp: ProcessInfo.processInfo.systemUptime,
+                           windowNumber: window.windowNumber, context: nil,
+                           eventNumber: 0, clickCount: 1,
+                           pressure: type == .leftMouseUp ? 0 : 1)
+    }
+
+    /// A press, a path and a release, as REAL `NSEvent`s through
+    /// `window.sendEvent(_:)`.
+    ///
+    /// Everything else in this file drives `applyMouseDown` — the seam — because
+    /// synthesising mouse events was unreliable in the 2026-07-25 spike. This
+    /// one has to go the whole way: the ⇧ flag is read off the event inside
+    /// `CanvasEventNSView.mouseDown(with:)`, so a test that called the seam would
+    /// be handing the modifier in by hand and could not tell whether production
+    /// ever reads it. That is the 1C-a defect — a feature twenty-two tests deep
+    /// with nothing driving its real entry point.
+    ///
+    /// All three events are sent synchronously and the loop is pumped once
+    /// afterwards: `NSTextView.mouseDown` runs a modal tracking loop, so a
+    /// harness that pumped between the press and the release could deadlock.
+    private func sendRealDrag(in window: NSWindow,
+                              from start: CGPoint,
+                              through path: [CGPoint],
+                              shift: Bool) throws {
+        let events = try eventView(in: window)
+        let down = try XCTUnwrap(mouseEvent(.leftMouseDown, at: start, in: events,
+                                            window: window, shift: shift))
+        XCTAssertTrue(window.contentView?.hitTest(down.locationInWindow) === events,
+                      "the press did not land on the canvas event view, so nothing "
+                      + "below is about the gesture — check the layer order first")
+        window.sendEvent(down)
+        for point in path {
+            if let dragged = mouseEvent(.leftMouseDragged, at: point, in: events, window: window) {
+                window.sendEvent(dragged)
+            }
+        }
+        if let up = mouseEvent(.leftMouseUp, at: path.last ?? start, in: events, window: window) {
+            window.sendEvent(up)
+        }
+        pump()
+    }
+
+    /// One real click, which is how a writer selects a card — and therefore the
+    /// only honest way to reveal the connect mark in a test whose whole claim is
+    /// that a writer can reach the gesture knowing nothing.
+    private func sendRealClick(in window: NSWindow, at point: CGPoint) throws {
+        try sendRealDrag(in: window, from: point, through: [], shift: false)
+    }
+
+    /// Where the connect mark is on a card, read off the live scene.
+    private func connectMarkCentre(of id: CanvasNodeID, in model: CanvasModel) throws -> CGPoint {
+        let frame = try XCTUnwrap(model.scene.node(id)?.frame,
+                                  "the card is unmeasured, so it has no mark and no "
+                                  + "frame to put one on")
+        let target = CanvasRenderer.connectHandleRect(inCard: frame)
+        XCTAssertFalse(target.isNull,
+                       "precondition: this card is tall enough to carry a connect "
+                       + "mark above its resize corner")
+        return CGPoint(x: target.midX, y: target.midY)
+    }
+
+    private let insideTheFirstCard = CGPoint(x: 60, y: 30)
+    private let insideTheSecondCard = CGPoint(x: 440, y: 215)
+
+    /// **The fast route, end to end.** A real ⇧-flagged `NSEvent` through
+    /// `window.sendEvent(_:)`, so the modifier is read where production reads it
+    /// and the answer travels the whole way to the scene.
+    func test_aShiftDragBetweenTwoCardsReachesTheSceneThroughTheRealEventPath() throws {
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: try twoCardProjectRoot(),
+                                     paletteSwatchHexes: { [] }))
+        XCTAssertTrue(model.scene.lines.isEmpty, "precondition: nothing is connected yet")
+        let origin = try XCTUnwrap(model.scene.node(scrapID)?.origin)
+
+        try sendRealDrag(in: window, from: insideTheFirstCard,
+                         through: [CGPoint(x: 250, y: 120), insideTheSecondCard],
+                         shift: true)
+
+        XCTAssertEqual(model.scene.lines.count, 1,
+                       "a ⇧-drag from one card to another made no line — the modifier "
+                       + "reached no further than the event")
+        let line = try XCTUnwrap(model.scene.lines.first)
+        XCTAssertEqual(line.from, scrapID)
+        XCTAssertEqual(line.to, secondScrapID)
+        XCTAssertNil(line.label)
+        XCTAssertEqual(model.scene.node(scrapID)?.origin, origin,
+                       "and the source card did not move: without ⇧ this drag is a "
+                       + "MOVE, so an unmoved card is what says the flag was read")
+        XCTAssertEqual(model.selection, .line(line.id),
+                       "the new line is what the writer is left holding, so ⌫ and the "
+                       + "inspector are pointed at it")
+    }
+
+    /// **The discoverable route, end to end, knowing nothing.** The card is
+    /// selected by a real CLICK rather than by assigning `model.selection`,
+    /// because the whole claim of this route is that a writer finds it without
+    /// being told; a test that set the selection by hand would be told.
+    ///
+    /// No modifier anywhere in it.
+    func test_aDragFromTheSelectedCardsConnectHandleReachesTheSceneTheSameWay() throws {
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: try twoCardProjectRoot(),
+                                     paletteSwatchHexes: { [] }))
+
+        try sendRealClick(in: window, at: insideTheFirstCard)
+        XCTAssertEqual(model.selection, .node(scrapID),
+                       "precondition: a plain click selects the card, and selection is "
+                       + "what draws the mark")
+        let origin = try XCTUnwrap(model.scene.node(scrapID)?.origin)
+
+        try sendRealDrag(in: window, from: try connectMarkCentre(of: scrapID, in: model),
+                         through: [CGPoint(x: 350, y: 150), insideTheSecondCard],
+                         shift: false)
+
+        XCTAssertEqual(model.scene.lines.count, 1,
+                       "a drag out of the mark on a selected card made no line — the "
+                       + "route the writer can SEE is the one that must not be missing")
+        let line = try XCTUnwrap(model.scene.lines.first)
+        XCTAssertEqual(line.from, scrapID)
+        XCTAssertEqual(line.to, secondScrapID)
+        XCTAssertEqual(model.scene.node(scrapID)?.origin, origin,
+                       "and the card stayed put: a press inside the mark is a line, "
+                       + "not a move")
+    }
+
+    /// **The press that SELECTS a card must not also draw a line out of it.**
+    ///
+    /// `applyMouseDown` fires `onClick` strictly before `onDrag(.began)`, so by
+    /// the time a drag begins the card under the pointer is already selected —
+    /// which is why the gesture asks what was selected when the press ARRIVED.
+    /// Without that, a 14 pt patch on the right edge of every unselected card on
+    /// the canvas would refuse to move it, and would instead do something the
+    /// writer could not have predicted from anything on screen.
+    func test_theFirstPressOnAnUnselectedCardsMarkPositionMovesItRatherThanDrawingALine() throws {
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: try twoCardProjectRoot(),
+                                     paletteSwatchHexes: { [] }))
+        XCTAssertNil(model.selection, "precondition: nothing is selected, so no mark is drawn")
+        let origin = try XCTUnwrap(model.scene.node(scrapID)?.origin)
+        // Where the mark WOULD be, if the card were selected.
+        let markPosition = try connectMarkCentre(of: scrapID, in: model)
+
+        try sendRealDrag(in: window, from: markPosition,
+                         through: [CGPoint(x: 350, y: 150), insideTheSecondCard],
+                         shift: false)
+
+        XCTAssertTrue(model.scene.lines.isEmpty,
+                      "the mark was not on screen when the writer pressed, so they "
+                      + "cannot have aimed at it")
+        XCTAssertNotEqual(model.scene.node(scrapID)?.origin, origin,
+                          "and the press did what a press on a card does: it moved it")
+    }
+
+    /// **A line drag that minted nothing is not a structural change**, and one
+    /// that minted a line is — the sweep's own guard, asked of a third gesture.
+    ///
+    /// It is reachable exactly the way the sweep's is: every ⇧-press on a card
+    /// opens a drag session, a trackpad press routinely drifts a point, and a
+    /// release that is still over the source card makes no line. Without the
+    /// guard each one sorts the scene, copies every scrap's string and rebuilds
+    /// the region inspector's two cached lists in the other column.
+    ///
+    /// Both directions, because the "no bump" half alone is satisfied by a build
+    /// that never bumps at all.
+    func test_aShiftPressThatDriftedAndMadeNoLineIsNotAStructuralChange() throws {
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: try twoCardProjectRoot(),
+                                     paletteSwatchHexes: { [] }))
+        let before = model.sceneRevision
+
+        // Pressed with ⇧ on a card and released a point away — still over the
+        // card it started from, which is not a line.
+        try sendRealDrag(in: window, from: insideTheFirstCard,
+                         through: [CGPoint(x: 61, y: 31)], shift: true)
+        XCTAssertTrue(model.scene.lines.isEmpty,
+                      "precondition: the release was over the source card, so there "
+                      + "is no line")
+        XCTAssertEqual(model.sceneRevision, before,
+                       "a connect drag that made nothing changed nothing, and must "
+                       + "not rebuild the accessibility tree or the inspector's lists")
+
+        try sendRealDrag(in: window, from: insideTheFirstCard,
+                         through: [CGPoint(x: 250, y: 120), insideTheSecondCard],
+                         shift: true)
+        XCTAssertEqual(model.scene.lines.count, 1, "precondition: this one made a line")
+        XCTAssertGreaterThan(model.sceneRevision, before,
+                             "and a line that WAS made is a structural change — "
+                             + "without this the other column never hears about it")
+    }
+
+    /// **The step's NAME, through both routes.**
+    ///
+    /// An undo test whose only observable is the post-⌘Z scene cannot tell "its
+    /// own step" from "folded into the neighbour's" — demonstrated twice in this
+    /// area on a nesting bug. So this reads `undoMenuItemTitle`, which is the
+    /// string the writer sees in the Edit menu.
+    ///
+    /// Run through BOTH routes: they share one implementation today, and a later
+    /// change is exactly what would give them two.
+    func test_drawingALineIsOneUndoStepCalledDrawLine() throws {
+        for byShift in [true, false] {
+            let route = byShift ? "⇧-drag" : "the connect mark"
+            let model = CanvasModel()
+            let window = host(CanvasView(model: model, projectRoot: try twoCardProjectRoot(),
+                                         paletteSwatchHexes: { [] }))
+            var start = insideTheFirstCard
+            if !byShift {
+                try sendRealClick(in: window, at: insideTheFirstCard)
+                start = try connectMarkCentre(of: scrapID, in: model)
+            }
+
+            try sendRealDrag(in: window, from: start,
+                             through: [CGPoint(x: 350, y: 150), insideTheSecondCard],
+                             shift: byShift)
+            XCTAssertEqual(model.scene.lines.count, 1,
+                           "precondition for \(route): a line was drawn, so an "
+                           + "unchanged stack below means the step went missing "
+                           + "rather than that nothing happened")
+
+            XCTAssertTrue(model.undo.undoMenuItemTitle.contains("Draw Line"),
+                          "drawing a line by \(route) must be its own named step — "
+                          + "the Edit menu reads \"Undo Draw Line\". Got: "
+                          + model.undo.undoMenuItemTitle)
+
+            model.undo.undo()
+            XCTAssertTrue(model.scene.lines.isEmpty,
+                          "and one ⌘Z takes the line back (\(route))")
+            XCTAssertEqual(model.scene.count, 2,
+                           "and takes nothing else with it: both cards are still "
+                           + "there (\(route))")
+        }
+    }
 }

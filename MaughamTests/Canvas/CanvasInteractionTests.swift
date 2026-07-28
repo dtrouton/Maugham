@@ -15,7 +15,7 @@ final class CanvasInteractionTests: XCTestCase {
     func test_dragMovesTheNodeByTheDragDelta() {
         var scene = sceneWithOneScrap()
         var i = CanvasInteraction()
-        i.begin(at: CGPoint(x: 110, y: 110), in: scene)
+        i.begin(at: CGPoint(x: 110, y: 110), in: scene, connecting: false)
         i.update(to: CGPoint(x: 160, y: 130), in: &scene)
         XCTAssertEqual(scene.node(CanvasNodeID("s1"))?.origin, CGPoint(x: 150, y: 120))
     }
@@ -30,7 +30,7 @@ final class CanvasInteractionTests: XCTestCase {
     func test_dragOnEmptySpaceMovesNothing() {
         var scene = sceneWithOneScrap()
         var i = CanvasInteraction()
-        i.begin(at: CGPoint(x: 900, y: 900), in: scene)
+        i.begin(at: CGPoint(x: 900, y: 900), in: scene, connecting: false)
         XCTAssertEqual(i.kind, .drawingRegion)
         XCTAssertNil(i.activeNodeID)
         i.update(to: CGPoint(x: 950, y: 950), in: &scene)
@@ -41,7 +41,7 @@ final class CanvasInteractionTests: XCTestCase {
     func test_dragPreservesWidthAndDoesNotReMeasure() {
         var scene = sceneWithOneScrap()
         var i = CanvasInteraction()
-        i.begin(at: CGPoint(x: 110, y: 110), in: scene)
+        i.begin(at: CGPoint(x: 110, y: 110), in: scene, connecting: false)
         i.update(to: CGPoint(x: 400, y: 400), in: &scene)
         let n = scene.node(CanvasNodeID("s1"))
         XCTAssertEqual(n?.width, 240)
@@ -75,7 +75,7 @@ final class CanvasInteractionTests: XCTestCase {
         var i = CanvasInteraction()
         // Card is (100,100) 240x80, so the corner square starts at
         // (340 - 14, 180 - 14) = (326, 166).
-        i.begin(at: CGPoint(x: 334, y: 174), in: scene)
+        i.begin(at: CGPoint(x: 334, y: 174), in: scene, connecting: false)
         XCTAssertTrue(i.isResizing)
         i.update(to: CGPoint(x: 384, y: 174), in: &scene)
         XCTAssertEqual(scene.node(CanvasNodeID("s1"))?.width, 290)
@@ -92,7 +92,7 @@ final class CanvasInteractionTests: XCTestCase {
     func test_theUnmarkedHalfOfTheCornerSquareStillResizes() {
         let scene = sceneWithOneScrap()
         var i = CanvasInteraction()
-        i.begin(at: CGPoint(x: 329, y: 169), in: scene)
+        i.begin(at: CGPoint(x: 329, y: 169), in: scene, connecting: false)
         XCTAssertTrue(i.isResizing,
                       "shrinking the target down to the ink would make the corner "
                       + "feel like it misses")
@@ -110,14 +110,14 @@ final class CanvasInteractionTests: XCTestCase {
     func test_justOutsideTheCornerSquareMovesRatherThanResizes() {
         let scene = sceneWithOneScrap()
         var byOnePointInX = CanvasInteraction()
-        byOnePointInX.begin(at: CGPoint(x: 325, y: 174), in: scene)
+        byOnePointInX.begin(at: CGPoint(x: 325, y: 174), in: scene, connecting: false)
         XCTAssertTrue(byOnePointInX.isActive)
         XCTAssertFalse(byOnePointInX.isResizing,
                        "the corner target reaches a point further left than the "
                        + "mark it is drawn from")
 
         var byOnePointInY = CanvasInteraction()
-        byOnePointInY.begin(at: CGPoint(x: 334, y: 165), in: scene)
+        byOnePointInY.begin(at: CGPoint(x: 334, y: 165), in: scene, connecting: false)
         XCTAssertTrue(byOnePointInY.isActive)
         XCTAssertFalse(byOnePointInY.isResizing,
                        "the corner test is an OR — a press anywhere along the "
@@ -126,7 +126,7 @@ final class CanvasInteractionTests: XCTestCase {
         // And the far corner of the square itself still resizes, so the pair
         // above brackets the boundary rather than sitting on one side of it.
         var atTheCorner = CanvasInteraction()
-        atTheCorner.begin(at: CGPoint(x: 326, y: 166), in: scene)
+        atTheCorner.begin(at: CGPoint(x: 326, y: 166), in: scene, connecting: false)
         XCTAssertTrue(atTheCorner.isResizing)
     }
 
@@ -169,7 +169,7 @@ final class CanvasInteractionTests: XCTestCase {
         var scene = sceneWithOneScrap()
         var i = CanvasInteraction()
         let t = 100.0
-        i.begin(at: CGPoint(x: 110, y: 110), in: scene)
+        i.begin(at: CGPoint(x: 110, y: 110), in: scene, connecting: false)
         i.update(to: CGPoint(x: 130, y: 110), in: &scene, now: t)
         // last frame: +30, +8
         i.update(to: CGPoint(x: 160, y: 118), in: &scene, now: t + 1.0 / 60)
@@ -190,7 +190,7 @@ final class CanvasInteractionTests: XCTestCase {
     func test_aDragWithOnlyOneSampleYieldsZeroVelocity() {
         var scene = sceneWithOneScrap()
         var i = CanvasInteraction()
-        i.begin(at: CGPoint(x: 110, y: 110), in: scene)
+        i.begin(at: CGPoint(x: 110, y: 110), in: scene, connecting: false)
         i.update(to: CGPoint(x: 160, y: 130), in: &scene)
         XCTAssertEqual(i.end()?.velocity, .zero,
                        "one sample is a placement, not a throw")
@@ -213,7 +213,7 @@ final class CanvasInteractionTests: XCTestCase {
         // same point would land on bare canvas.
         var pausedScene = sceneWithOneScrap()
         var paused = CanvasInteraction()
-        paused.begin(at: CGPoint(x: 110, y: 110), in: pausedScene)
+        paused.begin(at: CGPoint(x: 110, y: 110), in: pausedScene, connecting: false)
         paused.update(to: fast, in: &pausedScene, now: 100)
         paused.update(to: faster, in: &pausedScene, now: 100 + 1.0 / 60)
         XCTAssertEqual(paused.end(now: 100 + 1.0 / 60 + 0.2)?.velocity, .zero,
@@ -224,7 +224,7 @@ final class CanvasInteractionTests: XCTestCase {
 
         var releasedScene = sceneWithOneScrap()
         var released = CanvasInteraction()
-        released.begin(at: CGPoint(x: 110, y: 110), in: releasedScene)
+        released.begin(at: CGPoint(x: 110, y: 110), in: releasedScene, connecting: false)
         released.update(to: fast, in: &releasedScene, now: 100)
         released.update(to: faster, in: &releasedScene, now: 100 + 1.0 / 60)
         XCTAssertEqual(released.end(now: 100 + 1.0 / 60 + 1.0 / 120)?.velocity,
@@ -265,7 +265,7 @@ final class CanvasInteractionTests: XCTestCase {
 
         var onTimeScene = sceneWithOneScrap()
         var justInTime = CanvasInteraction()
-        justInTime.begin(at: CGPoint(x: 110, y: 110), in: onTimeScene)
+        justInTime.begin(at: CGPoint(x: 110, y: 110), in: onTimeScene, connecting: false)
         justInTime.update(to: CGPoint(x: 120, y: 110), in: &onTimeScene, now: 50)
         justInTime.update(to: CGPoint(x: 140, y: 110), in: &onTimeScene, now: 51)
         XCTAssertEqual(justInTime.end(now: 51 + age - 0.001)?.velocity,
@@ -274,7 +274,7 @@ final class CanvasInteractionTests: XCTestCase {
 
         var lateScene = sceneWithOneScrap()
         var tooLate = CanvasInteraction()
-        tooLate.begin(at: CGPoint(x: 110, y: 110), in: lateScene)
+        tooLate.begin(at: CGPoint(x: 110, y: 110), in: lateScene, connecting: false)
         tooLate.update(to: CGPoint(x: 120, y: 110), in: &lateScene, now: 50)
         tooLate.update(to: CGPoint(x: 140, y: 110), in: &lateScene, now: 51)
         XCTAssertEqual(tooLate.end(now: 51 + age + 0.001)?.velocity, .zero,
@@ -296,7 +296,7 @@ final class CanvasInteractionTests: XCTestCase {
     func test_aPressThatNeverMovedIsNotADrag() {
         var scene = sceneWithOneScrap()
         var i = CanvasInteraction()
-        i.begin(at: CGPoint(x: 110, y: 110), in: scene)
+        i.begin(at: CGPoint(x: 110, y: 110), in: scene, connecting: false)
         XCTAssertTrue(i.isActive)
         XCTAssertFalse(i.hasMoved)
 
@@ -312,14 +312,14 @@ final class CanvasInteractionTests: XCTestCase {
     func test_aDragOfASinglePointHasMoved() {
         var scene = sceneWithOneScrap()
         var i = CanvasInteraction()
-        i.begin(at: CGPoint(x: 110, y: 110), in: scene)
+        i.begin(at: CGPoint(x: 110, y: 110), in: scene, connecting: false)
         i.update(to: CGPoint(x: 111, y: 110), in: &scene)
         XCTAssertTrue(i.hasMoved)
         i.end()
         XCTAssertTrue(i.hasMoved)
 
         // ...and the next press starts clean.
-        i.begin(at: CGPoint(x: 111, y: 110), in: scene)
+        i.begin(at: CGPoint(x: 111, y: 110), in: scene, connecting: false)
         XCTAssertFalse(i.hasMoved)
     }
 
