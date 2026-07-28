@@ -249,4 +249,15 @@ final class CanvasModel {
         withScene(body)
         undo.endGesture()
     }
+
+    /// The region inspector's ONLY way to change the scene.
+    ///
+    /// It is not `mutate` because the inspector is in the window's *other*
+    /// column and the canvas may be holding "Edit Scrap" open the whole time the
+    /// writer is in it — see `CanvasUndo.mutateFromOutsideTheCanvas`, where the
+    /// failure is written out. `CanvasView` must keep using `mutate`: everything
+    /// it does is already inside its own bracket by construction.
+    func mutateFromInspector(_ name: String, _ body: (inout CanvasScene) -> Void) {
+        undo.mutateFromOutsideTheCanvas(name) { withScene(body) }
+    }
 }

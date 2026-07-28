@@ -1037,8 +1037,7 @@ struct ProjectWindow: View {
                 onOpenCraftIntent: openCraftIntent
             )
         case .canvas:
-            ContentUnavailableView("Canvas", systemImage: "square.on.circle")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            canvasInspector(store: store)
         case .research:
             if let id = selectedResearchId,
                let item = TreeWalk.find(
@@ -1059,6 +1058,28 @@ struct ProjectWindow: View {
                 systemImage: "trash")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    /// The canvas's inspector arm — the selected region, or an empty state.
+    ///
+    /// **One expression, and it reads NOTHING off `canvasModel`.** Both halves
+    /// matter. `ProjectWindow.body` has a zero expression budget (the Release
+    /// type-check ceiling), so the arm above is a call and not a body. And
+    /// `CanvasModel` is `@Observable` with the whole scene in one stored
+    /// property, which every drag frame and every coast frame writes — so
+    /// resolving `selectedRegion` *here* would register this window's body as a
+    /// dependency of the drag loop and re-evaluate all of it at 60–120 Hz.
+    /// `RegionInspectorPane` does the resolving, one leaf down.
+    private func canvasInspector(store: ProjectStore) -> some View {
+        RegionInspectorPane(model: canvasModel,
+                            pieces: Self.pieceChoices(in: store.manifest.structure))
+    }
+
+    /// Every `.document` in the structure tree, as the region inspector's piece
+    /// choices. Ids, so a binding survives a rename.
+    static func pieceChoices(in items: [StructureItem]) -> [RegionInspector.PieceChoice] {
+        TreeWalk.collect(in: items, where: { $0.type == .document })
+            .map { RegionInspector.PieceChoice(id: $0.id, title: $0.title) }
     }
 
     /// Navigate to a craft-intent research doc surfaced from an inspector's

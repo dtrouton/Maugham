@@ -149,6 +149,41 @@ final class CanvasUndo {
         endGesture()
     }
 
+    /// A one-shot change made from OUTSIDE the canvas — the region inspector, in
+    /// the window's other column — which must be its own step even though the
+    /// canvas may be holding a gesture open.
+    ///
+    /// **Why `mutate` is wrong here, and silently.** A visit to a scrap holds
+    /// "Edit Scrap" open for as long as focus is in it, and *nothing on the
+    /// inspector's side of the window closes it*: `CanvasView.commitActiveEdit`
+    /// runs from `handleClick`, which only fires for clicks on the canvas. And a
+    /// double-click deliberately does not touch `selection`, so the region the
+    /// writer selected a moment ago is still what the inspector is showing. So:
+    /// click a region's chrome, double-click a card, rename the region in the
+    /// inspector — and through `mutate` the rename nests. Depth 2 takes no
+    /// snapshot, depth 1 registers nothing, and **the rename is not on the undo
+    /// stack at all.** It is worse than absent: the open gesture's baseline
+    /// predates it, so the next thing the writer types carries the rename into a
+    /// step called "Edit Scrap", and a ⌘Z aimed at a sentence takes the region's
+    /// name with it. Quit without returning to the canvas and `release()` drops
+    /// the lot.
+    ///
+    /// This is the same close-run-reopen `undo()` performs, for the same reason:
+    /// the run of typing in progress becomes its own step first, under its own
+    /// name, so what is registered here is only what the inspector did — and the
+    /// visit resumes, so the rest of the sentence is still bracketed.
+    ///
+    /// A NESTED gesture (depth > 1) still falls through to plain nesting, which
+    /// is right: `closeResumableGesture` declines there because closing one
+    /// bracket would leave whoever opened it holding one that no longer exists.
+    /// Depth only exceeds 1 inside synchronous canvas code, where no click on
+    /// another column can arrive.
+    func mutateFromOutsideTheCanvas(_ name: String, _ body: () -> Void) {
+        let reopen = closeResumableGesture()
+        mutate(name, body)
+        if let reopen { beginGesture(reopen) }
+    }
+
     // MARK: - ⌘Z and ⇧⌘Z
 
     /// **⌘Z goes through here, not through the manager**, and the difference is
