@@ -201,14 +201,18 @@ struct RegionInspector: View {
         // is the MODEL's**, which is the only one the other column can reach —
         // `CanvasView` keeps a `@State` mirror of it for the accessibility tree
         // and writes that mirror in exactly one place. A structural change on the
-        // canvas that bumped only the view's copy would leave these lists frozen:
-        // the drop-to-join at `handleDrag(.ended)` shipped that way for one
-        // commit, and the writer met "No cards live in this region yet" over a
-        // card the canvas had already drawn inside the region, with that same
-        // card still offered below under "Cite a Card" — where choosing it did
-        // nothing, because `cite` guards on `!region.mentions(node)`.
-        // `CanvasViewMountingTests.test_aDropIntoTheSelectedRegionReachesItsInspector`
-        // is the premise test; the gate itself is pinned in `RegionBindingTests`.
+        // canvas that bumped only the view's copy would leave these lists frozen,
+        // and five of them did for one commit — including the drop-to-join at
+        // `handleDrag(.ended)`.
+        // `CanvasViewMountingTests.test_aDropIntoARegionReachesThatRegionsInspector`
+        // is that premise test; the gate itself is pinned in `RegionBindingTests`,
+        // which drives the bump by hand and so cannot see it.
+        //
+        // **What the writer actually met is below, and it is not the drop.** A
+        // card drag opens with a `clickCount: 1` mouse-down, which reassigns
+        // `selection` to the card — so the drop tears this pane down and the next
+        // one is built with fresh state. The reachable one is the chrome-bar
+        // route.
         //
         // `regionID` is the second key because selecting a DIFFERENT region is
         // not a structural change and would otherwise leave the previous
@@ -221,12 +225,19 @@ struct RegionInspector: View {
         // `CanvasView.commitActiveEdit` bumps the model's counter, so that claim
         // is about the counter this gate actually reads, and
         // `CanvasViewMountingTests.test_leavingAScrapRefreshesTheRegionInspectorItIsSittingBeside`
-        // is what makes it a claim rather than a hope. (It was neither for one
-        // commit: that bump went to the view's copy, and a writer moving card to
-        // card by DOUBLE-click — which never reassigns `selection`, so this
-        // inspector and its cached rows survive the lot — watched the titles
-        // freeze where they stood when the region was selected.) Membership,
-        // which is what these lists are actually for, cannot go stale at all.
+        // is what makes it a claim rather than a hope.
+        //
+        // It was neither for one commit: that bump went to the view's copy, and
+        // the writer met it through tripwire 32's own repro — double-click a
+        // region's CHROME BAR and click 2 mints a scrap and opens "Edit Scrap"
+        // without reassigning `selection`, so this pane and its cached rows are
+        // still what they are looking at while they type. Every title here froze
+        // where it stood when the region was selected. **Not a double-click on a
+        // card**: AppKit sends `clickCount: 1` first and that click selects the
+        // card, which is what `test_aDoubleClickOnACardDeselectsTheRegion` says.
+        //
+        // Membership, which is what these lists are actually for, cannot go
+        // stale at all.
         .onChange(of: currentRowsKey, initial: true) { _, _ in
             memberRows = refreshedRows(from: memberRows)
         }

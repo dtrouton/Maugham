@@ -2135,79 +2135,93 @@ final class CanvasViewMountingTests: XCTestCase {
     }
 
     /// **The same defect on the one path where the writer keeps looking at the
-    /// region while the canvas changes underneath it** — and the path that makes
+    /// region while a scrap is edited beside it** — and the path that makes
     /// `RegionInspector`'s "it refreshes when the writer leaves the scrap" a
     /// claim rather than a hope.
     ///
-    /// A single click reassigns `model.selection`, so it tears the inspector
-    /// down and the next one is built with fresh `@State`. **A double-click does
-    /// not**: `handleClick`'s `guard clickCount >= 2` returns before the
-    /// assignment (that is tripwire 32's own repro, pinned next door by
-    /// `test_aRegionStaysSelectedWhileADoubleClickOpensAScrap`). So a writer who
-    /// selects a region and then works card to card by double-clicking keeps ONE
-    /// `RegionInspector` instance, with its cached rows, for the whole session —
-    /// and `commitActiveEdit`, which is what closes each visit, bumped only
-    /// `CanvasView`'s own copy of the counter. The row titles are the first line
-    /// of each card, so they froze at whatever the cards said when the region
-    /// was selected.
+    /// **The route is the region's own CHROME BAR, and it is tripwire 32's
+    /// documented repro.** Click 1 selects the region; click 2 finds no node
+    /// under that point, takes `handleClick`'s `.emptyCanvas` branch, mints a
+    /// scrap and opens "Edit Scrap" — and `guard clickCount >= 2` returns before
+    /// the selection assignment, so the region is still selected while the
+    /// writer types. `test_aRegionStaysSelectedWhileADoubleClickOpensAScrap`
+    /// pins that; this reads what the inspector beside it then shows.
     ///
-    /// Both edits go through the real mounted editor and both moves through the
-    /// real event view, because the whole subject is the delivery path.
+    /// **It is NOT a double-click on a card, and that distinction cost this
+    /// slice a wrong repro five times.** AppKit sends `clickCount: 1` first, and
+    /// that click selects the card — `test_aDoubleClickOnACardDeselectsTheRegion`
+    /// is next door asserting exactly that. So every click here sends the real
+    /// two-event sequence rather than jumping straight to `clickCount: 2`, which
+    /// would keep the region selected by a shortcut of the test's own and prove
+    /// nothing about the surface.
+    ///
+    /// The observable is the **Cite a Card** offer: the minted scrap is on the
+    /// canvas and not in the region (§4.2 — drawing a region absorbs nothing, and
+    /// nor does minting one inside its chrome), so it is a candidate. It enters
+    /// that list titled "Empty scrap" and has to be re-read once the writer
+    /// leaves it, or the menu offers a card by a line it no longer starts with.
     func test_leavingAScrapRefreshesTheRegionInspectorItIsSittingBeside() throws {
         let region = CanvasRegionID("r1")
-        let other = CanvasNodeID("s2")
         var scene = CanvasScene()
         scene.insert(CanvasNode(id: scrapID, kind: .scrap, origin: CGPoint(x: 60, y: 60),
                                 width: 240, cachedHeight: 60))
-        scene.insert(CanvasNode(id: other, kind: .scrap, origin: CGPoint(x: 60, y: 180),
-                                width: 240, cachedHeight: 60))
         scene.insertRegion(CanvasRegion(id: region, label: "Act II fog",
                                         frame: CGRect(x: 20, y: 20, width: 400, height: 300),
-                                        homeMembers: [scrapID, other]))
-        let root = try projectRoot(scene: scene,
-                                   scraps: [scrapID: "Rain.", other: "Bridge."])
+                                        homeMembers: [scrapID]))
+        let root = try projectRoot(scene: scene, scraps: [scrapID: "Rain."])
         let model = CanvasModel()
         let window = host(CanvasView(model: model, projectRoot: root,
                                      paletteSwatchHexes: { [] }))
         let hosted = try XCTUnwrap(window.contentView)
         let events = try eventView(in: window)
 
-        // Select the region by its chrome bar, (20,20)–(420,44) — the only way
-        // to reach one, since its interior belongs to the cards in it.
-        events.applyMouseDown(at: CGPoint(x: 200, y: 30), clickCount: 1)
-        events.applyMouseUp(at: CGPoint(x: 200, y: 30))
-        pump(0.2)
-        XCTAssertEqual(model.selection, .region(region),
-                       "precondition: the inspector is open on the region")
+        // The chrome bar runs (20,20)–(420,44); the fixture's card starts at
+        // y 60, so both points below are on the bar and on no card.
+        func click(at point: CGPoint, count: Int) {
+            events.applyMouseDown(at: point, clickCount: count)
+            events.applyMouseUp(at: point)
+        }
 
+        // The real double-click: clickCount 1 THEN 2, as AppKit delivers it.
+        let mintPoint = CGPoint(x: 200, y: 30)
+        click(at: mintPoint, count: 1)
+        click(at: mintPoint, count: 2)
+        pump(0.3)
+        XCTAssertEqual(model.selection, .region(region),
+                       "precondition: click 1 selected the region and click 2 never "
+                       + "reassigned it, so the inspector is still open on it")
+        XCTAssertEqual(model.scene.count, 2,
+                       "precondition: click 2 minted a scrap over the chrome bar")
+
+        // What the inspector holds with the new scrap minted and still empty.
         let inspector = RegionInspector(model: model, regionID: region, pieces: [])
         let before = inspector.refreshedRows(from: RegionInspector.MemberRows())
-        XCTAssertEqual(before.residents.first { $0.node == scrapID }?.title, "Rain.",
-                       "precondition: the row reads the card as it stands")
+        let minted = try XCTUnwrap(before.candidates.first?.node,
+                                   "precondition: the minted scrap is on offer — it "
+                                   + "is on the canvas and not in the region")
+        XCTAssertEqual(before.candidates.map(\.title), [CanvasAccessibility.emptyScrapValue],
+                       "precondition: and it is offered as an empty scrap")
 
-        // Into the first card, type, then straight into the second — all
-        // double-clicks, so `selection` is never reassigned and this one
-        // inspector instance lives through the lot.
-        events.applyMouseDown(at: CGPoint(x: 100, y: 80), clickCount: 2)
-        pump(0.3)
-        type(" Falls at night.", into: try XCTUnwrap(
+        type("Rain at the falls.", into: try XCTUnwrap(
             try XCTUnwrap(firstDescendant(ScrapEditorContainer.self, in: hosted),
                           "the double-click mounted no editor").textView))
         pump(0.3)
-        events.applyMouseDown(at: CGPoint(x: 100, y: 200), clickCount: 2)
-        pump(0.5)
 
+        // Leaving the scrap — back onto the chrome bar, clear of the card the
+        // second click minted at x 200. This is a single click, so it DOES
+        // reassign the selection: to the same region, which is why the inspector
+        // and its cached rows survive it.
+        click(at: CGPoint(x: 60, y: 30), count: 1)
+        pump(0.5)
         XCTAssertEqual(model.selection, .region(region),
-                       "precondition: a double-click never reassigns the selection, "
-                       + "so the SAME inspector — and its cached rows — is still "
-                       + "what the writer is looking at")
+                       "precondition: the writer is still looking at this region")
 
         let after = inspector.refreshedRows(from: before)
-        XCTAssertEqual(after.residents.first { $0.node == scrapID }?.title,
-                       "Rain. Falls at night.",
+        XCTAssertEqual(after.candidates.first { $0.node == minted }?.title,
+                       "Rain at the falls.",
                        "the writer left the scrap and the region beside it still "
-                       + "lists the card by a line it no longer starts with — "
-                       + "`commitActiveEdit` bumped a counter this gate does not read")
+                       + "offers that card as an empty one — `commitActiveEdit` "
+                       + "bumped a counter this gate does not read")
     }
 
     /// **A press that drifted must not be mistaken for a sweep that minted.**
