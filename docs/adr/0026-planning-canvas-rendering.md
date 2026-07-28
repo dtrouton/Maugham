@@ -2,6 +2,8 @@
 
 **Date:** 2026-07-26 · **Status:** Accepted · **Milestone:** M1C, plan 1C-a (branch `feat/planning-canvas-1c-a-2026-07-25`)
 
+**Amended 2026-07-28 by plan 1C-b — regions** (branch `feat/planning-canvas-1c-b-2026-07-27`): decision 8 added, decisions 6 and 7 corrected where 1C-b made them false. Membership is part of the same canvas-architecture decision this ADR already records, so it is an amendment and not a new number.
+
 ## Context
 
 Milestone M1's third plan gives the Plan persona a centre column: a freeform planning
@@ -239,8 +241,32 @@ owned by this surface; `@Environment(\.undoManager)` would hand back a window-li
 manager shared with the manuscript editor's stack, where a persona switch mid-drag would
 leave a half-open group.
 
-`CanvasUndo` owns no state — it reads and writes the view's through two closures, which is
-what lets 1C-b move the same class onto `CanvasModel` by rebinding them.
+`CanvasUndo` owns no state — it reads and writes its owner's through two closures, which is
+what let 1C-b move the same class onto `CanvasModel` by rebinding them. The class did not
+change.
+
+**Amendment, 2026-07-28: a second column mutating the scene needs the opposite verb, and
+this is tripwire 32.** Once the region inspector could change the scene from the right-hand
+column, "which bracket am I inside" stopped having one answer:
+
+- **From the canvas itself**, a mutation arriving mid-gesture is the writer's own gesture,
+  and the right answer is to **refuse** — `CanvasView.deleteSelection`'s `isInGesture`
+  guard. Closing it would end a bracket the writer still believes they hold.
+- **From another column**, there is no gesture of the caller's own to protect, so
+  `CanvasModel.mutateFromInspector` **closes, runs and reopens** — exactly what
+  `CanvasUndo.undo()` already does. The reopen is load-bearing: the run of typing in
+  progress becomes its own step under its own name, and the writer's visit resumes still
+  bracketed.
+
+Getting this wrong is silent. The nested `beginGesture` takes no snapshot, the nested
+`endGesture` registers nothing, and the edit rides into whatever step the open gesture
+eventually closes — so a ⌘Z aimed at a sentence takes a region's name with it. **It was
+missed three times inside one slice, by independent implementers arriving from both
+entry points**, which is why the rule is a grep census in `TripwireGrepTests` rather than a
+comment. The reachable repro is a **double-click on a region's own chrome bar**: click 1
+selects the region, click 2 finds no node, mints a scrap and opens "Edit Scrap", and the
+`clickCount >= 2` guard never reassigns the selection. It is *not* a double-click on a card
+— AppKit sends `clickCount: 1` first, so that click has already moved the selection.
 
 **The second half is the mounted editor's `allowsUndo = false`**, so one change is one
 step. (Measured on macOS 26.5: `NSTextView` gates `undoManager` on `allowsUndo` and returns
@@ -275,9 +301,10 @@ element for **every node, all of them**, in rows-then-columns reading order (a p
 walk, not a fixed grid — a grid reads two cards 2 pt apart as different rows whenever they
 straddle a cell boundary).
 
-The tree is rebuilt from the **structural** counter (`sceneRevision`: load, create, undo,
-the end of a drag or resize, a coast ending — at rest or truncated by a press — and leaving
-a scrap; **not** deletion, which 1C-a has no path for at all, see decision 7) and never from
+The tree is rebuilt from the **structural** counter (`sceneRevision`: load, create, delete,
+undo, the end of a drag or resize, a coast ending — at rest or truncated by a press — and
+leaving a scrap. *Amended 2026-07-28:* this list read "not deletion, which 1C-a has no path
+for at all" until 1C-b built the caller — see decision 7) and never from
 the per-frame redraw counter. Keying it on `revision` sorted the scene and copied every
 scrap's string at 60–120 Hz through every drag, coast and straighten. That generalises past
 accessibility, so it is **tripwire 30**: nothing scene-proportional may key off a per-frame
@@ -301,17 +328,38 @@ M1C** — "not deferred past it" — and says in the same breath that no plan ma
 authorising their omission from the milestone. This ADR may not be cited to that end
 either. M1C is not finished without them.
 
-**Deleting a scrap belongs to no slice yet, and that is recorded here because nobody decided
-it.** 1C-a has no delete path: `CanvasScene.remove`, its inverse and the `"Delete Scrap"`
-undo step are built and exercised by `CanvasUndoTests`, and no production code calls any of
-them — no key handler, no menu item, no gesture. Three documents described `sceneRevision`
-as bumped on "delete" until the whole-branch review found there was nothing to bump for.
-The writer-visible consequence: double-click creates, so a stray double-click leaves an
-empty card that ⌘Z reclaims only until they click away. **1C-b and 1C-d are the candidates**
-— 1C-b because regions force the "what happens to the contents" question and the
-`CanvasModel` move is where the command would live; 1C-d because it is the other slice
-adding node-level behaviour. This must be settled inside M1C, and the paragraph above
-applies to it word for word: this ADR may not be cited as authorising its omission.
+**Deleting a scrap belonged to no slice, and 1C-b took it.** *(Amended 2026-07-28.)* 1C-a
+built `CanvasScene.remove`, its inverse and the `"Delete Scrap"` undo step, exercised them
+in `CanvasUndoTests`, and shipped no production caller for any of them — no key handler, no
+menu item, no gesture. Three documents described `sceneRevision` as bumped on "delete"
+until the whole-branch review found there was nothing to bump for, which is the same shape
+as 1C-a's ⌘Z defect: a whole feature green at the model layer and dead at the delivery
+path. 1C-b assigned it to itself, because regions force the "what happens to the contents"
+question the moment they exist. ⌫ with something selected is now
+`CanvasEventNSView.keyDown` → `CanvasView.deleteSelection()`, pinned by a test that sends a
+real `NSEvent` through `window.sendEvent(_:)` and reads what reached disk.
+
+Three rulings came out of building it and are recorded so they are not re-opened:
+
+- **A key that does nothing and also suppresses the beep is indistinguishable from a broken
+  app.** `deleteSelection()` returns whether anything actually went, and `keyDown` forwards
+  a `false` to `super`, where AppKit's `noResponder` beeps. The canvas does not claim a key
+  it did not use.
+- **A ⌫ arriving while any gesture is open is refused, not absorbed.** `CanvasUndo`
+  takes no snapshot when `beginGesture` nests and registers nothing when `endGesture` does
+  not reach zero, so a delete inside somebody else's bracket collapses into it under the
+  wrong name — and the lossy variant (⌫ in the run-loop turn after a double-click, before
+  the editor claims first responder, then quit) put **the card and its words on disk with
+  nothing on the stack that could bring them back**. That is must #1 failing, and the guard
+  is one line asking the direct question: is a bracket open?
+- **⌫ is `NSDeleteCharacter` (0x7F) and ⌦ is `NSDeleteFunctionKey` (0xF728).**
+  `NSBackspaceCharacter` is 0x08 — Ctrl-H — and is unreachable through a `keyDown` switch
+  anyway, because `charactersIgnoringModifiers` ignores every modifier except Shift.
+
+**Still open inside M1C, and recorded here because nobody has decided it:** ⌫ is the only
+route to deleting a *scrap*. Regions get a visible Delete button in the inspector; a scrap
+has no inspector at all, so the discoverability gap is scrap-only. An Edit-menu Delete item
+reaches outside `Maugham/Canvas/` and wants deciding whole.
 
 **What 1C-d owes:** the drop target; `DropClassification` for browser image drags (which
 carry rendered bitmaps rather than file URLs, so `.dropDestination(for: URL.self)` silently
@@ -319,6 +367,85 @@ rejects them); the real title, kind glyph and thumbnail; a `CGImageSource` downs
 path; and a bounded image cache **keyed by path, not id** (tripwire 22). The canvas is the
 first surface in Maugham with an unbounded image count, and no image cache or real
 downsampling exists anywhere in the app today.
+
+### 8. Region membership is stored, and geometry never changes it *(added 2026-07-28, plan 1C-b)*
+
+A region is a labelled rectangle with two member sets. **A coordinate never adds or removes
+a member** — not on move, not on resize, not on region creation. `CanvasMembership` is the
+whole mutation surface and no function in it takes a point, a rect or an overlap: deciding
+*which* region a drop meant is the gesture's job, recording it is the membership layer's,
+and keeping the two apart is the decision.
+
+**This is a bug-class elimination with three worked examples, not a preference** (spec
+§4.2):
+
+- **Obsidian Canvas** leaves a card poking one pixel outside a group, and out of it.
+- **Scapple** recomputes membership from live geometry, so a note inside two overlapping
+  shapes moves with whichever shape you happen to grab. Unfixed.
+- **tldraw ejects children when a frame is resized — *despite* storing membership
+  explicitly** ([#6017](https://github.com/tldraw/tldraw/issues/6017)).
+
+The third is why the decision is phrased about the *transition rule* rather than about
+storage. Storing membership is not the fix; tldraw stores it and ships the bug. The
+firewall is `CanvasMembershipTests`, and it was falsified by introducing tldraw's own
+defect and watching the test go red.
+
+**One home, many appearances; copies were rejected outright** (§4.3). A card lives in at
+most one region and may be *cited* in any number. A copy would mean two objects claiming to
+be the same card, with no way to tell which is real and no answer to which one an edit
+reaches — the same reasoning that keeps the manuscript's op log paragraph-keyed. Home
+uniqueness is enforced in two places that must agree: `CanvasMembership.join` on the
+mutation path, and the codec's loader at the disk boundary, where a hand-edited sidecar can
+present a node that is home in two. Both resolve **first in id order keeps it**, and the
+loser is demoted to an appearance rather than dropped — that region really did cite the
+card, and inventing or discarding a relationship are both worse than recording the weaker
+true one.
+
+**A drop is the only gesture that changes membership**, and it targets by the node's
+**centre** — predictable and sayable ("drop it so its middle is inside"), where a corner is
+the one-pixel absurdity §4.2 cites against Obsidian. Ties resolve on greatest overlap, then
+the smaller region, then the smaller id. Collapsed regions are skipped, because a card that
+disappears on drop is the worst failure available on a spatial surface. **Removal is always
+its own act.**
+
+**The accepted cost is a resident sitting visually outside the region that owns it, and it
+is paid in the RENDERER, as a tether.** That is the trade the three tools above refused to
+make, and it is the right way round for this product: a wrong-looking line is a rendering
+problem the writer can see and fix, where a silent ejection is lost work. It is *get out of
+the way* (must #2) read strictly — the surface records what the writer did and does not
+quietly revise it because a rectangle moved.
+
+**Region state lives in the canvas sidecar, at schema 2 — not in the manifest.** Labels,
+frames, both member sets, the bound piece and the collapsed flag are all derived UI state
+under decision 3's split, so they go in `.maugham/canvas.json` with the rest of the layout.
+**That is why `RegionInspector` takes a `CanvasModel` and not a `ProjectStore`**: there is
+nothing here for the project store to own, and reaching for it would put a second writer on
+state whose only reconciler is `CanvasStore.load()`.
+
+Both directions of the schema step are non-destructive, and the second is the one that
+matters against must #1:
+
+- A **schema-1** sidecar — every canvas 1C-a wrote — decodes unchanged; `regions` is
+  optional rather than defaulted so a missing key is not a throw.
+- A **schema-2** sidecar opened by an **older build** fails the `schemaVersion <= current`
+  gate and yields an empty layout with `canvas.md` read as normal. **It costs the
+  arrangement and never the words.** That is decision 3's split doing the job it exists for:
+  the expensive thing to lose is the only thing that is not in the derived file.
+
+**The bound piece is produced here and consumed in 1A.** `RegionBinding` writes it, the
+inspector makes it settable, and the reference rail that reads it is unwritten. Binding
+residents only, never appearances, is what stops two regions sharing a card and each
+claiming it as their piece's context (§4.4).
+
+Constitution principles this decision answers to: **must #1, *the words are safe*** — the
+schema step and the delete path are both judged on what they do to `canvas.md`, not to the
+layout; **must #2, *get out of the way*** — membership is what the writer said it was, and
+geometry does not overrule them; **must #3, *delight, end to end*** — the tether, the wash
+and the collapsed summary are how the accepted cost is made legible rather than merely
+tolerated.
+
+**Tripwire 31** carries the rule. **Tripwire 32** carries the undo-bracket verbs that
+regions forced into the open — see decision 5.
 
 ## Consequences
 
@@ -330,10 +457,16 @@ downsampling exists anywhere in the app today.
   0.082 ms/frame, hit test 0.052 ms, a zoomed-out cull returning 820 nodes in 1.429 ms.
   `Maugham/Canvas/AREA.md` records precisely what those probes do and do not pin; in short,
   they catch O(n²) and are not guaranteed to catch an ~11× constant-factor regression, and
-  nothing exercises `CanvasRenderer.draw` directly.
-- **Six tripwires (25–30)** and `Maugham/Canvas/AREA.md`. The tripwires exist because five
-  of the six defects behind them are invisible to a subview count, a geometry assertion or
-  a green suite.
+  nothing *measures* `CanvasRenderer.draw`. (It is exercised — 1C-b renders it through
+  `ImageRenderer` in six raster fixtures — but none of them is a timing probe, so the scale
+  claim still rests on the transitive argument. This bullet said "nothing exercises `draw`
+  directly" until 2026-07-28.) The known unbounded per-frame work is the tether and chip
+  passes, which are not viewport-culled; when that is fixed, cull the **segment**, never the
+  region.
+- **Eight tripwires (25–32)** and `Maugham/Canvas/AREA.md`. They exist because almost every
+  defect behind them is invisible to a subview count, a geometry assertion or a green
+  suite — 30 and 32 were each found by a review rather than by a test, and 32 was reached
+  three times in one slice before it was written down.
 - **Hit testing is on the unrotated rect**, so there is a mismatch band of `r·θ` — ~2.6 pt
   at the corner of a default 240×80 card at the calibrated 1.2° tilt. It sits exactly where
   the resize mark is drawn and tested, and is accepted because 2.6 pt is inside pointer
@@ -357,8 +490,14 @@ downsampling exists anywhere in the app today.
     these by eye and a literal in a `.metal` file is not findable. Light is untouched.
   - **The focused scrap is announced twice to VoiceOver**, once stale (decision 6). Whether
     `elements` needs to know the focused id is a question a VoiceOver walk settles.
-- **Left to later slices:** regions and `CanvasModel` (1C-b); lines and promotion (1C-c);
-  item nodes, drops and images (1C-d). **Deleting a scrap is owned by no slice yet** — the
-  model and undo support exist with no caller, and decision 7 records the open choice
-  between 1C-b and 1C-d. §8A.2's Claude write path is designed and unbuilt; its
+- **Left to later slices** *(updated 2026-07-28)*: lines and promotion (1C-c); item nodes,
+  drops and images (1C-d). Regions, `CanvasModel` and deleting a scrap were on this list and
+  1C-b built all three. §8A.2's Claude write path is designed and unbuilt; its
   constitutional reasoning is recorded in the spec, not here.
+- **Appearances are stored, drawn, listed and removable — and nothing creates one.**
+  `CanvasMembership.addAppearance` has no production caller after 1C-b: the drop gesture
+  makes homes, and the inspector only removes. This is decision 7's own failure shape (built,
+  exercised, unreachable) recurring one slice later, and it is recorded rather than left for
+  a reader to discover. Whichever slice adds the citing gesture owns it.
+- **⌫ is the only route to deleting a scrap**, because a scrap has no inspector to put a
+  button in. Regions have one. See decision 7.

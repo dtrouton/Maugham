@@ -31,9 +31,27 @@ Plan (⌘1) puts a **canvas** where the editor usually sits — a place to think
 - **Drag a scrap** to move it. Let go with some speed and it carries a little before coming to rest, the way a card put down on a desk does.
 - **Drag the bottom-right corner** to make a scrap wider or narrower. The text rewraps; the card grows and shrinks to fit what you've written.
 - **Scroll to pan, pinch to zoom.** Zoom stays crisp all the way in and out. Cards sit at a slight angle — the one you're editing straightens itself while you write in it, and leans back when you leave.
+- **Select a card with a single click**, and press **⌫** to delete it. ⌘Z brings it back, with its words.
 
 Your scraps are saved as you type, into a plain `canvas.md` file at the top of the project — readable in any text editor, like everything else Maugham writes. Where the cards sit is kept separately, as scratch layout; deleting that never costs you a word.
 
 **⌘Z on the canvas.** Outside a scrap, ⌘Z undoes a whole action — a move comes back to where it started, not frame by frame. *Inside* a scrap, ⌘Z takes back roughly **a sentence at a time**, or the run of typing since you last paused, rather than a single word. Press it again for the sentence before that.
 
-Regions, connecting lines, dragging research onto the canvas, and turning a scrap into a real chapter or note are all still to come.
+#### Regions
+
+A **region** is an area you draw around cards that belong together — an act, a strand, a chapter's worth of material.
+
+- **Drag on empty canvas** to draw one. It appears as a washed rectangle with a label bar along the top, and it starts empty: drawing a region around cards does **not** swallow them. That's deliberate — what's in a region is what you put in it, never what happens to be sitting under it.
+- **Drag a card so its middle lands inside** to put it in. Drag it out and drop it somewhere else and it moves to that region instead; drop it on bare canvas and it stays where it is *and stays a member*. Leaving is its own decision, not a side effect of where you parked something. If a card ends up sitting outside the region that holds it, a faint line is drawn between the two so you can see the relationship you actually have.
+- **Drag the label bar** to move the region, and the cards that live in it travel with it. One ⌘Z puts the whole thing back. Drag the bottom-right corner to resize it — resizing never adds or drops a member.
+- **Click the label bar** to select the region. The Inspector (⌘⌥I) is where you name it, and where the rest of this lives.
+
+In the Inspector, a region lists its cards two ways: the ones that **live** in it — those are the ones that travel with it — and any that merely **appear** in it, drawn on the canvas as a small chip hairlined back to the real card rather than as a second copy of it. The minus button on a row takes a card out of the region; the card itself stays on the canvas.
+
+**Collapse** a region (the toggle in the Inspector) and the cards that live in it are put away — the label says how many, and the space they occupied is yours again. Expand it and they come back exactly as they were.
+
+**Bind a region to a piece** with the Piece picker, and you're saying: this material is for that chapter. The binding follows the piece through a rename.
+
+**Deleting a region never deletes cards.** ⌫ with a region selected, or the Delete Region button in the Inspector, removes the region and leaves every card on the canvas. ⌘Z brings the region back with its membership intact.
+
+Connecting lines, dragging research onto the canvas, and turning a scrap into a real chapter or note are all still to come.
