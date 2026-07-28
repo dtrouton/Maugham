@@ -3261,6 +3261,42 @@ final class CanvasViewMountingTests: XCTestCase {
                           "and the press did what a press on a card does: it moved it")
     }
 
+    /// **A line minted by a press and a release with no drag sample between them
+    /// must still reach DISK.**
+    ///
+    /// `hasMoved` is set by `update`, and `update` runs only on `.changed` — so a
+    /// mouse-down on one card and a mouse-up over another with nothing in between
+    /// inserts a line under `persist: false` and then meets the `hasMoved`
+    /// bail-out, which returns above `model.scheduleSave()`. A line in memory
+    /// that never reaches the sidecar, and the writer has no way to know.
+    ///
+    /// **The sweep is structurally immune and the line path is not**, which is
+    /// the non-obvious half: a sweep's rect comes from the mode's own `current`,
+    /// so with no `.changed` it is a zero rect and `createRegion` refuses it —
+    /// there is nothing to lose. `endLine` reads the RELEASE point directly, so
+    /// it is the first gesture on this surface that can mint something without a
+    /// single drag sample.
+    func test_aLineMadeWithoutASingleDragSampleStillReachesDisk() throws {
+        let root = try twoCardProjectRoot()
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+
+        // Down on the first card, up over the second, and no `.changed` at all.
+        events.applyMouseDown(at: insideTheFirstCard, clickCount: 1, shiftHeld: true)
+        events.applyMouseUp(at: insideTheSecondCard)
+        pump()
+
+        XCTAssertEqual(model.scene.lines.count, 1,
+                       "precondition: the line is in memory, so a missing line below "
+                       + "is a save that never happened rather than a gesture that "
+                       + "never landed")
+        XCTAssertEqual(savedScene(after: window, root: root).lines.count, 1,
+                       "the line never reached the sidecar: the writer drew it, saw "
+                       + "it, quit, and it was gone")
+    }
+
     /// **A line drag that minted nothing is not a structural change**, and one
     /// that minted a line is — the sweep's own guard, asked of a third gesture.
     ///

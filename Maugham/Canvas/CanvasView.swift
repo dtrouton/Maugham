@@ -1197,9 +1197,11 @@ struct CanvasView: View {
                 }
             } else if wasDrawingLine {
                 // The line itself was inserted above; what belongs here is what
-                // the writer is left holding. Selecting it puts the new line
-                // under the inspector and under ⌫ straight away, which is the
-                // same courtesy a swept region gets. A drag that minted nothing
+                // the writer is left holding. Selecting it is the same courtesy a
+                // swept region gets, and it is what will put the new line under
+                // the inspector and under ⌫ — both of those are Task 5's, and
+                // `deleteSelection`'s `.line` arm is still its honest stub, so
+                // for this commit ⌫ on a fresh line beeps. A drag that minted nothing
                 // — bare canvas, or back onto the source card — leaves the
                 // selection exactly as it was: the writer changed nothing, so
                 // nothing they had should move.
@@ -1267,7 +1269,22 @@ struct CanvasView: View {
                 // card jumping back further than the writer asked. Nothing
                 // moved, so `endGesture` registers no step.
                 model.endGesture()
-                guard interaction.hasMoved else { return }
+                // *** `|| mintedLine != nil` KEEPS THE WRITER'S LINE. *** This
+                // bail-out returns above `model.scheduleSave()`, and `hasMoved`
+                // is set by `update`, which runs only on `.changed` — so a press
+                // on one card and a release over another with no drag sample
+                // between them would insert a line under `persist: false` and
+                // then leave without ever queuing a write. A line the writer drew
+                // and watched appear, gone at quit, with nothing to say why.
+                //
+                // **The sweep does not need this and the line does**, which is
+                // the part that is not obvious from the symmetry: a sweep's rect
+                // comes from the mode's own `current`, so with no `.changed` it
+                // is a zero rect and `createRegion` refuses it — there is nothing
+                // to lose. `endLine` reads the RELEASE point directly and is the
+                // first gesture here that can mint something without a single
+                // drag sample.
+                guard interaction.hasMoved || mintedLine != nil else { return }
                 // *** KEEP THIS, AND KEEP ITS GUARD. *** A move is one structural
                 // change, recorded at the END of the gesture rather than once per
                 // drag frame, and both the accessibility tree and the region
