@@ -820,6 +820,18 @@ struct CanvasView: View {
             // invisible to hit testing and culling until it is measured.
             // `rebuildLayouts()` also bumps `sceneRevision`.
             rebuildLayouts()
+            // A card made inside a region belongs to it (Denver, 2026-07-28:
+            // creation absorbs, transitions do not). AFTER the measure and not
+            // before it, because `joinTarget` reads the card's CENTRE and an
+            // unmeasured card has no frame to take one from — asked a line
+            // earlier this silently joins nothing, on every scrap the writer
+            // ever makes. Inside the "New Scrap" gesture, so one ⌘Z takes back
+            // the card and the membership together.
+            model.withScene(persist: false) {
+                if let home = CanvasInteraction.joinTarget(for: id, in: $0) {
+                    CanvasMembership.join(id, home: home, in: &$0)
+                }
+            }
             // Closed AFTER the measure, so the next gesture's baseline holds a
             // card with a height. Close it before and "Edit Scrap" opens on a
             // scene whose new node has no `cachedHeight`, so undoing the typing

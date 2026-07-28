@@ -274,24 +274,124 @@ final class CanvasRegionInteractionTests: XCTestCase {
         XCTAssertEqual(s.regionCount, 1)
     }
 
-    func test_aNewRegionIsUnlabelledAndOwnsNothing() {
+    func test_aNewRegionIsUnlabelledAndOwnsWhateverItWasSweptAround() {
         var s = scene()
         let id = CanvasInteraction.createRegion(
             CGRect(x: 1_000, y: 1_000, width: 300, height: 250), in: &s)!
         XCTAssertEqual(s.region(id)?.label, "")
         XCTAssertEqual(s.region(id)?.displayLabel, CanvasRegion.untitledLabel)
         XCTAssertTrue(s.region(id)!.homeMembers.isEmpty,
-                      "§4.2: drawing a region around cards absorbs NONE of them — "
-                      + "and this rect was drawn nowhere near any, so the fixture "
-                      + "below is the one that actually tests it")
+                      "this rect was swept over bare canvas, nowhere near either "
+                      + "card, so it takes in nothing — the absorbing case is the "
+                      + "fixture below")
     }
 
-    func test_drawingARegionAroundExistingCardsAbsorbsNoneOfThem() {
+    /// **Creation absorbs** (Denver, 2026-07-28). This test asserted the exact
+    /// opposite until that ruling, and it is inverted rather than deleted so the
+    /// reversal is legible in the history.
+    ///
+    /// The rule §4.2 still holds is about TRANSITIONS — move and resize — which
+    /// is where all three of the tools it cites were actually bitten.
+    func test_drawingARegionAroundExistingCardsTakesThemIn() {
         var s = scene()
+        // 'a' is at (100,100)–(340,180), centre (220,140) — inside. 'b' is at
+        // (900,100) and nowhere near, which is what makes the second assertion
+        // a real one rather than "everything joined".
         let id = CanvasInteraction.createRegion(
             CGRect(x: 50, y: 50, width: 400, height: 300), in: &s)!
-        XCTAssertTrue(s.region(id)!.homeMembers.isEmpty,
-                      "'a' is squarely inside this rect and must not have joined")
+        XCTAssertTrue(s.region(id)!.livesHere(a),
+                      "'a' is squarely inside this rect and did not join it")
+        XCTAssertFalse(s.region(id)!.livesHere(b),
+                       "'b' is 500pt away and was absorbed anyway")
+    }
+
+    // MARK: - What a sweep takes in
+    //
+    // `absorbedNodes` is the DECISION, extracted so it can be asked directly
+    // over every input that changes its answer rather than only through the
+    // gesture that calls it. Three times this slice something shipped built,
+    // tested and reachable on one path only because the tests drove the
+    // mechanism instead of the route; a rule with four meaningfully different
+    // inputs gets all four asked of it here, and the route asked separately in
+    // `CanvasViewMountingTests`.
+
+    /// The centre decides — the same rule a drop uses, so the writer learns it
+    /// once. Both directions, because "absorbs everything it touches" and
+    /// "absorbs nothing" both pass a one-sided assertion.
+    func test_aSweepTakesInTheCardsWhoseCentreItCovers() {
+        let s = scene()
+        // 'a' is (100,100)–(340,180), centre (220,140).
+        XCTAssertEqual(CanvasInteraction.absorbedNodes(
+            by: CGRect(x: 0, y: 0, width: 400, height: 300), in: s), [a])
+        XCTAssertEqual(CanvasInteraction.absorbedNodes(
+            by: CGRect(x: 0, y: 0, width: 4_000, height: 3_000), in: s), [a, b])
+        XCTAssertEqual(CanvasInteraction.absorbedNodes(
+            by: CGRect(x: 2_000, y: 2_000, width: 400, height: 300), in: s), [])
+    }
+
+    /// A card the sweep only clips keeps its distance: the same answer
+    /// `joinTarget` gives a drop, and the same answer to the one-pixel
+    /// absurdity §4.2 cites.
+    func test_aSweepThatOnlyClipsACardDoesNotTakeItIn() {
+        let s = scene()
+        // Covers (100,100)–(200,180) of 'a' — 100pt of a 240pt card — and stops
+        // well short of its centre at x = 220.
+        XCTAssertEqual(CanvasInteraction.absorbedNodes(
+            by: CGRect(x: 0, y: 0, width: 200, height: 300), in: s), [],
+                       "a sweep that merely overlaps a card claimed it")
+    }
+
+    /// **Sub-question, decided: a card that already lives somewhere else IS
+    /// taken in.** Drawing a box around a card is a claim on it. The alternative
+    /// — skipping the ones already spoken for — gives a region holding some of
+    /// what the writer swept and not the rest, with nothing on screen to say
+    /// which. `CanvasMembership.join` moves the home, so §4.3's one-home rule
+    /// holds throughout.
+    func test_aSweepTakesInACardThatAlreadyLivesInAnotherRegion() {
+        var s = scene()
+        CanvasMembership.join(a, home: r1, in: &s)
+        let id = CanvasInteraction.createRegion(
+            CGRect(x: 50, y: 50, width: 400, height: 300), in: &s)!
+
+        XCTAssertTrue(s.region(id)!.livesHere(a))
+        XCTAssertFalse(s.region(r1)!.livesHere(a),
+                       "the card now lives in two regions at once — §4.3's one "
+                       + "home is what stops it drawing as a card and as a "
+                       + "reference chip simultaneously")
+        XCTAssertEqual(CanvasMembership.homeRegion(of: a, in: s), id)
+    }
+
+    /// **Sub-question, decided: a HIDDEN card is not taken in.** It is a
+    /// resident of a collapsed region and is not drawn at all, so absorbing it
+    /// would move something the writer cannot see out of a region they cannot
+    /// see into — the one case where "the writer swept around it" is false. Same
+    /// reasoning that keeps a collapsed region off `joinTarget`'s target list,
+    /// arriving from the other end.
+    func test_aSweepDoesNotTakeInACardHiddenInsideACollapsedRegion() {
+        var s = scene()
+        CanvasMembership.join(a, home: r1, in: &s)
+        let swept = CGRect(x: 50, y: 50, width: 400, height: 300)
+        XCTAssertEqual(CanvasInteraction.absorbedNodes(by: swept, in: s), [a],
+                       "control: while r1 is open, 'a' is absorbed — so the "
+                       + "assertion below is about collapsing and nothing else")
+
+        s.updateRegion(r1) { $0.isCollapsed = true }
+        XCTAssertEqual(CanvasInteraction.absorbedNodes(by: swept, in: s), [],
+                       "a card hidden inside a collapsed region was moved out of "
+                       + "it by a sweep the writer could not see it under")
+    }
+
+    /// An unmeasured card has no frame and therefore no centre, and nothing the
+    /// writer could have swept around either — it is not on screen yet.
+    func test_aSweepDoesNotTakeInAnUnmeasuredCard() {
+        var s = scene()
+        s.insert(CanvasNode(id: CanvasNodeID("new"), kind: .scrap,
+                            origin: CGPoint(x: 100, y: 100), width: 240,
+                            cachedHeight: nil))
+        XCTAssertEqual(CanvasInteraction.absorbedNodes(
+            by: CGRect(x: 0, y: 0, width: 400, height: 300), in: s), [a],
+                       "the unmeasured card joined on the strength of an origin "
+                       + "that says nothing about where it will be drawn")
     }
 
     /// A new region takes the rect it was swept, not a default one — otherwise

@@ -65,7 +65,9 @@ Four parts are load-bearing, and each has failed in draft:
 
 ## Regions, and why membership is never geometry
 
-**A region is a labelled rectangle with two member sets, and a coordinate never adds or removes a member.** Not on move, not on resize, not on region creation. `CanvasMembership` is the whole mutation surface and **no function in it takes a point, a rect or an overlap** — deciding *which* region a drop meant is the gesture's job (`CanvasInteraction.joinTarget`), recording it is this file's, and keeping the two apart is the design rather than a coding style.
+**A region is a labelled rectangle with two member sets, and CREATION ABSORBS while TRANSITIONS DO NOT.** Moving or resizing a region never adds or removes a member; sweeping a region around cards takes in every card whose **centre** is inside the swept rect, and a scrap made inside a region joins it (Denver, 2026-07-28 — spec §4.2 amendment, ADR 0026 §8). The transition half is the one with three shipped bugs behind it: every tool cited there was bitten deciding whether an *existing* relationship survives a geometry change, which creation cannot be, having no prior state to contradict.
+
+`CanvasMembership` is still the whole mutation surface and **no function in it takes a point, a rect or an overlap** — deciding is the gesture's job (`CanvasInteraction.joinTarget` for a drop or an inside-creation, `CanvasInteraction.absorbedNodes(by:in:)` for a sweep), recording it is this file's, and keeping the two apart is the design rather than a coding style. Absorption skips **unmeasured** cards (no frame, so nothing was drawn to sweep around) and **hidden** ones (residents of a collapsed region, not drawn at all); a card that already lives elsewhere *is* taken in, and `join` moves the home.
 
 **If you are about to write `region.frame.contains(node.origin)` anywhere near membership, you are reintroducing the bug class this design exists to eliminate.**
 

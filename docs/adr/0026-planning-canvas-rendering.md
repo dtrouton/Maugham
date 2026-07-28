@@ -368,13 +368,26 @@ path; and a bounded image cache **keyed by path, not id** (tripwire 22). The can
 first surface in Maugham with an unbounded image count, and no image cache or real
 downsampling exists anywhere in the app today.
 
-### 8. Region membership is stored, and geometry never changes it *(added 2026-07-28, plan 1C-b)*
+### 8. Region membership is stored, and no *transition* changes it *(added 2026-07-28, plan 1C-b; amended the same day — see below)*
 
-A region is a labelled rectangle with two member sets. **A coordinate never adds or removes
-a member** — not on move, not on resize, not on region creation. `CanvasMembership` is the
-whole mutation surface and no function in it takes a point, a rect or an overlap: deciding
-*which* region a drop meant is the gesture's job, recording it is the membership layer's,
-and keeping the two apart is the decision.
+A region is a labelled rectangle with two member sets. **Moving or resizing a region never
+adds or removes a member.** `CanvasMembership` is the whole mutation surface and no function
+in it takes a point, a rect or an overlap: deciding *which* region a drop meant is the
+gesture's job, recording it is the membership layer's, and keeping the two apart is the
+decision.
+
+> **Amended 2026-07-28 (Denver, after the 1C-b smoke).** This section was first written as
+> "a coordinate never adds or removes a member — not on move, not on resize, not on region
+> creation". **Creation now absorbs**: a swept region takes in every card whose centre is
+> inside the swept rect, and a scrap made inside a region joins it. Move and resize are
+> unchanged, and they are the half that was load-bearing all along — **all three worked
+> examples below are transitions**, where a tool must decide whether an *existing*
+> relationship survives a change to geometry. Creation has no prior state to contradict,
+> and sweeping a rectangle around particular cards is a deliberate act, not a coincidence
+> of coordinates. Excluded from absorption: unmeasured cards (no frame, nothing drawn to
+> sweep around) and cards hidden inside a collapsed region (not drawn at all). The decision
+> is one pure function, `CanvasInteraction.absorbedNodes(by:in:)`, so it can be asked
+> directly over every input that changes its answer.
 
 **This is a bug-class elimination with three worked examples, not a preference** (spec
 §4.2):

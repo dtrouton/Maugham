@@ -426,6 +426,48 @@ struct CanvasInteraction {
             }?.id
     }
 
+    /// Which cards a rect swept on bare canvas takes in.
+    ///
+    /// **CREATION ABSORBS; transitions do not.** (Denver, 2026-07-28.) §4.2's
+    /// firewall was written against three shipped bugs — tldraw ejecting
+    /// children on resize, Obsidian's card poking one pixel outside a group,
+    /// Scapple's note travelling with whichever overlapping shape you grabbed —
+    /// and every one of them is a TRANSITION, where the tool must decide whether
+    /// an existing relationship survives a change. Creation has no prior state
+    /// to disagree with, and sweeping a rectangle around five particular cards
+    /// is as deliberate as this surface gets. Move and resize still change
+    /// nothing, and that half is the load-bearing one.
+    ///
+    /// The CENTRE decides, exactly as it does for a drop — one rule the writer
+    /// learns once, and the answer to the partial-overlap objection that
+    /// `joinTarget` already gives.
+    ///
+    /// Two exclusions, both of them cases where "the writer pointed at it" is
+    /// not true:
+    ///
+    /// - **A node with no frame** has not been measured, so it has no centre and
+    ///   no drawn extent the writer could have swept around.
+    /// - **A HIDDEN node** — a resident of a collapsed region — is not drawn at
+    ///   all, so absorbing it would move something the writer cannot see out of
+    ///   a region they cannot see into. Same reasoning that keeps a collapsed
+    ///   region off `joinTarget`'s target list, from the other end.
+    ///
+    /// A card that already lives in another region **is** absorbed, and that is
+    /// a decision rather than a side effect of `CanvasMembership.join`: drawing
+    /// a box around a card is a claim on it, and the alternative — silently
+    /// skipping the cards that are already spoken for — gives a region that
+    /// holds some of what the writer swept and not the rest, with nothing on
+    /// screen to say which. One home, always (§4.3), and this is the writer
+    /// changing it.
+    static func absorbedNodes(by rect: CGRect, in scene: CanvasScene) -> Set<CanvasNodeID> {
+        var absorbed: Set<CanvasNodeID> = []
+        for node in scene.unorderedNodes {
+            guard !scene.isHidden(node.id), let frame = node.frame else { continue }
+            if rect.contains(CGPoint(x: frame.midX, y: frame.midY)) { absorbed.insert(node.id) }
+        }
+        return absorbed
+    }
+
     /// Mint a region for a swept rect, or nothing if the sweep was a twitch —
     /// which is what makes a stray drag on bare canvas cost nothing.
     ///
@@ -449,11 +491,16 @@ struct CanvasInteraction {
         while scene.region(id) != nil {
             id = CanvasRegionID(UUID().uuidString.prefix(8).lowercased())
         }
-        // Deliberately EMPTY, and deliberately unlabelled. §4.2: drawing a
-        // region around cards absorbs none of them — the writer drops in what
-        // belongs, and `CanvasRegion.untitledLabel` carries the name until they
-        // give it one.
+        // Read BEFORE the region exists, so the decision is made against the
+        // scene the writer was looking at when they swept.
+        let absorbed = absorbedNodes(by: rect, in: scene)
+        // Unlabelled — `CanvasRegion.untitledLabel` carries the name until the
+        // writer gives it one in the inspector.
         scene.insertRegion(CanvasRegion(id: id, label: "", frame: rect))
+        // Deciding is this file's job and recording is `CanvasMembership`'s; the
+        // split is what keeps geometry out of the membership rules even now that
+        // one geometric act feeds them.
+        for node in absorbed { CanvasMembership.join(node, home: id, in: &scene) }
         return id
     }
 }

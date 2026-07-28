@@ -100,6 +100,19 @@ final class CanvasViewMountingTests: XCTestCase {
         try makeRoot()
     }
 
+    /// One measured card at (20,20)–(260,58), centre (140,39), and one region
+    /// wherever the caller wants it — for the two tests that drag a region onto
+    /// a card it must not absorb. The card is NOT a member: what those tests
+    /// watch is whether a transition makes it one.
+    private func cardAndRegionRoot(regionFrame: CGRect) throws -> URL {
+        var scene = CanvasScene()
+        scene.insert(CanvasNode(id: scrapID, kind: .scrap, origin: CGPoint(x: 20, y: 20),
+                                width: 240, cachedHeight: 38))
+        scene.insertRegion(CanvasRegion(id: CanvasRegionID("r1"), label: "Act II fog",
+                                        frame: regionFrame))
+        return try projectRoot(scene: scene, scraps: [scrapID: scrapText])
+    }
+
     /// The fixture scrap at (60,60), owned by a region at (20,20).
     ///
     /// The card is clear of the region's 24pt chrome bar, so a press on the bar
@@ -1846,12 +1859,162 @@ final class CanvasViewMountingTests: XCTestCase {
         XCTAssertEqual(regions.first?.frame.width, 200)
         XCTAssertEqual(regions.first?.frame.height, 160)
         XCTAssertTrue(regions.first!.homeMembers.isEmpty,
-                      "the fixture's scrap is at (20,20) and this rect starts at "
-                      + "(400,300), so nothing was in the way — the absorption "
-                      + "rule is asserted in CanvasRegionInteractionTests")
+                      "a sweep over BARE canvas took something in. The fixture's "
+                      + "card is (20,20)–(260,58) with its centre at (140,39) and "
+                      + "this rect starts at (400,300), so there was nothing to "
+                      + "absorb — the absorbing case is the test below")
         XCTAssertEqual(model.selection, .region(regions.first!.id),
                        "the region the writer just drew is not selected, so the "
                        + "inspector in the other column has nothing to name it with")
+    }
+
+    /// **Creation absorbs, on the delivery path** (Denver, 2026-07-28) — and one
+    /// ⌘Z takes back the region and every membership it made, as ONE step.
+    ///
+    /// The step's NAME is asserted, not only the scene after the undo: a scene
+    /// assertion alone cannot tell one step from two that happen to compose, and
+    /// two would leave a ⌘Z that appears to do nothing. `canUndo` going false
+    /// afterwards is the other half of the same claim — the stack held exactly
+    /// one thing.
+    func test_sweepingAroundACardTakesItInAndOneUndoTakesBackBoth() throws {
+        let root = try projectRoot()
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+        let manager = try XCTUnwrap(events.undoManager)
+        XCTAssertFalse(manager.canUndo, "precondition: nothing on the stack yet")
+
+        // The fixture's card is (20,20)–(260,58), centre (140,39). Sweep from
+        // bare canvas below-left of it, up and around it — backwards and
+        // upwards, so this also drives the normalised rect on the real path.
+        drag(events, from: CGPoint(x: 320, y: 240),
+             through: [CGPoint(x: 10, y: 10), CGPoint(x: 10, y: 10)])
+        pump(1.0)
+
+        let region = try XCTUnwrap(sceneOnDisk(root).regions.first,
+                                   "the sweep made no region at all")
+        XCTAssertTrue(region.livesHere(scrapID),
+                      "the writer drew a box around a card and the card did not "
+                      + "join it — creation absorbs (2026-07-28); it is move and "
+                      + "resize that change nothing")
+
+        XCTAssertTrue(manager.canUndo)
+        XCTAssertTrue(manager.undoMenuItemTitle.contains("New Region"),
+                      "the Edit menu offers \"\(manager.undoMenuItemTitle)\" — the "
+                      + "absorption was registered under some other name, or in a "
+                      + "bracket of its own")
+        manager.undo()
+        pump(1.0)
+
+        let onDisk = sceneOnDisk(root)
+        XCTAssertEqual(onDisk.regionCount, 0, "⌘Z left the region behind")
+        XCTAssertEqual(onDisk.node(scrapID)?.origin, CGPoint(x: 20, y: 20),
+                       "the card was moved by a gesture that only drew a box "
+                       + "around it")
+        XCTAssertFalse(manager.canUndo,
+                       "a second step is on the stack, so the region and the "
+                       + "membership it created were TWO ⌘Zs — the writer presses "
+                       + "it once, sees the box go, presses it again expecting "
+                       + "their last edit back and instead re-runs a membership "
+                       + "change they cannot see")
+    }
+
+    /// **A scrap made inside a region belongs to it**, on the delivery path.
+    ///
+    /// The double-click is the create gesture, so this is the second half of the
+    /// 2026-07-28 ruling — and the ordering it depends on is invisible from
+    /// outside: a new scrap has no measured height until `rebuildLayouts()`, so
+    /// asking `joinTarget` one line earlier reads a card with no frame and joins
+    /// nothing, on every scrap the writer ever makes.
+    func test_aScrapMadeInsideARegionJoinsIt() throws {
+        let root = try regionProjectRoot()
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let hosted = try XCTUnwrap(window.contentView)
+        let events = try eventView(in: window)
+
+        // Inside the region (20,20)–(420,300) and clear of its resident card at
+        // (60,60)–(300,98), so this is bare canvas *within* the region.
+        events.applyMouseDown(at: CGPoint(x: 60, y: 150), clickCount: 2)
+        pump(0.3)
+        type("Rain.", into: try XCTUnwrap(
+            try XCTUnwrap(firstDescendant(ScrapEditorContainer.self, in: hosted),
+                          "the double-click made no scrap").textView))
+        pump(1.0)
+
+        let onDisk = sceneOnDisk(root)
+        XCTAssertEqual(onDisk.count, 2, "precondition: the new scrap exists")
+        let made = try XCTUnwrap(onDisk.unorderedNodes.first { $0.id != scrapID }).id
+        XCTAssertTrue(onDisk.region(CanvasRegionID("r1"))!.livesHere(made),
+                      "a scrap made inside a region did not join it — the likeliest "
+                      + "cause is asking joinTarget before rebuildLayouts(), where "
+                      + "the new card has no frame and so has no centre")
+    }
+
+    /// **The half that did NOT change, asked on the delivery path.** Creation
+    /// absorbs; a MOVE still takes nothing in, and neither does a resize.
+    ///
+    /// This is the property most at risk from the 2026-07-28 ruling: the obvious
+    /// way to implement absorption is a rule in `setRegionFrame`, which would
+    /// pass every creation test here and quietly hand tldraw's, Obsidian's and
+    /// Scapple's bugs back at once.
+    func test_draggingARegionOverACardStillTakesNothingIn() throws {
+        // The card at (20,20)–(260,58); the region starts clear of it, down and
+        // to the right, and is dragged up over it.
+        let root = try cardAndRegionRoot(regionFrame: CGRect(x: 300, y: 200,
+                                                             width: 300, height: 200))
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+
+        // Grab the chrome bar at (400,210) — grab offset (100,10) — and carry
+        // the region to the origin, where it covers the card entirely.
+        drag(events, from: CGPoint(x: 400, y: 210),
+             through: [CGPoint(x: 100, y: 10), CGPoint(x: 100, y: 10)])
+        pump(1.0)
+
+        let onDisk = sceneOnDisk(root)
+        let region = try XCTUnwrap(onDisk.region(CanvasRegionID("r1")))
+        XCTAssertEqual(region.frame.origin, CGPoint(x: 0, y: 0),
+                       "precondition: the drag landed where this test needs it")
+        XCTAssertTrue(region.frame.contains(onDisk.node(scrapID)!.frame!),
+                      "precondition: the region was dragged clean over the card")
+        XCTAssertFalse(region.livesHere(scrapID),
+                       "a region dragged over a card absorbed it — §4.2's firewall "
+                       + "still holds for TRANSITIONS, which is the half all three "
+                       + "of the tools it cites were bitten on")
+    }
+
+    /// The other transition, and the one with a shipped bug behind it: tldraw
+    /// #6017 ejected children on resize. This is the same rule from the opposite
+    /// side — growing a region over a card must not take it in either.
+    func test_resizingARegionOverACardStillTakesNothingIn() throws {
+        // A small region at the origin, up and to the left of the card, so
+        // growing its bottom-right corner sweeps it over the card's centre.
+        let root = try cardAndRegionRoot(regionFrame: CGRect(x: 0, y: 0,
+                                                             width: 100, height: 100))
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+
+        // The corner square is (86,86)–(100,100), which is below the card's
+        // bottom edge at y 58, so the press reaches the region rather than the
+        // card that overlaps its chrome.
+        drag(events, from: CGPoint(x: 94, y: 94),
+             through: [CGPoint(x: 300, y: 200), CGPoint(x: 300, y: 200)])
+        pump(1.0)
+
+        let onDisk = sceneOnDisk(root)
+        let region = try XCTUnwrap(onDisk.region(CanvasRegionID("r1")))
+        XCTAssertEqual(region.frame, CGRect(x: 0, y: 0, width: 306, height: 206),
+                       "precondition: the corner really was dragged out — a resize "
+                       + "holds the origin and moves the far corner")
+        XCTAssertTrue(region.frame.contains(onDisk.node(scrapID)!.frame!),
+                      "precondition: and the region now covers the card entirely")
+        XCTAssertFalse(region.livesHere(scrapID),
+                       "a resized region absorbed a card — creation absorbs and "
+                       + "transitions do not, and a resize that changes membership "
+                       + "is tldraw #6017 with the sign flipped")
     }
 
     /// **The rubber band is on screen for the WHOLE sweep, not after it.**
@@ -2155,11 +2318,16 @@ final class CanvasViewMountingTests: XCTestCase {
     /// would keep the region selected by a shortcut of the test's own and prove
     /// nothing about the surface.
     ///
-    /// The observable is the **Cite a Card** offer: the minted scrap is on the
-    /// canvas and not in the region (§4.2 — drawing a region absorbs nothing, and
-    /// nor does minting one inside its chrome), so it is a candidate. It enters
-    /// that list titled "Empty scrap" and has to be re-read once the writer
-    /// leaves it, or the menu offers a card by a line it no longer starts with.
+    /// The observable is the minted scrap's title in the inspector's **residents**
+    /// list. It enters that list titled "Empty scrap" and has to be re-read once
+    /// the writer leaves it, or the region lists a card by a line it no longer
+    /// starts with.
+    ///
+    /// **It was the CANDIDATES list until 2026-07-28**, when creation began
+    /// absorbing: a scrap minted over this region's chrome bar now lands inside
+    /// the region's frame and so joins it, which moves it out of the "cards you
+    /// could cite" offer and into the residents. Same repro, same subject, same
+    /// staleness — one list to the left.
     func test_leavingAScrapRefreshesTheRegionInspectorItIsSittingBeside() throws {
         let region = CanvasRegionID("r1")
         var scene = CanvasScene()
@@ -2196,11 +2364,13 @@ final class CanvasViewMountingTests: XCTestCase {
         // What the inspector holds with the new scrap minted and still empty.
         let inspector = RegionInspector(model: model, regionID: region, pieces: [])
         let before = inspector.refreshedRows(from: RegionInspector.MemberRows())
-        let minted = try XCTUnwrap(before.candidates.first?.node,
-                                   "precondition: the minted scrap is on offer — it "
-                                   + "is on the canvas and not in the region")
-        XCTAssertEqual(before.candidates.map(\.title), [CanvasAccessibility.emptyScrapValue],
-                       "precondition: and it is offered as an empty scrap")
+        let minted = try XCTUnwrap(before.residents.first { $0.node != scrapID }?.node,
+                                   "precondition: the minted scrap is a resident — "
+                                   + "it was made inside the region's frame, and "
+                                   + "creation absorbs (2026-07-28)")
+        XCTAssertEqual(before.residents.first { $0.node == minted }?.title,
+                       CanvasAccessibility.emptyScrapValue,
+                       "precondition: and it is listed as an empty scrap")
 
         type("Rain at the falls.", into: try XCTUnwrap(
             try XCTUnwrap(firstDescendant(ScrapEditorContainer.self, in: hosted),
@@ -2217,10 +2387,10 @@ final class CanvasViewMountingTests: XCTestCase {
                        "precondition: the writer is still looking at this region")
 
         let after = inspector.refreshedRows(from: before)
-        XCTAssertEqual(after.candidates.first { $0.node == minted }?.title,
+        XCTAssertEqual(after.residents.first { $0.node == minted }?.title,
                        "Rain at the falls.",
                        "the writer left the scrap and the region beside it still "
-                       + "offers that card as an empty one — `commitActiveEdit` "
+                       + "lists that card as an empty one — `commitActiveEdit` "
                        + "bumped a counter this gate does not read")
     }
 
