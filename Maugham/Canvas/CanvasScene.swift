@@ -9,6 +9,7 @@ import Foundation
 public struct CanvasScene: Equatable, Sendable {
     private var byID: [CanvasNodeID: CanvasNode]
     private var regionsByID: [CanvasRegionID: CanvasRegion] = [:]
+    private var linesByID: [CanvasLineID: CanvasLine] = [:]
 
     /// Residents of collapsed regions, precomputed.
     ///
@@ -68,6 +69,13 @@ public struct CanvasScene: Equatable, Sendable {
         byID[id] = nil
         for region in regionsByID.values where region.mentions(id) {
             regionsByID[region.id]?.forget(id)
+        }
+        // A line to a node that is gone would draw into nowhere. `linesByID.keys`
+        // is a live view onto the dictionary; writing through `linesByID` while
+        // iterating it is the kind of thing copy-on-write happens to make safe
+        // rather than the kind of thing that IS safe.
+        for lineID in Array(linesByID.keys) where linesByID[lineID]?.touches(id) == true {
+            linesByID[lineID] = nil
         }
         refreshHiddenNodes()
     }
@@ -176,5 +184,55 @@ public struct CanvasScene: Equatable, Sendable {
         hiddenNodes = regionsByID.values
             .filter(\.isCollapsed)
             .reduce(into: Set<CanvasNodeID>()) { $0.formUnion($1.homeMembers) }
+    }
+
+    // MARK: - Lines
+
+    /// Lines in a total, stable order, id-sorted for the same reason
+    /// `regions` is — a total order that makes an unchanged canvas's sidecar
+    /// byte-identical across a save.
+    ///
+    /// **This sorts on every access, and unlike `nodes` that is accepted here.**
+    /// The per-frame reader is `CanvasRenderer.visibleLines`, and lines are
+    /// bounded by nothing — a writer can draw one per card — so the sort *is*
+    /// on the frame path. It is accepted only because the collection is small
+    /// in practice and the culling filter runs after it. **If a canvas ever
+    /// makes this measurable, the fix is an `unorderedLines` peer, exactly as
+    /// `nodes`/`unorderedNodes` split** — the next author should reintroduce
+    /// that split rather than `nodes`' original bug.
+    public var lines: [CanvasLine] {
+        linesByID.values.sorted { $0.id.raw < $1.id.raw }
+    }
+
+    /// Rejects a line from a node to itself — it has nothing to say and draws
+    /// as a blob.
+    public mutating func insertLine(_ line: CanvasLine) {
+        guard line.from != line.to else { return }
+        linesByID[line.id] = line
+    }
+
+    public mutating func removeLine(_ id: CanvasLineID) {
+        linesByID[id] = nil
+    }
+
+    public mutating func updateLine(_ id: CanvasLineID, _ body: (inout CanvasLine) -> Void) {
+        guard linesByID[id] != nil else { return }
+        body(&linesByID[id]!)
+    }
+
+    /// Every line touching `node`, in either direction.
+    public func lines(touching node: CanvasNodeID) -> [CanvasLine] {
+        linesByID.values.filter { $0.touches(node) }
+    }
+
+    /// The line's endpoints as node CENTRES — the same reading
+    /// `CanvasInteraction.joinTarget` takes for a drop, so the canvas has one
+    /// answer to "where is this card". Nil unless BOTH ends are measured: an
+    /// unmeasured node has no `frame` at all, and drawing to a guessed
+    /// position would twitch the instant the real measurement arrived.
+    public func endpoints(of line: CanvasLine) -> (CGPoint, CGPoint)? {
+        guard let fromFrame = byID[line.from]?.frame, let toFrame = byID[line.to]?.frame else { return nil }
+        return (CGPoint(x: fromFrame.midX, y: fromFrame.midY),
+                CGPoint(x: toFrame.midX, y: toFrame.midY))
     }
 }
