@@ -55,4 +55,15 @@ A **region** is an area you draw around cards that belong together — an act, a
 
 **Deleting a region never deletes cards.** ⌫ with a region selected, or the Delete Region button in the Inspector, removes the region and leaves every card on the canvas. ⌘Z brings the region back with its membership intact.
 
-Connecting lines, dragging research onto the canvas, and turning a scrap into a real chapter or note are all still to come.
+#### Lines
+
+A **line** joins two cards that have something to do with each other. What that is, is yours to say — or to leave unsaid.
+
+- **Click a card, and a small mark appears on its right edge.** Drag from that mark to another card to draw a line between them. Once you know the gesture is there, **⇧-drag from any card** does the same thing without selecting it first.
+- **Click a line to select it.** The Inspector (⌘⌥I) is where you name it, and the name is drawn on the line itself. Clear the field and the name comes off again.
+- **⌫ removes a line and leaves both cards where they are.** Deleting a *card*, on the other hand, takes its lines with it — one ⌘Z brings back the card, its words and its lines together.
+- **Where a line crosses a region's label bar, the click goes to the line**, because the line is the thing drawn on top. Click the same bar a little to one side and you get the region.
+
+Lines are scratch, like everything else on the canvas: they live here, they cost nothing to be wrong about, and they are not the durable relationship layer. [[Wiki-links]] in the manuscript are.
+
+Dragging research onto the canvas, and turning a scrap into a real chapter or note, are still to come.
