@@ -8,6 +8,14 @@ final class CanvasAccessibilityTests: XCTestCase {
                    origin: CGPoint(x: x, y: y), width: 240, cachedHeight: 80)
     }
 
+    /// The shared fixture, and **it carries a line on purpose.**
+    ///
+    /// Every suite in this file drives it, so the line layer is exercised by the
+    /// reading-order, frame, role and count assertions rather than only by the
+    /// three tests written for it — otherwise the tree's coverage stays frozen at
+    /// the shape it had before lines existed while the tree itself grows.
+    /// `s1`–`s2` is labelled; `s3` and the item node are deliberately left
+    /// unconnected, so the file always holds both halves of the control.
     private func sampleScene() -> CanvasScene {
         var s = CanvasScene()
         s.insert(scrapNode("s1", x: 0, y: 0))
@@ -15,6 +23,8 @@ final class CanvasAccessibilityTests: XCTestCase {
         s.insert(scrapNode("s3", x: 0, y: 400))
         s.insert(CanvasNode(id: .item("r-9"), kind: .item(referenceId: "r-9"),
                             origin: CGPoint(x: 400, y: 400), width: 180, cachedHeight: 120))
+        s.insertLine(CanvasLine(id: CanvasLineID("l1"), from: CanvasNodeID("s1"),
+                                to: CanvasNodeID("s2"), label: "because"))
         return s
     }
 
@@ -314,19 +324,231 @@ final class CanvasAccessibilityTests: XCTestCase {
     /// `summary` is read from `body` — either one reaching for `nodes` pays for a
     /// sort it throws away.
     func test_nothingHereReachesForTheDrawOrderedNodeList() throws {
-        let src = codeOnly(try String(
-            contentsOf: URL(fileURLWithPath: #filePath)
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .appendingPathComponent("Maugham/Canvas/CanvasAccessibility.swift"),
-            encoding: .utf8))
+        let src = codeOnly(try accessibilitySource())
         XCTAssertTrue(src.contains("scene.unorderedNodes"),
                       "the element list must come from the UNORDERED nodes")
         XCTAssertFalse(src.contains("scene.nodes"),
                        "CanvasScene.nodes sorts the whole scene on every access — "
                        + "this file re-sorts into reading order, and `summary` is "
                        + "read from `body` on every pass")
+    }
+
+    // MARK: - Lines (§7A.6 — a relationship nobody can perceive is not a
+    // relationship). A line is not an element of its own: an element carries a
+    // content-space frame, and a line's is a bounding box a user would navigate
+    // into and find nothing in. It is named at both its ends instead.
+
+    private func label(_ id: String, in scene: CanvasScene,
+                       scraps: [CanvasNodeID: String] = [:]) -> String? {
+        CanvasAccessibility.elements(scene: scene, scraps: scraps)
+            .first { $0.id == .node(CanvasNodeID(id)) }?.label
+    }
+
+    /// The negative half is the control, and it is in the same fixture: `s3` is
+    /// a scrap of exactly the same kind sitting on exactly the same canvas, so a
+    /// build that appended the phrase to every card — or to none — fails one of
+    /// these two.
+    func test_aConnectedScrapSaysSoInItsLabel() {
+        let scene = sampleScene()
+        XCTAssertEqual(label("s1", in: scene), "Scrap, 1 line: because",
+                       "a card with a line on it announces itself identically to one "
+                       + "with none, so the whole line layer is inaudible")
+        XCTAssertEqual(label("s3", in: scene), "Scrap",
+                       "control: an UNCONNECTED card must not claim a connection")
+    }
+
+    /// The label is the only thing a line ever says, so it has to reach both
+    /// ends — a VoiceOver user arriving at either card must learn the same
+    /// relationship. An implementation that indexed only `from` reads correctly
+    /// from one direction and is silent from the other.
+    func test_aLabelledLineIsNamedInBothItsEndpointsLabels() {
+        let scene = sampleScene()
+        XCTAssertEqual(label("s1", in: scene), "Scrap, 1 line: because",
+                       "the line is not named at its `from` end")
+        XCTAssertEqual(label("s2", in: scene), "Scrap, 1 line: because",
+                       "the line is not named at its `to` end — indexing one "
+                       + "direction reads correctly from whichever card the walk "
+                       + "happens to reach first")
+    }
+
+    /// An item node is the other connectable primitive, and it took the same
+    /// change. Without this, `Reference` keeps 1C-b's shape while `Scrap` grows.
+    func test_anItemNodeNamesItsConnectionsToo() {
+        var scene = sampleScene()
+        scene.insertLine(CanvasLine(id: CanvasLineID("l2"), from: CanvasNodeID("s3"),
+                                    to: .item("r-9"), label: "source"))
+        XCTAssertEqual(label("item:r-9", in: scene), "Reference, 1 line: source")
+    }
+
+    /// A line is untyped and optionally named by design (spec §5), so most of
+    /// them have no name at all — and the count is then the only thing to say.
+    func test_anUnlabelledLineIsCountedRatherThanNamed() {
+        var scene = CanvasScene()
+        scene.insert(scrapNode("a", x: 0, y: 0))
+        scene.insert(scrapNode("b", x: 400, y: 0))
+        scene.insertLine(CanvasLine(id: CanvasLineID("l1"), from: CanvasNodeID("a"),
+                                    to: CanvasNodeID("b")))
+        XCTAssertEqual(label("a", in: scene), "Scrap, 1 line",
+                       "an unlabelled line either vanishes from the label or "
+                       + "announces an empty name")
+    }
+
+    /// Whitespace is no label — the same rule `LineInspector.normalise` applies
+    /// on the way in, asserted here because a label that arrived from a
+    /// hand-edited sidecar never passed through it.
+    func test_aWhitespaceLabelIsNotReadOutAsAName() {
+        var scene = CanvasScene()
+        scene.insert(scrapNode("a", x: 0, y: 0))
+        scene.insert(scrapNode("b", x: 400, y: 0))
+        scene.insertLine(CanvasLine(id: CanvasLineID("l1"), from: CanvasNodeID("a"),
+                                    to: CanvasNodeID("b"), label: "   "))
+        XCTAssertEqual(label("a", in: scene), "Scrap, 1 line",
+                       "a label of spaces is read out as a name, so the card "
+                       + "announces \"1 line:\" and then stops")
+    }
+
+    func test_severalLinesOnOneCardAreCountedAndNamedTogether() {
+        var scene = CanvasScene()
+        scene.insert(scrapNode("hub", x: 0, y: 0))
+        for (i, name) in ["because", nil, "then"].enumerated() {
+            scene.insert(scrapNode("n\(i)", x: 400, y: CGFloat(i) * 200))
+            scene.insertLine(CanvasLine(id: CanvasLineID("l\(i)"), from: CanvasNodeID("hub"),
+                                        to: CanvasNodeID("n\(i)"), label: name))
+        }
+        XCTAssertEqual(label("hub", in: scene), "Scrap, 3 lines: because, then",
+                       "the unlabelled line must still be counted, and the named "
+                       + "ones must still be named")
+    }
+
+    /// **`Dictionary` iteration is seeded per process**, so a phrase built from
+    /// an unordered walk reads differently between two runs of the same binary —
+    /// the bug `CanvasMembership.homeRegion` was measured flaking on. The names
+    /// come out in `scene.lines`' id order.
+    ///
+    /// Five lines, so an unordered implementation agrees with this by chance
+    /// about once in 120 runs rather than half the time. That is a probabilistic
+    /// guard against a probabilistic bug, exactly as the `homeRegion` one is; if
+    /// it is ever seen flaking, somebody dropped the ordered accessor.
+    func test_theNamesComeOutInAStableOrder() {
+        var scene = CanvasScene()
+        scene.insert(scrapNode("hub", x: 0, y: 0))
+        // Inserted in an order that is neither the id order nor its reverse.
+        for (i, id) in ["l3", "l1", "l5", "l2", "l4"].enumerated() {
+            scene.insert(scrapNode("n\(i)", x: 400, y: CGFloat(i) * 200))
+            scene.insertLine(CanvasLine(id: CanvasLineID(id), from: CanvasNodeID("hub"),
+                                        to: CanvasNodeID("n\(i)"), label: id))
+        }
+        XCTAssertEqual(label("hub", in: scene), "Scrap, 5 lines: l1, l2, l3, l4, l5",
+                       "the names are in dictionary order, which Swift seeds per "
+                       + "process — so the same canvas reads differently between two "
+                       + "runs of the same binary")
+    }
+
+    /// **A resident of a collapsed region has left the tree entirely**, so a line
+    /// to it names a card an assistive client cannot navigate to. The filter is
+    /// `scene.isHidden`, the same predicate the node loop reads, so this tree has
+    /// one rule about collapse rather than two.
+    func test_aLineIntoACollapsedRegionIsNotAnnouncedOnTheCardOutsideIt() {
+        var scene = CanvasScene()
+        scene.insert(scrapNode("out", x: 0, y: 0))
+        scene.insert(scrapNode("in", x: 400, y: 0))
+        scene.insertRegion(CanvasRegion(id: CanvasRegionID("r1"), label: "Cut",
+                                        frame: CGRect(x: 380, y: -40, width: 300, height: 200),
+                                        homeMembers: [CanvasNodeID("in")]))
+        scene.insertLine(CanvasLine(id: CanvasLineID("l1"), from: CanvasNodeID("out"),
+                                    to: CanvasNodeID("in"), label: "because"))
+
+        XCTAssertEqual(label("out", in: scene), "Scrap, 1 line: because",
+                       "control: while the region is expanded the line IS announced, "
+                       + "so the silence below is the collapse and not the membership")
+
+        scene.updateRegion(CanvasRegionID("r1")) { $0.isCollapsed = true }
+        XCTAssertTrue(scene.isHidden(CanvasNodeID("in")),
+                      "precondition: the far end really is hidden")
+        XCTAssertEqual(label("out", in: scene), "Scrap",
+                       "a card announces a line to a card that is not in the tree at "
+                       + "all — the user is told about a relationship and given "
+                       + "nowhere to walk to")
+    }
+
+    /// **An UNMEASURED end is different from a hidden one, and this is the pair
+    /// that says so.** `CanvasScene.drawnLines` drops both and would have been
+    /// the tempting single source — but the node loop keeps an unmeasured card in
+    /// the tree on purpose, so a line to a card that IS in the tree belongs in
+    /// the tree with it.
+    func test_aLineToAnUnmeasuredCardIsStillAnnounced() {
+        var scene = CanvasScene()
+        scene.insert(scrapNode("a", x: 0, y: 0))
+        scene.insert(CanvasNode(id: CanvasNodeID("fresh"), kind: .scrap,
+                                origin: CGPoint(x: 400, y: 0), width: 240))   // no height
+        scene.insertLine(CanvasLine(id: CanvasLineID("l1"), from: CanvasNodeID("a"),
+                                    to: CanvasNodeID("fresh"), label: "because"))
+        XCTAssertTrue(scene.drawnLines.isEmpty,
+                      "precondition: the RENDERER drops this line, so this test is "
+                      + "about the tree deliberately not following it")
+        XCTAssertNotNil(label("fresh", in: scene),
+                        "precondition: the unmeasured card is itself in the tree")
+        XCTAssertEqual(label("a", in: scene), "Scrap, 1 line: because",
+                       "a line to a card the writer just made goes unannounced until "
+                       + "a layout pass happens to run")
+    }
+
+    /// A line's frame would be the bounding box of two other people's cards —
+    /// mostly bare ground, and a sliver when the line is near-axis-aligned. A
+    /// VoiceOver user would navigate into it and find nothing.
+    func test_aLineIsNotAnElementOfItsOwn() {
+        let elements = CanvasAccessibility.elements(scene: sampleScene(), scraps: scraps)
+        XCTAssertEqual(elements.count, 4,
+                       "the line became a fifth element — an element carries a frame, "
+                       + "and a line's is a rectangle with nothing in it")
+        XCTAssertEqual(Set(elements.map(\.role)), [.scrap, .item],
+                       "control: the four that are here are the four nodes")
+    }
+
+    /// Without this, a canvas the writer has drawn twenty relationships on
+    /// announces itself identically to one with none — and lines are elements
+    /// nowhere, so the summary is the only place the layer's size is said.
+    func test_theSummaryReportsTheLineCount() {
+        var bare = sampleScene()
+        for line in bare.lines { bare.removeLine(line.id) }
+        XCTAssertEqual(CanvasAccessibility.summary(scene: bare), "4 items",
+                       "control: with no lines the summary says nothing about them")
+
+        XCTAssertEqual(CanvasAccessibility.summary(scene: sampleScene()), "4 items, 1 line")
+
+        var two = sampleScene()
+        two.insertLine(CanvasLine(id: CanvasLineID("l2"), from: CanvasNodeID("s2"),
+                                  to: CanvasNodeID("s3")))
+        XCTAssertEqual(CanvasAccessibility.summary(scene: two), "4 items, 2 lines")
+    }
+
+    /// `summary` is read from `body`, and `CanvasScene.lines` sorts the whole set
+    /// with a `String` comparison in its predicate on every access — the original
+    /// `scene.nodes.count` regression, in a second id space.
+    ///
+    /// It slices from the declaration rather than scanning the file, because
+    /// `elements` legitimately DOES reach for the ordered accessor: it needs one
+    /// walk in a stable order and it is not on the `body` path.
+    func test_theSummaryCountsLinesWithoutSortingThem() throws {
+        let src = codeOnly(try accessibilitySource())
+        let decl = try XCTUnwrap(src.range(of: "static func summary(scene:"),
+                                 "summary has been renamed — this scan is now "
+                                 + "asserting nothing")
+        let body = String(src[decl.lowerBound...])
+        XCTAssertTrue(body.contains("scene.lineCount"),
+                      "summary must count lines through the dictionary's own count")
+        XCTAssertFalse(body.contains("scene.lines"),
+                       "summary reaches for the SORTED line list, and it is read from "
+                       + "`body` — a full sort of the line set per render")
+    }
+
+    private func accessibilitySource() throws -> String {
+        try String(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Maugham/Canvas/CanvasAccessibility.swift"),
+            encoding: .utf8)
     }
 
     private func canvasViewSource() throws -> String {

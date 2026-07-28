@@ -133,4 +133,47 @@ final class CanvasPerformanceProbeTests: XCTestCase {
         print("[probe] hit test over \(Self.supportedNodeCount) nodes: \(String(format: "%.3f", perClick)) ms")
         XCTAssertLessThan(perClick, 8.0)
     }
+
+    /// **The accessibility rebuild is not on the frame path, but it IS on the
+    /// gesture path** — `sceneRevision` bumps at the end of every drag and
+    /// resize, on every create, delete and ⌘Z — so a scene-proportional term
+    /// here is a hitch at the moment the writer lets go of a card.
+    ///
+    /// Lines are the one collection this surface bounds with nothing: a writer
+    /// can draw one per card, so this fixture gives every node a line. The
+    /// budget is the guard against the one regression available, which is
+    /// asking the scene which lines touch each node *inside the node loop*
+    /// instead of indexing them once. Measured on this machine, Debug, at
+    /// 2,000 × 2,000: the shipped rebuild **11.6 ms**, the per-node filter
+    /// **398 ms** — so 150 ms fails on the regression with an order of magnitude
+    /// of slack over what ships. See AREA.md.
+    func test_theAccessibilityRebuildDoesNotGoQuadraticInTheLines() {
+        var scene = bigScene(Self.supportedNodeCount)
+        for i in 0..<Self.supportedNodeCount {
+            scene.insertLine(CanvasLine(id: CanvasLineID("l\(i)"),
+                                        from: CanvasNodeID("n\(i)"),
+                                        to: CanvasNodeID("n\((i * 7 + 3) % Self.supportedNodeCount)"),
+                                        label: i % 3 == 0 ? "because" : nil))
+        }
+        XCTAssertEqual(scene.lineCount, Self.supportedNodeCount,
+                       "control: the fixture really does carry a line per node, so "
+                       + "the timing below is not measuring an empty line set")
+        let scraps = Dictionary(uniqueKeysWithValues: (0..<Self.supportedNodeCount)
+            .map { (CanvasNodeID("n\($0)"), "a sentence about it") })
+
+        let start = Date()
+        let elements = CanvasAccessibility.elements(scene: scene, scraps: scraps)
+        let ms = Date().timeIntervalSince(start) * 1000
+        print("[probe] AX rebuild of \(Self.supportedNodeCount) nodes and "
+              + "\(scene.lineCount) lines: \(String(format: "%.3f", ms)) ms")
+
+        XCTAssertTrue(elements.allSatisfy { $0.label.contains("line") },
+                      "control: every card in this fixture is connected, so every "
+                      + "label must name a line — otherwise the timing is of a "
+                      + "rebuild that skipped the work")
+        XCTAssertLessThan(ms, 150,
+                          "the accessibility rebuild went quadratic in the lines — "
+                          + "suspect a per-node walk of the line set where "
+                          + "CanvasAccessibility.connections builds one index")
+    }
 }

@@ -53,17 +53,22 @@ final class CanvasLineTests: XCTestCase {
                         "dictionary order must reach neither the draw pass nor the sidecar")
     }
 
-    func test_linesTouchingFindsBothDirections() {
-        var scene = CanvasScene()
-        scene.insert(measuredNode("a", x: 0, y: 0))
-        scene.insert(measuredNode("b", x: 400, y: 0))
-        scene.insert(measuredNode("c", x: 800, y: 0))
-        scene.insertLine(CanvasLine(id: CanvasLineID("ab"), from: CanvasNodeID("a"), to: CanvasNodeID("b")))
-        scene.insertLine(CanvasLine(id: CanvasLineID("ca"), from: CanvasNodeID("c"), to: CanvasNodeID("a")))
-
-        let touchingA = scene.lines(touching: CanvasNodeID("a")).map { $0.id.raw }.sorted()
-        XCTAssertEqual(touchingA, ["ab", "ca"],
-                        "a is the `to` of one line and the `from` of the other — both must come back")
+    /// **`CanvasScene.lines(touching:)` was deleted in Task 7 and this is what
+    /// is left of its test.** The accessor shipped 1C-c1 with zero production
+    /// callers, censused three times, and its one plausible caller — naming a
+    /// card's connections in the accessibility tree — wants an index built in one
+    /// pass rather than a filter per node. What survives is the predicate, which
+    /// has two production callers: `CanvasScene.remove`, which scrubs a deleted
+    /// node's lines, and `CanvasAccessibility.connections`.
+    func test_aLineTouchesBothOfItsEnds() {
+        let ab = CanvasLine(id: CanvasLineID("ab"), from: CanvasNodeID("a"), to: CanvasNodeID("b"))
+        XCTAssertTrue(ab.touches(CanvasNodeID("a")), "a line does not touch its `from`")
+        XCTAssertTrue(ab.touches(CanvasNodeID("b")),
+                       "a line does not touch its `to` — a predicate that read one "
+                       + "end only would take half a deleted card's lines with it and "
+                       + "leave the rest drawing into nowhere")
+        XCTAssertFalse(ab.touches(CanvasNodeID("c")),
+                        "control: it must not touch a node at neither end")
     }
 
     func test_aSelfLineIsRejected() {

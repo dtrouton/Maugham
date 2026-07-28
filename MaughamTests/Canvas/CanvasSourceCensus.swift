@@ -8,7 +8,8 @@ import XCTest
 /// `repoRoot`, `productionFiles()` and `commentsStripped(_:)`, down to the
 /// `> 100` guard's message, and 1C-c1's Task 7 is chartered to count
 /// `CanvasScene.lines(touching:)`'s callers — which is where the third would
-/// have landed.
+/// have landed. (That count came back zero for the third time and the accessor
+/// was deleted; the shared reading of the corpus is what was worth keeping.)
 ///
 /// **A census is the one kind of test that fails quietly in BOTH directions**,
 /// which is why the duplication mattered more here than it would elsewhere. A

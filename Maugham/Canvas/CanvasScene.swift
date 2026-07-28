@@ -230,10 +230,11 @@ public struct CanvasScene: Equatable, Sendable {
         body(&linesByID[id]!)
     }
 
-    /// Every line touching `node`, in either direction.
-    public func lines(touching node: CanvasNodeID) -> [CanvasLine] {
-        linesByID.values.filter { $0.touches(node) }
-    }
+    /// The line count, without materialising or sorting the list — the peer of
+    /// `count` and for the same reason. `CanvasAccessibility.summary` is read
+    /// from `body`, and `lines` above sorts the whole set with a `String`
+    /// comparison in its predicate.
+    public var lineCount: Int { linesByID.count }
 
     /// The line's endpoints as node CENTRES — the same reading
     /// `CanvasInteraction.joinTarget` takes for a drop, so the canvas has one

@@ -75,6 +75,20 @@ struct CanvasAXElement: Equatable, Identifiable {
 ///    commonest per-frame path — cannot invalidate the list. `CanvasView`
 ///    rebuilds it from an `.onChange` on the STRUCTURAL counter, never inside
 ///    `body` and never from `revision`, which every animation frame increments.
+/// 5. **A line is not an element of its own.** Every element carries a
+///    content-space frame and an assistive client navigates by it; a line's
+///    frame is the bounding box of its two endpoints, which is mostly bare
+///    ground with two other people's cards in the corners — so a VoiceOver user
+///    would walk into a large rectangle and find nothing in it, and on a
+///    near-axis-aligned line they would walk into a sliver. A line is a
+///    RELATIONSHIP, and the place a relationship is legible is at its ends: each
+///    connected node names how many lines touch it and what they are called, and
+///    `summary` reports the total so a canvas with lines on it does not sound
+///    identical to one without. That also keeps the whole line layer on the same
+///    `sceneRevision` rebuild the elements already use, and adds no new frame
+///    path. *Open, for a VoiceOver walk and not a unit test:* whether a line
+///    should be independently navigable after all — see AREA.md, beside the
+///    focused-scrap divergence.
 enum CanvasAccessibility {
 
     static let canvasLabel = "Planning canvas"
@@ -99,8 +113,77 @@ enum CanvasAccessibility {
     /// of the tree the instant a writer creates it.
     private static let unmeasuredHeight: CGFloat = 40
 
+    /// How a node's lines are named in its label, or nil when nothing touches it.
+    ///
+    /// The COUNT first, because it is the one fact every connected card has;
+    /// then the names of the lines that have one. An unlabelled line contributes
+    /// to the count and nothing else — a line is untyped and optionally named by
+    /// design (spec §5), so most of them have nothing to say, and reading
+    /// "unnamed" out three times says less than "3 lines" does.
+    ///
+    /// Internal rather than private so the tests assert against the wording
+    /// production ships, and pure so they can do it without a scene.
+    static func connectionPhrase(for lines: [CanvasLine]) -> String? {
+        guard !lines.isEmpty else { return nil }
+        let count = "\(lines.count) \(lines.count == 1 ? "line" : "lines")"
+        let names = lines
+            .compactMap { $0.label?.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        return names.isEmpty ? count : "\(count): \(names.joined(separator: ", "))"
+    }
+
+    /// Which lines touch each node, in one pass.
+    ///
+    /// **Built once per rebuild, deliberately, and this is why
+    /// `CanvasScene.lines(touching:)` was deleted rather than given its caller
+    /// here.** Asking the scene per node is `O(nodes × lines)` with an array
+    /// allocated per node, and lines are the one collection on this surface that
+    /// nothing bounds — a writer can draw one per card. This rebuild is not on
+    /// the frame path, but it *is* on the gesture path: `sceneRevision` bumps at
+    /// the end of every drag and resize, on every create, delete and ⌘Z. A
+    /// quadratic term there is a hitch when the writer lets go of a card, which
+    /// is the worst moment on a surface whose whole argument is that it feels
+    /// like paper. See AREA.md for the measurement.
+    ///
+    /// The lists inherit `scene.lines`' id order, so a label's names are in the
+    /// same order twice running. That is not decoration: `Set`/dictionary
+    /// iteration is seeded per process, so a phrase built from an unordered walk
+    /// reads differently between two runs of the same binary — the bug
+    /// `CanvasMembership.homeRegion` was measured flaking on.
+    ///
+    /// **A line with a HIDDEN end is not announced**, and the filter is
+    /// `scene.isHidden` — the same predicate the node loop below reads, so this
+    /// tree has one rule about a collapsed region rather than two. A resident of
+    /// a collapsed region has left the tree entirely, so naming a line to it
+    /// would announce a relationship to a card an assistive client cannot
+    /// navigate to at all.
+    ///
+    /// **An UNMEASURED end is announced, and that is deliberately not the
+    /// renderer's rule.** `CanvasScene.drawnLines` drops both cases and would
+    /// have been the tempting single source, but the node loop below keeps an
+    /// unmeasured card in the tree on purpose (`unmeasuredHeight` exists for
+    /// exactly that) — a scrap the writer just made must not be unreachable
+    /// until a layout pass happens to run. A line to a card that IS in the tree
+    /// belongs in the tree with it.
+    private static func connections(in scene: CanvasScene) -> [CanvasNodeID: [CanvasLine]] {
+        var index: [CanvasNodeID: [CanvasLine]] = [:]
+        for line in scene.lines where !scene.isHidden(line.from) && !scene.isHidden(line.to) {
+            index[line.from, default: []].append(line)
+            index[line.to, default: []].append(line)
+        }
+        return index
+    }
+
+    /// The kind, then what it is connected to. The kind stays FIRST because
+    /// `CanvasAXRole` never reaches an assistive client — see `elements` below.
+    private static func label(_ kind: String, connectedBy lines: [CanvasLine]?) -> String {
+        guard let phrase = connectionPhrase(for: lines ?? []) else { return kind }
+        return "\(kind), \(phrase)"
+    }
+
     static func elements(scene: CanvasScene,
                          scraps: [CanvasNodeID: String]) -> [CanvasAXElement] {
+        let connections = connections(in: scene)
         // Regions first into the list, but the ORDER is decided by `rowOrdered`
         // over everything together — a region's frame starts at or above-left of
         // the cards inside it, so the same rows-then-columns rule reads a region
@@ -147,13 +230,13 @@ enum CanvasAccessibility {
                 let text = scraps[node.id] ?? ""
                 elements.append(CanvasAXElement(
                     id: .node(node.id), role: .scrap,
-                    label: "Scrap",
+                    label: label("Scrap", connectedBy: connections[node.id]),
                     value: text.isEmpty ? emptyScrapValue : text,
                     contentFrame: frame))
             case .item(let referenceId):
                 elements.append(CanvasAXElement(
                     id: .node(node.id), role: .item,
-                    label: "Reference",
+                    label: label("Reference", connectedBy: connections[node.id]),
                     value: CanvasRenderer.placeholderLabel(forReference: referenceId),
                     contentFrame: frame))
             }
@@ -217,13 +300,28 @@ enum CanvasAccessibility {
 
     /// What the canvas itself says when focused, before its children are walked.
     ///
-    /// `scene.count`, never `scene.nodes.count` — this is read from `body`, and
-    /// `nodes` sorts the whole scene to hand back a number the dictionary
-    /// already knows.
+    /// `scene.count` and `scene.lineCount`, never `scene.nodes.count` or
+    /// `scene.lines.count` — this is read from `body`, and both ordered
+    /// accessors sort their whole collection with a `String` comparison in the
+    /// predicate to hand back a number the dictionary already knows. That is the
+    /// original regression, in two id spaces.
+    ///
+    /// **The lines are counted here because they are elements nowhere.** Without
+    /// this, a canvas the writer has drawn twenty relationships on announces
+    /// itself identically to one with none, and the only trace of the line layer
+    /// is inside the labels of whichever cards the user happens to walk to.
+    ///
+    /// It is the WHOLE count, collapsed regions included — which matches
+    /// `scene.count` right above it, since that has always counted residents of
+    /// a collapsed region too. The summary says what is on the canvas; a
+    /// collapsed region says separately what it is holding.
     static func summary(scene: CanvasScene) -> String {
         let count = scene.count
         guard count > 0 else { return emptyCanvasValue }
-        return "\(count) \(count == 1 ? "item" : "items")"
+        let items = "\(count) \(count == 1 ? "item" : "items")"
+        let lines = scene.lineCount
+        guard lines > 0 else { return items }
+        return "\(items), \(lines) \(lines == 1 ? "line" : "lines")"
     }
 }
 
