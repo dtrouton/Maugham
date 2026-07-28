@@ -179,6 +179,8 @@ enum CanvasRenderer {
                                                             dark: CanvasMaterial.darkRegionWash)
     static let regionStroke: NSColor = CanvasMaterial.dynamic(light: CanvasMaterial.lightRegionStroke,
                                                               dark: CanvasMaterial.darkRegionStroke)
+    static let sweepStroke: NSColor = CanvasMaterial.dynamic(light: CanvasMaterial.lightSweepStroke,
+                                                             dark: CanvasMaterial.darkSweepStroke)
 
     /// §7.2: each card sits at a seeded fraction of a degree — nothing is rough,
     /// but everything was *put down* rather than snapped to a grid.
@@ -510,6 +512,12 @@ enum CanvasRenderer {
     /// 3. **Tethers and chips, ABOVE the cards.** A reference the writer cannot
     ///    see is not a reference, and both of these are lines and labels that
     ///    would otherwise be buried under the very card they point at.
+    /// 4. **The sweep, ABOVE EVERYTHING.** It is transient chrome rather than
+    ///    part of the scene — the only thing drawn here that does not exist in
+    ///    the model — and a sweep the cards drew over would read as being
+    ///    *behind* the canvas. That is not a corner case: a sweep can only
+    ///    START on bare canvas but is dragged freely across whatever is there,
+    ///    so passing over cards is the ordinary case, not the exception.
     ///
     /// Regions draw in CANVAS space, outside any card transform, and that is
     /// exactly right: `cardTransform` is concatenated onto a *local copy* of the
@@ -523,6 +531,7 @@ enum CanvasRenderer {
                      selection: CanvasSelection?,
                      visibleEditorNodeID: CanvasNodeID?,
                      straighten: CanvasFocusStraighten,
+                     pendingRegionDraw: CGRect?,
                      into cx: inout GraphicsContext) {
         cx.translateBy(x: camera.pan.x, y: camera.pan.y)
         cx.scaleBy(x: camera.zoom, y: camera.zoom)
@@ -549,6 +558,30 @@ enum CanvasRenderer {
         for chip in appearanceChips(in: scene, regions: regions) {
             drawChip(chip, title: chipTitle(for: chip.node, in: scene, scraps: scraps), on: cx)
         }
+
+        if let pendingRegionDraw { drawSweep(pendingRegionDraw, on: cx) }
+    }
+
+    /// The rectangle the writer is sweeping out, before it is a region.
+    ///
+    /// **Dashed, unfilled, and drawn last.** Unfilled because a wash would say
+    /// the area is already claimed; dashed because nothing has been made yet;
+    /// last because it is the one thing on this surface that is not in the
+    /// model, and chrome that the scene draws over stops being chrome.
+    ///
+    /// `regionCornerRadius`, so the shape the writer is dragging out is the
+    /// shape they get. Deliberately NOT gated on `minimumSide`: an outline that
+    /// only appeared once the sweep was large enough would pop into existence
+    /// mid-gesture, which reads as a glitch — and the sweeps it would hide are
+    /// the ones too small to see anyway.
+    ///
+    /// Every length here is in CONTENT points, under the camera CTM the caller
+    /// has already applied, exactly like the region outline this becomes.
+    private static func drawSweep(_ rect: CGRect, on cx: GraphicsContext) {
+        cx.stroke(Path(roundedRect: rect, cornerRadius: CanvasMaterial.regionCornerRadius),
+                  with: .color(Color(nsColor: sweepStroke)),
+                  style: StrokeStyle(lineWidth: CanvasMaterial.sweepLineWidth,
+                                     dash: CanvasMaterial.sweepDash))
     }
 
     /// The wash, the outline, the chrome bar and its label, and the resize mark.

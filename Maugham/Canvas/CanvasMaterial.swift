@@ -279,6 +279,39 @@ enum CanvasMaterial {
     /// shape under both appearances; only its colour differs.
     static let regionCornerRadius: CGFloat = 6
 
+    // MARK: - The sweep
+
+    /// The outline under the pointer while a region is being drawn.
+    ///
+    /// **The same hues as `lightRegionStroke`/`darkRegionStroke`, at roughly
+    /// twice the alpha.** The hue says what is coming — this will be a region —
+    /// and the alpha is the difference between a settled object and a live one:
+    /// `regionStroke` is deliberately quiet because a region that out-shouts the
+    /// cards inside it has become a box, but a sweep exists for about a second,
+    /// under the writer's own cursor, and its whole job is to be seen. A sweep
+    /// dosed at the settled region's alpha is the failure this shape exists to
+    /// close, one notch quieter.
+    ///
+    /// **Fainter / bolder sweep:** move these alphas. They are a pair for the
+    /// reason every knob here is a pair (§7.1: light and dark are two materials,
+    /// not one texture inverted).
+    static let lightSweepStroke = NSColor(srgbRed: 0.45, green: 0.42, blue: 0.35, alpha: 0.75)
+    static let darkSweepStroke = NSColor(srgbRed: 0.78, green: 0.72, blue: 0.62, alpha: 0.70)
+
+    /// Dashed, and that carries meaning rather than decoration: nothing has been
+    /// made yet. A solid outline is what a region has once it exists, so a solid
+    /// sweep would show the writer a region that is not there and then, if the
+    /// sweep was a twitch, take it away again.
+    ///
+    /// In CONTENT points, like every other length the renderer draws with, so
+    /// the dash scales with the camera exactly as the region outline it becomes
+    /// does.
+    static let sweepDash: [CGFloat] = [6, 4]
+
+    /// Half a point over the settled region's 1, for the same reason the alpha
+    /// is doubled: a live gesture reads as live.
+    static let sweepLineWidth: CGFloat = 1.5
+
     // MARK: - The tilt
 
     /// The half-width of the seeded per-card rotation: every card sits somewhere

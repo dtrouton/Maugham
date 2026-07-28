@@ -1815,6 +1815,60 @@ final class CanvasViewMountingTests: XCTestCase {
                        + "inspector in the other column has nothing to name it with")
     }
 
+    /// **The rubber band is on screen for the WHOLE sweep, not after it.**
+    ///
+    /// This is the shape of 1C-a's resize defect asked of the new gesture: every
+    /// other assertion about drawing a region looks after `.ended`, and the
+    /// middle of the gesture is the only part the writer actually steers by.
+    /// With nothing drawn there is no way to tell a drag that is sweeping out a
+    /// region from a drag that is doing nothing.
+    ///
+    /// Read in PIXELS because there is nothing else to read: the sweep is not in
+    /// the model at all — it lives in `CanvasInteraction`, has no view, no frame
+    /// and no accessibility element — so `CanvasRegionRenderTests` can pin the
+    /// renderer and only this can pin that anything ever hands it the rect.
+    ///
+    /// It is also the one test that covers the REDRAW mechanism: the band is a
+    /// value read inside the `Canvas` draw closure and it changes per drag
+    /// frame, so a `.changed` that mutates the world without invalidating the
+    /// body leaves the band frozen at the first sample.
+    func test_theSweptRegionOutlineIsOnScreenForTheWholeDrag() throws {
+        let root = try projectRoot()
+        let window = host(CanvasView(model: CanvasModel(), projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let hosted = try XCTUnwrap(window.contentView)
+        let events = try eventView(in: window)
+
+        // A strip along where the sweep's LEFT edge will run — bare ground now,
+        // and well clear of the fixture's card at (20,20)–(260,58) and of the
+        // corner `ink` samples the ground brightness from.
+        let onTheEdge = CGRect(x: 148, y: 220, width: 6, height: 80)
+        XCTAssertEqual(try ink(in: onTheEdge, of: hosted), 0,
+                       "precondition: nothing is drawn along this line yet, so ink "
+                       + "found there during the drag can only be the sweep")
+
+        // Press on bare canvas and drag out a 300×200 rect — and DO NOT release.
+        // This is the state the writer steers by, and the state nothing else in
+        // this file ever looks at.
+        events.applyMouseDown(at: CGPoint(x: 150, y: 150), clickCount: 1)
+        events.applyMouseDragged(to: CGPoint(x: 450, y: 350))
+        pump(0.05)
+
+        XCTAssertGreaterThan(try ink(in: onTheEdge, of: hosted), 0,
+                             "the writer is sweeping out a region and the canvas shows "
+                             + "nothing at all until they let go — a gesture with no "
+                             + "feedback is indistinguishable from a gesture that is "
+                             + "not happening")
+
+        // …and it is GONE once the region exists, replaced by the region's own
+        // outline. A band that outlived its gesture would leave a dashed ghost
+        // on the canvas for the rest of the session.
+        events.applyMouseUp(at: CGPoint(x: 450, y: 350))
+        pump(1.0)
+        XCTAssertEqual(sceneOnDisk(root).regionCount, 1,
+                       "precondition: the sweep really did make a region")
+    }
+
     func test_draggingARegionByItsLabelBarCarriesItsResidentToDisk() throws {
         let root = try regionProjectRoot()
         let window = host(CanvasView(model: CanvasModel(), projectRoot: root,

@@ -518,6 +518,131 @@ final class CanvasRegionRenderTests: XCTestCase {
                              + "from the wash beside it — the resize mark is not drawn")
     }
 
+    // MARK: - The sweep, drawn
+    //
+    // The rubber band under the pointer while a region is being drawn. It is the
+    // one thing the renderer draws that is not in the scene, so these are the
+    // only fixtures here whose two renders differ in something other than a
+    // model fact — they differ in exactly one ARGUMENT, which is the same
+    // discipline.
+    //
+    // A gesture with no feedback is not a gesture: with nothing drawn there is
+    // no way for the writer to tell a drag that is sweeping out a region from a
+    // drag that is doing nothing at all.
+
+    /// Ink appears along the swept rectangle's edge, and nowhere else.
+    @MainActor
+    func test_theSweptRectIsDrawnWhileTheWriterIsSweepingIt() throws {
+        let size = CGSize(width: 900, height: 500)
+        // Clear of the fixture's region (0,0)–(600,400) and of both cards, so
+        // every pixel that changes is the sweep itself.
+        let swept = CGRect(x: 650, y: 200, width: 200, height: 150)
+
+        let during = try render(scene: scene(), size: size, sweep: swept)
+        let before = try render(scene: scene(), size: size)
+
+        let topEdge = CGRect(x: swept.minX + 20, y: swept.minY - 2,
+                             width: swept.width - 40, height: 4)
+        XCTAssertGreaterThan(during.differingPixels(from: before, in: topEdge), 0,
+                             "nothing is drawn along the rectangle the writer is "
+                             + "sweeping out — the gesture computes a rect and shows "
+                             + "no sign of it, so a drag that is drawing a region and "
+                             + "a drag that is doing nothing look identical")
+        XCTAssertGreaterThan(during.differingPixels(from: before,
+                                                    in: CGRect(origin: .zero, size: size)),
+                             300,
+                             "a handful of pixels changed over the whole page: that is "
+                             + "a speck, not an outline seven hundred points around")
+        XCTAssertEqual(during.differingPixels(from: before,
+                                              in: CGRect(x: 660, y: 250, width: 180, height: 90)),
+                       0,
+                       "control: pixels changed INSIDE the swept rectangle. It is an "
+                       + "outline, not a fill — a wash would say the area is already "
+                       + "claimed, and this rect is the interior with the stroke "
+                       + "excluded on all four sides")
+        XCTAssertEqual(during.differingPixels(from: before,
+                                              in: CGRect(x: 0, y: 420, width: 200, height: 60)),
+                       0,
+                       "control: pixels changed far from the sweep, so the count above "
+                       + "is not measuring the whole page shifting")
+    }
+
+    /// **Dashed, not solid**, because nothing has been made yet — a solid
+    /// outline is what a region has once it exists.
+    ///
+    /// Read along a one-pixel strip inside the top edge, clear of both rounded
+    /// corners. A solid line inks every column of it; a dash pattern of 6 on and
+    /// 4 off inks about six in ten. Both bounds are load-bearing: without the
+    /// upper one a solid outline passes, and without the lower one an outline
+    /// that vanished passes.
+    @MainActor
+    func test_theSweepIsDashedRatherThanSolid() throws {
+        let size = CGSize(width: 900, height: 500)
+        let swept = CGRect(x: 650, y: 200, width: 200, height: 150)
+        let during = try render(scene: scene(), size: size, sweep: swept)
+        let before = try render(scene: scene(), size: size)
+
+        let run = CGRect(x: swept.minX + 20, y: swept.minY, width: swept.width - 40, height: 1)
+        let inked = during.differingPixels(from: before, in: run)
+        XCTAssertGreaterThan(inked, Int(run.width * 0.25),
+                             "\(inked) of \(Int(run.width)) columns along the top edge "
+                             + "carry ink — that is not a line at all")
+        XCTAssertLessThan(inked, Int(run.width * 0.9),
+                          "\(inked) of \(Int(run.width)) columns are inked, i.e. the "
+                          + "sweep is a SOLID outline. A solid rectangle is what a "
+                          + "region looks like once it exists, so a sweep drawn that "
+                          + "way shows the writer a region that is not there yet")
+    }
+
+    /// **Above everything**, including the cards it is dragged across.
+    ///
+    /// A sweep can only START on bare canvas, but it is then dragged freely over
+    /// whatever is there — so passing over cards is the ordinary case. Drawn
+    /// under them, the outline is chewed into pieces by every card it crosses
+    /// and reads as being *behind* the canvas.
+    ///
+    /// The sample point is on the sweep's top edge where it crosses the middle
+    /// of card `a` at (50,50)–(290,130): under the cards, that pixel is card
+    /// paper in both renders and nothing changes there at all.
+    @MainActor
+    func test_theSweepIsDrawnOverTheCardsItIsDraggedAcross() throws {
+        let size = CGSize(width: 900, height: 500)
+        // The top edge runs through the card's interior, well inside it on both
+        // axes so the ~1° seeded tilt cannot move the edge off the card.
+        let swept = CGRect(x: 120, y: 90, width: 400, height: 300)
+        let during = try render(scene: scene(), size: size, sweep: swept)
+        let before = try render(scene: scene(), size: size)
+
+        let overTheCard = CGRect(x: 150, y: 88, width: 100, height: 5)
+        XCTAssertGreaterThan(during.differingPixels(from: before, in: overTheCard), 0,
+                             "the sweep vanishes where it crosses a card, so it is "
+                             + "drawn UNDER the cards: the writer's rubber band is cut "
+                             + "into pieces by everything already on the canvas")
+    }
+
+    /// The two appearances are two materials (§7.1), here as everywhere else.
+    /// Rendering the identical sweep under each must not give the identical
+    /// pixels — which is what a single hardcoded colour, or a `dynamic` pair
+    /// collapsed to one value, would give.
+    @MainActor
+    func test_theSweepIsCalibratedSeparatelyForLightAndDark() throws {
+        let size = CGSize(width: 900, height: 500)
+        let swept = CGRect(x: 650, y: 200, width: 200, height: 150)
+        // The same backing in both, so the only thing that can differ is how the
+        // sweep's own colour resolved.
+        let asLight = try render(scene: CanvasScene(), size: size, sweep: swept,
+                                 scheme: .light, backing: CanvasMaterial.darkBase)
+        let asDark = try render(scene: CanvasScene(), size: size, sweep: swept,
+                                scheme: .dark, backing: CanvasMaterial.darkBase)
+
+        let onTheEdge = CGRect(x: swept.minX + 20, y: swept.minY - 2,
+                               width: swept.width - 40, height: 4)
+        XCTAssertGreaterThan(asLight.differingPixels(from: asDark, in: onTheEdge), 0,
+                             "the sweep renders identically under both appearances — "
+                             + "CanvasRenderer.sweepStroke is not resolving per "
+                             + "appearance, so one material is being drawn on both")
+    }
+
     // MARK: - Rasterisation helper
 
     /// Mirrors `CanvasRendererTests`' own `Page` — same bitmap layout, same
@@ -587,13 +712,15 @@ final class CanvasRegionRenderTests: XCTestCase {
                         size: CGSize,
                         selection: CanvasSelection? = nil,
                         scraps: [CanvasNodeID: String] = [:],
+                        sweep: CGRect? = nil,
                         scheme: ColorScheme = .light,
                         backing: NSColor? = nil) throws -> Page {
         try Self.render(size: size, scheme: scheme, backing: backing) { cx in
             CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: size,
                                 layouts: [:], scraps: scraps, selection: selection,
                                 visibleEditorNodeID: nil,
-                                straighten: CanvasFocusStraighten(), into: &cx)
+                                straighten: CanvasFocusStraighten(),
+                                pendingRegionDraw: sweep, into: &cx)
         }
     }
 

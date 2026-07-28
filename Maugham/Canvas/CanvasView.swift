@@ -153,6 +153,11 @@ struct CanvasView: View {
     var body: some View {
         // Read here, not in the closure — see `revision`.
         let drawRevision = revision
+        // The same rule, and the same reason: `interaction` is `@State`, and a
+        // `@State` read only registers a dependency during body evaluation. Read
+        // inside the draw closure it would register nothing, and the rubber band
+        // would appear a frame late or not at all.
+        let sweep = interaction.pendingRegionDraw
 
         // No GeometryReader: `Canvas`'s own `size` is the viewport the renderer
         // culls against, and `.position` below resolves in this ZStack's space.
@@ -179,7 +184,8 @@ struct CanvasView: View {
                                         scraps: model.scraps,
                                         selection: model.selection,
                                         visibleEditorNodeID: visibleEditorNodeID,
-                                        straighten: straighten, into: &cx)
+                                        straighten: straighten,
+                                        pendingRegionDraw: sweep, into: &cx)
                 }
                 .allowsHitTesting(false)
                 // Spec §7A.6: drawn content has no AX tree, so this view owns

@@ -632,7 +632,8 @@ final class CanvasRendererTests: XCTestCase {
                                 layouts: [node.id: layout],
                                 scraps: [:], selection: nil,
                                 visibleEditorNodeID: nil,
-                                straighten: CanvasFocusStraighten(), into: &cx)
+                                straighten: CanvasFocusStraighten(),
+                                pendingRegionDraw: nil, into: &cx)
         }
 
         let inkRows = page.inkRows(0..<Int(viewSize.height),
@@ -694,7 +695,8 @@ final class CanvasRendererTests: XCTestCase {
                                     layouts: [id: layout],
                                     scraps: [:], selection: nil,
                                     visibleEditorNodeID: visibleEditor,
-                                    straighten: CanvasFocusStraighten(), into: &cx)
+                                    straighten: CanvasFocusStraighten(),
+                                    pendingRegionDraw: nil, into: &cx)
             }
             return page.inkPixels(rows: Int(frame.minY)..<Int(frame.maxY),
                                   columns: Self.textColumns(inCard: frame))
@@ -724,7 +726,8 @@ final class CanvasRendererTests: XCTestCase {
                                     layouts: [id: layout],
                                     scraps: [:], selection: nil,
                                     visibleEditorNodeID: id,
-                                    straighten: CanvasFocusStraighten(), into: &cx)
+                                    straighten: CanvasFocusStraighten(),
+                                    pendingRegionDraw: nil, into: &cx)
             }
         }
         let drawn = try page(scene: scene)
@@ -779,7 +782,8 @@ final class CanvasRendererTests: XCTestCase {
                                     layouts: [:],
                                     scraps: [:], selection: nil,
                                     visibleEditorNodeID: nil,
-                                    straighten: CanvasFocusStraighten(), into: &cx)
+                                    straighten: CanvasFocusStraighten(),
+                                    pendingRegionDraw: nil, into: &cx)
             }, frame)
         }
         let (item, frame) = try page(.item(referenceId: "r-9"))
