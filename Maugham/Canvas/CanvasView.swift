@@ -263,6 +263,18 @@ struct CanvasView: View {
                 // runs `commitActiveEdit`, so there is never an open gesture here
                 // for `CanvasUndo.undo()` to close. A drag's gesture closes at
                 // `.ended`, before any ⌘Z can arrive.
+                //
+                // *** That last sentence is weaker than it reads, and ⌫ is what
+                // found out. *** A press opens "Move Scrap" at `.began` and holds
+                // it until the writer lets go, and the turn after a double-click
+                // has "Edit Scrap" open while this view still holds first
+                // responder — so a KEY can arrive here with a gesture open. It is
+                // survivable for ⌘Z, which closes the open gesture through the
+                // recorder either way; it was not survivable for delete, which
+                // registered into a bracket that was not its own. Hence the
+                // `isInGesture` guard at the head of `deleteSelection()`. Anything
+                // new hung off a key here inherits the same problem and needs the
+                // same answer.
                 undoManager: model.undoManager)
 
             mountedEditor
@@ -850,7 +862,27 @@ struct CanvasView: View {
     /// selection beeps rather than being silently swallowed; the reasoning is on
     /// `keyDown`. A selection that no longer resolves is the same answer for the
     /// same reason: nothing went, so nothing was used.
+    ///
+    /// **It refuses outright while any gesture is open, and that is a
+    /// correctness guard rather than a nicety.** `CanvasUndo.beginGesture` takes
+    /// no snapshot when it nests and `endGesture` registers nothing until depth
+    /// reaches zero, so a delete opened inside somebody else's bracket cannot be
+    /// taken back on its own — at best it collapses into that gesture under the
+    /// wrong name, and if the bracket never closes it is not recoverable at all.
+    /// Both states are reachable: press and hold on a card (which opens "Move
+    /// Scrap") and press ⌫; or press ⌫ in the runloop turn after a double-click,
+    /// before the editor has claimed first responder, while "Edit Scrap" is open
+    /// — then quit, and `detach()` drops the stack with the card already written
+    /// away. `test_backspaceBeforeTheEditorTakesFocusCannotLoseTheCardUnrecoverably`
+    /// measured exactly that: the card and its words gone from disk with nothing
+    /// that could have brought them back.
+    ///
+    /// Refusing rather than closing the bracket first is also the honest
+    /// semantics: mid-gesture the writer is holding something, so what a delete
+    /// means is genuinely ambiguous. Returning `false` sends the key to `super`,
+    /// and the beep says so.
     private func deleteSelection() -> Bool {
+        guard !model.isInGesture else { return false }
         switch model.selection {
         case .region(let id):
             guard model.scene.region(id) != nil else { return false }

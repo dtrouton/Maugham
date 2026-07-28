@@ -230,19 +230,44 @@ final class CanvasEventNSView: NSView, NSUserInterfaceValidations {
     /// selected" from "delete is broken". Which is why `onDeleteKey` reports
     /// back instead of returning `Void` — the first draft of this method
     /// swallowed every ⌫ unconditionally and read identically at the call site.
+    ///
+    /// **The two characters are ⌫ and ⌦, and the second one is not what it
+    /// looks like.** Measured against AppKit on 2026-07-28:
+    /// `NSDeleteCharacter` is **0x007F** (⌫), `NSDeleteFunctionKey` is **0xF728**
+    /// (⌦ — a function-key code, not an ASCII one), and `NSBackspaceCharacter`
+    /// is 0x0008, which is **Ctrl-H**. The first draft paired 0x7F with 0x0008
+    /// on the stated belief that 0x0008 was forward delete; it is the confusion
+    /// that belief warned about. 0x0008 is not merely the wrong key, it is an
+    /// unreachable one here — `charactersIgnoringModifiers` strips Control, so
+    /// Ctrl-H arrives as `"h"` and this case could never have matched a
+    /// keystroke at all. Wanting Ctrl-H would mean switching on `characters` and
+    /// testing `modifierFlags`, which is a different design; it is not wanted.
+    ///
     /// Spelled with an `if` inside the case rather than a `where` on it: a
     /// `where` clause binds to the LAST pattern of a multi-pattern case only, so
-    /// `case "\u{7F}", "\u{8}" where …` would take the backspace branch without
-    /// ever asking the condition. It compiles, and it is silent.
+    /// `case "\u{7F}", "\u{F728}" where …` would take the ⌫ branch without ever
+    /// asking the condition. The compiler warns — *"'where' only applies to the
+    /// second pattern match in this 'case'"* — and
+    /// `CanvasEventViewTests.test_aDeleteThatDeletedNothingTravelsOnAndOneThatDeletedDoesNot`
+    /// goes red, which is what actually stops a tidy-up: a warning in a file this
+    /// size is easy to walk past.
     override func keyDown(with event: NSEvent) {
         switch event.charactersIgnoringModifiers {
-        case "\u{7F}", "\u{8}":
+        case Self.backwardDelete, Self.forwardDelete:
             if onDeleteKey?() == true { return }
             super.keyDown(with: event)
         default:
             super.keyDown(with: event)
         }
     }
+
+    /// `NSDeleteCharacter` and `NSDeleteFunctionKey` as the strings
+    /// `charactersIgnoringModifiers` reports. Named rather than spelled at the
+    /// switch so the tests can assert against the same two values the production
+    /// switch reads — a test carrying its own literal is a test that agrees with
+    /// itself.
+    static let backwardDelete = String(UnicodeScalar(UInt8(NSDeleteCharacter)))
+    static let forwardDelete = String(UnicodeScalar(UInt32(NSDeleteFunctionKey))!)
 }
 
 /// Bridges `CanvasEventNSView` into SwiftUI. Transparent — it contributes no

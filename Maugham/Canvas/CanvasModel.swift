@@ -232,6 +232,15 @@ final class CanvasModel {
 
     // MARK: - Undo, forwarded
 
+    /// Whether an undo bracket is open right now.
+    ///
+    /// Read by `CanvasView.deleteSelection()`, which refuses mid-gesture: a
+    /// nested `beginGesture` takes no snapshot and a nested `endGesture`
+    /// registers nothing, so a delete opened inside somebody else's bracket
+    /// cannot be taken back on its own — and if that bracket never closes, not
+    /// at all.
+    var isInGesture: Bool { undo.isInGesture }
+
     func beginGesture(_ name: String) { undo.beginGesture(name) }
     func endGesture() { undo.endGesture() }
     func breakGesture() { undo.breakGesture() }

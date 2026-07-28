@@ -2320,6 +2320,10 @@ final class CanvasViewMountingTests: XCTestCase {
                         + "a canvas that deletes the topmost card when nothing is "
                         + "selected loses the writer's work to a stray keystroke")
         XCTAssertEqual(scrapsOnDisk(root)[scrapID], scrapText)
+        XCTAssertFalse(try XCTUnwrap(events.undoManager).canUndo,
+                       "a ⌫ that deleted nothing still pushed a step: the writer's "
+                       + "next ⌘Z appears to do nothing, and the one after it takes "
+                       + "back an edit they had stopped thinking about")
     }
 
     /// **⌫ never fights the editor.** While a scrap is focused the mounted text
@@ -2409,6 +2413,96 @@ final class CanvasViewMountingTests: XCTestCase {
                        + "be restored out of step")
     }
 
+    /// **A ⌫ pressed while a gesture is open must delete nothing**, because a
+    /// delete that happens inside somebody else's bracket cannot be taken back
+    /// on its own.
+    ///
+    /// `CanvasUndo.beginGesture` takes NO snapshot when it nests, and
+    /// `endGesture` registers nothing until depth reaches zero — so a delete
+    /// opened inside an outer gesture disappears into it. Here the outer gesture
+    /// is the "Move Scrap" that `handleDrag(.began)` opens on every press over a
+    /// card: press and hold, press ⌫, and the card goes while the Edit menu has
+    /// nothing to offer. Release, and it offers **"Undo Move Scrap"** — a move
+    /// and a delete collapsed into one step under the wrong name.
+    ///
+    /// This is the reachable half. The lossy half is the test below.
+    func test_backspaceDuringAnOpenDragDeletesNothing() throws {
+        let root = try projectRoot()
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+
+        // Press on the card and DO NOT release: `onClick` selects it and
+        // `onDrag(.began)` opens "Move Scrap" in the same mouse-down.
+        events.applyMouseDown(at: CGPoint(x: 60, y: 40), clickCount: 1)
+        XCTAssertTrue(window.makeFirstResponder(events))
+        pump()
+        XCTAssertEqual(model.selection, .node(scrapID),
+                       "precondition: the press selected the card, so there is "
+                       + "something for ⌫ to take")
+        XCTAssertTrue(model.isInGesture,
+                      "precondition: the press opened a gesture that is still open")
+
+        window.sendEvent(deleteKeyEvent(for: window))
+        pump(1.0)
+
+        XCTAssertNotNil(sceneOnDisk(root).node(scrapID),
+                        "⌫ mid-drag deleted the card from inside the drag's own "
+                        + "undo bracket: the delete registers no step of its own, "
+                        + "so one ⌘Z takes back the move AND the delete together, "
+                        + "named after the move")
+        events.applyMouseUp(at: CGPoint(x: 60, y: 40))
+        pump(1.0)
+        XCTAssertNotNil(sceneOnDisk(root).node(scrapID),
+                        "the card came back only to go again when the drag ended")
+    }
+
+    /// **The lossy half, and the reason the guard is not merely tidy.**
+    ///
+    /// The editor claims first responder from `viewDidMoveToWindow`, so for the
+    /// runloop turn after a double-click the EVENT VIEW still holds it, with
+    /// "Edit Scrap" open and a live selection behind it. A ⌫ there deletes the
+    /// card, registers nothing — and `scheduleSave()` writes it. If the writer
+    /// then quits before the gesture closes, `detach()` calls `undo.release()`
+    /// and drops the stack whole: **the card is gone from disk and no step was
+    /// ever registered.** That is the product constitution's must #1.
+    ///
+    /// The window is narrow — this test reaches it by not turning the runloop,
+    /// which is the only way to stand in it deliberately. It is a real state
+    /// rather than a contrived one: the same bracket is open for the whole visit,
+    /// and only the editor holding first responder keeps ⌫ away from the canvas.
+    func test_backspaceBeforeTheEditorTakesFocusCannotLoseTheCardUnrecoverably() throws {
+        let root = try projectRoot()
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+
+        // Click once to select, then enter the scrap — and do NOT pump, so the
+        // editor has not yet claimed first responder.
+        clickAndFocusTheCanvas(events, at: CGPoint(x: 60, y: 40), in: window)
+        events.applyMouseDown(at: CGPoint(x: 60, y: 40), clickCount: 2)
+        XCTAssertTrue(window.firstResponder === events,
+                      "precondition: the editor has not taken first responder yet, "
+                      + "so the canvas is still the one holding the keyboard")
+        XCTAssertTrue(model.isInGesture,
+                      "precondition: entering the scrap opened \"Edit Scrap\" and it "
+                      + "is still open")
+
+        window.sendEvent(deleteKeyEvent(for: window))
+        pump(1.0)
+
+        // Quit the way ⌘Q does: flush, then let go of the undo stack.
+        let saved = savedScene(after: window, root: root)
+        XCTAssertNotNil(saved.node(scrapID),
+                        "the card was deleted inside an undo bracket that never "
+                        + "closed, and quitting dropped the stack — the writer's "
+                        + "words are gone from disk with nothing that could ever "
+                        + "have brought them back")
+        XCTAssertEqual(scrapsOnDisk(root)[scrapID], scrapText)
+    }
+
     /// Spec §3.1, generalised: the canvas owns arrangement, not existence.
     ///
     /// Deleting a region takes its membership records and nothing else. The card
@@ -2440,5 +2534,63 @@ final class CanvasViewMountingTests: XCTestCase {
                        "deleting a region never deletes cards, and never moves them")
         XCTAssertEqual(scrapsOnDisk(root)[scrapID], scrapText,
                        "the resident's words went with the region that merely held it")
+
+        // The undo half. It runs a DIFFERENT path from the scrap branch —
+        // `CanvasModel.mutate` rather than a hand-rolled bracket — so the scrap
+        // half's coverage says nothing about it, and what vanishes here is a
+        // container full of cards.
+        let undoSelector = #selector(CanvasEventNSView.undo(_:))
+        let undo = try editMenuItem(undoSelector, in: window)
+        XCTAssertTrue(undo.isEnabled,
+                      "deleting a region left nothing on the undo stack: a whole "
+                      + "arrangement goes on one keystroke and does not come back")
+        XCTAssertTrue(undo.item.title.contains("Delete Region"),
+                      "the menu item reads \"\(undo.item.title)\" rather than naming "
+                      + "what it will take back")
+        _ = undo.target.perform(undoSelector, with: undo.item)
+        pump(1.0)
+
+        let restored = sceneOnDisk(root)
+        XCTAssertEqual(restored.regionCount, 1, "⌘Z did not bring the region back")
+        XCTAssertEqual(restored.region(CanvasRegionID("r1"))?.livesHere(scrapID), true,
+                       "the region came back without the card it held — a snapshot "
+                       + "carries membership, so a region restored empty means the "
+                       + "undo restored something other than what was deleted")
+    }
+
+    /// **Deleting a card that lives in a region takes its membership with it.**
+    ///
+    /// `CanvasScene.remove` scrubs the node from every region, and a ghost member
+    /// would resurface in the inspector's "lives here" list and in
+    /// `RegionBinding.references(forPiece:)` long after the card was gone. Pinned
+    /// at the model level and, until this test, nowhere on the real surface —
+    /// where the scrub has to survive the save, the reload and the codec.
+    func test_deletingACardThatLivesInARegionLeavesNoGhostMember() throws {
+        let root = try regionProjectRoot()
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+
+        XCTAssertEqual(sceneOnDisk(root).region(CanvasRegionID("r1"))?.livesHere(scrapID),
+                       true, "precondition: the fixture's card lives in the region")
+
+        // On the card at (60,60)–(300,120), clear of its resize corner.
+        clickAndFocusTheCanvas(events, at: CGPoint(x: 100, y: 80), in: window)
+        XCTAssertEqual(model.selection, .node(scrapID), "precondition: the card is selected")
+
+        window.sendEvent(deleteKeyEvent(for: window))
+        pump(1.0)
+
+        let onDisk = sceneOnDisk(root)
+        XCTAssertNil(onDisk.node(scrapID), "precondition: the card went")
+        XCTAssertEqual(onDisk.regionCount, 1,
+                       "deleting a card took its region with it — the card belongs "
+                       + "to the region, not the other way round")
+        XCTAssertEqual(onDisk.region(CanvasRegionID("r1"))?.mentions(scrapID), false,
+                       "the region still remembers a card that no longer exists: a "
+                       + "ghost member survives the save and the reload, and shows "
+                       + "up in the inspector's \"lives here\" list for a card the "
+                       + "writer deleted")
     }
 }
