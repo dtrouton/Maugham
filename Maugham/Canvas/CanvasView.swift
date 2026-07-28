@@ -731,24 +731,62 @@ struct CanvasView: View {
         /// Reachable TODAY — Task 5's codec round-trips item nodes deliberately,
         /// so a sidecar written by a later build opens with them present.
         case unenterableNode
+        /// A line. Nothing to enter and nothing to make — see the switch below.
+        case line
     }
 
-    /// What a single click selects. The SAME precedence the drag uses — a card
-    /// beats the region chrome under it — so clicking a thing and dragging it
-    /// never disagree about which thing it was.
+    /// What a single click selects: **a card, then a line, then a region's
+    /// chrome or resize corner, then nothing.**
+    ///
+    /// **That order is the draw order read backwards, and that is the whole
+    /// justification.** The thing drawn on top takes the click. Cards come first
+    /// and unconditionally, matching `CanvasInteraction.begin`'s own precedence,
+    /// so clicking a thing and dragging it never disagree about which thing it
+    /// was; lines come next because they are drawn above every part of a region
+    /// — its wash, its chrome bar, its label and its resize triangle
+    /// (`CanvasLineRenderTests.test_theLineDrawsBeneathTheCardsAndAboveEveryPartOfTheRegion`).
+    ///
+    /// **A draft of this had the chrome bar beat the line**, on the ground that
+    /// the bar is a region's only grab handle. It reads perfectly plausible and
+    /// it is wrong: it leaves the line drawn OVER the bar while the bar takes the
+    /// click, so hit testing disagrees with what is visibly frontmost. Neither
+    /// loss is worth a special case — a near-perpendicular crossing costs the
+    /// line ~24 pt of a length in the hundreds, and the bar ~12 pt of a width in
+    /// the hundreds. What one rule buys is that a later tidy-up cannot drift away
+    /// from it, and it is not a NEW rule: cards already beat region chrome and
+    /// already draw above it. If someone re-opens this, the question to put to
+    /// them is which package they are proposing WHOLE — draw order and click
+    /// order move together, or the defect comes straight back.
+    /// `CanvasLineGestureTests.test_theClickOrderIsTheDrawOrderReadBackwards`
+    /// asserts the two orders against each other for that reason.
     ///
     /// A click on a region's interior selects nothing, for the same reason the
     /// interior is not a grab handle: it belongs to the cards in it.
-    private func selectionTarget(at contentPoint: CGPoint) -> CanvasSelection? {
-        if let node = model.scene.topmostNode(at: contentPoint) { return .node(node.id) }
-        switch CanvasInteraction.regionHit(at: contentPoint, in: model.scene) {
+    ///
+    /// A `static func` over its inputs rather than a method on the view, for the
+    /// reason `pressStartsALine` is one: a routing decision one level above a
+    /// primitive is exactly where this area has shipped unreachable halves, and
+    /// this way it is reachable from a test that does not host SwiftUI.
+    static func selectionTarget(at contentPoint: CGPoint,
+                                in scene: CanvasScene) -> CanvasSelection? {
+        if let node = scene.topmostNode(at: contentPoint) { return .node(node.id) }
+        if let line = CanvasLineHit.line(at: contentPoint, in: scene) { return .line(line) }
+        switch CanvasInteraction.regionHit(at: contentPoint, in: scene) {
         case .chrome(let id), .resizeCorner(let id): return .region(id)
         case nil: return nil
         }
     }
 
     private func clickTarget(at contentPoint: CGPoint) -> ClickTarget {
-        guard let node = model.scene.topmostNode(at: contentPoint) else { return .emptyCanvas }
+        guard let node = model.scene.topmostNode(at: contentPoint) else {
+            // The SAME precedence as `selectionTarget` above, and it has to be:
+            // the `clickCount: 1` AppKit sends first has already selected
+            // whatever this resolves to, so a double click that answered a
+            // different question would act on something the writer is not
+            // looking at.
+            return CanvasLineHit.line(at: contentPoint, in: model.scene) != nil
+                ? .line : .emptyCanvas
+        }
         guard case .scrap = node.kind,
               let layout = layouts[node.id],
               let frame = node.frame else { return .unenterableNode }
@@ -780,7 +818,7 @@ struct CanvasView: View {
         commitActiveEdit()
 
         guard clickCount >= 2 else {
-            model.selection = selectionTarget(at: contentPoint)
+            model.selection = Self.selectionTarget(at: contentPoint, in: model.scene)
             // The selection is read INSIDE the draw closure, where a model value
             // is not in SwiftUI's dependency graph — that is what this counter
             // is for. `revision` and never `sceneRevision`: a selection change
@@ -885,12 +923,22 @@ struct CanvasView: View {
             // Whatever the writer now types is a second, separate step.
             model.beginGesture("Edit Scrap")
 
-        case .unenterableNode:
+        case .unenterableNode, .line:
             // Nothing to enter, so this behaves like a single click. Falling
             // through instead would leave `editingNodeID` and `straighten`
             // pointing at whatever was open before: the invisible editor stays
             // mounted on the card the writer just clicked AWAY from, and
             // `visibleEditorNodeID` re-reveals it the moment `isLevel` fires.
+            //
+            // **A line shares this arm rather than falling to `.emptyCanvas`,
+            // and that is a real bug rather than a tidiness.** There it would
+            // mint a scrap UNDER the writer's own line — and AppKit sends
+            // `clickCount: 1` first, so that click has already selected the line
+            // and the other column is showing it. "Edit Scrap" open over a line
+            // selection is tripwire 32's own repro arriving through a new door.
+            // A double click on a line therefore opens no editor of any kind;
+            // its label is edited in the other column, which is where a region's
+            // label already is.
             leaveTheOpenScrap()
         }
         model.scheduleSave()
@@ -916,7 +964,8 @@ struct CanvasView: View {
     /// The region case is the one with a rule behind it: **deleting a region
     /// never deletes cards** — the canvas owns arrangement, not existence (spec
     /// §3.1, generalised). Its membership records die with it, which is all
-    /// `CanvasScene.removeRegion` touches.
+    /// `CanvasScene.removeRegion` touches. **Deleting a line is the same rule in
+    /// a second id space**: the relationship goes and both cards stay.
     ///
     /// Nothing selected is a no-op rather than a guess — and it says so, by
     /// returning **whether anything was actually deleted**. `CanvasEventNSView`
@@ -977,13 +1026,14 @@ struct CanvasView: View {
             // `NSTextStorage` alive until some later structural change happens
             // to run one.
             rebuildLayouts(bumpsStructuralCounter: false)
-        case .line:
-            // Task 5 gives this real behaviour. Returning false is the honest
-            // stub for one commit: nothing went, so the key travels on to
-            // `super` and AppKit beeps — which is the platform saying "that key
-            // means nothing here". A stub that fell through and cleared the
-            // selection would report a delete that did not happen.
-            return false
+        case .line(let id):
+            guard model.scene.line(id) != nil else { return false }
+            // **A line delete never touches its cards.** The writer took back
+            // the relationship, not the things related — the mirror of a card
+            // delete, which DOES take its lines with it (`CanvasScene.remove`),
+            // because a line to a card that is gone draws into nowhere. One
+            // gesture either way, so one ⌘Z either way.
+            model.mutate("Delete Line") { $0.removeLine(id) }
         case .none:
             return false
         }
@@ -1198,13 +1248,11 @@ struct CanvasView: View {
             } else if wasDrawingLine {
                 // The line itself was inserted above; what belongs here is what
                 // the writer is left holding. Selecting it is the same courtesy a
-                // swept region gets, and it is what will put the new line under
-                // the inspector and under ⌫ — both of those are Task 5's, and
-                // `deleteSelection`'s `.line` arm is still its honest stub, so
-                // for this commit ⌫ on a fresh line beeps. A drag that minted nothing
-                // — bare canvas, or back onto the source card — leaves the
-                // selection exactly as it was: the writer changed nothing, so
-                // nothing they had should move.
+                // swept region gets, and it is what puts the new line under ⌫ and
+                // under the inspector. A drag that minted nothing — bare canvas,
+                // or back onto the source card — leaves the selection exactly as
+                // it was: the writer changed nothing, so nothing they had should
+                // move.
                 if let mintedLine { model.selection = .line(mintedLine) }
             } else if let movedNode, interaction.hasMoved {
                 // The drop, INSIDE the move's own gesture — so one ⌘Z takes back

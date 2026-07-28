@@ -3376,4 +3376,249 @@ final class CanvasViewMountingTests: XCTestCase {
                            + "there (\(route))")
         }
     }
+
+    // MARK: - Selecting a line, and taking it back
+
+    /// A canvas with the two fixture cards and one line between them, drawn the
+    /// way the writer draws it — a ⇧-drag through the real event path, which is
+    /// also what leaves the line SELECTED.
+    ///
+    /// Returns the line's id and the midpoint of its segment, both read off the
+    /// live scene. The cards' heights are re-derived on load, so a hard-coded
+    /// midpoint would be aiming at a line that is not there.
+    private func drawALine(in window: NSWindow,
+                           _ model: CanvasModel) throws -> (id: CanvasLineID, midpoint: CGPoint) {
+        try sendRealDrag(in: window, from: insideTheFirstCard,
+                         through: [CGPoint(x: 250, y: 120), insideTheSecondCard],
+                         shift: true)
+        let line = try XCTUnwrap(model.scene.lines.first,
+                                 "the ⇧-drag drew no line, so nothing below is about "
+                                 + "clicking one")
+        let ends = try XCTUnwrap(model.scene.endpoints(of: line))
+        let midpoint = CGPoint(x: (ends.0.x + ends.1.x) / 2, y: (ends.0.y + ends.1.y) / 2)
+        XCTAssertNil(model.scene.topmostNode(at: midpoint),
+                     "the midpoint has ended up under a card, where a card takes the "
+                     + "click — move the fixture's cards apart")
+        XCTAssertEqual(CanvasLineHit.line(at: midpoint, in: model.scene), line.id,
+                       "the midpoint is not on the line it was derived from")
+        return (line.id, midpoint)
+    }
+
+    /// **A double click on a line must not mint a scrap under it.**
+    ///
+    /// Both clicks are sent, `clickCount: 1` and then `clickCount: 2`, exactly as
+    /// a hand produces them — and the first one is what makes this a bug rather
+    /// than a curiosity: it has already selected the line, so with the line
+    /// falling through to the empty-canvas branch the writer gets "Edit Scrap"
+    /// open on a brand-new card while the other column is showing a line. That is
+    /// tripwire 32's own repro arriving through a new door.
+    ///
+    /// A test that jumped straight to `clickCount: 2` would prove nothing here:
+    /// that shortcut has produced a wrong repro five times in this area.
+    func test_aDoubleClickOnALineDoesNotMintAScrapUnderIt() throws {
+        let root = try twoCardProjectRoot()
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+        let line = try drawALine(in: window, model)
+        XCTAssertEqual(model.scene.count, 2, "precondition: two cards and no more")
+
+        events.applyMouseDown(at: line.midpoint, clickCount: 1)
+        events.applyMouseUp(at: line.midpoint)
+        pump(0.05)
+        XCTAssertEqual(model.selection, .line(line.id),
+                       "precondition: click 1 selected the line — which is what makes "
+                       + "click 2 minting a scrap the tripwire-32 state rather than "
+                       + "merely a stray card")
+
+        events.applyMouseDown(at: line.midpoint, clickCount: 2)
+        events.applyMouseUp(at: line.midpoint)
+        pump(0.3)
+
+        XCTAssertEqual(model.scene.count, 2,
+                       "the double-click minted a scrap under the writer's own line: "
+                       + "the line fell through to the empty-canvas branch")
+        XCTAssertNil(firstDescendant(ScrapEditorContainer.self,
+                                     in: try XCTUnwrap(window.contentView)),
+                     "a double-click on a line opened an editor. It opens none of any "
+                     + "kind — a line's label is edited in the other column, where a "
+                     + "region's already is")
+        XCTAssertFalse(model.isInGesture,
+                       "\"Edit Scrap\" is open with no scrap: the next thing the "
+                       + "writer does from the inspector nests inside it, registers "
+                       + "no step of its own, and rides into their next ⌘Z")
+        XCTAssertEqual(model.selection, .line(line.id),
+                       "and the line the writer double-clicked is still what they are "
+                       + "holding")
+        XCTAssertEqual(savedScene(after: window, root: root).count, 2,
+                       "a stray scrap reached disk")
+    }
+
+    /// **The delivery path for ⌫ on a line, end to end.** A real `NSEvent`
+    /// through `window.sendEvent(_:)`, routed by AppKit to whatever holds first
+    /// responder, asserted on what reached DISK.
+    ///
+    /// Not a `deleteSelection()` called by hand: that is precisely the test that
+    /// would have passed throughout 1C-a while ⌘Z was greyed out in the Edit
+    /// menu, and throughout the slice in which `CanvasScene.remove` had no caller
+    /// at all.
+    func test_backspaceDeletesTheSelectedLineThroughTheRealResponderChain() throws {
+        let root = try twoCardProjectRoot()
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+        let line = try drawALine(in: window, model)
+
+        XCTAssertEqual(model.selection, .line(line.id),
+                       "precondition: the new line is what the writer is holding")
+        XCTAssertTrue(window.makeFirstResponder(events),
+                      "precondition: the key will actually arrive at the canvas")
+        pump(1.0)
+        XCTAssertEqual(sceneOnDisk(root).lines.count, 1,
+                       "precondition: the line is on disk, so its absence below is a "
+                       + "delete rather than a save that never happened")
+
+        window.sendEvent(deleteKeyEvent(for: window))
+        pump(1.0)
+
+        XCTAssertTrue(sceneOnDisk(root).lines.isEmpty,
+                      "⌫ with a line selected did not delete it. The likeliest cause "
+                      + "is that the `.line` arm of `deleteSelection` is still "
+                      + "returning false — which every model-level assertion in this "
+                      + "task is blind to")
+        XCTAssertNil(model.selection, "and nothing is left selected")
+    }
+
+    /// **A line delete never touches its cards, and one ⌘Z brings it back.**
+    ///
+    /// The step's NAME is asserted, not just the scene: an undo test whose only
+    /// observable is the post-⌘Z scene cannot tell "its own step" from "folded
+    /// into the neighbouring one", and this arm goes through `CanvasModel.mutate`
+    /// — a different bracket from the scrap branch's hand-rolled one.
+    func test_deleteRemovesTheSelectedLineAndLeavesBothCards() throws {
+        let root = try twoCardProjectRoot()
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+        let line = try drawALine(in: window, model)
+        XCTAssertTrue(window.makeFirstResponder(events))
+
+        window.sendEvent(deleteKeyEvent(for: window))
+        pump(1.0)
+
+        let afterDelete = sceneOnDisk(root)
+        XCTAssertTrue(afterDelete.lines.isEmpty, "precondition: the line went")
+        XCTAssertEqual(afterDelete.count, 2,
+                       "deleting a line took a card with it — the writer took back "
+                       + "the relationship, not the things related")
+        XCTAssertEqual(scrapsOnDisk(root)[scrapID], scrapText,
+                       "and the words on those cards are untouched")
+
+        let undoSelector = #selector(CanvasEventNSView.undo(_:))
+        let undo = try editMenuItem(undoSelector, in: window)
+        XCTAssertTrue(undo.isEnabled,
+                      "deleting a line left nothing on the undo stack, so a stray ⌫ "
+                      + "takes a connection away permanently")
+        XCTAssertTrue(undo.item.title.contains("Delete Line"),
+                      "the menu item reads \"\(undo.item.title)\" rather than naming "
+                      + "what it will take back")
+        _ = undo.target.perform(undoSelector, with: undo.item)
+        pump(1.0)
+
+        let restored = sceneOnDisk(root)
+        XCTAssertEqual(restored.lines.count, 1, "⌘Z did not bring the line back")
+        XCTAssertEqual(restored.lines.first?.id, line.id,
+                       "and it is the same line rather than a fresh one")
+        XCTAssertEqual(restored.count, 2, "and it brought no extra card with it")
+    }
+
+    /// **⌫ with a line selected refuses while any gesture is open**, for the
+    /// reason the card and region arms do: `beginGesture` takes no snapshot when
+    /// it nests and `endGesture` registers nothing above depth 0, so a delete
+    /// inside somebody else's bracket collapses into it under the wrong name —
+    /// and if that bracket never closes it cannot be taken back at all.
+    ///
+    /// The reachable state is the one this drives: press and HOLD on the line
+    /// itself. Geometrically that point is bare canvas, so `onClick` re-resolves
+    /// the same line (the selection does not move) while `onDrag(.began)` opens a
+    /// "New Region" sweep — a live bracket with a line still selected behind it.
+    func test_deleteWithALineSelectedMidGestureIsRefused() throws {
+        let root = try twoCardProjectRoot()
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+        let line = try drawALine(in: window, model)
+
+        // Press and do NOT release.
+        events.applyMouseDown(at: line.midpoint, clickCount: 1)
+        XCTAssertTrue(window.makeFirstResponder(events))
+        pump()
+        XCTAssertEqual(model.selection, .line(line.id),
+                       "precondition: the press left the line selected, so there is "
+                       + "something for ⌫ to take")
+        XCTAssertTrue(model.isInGesture,
+                      "precondition: the press opened a gesture that is still open")
+
+        window.sendEvent(deleteKeyEvent(for: window))
+        pump(1.0)
+
+        XCTAssertEqual(model.scene.lines.count, 1,
+                       "⌫ mid-gesture deleted the line from inside somebody else's "
+                       + "undo bracket: it registers no step of its own, and a "
+                       + "bracket that never closes takes the line with it")
+        events.applyMouseUp(at: line.midpoint)
+        pump(1.0)
+        XCTAssertEqual(sceneOnDisk(root).lines.count, 1,
+                       "the line came back only to go when the gesture ended")
+    }
+
+    /// **A card delete takes its lines, and ONE ⌘Z brings both back** — one
+    /// snapshot carries the scene, so they cannot be restored out of step.
+    ///
+    /// The card half is `CanvasScene.remove`'s line scrub, which is unit tested;
+    /// what only this can show is that the scrub survives the delete path, the
+    /// save, the reload and the codec — and that it did not become a second undo
+    /// step the writer has to press ⌘Z twice for.
+    func test_deletingACardTakesItsLinesAndOneUndoBringsBothBack() throws {
+        let root = try twoCardProjectRoot()
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+        _ = try drawALine(in: window, model)
+
+        clickAndFocusTheCanvas(events, at: insideTheFirstCard, in: window)
+        XCTAssertEqual(model.selection, .node(scrapID),
+                       "precondition: the card the line leaves is selected")
+
+        window.sendEvent(deleteKeyEvent(for: window))
+        pump(1.0)
+
+        let afterDelete = sceneOnDisk(root)
+        XCTAssertNil(afterDelete.node(scrapID), "precondition: the card went")
+        XCTAssertTrue(afterDelete.lines.isEmpty,
+                      "the line to the deleted card outlived it — it draws from a "
+                      + "card that is not there to a card that is")
+
+        let undoSelector = #selector(CanvasEventNSView.undo(_:))
+        let undo = try editMenuItem(undoSelector, in: window)
+        XCTAssertTrue(undo.item.title.contains("Delete Scrap"),
+                      "the menu item reads \"\(undo.item.title)\" — the line scrub "
+                      + "must ride inside the card's own step rather than becoming a "
+                      + "second one")
+        _ = undo.target.perform(undoSelector, with: undo.item)
+        pump(1.0)
+
+        let restored = sceneOnDisk(root)
+        XCTAssertNotNil(restored.node(scrapID), "⌘Z did not bring the card back")
+        XCTAssertEqual(restored.lines.count, 1,
+                       "the card came back without its line: one ⌫ is one gesture, so "
+                       + "one ⌘Z has to restore both — a second step here means the "
+                       + "writer's canvas can be left with a card whose connections "
+                       + "are one keystroke behind it")
+    }
 }

@@ -66,13 +66,24 @@ public enum CanvasLineHit {
     /// their whole first stretch, and picking either would be a coin flip the
     /// writer cannot predict.
     ///
-    /// Lines whose endpoints are unmeasured are skipped — they are not drawn,
-    /// and an invisible target is a click the writer cannot explain.
+    /// **What is clickable is exactly what is DRAWN**, and that is why this walks
+    /// `CanvasRenderer.lineGeometry` rather than `scene.lines` with an
+    /// `endpoints(of:)` of its own. Two conditions take a line off the canvas —
+    /// an unmeasured endpoint (no frame, so nothing was drawn) and a hidden one
+    /// (a resident of a collapsed region) — and both are already stated there,
+    /// once. Spelled again here they would drift, and the failure is silent in
+    /// the worst direction: a line the writer can click and cannot see is worse
+    /// than one they can see and cannot click.
+    ///
+    /// The renderer's own doc says this is what the split is for: the projection
+    /// is separated from the draw pass so the hit test can ask about the same
+    /// segment the renderer strokes without either one spelling it twice. This
+    /// is the UNCULLED projection deliberately — culling is about the viewport,
+    /// and a click always arrives inside it.
     public static func line(at point: CGPoint, in scene: CanvasScene) -> CanvasLineID? {
         var best: (id: CanvasLineID, distance: CGFloat)?
-        for line in scene.lines {
-            guard let ends = scene.endpoints(of: line) else { continue }
-            let d = distance(from: point, toSegment: ends.0, ends.1)
+        for line in CanvasRenderer.lineGeometry(in: scene) {
+            let d = distance(from: point, toSegment: line.from, line.to)
             guard d <= tolerance, best == nil || d < best!.distance else { continue }
             best = (line.id, d)
         }
