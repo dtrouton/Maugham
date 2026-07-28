@@ -720,7 +720,7 @@ final class CanvasRegionRenderTests: XCTestCase {
                                 layouts: [:], scraps: scraps, selection: selection,
                                 visibleEditorNodeID: nil,
                                 straighten: CanvasFocusStraighten(),
-                                pendingRegionDraw: sweep, into: &cx)
+                                pendingRegionDraw: sweep, pendingLine: nil, into: &cx)
         }
     }
 

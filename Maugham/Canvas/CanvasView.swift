@@ -192,7 +192,15 @@ struct CanvasView: View {
                                         selection: model.selection,
                                         visibleEditorNodeID: visibleEditorNodeID,
                                         straighten: straighten,
-                                        pendingRegionDraw: sweep, into: &cx)
+                                        pendingRegionDraw: sweep,
+                                        // Task 4 owns the gesture that fills
+                                        // this in, and it arrives as a `let`
+                                        // read in `body` beside `sweep` above,
+                                        // for the same @State reason. Literal
+                                        // nil until then: a call that reads a
+                                        // symbol no task has written is the
+                                        // failure this plan exists to avoid.
+                                        pendingLine: nil, into: &cx)
                 }
                 .allowsHitTesting(false)
                 // Spec §7A.6: drawn content has no AX tree, so this view owns
@@ -948,6 +956,13 @@ struct CanvasView: View {
             // `NSTextStorage` alive until some later structural change happens
             // to run one.
             rebuildLayouts(bumpsStructuralCounter: false)
+        case .line:
+            // Task 5 gives this real behaviour. Returning false is the honest
+            // stub for one commit: nothing went, so the key travels on to
+            // `super` and AppKit beeps — which is the platform saying "that key
+            // means nothing here". A stub that fell through and cleared the
+            // selection would report a delete that did not happen.
+            return false
         case .none:
             return false
         }

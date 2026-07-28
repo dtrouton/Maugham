@@ -279,6 +279,66 @@ enum CanvasMaterial {
     /// shape under both appearances; only its colour differs.
     static let regionCornerRadius: CGFloat = 6
 
+    // MARK: - Lines
+
+    /// A line's ink, per appearance — a pair, like everything else here (§7.1).
+    ///
+    /// Authored at full alpha so `lineOpacity` below is the whole story about how
+    /// loud a line is: two alphas multiplying each other is how the tether ended
+    /// up at 0.105 and invisible, and the comment on `tetherOpacity` is that
+    /// lesson. **Fainter / bolder lines:** move `lineOpacity`, not these.
+    ///
+    /// Quieter than a card's ink and louder than a region's outline: a line is a
+    /// real object the writer made, unlike a tether, which only explains a
+    /// relationship they already know about.
+    static let lightLineStroke = NSColor(srgbRed: 0.32, green: 0.30, blue: 0.26, alpha: 1)
+    static let darkLineStroke = NSColor(srgbRed: 0.82, green: 0.78, blue: 0.70, alpha: 1)
+
+    /// How present an unselected line is. Shared across appearances: this is a
+    /// dosage on top of a pair that already differs, not a second calibration.
+    static let lineOpacity: CGFloat = 0.6
+
+    /// **A selected line draws heavier and FULLY OPAQUE rather than in an accent
+    /// colour.** The canvas already spends its colour budget on the region ring
+    /// and the palette wash (§7.1), and a line is thin enough that weight reads
+    /// faster than hue — a hairline in the accent is a hairline you still have to
+    /// hunt for.
+    static let lineWidth: CGFloat = 1.5
+    static let selectedLineWidth: CGFloat = 3
+
+    /// The label pill. `lineLabelHeight` is the pill; the text sits at
+    /// `lineLabelFontSize` inside `lineLabelPadding` on each side.
+    ///
+    /// Drawn on the card's own paper so a label crossing a busy patch of canvas
+    /// is readable, at less than full opacity so the pill never reads as a card.
+    static let lineLabelFontSize: CGFloat = 10
+    static let lineLabelHeight: CGFloat = 16
+    static let lineLabelPadding: CGFloat = 6
+    static let lineLabelOpacity: CGFloat = 0.9
+
+    /// The line under the pointer while one is being drawn.
+    ///
+    /// **Dashed, for the reason `sweepDash` is dashed:** nothing has been made
+    /// yet, and a solid line would show the writer a connection that does not
+    /// exist and then, if the drag was a twitch, take it away again. It borrows
+    /// `sweepStroke`'s colour deliberately — a live gesture is a live gesture,
+    /// and one knob for "the thing under my pointer right now" is one fewer place
+    /// for two answers to drift apart.
+    static let pendingLineWidth: CGFloat = 1.5
+    static let pendingLineDash: [CGFloat] = [6, 4]
+
+    /// The dot on the selected card's right edge that a line is dragged from.
+    ///
+    /// **The MARK; the TARGET is `CanvasRenderer.connectHandleRect`**, and the
+    /// target is deliberately the larger of the two — the same way round as the
+    /// resize corner, where a target slightly larger than its ink forgives a near
+    /// miss and the reverse swallows drags aimed at the card.
+    ///
+    /// It takes the selection accent rather than a colour of its own, because it
+    /// *is* selection chrome: it appears with the selection stroke and goes with
+    /// it, and a second hue there would be a second answer to "what is selected".
+    static let connectMarkDiameter: CGFloat = 8
+
     // MARK: - The sweep
 
     /// The outline under the pointer while a region is being drawn.

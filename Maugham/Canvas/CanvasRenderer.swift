@@ -182,6 +182,11 @@ enum CanvasRenderer {
     static let sweepStroke: NSColor = CanvasMaterial.dynamic(light: CanvasMaterial.lightSweepStroke,
                                                              dark: CanvasMaterial.darkSweepStroke)
 
+    /// A line's ink, resolved per appearance from the pair in `CanvasMaterial`.
+    /// Authored at full alpha there so `lineOpacity` is applied once, here.
+    static let lineStroke: NSColor = CanvasMaterial.dynamic(light: CanvasMaterial.lightLineStroke,
+                                                            dark: CanvasMaterial.darkLineStroke)
+
     /// §7.2: each card sits at a seeded fraction of a degree — nothing is rough,
     /// but everything was *put down* rather than snapped to a grid.
     ///
@@ -435,6 +440,148 @@ enum CanvasRenderer {
         }
     }
 
+    // MARK: - Lines
+
+    /// A line, resolved to two points on the canvas.
+    ///
+    /// The projection is separated from the draw pass for the same reason
+    /// `Tether` and `AppearanceChip` are: the geometry is then a pure function
+    /// testable against literal arithmetic, and `CanvasLineHit` can hit-test the
+    /// same segment the renderer strokes without either one spelling it twice.
+    struct LineGeometry: Equatable {
+        let id: CanvasLineID
+        let from: CGPoint
+        let to: CGPoint
+        let label: String?
+    }
+
+    /// Endpoints resolve to node CENTRES. A node that has never been measured
+    /// has no frame, so its lines are not projected — drawing to a guessed
+    /// position would twitch as soon as the real measurement arrived.
+    ///
+    /// This is the UNCULLED projection: the geometry tests assert against it,
+    /// and `visibleLines` is what the draw pass calls.
+    static func lineGeometry(in scene: CanvasScene) -> [LineGeometry] {
+        scene.lines.compactMap { line in
+            guard let ends = scene.endpoints(of: line) else { return nil }
+            return LineGeometry(id: line.id, from: ends.0, to: ends.1, label: line.label)
+        }
+    }
+
+    /// The lines whose bounding box meets the viewport, and only those.
+    ///
+    /// Per-frame work on this surface is viewport-proportional by design — the
+    /// rule `visibleNodes` and `visibleRegions` follow, and the reason the
+    /// 2,000-node probe passes. Lines are the one collection nothing bounds: a
+    /// writer can draw one for every card, so "there are fewer lines than nodes"
+    /// is not an argument. AREA.md's Scale section already names tethers and
+    /// chips as the known unbounded per-frame work; lines joining that list
+    /// uncounted would be a regression on the one number this surface defends.
+    ///
+    /// Bounding box rather than exact segment/rect intersection: the false
+    /// positives are long diagonals whose box straddles the viewport, which are
+    /// cheap to stroke and correct to draw.
+    ///
+    /// **The hairline inset is not a rounding nicety**, and the reason is not
+    /// quite the one this was written with. A horizontal or vertical line has a
+    /// zero-height or zero-width box — two cards side by side is the ordinary
+    /// case, not the corner one — and a degenerate box is at the mercy of
+    /// whichever emptiness rule the cull happens to be spelled with.
+    ///
+    /// **Measured 2026-07-28 on macOS 26.5, because the obvious claim is wrong:**
+    /// `CGRect.intersects` is false only for a NULL rect, not for an empty one,
+    /// so `CGRect(x: 100, y: 20, width: 440, height: 0).intersects(viewport)` is
+    /// `true` today and this call as written would survive without the inset. The
+    /// trap is one spelling over: `intersection(viewport)` of that same box is
+    /// **not null and IS empty**, so a tidy-up to `!box.intersection(viewport)
+    /// .isEmpty` — which reads as a synonym — silently stops drawing every
+    /// axis-aligned line on the canvas. The inset removes the whole question by
+    /// giving the box area.
+    ///
+    /// `CanvasLineRenderTests.test_anAxisAlignedLineIsNotCulledByItsZeroHeightBox`
+    /// asserts against `boundingBox` directly for exactly that reason: an
+    /// assertion on `visibleLines`'s output alone cannot see this inset today.
+    static func visibleLines(in scene: CanvasScene,
+                             camera: CanvasCamera,
+                             viewSize: CGSize) -> [LineGeometry] {
+        let viewport = camera.visibleContentRect(viewSize: viewSize)
+            .insetBy(dx: -cullingBleed, dy: -cullingBleed)
+        return lineGeometry(in: scene).filter { boundingBox(of: $0).intersects(viewport) }
+    }
+
+    /// Half a point on every side — enough to give an axis-aligned segment a
+    /// non-empty box, and small enough to change nothing else.
+    private static let lineBoxInset: CGFloat = 0.5
+
+    /// The rect `visibleLines` culls against — internal rather than private
+    /// because it is the only place the inset above is observable. See there.
+    static func boundingBox(of line: LineGeometry) -> CGRect {
+        CGRect(x: min(line.from.x, line.to.x),
+               y: min(line.from.y, line.to.y),
+               width: abs(line.to.x - line.from.x),
+               height: abs(line.to.y - line.from.y))
+            .insetBy(dx: -lineBoxInset, dy: -lineBoxInset)
+    }
+
+    /// The label pill, centred on the segment's midpoint. Empty when there is no
+    /// label — an unlabelled line must not reserve a pill of empty ground.
+    ///
+    /// The pill measures its text by a per-character advance rather than through
+    /// a TextKit stack, and that is legitimate HERE and nowhere near a card:
+    /// §7A.2's same-stack rule exists because a card's drawn text has to agree
+    /// with a mounted editor's, and no editor ever mounts on a line. The pill is
+    /// clipped to itself when it draws, so an under-estimate costs a truncated
+    /// label rather than text spilling onto the ground.
+    static func lineLabelBox(for geometry: LineGeometry) -> CGRect {
+        guard let label = geometry.label,
+              !label.trimmingCharacters(in: .whitespaces).isEmpty else { return .null }
+        let width = CGFloat(label.count) * CanvasMaterial.lineLabelFontSize * labelAdvanceRatio
+            + CanvasMaterial.lineLabelPadding * 2
+        let midpoint = CGPoint(x: (geometry.from.x + geometry.to.x) / 2,
+                               y: (geometry.from.y + geometry.to.y) / 2)
+        return CGRect(x: midpoint.x - width / 2,
+                      y: midpoint.y - CanvasMaterial.lineLabelHeight / 2,
+                      width: width, height: CanvasMaterial.lineLabelHeight)
+    }
+
+    /// A rough mean advance for the system font, as a fraction of its point size.
+    /// Geometry, so it lives here rather than in `CanvasMaterial` — nobody tunes
+    /// this by eye.
+    private static let labelAdvanceRatio: CGFloat = 0.62
+
+    /// The size of the connect affordance on a selected card's right edge — the
+    /// side of the square Task 4 hit-tests, and the box the mark is centred in.
+    ///
+    /// One constant fixes both, exactly as `resizeHandleSize` does for the resize
+    /// corner, so the mark and its target cannot drift apart.
+    static let connectHandleSize: CGFloat = 14
+
+    /// The TARGET a line is dragged from: a `connectHandleSize` square on the
+    /// card's right edge, vertically centred, **clamped to stay above the resize
+    /// square** — and empty on a card too short for both.
+    ///
+    /// On a short card **the corner belongs to resize**: it is the permanent
+    /// mark, and a connect target that moved depending on the card's height would
+    /// be worse than one that is sometimes absent. A writer can always still make
+    /// a line with ⇧-drag, which has no chrome to collide with.
+    static func connectHandleRect(inCard frame: CGRect) -> CGRect {
+        let ceiling = frame.maxY - resizeHandleSize - connectHandleSize
+        guard ceiling >= frame.minY else { return .null }
+        return CGRect(x: frame.maxX - connectHandleSize,
+                      y: min(frame.midY - connectHandleSize / 2, ceiling),
+                      width: connectHandleSize, height: connectHandleSize)
+    }
+
+    /// The MARK inside that target: a dot, centred, strictly smaller. See
+    /// `resizeHandle` for why a target larger than its ink is the right way
+    /// round.
+    static func connectMarkRect(inCard frame: CGRect) -> CGRect {
+        let target = connectHandleRect(inCard: frame)
+        guard !target.isEmpty else { return .null }
+        let d = CanvasMaterial.connectMarkDiameter
+        return CGRect(x: target.midX - d / 2, y: target.midY - d / 2, width: d, height: d)
+    }
+
     /// The first non-empty line of the scrap, so a chip says WHICH card it
     /// stands for. A blank chip is indistinguishable from a rendering bug.
     ///
@@ -503,21 +650,33 @@ enum CanvasRenderer {
     /// glyphs — the jump §7A.5 was written to prevent. `CanvasView` derives this
     /// argument and the editor's own visibility from ONE property, so they
     /// cannot flip on different frames.
-    /// Three passes, and the order is the design:
+    /// Five passes, and the order is the design:
     ///
     /// 1. **Regions, BENEATH everything.** §4 makes a region *where the cards
     ///    are*, not a panel they sit on — a wash that painted over a card would
     ///    make the region the object and the cards its decoration.
-    /// 2. **Cards.**
-    /// 3. **Tethers and chips, ABOVE the cards.** A reference the writer cannot
+    /// 2. **Lines, above the WHOLE region pass and beneath the cards.** Above
+    ///    the region because a line running into a region's area must not
+    ///    vanish under it — and above *every part* of it, the bar and the label
+    ///    and the resize mark as well as the wash, because `drawRegion` is one
+    ///    pass and **the thing drawn on top takes the click**: Task 5 hit-tests
+    ///    in this order, so a line that inked over a region's title while the
+    ///    title silently took the click would be hit-testing disagreeing with
+    ///    what is visibly frontmost. What one rule buys is that a writer can
+    ///    state it and never be surprised. Beneath the cards because a line's
+    ///    job is to connect cards, and a line crossing over one reads as damage.
+    /// 3. **Cards.**
+    /// 4. **Tethers and chips, ABOVE the cards.** A reference the writer cannot
     ///    see is not a reference, and both of these are lines and labels that
     ///    would otherwise be buried under the very card they point at.
-    /// 4. **The sweep, ABOVE EVERYTHING.** It is transient chrome rather than
-    ///    part of the scene — the only thing drawn here that does not exist in
-    ///    the model — and a sweep the cards drew over would read as being
-    ///    *behind* the canvas. That is not a corner case: a sweep can only
-    ///    START on bare canvas but is dragged freely across whatever is there,
-    ///    so passing over cards is the ordinary case, not the exception.
+    /// 5. **The sweep and the pending line, ABOVE EVERYTHING.** They are
+    ///    transient chrome rather than part of the scene — the only two things
+    ///    drawn here that do not exist in the model — and a sweep the cards drew
+    ///    over would read as being *behind* the canvas. That is not a corner
+    ///    case: a sweep can only START on bare canvas but is dragged freely
+    ///    across whatever is there, so passing over cards is the ordinary case,
+    ///    not the exception. The same is true of a line being pulled from one
+    ///    card to another, which by definition ends over a card.
     ///
     /// Regions draw in CANVAS space, outside any card transform, and that is
     /// exactly right: `cardTransform` is concatenated onto a *local copy* of the
@@ -532,6 +691,7 @@ enum CanvasRenderer {
                      visibleEditorNodeID: CanvasNodeID?,
                      straighten: CanvasFocusStraighten,
                      pendingRegionDraw: CGRect?,
+                     pendingLine: (from: CGPoint, to: CGPoint)?,
                      into cx: inout GraphicsContext) {
         cx.translateBy(x: camera.pan.x, y: camera.pan.y)
         cx.scaleBy(x: camera.zoom, y: camera.zoom)
@@ -542,6 +702,10 @@ enum CanvasRenderer {
 
         for region in visibleRegions(regions, camera: camera, viewSize: viewSize) {
             drawRegion(region, in: scene, isSelected: selection == .region(region.id), on: cx)
+        }
+
+        for line in visibleLines(in: scene, camera: camera, viewSize: viewSize) {
+            drawLine(line, isSelected: selection == .line(line.id), on: cx)
         }
 
         for node in visibleNodes(in: scene, camera: camera, viewSize: viewSize) {
@@ -560,6 +724,69 @@ enum CanvasRenderer {
         }
 
         if let pendingRegionDraw { drawSweep(pendingRegionDraw, on: cx) }
+        if let pendingLine { drawPendingLine(from: pendingLine.from, to: pendingLine.to, on: cx) }
+    }
+
+    /// A line the writer made: a stroke between two card centres, with its label
+    /// on a pill at the midpoint if it has one.
+    ///
+    /// **Selection draws heavier and fully opaque rather than in an accent
+    /// colour.** The canvas already spends its colour budget on the region ring
+    /// and the palette wash (§7.1), and a line is thin enough that weight reads
+    /// faster than hue.
+    ///
+    /// Takes the context BY VALUE, exactly as `drawCard`, `drawRegion`,
+    /// `drawTether` and `drawChip` do — nothing a pass does may leak into the
+    /// next thing drawn.
+    private static func drawLine(_ line: LineGeometry,
+                                 isSelected: Bool,
+                                 on cx: GraphicsContext) {
+        var path = Path()
+        path.move(to: line.from)
+        path.addLine(to: line.to)
+        cx.stroke(path,
+                  with: .color(Color(nsColor: lineStroke)
+                      .opacity(isSelected ? 1 : CanvasMaterial.lineOpacity)),
+                  lineWidth: isSelected ? CanvasMaterial.selectedLineWidth
+                                        : CanvasMaterial.lineWidth)
+
+        // `.null` for an unlabelled line, so an unlabelled one reserves no pill
+        // of empty ground — see `lineLabelBox`.
+        let box = lineLabelBox(for: line)
+        guard let label = line.label, !box.isEmpty else { return }
+        let pill = Path(roundedRect: box, cornerRadius: box.height / 2)
+        cx.fill(pill, with: .color(Color(nsColor: cardPaper)
+            .opacity(CanvasMaterial.lineLabelOpacity)))
+
+        var text = cx.resolve(Text(label)
+            .font(.system(size: CanvasMaterial.lineLabelFontSize)))
+        text.shading = .color(Color(nsColor: .secondaryLabelColor))
+        cx.drawLayer { inner in
+            // Clipped, so a label the per-character estimate under-measured is
+            // truncated rather than spilling onto the ground beside the pill.
+            inner.clip(to: pill)
+            inner.draw(text, at: CGPoint(x: box.midX, y: box.midY), anchor: .center)
+        }
+    }
+
+    /// The line under the pointer, before it is a line.
+    ///
+    /// **Dashed and drawn last**, for the two reasons `drawSweep` is: nothing has
+    /// been made yet, and chrome that the scene draws over stops being chrome.
+    /// A pending line ends under the pointer, which is usually over the card it
+    /// is about to reach, so being drawn over the cards is the ordinary case.
+    ///
+    /// It takes two points rather than reaching into `CanvasInteraction`: the
+    /// renderer knows nothing about gestures, and `pendingRegionDraw: CGRect?`
+    /// is the precedent one parameter over.
+    private static func drawPendingLine(from: CGPoint, to: CGPoint, on cx: GraphicsContext) {
+        var path = Path()
+        path.move(to: from)
+        path.addLine(to: to)
+        cx.stroke(path,
+                  with: .color(Color(nsColor: sweepStroke)),
+                  style: StrokeStyle(lineWidth: CanvasMaterial.pendingLineWidth,
+                                     dash: CanvasMaterial.pendingLineDash))
     }
 
     /// The rectangle the writer is sweeping out, before it is a region.
@@ -758,9 +985,29 @@ enum CanvasRenderer {
 
         // Drawn OVER the kind's own border rather than replacing it, so a
         // selected item node keeps the dashes that say it is a placeholder.
+        //
+        // The two marks below sit adjacent and mean OPPOSITE things, so read the
+        // conditions and not the order. The connect dot is SELECTION chrome —
+        // inside this block, gone the moment the card is deselected — because it
+        // is the discoverable half of a gesture whose fast route (⇧-drag) has no
+        // chrome at all, and a second always-on mark would overstate what §5
+        // calls a thing that "costs nothing to draw and nothing to be wrong
+        // about". The resize triangle two lines below is UNCONDITIONAL and is
+        // this surface's established permanent card chrome. Moving either across
+        // that line is a design change, not a tidy-up.
+        //
+        // Both are drawn inside the card's rotated transform, like everything
+        // else here, so they tilt with the card and straighten with it — a mark
+        // that stayed level while its card leaned would read as chrome belonging
+        // to the canvas rather than to the card.
         if isSelected {
             card.stroke(shape, with: .color(Color(nsColor: CanvasMaterial.regionSelectedStroke)),
                         lineWidth: 2)
+            let mark = connectMarkRect(inCard: frame)
+            if !mark.isEmpty {
+                card.fill(Path(ellipseIn: mark),
+                          with: .color(Color(nsColor: CanvasMaterial.regionSelectedStroke)))
+            }
         }
 
         card.fill(resizeHandle(in: frame),

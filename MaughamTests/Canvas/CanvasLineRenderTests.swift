@@ -1,0 +1,613 @@
+import XCTest
+import SwiftUI
+@testable import Maugham
+
+/// Lines, drawn: the projection to node centres, the viewport cull, the label
+/// pill, the connect mark on the selected card, and the pass order that binds
+/// what is drawn on top to what will take the click.
+///
+/// The raster fixtures follow `CanvasRegionRenderTests`' idiom — render two
+/// scenes differing in exactly ONE model fact and count the pixels that changed.
+/// That is exact, needs no colour threshold, and a control rect asserting *zero*
+/// is a real assertion rather than a rounding allowance.
+final class CanvasLineRenderTests: XCTestCase {
+
+    private let a = CanvasNodeID("a")
+    private let b = CanvasNodeID("b")
+    private let l1 = CanvasLineID("l1")
+
+    /// Two measured cards whose centres are (100, 20) and (540, 60) — so the
+    /// segment's midpoint is (320, 40) and the segment is deliberately NOT
+    /// axis-aligned. The horizontal case has its own fixture, because a
+    /// horizontal fixture here would make every culling assertion depend on the
+    /// hairline inset and there would be nothing left to control it against.
+    private func twoCards() -> CanvasScene {
+        var s = CanvasScene()
+        s.insert(CanvasNode(id: a, kind: .scrap, origin: CGPoint(x: 0, y: 0),
+                            width: 200, cachedHeight: 40))
+        s.insert(CanvasNode(id: b, kind: .scrap, origin: CGPoint(x: 440, y: 40),
+                            width: 200, cachedHeight: 40))
+        return s
+    }
+
+    private func linked(label: String? = nil) -> CanvasScene {
+        var s = twoCards()
+        s.insertLine(CanvasLine(id: l1, from: a, to: b, label: label))
+        return s
+    }
+
+    private let viewport = CGSize(width: 800, height: 600)
+
+    // MARK: - Projection
+
+    func test_lineGeometryResolvesToNodeCentresAndCarriesTheLabel() throws {
+        let geometry = CanvasRenderer.lineGeometry(in: linked(label: "because"))
+        XCTAssertEqual(geometry.count, 1)
+        let line = try XCTUnwrap(geometry.first)
+        XCTAssertEqual(line.id, l1)
+        XCTAssertEqual(line.from, CGPoint(x: 100, y: 20),
+                       "endpoints are node CENTRES — the same reading joinTarget "
+                       + "takes for a drop, so the canvas has one answer to "
+                       + "'where is this card'")
+        XCTAssertEqual(line.to, CGPoint(x: 540, y: 60))
+        XCTAssertEqual(line.label, "because",
+                       "the label travels with the geometry; a projection that "
+                       + "dropped it would draw every line unlabelled")
+    }
+
+    /// An unmeasured node has no frame at all, so drawing to a guessed position
+    /// would twitch the instant the real measurement arrived.
+    func test_linesToUnmeasuredNodesAreNotProjected() {
+        let c = CanvasNodeID("c")
+        var s = linked()
+        s.insert(CanvasNode(id: c, kind: .scrap, origin: CGPoint(x: 900, y: 0),
+                            width: 200, cachedHeight: nil))
+        s.insertLine(CanvasLine(id: CanvasLineID("l2"), from: b, to: c))
+
+        XCTAssertEqual(s.lines.count, 2,
+                       "control: BOTH lines are genuinely in the scene, so the "
+                       + "filter below is not measuring an insert that failed")
+        XCTAssertNil(s.node(c)?.frame, "control: c really is unmeasured")
+        XCTAssertEqual(CanvasRenderer.lineGeometry(in: s).map(\.id), [l1])
+    }
+
+    // MARK: - The label pill
+
+    func test_theLabelBoxIsCentredOnTheSegmentMidpoint() throws {
+        let line = try XCTUnwrap(CanvasRenderer.lineGeometry(in: linked(label: "because")).first)
+        let box = CanvasRenderer.lineLabelBox(for: line)
+        XCTAssertEqual(box.midX, 320, accuracy: 0.001)
+        XCTAssertEqual(box.midY, 40, accuracy: 0.001)
+        XCTAssertGreaterThan(box.width, 0)
+        XCTAssertGreaterThan(box.height, 0)
+    }
+
+    func test_theLabelBoxIsEmptyForAnUnlabelledLine() throws {
+        let bare = try XCTUnwrap(CanvasRenderer.lineGeometry(in: linked()).first)
+        XCTAssertTrue(CanvasRenderer.lineLabelBox(for: bare).isEmpty,
+                      "an unlabelled line reserves a pill of empty ground in the "
+                      + "middle of the segment")
+
+        let named = try XCTUnwrap(CanvasRenderer.lineGeometry(in: linked(label: "because")).first)
+        XCTAssertFalse(CanvasRenderer.lineLabelBox(for: named).isEmpty,
+                       "control: the same geometry WITH a label does reserve one, "
+                       + "so the emptiness above is not lineLabelBox returning "
+                       + "nothing for everything")
+    }
+
+    // MARK: - Culling
+
+    /// Per-frame work on this surface is viewport-proportional by design, and
+    /// lines are the one collection nothing bounds — a writer can draw one for
+    /// every card, so "there are fewer lines than nodes" is not an argument.
+    func test_aLineFarOutsideTheViewportIsCulled() {
+        let far1 = CanvasNodeID("far1"), far2 = CanvasNodeID("far2")
+        var s = linked()
+        s.insert(CanvasNode(id: far1, kind: .scrap, origin: CGPoint(x: 90_000, y: 0),
+                            width: 200, cachedHeight: 40))
+        s.insert(CanvasNode(id: far2, kind: .scrap, origin: CGPoint(x: 90_600, y: 400),
+                            width: 200, cachedHeight: 40))
+        s.insertLine(CanvasLine(id: CanvasLineID("l2"), from: far1, to: far2))
+
+        XCTAssertEqual(CanvasRenderer.lineGeometry(in: s).count, 2,
+                       "control: the unculled projection still sees both, so the "
+                       + "cull below is not hiding a projection failure")
+        XCTAssertEqual(CanvasRenderer.visibleLines(in: s, camera: CanvasCamera(),
+                                                   viewSize: viewport).map(\.id),
+                       [l1])
+    }
+
+    /// **The control the negative test needs.** Every negative result in this
+    /// area needs one that passed — a `visibleLines` that returned `[]` for
+    /// everything satisfies the cull above.
+    func test_aLineInsideTheViewportSurvivesCulling() {
+        XCTAssertEqual(CanvasRenderer.visibleLines(in: linked(), camera: CanvasCamera(),
+                                                   viewSize: viewport).map(\.id),
+                       [l1])
+    }
+
+    /// **The hairline inset in `visibleLines` is not a rounding nicety** — but
+    /// the reason this task was briefed with is wrong on this platform, and the
+    /// assertion is shaped around what was actually measured rather than around
+    /// what was expected.
+    ///
+    /// The brief's premise was "`CGRect.intersects` is FALSE for an empty rect".
+    /// **Measured 2026-07-28 on macOS 26.5, it is not:** `intersects` is false
+    /// only for a NULL rect, and a zero-height box lying across the viewport
+    /// reports `true`. So an assertion on `visibleLines`' output alone stays
+    /// GREEN with the inset deleted, which is precisely the unfalsifiable shape
+    /// this area keeps finding.
+    ///
+    /// What is real is one spelling over: `intersection(viewport)` of that same
+    /// degenerate box is not null and **is empty**, so a tidy-up to
+    /// `!box.intersection(viewport).isEmpty` — which reads as a synonym — culls
+    /// every axis-aligned line on the canvas, and two cards side by side is the
+    /// ordinary case rather than the corner one. The inset removes the question
+    /// by giving the box area, so the assertion that can go red is the one on
+    /// `boundingBox` itself.
+    func test_anAxisAlignedLineIsNotCulledByItsZeroHeightBox() throws {
+        var s = CanvasScene()
+        s.insert(CanvasNode(id: a, kind: .scrap, origin: CGPoint(x: 0, y: 0),
+                            width: 200, cachedHeight: 40))
+        s.insert(CanvasNode(id: b, kind: .scrap, origin: CGPoint(x: 440, y: 0),
+                            width: 200, cachedHeight: 40))
+        s.insertLine(CanvasLine(id: l1, from: a, to: b))
+
+        let line = try XCTUnwrap(CanvasRenderer.lineGeometry(in: s).first)
+        XCTAssertEqual(line.from.y, line.to.y,
+                       "precondition: this fixture is EXACTLY horizontal, which is "
+                       + "what gives its bounding box zero height")
+
+        // The platform's actual behaviour, pinned rather than assumed, because
+        // it is what decides the shape of everything below. If a future macOS
+        // changes either of these, this test says so before the canvas does.
+        let page = CGRect(origin: .zero, size: viewport)
+        let bareBox = CGRect(x: line.from.x, y: line.from.y,
+                             width: line.to.x - line.from.x, height: 0)
+        XCTAssertTrue(bareBox.isEmpty, "precondition: the raw segment box is degenerate")
+        XCTAssertTrue(bareBox.intersects(page),
+                      "measured: CGRect.intersects is false only for a NULL rect, "
+                      + "so an empty box across the viewport reports true. If this "
+                      + "flips, the output assertion below becomes the falsifiable "
+                      + "one and this test can be simplified")
+        XCTAssertTrue(bareBox.intersection(page).isEmpty,
+                      "…and the trap one spelling over: the intersection of that "
+                      + "same box IS empty, so a cull written as "
+                      + "`!box.intersection(viewport).isEmpty` drops every "
+                      + "axis-aligned line on the canvas")
+
+        // The assertion that can actually go red: the inset is what gives the
+        // culled-against box area, and so what makes the cull independent of
+        // which emptiness rule it is spelled with.
+        let culledAgainst = CanvasRenderer.boundingBox(of: line)
+        XCTAssertFalse(culledAgainst.isEmpty,
+                       "visibleLines culls an EMPTY rect for a horizontal line — the "
+                       + "hairline inset has been removed, and the cull now depends "
+                       + "on CGRect's empty-rect semantics being the forgiving ones")
+        XCTAssertFalse(culledAgainst.intersection(page).isEmpty,
+                       "…and its intersection with the viewport is empty too, so the "
+                       + "line survives only by the spelling `intersects` happens to "
+                       + "use")
+
+        XCTAssertEqual(CanvasRenderer.visibleLines(in: s, camera: CanvasCamera(),
+                                                   viewSize: viewport).map(\.id),
+                       [l1],
+                       "a horizontal line between two cards side by side was culled "
+                       + "out of a viewport it runs straight across")
+    }
+
+    // MARK: - The connect mark's geometry
+
+    func test_theConnectHandleSitsOnTheCardsRightEdgeAndInsideIt() {
+        let card = CGRect(x: 100, y: 100, width: 240, height: 80)
+        let handle = CanvasRenderer.connectHandleRect(inCard: card)
+        XCTAssertEqual(handle.maxX, card.maxX, accuracy: 0.001, "on the right edge")
+        XCTAssertEqual(handle.width, CanvasRenderer.connectHandleSize, accuracy: 0.001)
+        XCTAssertEqual(handle.height, CanvasRenderer.connectHandleSize, accuracy: 0.001)
+        XCTAssertEqual(handle.midY, card.midY, accuracy: 0.001, "vertically centred")
+        XCTAssertTrue(card.contains(handle),
+                      "and INSIDE the card: a target hanging over the edge takes "
+                      + "clicks aimed at the ground beside it")
+    }
+
+    /// On a card too short for both, **the corner belongs to resize** — it is
+    /// the permanent mark, and a target that moved depending on the card's
+    /// height would be worse than one that is sometimes absent.
+    func test_theConnectHandleNeverOverlapsTheResizeCorner() {
+        for height in [CGFloat(28), 30, 40, 80, 200] {
+            let card = CGRect(x: 100, y: 100, width: 240, height: height)
+            let handle = CanvasRenderer.connectHandleRect(inCard: card)
+            let resize = CGRect(x: card.maxX - CanvasRenderer.resizeHandleSize,
+                                y: card.maxY - CanvasRenderer.resizeHandleSize,
+                                width: CanvasRenderer.resizeHandleSize,
+                                height: CanvasRenderer.resizeHandleSize)
+
+            XCTAssertFalse(handle.isEmpty,
+                           "a \(height) pt card has room for both marks and got no "
+                           + "connect handle at all")
+            XCTAssertFalse(handle.intersects(resize),
+                           "at height \(height) the connect handle \(handle) overlaps "
+                           + "the resize corner \(resize) — one gesture would take "
+                           + "the other's clicks")
+            XCTAssertTrue(card.contains(handle),
+                          "at height \(height) the clamp pushed the handle outside "
+                          + "the card")
+        }
+
+        let tooShort = CGRect(x: 100, y: 100, width: 240, height: 20)
+        XCTAssertTrue(CanvasRenderer.connectHandleRect(inCard: tooShort).isEmpty,
+                      "a card too short for both marks must YIELD the corner to "
+                      + "resize rather than move the connect target somewhere the "
+                      + "writer has to hunt for it")
+    }
+
+    /// The target may be larger than the mark, and should be — the reason
+    /// `CanvasInteractionTests.test_theUnmarkedHalfOfTheCornerSquareStillResizes`
+    /// exists. A target slightly larger than its ink forgives a near miss, where
+    /// the reverse swallows drags the writer aimed at the card.
+    func test_theConnectHandleAndItsMarkComeFromOneConstant() {
+        let card = CGRect(x: 100, y: 100, width: 240, height: 80)
+        let target = CanvasRenderer.connectHandleRect(inCard: card)
+        let mark = CanvasRenderer.connectMarkRect(inCard: card)
+
+        XCTAssertTrue(target.contains(mark),
+                      "the mark \(mark) is not inside its target \(target) — a "
+                      + "target smaller than its own ink swallows drags the writer "
+                      + "aimed at the card")
+        XCTAssertLessThan(mark.width, target.width,
+                          "…and STRICTLY inside, so a near miss is forgiven")
+        XCTAssertEqual(mark.midX, target.midX, accuracy: 0.001)
+        XCTAssertEqual(mark.midY, target.midY, accuracy: 0.001)
+        XCTAssertEqual(mark.width, CanvasMaterial.connectMarkDiameter, accuracy: 0.001)
+        XCTAssertTrue(CanvasRenderer.connectMarkRect(
+            inCard: CGRect(x: 100, y: 100, width: 240, height: 20)).isEmpty,
+                      "the mark must yield with its target, or a card too short for "
+                      + "the gesture still advertises it")
+    }
+
+    // MARK: - Drawn output, rasterised
+
+    /// The line, actually drawn. The two scenes differ only in whether the line
+    /// is in the model; every pixel that changes is the line.
+    @MainActor
+    func test_aLineIsActuallyDrawnBetweenItsTwoCards() throws {
+        let size = CGSize(width: 700, height: 250)
+        let withLine = try render(scene: linked(), size: size)
+        let without = try render(scene: twoCards(), size: size)
+
+        // The segment runs (100, 20) → (540, 60); this window straddles its
+        // midpoint and is clear of both cards.
+        let midpointBand = CGRect(x: 310, y: 34, width: 20, height: 12)
+        XCTAssertGreaterThan(withLine.differingPixels(from: without, in: midpointBand), 0,
+                             "no ink appeared at the segment's own midpoint — the "
+                             + "line is projected and never drawn")
+        XCTAssertGreaterThan(withLine.differingPixels(from: without,
+                                                      in: CGRect(origin: .zero, size: size)),
+                             100,
+                             "a handful of pixels changed over the whole page: that "
+                             + "is a speck, not a line four hundred points long")
+        XCTAssertEqual(withLine.differingPixels(from: without,
+                                                in: CGRect(x: 300, y: 150,
+                                                           width: 100, height: 40)),
+                       0,
+                       "control: pixels changed far from the segment, so the count "
+                       + "above is not measuring the whole page shifting")
+    }
+
+    /// **Heavier and fully opaque rather than an accent colour.** The canvas
+    /// already spends its colour budget on the region ring and the palette wash
+    /// (§7.1), and a line is thin enough that weight reads faster than hue.
+    @MainActor
+    func test_aSelectedLineDrawsHeavierThanAnUnselectedOne() throws {
+        let size = CGSize(width: 700, height: 250)
+        let none = try render(scene: twoCards(), size: size)
+        let plain = try render(scene: linked(), size: size)
+        let picked = try render(scene: linked(), size: size, selection: .line(l1))
+
+        // The card-free stretch between the two cards (a ends at x 200, b starts
+        // at x 440), so every changed pixel here is line and nothing else.
+        let run = CGRect(x: 210, y: 24, width: 220, height: 32)
+        let plainInk = plain.differingPixels(from: none, in: run)
+        let pickedInk = picked.differingPixels(from: none, in: run)
+
+        XCTAssertGreaterThan(plainInk, 0,
+                             "control: the UNSELECTED line is drawn at all — without "
+                             + "this, a selected-only line satisfies the comparison "
+                             + "below")
+        XCTAssertGreaterThan(pickedInk, plainInk,
+                             "the selected line inks \(pickedInk) pixels against the "
+                             + "unselected line's \(plainInk) — selection is modelled "
+                             + "and not drawn, so the writer cannot see which line "
+                             + "⌫ is about to take")
+    }
+
+    /// **The pass-order assertion, and what binds the draw order to Task 5's
+    /// click order.** The thing drawn on top takes the click, so "above the
+    /// region" has to mean above the WHOLE region pass — its wash, its chrome
+    /// bar and its resize triangle — and not merely above the wash.
+    ///
+    /// **A `differingPixels > 0` assertion cannot say this**, and that is why
+    /// this test is shaped the way it is. Every part of a region is drawn
+    /// TRANSLUCENT (the wash at alpha 0.07–0.09, the resize triangle in a 0.30
+    /// stroke colour), so a line drawn UNDERNEATH still shows through and still
+    /// changes the pixel: the obvious version of this test passes under the
+    /// exact defect it names.
+    ///
+    /// So it asks the question exactly instead. The line is rendered SELECTED,
+    /// which is fully opaque, and each sample sits on a pixel row the 3 pt
+    /// stroke covers completely. An opaque line drawn above the region composites
+    /// to its own colour whatever is beneath — so its pixel over the region must
+    /// be BYTE-IDENTICAL to its pixel over bare ground. Drawn beneath, the
+    /// region tints it and the two differ. No threshold, and it goes red the
+    /// moment the line pass moves after the region loop.
+    @MainActor
+    func test_theLineDrawsBeneathTheCardsAndAboveEveryPartOfTheRegion() throws {
+        let size = CGSize(width: 700, height: 500)
+        let s = crossingScene()
+        var noRegion = s
+        noRegion.removeRegion(regionID)
+
+        // Region (100, 100)–(500, 400): chrome bar y 100–124, resize corner
+        // square (486, 386)–(500, 400) whose inked triangle is y + x >= 886.
+        let parts: [(CanvasLineID, CGPoint, CGPoint, String)] = [
+            (chromeLine, CGPoint(x: 300.5, y: 112.5), CGPoint(x: 300.5, y: 106.5), "chrome bar"),
+            (washLine, CGPoint(x: 200.5, y: 250.5), CGPoint(x: 200.5, y: 260.5), "wash"),
+            (cornerLine, CGPoint(x: 496.5, y: 396.5), CGPoint(x: 496.5, y: 392.5), "resize triangle")
+        ]
+
+        for (line, onTheLine, beside, part) in parts {
+            let over = try render(scene: s, size: size, selection: .line(line))
+            let bare = try render(scene: noRegion, size: size, selection: .line(line))
+
+            XCTAssertNotEqual(over.color(at: beside), bare.color(at: beside),
+                              "control: the region's \(part) is not being drawn at "
+                              + "\(beside) at all, so the equality below would hold "
+                              + "over two identical pages")
+            XCTAssertEqual(over.color(at: onTheLine), bare.color(at: onTheLine),
+                           "the opaque line's own pixel over the region's \(part) is "
+                           + "\(over.color(at: onTheLine)) but over bare ground is "
+                           + "\(bare.color(at: onTheLine)) — the \(part) is painting "
+                           + "over the line, i.e. lines are drawn UNDER part of the "
+                           + "region pass. Above the WHOLE region pass is one rule, "
+                           + "and Task 5 hit-tests in the same order")
+        }
+
+        // …and BENEATH the cards. A line's job is to connect cards, and a line
+        // crossing over one reads as damage.
+        var noLines = s
+        noLines.removeLine(chromeLine)
+        noLines.removeLine(washLine)
+        noLines.removeLine(cornerLine)
+        let withLines = try render(scene: s, size: size)
+        let without = try render(scene: noLines, size: size)
+
+        // The wash line runs at y = 250, straight through the middle card at
+        // (310, 230)–(370, 270). Sampled well inside it, so the ~1° seeded tilt
+        // cannot move an edge into the window.
+        XCTAssertEqual(withLines.differingPixels(from: without,
+                                                 in: CGRect(x: 322, y: 242,
+                                                            width: 36, height: 16)),
+                       0,
+                       "the line changed pixels INSIDE a card it runs under — lines "
+                       + "are drawn over the cards, and every card the writer draws "
+                       + "through is cut in half by its own line")
+        XCTAssertGreaterThan(withLines.differingPixels(from: without,
+                                                       in: CGRect(x: 380, y: 244,
+                                                                  width: 30, height: 12)),
+                             0,
+                             "control: the same line, just past that card's right "
+                             + "edge, really does ink — so the zero above is a line "
+                             + "passing under a card and not a line that was never "
+                             + "drawn")
+    }
+
+    /// Dashed, so an in-progress line never reads as one that exists — the same
+    /// signal `drawSweep` uses for the same reason.
+    @MainActor
+    func test_thePendingLineIsDashedAndTheFinishedOneIsNot() throws {
+        let size = CGSize(width: 700, height: 400)
+        var bare = CanvasScene()
+        bare.insert(CanvasNode(id: a, kind: .scrap, origin: CGPoint(x: 0, y: 180),
+                               width: 200, cachedHeight: 40))
+        bare.insert(CanvasNode(id: b, kind: .scrap, origin: CGPoint(x: 440, y: 180),
+                               width: 200, cachedHeight: 40))
+        var finished = bare
+        finished.insertLine(CanvasLine(id: l1, from: a, to: b))
+
+        let blank = try render(scene: bare, size: size)
+        let solid = try render(scene: finished, size: size)
+        let pending = try render(scene: bare, size: size,
+                                 pendingLine: (CGPoint(x: 100, y: 200),
+                                               CGPoint(x: 540, y: 200)))
+
+        // A one-pixel row along the segment, in the card-free stretch between the
+        // two cards. A solid line inks every column of it; a dash pattern inks
+        // some fraction.
+        let run = CGRect(x: 210, y: 200, width: 220, height: 1)
+        let solidInk = solid.differingPixels(from: blank, in: run)
+        let pendingInk = pending.differingPixels(from: blank, in: run)
+
+        XCTAssertGreaterThan(pendingInk, Int(run.width * 0.25),
+                             "\(pendingInk) of \(Int(run.width)) columns under the "
+                             + "pointer carry ink — that is not a line at all, and a "
+                             + "drag that is drawing a line looks exactly like a drag "
+                             + "doing nothing")
+        XCTAssertGreaterThan(solidInk, Int(run.width * 0.9),
+                             "control: the FINISHED line inks \(solidInk) of "
+                             + "\(Int(run.width)) columns, so the comparison below is "
+                             + "against a genuinely solid line")
+        XCTAssertLessThan(pendingInk, Int(run.width * 0.9),
+                          "\(pendingInk) of \(Int(run.width)) columns are inked, i.e. "
+                          + "the pending line is SOLID — which is what a line looks "
+                          + "like once it exists, so the writer is shown a line that "
+                          + "is not there yet")
+    }
+
+    /// **The connect mark is drawn on the SELECTED card**, and that is the
+    /// discoverable half of the gesture — ⇧-drag has no chrome and nobody
+    /// explores by holding a modifier.
+    ///
+    /// The positive half is what catches the permanent-chrome defect, and it is
+    /// worth saying which way round: a mark drawn on every card would be in BOTH
+    /// renders, so selecting the card would change nothing in its own handle rect
+    /// and the `> 0` below goes red. The `== 0` on the other card catches the
+    /// remaining shape — selecting one card marking them all.
+    ///
+    /// The sampled window stops 6 pt short of the card's right edge, clear of the
+    /// 2 pt selection stroke and of the ~1.8 pt the seeded tilt swings that edge
+    /// by; otherwise the stroke alone would satisfy the assertion.
+    @MainActor
+    func test_theConnectMarkIsDrawnOnlyOnTheSelectedCard() throws {
+        let size = CGSize(width: 700, height: 250)
+        let s = twoCards()
+        let unselected = try render(scene: s, size: size)
+        let selected = try render(scene: s, size: size, selection: .node(a))
+
+        let cardA = try XCTUnwrap(s.node(a)?.frame)
+        let cardB = try XCTUnwrap(s.node(b)?.frame)
+        let handleA = CanvasRenderer.connectHandleRect(inCard: cardA)
+        let inkOnly = CGRect(x: handleA.minX, y: handleA.minY + 2,
+                             width: handleA.width - 6, height: handleA.height - 4)
+
+        XCTAssertGreaterThan(selected.differingPixels(from: unselected, in: inkOnly), 0,
+                             "selecting a card draws no connect mark on it — either "
+                             + "the mark is never drawn, or it is permanent chrome on "
+                             + "every card and so was already there before the click")
+        XCTAssertEqual(selected.differingPixels(from: unselected,
+                                                in: CanvasRenderer.connectHandleRect(inCard: cardB)),
+                       0,
+                       "selecting one card put a connect mark on the other one too")
+    }
+
+    // MARK: - The crossing fixture
+
+    private let regionID = CanvasRegionID("r1")
+    private let chromeLine = CanvasLineID("chrome")
+    private let washLine = CanvasLineID("wash")
+    private let cornerLine = CanvasLineID("corner")
+
+    /// A region at (100, 100)–(500, 400) and three horizontal lines crossing it
+    /// at the heights of its three drawn parts, each strung between a pair of
+    /// cards parked outside the region on either side.
+    ///
+    /// Horizontal on purpose: a 3 pt stroke on an exact integer y covers whole
+    /// pixel rows, which is what lets the assertions above compare bytes rather
+    /// than tolerances. One more card sits astride the middle line, for the
+    /// beneath-the-cards half.
+    private func crossingScene() -> CanvasScene {
+        var s = CanvasScene()
+        s.insertRegion(CanvasRegion(id: regionID, label: "Act II fog",
+                                    frame: CGRect(x: 100, y: 100, width: 400, height: 300)))
+
+        func card(_ id: CanvasNodeID, centre: CGPoint) {
+            s.insert(CanvasNode(id: id, kind: .scrap,
+                                origin: CGPoint(x: centre.x - 30, y: centre.y - 20),
+                                width: 60, cachedHeight: 40))
+        }
+        let ends: [(CanvasLineID, CGFloat)] = [(chromeLine, 112), (washLine, 250),
+                                               (cornerLine, 396)]
+        for (line, y) in ends {
+            let left = CanvasNodeID("\(line.raw)L"), right = CanvasNodeID("\(line.raw)R")
+            card(left, centre: CGPoint(x: 60, y: y))
+            card(right, centre: CGPoint(x: 560, y: y))
+            s.insertLine(CanvasLine(id: line, from: left, to: right))
+        }
+        card(CanvasNodeID("middle"), centre: CGPoint(x: 340, y: 250))
+        return s
+    }
+
+    // MARK: - Rasterisation helper
+
+    /// Mirrors `CanvasRegionRenderTests`' own `Page` — same bitmap layout, same
+    /// byte order, same reasoning.
+    private struct Page {
+        let bytes: [UInt8]
+        let bytesPerRow: Int
+        let width: Int
+        let height: Int
+
+        /// R, G, B at `point`, in 0–1. The context is `premultipliedFirst` with
+        /// the default byte order, so the bytes run A, R, G, B. A point outside
+        /// the page returns a sentinel no rendered pixel can equal, so an
+        /// off-page read can never pass an equality assertion by accident.
+        func color(at point: CGPoint) -> SIMD3<Double> {
+            let x = Int(point.x), y = Int(point.y)
+            guard (0..<width).contains(x), (0..<height).contains(y) else {
+                return SIMD3<Double>(-1, -1, -1)
+            }
+            let o = y * bytesPerRow + x * 4
+            return SIMD3<Double>(Double(bytes[o + 1]) / 255,
+                                 Double(bytes[o + 2]) / 255,
+                                 Double(bytes[o + 3]) / 255)
+        }
+
+        func differingPixels(from other: Page, in rect: CGRect) -> Int {
+            var count = 0
+            for y in Int(rect.minY)..<Int(rect.maxY) {
+                for x in Int(rect.minX)..<Int(rect.maxX) {
+                    let p = CGPoint(x: Double(x) + 0.5, y: Double(y) + 0.5)
+                    if color(at: p) != other.color(at: p) { count += 1 }
+                }
+            }
+            return count
+        }
+    }
+
+    @MainActor
+    private func render(scene: CanvasScene,
+                        size: CGSize,
+                        selection: CanvasSelection? = nil,
+                        pendingLine: (from: CGPoint, to: CGPoint)? = nil,
+                        scheme: ColorScheme = .light,
+                        backing: NSColor? = nil) throws -> Page {
+        try Self.render(size: size, scheme: scheme, backing: backing) { cx in
+            CanvasRenderer.draw(scene: scene, camera: CanvasCamera(), viewSize: size,
+                                layouts: [:], scraps: [:], selection: selection,
+                                visibleEditorNodeID: nil,
+                                straighten: CanvasFocusStraighten(),
+                                pendingRegionDraw: nil,
+                                pendingLine: pendingLine, into: &cx)
+        }
+    }
+
+    /// Render a `Canvas` draw closure at scale 1 and read its pixels.
+    ///
+    /// The colour scheme is PINNED rather than inherited: this test process runs
+    /// under DarkAqua, so an unpinned dynamic `NSColor` resolves dark inside a
+    /// light render — which is how a white-bitmap ink test came to measure zero
+    /// ink and pass everywhere except a dark-mode Mac. The backing is resolved
+    /// under the matching appearance for the same reason.
+    @MainActor
+    private static func render(size: CGSize,
+                               scheme: ColorScheme,
+                               backing: NSColor?,
+                               _ draw: @escaping (inout GraphicsContext) -> Void) throws -> Page {
+        let renderer = ImageRenderer(
+            content: Canvas { cx, _ in draw(&cx) }
+                .frame(width: size.width, height: size.height)
+                .environment(\.colorScheme, scheme))
+        renderer.scale = 1
+        let image = try XCTUnwrap(renderer.cgImage, "ImageRenderer produced no image")
+
+        let w = image.width, h = image.height
+        let ctx = try XCTUnwrap(CGContext(data: nil, width: w, height: h, bitsPerComponent: 8,
+                                          bytesPerRow: w * 4,
+                                          space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue))
+        var backingColor: CGColor?
+        NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)!
+            .performAsCurrentDrawingAppearance {
+                backingColor = (backing ?? CanvasRenderer.cardPaper)
+                    .usingColorSpace(.sRGB)?.cgColor
+            }
+        ctx.setFillColor(try XCTUnwrap(backingColor, "could not resolve the page backing"))
+        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+
+        let count = ctx.bytesPerRow * h
+        let bytes = Array(UnsafeBufferPointer(start: ctx.data!.bindMemory(to: UInt8.self,
+                                                                         capacity: count),
+                                              count: count))
+        return Page(bytes: bytes, bytesPerRow: ctx.bytesPerRow, width: w, height: h)
+    }
+}

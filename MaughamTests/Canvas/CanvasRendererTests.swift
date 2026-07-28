@@ -633,7 +633,7 @@ final class CanvasRendererTests: XCTestCase {
                                 scraps: [:], selection: nil,
                                 visibleEditorNodeID: nil,
                                 straighten: CanvasFocusStraighten(),
-                                pendingRegionDraw: nil, into: &cx)
+                                pendingRegionDraw: nil, pendingLine: nil, into: &cx)
         }
 
         let inkRows = page.inkRows(0..<Int(viewSize.height),
@@ -696,7 +696,7 @@ final class CanvasRendererTests: XCTestCase {
                                     scraps: [:], selection: nil,
                                     visibleEditorNodeID: visibleEditor,
                                     straighten: CanvasFocusStraighten(),
-                                    pendingRegionDraw: nil, into: &cx)
+                                    pendingRegionDraw: nil, pendingLine: nil, into: &cx)
             }
             return page.inkPixels(rows: Int(frame.minY)..<Int(frame.maxY),
                                   columns: Self.textColumns(inCard: frame))
@@ -727,7 +727,7 @@ final class CanvasRendererTests: XCTestCase {
                                     scraps: [:], selection: nil,
                                     visibleEditorNodeID: id,
                                     straighten: CanvasFocusStraighten(),
-                                    pendingRegionDraw: nil, into: &cx)
+                                    pendingRegionDraw: nil, pendingLine: nil, into: &cx)
             }
         }
         let drawn = try page(scene: scene)
@@ -783,7 +783,7 @@ final class CanvasRendererTests: XCTestCase {
                                     scraps: [:], selection: nil,
                                     visibleEditorNodeID: nil,
                                     straighten: CanvasFocusStraighten(),
-                                    pendingRegionDraw: nil, into: &cx)
+                                    pendingRegionDraw: nil, pendingLine: nil, into: &cx)
             }, frame)
         }
         let (item, frame) = try page(.item(referenceId: "r-9"))
