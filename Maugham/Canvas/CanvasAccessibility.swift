@@ -81,6 +81,13 @@ enum CanvasAccessibility {
     static let emptyCanvasValue = "Empty canvas. Double-click to add a scrap."
     static let emptyScrapValue = "Empty scrap"
 
+    /// What a region announces itself as, before its name. Internal so the tests
+    /// assert against the same word production ships rather than a literal that
+    /// can drift away from it — and named separately from `CanvasAXRole.region`
+    /// because that enum is a test-visible classification and this is prose an
+    /// assistive client reads aloud.
+    static let regionKind = "Region"
+
     /// Cards within this many points of each other vertically read as one row.
     ///
     /// Internal rather than private so the reading-order tests can express their
@@ -102,14 +109,25 @@ enum CanvasAccessibility {
             let residents = CanvasMembership.residents(of: region.id, in: scene).count
             return CanvasAXElement(
                 id: .region(region.id), role: .region,
-                // The collapsed state rides in the LABEL: the value is the card
-                // count either way, so without this a collapsed region and an
+                // **The kind rides in the LABEL, because `role` never reaches an
+                // assistive client.** `CanvasAXChildren` publishes label and
+                // value and nothing else — `CanvasAXRole` is computed here and
+                // read only by these tests — so a region announced as
+                // "Act II fog, 3 cards" says what it is called and never says
+                // what it is, beside a scrap that opens with "Scrap" and an item
+                // node that opens with "Reference". §7A.6 calls this tree
+                // non-optional in a writing tool, and a primitive the writer can
+                // see and the VoiceOver user cannot name is exactly what it
+                // exists to prevent.
+                //
+                // The collapsed state rides there too: the value is the card
+                // count either way, so without it a collapsed region and an
                 // expanded one holding the same cards read out identically —
                 // and collapse is the one thing about a region a VoiceOver user
                 // cannot otherwise discover, because its cards have left the
                 // tree entirely.
-                label: region.isCollapsed ? "\(region.displayLabel), collapsed"
-                                          : region.displayLabel,
+                label: region.isCollapsed ? "\(regionKind), \(region.displayLabel), collapsed"
+                                          : "\(regionKind), \(region.displayLabel)",
                 value: region.isCollapsed
                     ? CanvasRenderer.collapsedSummary(for: region.id, in: scene)
                     : "\(residents) \(residents == 1 ? "card" : "cards")",

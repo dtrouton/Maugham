@@ -694,8 +694,18 @@ final class RegionBindingTests: XCTestCase {
     ///
     /// Both directions. A membership change that does NOT bump the counter must
     /// not appear — that is the gate doing its job; and one that DOES bump it
-    /// must, or the gate has frozen the list. Every production path that changes
-    /// membership bumps: a drop at `.ended`, and every commit on this inspector.
+    /// must, or the gate has frozen the list.
+    ///
+    /// **This test drives the bump BY HAND, so it pins the gate and is
+    /// structurally incapable of seeing its own premise.** That premise — that
+    /// every production path which changes membership really does bump
+    /// `CanvasModel.sceneRevision` — used to be asserted here in prose, and was
+    /// false: the drop at `handleDrag(.ended)` bumped `CanvasView`'s own `@State`
+    /// copy, the mirror runs model → view and never back, and so the inspector
+    /// went stale on a card the canvas had already drawn inside the region. Do
+    /// not add a hand-driven "drop" case here to cover it; the test that can see
+    /// it drops a real card through the real event view, and it is
+    /// `CanvasViewMountingTests.test_aDropIntoARegionReachesThatRegionsInspector`.
     func test_theMemberListsAreRebuiltOnlyOnAStructuralChange() {
         let m = model()
         m.withScene { CanvasMembership.join(self.a, home: self.r1, in: &$0) }

@@ -196,18 +196,37 @@ struct RegionInspector: View {
         // in `MemberRows` for that reason — a second cache with a second key is
         // how a control comes to offer a card that is already listed above it.
         //
-        // `sceneRevision` exists for this, and membership cannot change except
-        // at a structural boundary — a drop bumps it at `.ended`, and every
-        // inspector commit bumps it too. `regionID` is the second key because
-        // selecting a DIFFERENT region is not a structural change and would
-        // otherwise leave the previous region's members on screen.
+        // `CanvasModel.sceneRevision` exists for this, and membership cannot
+        // change except at a structural boundary. **The counter this gate reads
+        // is the MODEL's**, which is the only one the other column can reach —
+        // `CanvasView` keeps a `@State` mirror of it for the accessibility tree
+        // and writes that mirror in exactly one place. A structural change on the
+        // canvas that bumped only the view's copy would leave these lists frozen:
+        // the drop-to-join at `handleDrag(.ended)` shipped that way for one
+        // commit, and the writer met "No cards live in this region yet" over a
+        // card the canvas had already drawn inside the region, with that same
+        // card still offered below under "Cite a Card" — where choosing it did
+        // nothing, because `cite` guards on `!region.mentions(node)`.
+        // `CanvasViewMountingTests.test_aDropIntoTheSelectedRegionReachesItsInspector`
+        // is the premise test; the gate itself is pinned in `RegionBindingTests`.
+        //
+        // `regionID` is the second key because selecting a DIFFERENT region is
+        // not a structural change and would otherwise leave the previous
+        // region's members on screen.
         //
         // **What goes stale in exchange, on the record:** a row's title is the
         // first line of its scrap, so typing into a card that is a member of the
         // selected region leaves that row's title showing the text as of the last
-        // structural bump. It refreshes when the writer leaves the scrap, which
-        // is itself a bump (`commitActiveEdit`). Membership, which is what these
-        // lists are actually for, cannot go stale at all.
+        // structural bump. It refreshes when the writer leaves the scrap —
+        // `CanvasView.commitActiveEdit` bumps the model's counter, so that claim
+        // is about the counter this gate actually reads, and
+        // `CanvasViewMountingTests.test_leavingAScrapRefreshesTheRegionInspectorItIsSittingBeside`
+        // is what makes it a claim rather than a hope. (It was neither for one
+        // commit: that bump went to the view's copy, and a writer moving card to
+        // card by DOUBLE-click — which never reassigns `selection`, so this
+        // inspector and its cached rows survive the lot — watched the titles
+        // freeze where they stood when the region was selected.) Membership,
+        // which is what these lists are actually for, cannot go stale at all.
         .onChange(of: currentRowsKey, initial: true) { _, _ in
             memberRows = refreshedRows(from: memberRows)
         }

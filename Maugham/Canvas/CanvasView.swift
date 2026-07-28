@@ -86,19 +86,27 @@ struct CanvasView: View {
     /// scene-proportional may key off it — see `sceneRevision`.
     @State private var revision = 0
 
-    /// The STRUCTURAL counter: bumped only when the shape or content of the
-    /// scene changes — load, create, DELETE, undo, the end of a drag or resize,
+    /// The STRUCTURAL counter: moved only when the shape or content of the
+    /// scene changes — load, create, delete, undo, the end of a drag or resize,
     /// a coast ending (at rest, or truncated by a press), and leaving a scrap.
     /// Task 14's accessibility tree is rebuilt from this and never from
     /// `revision`, which every frame of every straighten, coast and drag
     /// increments.
     ///
-    /// **Deletion joined that list in 1C-b**, and this doc twice said the
-    /// opposite before it did. 1C-a built `CanvasScene.remove`, its inverse and
-    /// the "Delete Scrap" undo step and shipped no production caller for any of
-    /// them: no key, no menu item, no gesture. `deleteSelection()` is that
-    /// caller, and its bump arrives through the model's counter and the mirror
-    /// in `body` rather than from `rebuildLayouts` — see the comment there.
+    /// **This copy is written in exactly ONE place: the mirror in `body`.**
+    /// Nothing on this view bumps it directly any more, and that is the point —
+    /// `CanvasModel.sceneRevision` is the one counter, and the right-hand
+    /// column's region inspector reads *that* one. A view-side bump would move
+    /// the accessibility tree and leave the inspector showing the membership as
+    /// of the last edit made from the other column: the drop-to-join at
+    /// `handleDrag(.ended)` shipped that way, and the writer met a region that
+    /// still said "No cards live in this region yet" over a card the canvas had
+    /// already drawn inside it, with the same card still offered under "Cite a
+    /// Card" where choosing it did nothing at all.
+    ///
+    /// It keeps its name and its home here because
+    /// `CanvasAccessibilityTests.test_theTreeIsBuiltOnChangeRatherThanInsideBody`
+    /// slices this file as text for `.onChange(of: sceneRevision`.
     @State private var sceneRevision = 0
 
     /// The synthetic accessibility tree — spec §7A.6's "AX layer mirroring the
@@ -235,10 +243,10 @@ struct CanvasView: View {
                             model.scheduleSave()
                             // *** The card has come to rest somewhere new, so the
                             // accessibility tree's frames are stale. KEEP THIS. ***
-                            // Bumped here and not once per coasting frame:
-                            // `sceneRevision` is the STRUCTURAL counter and a
-                            // coast is one structural change, at its end.
-                            sceneRevision += 1
+                            // Bumped here and not once per coasting frame: this is
+                            // the STRUCTURAL counter and a coast is one structural
+                            // change, at its end.
+                            model.bumpSceneRevision()
                         }
                     }
                     revision += 1
@@ -509,10 +517,12 @@ struct CanvasView: View {
     ///
     /// `bumpsStructuralCounter` is `false` for the two callers that have a bump
     /// arriving by another route — the undo apply and `deleteSelection()`, both
-    /// of which bump the MODEL's counter, which reaches this view through the
-    /// mirror in `body`. Every other caller has changed the shape of the scene
-    /// with nothing else about to say so. The test that catches a mirror which
-    /// stops delivering is
+    /// of which bump the model's counter on their own line. Every other caller
+    /// has changed the shape of the scene with nothing else about to say so.
+    /// **Keeping the suppression is what makes one ⌫ or one ⌘Z rebuild the
+    /// accessibility tree once rather than twice**, and a writer holding ⌘Z pays
+    /// a scene sort and a copy of every scrap's string per step.
+    /// The test that catches a mirror which stops delivering is
     /// `CanvasViewMountingTests.test_backspaceDeletesTheSelectedScrapThroughTheRealResponderChain`,
     /// which asks the published accessibility tree whether the deleted card has
     /// left it.
@@ -546,10 +556,10 @@ struct CanvasView: View {
         layouts = layouts.filter { model.scene.node($0.key) != nil }
         revision += 1
         // Every caller of this — load, create, resize-end, undo — has changed the
-        // shape of the scene, so the accessibility tree is stale. Undo is the one
-        // that has the model's mirror to deliver the bump instead; see the
+        // shape of the scene, so the accessibility tree is stale. Undo and delete
+        // are the two that bump the model's counter themselves; see the
         // parameter's doc above.
-        if bumpsStructuralCounter { sceneRevision += 1 }
+        if bumpsStructuralCounter { model.bumpSceneRevision() }
     }
 
     /// Re-derive ONE scrap's height from its live layout, for the resize path.
@@ -675,7 +685,7 @@ struct CanvasView: View {
         syncActiveEdit()
         model.endGesture()
         lastKeystrokeAt = nil
-        if editingNodeID != nil { sceneRevision += 1 }
+        if editingNodeID != nil { model.bumpSceneRevision() }
     }
 
     // MARK: - Clicks
@@ -985,7 +995,7 @@ struct CanvasView: View {
             // reads 40 against a card drawn at 64 without it.
             let wasCoasting = !momentum.isAtRest
             momentum.stop()
-            if wasCoasting { sceneRevision += 1 }
+            if wasCoasting { model.bumpSceneRevision() }
             // A focused scrap owns its own mouse, so a drag can only start on an
             // unfocused card. `onClick` has already run for this same mouse-down
             // (`CanvasEventNSView.applyMouseDown` pins that order), so this sees
@@ -1034,6 +1044,11 @@ struct CanvasView: View {
             let movedNode = interaction.kind == .movingNode ? interaction.activeNodeID : nil
             let flick = interaction.end()
 
+            // Whether the sweep actually minted a region, read below. A sweep
+            // that minted nothing changed no part of the scene, and it must not
+            // be mistaken for one that did — see the bump in the `else` branch.
+            var mintedRegion = false
+
             if let drawnRegion {
                 // A sweep under `minimumSide` mints nothing — which is what
                 // every single click on bare canvas is, since `applyMouseDown`
@@ -1041,6 +1056,7 @@ struct CanvasView: View {
                 model.withScene(persist: false) {
                     if let id = CanvasInteraction.createRegion(drawnRegion, in: &$0) {
                         model.selection = .region(id)
+                        mintedRegion = true
                     }
                 }
             } else if let movedNode, interaction.hasMoved {
@@ -1107,12 +1123,27 @@ struct CanvasView: View {
                 // moved, so `endGesture` registers no step.
                 model.endGesture()
                 guard interaction.hasMoved else { return }
-                // *** KEEP THIS. *** A move is one structural change, recorded at
-                // the END of the gesture rather than once per drag frame, and the
-                // accessibility tree is rebuilt from this counter alone. If the
-                // card is about to coast, the timeline bumps it again when the
+                // *** KEEP THIS, AND KEEP ITS GUARD. *** A move is one structural
+                // change, recorded at the END of the gesture rather than once per
+                // drag frame, and both the accessibility tree and the region
+                // inspector's member lists are rebuilt from this counter alone. If
+                // the card is about to coast, the timeline bumps it again when the
                 // coast comes to rest.
-                sceneRevision += 1
+                //
+                // The guard is the sweep that minted nothing. `hasMoved` asks
+                // whether the pointer left the press point, and on a trackpad a
+                // press that drifted one point takes it — so on bare canvas that
+                // is MOST clicks, since `applyMouseDown` opens a drag session on
+                // every mouse-down and `createRegion` refuses anything under
+                // `CanvasRegionMetrics.minimumSide`. Bumping there sorts the whole
+                // scene and copies every scrap's string to rebuild a tree for a
+                // scene that did not change, and rebuilds the inspector's lists
+                // beside it, once per click on nothing.
+                //
+                // `drawnRegion == nil` is the other half of the same question and
+                // not a second rule: outside a sweep, `hasMoved` and a live
+                // interaction together mean a card or a region really moved.
+                if drawnRegion == nil || mintedRegion { model.bumpSceneRevision() }
                 if let flick { momentum.launch(flick.id, velocity: flick.velocity) }
             }
             model.scheduleSave()

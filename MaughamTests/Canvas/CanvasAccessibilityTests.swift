@@ -134,16 +134,51 @@ final class CanvasAccessibilityTests: XCTestCase {
                                     frame: CGRect(x: 0, y: 0, width: 600, height: 400)))
         let elements = CanvasAccessibility.elements(scene: s, scraps: [:])
         XCTAssertEqual(elements.first?.role, .region)
-        XCTAssertEqual(elements.first?.label, "Act II fog")
+        XCTAssertEqual(elements.first?.label,
+                       "\(CanvasAccessibility.regionKind), Act II fog")
         XCTAssertEqual(elements.count, 2)
+    }
+
+    /// **`role` never reaches an assistive client**, so the kind has to be in the
+    /// LABEL or it is not said at all: `CanvasAXChildren` publishes
+    /// `accessibilityLabel` and `accessibilityValue` and nothing else, and
+    /// `CanvasAXRole` is computed here and read only by these tests. A region
+    /// announced as "Act II fog, 3 cards" says what it is called and never says
+    /// what it is, beside a scrap that opens with "Scrap" and an item node that
+    /// opens with "Reference" — a primitive the writer can see and the VoiceOver
+    /// user cannot name, which is what §7A.6 calls this layer's whole job.
+    ///
+    /// The assertion is against the other two roles rather than against a
+    /// literal, so it cannot be satisfied by a word that happens to be there.
+    func test_everyRoleNamesItselfInTheLabelBecauseTheRoleItselfIsNeverPublished() {
+        var s = sampleScene()
+        s.insertRegion(CanvasRegion(id: CanvasRegionID("r1"), label: "Act II fog",
+                                    frame: CGRect(x: 0, y: 0, width: 600, height: 400)))
+        let elements = CanvasAccessibility.elements(scene: s, scraps: scraps)
+
+        for role in [CanvasAXRole.scrap, .item, .region] {
+            let label = elements.first { $0.role == role }?.label
+            XCTAssertNotNil(label, "no element of role \(role) in the tree at all")
+            XCTAssertFalse(label?.isEmpty ?? true,
+                           "an element of role \(role) publishes an empty label, so "
+                           + "an assistive client is handed a value and no idea "
+                           + "what carries it")
+        }
+
+        XCTAssertEqual(elements.first { $0.role == .region }?.label,
+                       "\(CanvasAccessibility.regionKind), Act II fog",
+                       "the region does not name its kind, while the scrap and the "
+                       + "item node both do — and `role` is not published, so "
+                       + "nothing else says it")
     }
 
     func test_anUnlabelledRegionAnnouncesItselfRatherThanReadingAsBlank() {
         var s = CanvasScene()
         s.insertRegion(CanvasRegion(id: CanvasRegionID("r1"), label: "",
                                     frame: CGRect(x: 0, y: 0, width: 600, height: 400)))
-        XCTAssertEqual(CanvasAccessibility.elements(scene: s, scraps: [:]).first?.label,
-                       CanvasRegion.untitledLabel)
+        let label = CanvasAccessibility.elements(scene: s, scraps: [:]).first?.label
+        XCTAssertEqual(label,
+                       "\(CanvasAccessibility.regionKind), \(CanvasRegion.untitledLabel)")
     }
 
     func test_theResidentsOfACollapsedRegionLeaveTheTree() {
@@ -180,7 +215,8 @@ final class CanvasAccessibilityTests: XCTestCase {
                 .first { $0.role == .region }?.label
         }
         XCTAssertNotEqual(label(collapsed: true), label(collapsed: false))
-        XCTAssertEqual(label(collapsed: false), "Act II fog")
+        XCTAssertEqual(label(collapsed: false),
+                       "\(CanvasAccessibility.regionKind), Act II fog")
     }
 
     /// Frames are in VIEW coordinates, so an assistive client can point at them.

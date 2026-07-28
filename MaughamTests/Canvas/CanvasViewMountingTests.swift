@@ -2065,6 +2065,197 @@ final class CanvasViewMountingTests: XCTestCase {
                        + "inverting properties")
     }
 
+    /// **The PREMISE under the region inspector's gate, which nothing pinned.**
+    ///
+    /// `RegionInspector`'s member lists and its "Cite a Card" offer are rebuilt
+    /// only when `(CanvasModel.sceneRevision, regionID)` moves, and
+    /// `RegionBindingTests.test_theMemberListsAreRebuiltOnlyOnAStructuralChange`
+    /// pins that gate in both directions — by driving the bump BY HAND. Its
+    /// docstring then asserted, in prose only, that *"every production path that
+    /// changes membership bumps: a drop at `.ended`"*. It did not. The drop
+    /// bumped `CanvasView`'s own `@State` copy, the mirror runs model → view and
+    /// never back, and every one of the seventeen `sceneRevision` references
+    /// across the test tree was either a hand-driven bump or an inspector commit.
+    /// So the gate was pinned and its premise was not, and the shipped inspector
+    /// read "No cards live in this region yet" over a card the canvas had
+    /// already drawn inside the region — still offering it under "Cite a Card",
+    /// where choosing it returned on `cite`'s `!region.mentions(node)` guard and
+    /// did nothing at all.
+    ///
+    /// **A test that drove the bump by hand would reproduce that blind spot
+    /// exactly**, so this one drops a real card through `CanvasEventNSView` and
+    /// then asks the inspector — through `refreshedRows`, the one function the
+    /// shipping view drives — what it would now show. Both halves are asserted:
+    /// the card is a resident, and it is no longer on offer.
+    ///
+    /// Mutation, 2026-07-28: restoring `sceneRevision += 1` at the `.ended` bump
+    /// leaves `test_droppingACardIntoARegionJoinsItAndOneUndoTakesBackBoth`
+    /// green (the join reaches disk either way) and turns this red.
+    func test_aDropIntoARegionReachesThatRegionsInspector() throws {
+        let region = CanvasRegionID("r1")
+        var scene = CanvasScene()
+        scene.insert(CanvasNode(id: scrapID, kind: .scrap, origin: CGPoint(x: 500, y: 60),
+                                width: 240, cachedHeight: 60))
+        scene.insertRegion(CanvasRegion(id: region, label: "Act II fog",
+                                        frame: CGRect(x: 20, y: 20, width: 400, height: 300)))
+        let root = try projectRoot(scene: scene, scraps: [scrapID: scrapText])
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+
+        // What the inspector holds before the drop — the same call its
+        // `.onChange(of: currentRowsKey, initial: true)` makes when it appears.
+        let inspector = RegionInspector(model: model, regionID: region, pieces: [])
+        let before = inspector.refreshedRows(from: RegionInspector.MemberRows())
+        XCTAssertTrue(before.residents.isEmpty,
+                      "precondition: the card starts outside and unowned")
+        XCTAssertEqual(before.candidates.map(\.node), [scrapID],
+                       "precondition: and it is what \"Cite a Card\" is offering")
+
+        // Grab the card at (540, 90) and carry it 340pt left, so its centre
+        // lands at (250, 130) — squarely inside the region.
+        drag(events, from: CGPoint(x: 540, y: 90),
+             through: [CGPoint(x: 200, y: 90), CGPoint(x: 200, y: 90)])
+        pump(1.0)
+
+        XCTAssertTrue(model.scene.region(region)!.livesHere(scrapID),
+                      "precondition: the drop itself joined the card, so what "
+                      + "follows is about the inspector being TOLD")
+
+        let after = inspector.refreshedRows(from: before)
+        XCTAssertEqual(after.residents.map(\.node), [scrapID],
+                       "the drop did not move the counter the inspector's gate "
+                       + "reads, so the region still says no cards live in it "
+                       + "while the canvas draws one inside it")
+        XCTAssertTrue(after.candidates.isEmpty,
+                      "and \"Cite a Card\" still offers a card that is already "
+                      + "here — a live menu row that silently does nothing, "
+                      + "because `cite` returns on its `mentions` guard")
+    }
+
+    /// **The same defect on the one path where the writer keeps looking at the
+    /// region while the canvas changes underneath it** — and the path that makes
+    /// `RegionInspector`'s "it refreshes when the writer leaves the scrap" a
+    /// claim rather than a hope.
+    ///
+    /// A single click reassigns `model.selection`, so it tears the inspector
+    /// down and the next one is built with fresh `@State`. **A double-click does
+    /// not**: `handleClick`'s `guard clickCount >= 2` returns before the
+    /// assignment (that is tripwire 32's own repro, pinned next door by
+    /// `test_aRegionStaysSelectedWhileADoubleClickOpensAScrap`). So a writer who
+    /// selects a region and then works card to card by double-clicking keeps ONE
+    /// `RegionInspector` instance, with its cached rows, for the whole session —
+    /// and `commitActiveEdit`, which is what closes each visit, bumped only
+    /// `CanvasView`'s own copy of the counter. The row titles are the first line
+    /// of each card, so they froze at whatever the cards said when the region
+    /// was selected.
+    ///
+    /// Both edits go through the real mounted editor and both moves through the
+    /// real event view, because the whole subject is the delivery path.
+    func test_leavingAScrapRefreshesTheRegionInspectorItIsSittingBeside() throws {
+        let region = CanvasRegionID("r1")
+        let other = CanvasNodeID("s2")
+        var scene = CanvasScene()
+        scene.insert(CanvasNode(id: scrapID, kind: .scrap, origin: CGPoint(x: 60, y: 60),
+                                width: 240, cachedHeight: 60))
+        scene.insert(CanvasNode(id: other, kind: .scrap, origin: CGPoint(x: 60, y: 180),
+                                width: 240, cachedHeight: 60))
+        scene.insertRegion(CanvasRegion(id: region, label: "Act II fog",
+                                        frame: CGRect(x: 20, y: 20, width: 400, height: 300),
+                                        homeMembers: [scrapID, other]))
+        let root = try projectRoot(scene: scene,
+                                   scraps: [scrapID: "Rain.", other: "Bridge."])
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: root,
+                                     paletteSwatchHexes: { [] }))
+        let hosted = try XCTUnwrap(window.contentView)
+        let events = try eventView(in: window)
+
+        // Select the region by its chrome bar, (20,20)–(420,44) — the only way
+        // to reach one, since its interior belongs to the cards in it.
+        events.applyMouseDown(at: CGPoint(x: 200, y: 30), clickCount: 1)
+        events.applyMouseUp(at: CGPoint(x: 200, y: 30))
+        pump(0.2)
+        XCTAssertEqual(model.selection, .region(region),
+                       "precondition: the inspector is open on the region")
+
+        let inspector = RegionInspector(model: model, regionID: region, pieces: [])
+        let before = inspector.refreshedRows(from: RegionInspector.MemberRows())
+        XCTAssertEqual(before.residents.first { $0.node == scrapID }?.title, "Rain.",
+                       "precondition: the row reads the card as it stands")
+
+        // Into the first card, type, then straight into the second — all
+        // double-clicks, so `selection` is never reassigned and this one
+        // inspector instance lives through the lot.
+        events.applyMouseDown(at: CGPoint(x: 100, y: 80), clickCount: 2)
+        pump(0.3)
+        type(" Falls at night.", into: try XCTUnwrap(
+            try XCTUnwrap(firstDescendant(ScrapEditorContainer.self, in: hosted),
+                          "the double-click mounted no editor").textView))
+        pump(0.3)
+        events.applyMouseDown(at: CGPoint(x: 100, y: 200), clickCount: 2)
+        pump(0.5)
+
+        XCTAssertEqual(model.selection, .region(region),
+                       "precondition: a double-click never reassigns the selection, "
+                       + "so the SAME inspector — and its cached rows — is still "
+                       + "what the writer is looking at")
+
+        let after = inspector.refreshedRows(from: before)
+        XCTAssertEqual(after.residents.first { $0.node == scrapID }?.title,
+                       "Rain. Falls at night.",
+                       "the writer left the scrap and the region beside it still "
+                       + "lists the card by a line it no longer starts with — "
+                       + "`commitActiveEdit` bumped a counter this gate does not read")
+    }
+
+    /// **A press that drifted must not be mistaken for a sweep that minted.**
+    ///
+    /// `applyMouseDown` opens a drag session on EVERY mouse-down, and on a
+    /// trackpad a click routinely drifts a point or two — which takes
+    /// `interaction.hasMoved`. `createRegion` still refuses anything under
+    /// `CanvasRegionMetrics.minimumSide`, so the scene does not change; before
+    /// the guard, the structural counter moved anyway. That is one accessibility
+    /// tree rebuilt — a sort of the whole scene and a copy of every scrap's
+    /// string — plus, now the bump reaches the model, one rebuild of the region
+    /// inspector's member lists and its scene-wide candidate walk, per click on
+    /// nothing.
+    ///
+    /// Both directions, because a guard that simply stopped bumping would pass
+    /// the first assertion and take the drop-to-join and the region sweep down
+    /// with it.
+    func test_aBareCanvasPressThatDriftedIsNotAStructuralChange() throws {
+        let model = CanvasModel()
+        let window = host(CanvasView(model: model, projectRoot: try projectRoot(),
+                                     paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
+        pump(0.3)
+
+        let atRest = model.sceneRevision
+        // One point of drift, well under the 80pt minimum side.
+        drag(events, from: CGPoint(x: 600, y: 400), through: [CGPoint(x: 601, y: 400)])
+        pump(0.3)
+        XCTAssertEqual(model.sceneRevision, atRest,
+                       "a click on bare canvas that drifted a point minted no "
+                       + "region and changed nothing, and still bumped the "
+                       + "structural counter — so every trackpad click on the "
+                       + "canvas sorts the scene and rebuilds two cached lists")
+        XCTAssertEqual(model.scene.regionCount, 0,
+                       "precondition: the drift really did mint nothing, or the "
+                       + "assertion above is about a different gesture")
+
+        // The control: a sweep clear of the minimum side, which really does mint.
+        drag(events, from: CGPoint(x: 600, y: 400), through: [CGPoint(x: 400, y: 200)])
+        pump(0.3)
+        XCTAssertEqual(model.scene.regionCount, 1, "precondition: this one minted")
+        XCTAssertGreaterThan(model.sceneRevision, atRest,
+                             "and a sweep that DID mint a region has to reach the "
+                             + "accessibility tree and the inspector — a guard "
+                             + "that just stopped bumping would pass the "
+                             + "assertion above and lose this one")
+    }
+
     func test_droppingACardIntoARegionJoinsItAndOneUndoTakesBackBoth() throws {
         // The same region, and a scrap that starts OUTSIDE it.
         var scene = CanvasScene()
