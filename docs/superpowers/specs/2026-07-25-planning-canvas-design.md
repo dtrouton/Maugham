@@ -134,6 +134,16 @@ A line costs nothing to draw and nothing to be wrong about, which is what thinki
 
 - **Promotion is never required.** The canvas must be completely usable by a writer who never promotes anything. Readiness counts promoted artifacts and stays silent about the canvas (umbrella §7, §9).
 
+> **Amendment, 2026-07-28 (Denver, re-deriving 1C-c2 against the built canvas).** Four rulings, none of which change the table above. Recorded here rather than in a second spec, so §6 stays the one place promotion is described.
+>
+> **1. A promotion is a SNAPSHOT taken by an explicit act, and it never syncs.** The mark a promoted card carries is *provenance*, not a live link, and there is no reconciliation because none is promised. This is not a concession — **the region row forces it**: promoting "Act II fog" to a palette card joins six scraps' text while all six stay on the canvas, so a copy at a moment is already what §6 describes. Making a scrap's promotion behave differently (moving its words out to the note) would give one verb two rules and would pull item-card rendering — 1C-d's work — forward to stop every promoted card drawing as a dashed placeholder.
+>
+> **2. Re-promoting offers Update or New, and the writer picks every time.** A card that has been promoted names its artifact in the sheet, which then offers to rewrite that artifact's body from the card, or to produce a second one. Neither is the default. "Always update" eats edits made in `research/`; "always new" leaves `The falls at night 2`, `… 3` and two orphans nobody asked for. The choice is one sentence of preview, which is what §6.1 already requires of everything else here.
+>
+> **3. The gesture is a menu command on the current selection.** `Promote…`, ⌘⇧↩ (⌘⇧P is taken by Toggle Research Preview), plus a `Promote…` button in each arm of the canvas inspector — region, line, and a new **scrap** arm, which is also where a card says what it became. Every one of those buttons posts the **same** command the menu posts, so the button and the keystroke cannot drift into behaving differently. This closes §10's first open question; ADR 0026 carries it.
+>
+> **4. The line row ships with a reader.** §6.1's rule above is right about the *target* side — `ListAllLinksTool`'s title index covers documents **and** research items. The *source* side was not checked and is narrower: `ListAllLinksTool.swift:93` and `ReferenceTools.swift:180` scan `[[…]]` **only in manuscript documents**, `ResearchNoteEditor` has no wiki-link handling at all, and rename propagation (`ProjectStore+Structure.swift:400`) walks documents only. Since promotion never produces a manuscript document, every link it writes lands in a research note — inert on all four counts. So 1C-c2 teaches `list_all_links` and `find_references` to scan research bodies in the same slice. Shipping the row without that would be this area's fifth built-and-unreachable half, and the previous four were each found by counting callers rather than by a test.
+
 ---
 
 ## 7. How it feels
@@ -317,7 +327,7 @@ Two hazards, both already scarred into this file:
 
 ## 10. Open questions for the plan
 
-- **The promotion gesture.** Drag onto an artifact rail, a context action, or a keystroke. Deliberately unresolved — it wants trying in the app rather than deciding on paper.
+- ~~**The promotion gesture.** Drag onto an artifact rail, a context action, or a keystroke. Deliberately unresolved — it wants trying in the app rather than deciding on paper.~~ **RESOLVED 2026-07-28 (1C-c2): a menu command on the current selection, ⌘⇧↩, plus a `Promote…` button in each arm of the canvas inspector, all posting one command.** See §6.1's amendment and ADR 0026. The artifact rail lost because the canvas has no rail and adding persistent chrome to hold one is a bigger change than the verb it would serve.
 - **Where the scraps file lives** — project root or `research/` — and whether it is one file or one per region.
 - **Performance bounds.** What node count must stay smooth. §7A.1 settles *how* it virtualises (viewport intersection in the draw loop); the open part is the number. `TypingLatencyProbeTests` is the precedent for a fixture-gated probe rather than a wall-clock assertion. For reference, tldraw ships a hard 4,000-shape cap and freezes zoom level above 500 shapes; Excalidraw degrades around 5,000.
 - **Collapsing a region to a tile** — needed for crowding at Playlist scale, but is it v1?
