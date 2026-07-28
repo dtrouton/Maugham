@@ -948,8 +948,16 @@ final class TripwireGrepTests: XCTestCase {
     /// `contentUnavailableViewFrameWindow` lines. Canonical examples:
     /// HistoryPane, AnnotationsPane, OutlinePane (CLAUDE.md tripwire 15).
     func test_contentUnavailableViewAlwaysChainsFullFrame() throws {
-        let viewsDir = repoRoot.appendingPathComponent("Maugham/Views", isDirectory: true)
-        let offenders = try Self.findFramelessContentUnavailableViews(in: viewsDir)
+        // **`Maugham/`, not `Maugham/Views`.** 1C-c1's docs sweep found the scan
+        // pointed at one directory while the panes it protects had spread out of
+        // it: both canvas inspector panes live in `Maugham/Canvas/`, so the
+        // full-frame chain was correct there and enforced nowhere. A tidy-up
+        // dropping it would have shipped green, and this is a bug that has
+        // recurred four or more times. Any new pane anywhere under the app target
+        // is now covered by default, which is the point — a rule that only holds
+        // in the directory it was written in is a rule about a directory.
+        let appDir = repoRoot.appendingPathComponent("Maugham", isDirectory: true)
+        let offenders = try Self.findFramelessContentUnavailableViews(in: appDir)
         XCTAssertTrue(offenders.isEmpty,
             "ContentUnavailableView( without a .frame(maxWidth: .infinity within "
             + "\(Self.contentUnavailableViewFrameWindow) lines (tripwire 15). "
