@@ -86,16 +86,27 @@ struct ScrapInspector: View {
                 // so this is scene-proportional work on a frame path, which is
                 // tripwire 30's shape.
                 //
-                // It is left ungated on three measured terms, not on a shrug.
-                // (1) It is proportional to the REGION count, not the node count
-                // and not any text: tens, where the lists `RegionInspector` gates
-                // pay a whole-scrap-text split per member plus
-                // `localizedStandardCompare`. (2) The `chipTitle` call in the
-                // Card section above is strictly larger and has been ungated on
-                // this same body since 1C-c2. (3) A `@State` cache is not free
-                // here: five of them froze for a commit in this area when a bump
-                // went to the view's counter instead of the model's, and a stale
-                // destination is worse than a slow one.
+                // It is left ungated on three REASONED terms — nothing here was
+                // measured, and this file does not use that word without a figure
+                // and a date beside it (tripwire 25 is what one looks like).
+                //
+                // (1) **It is not the leading term in its own body.** Two larger
+                // things already run per frame here: `CanvasRenderer.chipTitle`
+                // splits the ENTIRE scrap string (a non-lazy `split` with
+                // `omittingEmptySubsequences: false`), and the `ForEach(pieces)`
+                // above builds a row per manuscript document. Against those,
+                // sorting tens of 4-character region ids is noise, and gating
+                // this one call alone would change nothing observable.
+                // (2) It is proportional to the REGION count — not the node count
+                // and not any text — where the lists `RegionInspector` gates pay
+                // a whole-scrap-text split per member plus
+                // `localizedStandardCompare`.
+                // (3) A `@State` cache is not free here: five of them froze for a
+                // commit in this area when a bump went to the view's counter
+                // instead of the model's, and a stale destination is worse than a
+                // slow one. Tripwire 30's actual failure was scene-proportional
+                // work keyed on the REDRAW counter; this is neither cached nor
+                // keyed on anything.
                 //
                 // **If it ever measures, the gate exists one file over** —
                 // `RegionInspector.MemberRows` keyed on
@@ -137,7 +148,8 @@ struct ScrapInspector: View {
 
     static let pieceFooter =
         "A note promoted from this card lands in this piece's research. Leave it "
-        + "as None and the card follows the region it lives in."
+        + "as None and the card follows the region it lives in — or the project's "
+        + "own research, if it lives in none."
 
     /// The card's own association when the offer holds no piece by that id.
     private var ownPieceMissingFromTheOffer: String? {
@@ -162,7 +174,16 @@ struct ScrapInspector: View {
         /// converted to a Collection reference piece. It keeps the id because
         /// that is all there is left to say, and the writer needs to see that
         /// *something* is set before they can clear it.
-        case missing(id: String)
+        /// **`inherited` matters most here, which is the opposite of obvious.**
+        /// A card living in a region whose piece was deleted carries nothing
+        /// itself, so without this the pane says "Missing piece · gone-9" beside
+        /// a Picker reading None — and the writer has nothing to clear and no
+        /// idea where the stale value lives. The qualifier is what sends them to
+        /// the region.
+        case missing(id: String, inherited: Bool)
+
+        /// One spelling of the qualifier, used by both cases that need it.
+        static let fromItsRegion = " (from its region)"
 
         var label: String {
             switch self {
@@ -170,8 +191,9 @@ struct ScrapInspector: View {
             case .own(let title): return title
             // The distinction the writer needs: "Chapter Three (from its region)"
             // is why an override would matter, and why the Picker above says None.
-            case .inherited(let title): return "\(title) (from its region)"
-            case .missing(let id): return "Missing piece · \(id)"
+            case .inherited(let title): return title + Self.fromItsRegion
+            case .missing(let id, let inherited):
+                return "Missing piece · \(id)" + (inherited ? Self.fromItsRegion : "")
             }
         }
     }
@@ -188,12 +210,15 @@ struct ScrapInspector: View {
         guard let resolved = Promotion.piece(for: .scrap(nodeID), in: scene) else {
             return .none
         }
+        // Asked BEFORE the title lookup, and carried into the missing case too.
+        // Resolving it only on the way to `.own`/`.inherited` loses the fact
+        // exactly where the writer needs it: a stale piece they cannot clear
+        // because it is not theirs.
+        let inherited = Promotion.pieceIsInherited(for: .scrap(nodeID), in: scene)
         guard let title = pieces.first(where: { $0.id == resolved })?.title else {
-            return .missing(id: resolved)
+            return .missing(id: resolved, inherited: inherited)
         }
-        return scene.node(nodeID)?.boundPieceID == nil
-            ? .inherited(title: title)
-            : .own(title: title)
+        return inherited ? .inherited(title: title) : .own(title: title)
     }
 
     /// **`mutateFromInspector`, never `mutate` (tripwire 32).** This Picker is in

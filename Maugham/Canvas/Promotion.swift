@@ -240,6 +240,10 @@ enum PromotionPiece: Equatable {
     /// that describes it must not read as a fallback with an apology.
     case none
 
+    /// **The `id` is read by no production caller, and is kept deliberately.** It
+    /// is what makes these values comparable in the tests that pin the resolver
+    /// against a real manifest — the seam this type exists to hold — so a tidy-up
+    /// that removes it as dead weight would take the assertions with it.
     case routed(id: String, title: String, route: Route)
 
     /// The association names something the router refuses. **The picker cannot
@@ -247,7 +251,12 @@ enum PromotionPiece: Equatable {
     /// go stale, by the piece being deleted or a Collection loose piece being
     /// converted to a reference. The title is nil for the first of those, and the
     /// two need different sentences because the act that fixes them differs.
-    case unroutable(id: String, title: String?)
+    ///
+    /// **`inherited` is what stops the refusal pointing at the wrong control.**
+    /// A card that lives in a region whose piece was deleted carries nothing
+    /// itself, so "clear the association" names a Picker already reading None —
+    /// the stale field is the region's. See `PromotionFailure`.
+    case unroutable(id: String, title: String?, inherited: Bool)
 }
 
 /// Everything `Promotion.plan` needs. A struct rather than eight parameters,
@@ -573,6 +582,23 @@ enum Promotion {
         }
     }
 
+    /// Whether `piece(for:in:)`'s answer came from the source ITSELF or was
+    /// inherited from the region it lives in.
+    ///
+    /// **One rule, two readers**, for the reason everything else in this file is:
+    /// `ScrapInspector.association` shows it to the writer and
+    /// `PromotionPiece.resolve` puts it in the refusal, and a second spelling of
+    /// "is this inherited" is how the pane and the sentence come to disagree.
+    ///
+    /// False when there is no piece at all — nothing was inherited — and false
+    /// for a region, which has no home to inherit from.
+    static func pieceIsInherited(for source: PromotionSource, in scene: CanvasScene) -> Bool {
+        guard case .scrap(let id) = source, piece(for: source, in: scene) != nil else {
+            return false
+        }
+        return scene.node(id)?.boundPieceID == nil
+    }
+
     static func title(from body: String) -> String {
         body.split(separator: "\n", omittingEmptySubsequences: true).first
             .map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
@@ -729,7 +755,7 @@ enum Promotion {
     static func pieceFailure(target: PromotionTarget, mode: PromotionMode,
                              piece: PromotionPiece) -> PromotionFailure? {
         guard target == .researchNote, case .new = mode,
-              case .unroutable(_, let title) = piece else { return nil }
-        return .pieceIsNotAResearchTarget(title: title)
+              case .unroutable(_, let title, let inherited) = piece else { return nil }
+        return .pieceIsNotAResearchTarget(title: title, inherited: inherited)
     }
 }

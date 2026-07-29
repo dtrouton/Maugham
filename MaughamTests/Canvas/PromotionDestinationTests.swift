@@ -55,6 +55,26 @@ final class PromotionDestinationTests: XCTestCase {
         return try await ProjectStore.load(from: tmp)
     }
 
+    /// A hand-built single-document project, `ResearchScopeTests.makeProject`'s
+    /// pattern. No `DocumentStore` — `resolve` reads the manifest and creates
+    /// nothing.
+    private func makeProject(type: ProjectType) async throws -> ProjectStore {
+        let tmp = temp.url.appendingPathComponent("PD1-\(UUID())")
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("manuscript"), withIntermediateDirectories: true)
+        try "Chapter 1\n".write(to: tmp.appendingPathComponent("manuscript/c1.md"),
+                                atomically: true, encoding: .utf8)
+        let chapter = StructureItem(id: "ch-1", title: "Chapter Three", type: .document,
+                                    path: "manuscript/c1.md")
+        let manifest = ProjectManifest(
+            type: type, title: "T", author: "A",
+            created: Date(), modified: Date(), structure: [chapter], research: [])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(to: tmp.appendingPathComponent("project.maugham.json"))
+        return try await ProjectStore.load(from: tmp)
+    }
+
     private func makeModel() -> CanvasModel {
         let model = CanvasModel()
         model.withScene { s in
@@ -107,6 +127,39 @@ final class PromotionDestinationTests: XCTestCase {
             .routed(id: "loose-1", title: "Story A", route: .ownResearch))
     }
 
+    /// **The other two rows, resolved from a REAL manifest.** Every resolve test
+    /// used the Collection fixture, so only `.pieceFolder → .ownResearch` was
+    /// driven through `researchRouting` — the other two arms existed only as
+    /// hand-built `PromotionPiece` values in the destination tests.
+    ///
+    /// What that hid: **swap the two arms of the switch in `resolve` and the
+    /// sheet lies about a link while the whole suite stays green.**
+    /// `linkTargetForCard` reads the router directly rather than the resolved
+    /// value, so a novel chapter's palette card still takes its link while the
+    /// preview reads "research/, which is already “Chapter Three”’s". This is the
+    /// seam `PromotionPiece.resolve` exists to hold together, so it is tested
+    /// through the manifest and not through a literal.
+    func test_aNovelChapterResolvesToTheSharedPlusLinkRow() async throws {
+        let store = try await makeProject(type: .novel)
+        let model = makeModel()
+        model.withScene { $0.setBoundPiece("ch-1", for: self.a) }
+        XCTAssertEqual(
+            PromotionPiece.resolve(for: .scrap(a), in: model.scene, store: store),
+            .routed(id: "ch-1", title: "Chapter Three", route: .sharedPlusLink))
+    }
+
+    /// The control that makes the one above about the ROUTE rather than about
+    /// the fixture: the same manifest shape, a different project type, the other
+    /// arm.
+    func test_aShortStoryDocumentResolvesToTheSharedOnlyRow() async throws {
+        let store = try await makeProject(type: .shortStory)
+        let model = makeModel()
+        model.withScene { $0.setBoundPiece("ch-1", for: self.a) }
+        XCTAssertEqual(
+            PromotionPiece.resolve(for: .scrap(a), in: model.scene, store: store),
+            .routed(id: "ch-1", title: "Chapter Three", route: .sharedOnly))
+    }
+
     /// A reference piece is exactly the stale case the picker can no longer
     /// create and an existing association can still reach — the writer converted
     /// the piece after binding the card.
@@ -116,7 +169,7 @@ final class PromotionDestinationTests: XCTestCase {
         model.withScene { $0.setBoundPiece("ref-1", for: self.a) }
         XCTAssertEqual(
             PromotionPiece.resolve(for: .scrap(a), in: model.scene, store: store),
-            .unroutable(id: "ref-1", title: "Elsewhere"),
+            .unroutable(id: "ref-1", title: "Elsewhere", inherited: false),
             "the title is what makes the refusal a sentence about the writer's "
             + "situation rather than about an id")
     }
@@ -129,7 +182,34 @@ final class PromotionDestinationTests: XCTestCase {
         model.withScene { $0.setBoundPiece("gone-9", for: self.a) }
         XCTAssertEqual(
             PromotionPiece.resolve(for: .scrap(a), in: model.scene, store: store),
-            .unroutable(id: "gone-9", title: nil))
+            .unroutable(id: "gone-9", title: nil, inherited: false))
+    }
+
+    /// **The stale association the writer cannot clear.** The card lives in a
+    /// region bound to a piece; the piece is deleted. The card carries nothing
+    /// of its own, so "clear the association" points at a control that is
+    /// already None — the stale field belongs to the REGION. The resolver has to
+    /// carry that fact, or the refusal sends the writer to the wrong pane.
+    func test_aStaleAssociationInheritedFromARegionIsResolvedAsInherited() async throws {
+        let store = try await makeCollectionManifest()
+        let model = makeModel()
+        model.withScene { $0.updateRegion(self.r1) { $0.boundPieceID = "gone-9" } }
+        XCTAssertNil(model.scene.node(a)?.boundPieceID,
+                     "there is nothing on the card for the writer to clear")
+        XCTAssertEqual(
+            PromotionPiece.resolve(for: .scrap(a), in: model.scene, store: store),
+            .unroutable(id: "gone-9", title: nil, inherited: true))
+    }
+
+    /// A REGION's own stale association is never inherited — it has no home to
+    /// inherit from, and its own picker is the right place to send the writer.
+    func test_aRegionsOwnStaleAssociationIsNotInherited() async throws {
+        let store = try await makeCollectionManifest()
+        let model = makeModel()
+        model.withScene { $0.updateRegion(self.r1) { $0.boundPieceID = "ref-1" } }
+        XCTAssertEqual(
+            PromotionPiece.resolve(for: .region(r1), in: model.scene, store: store),
+            .unroutable(id: "ref-1", title: "Elsewhere", inherited: false))
     }
 
     /// The ordinary case, and the control for all three above.
@@ -271,7 +351,7 @@ final class PromotionDestinationTests: XCTestCase {
     func test_aStalePieceRefusesANewNoteAndNamesThePiece() throws {
         let failure = try XCTUnwrap(Promotion.pieceFailure(
             target: .researchNote, mode: .new,
-            piece: .unroutable(id: "ref-1", title: "Elsewhere")))
+            piece: .unroutable(id: "ref-1", title: "Elsewhere", inherited: false)))
         let sentence = try XCTUnwrap(failure.errorDescription)
         XCTAssertTrue(sentence.contains("“Elsewhere”"), "found: \(sentence)")
         XCTAssertTrue(sentence.contains("clear the association"),
@@ -281,15 +361,37 @@ final class PromotionDestinationTests: XCTestCase {
     func test_aDeletedPieceRefusesWithADifferentSentence() throws {
         let sentence = try XCTUnwrap(Promotion.pieceFailure(
             target: .researchNote, mode: .new,
-            piece: .unroutable(id: "gone-9", title: nil))?.errorDescription)
+            piece: .unroutable(id: "gone-9", title: nil, inherited: false))?.errorDescription)
         XCTAssertTrue(sentence.contains("no longer in the project"), "found: \(sentence)")
+        XCTAssertTrue(sentence.contains("clear the association"), "found: \(sentence)")
+    }
+
+    /// **The one case where "clear the association" is a lie.** The card carries
+    /// nothing itself — the stale piece is its region's — so the sentence must
+    /// send the writer to the region, not to a Picker already reading None.
+    ///
+    /// Both halves are asserted: naming the region, and NOT offering the act
+    /// that cannot be performed. A sentence that added the region while keeping
+    /// "clear the association" would pass a one-sided test and still leave the
+    /// writer at a control that does nothing.
+    func test_aStaleInheritedAssociationSendsTheWriterToTheRegion() throws {
+        for title in [nil, "Elsewhere"] {
+            let sentence = try XCTUnwrap(Promotion.pieceFailure(
+                target: .researchNote, mode: .new,
+                piece: .unroutable(id: "gone-9", title: title,
+                                   inherited: true))?.errorDescription)
+            XCTAssertTrue(sentence.contains("the region this card lives in"),
+                          "found: \(sentence)")
+            XCTAssertFalse(sentence.contains("clear the association"),
+                           "there is nothing on the card to clear — found: \(sentence)")
+        }
     }
 
     /// The three targets that degrade rather than fail, and the two modes. Each
     /// is a control for the refusal above: a rule that refused all of them would
     /// pass the two assertions above and block promotions §6.2 says must work.
     func test_onlyANewResearchNoteIsRefusedByAStaleAssociation() {
-        let stale = PromotionPiece.unroutable(id: "ref-1", title: "Elsewhere")
+        let stale = PromotionPiece.unroutable(id: "ref-1", title: "Elsewhere", inherited: false)
         XCTAssertNil(Promotion.pieceFailure(target: .paletteCard, mode: .new, piece: stale),
                      "the wall is project-level; the card is created and simply "
                      + "takes no link")
@@ -338,10 +440,10 @@ final class PromotionDestinationTests: XCTestCase {
     /// throw — a refusal met before and one met after must not be two wordings
     /// of the same fact (`blockedReason`'s rule, one file over).
     func test_aStaleAssociationDisablesCommitAndSaysWhyInThePerformersWords() throws {
-        let m = sheet(.unroutable(id: "ref-1", title: "Elsewhere"))
+        let m = sheet(.unroutable(id: "ref-1", title: "Elsewhere", inherited: false))
         XCTAssertFalse(m.canCommit)
         XCTAssertEqual(m.refusal,
-                       PromotionFailure.pieceIsNotAResearchTarget(title: "Elsewhere")
+                       PromotionFailure.pieceIsNotAResearchTarget(title: "Elsewhere", inherited: false)
                         .errorDescription)
         // The control: the same card with a routable piece commits, so this is
         // about the association and not about the fixture.
@@ -353,7 +455,7 @@ final class PromotionDestinationTests: XCTestCase {
     /// And the sheet does not block the two targets that degrade — a refusal
     /// wired to the piece rather than to the target would.
     func test_aStaleAssociationStillLetsAPaletteCardCommit() {
-        let m = sheet(.unroutable(id: "ref-1", title: "Elsewhere"), target: .paletteCard)
+        let m = sheet(.unroutable(id: "ref-1", title: "Elsewhere", inherited: false), target: .paletteCard)
         XCTAssertTrue(m.canCommit)
         XCTAssertNil(m.refusal)
     }
@@ -378,7 +480,7 @@ final class PromotionDestinationTests: XCTestCase {
             _ = try await PromotionPerformer(store: store, model: model).perform(plan)
             XCTFail("expected a refusal")
         } catch let failure as PromotionFailure {
-            XCTAssertEqual(failure, .pieceIsNotAResearchTarget(title: "Elsewhere"))
+            XCTAssertEqual(failure, .pieceIsNotAResearchTarget(title: "Elsewhere", inherited: false))
         }
         XCTAssertTrue(store.manifest.research.isEmpty,
                       "validate first, write second — a half-created artifact is "

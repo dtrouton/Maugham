@@ -305,9 +305,38 @@ final class ScrapInspectorTests: XCTestCase {
         let m = model()
         inspector(m).commitPiece("ref-1")
         XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces),
-                       .missing(id: "ref-1"))
-        XCTAssertTrue(ScrapInspector.association(for: a, in: m.scene, pieces: pieces)
-                        .label.contains("ref-1"))
+                       .missing(id: "ref-1", inherited: false))
+        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces).label,
+                       "Missing piece · ref-1",
+                       "the card's OWN stale piece: the Picker beside this shows it "
+                       + "too, and clearing it is one click away")
+    }
+
+    /// **The stale association the writer cannot clear**, and the case that
+    /// `.missing` losing the inheritance made unreachable: the card lives in a
+    /// region whose piece was deleted. Its own Picker reads None — correctly,
+    /// it carries nothing — so a label saying only "Missing piece · gone-9"
+    /// leaves the writer with nothing to clear and no idea where the value
+    /// lives. The qualifier is what sends them to the region.
+    func test_aStaleAssociationInheritedFromARegionSaysWhereItCameFrom() {
+        let m = modelInRegion()
+        m.withScene { $0.updateRegion(self.r1) { $0.boundPieceID = "gone-9" } }
+        XCTAssertNil(m.scene.node(a)?.boundPieceID,
+                     "there is nothing on the card for the writer to clear")
+        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces),
+                       .missing(id: "gone-9", inherited: true))
+        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces).label,
+                       "Missing piece · gone-9 (from its region)")
+    }
+
+    /// The card's OWN association wins even when the region's is stale, so the
+    /// qualifier cannot start appearing wherever a region happens to be bound.
+    func test_anOwnAssociationIsNotQualifiedJustBecauseItsRegionHasOne() {
+        let m = modelInRegion()
+        m.withScene { $0.updateRegion(self.r1) { $0.boundPieceID = "gone-9" } }
+        inspector(m).commitPiece("ch-3")
+        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces).label,
+                       "Chapter Three")
     }
 
     /// **The resolver is `Promotion.piece`'s, not a second walk.** One that read

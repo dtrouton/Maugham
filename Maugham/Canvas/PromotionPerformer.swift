@@ -54,9 +54,13 @@ enum PromotionFailure: LocalizedError, Equatable {
     /// under: the piece is gone (title nil), or it is a Collection reference
     /// piece, which keeps its research in its own project.
     ///
-    /// **Two sentences, because two different acts fix them.** Both name the
-    /// inspector, because that is where the writer undoes it.
-    case pieceIsNotAResearchTarget(title: String?)
+    /// **Two axes, because four different acts fix it.** The title says what went
+    /// wrong; `inherited` says *whose* association it is, and that is the term
+    /// that stops the sentence pointing at a control the writer cannot use — a
+    /// card that lives in a region whose piece was deleted carries nothing
+    /// itself, so "clear the association" names a Picker already reading None
+    /// while the stale field sits on the region.
+    case pieceIsNotAResearchTarget(title: String?, inherited: Bool)
 
     var errorDescription: String? {
         switch self {
@@ -73,15 +77,18 @@ enum PromotionFailure: LocalizedError, Equatable {
         case .unreadableFile(let path):
             return "Maugham could not read what is already in \(path), so it did not "
                 + "write over it."
-        case .pieceIsNotAResearchTarget(let title):
-            guard let title else {
-                return "The piece this was associated with is no longer in the "
-                    + "project, so the note has nowhere to go. Pick another piece "
-                    + "in the inspector, or clear the association."
-            }
-            return "“\(title)” cannot keep research of its own, so the note has "
-                + "nowhere to go. Pick another piece in the inspector, or clear "
-                + "the association."
+        case .pieceIsNotAResearchTarget(let title, let inherited):
+            // Composed from two halves rather than written out four times: what
+            // is wrong, then the act that fixes it. The second half is the one
+            // that has to be right — a refusal naming a control the writer
+            // cannot use leaves them stuck at it.
+            let problem = title.map { "“\($0)” cannot keep research of its own" }
+                ?? "The piece this is associated with is no longer in the project"
+            let fix = inherited
+                ? "That piece comes from the region this card lives in — change "
+                    + "it there, or give this card a piece of its own."
+                : "Pick another piece in the inspector, or clear the association."
+            return problem + ", so the note has nowhere to go. " + fix
         }
     }
 }
@@ -107,8 +114,12 @@ extension PromotionPiece {
         // own sentence, so it is resolved rather than defaulted to the raw id.
         let title = TreeWalk.collect(in: store.manifest.structure,
                                      where: { $0.id == id }).first?.title
+        // Asked through `Promotion` rather than by reading the node's field, so
+        // the refusal's "whose association is this" and the pane's
+        // "(from its region)" are one answer.
+        let inherited = Promotion.pieceIsInherited(for: source, in: scene)
         guard let routing = try? store.researchRouting(forDocumentId: id) else {
-            return .unroutable(id: id, title: title)
+            return .unroutable(id: id, title: title, inherited: inherited)
         }
         switch routing {
         case .pieceFolder:
