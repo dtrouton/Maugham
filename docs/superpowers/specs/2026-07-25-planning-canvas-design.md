@@ -96,6 +96,8 @@ So a node **lives in** exactly one region (or nowhere, loose on the canvas) and 
 
 ### 4.4 Regions bind to pieces — this is the bridge
 
+> **Amendment, 2026-07-29 (Denver).** This binding is no longer only 1A's to consume. It is the **piece association** of §6.2, and it decides where a promotion from that region — or from a scrap that lives in it — lands. Same field, same picker; a second reader, which exists today. The binding is *not* a promotion target: it produces no artifact and the picker already sets it. See §6's 2026-07-29 amendment.
+
 A region may optionally bind to a piece. That binding is the mechanism from umbrella §8: **the nodes that live in a piece's region become the pinned references beside the editor when you write it, and the context the authoring compiler reads.** The clustering you did while planning pays off twice, with no separate curation step.
 
 Only nodes that *live* in the region are bound. Visitors are not, or two regions sharing a card would each claim it.
@@ -121,8 +123,39 @@ A line costs nothing to draw and nothing to be wrong about, which is what thinki
 | Promote | Produces |
 |---|---|
 | A scrap | a research note, a palette card, or an intent statement |
-| A region | a palette card, or a piece binding |
+| A region | a research note, or a palette card |
 | A line | a `[[wiki-link]]`, when both ends have themselves been promoted |
+
+> **Amendment, 2026-07-29 (Denver, after the 1C-c2 smoke).** The region row read *"a palette card, or a piece binding"*. Both halves were wrong in practice, and the smoke is what showed it.
+>
+> **A piece binding is not a promotion.** It produces no artifact — it sets `CanvasRegion.boundPieceID`, which the region inspector's own **Piece** picker already sets, so the sheet offered a second door to an existing control while wearing the words "Produce" and "Goes to". And the field's only intended reader is 1A's reference rail, which is unbuilt: measured 2026-07-29, `RegionBinding.references(forPiece:)` has **zero production callers**. The writer's report was simply "I don't see it doing anything", which was accurate. Removed as a target; the picker stays.
+>
+> **A region produces a research note.** A cluster of text scraps is a note — grouped, in the region's own reading order, with §6.1's offer to link each promoted member to it. The palette card **stays** on the row, and its case gets stronger rather than weaker in 1C-d: a palette card is worth making from a region that holds an *image*, which the canvas cannot hold until then. Today it makes a card of joined prose with no swatches and no images, which is why it could not be the only option.
+
+### 6.2 A piece association, and where a promotion lands
+
+*Added 2026-07-29 (Denver), same ruling.*
+
+A **scrap** and a **region** may each carry an optional piece association. It is the same field on both (`boundPieceID`), it is set in the inspector, and it now has two readers rather than none: 1A's reference rail later, and **where a promotion lands** today.
+
+**Resolution is by precedence, and nothing is ever overwritten.** A promotion's piece is:
+
+1. the scrap's **own** association, if set;
+2. else its **home** region's association;
+3. else none — the project's own research.
+
+Setting a region's piece never rewrites its members' — the more specific setting wins, exactly as a per-piece craft intent already beats the project's. The alternative considered and rejected was a region-level set cascading onto its scraps: it destroys a deliberate per-card choice invisibly, and it reintroduces §4.2's rejected bug class in a new place, since a card *cited* in two regions bound to different pieces would follow whichever was touched last. **Home decides and visitors do not** is already §4.3's rule for dragging; this is the same rule, applied to destination.
+
+**Where the artifact goes: structural containment if it can be had, a link record otherwise.** Piece-scoped research exists only for a Collection's **loose** pieces — `ResearchScope.pieceResearchPrefix` returns nil for anything else, and `resolveLoosePiece` throws for a novel's chapter. So:
+
+- **A loose piece** → the note is created inside that piece's own research folder. Containment *is* the association.
+- **Anything else** (a novel's chapter, a screenplay piece, a palette card in any project — the wall is project-level and a card must live under the palette group) → the artifact is created in project research and **linked to the piece** through the existing linked-research association.
+
+Both routes leave the artifact knowing which piece it came from, through machinery that already has a UI surface and two MCP readers — and they cannot double-count, because the dormant-link rule (2026-07-17) already suppresses a manual link once containment covers the same pair.
+
+**The writer is told which route was taken, in the preview**, before committing. A piece that keeps no research of its own says so in the sheet rather than throwing or silently redirecting: §6.1 requires the writer see what will be produced and *where*, and a fallback nobody can see fails that test. In a novel the writer is not thinking in pieces at all, so the fallback is the ordinary case and not an error.
+
+**The craft intent takes the scope and never the link.** `createCraftIntent(forPieceId:)` already handles a loose piece; anywhere else it falls back to project scope and stops. An intent doc is a singleton per scope, and linking the *project's* intent to one chapter would misrepresent what it is.
 
 ### 6.1 Rules
 
