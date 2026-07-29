@@ -28,7 +28,6 @@ final class PromotionSheetModel: Identifiable {
     /// itemID → the artifact's body on disk. Called once per target selection.
     private let readBody: (String) -> String?
 
-    let pieces: [RegionInspector.PieceChoice]
     let availableTargets: [PromotionTarget]
     let blockedReason: String?
     /// The paragraph shown BESIDE a refusal — **only where it is about the
@@ -57,7 +56,6 @@ final class PromotionSheetModel: Identifiable {
 
     var editedTitle = ""
     var linksAccepted = false
-    var selectedPieceID: String?
     var paletteKind: PaletteCard.Kind = .other
     /// Changing this after a target is chosen re-derives `preview` in place —
     /// see the `didSet` below. Picking Update must move what "Goes to" shows,
@@ -78,13 +76,11 @@ final class PromotionSheetModel: Identifiable {
     init(source: PromotionSource,
          scene: CanvasScene,
          scraps: [CanvasNodeID: String],
-         pieces: [RegionInspector.PieceChoice],
          artifacts: ArtifactIndex,
          readBody: @escaping (String) -> String?) {
         self.source = source
         self.scene = scene
         self.scraps = scraps
-        self.pieces = pieces
         self.artifacts = artifacts
         self.readBody = readBody
         self.availableTargets = Promotion.targets(for: source, in: scene, artifacts: artifacts)
@@ -153,8 +149,6 @@ final class PromotionSheetModel: Identifiable {
 
     var canCommit: Bool {
         guard let plan = resolvedPlan else { return false }
-        // A binding produces no artifact, so it needs a piece and not a name.
-        if plan.producedKind == .pieceBinding { return plan.pieceID != nil }
         // **Only the targets whose artifact the writer NAMES are asked for
         // one.** A wiki-link's title is the destination note's, and the intent
         // doc's is fixed — neither performer reads `plan.title` at all, so
@@ -168,9 +162,6 @@ final class PromotionSheetModel: Identifiable {
         guard let plan = resolvedPlan else { return nil }
         if plan.linkAlreadyPresent {
             return "That link is already in “\(plan.title)”."
-        }
-        if plan.producedKind == .pieceBinding && plan.pieceID == nil {
-            return "Choose a piece."
         }
         if plan.producedKind.namesItsArtifact
             && editedTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -200,7 +191,6 @@ final class PromotionSheetModel: Identifiable {
             target: selectedTarget ?? .researchNote,
             mode: mode,
             scraps: scraps,
-            piece: pieces.first { $0.id == selectedPieceID },
             paletteKind: paletteKind,
             artifacts: artifacts,
             destinationBody: destinationBody)
@@ -306,12 +296,6 @@ struct PromotionSheet: View {
                     ForEach(PaletteCard.Kind.allCases, id: \.self) {
                         Text($0.rawValue.capitalized).tag($0)
                     }
-                }
-            }
-            if model.selectedTarget == .pieceBinding {
-                Picker("Piece", selection: $model.selectedPieceID) {
-                    Text("Choose…").tag(String?.none)
-                    ForEach(model.pieces) { Text($0.title).tag(String?.some($0.id)) }
                 }
             }
             if let offers = model.preview?.offeredLinks, !offers.isEmpty {

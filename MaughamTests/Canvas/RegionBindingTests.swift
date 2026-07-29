@@ -219,6 +219,23 @@ final class RegionBindingTests: XCTestCase {
                        "the unbind is its own step, not a silent write")
     }
 
+    /// **The writer-facing names, now that the inspector's Picker is the only
+    /// route to a binding.** `PromotionPerformerTests.test_bindingSharesTheInspectors
+    /// UndoName` used to cross-check this against the now-removed piece-binding
+    /// promotion target (spec §6's 2026-07-29 amendment: a binding produces no
+    /// artifact, so it is §6.2's association rather than a promotion target) —
+    /// this is where that coverage survives.
+    func test_bindingAndUnbindingUseDistinctUndoNames() {
+        let m = model()
+        m.undoManager.groupsByEvent = false
+        inspector(m).commitBinding("piece-3")
+        XCTAssertTrue(m.undo.undoMenuItemTitle.contains("Bind Region"),
+                      "found: \(m.undo.undoMenuItemTitle)")
+        inspector(m).commitBinding(nil)
+        XCTAssertTrue(m.undo.undoMenuItemTitle.contains("Unbind Region"),
+                      "found: \(m.undo.undoMenuItemTitle)")
+    }
+
     func test_removingAMemberThroughTheInspectorIsAnExplicitAct() throws {
         let m = model()
         m.withScene { CanvasMembership.join(self.a, home: self.r1, in: &$0) }

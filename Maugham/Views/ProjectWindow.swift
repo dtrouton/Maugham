@@ -1936,7 +1936,6 @@ struct CanvasPromotionModifier: ViewModifier {
         let research = store.manifest.research
         sheet = PromotionSheetModel(
             source: source, scene: model.scene, scraps: model.scraps,
-            pieces: ProjectWindow.pieceChoices(in: store.manifest.structure),
             artifacts: ArtifactIndex.over(research: research),
             readBody: { itemID in
                 guard let item = TreeWalk.find(id: itemID, in: research),

@@ -15,7 +15,6 @@ enum PromotionTarget: String, Equatable, Hashable, CaseIterable, Identifiable {
     case researchNote
     case paletteCard
     case intentStatement
-    case pieceBinding
     case wikiLink
 
     var id: String { rawValue }
@@ -25,7 +24,6 @@ enum PromotionTarget: String, Equatable, Hashable, CaseIterable, Identifiable {
         case .researchNote: return "Research note"
         case .paletteCard: return "Palette card"
         case .intentStatement: return "Craft intent"
-        case .pieceBinding: return "Piece binding"
         case .wikiLink: return "Wiki-link"
         }
     }
@@ -45,7 +43,7 @@ enum PromotionTarget: String, Equatable, Hashable, CaseIterable, Identifiable {
         case .researchNote: return .researchNote
         case .paletteCard: return .paletteCard
         case .intentStatement: return .craftIntent
-        case .pieceBinding, .wikiLink: return nil
+        case .wikiLink: return nil
         }
     }
 
@@ -67,7 +65,7 @@ enum PromotionTarget: String, Equatable, Hashable, CaseIterable, Identifiable {
     var namesItsArtifact: Bool {
         switch self {
         case .researchNote, .paletteCard: return true
-        case .intentStatement, .pieceBinding, .wikiLink: return false
+        case .intentStatement, .wikiLink: return false
         }
     }
 }
@@ -219,7 +217,6 @@ struct PromotionRequest {
     let target: PromotionTarget
     var mode: PromotionMode = .new
     var scraps: [CanvasNodeID: String]
-    var piece: RegionInspector.PieceChoice?
     var paletteKind: PaletteCard.Kind = .other
     var artifacts: ArtifactIndex
     /// The destination artifact's body as read from disk when the target was
@@ -232,7 +229,6 @@ struct PromotionRequest {
          target: PromotionTarget,
          mode: PromotionMode = .new,
          scraps: [CanvasNodeID: String],
-         piece: RegionInspector.PieceChoice? = nil,
          paletteKind: PaletteCard.Kind = .other,
          artifacts: ArtifactIndex,
          destinationBody: String? = nil) {
@@ -240,7 +236,6 @@ struct PromotionRequest {
         self.target = target
         self.mode = mode
         self.scraps = scraps
-        self.piece = piece
         self.paletteKind = paletteKind
         self.artifacts = artifacts
         self.destinationBody = destinationBody
@@ -278,7 +273,6 @@ struct PromotionPlan: Equatable {
     var linksAccepted = false
 
     let wikiLinkWrite: WikiLinkWrite?
-    let pieceID: String?
     let mode: PromotionMode
     let paletteKind: PaletteCard.Kind
 
@@ -310,7 +304,7 @@ enum Promotion {
 
         case .region(let id):
             guard scene.region(id) != nil else { return [] }
-            return [.paletteCard, .pieceBinding]
+            return [.researchNote, .paletteCard]
 
         case .line(let id):
             guard let line = scene.line(id),
@@ -452,23 +446,12 @@ enum Promotion {
                 source: request.source, producedKind: request.target,
                 title: title(from: body), body: body,
                 destinationDescription: destination(request),
-                discards: [], offeredLinks: [], wikiLinkWrite: nil, pieceID: nil,
+                discards: [], offeredLinks: [], wikiLinkWrite: nil,
                 mode: request.mode, paletteKind: request.paletteKind,
                 linkAlreadyPresent: false)
 
         case .region(let id):
             guard let region = scene.region(id) else { return nil }
-            if request.target == .pieceBinding {
-                guard let piece = request.piece else { return nil }
-                return PromotionPlan(
-                    source: request.source, producedKind: request.target,
-                    title: regionTitle(region), body: "",
-                    destinationDescription: destination(request),
-                    // Binding drops nothing: the region stays exactly as it is.
-                    discards: [], offeredLinks: [], wikiLinkWrite: nil,
-                    pieceID: piece.id, mode: .new, paletteKind: request.paletteKind,
-                    linkAlreadyPresent: false)
-            }
             let members = readingOrder(region.homeMembers, in: scene)
             let bodies = members.compactMap { nodeID -> (CanvasNodeID, String)? in
                 let t = text(of: nodeID, in: request.scraps)
@@ -487,7 +470,7 @@ enum Promotion {
                           let title = request.artifacts.title(of: itemID) else { return nil }
                     return PromotionLinkOffer(node: nodeID, itemID: itemID, title: title)
                 },
-                wikiLinkWrite: nil, pieceID: nil, mode: request.mode,
+                wikiLinkWrite: nil, mode: request.mode,
                 paletteKind: request.paletteKind, linkAlreadyPresent: false)
 
         case .line(let id):
@@ -504,7 +487,7 @@ enum Promotion {
                 source: request.source, producedKind: request.target,
                 title: fromTitle, body: write.linkText,
                 destinationDescription: "the note “\(fromTitle)”",
-                discards: [], offeredLinks: [], wikiLinkWrite: write, pieceID: nil,
+                discards: [], offeredLinks: [], wikiLinkWrite: write,
                 mode: .new, paletteKind: request.paletteKind,
                 linkAlreadyPresent: request.destinationBody?.contains(write.linkText) ?? false)
         }
@@ -612,7 +595,6 @@ enum Promotion {
         // only "the project's craft intent" left that discoverable by doing it.
         case .intentStatement:
             return "the project's craft intent, added to the end of what is already there"
-        case .pieceBinding: return "the piece “\(request.piece?.title ?? "")”"
         case .wikiLink: return ""   // replaced per-plan above
         }
     }

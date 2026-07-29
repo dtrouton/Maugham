@@ -83,11 +83,10 @@ final class PromotionPerformerTests: XCTestCase {
     private func plan(_ source: PromotionSource, _ target: PromotionTarget,
                       store: ProjectStore, model: CanvasModel,
                       mode: PromotionMode = .new,
-                      piece: RegionInspector.PieceChoice? = nil,
                       kind: PaletteCard.Kind = .other) -> PromotionPlan {
         Promotion.plan(
             PromotionRequest(source: source, target: target, mode: mode,
-                             scraps: model.scraps, piece: piece, paletteKind: kind,
+                             scraps: model.scraps, paletteKind: kind,
                              artifacts: index(store)),
             in: model.scene)!
     }
@@ -210,7 +209,7 @@ final class PromotionPerformerTests: XCTestCase {
         let stale = PromotionPlan(
             source: .scrap(a), producedKind: .researchNote, title: "T", body: "B",
             destinationDescription: "the existing “T”", discards: [], offeredLinks: [],
-            wikiLinkWrite: nil, pieceID: nil,
+            wikiLinkWrite: nil,
             mode: .update(itemID: "res-gone", title: "T"), paletteKind: .other,
             linkAlreadyPresent: false)
         do {
@@ -316,7 +315,7 @@ final class PromotionPerformerTests: XCTestCase {
             source: .scrap(a), producedKind: .researchNote,
             title: "The falls at night", body: "raw scrap text",
             destinationDescription: "the existing “The falls at night”",
-            discards: [], offeredLinks: [], wikiLinkWrite: nil, pieceID: nil,
+            discards: [], offeredLinks: [], wikiLinkWrite: nil,
             mode: .update(itemID: cardID, title: "The falls at night"),
             paletteKind: .other, linkAlreadyPresent: false)
         do {
@@ -370,7 +369,7 @@ final class PromotionPerformerTests: XCTestCase {
             source: .scrap(a), producedKind: .researchNote, title: "Craft Intent",
             body: "one card's worth of text",
             destinationDescription: "the existing “Craft Intent”", discards: [],
-            offeredLinks: [], wikiLinkWrite: nil, pieceID: nil,
+            offeredLinks: [], wikiLinkWrite: nil,
             mode: .update(itemID: intent.id, title: "Craft Intent"),
             paletteKind: .other, linkAlreadyPresent: false)
         do {
@@ -461,58 +460,6 @@ final class PromotionPerformerTests: XCTestCase {
                                         where: { $0.role == .craftIntent }).count, 1)
     }
 
-    // MARK: - Region → piece binding
-
-    func test_bindingSetsTheBindingAndCreatesNoFiles() async throws {
-        let (root, store) = try await makeProject()
-        let model = makeModel(at: root)
-        let piece = RegionInspector.PieceChoice(id: "piece-3", title: "Chapter Three")
-        let result = try await PromotionPerformer(store: store, model: model)
-            .perform(plan(.region(r1), .pieceBinding, store: store, model: model, piece: piece))
-
-        XCTAssertEqual(result.boundPieceID, "piece-3")
-        XCTAssertEqual(model.scene.region(r1)?.boundPieceID, "piece-3")
-        XCTAssertTrue(store.manifest.research.isEmpty, "binding creates nothing")
-        XCTAssertNil(model.scene.region(r1)?.promotedItemID,
-                     "and it is not an artifact, so it leaves no mark")
-        _ = root
-    }
-
-    /// Fail loudly on a silent no-op. A plan that reaches the binding path
-    /// without a region to bind refuses; it does not return a `PromotionResult`
-    /// reporting a success that bound nothing. (The no-piece half of the same
-    /// guard is caught earlier, by `validate`.)
-    func test_aBindingWithNothingToBindRefusesRatherThanReportingSuccess() async throws {
-        let (root, store) = try await makeProject()
-        let model = makeModel(at: root)
-        let notARegion = PromotionPlan(
-            source: .scrap(a), producedKind: .pieceBinding, title: "T", body: "",
-            destinationDescription: "the piece “Chapter Three”", discards: [],
-            offeredLinks: [], wikiLinkWrite: nil, pieceID: "piece-3", mode: .new,
-            paletteKind: .other, linkAlreadyPresent: false)
-        do {
-            _ = try await PromotionPerformer(store: store, model: model).perform(notARegion)
-            XCTFail("expected a refusal")
-        } catch PromotionFailure.missingPiece {
-            XCTAssertNil(model.scene.region(r1)?.boundPieceID)
-        }
-        _ = root
-    }
-
-    /// One name for one act: the inspector's Picker and this route both read
-    /// "Bind Region" in the Edit menu.
-    func test_bindingSharesTheInspectorsUndoName() async throws {
-        let (root, store) = try await makeProject()
-        let model = makeModel(at: root)
-        model.undoManager.groupsByEvent = false
-        _ = try await PromotionPerformer(store: store, model: model).perform(
-            plan(.region(r1), .pieceBinding, store: store, model: model,
-                 piece: RegionInspector.PieceChoice(id: "piece-3", title: "Chapter Three")))
-        XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains("Bind Region"),
-                      "found: \(model.undoManager.undoMenuItemTitle)")
-        _ = root
-    }
-
     // MARK: - Region → palette card, and the offer (§6.1)
 
     private func promoteBothScraps(_ store: ProjectStore, _ model: CanvasModel) async throws {
@@ -590,6 +537,46 @@ final class PromotionPerformerTests: XCTestCase {
         XCTAssertEqual(model.scene.region(r1)?.promotedItemID, result.createdItemID)
         XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains("Promote Region"),
                       "found: \(model.undoManager.undoMenuItemTitle)")
+        _ = root
+    }
+
+    // MARK: - Region → research note (spec §6's 2026-07-29 amendment)
+
+    /// The end-to-end wiring for the region's new target: a real note, joining
+    /// the residents' bodies in reading order — the same join
+    /// `test_regionPromotionJoinsItsResidentsInReadingOrder` (`PromotionTests`)
+    /// already pins as a pure plan; this is the performer actually writing it.
+    func test_promotingARegionToAResearchNoteCreatesARealNoteJoiningItsMembers() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        let result = try await PromotionPerformer(store: store, model: model)
+            .perform(plan(.region(r1), .researchNote, store: store, model: model))
+
+        let created = try item("Act II fog", in: store)
+        XCTAssertEqual(result.createdItemID, created.id)
+        let text = try body(of: created, in: root)
+        XCTAssertTrue(text.contains("The falls at night"))
+        XCTAssertTrue(text.contains("October's doctor"))
+    }
+
+    /// **RED before this task's fix**: `performResearchNote`'s mark used a
+    /// hardcoded `"Promote Scrap"`, which was correct only while a scrap was
+    /// the sole source that could reach it. Now that a region can too, the
+    /// undo name has to distinguish sources the same way
+    /// `performPaletteCard` already does — this is the twin of
+    /// `test_promotingARegionMarksTheRegionUnderTheRegionsOwnUndoName` for the
+    /// new target.
+    func test_promotingARegionToAResearchNoteMarksItUnderTheRegionsOwnUndoName() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        model.undoManager.groupsByEvent = false
+        let result = try await PromotionPerformer(store: store, model: model)
+            .perform(plan(.region(r1), .researchNote, store: store, model: model))
+        XCTAssertEqual(model.scene.region(r1)?.promotedItemID, result.createdItemID)
+        XCTAssertTrue(model.undoManager.undoMenuItemTitle.contains("Promote Region"),
+                      "a region's mark must read \"Promote Region\", not \"Promote "
+                      + "Scrap\", however it reaches performResearchNote. found: "
+                      + model.undoManager.undoMenuItemTitle)
         _ = root
     }
 
@@ -802,17 +789,6 @@ final class PromotionPerformerTests: XCTestCase {
         _ = root
     }
 
-    func test_aBindingConfirmsThePieceItBoundRatherThanNamingAFile() async throws {
-        let (root, store) = try await makeProject()
-        let model = makeModel(at: root)
-        let piece = RegionInspector.PieceChoice(id: "piece-3", title: "Chapter Three")
-        let p = plan(.region(r1), .pieceBinding, store: store, model: model, piece: piece)
-        let result = try await PromotionPerformer(store: store, model: model).perform(p)
-        XCTAssertEqual(result.confirmation(for: p),
-                       "Bound to the piece “Chapter Three”.")
-        _ = root
-    }
-
     func test_anIntentPromotionConfirmsThatItWasAddedToTheIntent() async throws {
         let (root, store) = try await makeProject()
         let model = makeModel(at: root)
@@ -847,7 +823,7 @@ final class PromotionPerformerTests: XCTestCase {
         let empty = PromotionPlan(
             source: .scrap(a), producedKind: .intentStatement, title: "T", body: "   ",
             destinationDescription: "the project's craft intent", discards: [],
-            offeredLinks: [], wikiLinkWrite: nil, pieceID: nil, mode: .new,
+            offeredLinks: [], wikiLinkWrite: nil, mode: .new,
             paletteKind: .other, linkAlreadyPresent: false)
         do {
             _ = try await PromotionPerformer(store: store, model: model).perform(empty)
@@ -864,7 +840,7 @@ final class PromotionPerformerTests: XCTestCase {
         let blank = PromotionPlan(
             source: .scrap(a), producedKind: .researchNote, title: "  ", body: "something",
             destinationDescription: "research/", discards: [], offeredLinks: [],
-            wikiLinkWrite: nil, pieceID: nil, mode: .new, paletteKind: .other,
+            wikiLinkWrite: nil, mode: .new, paletteKind: .other,
             linkAlreadyPresent: false)
         do {
             _ = try await PromotionPerformer(store: store, model: model).perform(blank)
@@ -883,7 +859,7 @@ final class PromotionPerformerTests: XCTestCase {
             source: .line(l1), producedKind: .wikiLink, title: "T", body: "[[X]]",
             destinationDescription: "the note “T”", discards: [], offeredLinks: [],
             wikiLinkWrite: WikiLinkWrite(intoNode: a, intoItemID: "res-x", linkText: "[[X]]"),
-            pieceID: nil, mode: .new, paletteKind: .other, linkAlreadyPresent: true)
+            mode: .new, paletteKind: .other, linkAlreadyPresent: true)
         do {
             _ = try await PromotionPerformer(store: store, model: model).perform(already)
             XCTFail("expected a refusal")

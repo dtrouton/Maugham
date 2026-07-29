@@ -36,8 +36,6 @@ final class PromotionTests: XCTestCase {
         CanvasNodeID("b"): "October's doctor was kind about it.",
     ]
 
-    private let piece = RegionInspector.PieceChoice(id: "piece-3", title: "Chapter Three")
-
     private func index(_ pairs: [String: String] = [:]) -> ArtifactIndex {
         ArtifactIndex(titlesByID: pairs)
     }
@@ -46,12 +44,11 @@ final class PromotionTests: XCTestCase {
                          _ target: PromotionTarget,
                          scene: CanvasScene? = nil,
                          mode: PromotionMode = .new,
-                         piece: RegionInspector.PieceChoice? = nil,
                          kind: PaletteCard.Kind = .other,
                          artifacts: ArtifactIndex? = nil,
                          destinationBody: String? = nil) -> PromotionRequest {
         PromotionRequest(source: source, target: target, mode: mode, scraps: texts,
-                         piece: piece, paletteKind: kind,
+                         paletteKind: kind,
                          artifacts: artifacts ?? index(), destinationBody: destinationBody)
     }
 
@@ -62,9 +59,12 @@ final class PromotionTests: XCTestCase {
                        [.researchNote, .paletteCard, .intentStatement])
     }
 
-    func test_aRegionCanBecomeAPaletteCardOrAPieceBinding() {
+    /// A region's binding to a piece is spec §6.2's ASSOCIATION now (set by the
+    /// inspector's own picker), not a promotion target — it produces no
+    /// artifact, and the picker already sets it. Amendment, 2026-07-29.
+    func test_aRegionCanBecomeANoteOrAPaletteCard() {
         XCTAssertEqual(Set(Promotion.targets(for: .region(r1), in: scene(), artifacts: index())),
-                       [.paletteCard, .pieceBinding])
+                       [.researchNote, .paletteCard])
     }
 
     func test_anItemNodeOffersNothingBecauseItAlreadyExists() {
@@ -175,8 +175,8 @@ final class PromotionTests: XCTestCase {
     }
 
     func test_aTargetTheSourceDoesNotOfferProducesNoPlan() {
-        XCTAssertNil(Promotion.plan(request(.scrap(a), .pieceBinding, piece: piece),
-                                    in: scene()))
+        // A scrap never offers `.wikiLink` — only a line does.
+        XCTAssertNil(Promotion.plan(request(.scrap(a), .wikiLink), in: scene()))
     }
 
     func test_planningNeverMutatesTheScene() {
@@ -184,7 +184,7 @@ final class PromotionTests: XCTestCase {
         let s = before
         _ = Promotion.plan(request(.scrap(a), .researchNote), in: s)
         _ = Promotion.plan(request(.region(r1), .paletteCard), in: s)
-        _ = Promotion.plan(request(.region(r1), .pieceBinding, piece: piece), in: s)
+        _ = Promotion.plan(request(.region(r1), .researchNote), in: s)
         XCTAssertEqual(s, before,
                        "nothing promotes because it sat somewhere long enough or "
                        + "looked like something (§6.1)")
@@ -199,6 +199,19 @@ final class PromotionTests: XCTestCase {
                        "The falls at night.\n\nSodium light on the spray."
                        + "\n\nOctober's doctor was kind about it.",
                        "top card first — the writer's own arrangement, not id order")
+    }
+
+    /// Amendment, 2026-07-29: a region's binding is no longer a promotion
+    /// target — its case for `.researchNote` is the natural artifact for a
+    /// cluster of text scraps, joined in the region's own reading order
+    /// exactly as `.paletteCard` already is.
+    func test_aRegionPromotedToAResearchNoteJoinsItsResidentsInReadingOrder() {
+        let plan = Promotion.plan(request(.region(r1), .researchNote), in: scene())
+        XCTAssertEqual(plan?.title, "Act II fog")
+        XCTAssertEqual(plan?.body,
+                       "The falls at night.\n\nSodium light on the spray."
+                       + "\n\nOctober's doctor was kind about it.")
+        XCTAssertEqual(plan?.destinationDescription, "research/")
     }
 
     func test_theReadingOrderIsSpatialAndNotTheIdOrder() {
@@ -231,6 +244,13 @@ final class PromotionTests: XCTestCase {
                         .discards.isEmpty)
     }
 
+    /// The other region target discards the same things, for the same reason —
+    /// this is what makes it safe for the two targets to share one plan branch.
+    func test_aRegionsResearchNoteDiscardsLinesAndLayoutToo() {
+        XCTAssertEqual(Promotion.plan(request(.region(r1), .researchNote), in: scene())?.discards,
+                       [.lines, .layout])
+    }
+
     // MARK: - The offer (§6.1: may suggest, must never impose)
 
     func test_regionPromotionOffersLinkingOnlyForAlreadyPromotedMembers() {
@@ -238,6 +258,18 @@ final class PromotionTests: XCTestCase {
         s.setPromotedItem("res-a", for: a)
         let plan = Promotion.plan(
             request(.region(r1), .paletteCard,
+                    artifacts: index(["res-a": "The falls at night."])), in: s)
+        XCTAssertEqual(plan?.offeredLinks.map(\.node), [a])
+        XCTAssertEqual(plan?.offeredLinks.first?.itemID, "res-a")
+    }
+
+    /// "Its link offer is unchanged" (task brief) — the same offer a region's
+    /// palette-card plan carries.
+    func test_aRegionsResearchNoteOffersLinkingOnlyForAlreadyPromotedMembersToo() {
+        var s = scene()
+        s.setPromotedItem("res-a", for: a)
+        let plan = Promotion.plan(
+            request(.region(r1), .researchNote,
                     artifacts: index(["res-a": "The falls at night."])), in: s)
         XCTAssertEqual(plan?.offeredLinks.map(\.node), [a])
         XCTAssertEqual(plan?.offeredLinks.first?.itemID, "res-a")
@@ -359,19 +391,6 @@ final class PromotionTests: XCTestCase {
                     destinationBody: "The falls.\n\n[[Something else]]\n"),
             in: promotedScene())
         XCTAssertFalse(plan!.linkAlreadyPresent)
-    }
-
-    func test_thePieceBindingPlanCarriesThePieceAndNamesItInTheDestination() {
-        let plan = Promotion.plan(request(.region(r1), .pieceBinding, piece: piece),
-                                  in: scene())
-        XCTAssertEqual(plan?.pieceID, "piece-3")
-        XCTAssertTrue(plan!.destinationDescription.contains("Chapter Three"))
-        XCTAssertTrue(plan!.discards.isEmpty,
-                      "binding drops nothing — the region stays exactly as it is")
-    }
-
-    func test_aPieceBindingWithNoPieceChosenProducesNoPlan() {
-        XCTAssertNil(Promotion.plan(request(.region(r1), .pieceBinding), in: scene()))
     }
 
     func test_thePaletteKindRidesThePlan() {
@@ -498,8 +517,6 @@ final class PromotionTests: XCTestCase {
         XCTAssertEqual(PromotionTarget.researchNote.producedArtifactKind, .researchNote)
         XCTAssertEqual(PromotionTarget.paletteCard.producedArtifactKind, .paletteCard)
         XCTAssertEqual(PromotionTarget.intentStatement.producedArtifactKind, .craftIntent)
-        XCTAssertNil(PromotionTarget.pieceBinding.producedArtifactKind,
-                     "a binding creates no file")
         XCTAssertNil(PromotionTarget.wikiLink.producedArtifactKind,
                      "a link is text inside somebody else's note")
     }

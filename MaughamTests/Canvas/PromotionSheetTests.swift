@@ -30,14 +30,12 @@ final class PromotionSheetTests: XCTestCase {
         CanvasNodeID("b"): "October's doctor",
     ]
 
-    private let pieces = [RegionInspector.PieceChoice(id: "piece-3", title: "Chapter Three")]
-
     private func model(_ source: PromotionSource,
                        scene: CanvasScene? = nil,
                        artifacts: [String: String] = [:],
                        body: @escaping (String) -> String? = { _ in nil }) -> PromotionSheetModel {
         PromotionSheetModel(source: source, scene: scene ?? self.scene(), scraps: texts,
-                            pieces: pieces, artifacts: ArtifactIndex(titlesByID: artifacts),
+                            artifacts: ArtifactIndex(titlesByID: artifacts),
                             readBody: body)
     }
 
@@ -47,7 +45,7 @@ final class PromotionSheetTests: XCTestCase {
         XCTAssertEqual(Set(model(.scrap(a)).availableTargets),
                        [.researchNote, .paletteCard, .intentStatement])
         XCTAssertEqual(Set(model(.region(r1)).availableTargets),
-                       [.paletteCard, .pieceBinding])
+                       [.researchNote, .paletteCard])
     }
 
     func test_itStartsWithNothingSelectedSoNothingCommitsByAccident() {
@@ -177,7 +175,7 @@ final class PromotionSheetTests: XCTestCase {
         XCTAssertEqual(m.availableModes, [.new], "an intent doc accumulates")
     }
 
-    // MARK: - The offer, the discards, the piece, the kind
+    // MARK: - The offer, the discards, the kind
 
     func test_theLinkOfferArrivesUncheckedForARegion() {
         var s = scene()
@@ -201,15 +199,6 @@ final class PromotionSheetTests: XCTestCase {
         let scrap = model(.scrap(a))
         scrap.select(.researchNote)
         XCTAssertNil(scrap.discardNotice)
-    }
-
-    func test_aPieceBindingCannotCommitUntilAPieceIsChosen() {
-        let m = model(.region(r1))
-        m.select(.pieceBinding)
-        XCTAssertFalse(m.canCommit)
-        m.selectedPieceID = "piece-3"
-        XCTAssertTrue(m.canCommit)
-        XCTAssertEqual(m.resolvedPlan?.pieceID, "piece-3")
     }
 
     func test_thePaletteKindRidesTheResolvedPlan() {
@@ -300,7 +289,7 @@ final class PromotionSheetTests: XCTestCase {
     /// got an empty Name field, no destination and a dead button.
     func test_anEmptyScrapIsBlockedWithAReasonRatherThanOfferingTargets() {
         let m = PromotionSheetModel(source: .scrap(a), scene: scene(),
-                                    scraps: [a: "   "], pieces: pieces,
+                                    scraps: [a: "   "],
                                     artifacts: ArtifactIndex(titlesByID: [:]),
                                     readBody: { _ in nil })
         XCTAssertNotNil(m.blockedReason)
@@ -328,7 +317,7 @@ final class PromotionSheetTests: XCTestCase {
                        "the control: a line is what the note is about")
 
         let emptyCard = PromotionSheetModel(source: .scrap(a), scene: scene(),
-                                            scraps: [a: "   "], pieces: pieces,
+                                            scraps: [a: "   "],
                                             artifacts: ArtifactIndex(titlesByID: [:]),
                                             readBody: { _ in nil })
         XCTAssertNotNil(emptyCard.blockedReason, "it is still blocked, and still says why")
@@ -340,7 +329,7 @@ final class PromotionSheetTests: XCTestCase {
                                    origin: CGPoint(x: 800, y: 0), width: 180,
                                    cachedHeight: 120))
         let reference = PromotionSheetModel(source: .scrap(.item("r-9")), scene: withItem,
-                                            scraps: texts, pieces: pieces,
+                                            scraps: texts,
                                             artifacts: ArtifactIndex(titlesByID: [:]),
                                             readBody: { _ in nil })
         XCTAssertNotNil(reference.blockedReason)

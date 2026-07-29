@@ -3,15 +3,13 @@ import MaughamCore
 
 /// What a promotion produced.
 struct PromotionResult: Equatable {
-    /// The artifact's research-item id. Nil only for a piece binding, which
-    /// creates no file.
+    /// The artifact's research-item id.
     let createdItemID: String?
     /// The artifact's title AS CREATED — `addResearchTextNote` dedupes, so this
     /// is not always the title the writer typed.
     let title: String
     /// The members whose own notes gained a link, when the offer was accepted.
     let writtenLinks: [CanvasNodeID]
-    let boundPieceID: String?
 
     /// One sentence naming what was produced, and the link count when links
     /// were actually written.
@@ -34,7 +32,6 @@ struct PromotionResult: Equatable {
         case .researchNote: return "Promoted to the note “\(title)”." + links
         case .paletteCard: return "Promoted to the palette card “\(title)”." + links
         case .intentStatement: return "Added to the project's craft intent."
-        case .pieceBinding: return "Bound to \(plan.destinationDescription)."
         case .wikiLink: return "Wrote the link into the note “\(title)”."
         }
     }
@@ -43,7 +40,6 @@ struct PromotionResult: Equatable {
 enum PromotionFailure: LocalizedError, Equatable {
     case emptyTitle
     case emptyBody
-    case missingPiece
     case missingWikiLinkWrite
     case linkAlreadyPresent
     case artifactMissing(String)
@@ -59,7 +55,6 @@ enum PromotionFailure: LocalizedError, Equatable {
         switch self {
         case .emptyTitle: return "This needs a name before it can be promoted."
         case .emptyBody: return "There is nothing in this card to promote."
-        case .missingPiece: return "Choose a piece to bind this region to."
         case .missingWikiLinkWrite: return "This line has nothing to link."
         case .linkAlreadyPresent: return "That link is already in the note."
         case .artifactMissing(let id):
@@ -108,7 +103,6 @@ struct PromotionPerformer {
         case .researchNote: return try await performResearchNote(plan)
         case .paletteCard: return try await performPaletteCard(plan)
         case .intentStatement: return try await performCraftIntent(plan)
-        case .pieceBinding: return try performPieceBinding(plan)
         case .wikiLink: return try await performWikiLink(plan)
         }
     }
@@ -130,8 +124,6 @@ struct PromotionPerformer {
             // one in the same edit, so the two agree.
             guard !plan.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             else { throw PromotionFailure.emptyBody }
-        case .pieceBinding:
-            guard plan.pieceID != nil else { throw PromotionFailure.missingPiece }
         case .wikiLink:
             guard plan.wikiLinkWrite != nil else { throw PromotionFailure.missingWikiLinkWrite }
             guard !plan.linkAlreadyPresent else { throw PromotionFailure.linkAlreadyPresent }
@@ -189,10 +181,10 @@ struct PromotionPerformer {
         // The mark BEFORE the offer: a link-write failure must not leave an
         // artifact the canvas has forgotten it produced, because the writer's
         // retry would then mint a second one.
-        mark(itemID, for: plan.source, named: "Promote Scrap")
+        mark(itemID, for: plan.source,
+             named: isRegion(plan.source) ? "Promote Region" : "Promote Scrap")
         let written = try await writeOfferedLinks(plan, artifactTitle: title)
-        return PromotionResult(createdItemID: itemID, title: title,
-                               writtenLinks: written, boundPieceID: nil)
+        return PromotionResult(createdItemID: itemID, title: title, writtenLinks: written)
     }
 
     private func performPaletteCard(_ plan: PromotionPlan) async throws -> PromotionResult {
@@ -226,8 +218,7 @@ struct PromotionPerformer {
         mark(itemID, for: plan.source,
              named: isRegion(plan.source) ? "Promote Region" : "Promote Scrap")
         let written = try await writeOfferedLinks(plan, artifactTitle: title)
-        return PromotionResult(createdItemID: itemID, title: title,
-                               writtenLinks: written, boundPieceID: nil)
+        return PromotionResult(createdItemID: itemID, title: title, writtenLinks: written)
     }
 
     private func performCraftIntent(_ plan: PromotionPlan) async throws -> PromotionResult {
@@ -243,26 +234,7 @@ struct PromotionPerformer {
             : existing + "\n\n" + plan.body
         try await write(joined, toPath: path)
         mark(item.id, for: plan.source, named: "Promote Scrap")
-        return PromotionResult(createdItemID: item.id, title: item.title,
-                               writtenLinks: [], boundPieceID: nil)
-    }
-
-    private func performPieceBinding(_ plan: PromotionPlan) throws -> PromotionResult {
-        // Unreachable through `Promotion.plan` — a piece binding needs a region
-        // and a piece to exist at all — and it REFUSES rather than reporting a
-        // success that bound nothing. Fail loudly on a silent no-op is the house
-        // lesson (`project_publishing_namespace_footgun`).
-        guard let pieceID = plan.pieceID, case .region(let regionID) = plan.source else {
-            throw PromotionFailure.missingPiece
-        }
-        // The SAME undo name the region inspector's Picker uses, so one act
-        // reads one way in the Edit menu however the writer reached it.
-        model.mutateFromInspector("Bind Region") { scene in
-            RegionBinding.bind(regionID, toPiece: pieceID, in: &scene)
-        }
-        model.bumpSceneRevision()
-        return PromotionResult(createdItemID: nil, title: plan.title,
-                               writtenLinks: [], boundPieceID: pieceID)
+        return PromotionResult(createdItemID: item.id, title: item.title, writtenLinks: [])
     }
 
     private func performWikiLink(_ plan: PromotionPlan) async throws -> PromotionResult {
@@ -279,8 +251,7 @@ struct PromotionPerformer {
         try await write(body + link.appendedText, toPath: path)
         // No mark: a line's artifact is text inside somebody else's note, and a
         // flag on the line could disagree with the file.
-        return PromotionResult(createdItemID: link.intoItemID, title: item.title,
-                               writtenLinks: [], boundPieceID: nil)
+        return PromotionResult(createdItemID: link.intoItemID, title: item.title, writtenLinks: [])
     }
 
     // MARK: - The offer (§6.1: may suggest, must never impose)
