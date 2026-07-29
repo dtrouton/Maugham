@@ -160,8 +160,22 @@ struct PromotionPerformer {
         let itemID: String
         switch plan.mode {
         case .new:
-            itemID = try await store.addResearchTextNote(parentId: nil, title: plan.title).id
+            // **The piece decides where, and the deciding is not done here**
+            // (spec §6.2). `ResearchScope.route` has routed `.document(id)` by
+            // project type since the 2026-07-07 scoped-research milestone — the
+            // piece's own `research/` for a collection loose piece, shared plus
+            // a `linkResearch` record for a novel chapter, shared alone for a
+            // short story or screenplay — and it writes the link itself. A
+            // `switch manifest.type` in this file would be a second copy of that
+            // table, and a copy is how the two drift.
+            itemID = try await store.createResearchNote(
+                scope: scope(for: plan.source), title: plan.title).id
         case .update(let existing, _):
+            // **No scope on this arm, deliberately.** The artifact already
+            // exists where it exists; an update is about the body, and re-filing
+            // the writer's note — or retrofitting a link — because they changed
+            // a card's association is exactly the surprise §6.1 forbids.
+            //
             // **The plan is a SNAPSHOT and the artifact can change under it**,
             // so the kind is checked here as well as in `Promotion`: the sheet
             // read the manifest when it opened, and between then and Commit the
@@ -199,8 +213,18 @@ struct PromotionPerformer {
         let itemID: String
         switch plan.mode {
         case .new:
+            // **A palette card is NEVER routed** (spec §6.2). The wall is
+            // project-level and `addPaletteCard` has to put the card under the
+            // palette group — a card filed into a piece's `research/` is off the
+            // wall entirely. What the association buys the card is the LINK, and
+            // only where the routing would have been `.sharedPlusLink`, read
+            // from the same function the note path routes through so the
+            // decision has one source.
             itemID = try await store.addPaletteCard(title: plan.title,
                                                     kind: plan.paletteKind).id
+            if let documentID = linkTargetForCard(plan.source) {
+                try await store.linkResearch(researchId: itemID, toDocumentId: documentID)
+            }
         case .update(let existing, _):
             itemID = existing
         }
@@ -222,9 +246,20 @@ struct PromotionPerformer {
     }
 
     private func performCraftIntent(_ plan: PromotionPlan) async throws -> PromotionResult {
-        // Find-or-create, idempotent: one intent doc per scope. Project scope —
-        // a scrap belongs to the canvas, and the canvas belongs to the project.
-        let item = try await store.createCraftIntent(forPieceId: nil)
+        // Find-or-create, idempotent: one intent doc per scope — and the scope
+        // takes the piece ONLY where the routing is `.pieceFolder`.
+        //
+        // **Not a shrug at the other rows: the lookup cannot find them.**
+        // `craftIntentItem(forPieceId:)` locates an existing intent doc by the
+        // piece's research PREFIX (`ResearchScope.pieceResearchPrefix`), which is
+        // nil for anything that is not a collection loose piece. An intent doc
+        // created under a novel chapter's `.sharedPlusLink` would land in shared
+        // `research/` where that lookup never looks, so the next promotion would
+        // find nothing and mint a second one — the writer's intent statement
+        // silently split in two. And the intent takes the scope and never the
+        // link (§6.2): linking the PROJECT's intent to one chapter misrepresents
+        // what it is.
+        let item = try await store.createCraftIntent(forPieceId: intentPiece(plan.source))
         guard let path = item.path else { throw PromotionFailure.itemHasNoFile(item.id) }
         // AFTER the flush, so what we append to is what is on disk.
         try? await store.documentStore?.flushPendingSave()
@@ -338,6 +373,48 @@ struct PromotionPerformer {
         } catch {
             throw PromotionFailure.unreadableFile(path)
         }
+    }
+
+    // MARK: - The piece (spec §6.2)
+
+    /// The scope a new research note is created in — the source's piece by
+    /// `Promotion.piece`'s precedence (its own, else its home region's, else
+    /// none), or the project's own research.
+    ///
+    /// It hands `ResearchScope` a piece id and nothing else. Which of the four
+    /// rows of §6.2's table that is, and whether a link record gets written, is
+    /// `route(_:shared:piece:)`'s answer and not this file's.
+    private func scope(for source: PromotionSource) -> ResearchScope {
+        Promotion.piece(for: source, in: model.scene).map(ResearchScope.document) ?? .shared
+    }
+
+    /// The document a `.sharedPlusLink` routing would have linked the new note
+    /// to — the only case in which a palette card takes a link.
+    ///
+    /// **`try?` rather than `try`, and that is the whole of "nothing
+    /// otherwise".** `researchRouting` throws for an id it cannot route (a
+    /// collection reference piece, a group, an id since deleted). The card is
+    /// created regardless — the wall is project-level — so a throw here would
+    /// have to arrive AFTER `addPaletteCard`, leaving a card on the wall and
+    /// reporting a failure: the half-created artifact this file's contract
+    /// refuses to produce. A piece that cannot be routed buys the card no link,
+    /// which is what §6.2 says it should.
+    private func linkTargetForCard(_ source: PromotionSource) -> String? {
+        guard let piece = Promotion.piece(for: source, in: model.scene),
+              let routing = try? store.researchRouting(forDocumentId: piece),
+              case .sharedPlusLink(let documentID) = routing else { return nil }
+        return documentID
+    }
+
+    /// The piece a craft intent is scoped to: the source's, but only where it
+    /// routes to `.pieceFolder`. See `performCraftIntent` for why the other rows
+    /// must be project scope rather than a piece the lookup could never find
+    /// again.
+    private func intentPiece(_ source: PromotionSource) -> String? {
+        guard let piece = Promotion.piece(for: source, in: model.scene),
+              let routing = try? store.researchRouting(forDocumentId: piece),
+              case .pieceFolder(let pieceID) = routing else { return nil }
+        return pieceID
     }
 
     // MARK: - The mark
