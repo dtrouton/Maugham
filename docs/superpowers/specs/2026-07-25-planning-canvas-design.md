@@ -187,6 +187,24 @@ A **palette card** is not routed: the wall is project-level and a card must live
 
 ---
 
+### 6.3 What a promotion records on the cards it consumed
+
+*Added 2026-07-29 (Denver, after the 1C-c2a smoke).* Promoting a region produced the note and told the region so — and left every card whose words are now in that note reporting **"Not promoted yet"** in its own inspector. The writer's report: *"not all the scraps know they were promoted, some think they weren't — all did turn up in the research note though."* The cards that did say promoted were the ones promoted individually earlier, carrying their own mark. Two truths on one screen, and the screen was lying.
+
+**A contributing card carries a record, and it is NOT the promotion mark.** The distinction is load-bearing rather than tidy. `promotedItemID` means *"I am this artifact"*, and `existingArtifact` reads it to offer **Rewrite**. Stamping a contributor with the same field would mean promoting one member afterwards offers to rewrite the six-card note with that one card's text — which is the 1C-c2 Critical (a mark that did not record the artifact's *kind*) returning as a mark that does not record its *cardinality*. So:
+
+- **`promotedItemID`** — this card produced this artifact. Readable as an Update.
+- **the contribution record** — this card's words are *in* that artifact, along with others'. **Never** an Update; re-promoting a contributing card offers only a new artifact.
+
+**Who is recorded, and when.** Exactly the members whose text went in — home members with non-empty text, which is already one function (`Promotion.regionBodies`) read by the preview, the refusal and the body. Recorded at promotion time, not derived from live membership: a card added to the region *afterwards* has no words in that note and must not claim to.
+
+**One gesture, one undo step.** The region's mark and every contribution record are written in a single bracket, so one ⌘Z takes back the whole promotion's canvas-side effect rather than leaving cards claiming a note the region no longer names.
+
+**An update re-records.** Rewriting a region's note rebuilds its contributors: cards that have left the region since stop claiming it, and cards that joined start. The note is written from the current members, so the record follows the same set.
+
+**A card may carry both**, and they say different things: it produced its own note, *and* its words are in a region's. The inspector shows both rather than choosing.
+
+
 ## 7. How it feels
 
 The editor is deliberately austere to protect flow. Planning is associative and messy, so the canvas can afford to feel like somewhere else — and the persona bar has already told the writer they *are* somewhere else.
