@@ -34,6 +34,10 @@ Three requirements. Each is verbatim from the spike; each breaks the surface sil
 
 **A second spelling of the inset anywhere puts drawn glyphs and edited glyphs on different rects** — the §7A.2 "text jumps on focus" failure arriving by the back door, past every structural defence above.
 
+**The two halves meet in exactly one function, and it is not in a view.** A scrap card's height is `CanvasCardMetrics.cardHeight(forTextHeight:)` over `ScrapLayout.measuredHeight`, and that pairing is `CanvasScrapMeasure.height(of:)` — the only place in this directory those two are written together. `CanvasView` still builds and caches every `ScrapLayout` (the mounted editor and the draw pass share one TextKit stack per scrap — tripwire 26; **this lifted the height arithmetic, never the layout cache**) and asks for the number; `height(text:cardWidth:)` answers for a caller with no card on screen yet, which is what placing cards without overlapping them needs before anything is drawn. **`CanvasScrapMeasure.scrapFont` is the card face** for the same reason: a measurement taken at the system font is a different number for the same words.
+
+**An ITEM node's height is `CanvasCardMetrics.itemPlaceholderHeight`, and nothing measures one.** `rebuildLayouts` guards on `.scrap`, so an item node's height has to be set by whoever creates it — and a node with no `cachedHeight` has no `frame`, which `nodes(intersecting:)` and `topmostNode(at:)` both drop: **not drawn, not clickable.** That constant is derived from the label the renderer actually draws (one line at `itemLabelFontSize`, inside the inset twice), which is why the size is a shared constant rather than an `11` in each place. A hand-edited sidecar can still hand us an item node with no height and it is silently absent; widening `rebuildLayouts` belongs to **1C-d**, where a thumbnail makes an item's height depend on its image and the measurement it needs is not this one.
+
 ---
 
 ## Focus straightens the card (§7A.5)

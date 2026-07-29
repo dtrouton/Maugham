@@ -1064,9 +1064,13 @@ enum CanvasRenderer {
                 }
             }
         case .item(let referenceId):
+            // The size is a shared constant because
+            // `CanvasCardMetrics.itemPlaceholderHeight` is DERIVED from a line of
+            // it: draw the label larger than the card was measured for and the
+            // placeholder clips the only thing on it.
             var text = card.resolve(
                 Text(placeholderLabel(forReference: referenceId))
-                    .font(.system(size: 11)))
+                    .font(.system(size: CanvasCardMetrics.itemLabelFontSize)))
             text.shading = .color(Color(nsColor: .secondaryLabelColor))
             card.draw(text, at: CanvasCardMetrics.textOrigin(inCard: frame), anchor: .topLeading)
         }

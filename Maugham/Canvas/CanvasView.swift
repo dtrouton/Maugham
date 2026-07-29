@@ -151,9 +151,6 @@ struct CanvasView: View {
     /// to be the one under the pointer.
     @State private var selectionWhenPressed: CanvasSelection?
 
-    private let scrapFont = NSFont(name: "Iowan Old Style", size: 13)
-        ?? .systemFont(ofSize: 13)
-
     /// The most any single tick of the timeline may advance an animation.
     ///
     /// **Without this the ~120 ms straighten completes on its FIRST frame, every
@@ -539,6 +536,20 @@ struct CanvasView: View {
     /// care which is in front, and `CanvasScene.nodes` sorts the whole scene on
     /// every access.
     ///
+    /// **The layout CACHE lives here; the HEIGHT arithmetic does not.** The
+    /// `ScrapLayout` objects are built and kept in this view because the mounted
+    /// `NSTextView` and the draw pass share one TextKit stack per scrap (tripwire
+    /// 26) — that sharing is §7A.2's structural mitigation and this loop is what
+    /// maintains it. The number that goes into the scene comes from
+    /// `CanvasScrapMeasure`, so a caller with no view on screen measures a card
+    /// exactly as this does.
+    ///
+    /// **It measures `.scrap` only, and an item node therefore gets no height
+    /// from here** — see `CanvasScrapMeasure`'s doc, which records the gap and
+    /// whose it is. Anything that creates an item node must set
+    /// `CanvasCardMetrics.itemPlaceholderHeight` itself, or the card is neither
+    /// drawn nor clickable.
+    ///
     /// `bumpsStructuralCounter` is `false` for the two callers that have a bump
     /// arriving by another route — the undo apply and `deleteSelection()`, both
     /// of which bump the model's counter on their own line. Every other caller
@@ -567,13 +578,11 @@ struct CanvasView: View {
                     layout = ScrapLayout(
                         text: text,
                         width: CanvasCardMetrics.textWidth(forCardWidth: node.width),
-                        font: scrapFont,
+                        font: CanvasScrapMeasure.scrapFont,
                         textColor: CanvasRenderer.cardInk)
                     layouts[node.id] = layout
                 }
-                scene.setCachedHeight(
-                    CanvasCardMetrics.cardHeight(forTextHeight: layout.measuredHeight),
-                    for: node.id)
+                scene.setCachedHeight(CanvasScrapMeasure.height(of: layout), for: node.id)
             }
         }
         // Layouts for nodes that no longer exist would keep their text alive.
@@ -590,7 +599,7 @@ struct CanvasView: View {
     ///
     /// This is `rebuildLayouts()`'s reuse branch for a single node, and it is
     /// deliberately the same two calls in the same order — `setWidth` on the
-    /// layout, then `cardHeight(forTextHeight:)` into the scene — so there is
+    /// layout, then `CanvasScrapMeasure.height(of:)` into the scene — so there is
     /// one spelling of card geometry. A second measurement path is precisely how
     /// drawn and edited text end up on different rects (spec §7A.2).
     ///
@@ -606,9 +615,7 @@ struct CanvasView: View {
               let layout = layouts[id] else { return }
         layout.setWidth(CanvasCardMetrics.textWidth(forCardWidth: node.width))
         model.withScene(persist: false) {
-            $0.setCachedHeight(
-                CanvasCardMetrics.cardHeight(forTextHeight: layout.measuredHeight),
-                for: id)
+            $0.setCachedHeight(CanvasScrapMeasure.height(of: layout), for: id)
         }
     }
 
@@ -665,8 +672,7 @@ struct CanvasView: View {
         }
 
         model.withScene(persist: false) {
-            $0.setCachedHeight(
-                CanvasCardMetrics.cardHeight(forTextHeight: layout.measuredHeight), for: id)
+            $0.setCachedHeight(CanvasScrapMeasure.height(of: layout), for: id)
         }
         // The fold, and the save that carries both it and the height above.
         model.setScrapText(updated, for: id)
