@@ -51,6 +51,19 @@ Two kinds of node, and the distinction is the whole data model.
 
 Research notes, palette cards, images, and craft-intent docs appear on the canvas **as themselves**. The canvas holds only their position; the file on disk is untouched and remains the truth. Deleting a node from the canvas removes it from the canvas, never from the project.
 
+> **Amendment, 2026-07-30 (Denver, deriving §8A.4).** An item node has **two provenances**, and only the first is described above.
+>
+> - **Referenced** — the thing already exists in the project. The canvas holds a position and nothing else, and the paragraph above is exactly right about it.
+> - **Owned** — the thing arrived *here*, from a capture or a drop, and had nowhere else to live. The canvas ingests the file and owns it.
+>
+> The second is not a weakening of the first, it is what a queue forces: an inbox capture's asset lives under `.maugham/inbox/`, which the writer *clears*, so a node pointing at one dangles the moment they tidy up. Something has to give the file a home, and §8A.4 rules that the canvas does — the way a palette card owns its `<slug>_assets/` rather than referencing wherever the photo came from.
+>
+> **This is the palette's shape, adopted rather than invented**, and the adoption is the whole ruling: one ingestion pair (`ProjectStore.addImage(toPaletteCard:image:)` / `(…fileURL:)`, `ProjectStore+Palette.swift:143` and `:153`) over one saver already shared with research notes (`ImagePasteHandler.saveAndReference…`), with **five callers across three routes** — three pastes and a file drop in the card editor, plus `InboxStore.promoteToPaletteCard` (`InboxStore.swift:305`), and MCP `promote_inbox_entry` reaching the identical seam. The inbox never needed a storage rule of its own there and does not need one here: **every route is a caller, not a decision.**
+>
+> **An owned image is referenced by PATH, not by an item id**, matching the palette's own model — and arriving independently from the other direction, since tripwire 22 already requires the thumbnail cache be keyed by path rather than id. Two forces landing on one answer. The encoding is 1C-d's (`CanvasNodeKind.item(referenceId:)` currently carries a project item id, and a path in the same field would be two namespaces in one string); what is settled here is that a path is what identifies it.
+>
+> **§8's "the canvas never writes to a research note, a palette card, or an image" stays true and now needs to say what it is about.** It is about **items**, and an owned capture is not one. Read as written it forbids the asset store §8A.4 requires.
+
 ### 3.2 Scraps — things that exist only here
 
 A loose thought typed straight onto the canvas is a **scrap**. Scraps are canvas-local: they do not appear in the research tree, cost no filename, and require no decision about what they are.
@@ -328,7 +341,8 @@ The plan's first task is a **timeboxed spike**, not construction. The runner-up 
 
 - **Node positions, region geometry, membership, lines, and seeds** → sidecar under `.maugham/`. Derived UI state; deletable without loss of content; never the truth about anything.
 - **Scrap text** → the plain-text scraps file (§3.2). Content, not state.
-- **Items** → untouched. The canvas never writes to a research note, a palette card, or an image.
+- **Referenced items** → untouched. The canvas never writes to a research note, a palette card, or an image **it did not ingest**. *(Qualified 2026-07-30 — see §3.1's amendment: the rule is about items, and an owned capture is not one. Unqualified, this line forbids the asset store below.)*
+- **Owned captures** → an assets folder beside the scraps file, at the project root. Content, exactly as scrap text is content: deleting the sidecar costs the arrangement and never the words, and it must never cost the photographs either. Written **only** through the one ingestion pair §3.1's amendment names, so the canvas has one place that decides where an image lands and one deletion story to keep. *(Added 2026-07-30, §8A.4; built in 1C-d.)*
 
 Membership is **stored**, never recomputed from coordinates at read time (§4.2).
 
@@ -375,6 +389,29 @@ Two hazards, both already scarred into this file:
 
 - `PersonaModifier.clearsPaletteStash` exists because `PaletteSegmentModifier`'s `.onChange` fires in a *later* update pass and would otherwise restore stashed inspector visibility over a persona switch's force-open. Any canvas column-collapse that stashes state inherits this exact ordering hazard and must extend the predicate rather than defer a pass (tripwire 2).
 - Column visibility must not add an expression to `ProjectWindow.body` (§7A / zero budget).
+
+### 8A.4 Inbox → canvas, directly
+
+*Added 2026-07-30 (Denver, re-deriving 1C-c3). Built in **1C-d**, with the rest of §8A.*
+
+**A capture goes from the inbox onto the canvas in one act, and it must not have to travel through Claude or through a research note to get there.** The writer's words: *"this should NOT need to go via claude or research notes. In many ways inbox to canvas to research makes more sense, but in some cases going from inbox to research is fine."*
+
+**The pipeline is inbox → canvas → research, and only the first arrow is missing.** The second one shipped: promotion (§6) is already how something on the canvas becomes a durable artifact. That ordering is the point rather than a convenience — requiring a capture be promoted to research *before* it can be thought about builds the durable artifact first and does the thinking afterwards, which inverts what the canvas is for (§1). Inbox → research stays exactly as it is and stays appropriate; it must simply stop being the only road onto the canvas.
+
+**One action, all three capture kinds**, and the two halves are not symmetric:
+
+- **Text and voice** need nothing new. The capture's text or transcript becomes a **scrap** — words into the scraps file, keyed by the new node's id, exactly as a typed scrap is — and promotion later turns it into a note if the writer wants one. No new storage, no new namespace, nothing that can dangle.
+- **A photograph** becomes an **owned item node** (§3.1's 2026-07-30 amendment): the asset is ingested into the canvas's assets folder through the one ingestion pair, and the node references its path.
+
+**It ships for all three kinds or it does not ship.** An action live for text and voice and absent on photos teaches the writer it is broken, and the photographed page is not an edge case — it is §8A.2's own example and the reason this route was asked for. That is also why this section is **1C-d's and not 1C-c3's**: the photo half *is* the image work (the ingestion seam, the owned-asset store, the path-referenced node, the `CGImageSource` thumbnail and the path-keyed cache), and splitting the action by capture kind to fit it into an earlier slice would ship the bad seam on purpose.
+
+**It reuses the promote contract rather than restating it.** `InboxStore.promoteToResearch` and `.promoteToPaletteCard` already settle the parts that are easy to get wrong and identical here: copy-then-remove the original so a failure leaves a harmless duplicate rather than losing the capture, and flip the entry to `.promoted` **only after every mutating step has succeeded**, so a half-promoted entry is not reachable. A third sibling belongs beside them, not a new spelling of them.
+
+**Where the writer finds it:** the Inbox pane, beside "Promote to Palette" — the precedent for a second destination on the same list, including the case where the destination is picked rather than assumed.
+
+**No MCP write path for this route, and the asymmetry is deliberate.** Claude's way onto the canvas is §8A.2, and its source is a research item — not because that is better but because `read_document` is the only image reader in the catalogue, so a photograph Claude can *see* is one that has already been promoted. Recorded here so the next author meets a decision rather than a gap: if Claude is ever to read a capture in place, the missing piece is an image response on `read_inbox_entry` (today: text, transcript, kind and asset *filename* only), and the corollary in §8A.2 would still require the photograph itself to reach the canvas.
+
+---
 
 ## 9. Out of scope
 
