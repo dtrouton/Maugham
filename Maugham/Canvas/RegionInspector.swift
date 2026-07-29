@@ -49,7 +49,10 @@ struct RegionInspectorPane: View {
             // "Promoting takes a copy" describe a scrap, and an item node
             // cannot be promoted at all. An item node falls to the empty state
             // below until 1C-d gives it an arm of its own.
-            ScrapInspector(model: model, nodeID: node.id,
+            // The SAME offer the region arm gets — already filtered to the pieces
+            // a promotion can be routed to, so the two pickers cannot disagree
+            // about what a writer may choose.
+            ScrapInspector(model: model, nodeID: node.id, pieces: pieces,
                            artifactTitle: artifactTitle,
                            onOpenResearchItem: onOpenResearchItem)
         } else {
@@ -114,7 +117,11 @@ struct RegionInspector: View {
     /// optional selection, because a `Picker` whose selection type is `String?`
     /// needs every tag optional-typed and one un-tagged row silently selects
     /// nothing.
-    private static let noPieceTag = "\u{0}none"
+    ///
+    /// **Shared with `ScrapInspector`'s picker**, which is the same control over
+    /// the same field one level down the precedence. A second spelling would be
+    /// two definitions of "no piece" that a tidy-up could move apart.
+    static let noPieceTag = "\u{0}none"
 
     let model: CanvasModel
     let regionID: CanvasRegionID
@@ -173,8 +180,7 @@ struct RegionInspector: View {
             } header: {
                 Text("Region")
             } footer: {
-                Text("The cards that live in this region become the pinned "
-                     + "references beside the piece when you write it.")
+                Text(Self.pieceFooter)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -210,8 +216,7 @@ struct RegionInspector: View {
                     // This button is in the project window itself.
                     MaughamEvent.post(.maughamPromoteCanvasSelection, to: .keyWindow)
                 }
-                Text("Make a palette card from what lives here, or bind this "
-                     + "region to a piece.")
+                Text(Self.promoteCaption)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -315,6 +320,28 @@ struct RegionInspector: View {
             memberRows = refreshedRows(from: memberRows)
         }
     }
+
+    /// **The association has two readers, and the footer used to name only the
+    /// one that does not exist yet.** 1A's reference rail is unbuilt (§4.4, and
+    /// `RegionBinding.references(forPiece:)` still has no production caller), so
+    /// for a whole slice this sentence described nothing the writer could
+    /// observe — which is why the smoke report was "I don't see it doing
+    /// anything". Since 1C-c2a the same field also decides where a promotion
+    /// lands (§6.2), and that half is visible today.
+    ///
+    /// Held as a constant for `CanvasAccessibility.regionKind`'s reason: a
+    /// `Form`'s contents are not inspectable, so this is the only way a test can
+    /// read what ships.
+    static let pieceFooter =
+        "The cards that live in this region become the pinned references beside "
+        + "the piece when you write it — and a note promoted from here, or from "
+        + "a card that lives here, lands in that piece's research."
+
+    /// **A piece binding stopped being a promotion target in this milestone**
+    /// (spec §6's 2026-07-29 amendment: it produces no artifact, and this pane's
+    /// own Picker already set the field), and this sentence went on offering it.
+    static let promoteCaption =
+        "Make a research note or a palette card from what lives here."
 
     @ViewBuilder
     private func memberSection(_ title: String, rows: [Row], empty: String) -> some View {

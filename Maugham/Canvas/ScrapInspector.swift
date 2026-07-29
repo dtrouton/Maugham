@@ -23,6 +23,9 @@ struct ScrapInspector: View {
 
     let model: CanvasModel
     let nodeID: CanvasNodeID
+    /// The same list the region arm is handed, and already filtered to the
+    /// pieces a promotion can be routed to — see `ProjectWindow.pieceChoices`.
+    let pieces: [RegionInspector.PieceChoice]
     /// Deferred: it walks the manifest, and it is called only when a promoted
     /// card is selected. Same rule as `CanvasView.paletteSwatchHexes`.
     let artifactTitle: (String) -> String?
@@ -51,6 +54,66 @@ struct ScrapInspector: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section {
+                Picker("Piece", selection: Binding(
+                    get: { node?.boundPieceID ?? RegionInspector.noPieceTag },
+                    set: { commitPiece($0 == RegionInspector.noPieceTag ? nil : $0) })) {
+                        Text("None").tag(RegionInspector.noPieceTag)
+                        ForEach(pieces) { Text($0.title).tag($0.id) }
+                        // The card's own association naming a piece the picker
+                        // cannot offer — deleted, or converted to a reference
+                        // piece. Shown rather than dropped, for
+                        // `RegionInspector`'s reason: a `Picker` with no row
+                        // matching its selection renders blank, which reads as
+                        // "not associated" and invites the writer to fix a
+                        // problem they cannot see.
+                        if let orphan = ownPieceMissingFromTheOffer {
+                            Text("Missing piece · \(orphan)").tag(orphan)
+                        }
+                    }
+                // **The resolved answer, and where it came from.** The Picker
+                // above shows only what this card carries ITSELF, so a card
+                // inheriting from its region shows "None" there while its
+                // promotions land somewhere — which is the precedence being
+                // invisible at exactly the moment it decides something.
+                //
+                // **Ungated, and on the frame path — recorded rather than
+                // papered over.** This body reads `model.scene`, and a card drag
+                // opens with a `clickCount: 1` mouse-down that selects the card,
+                // so this pane IS what is on screen at 60–120 Hz while a writer
+                // drags. `association` reaches `CanvasMembership.homeRegion`,
+                // which walks `scene.regions` — a sort with `String` compares —
+                // so this is scene-proportional work on a frame path, which is
+                // tripwire 30's shape.
+                //
+                // It is left ungated on three measured terms, not on a shrug.
+                // (1) It is proportional to the REGION count, not the node count
+                // and not any text: tens, where the lists `RegionInspector` gates
+                // pay a whole-scrap-text split per member plus
+                // `localizedStandardCompare`. (2) The `chipTitle` call in the
+                // Card section above is strictly larger and has been ungated on
+                // this same body since 1C-c2. (3) A `@State` cache is not free
+                // here: five of them froze for a commit in this area when a bump
+                // went to the view's counter instead of the model's, and a stale
+                // destination is worse than a slow one.
+                //
+                // **If it ever measures, the gate exists one file over** —
+                // `RegionInspector.MemberRows` keyed on
+                // `(model.sceneRevision, id)`, and the key would be correct here
+                // because every writer of this value (`commitPiece`,
+                // `RegionInspector.commitBinding`, the undo apply) bumps that
+                // counter. Do not record this as "there is no gated way".
+                LabeledContent("Promotions go to",
+                               value: Self.association(for: nodeID, in: model.scene,
+                                                       pieces: pieces).label)
+            } header: {
+                Text("Piece")
+            } footer: {
+                Text(Self.pieceFooter)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             PromotedArtifactSection(state: state, subject: .card,
                                     onOpen: onOpenResearchItem)
 
@@ -68,5 +131,93 @@ struct ScrapInspector: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    // MARK: - The piece association (spec §6.2)
+
+    static let pieceFooter =
+        "A note promoted from this card lands in this piece's research. Leave it "
+        + "as None and the card follows the region it lives in."
+
+    /// The card's own association when the offer holds no piece by that id.
+    private var ownPieceMissingFromTheOffer: String? {
+        guard let bound = node?.boundPieceID,
+              !pieces.contains(where: { $0.id == bound }) else { return nil }
+        return bound
+    }
+
+    /// What piece a promotion from this card would land in, and **where that
+    /// answer came from** — §6.2's precedence made visible.
+    ///
+    /// A value rather than an `if` inside the view, because which arm a
+    /// `_ConditionalContent` renders cannot be asserted and a `Form`'s contents
+    /// are not inspectable: left in `body` this distinction would be unreachable
+    /// from any test that does not host SwiftUI. `RegionInspector.CiteAffordance`
+    /// is the same shape for the same reason.
+    enum PieceAssociation: Equatable {
+        case none
+        case own(title: String)
+        case inherited(title: String)
+        /// The association names a piece the offer does not hold: deleted, or
+        /// converted to a Collection reference piece. It keeps the id because
+        /// that is all there is left to say, and the writer needs to see that
+        /// *something* is set before they can clear it.
+        case missing(id: String)
+
+        var label: String {
+            switch self {
+            case .none: return "The project's research"
+            case .own(let title): return title
+            // The distinction the writer needs: "Chapter Three (from its region)"
+            // is why an override would matter, and why the Picker above says None.
+            case .inherited(let title): return "\(title) (from its region)"
+            case .missing(let id): return "Missing piece · \(id)"
+            }
+        }
+    }
+
+    /// **Resolved through `Promotion.piece`, never by reading the two fields.**
+    /// The precedence is one rule and the performer is its other reader, so a
+    /// second walk here would let the pane name a destination the promotion does
+    /// not use — including the visitor case, where a card cited in a bound region
+    /// inherits nothing (§4.3: home decides and visitors do not).
+    ///
+    /// Static, so a test drives exactly what the view does.
+    static func association(for nodeID: CanvasNodeID, in scene: CanvasScene,
+                            pieces: [RegionInspector.PieceChoice]) -> PieceAssociation {
+        guard let resolved = Promotion.piece(for: .scrap(nodeID), in: scene) else {
+            return .none
+        }
+        guard let title = pieces.first(where: { $0.id == resolved })?.title else {
+            return .missing(id: resolved)
+        }
+        return scene.node(nodeID)?.boundPieceID == nil
+            ? .inherited(title: title)
+            : .own(title: title)
+    }
+
+    /// **`mutateFromInspector`, never `mutate` (tripwire 32).** This Picker is in
+    /// the right-hand column and a focused scrap holds "Edit Scrap" open behind
+    /// it — nothing on this side of the window closes that bracket. Nested, the
+    /// association registers no undo step of its own and rides into the writer's
+    /// next sentence, where a ⌘Z aimed at a sentence takes it with them. Repro:
+    /// double-click a region's CHROME BAR (click 1 selects it, click 2 mints a
+    /// scrap and opens the bracket) — not a card, whose first click reassigns the
+    /// selection.
+    ///
+    /// **Two names, because clearing reaches a genuinely different state** —
+    /// `LineInspector.commitBinding`'s Bind/Unbind precedent, and not
+    /// `RegionInspector.commitLabel`'s, which says "Rename Region" both ways
+    /// because a label is non-optional and has no clear-state to name.
+    ///
+    /// The guard is every one of these panes': a `Picker` set to what it already
+    /// shows must buy no snapshot, no queued disk write and no redraw.
+    func commitPiece(_ piece: String?) {
+        guard let node, node.boundPieceID != piece else { return }
+        model.mutateFromInspector(
+            piece == nil ? "Clear Card's Piece" : "Associate Card with Piece") {
+                $0.setBoundPiece(piece, for: nodeID)
+            }
+        model.bumpSceneRevision()
     }
 }

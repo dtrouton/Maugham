@@ -236,6 +236,32 @@ final class RegionBindingTests: XCTestCase {
                       "found: \(m.undo.undoMenuItemTitle)")
     }
 
+    /// **The footer described only 1A's reference rail**, which is unbuilt — so
+    /// the one thing a region's binding does *today* went unsaid. A held constant
+    /// rather than a literal in `body` for the reason `CanvasAccessibility.
+    /// regionKind` is one: a `Form`'s contents are not inspectable, so this is
+    /// the only way a test can read what ships.
+    func test_theRegionFooterSaysBothThingsThePieceDecides() {
+        let footer = RegionInspector.pieceFooter
+        XCTAssertTrue(footer.contains("pinned references"),
+                      "§4.4's bridge is still what the binding is FOR — found: \(footer)")
+        XCTAssertTrue(footer.contains("promoted"),
+                      "and since 1C-c2a it also decides where a promotion lands, "
+                      + "which is the half the writer met first — found: \(footer)")
+    }
+
+    /// The Promote caption named a target that no longer exists: a piece binding
+    /// produces no artifact, so it stopped being a promotion target in this
+    /// milestone (spec §6's 2026-07-29 amendment) while the sentence offering it
+    /// stayed. A region promotes to a note or a palette card.
+    func test_thePromoteCaptionOffersOnlyTheTwoTargetsARegionHas() {
+        let caption = RegionInspector.promoteCaption
+        XCTAssertTrue(caption.contains("research note"), "found: \(caption)")
+        XCTAssertTrue(caption.contains("palette card"), "found: \(caption)")
+        XCTAssertFalse(caption.lowercased().contains("bind"),
+                       "binding is not a promotion — found: \(caption)")
+    }
+
     func test_removingAMemberThroughTheInspectorIsAnExplicitAct() throws {
         let m = model()
         m.withScene { CanvasMembership.join(self.a, home: self.r1, in: &$0) }

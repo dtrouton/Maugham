@@ -1144,16 +1144,34 @@ struct ProjectWindow: View {
     private func canvasInspector(store: ProjectStore) -> some View {
         RegionInspectorPane(
             model: canvasModel,
-            pieces: Self.pieceChoices(in: store.manifest.structure),
+            pieces: Self.pieceChoices(in: store),
             // Deferred — walked only when a promoted card is selected.
             artifactTitle: { TreeWalk.find(id: $0, in: store.manifest.research)?.title },
             onOpenResearchItem: openResearchItem)
     }
 
-    /// Every `.document` in the structure tree, as the region inspector's piece
-    /// choices. Ids, so a binding survives a rename.
-    static func pieceChoices(in items: [StructureItem]) -> [RegionInspector.PieceChoice] {
-        TreeWalk.collect(in: items, where: { $0.type == .document })
+    /// The pieces both canvas pickers offer — the region's and, since 1C-c2a, the
+    /// card's. Ids, so an association survives a rename (tripwire 22's rule
+    /// applied to a reference).
+    ///
+    /// **Only the pieces a promotion can be ROUTED to.**
+    /// `ProjectStore.researchScopeTargets()` exists for precisely this — its own
+    /// doc comment says it "drives the promote-target picker" — and this walked
+    /// every `.document` instead, including the Collection reference pieces
+    /// `researchRouting` throws on. So a writer could choose a piece that made
+    /// the promotion fail, on a surface whose whole promise is predictability
+    /// (spec §6.2).
+    ///
+    /// **Eager, and read on the body path — and that is the cheaper of the two
+    /// mistakes available here.** A deferred closure is this file's rule for
+    /// anything that walks the manifest (`artifactTitle` is one), but the pieces
+    /// are consumed by a `Picker` inside `RegionInspector.body` — a body that
+    /// reads `model.scene` and so re-evaluates on every drag and coast frame.
+    /// Deferring would move an O(documents²) routing walk from "once per window
+    /// body pass" onto the drag loop, which is tripwire 30's own shape. Kept here
+    /// it costs one walk per manifest change, which is what it cost before.
+    static func pieceChoices(in store: ProjectStore) -> [RegionInspector.PieceChoice] {
+        store.researchScopeTargets()
             .map { RegionInspector.PieceChoice(id: $0.id, title: $0.title) }
     }
 
@@ -1937,6 +1955,11 @@ struct CanvasPromotionModifier: ViewModifier {
         sheet = PromotionSheetModel(
             source: source, scene: model.scene, scraps: model.scraps,
             artifacts: ArtifactIndex.over(research: research),
+            // Resolved here with the manifest, once, like the index beside it —
+            // the sheet is pure values, and this is the one place the routing
+            // table is read for it. The performer resolves it again at Commit,
+            // because the plan is a snapshot and the manifest can move under it.
+            piece: PromotionPiece.resolve(for: source, in: model.scene, store: store),
             readBody: { itemID in
                 guard let item = TreeWalk.find(id: itemID, in: research),
                       let path = item.path else { return nil }

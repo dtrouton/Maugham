@@ -242,7 +242,8 @@ final class PromotionCommandTests: XCTestCase {
             ("Maugham/Views/ProjectWindow.swift",
              [".onKeyWindowCommand(.maughamPromoteCanvasSelection",
               ".modifier(CanvasPromotionModifier(",
-              "result.confirmation(for: plan)"],
+              "result.confirmation(for: plan)",
+              "PromotionPiece.resolve("],
              "nothing in the window RECEIVES the command — every button and the "
              + "keystroke post into nothing, and no test that hosts its own "
              + "onKeyWindowCommand can see it. The second token is the mount line "
@@ -255,7 +256,11 @@ final class PromotionCommandTests: XCTestCase {
              + "(`_ = try await …perform(plan)`) for a whole slice while its own "
              + "doc comment said the link count \"reaches the writer\", and "
              + "`PromotionResult.confirmation(for:)` can be fully tested with "
-             + "nothing calling it — which is this directory's signature defect"),
+             + "nothing calling it — which is this directory's signature defect. "
+             + "The fourth is the PIECE (spec §6.2): `PromotionSheetModel.init` "
+             + "has no default for it, so the compiler demands a value — but "
+             + "`piece: .none` compiles, and every destination in the sheet then "
+             + "quietly reverts to the pre-§6.2 wording with nothing red"),
             ("Maugham/MaughamApp.swift",
              ["FocusedPromoteButton()", ".maughamPromoteCanvasSelection"],
              "the File-menu item is not IN the menu (or does not post this command), "
@@ -317,6 +322,15 @@ final class PromotionCommandTests: XCTestCase {
                                          "result.notARealConfirmation(for: plan)"]),
             ["result.notARealConfirmation(for: plan)"],
             "the census reports the ABSENT result token and not the present one")
+        // And the piece token. `piece: .none` at the call site compiles and every
+        // performer test still passes, while the sheet's whole destination half
+        // is back to what shipped before §6.2.
+        XCTAssertEqual(
+            try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
+                              required: ["PromotionPiece.resolve(",
+                                         "PromotionPiece.notARealResolver("]),
+            ["PromotionPiece.notARealResolver("],
+            "the census reports the ABSENT piece token and not the present one")
     }
 
     /// The name must not collide with the collection-piece promotion that

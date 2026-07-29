@@ -25,6 +25,10 @@ final class PromotionSheetModel: Identifiable {
     private let scene: CanvasScene
     private let scraps: [CanvasNodeID: String]
     private let artifacts: ArtifactIndex
+    /// Where the source's piece association sends this (spec §6.2), resolved
+    /// against the live manifest once, when the sheet opened — the same
+    /// discipline every other property here follows.
+    private let piece: PromotionPiece
     /// itemID → the artifact's body on disk. Called once per target selection.
     private let readBody: (String) -> String?
 
@@ -73,15 +77,24 @@ final class PromotionSheetModel: Identifiable {
 
     let sourceDescription: String
 
+    /// **`piece` has no default, deliberately.** `.none` is a legitimate value —
+    /// most promotions are in it — which is exactly why a default here would be
+    /// invisible: omit it at the one production call site and every destination
+    /// in the sheet quietly reverts to the pre-§6.2 wording with nothing red.
+    /// `PromotionRequest`'s copy is defaulted because it is reached from dozens
+    /// of tests that genuinely mean "no association"; this one is reached from
+    /// `CanvasPromotionModifier.begin` and from tests about the piece.
     init(source: PromotionSource,
          scene: CanvasScene,
          scraps: [CanvasNodeID: String],
          artifacts: ArtifactIndex,
+         piece: PromotionPiece,
          readBody: @escaping (String) -> String?) {
         self.source = source
         self.scene = scene
         self.scraps = scraps
         self.artifacts = artifacts
+        self.piece = piece
         self.readBody = readBody
         self.availableTargets = Promotion.targets(for: source, in: scene, artifacts: artifacts)
         self.blockedReason = Promotion.blockedReason(for: source, in: scene,
@@ -147,6 +160,20 @@ final class PromotionSheetModel: Identifiable {
         return plan
     }
 
+    /// The piece association's own refusal, in the performer's words — nil
+    /// unless the association has gone stale AND this is the one act it can
+    /// break. See `Promotion.pieceFailure`.
+    ///
+    /// **Before Commit rather than after.** Without it the writer chose a target,
+    /// read a destination, pressed Promote, and met a store-shaped sentence in an
+    /// alert — on a surface whose whole promise is that you can see what a
+    /// command will do.
+    var pieceRefusal: String? {
+        guard let target = selectedTarget else { return nil }
+        return Promotion.pieceFailure(target: target, mode: mode, piece: piece)?
+            .errorDescription
+    }
+
     var canCommit: Bool {
         guard let plan = resolvedPlan else { return false }
         // **Only the targets whose artifact the writer NAMES are asked for
@@ -154,12 +181,14 @@ final class PromotionSheetModel: Identifiable {
         // doc's is fixed — neither performer reads `plan.title` at all, so
         // requiring it disabled Promote for an act that names nothing.
         if plan.producedKind.namesItsArtifact && plan.title.isEmpty { return false }
+        if pieceRefusal != nil { return false }
         return !plan.linkAlreadyPresent
     }
 
     /// Why Commit is off, when the reason is not simply "choose a target".
     var refusal: String? {
         guard let plan = resolvedPlan else { return nil }
+        if let why = pieceRefusal { return why }
         if plan.linkAlreadyPresent {
             return "That link is already in “\(plan.title)”."
         }
@@ -193,7 +222,8 @@ final class PromotionSheetModel: Identifiable {
             scraps: scraps,
             paletteKind: paletteKind,
             artifacts: artifacts,
-            destinationBody: destinationBody)
+            destinationBody: destinationBody,
+            piece: piece)
     }
 }
 

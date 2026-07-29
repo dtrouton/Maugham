@@ -36,7 +36,7 @@ final class PromotionSheetTests: XCTestCase {
                        body: @escaping (String) -> String? = { _ in nil }) -> PromotionSheetModel {
         PromotionSheetModel(source: source, scene: scene ?? self.scene(), scraps: texts,
                             artifacts: ArtifactIndex(titlesByID: artifacts),
-                            readBody: body)
+                            piece: .none, readBody: body)
     }
 
     // MARK: - Opening
@@ -291,7 +291,7 @@ final class PromotionSheetTests: XCTestCase {
         let m = PromotionSheetModel(source: .scrap(a), scene: scene(),
                                     scraps: [a: "   "],
                                     artifacts: ArtifactIndex(titlesByID: [:]),
-                                    readBody: { _ in nil })
+                                    piece: .none, readBody: { _ in nil })
         XCTAssertNotNil(m.blockedReason)
         XCTAssertFalse(m.canCommit)
         // The control: the same card with words in it is not blocked, so the
@@ -319,7 +319,7 @@ final class PromotionSheetTests: XCTestCase {
         let emptyCard = PromotionSheetModel(source: .scrap(a), scene: scene(),
                                             scraps: [a: "   "],
                                             artifacts: ArtifactIndex(titlesByID: [:]),
-                                            readBody: { _ in nil })
+                                            piece: .none, readBody: { _ in nil })
         XCTAssertNotNil(emptyCard.blockedReason, "it is still blocked, and still says why")
         XCTAssertNil(emptyCard.blockedNote,
                      "an empty card has nothing to do with the wiki-link precedence")
@@ -331,7 +331,7 @@ final class PromotionSheetTests: XCTestCase {
         let reference = PromotionSheetModel(source: .scrap(.item("r-9")), scene: withItem,
                                             scraps: texts,
                                             artifacts: ArtifactIndex(titlesByID: [:]),
-                                            readBody: { _ in nil })
+                                            piece: .none, readBody: { _ in nil })
         XCTAssertNotNil(reference.blockedReason)
         XCTAssertNil(reference.blockedNote)
     }

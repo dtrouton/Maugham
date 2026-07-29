@@ -50,6 +50,13 @@ enum PromotionFailure: LocalizedError, Equatable {
     /// The destination exists on disk and could not be READ. Distinct from
     /// "no file there", which is legitimately empty — see `readBody`.
     case unreadableFile(String)
+    /// The piece association names something a research note cannot be created
+    /// under: the piece is gone (title nil), or it is a Collection reference
+    /// piece, which keeps its research in its own project.
+    ///
+    /// **Two sentences, because two different acts fix them.** Both name the
+    /// inspector, because that is where the writer undoes it.
+    case pieceIsNotAResearchTarget(title: String?)
 
     var errorDescription: String? {
         switch self {
@@ -66,6 +73,50 @@ enum PromotionFailure: LocalizedError, Equatable {
         case .unreadableFile(let path):
             return "Maugham could not read what is already in \(path), so it did not "
                 + "write over it."
+        case .pieceIsNotAResearchTarget(let title):
+            guard let title else {
+                return "The piece this was associated with is no longer in the "
+                    + "project, so the note has nowhere to go. Pick another piece "
+                    + "in the inspector, or clear the association."
+            }
+            return "“\(title)” cannot keep research of its own, so the note has "
+                + "nowhere to go. Pick another piece in the inspector, or clear "
+                + "the association."
+        }
+    }
+}
+
+extension PromotionPiece {
+
+    /// Resolve a source's piece association against the LIVE manifest.
+    ///
+    /// **The one place the pure half meets the router**, and the reason it is one
+    /// place rather than two: the sheet calls it when it opens and the performer
+    /// calls it when it validates, so the destination the writer read and the
+    /// destination they get cannot disagree about which row of §6.2's table this
+    /// is.
+    ///
+    /// The piece itself comes from `Promotion.piece` — the precedence resolver —
+    /// never from `node.boundPieceID`, or an inherited association would resolve
+    /// to nothing here while the performer routed by it.
+    @MainActor
+    static func resolve(for source: PromotionSource, in scene: CanvasScene,
+                        store: ProjectStore) -> PromotionPiece {
+        guard let id = Promotion.piece(for: source, in: scene) else { return .none }
+        // Nil for a piece that has been deleted — which is the case that gets its
+        // own sentence, so it is resolved rather than defaulted to the raw id.
+        let title = TreeWalk.collect(in: store.manifest.structure,
+                                     where: { $0.id == id }).first?.title
+        guard let routing = try? store.researchRouting(forDocumentId: id) else {
+            return .unroutable(id: id, title: title)
+        }
+        switch routing {
+        case .pieceFolder:
+            return .routed(id: id, title: title ?? id, route: .ownResearch)
+        case .sharedPlusLink:
+            return .routed(id: id, title: title ?? id, route: .sharedPlusLink)
+        case .sharedOnly:
+            return .routed(id: id, title: title ?? id, route: .sharedOnly)
         }
     }
 }
@@ -131,6 +182,20 @@ struct PromotionPerformer {
         if case .update(let itemID, _) = plan.mode,
            TreeWalk.find(id: itemID, in: store.manifest.research) == nil {
             throw PromotionFailure.artifactMissing(itemID)
+        }
+        // **A stale association, refused here rather than inside
+        // `createResearchNote`.** The picker no longer offers a piece the router
+        // throws on, but an association already made can go stale — the piece
+        // deleted, or converted to a Collection reference piece. Without this the
+        // writer met `ProjectStoreError`'s own sentence ("Referenced pieces keep
+        // research in their own project: ref-1"), which names an id and describes
+        // the store. And it belongs in `validate` because that is what makes it
+        // write nothing: refused inside the creation call it would already have
+        // been past the flush.
+        if let failure = Promotion.pieceFailure(
+            target: plan.producedKind, mode: plan.mode,
+            piece: PromotionPiece.resolve(for: plan.source, in: model.scene, store: store)) {
+            throw failure
         }
     }
 

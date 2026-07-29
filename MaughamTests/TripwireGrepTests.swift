@@ -1698,7 +1698,8 @@ final class TripwireGrepTests: XCTestCase {
             census,
             ["LineInspector.swift": [Self.canvasOutsideVerb],
              "PromotionPerformer.swift": [Self.canvasOutsideVerb],
-             "RegionInspector.swift": [Self.canvasOutsideVerb]],
+             "RegionInspector.swift": [Self.canvasOutsideVerb],
+             "ScrapInspector.swift": [Self.canvasOutsideVerb]],
             "The canvas's undo bracket is reached from outside `CanvasView.swift` "
             + "by the inspector column only, using exactly one verb.\n\n"
             + "If you have ADDED a surface that changes the canvas scene: it must "

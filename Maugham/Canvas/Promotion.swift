@@ -209,6 +209,47 @@ struct ArtifactIndex: Equatable {
     func kind(of itemID: String) -> ArtifactKind? { entriesByID[itemID]?.kind }
 }
 
+/// Where a promotion's piece association sends it: the piece's title, and the
+/// route `ResearchScope` will take for it (spec §6.2).
+///
+/// **Resolved outside this file, for `ArtifactIndex`'s reason.** The routing
+/// table is `ProjectStore.researchRouting(forDocumentId:)`'s and has been since
+/// the 2026-07-07 scoped-research milestone — §6.2 *adopts* it rather than
+/// restating it, and a `switch manifest.type` here would be the second copy that
+/// drifts. `PromotionPiece.resolve(for:in:store:)`, over in
+/// `PromotionPerformer.swift`, is the one place the pure half meets the router,
+/// and both the sheet and the performer call it.
+enum PromotionPiece: Equatable {
+
+    /// One case per row of §6.2's table, minus the row that throws — that is
+    /// `.unroutable`.
+    enum Route: Equatable {
+        /// Collection loose piece: the note is created in the piece's own
+        /// `research/`. Containment, so it travels with the piece.
+        case ownResearch
+        /// Novel chapter: shared `research/` plus a `linkResearch` record, which
+        /// `route(_:shared:piece:)` writes itself.
+        case sharedPlusLink
+        /// Short story or screenplay: shared `research/` and no link, because
+        /// derivation already surfaces everything as that document's.
+        case sharedOnly
+    }
+
+    /// No association at all — and **not an error**. In a novel the writer is
+    /// not thinking in pieces, so this is the ordinary case (§6.2), and the copy
+    /// that describes it must not read as a fallback with an apology.
+    case none
+
+    case routed(id: String, title: String, route: Route)
+
+    /// The association names something the router refuses. **The picker cannot
+    /// create one of these as of 1C-c2a** — an association already made can still
+    /// go stale, by the piece being deleted or a Collection loose piece being
+    /// converted to a reference. The title is nil for the first of those, and the
+    /// two need different sentences because the act that fixes them differs.
+    case unroutable(id: String, title: String?)
+}
+
 /// Everything `Promotion.plan` needs. A struct rather than eight parameters,
 /// because the sheet builds one and holds it, editing its fields as the writer
 /// works.
@@ -224,6 +265,14 @@ struct PromotionRequest {
     /// not read. **A snapshot** — the performer checks again against the live
     /// file, because this one can be stale by the time the writer commits.
     var destinationBody: String?
+    /// Where the source's piece association sends this, resolved once against
+    /// the live manifest when the sheet opened.
+    ///
+    /// **Defaulted to `.none`, and that default is a truth rather than a
+    /// placeholder** — "no association" is a real state a great many promotions
+    /// are in. The value that must never go missing by accident is the one on
+    /// `PromotionSheetModel.init`, which has no default for exactly that reason.
+    var piece: PromotionPiece = .none
 
     init(source: PromotionSource,
          target: PromotionTarget,
@@ -231,7 +280,8 @@ struct PromotionRequest {
          scraps: [CanvasNodeID: String],
          paletteKind: PaletteCard.Kind = .other,
          artifacts: ArtifactIndex,
-         destinationBody: String? = nil) {
+         destinationBody: String? = nil,
+         piece: PromotionPiece = .none) {
         self.source = source
         self.target = target
         self.mode = mode
@@ -239,6 +289,7 @@ struct PromotionRequest {
         self.paletteKind = paletteKind
         self.artifacts = artifacts
         self.destinationBody = destinationBody
+        self.piece = piece
     }
 }
 
@@ -581,21 +632,104 @@ enum Promotion {
             .map(\.id)
     }
 
+    /// **The update arm answers before the target switch, and that is what keeps
+    /// the copy and the performer together.** `performResearchNote` and
+    /// `performPaletteCard` both route (and both take a link) on their `.new`
+    /// arm ONLY — an update is about the body, and re-filing the writer's note
+    /// because they changed a card's association is exactly the surprise §6.1
+    /// forbids. So a sentence naming a piece or promising a link cannot reach an
+    /// update, structurally, rather than by a second guard somebody has to
+    /// remember.
     private static func destination(_ request: PromotionRequest) -> String {
         if case .update(_, let title) = request.mode,
            updatableTargets.contains(request.target) {
             return "the existing “\(title)”"
         }
         switch request.target {
-        case .researchNote: return "research/"
-        case .paletteCard: return "the palette wall"
-        // **It APPENDS, and §6.1 requires the writer see what will be produced
-        // and where.** One intent doc per scope, added to rather than replaced —
-        // so two cards promoted to craft intent stack, and a destination reading
-        // only "the project's craft intent" left that discoverable by doing it.
-        case .intentStatement:
-            return "the project's craft intent, added to the end of what is already there"
+        case .researchNote: return researchNoteDestination(request.piece)
+        case .paletteCard: return paletteCardDestination(request.piece)
+        case .intentStatement: return craftIntentDestination(request.piece)
         case .wikiLink: return ""   // replaced per-plan above
         }
+    }
+
+    /// §6.2's four rows, in one line each.
+    ///
+    /// **The two shared-research rows have to read differently**, or a writer
+    /// cannot tell a note that will be filed under their chapter from one that
+    /// will not — the routing is the whole of the difference and it is invisible
+    /// otherwise. And `.none` says nothing extra at all: in a novel the writer is
+    /// not thinking in pieces, so an apology there would invent a problem.
+    static func researchNoteDestination(_ piece: PromotionPiece) -> String {
+        switch piece {
+        case .none:
+            return "research/"
+        case .routed(_, let title, .ownResearch):
+            return "“\(title)”’s own research/"
+        case .routed(_, let title, .sharedPlusLink):
+            return "research/, linked to “\(title)”"
+        case .routed(_, let title, .sharedOnly):
+            return "research/, which is already “\(title)”’s"
+        case .unroutable:
+            // Refused before Commit — see `pieceFailure`, whose sentence is what
+            // the writer actually reads. Naming `research/` here would promise a
+            // silent redirect §6.2 forbids.
+            return "nowhere, until the association is fixed"
+        }
+    }
+
+    /// **A palette card is never routed** — the wall is project-level and a card
+    /// filed into a piece's `research/` is off the wall entirely. What the
+    /// association buys it is the LINK, and only on the row that writes one:
+    /// `PromotionPerformer.linkTargetForCard` tests `.sharedPlusLink` and nothing
+    /// else, so this names a link on that row and nothing else.
+    static func paletteCardDestination(_ piece: PromotionPiece) -> String {
+        if case .routed(_, let title, .sharedPlusLink) = piece {
+            return "the palette wall, linked to “\(title)”"
+        }
+        return "the palette wall"
+    }
+
+    /// **It APPENDS, and §6.1 requires the writer see what will be produced and
+    /// where.** One intent doc per scope, added to rather than replaced — so two
+    /// cards promoted to craft intent stack, and a destination reading only "the
+    /// project's craft intent" left that discoverable by doing it.
+    ///
+    /// The piece appears on one row only, matching
+    /// `PromotionPerformer.intentPiece`: an intent doc created under a novel
+    /// chapter's shared+link routing lands where `craftIntentItem(forPieceId:)`
+    /// never looks, so it is the project's — and the copy says the project's.
+    static func craftIntentDestination(_ piece: PromotionPiece) -> String {
+        if case .routed(_, let title, .ownResearch) = piece {
+            return "“\(title)”’s craft intent, added to the end of what is already there"
+        }
+        return "the project's craft intent, added to the end of what is already there"
+    }
+
+    // MARK: - A stale association
+
+    /// The failure a piece association would cause, or nil.
+    ///
+    /// **One rule, two readers.** The sheet refuses before Commit with this
+    /// value's own sentence and the performer throws this value after, so a
+    /// refusal the writer meets before committing and one they meet after cannot
+    /// be two wordings of the same fact — `blockedReason`'s rule, applied again.
+    ///
+    /// **Only a NEW research note.** It is the one path that hands a scope to
+    /// `createResearchNote`, and so the one that can throw. A palette card is
+    /// created regardless and simply takes no link; the craft intent falls back
+    /// to project scope by design; an update does not route at all. Refusing
+    /// those would block promotions §6.2 says must work.
+    ///
+    /// The picker stopped offering unroutable pieces in the same slice, so this
+    /// answers only for an association that has since gone stale — the piece
+    /// deleted, or converted to a Collection reference piece. Before it existed
+    /// the writer met `ProjectStoreError`'s own sentence, which names an id and
+    /// describes the store rather than their situation.
+    static func pieceFailure(target: PromotionTarget, mode: PromotionMode,
+                             piece: PromotionPiece) -> PromotionFailure? {
+        guard target == .researchNote, case .new = mode,
+              case .unroutable(_, let title) = piece else { return nil }
+        return .pieceIsNotAResearchTarget(title: title)
     }
 }

@@ -10,8 +10,23 @@ final class ScrapInspectorTests: XCTestCase {
 
     private let a = CanvasNodeID("a")
 
+    /// `CanvasModel.attach` is what wires `CanvasUndo`'s two snapshot closures,
+    /// so a model that has never been attached registers no undo step at all —
+    /// and it must be called BEFORE the scene is built, because attaching reads
+    /// the sidecar over whatever is there.
+    private var root: URL!
+
+    override func setUpWithError() throws {
+        root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("scrap-inspector-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws { try? FileManager.default.removeItem(at: root) }
+
     private func model(promoted: String? = nil) -> CanvasModel {
         let m = CanvasModel()
+        m.attach(projectRoot: root)
         m.withScene { s in
             s.insert(CanvasNode(id: a, kind: .scrap, origin: .zero,
                                 width: 240, cachedHeight: 80,
@@ -169,6 +184,183 @@ final class ScrapInspectorTests: XCTestCase {
         // shape that passes while blind, and the plant names a spelling that
         // cannot exist in production.
         XCTAssertFalse(text.contains("case .notARealKind = node.kind"),
+                       "the scan reads the file rather than always answering true")
+    }
+
+    // MARK: - The piece association (spec §6.2)
+
+    private func inspector(_ m: CanvasModel,
+                           pieces: [RegionInspector.PieceChoice] =
+                            [RegionInspector.PieceChoice(id: "ch-3", title: "Chapter Three")])
+        -> ScrapInspector {
+        ScrapInspector(model: m, nodeID: a, pieces: pieces,
+                       artifactTitle: { _ in nil }, onOpenResearchItem: { _ in })
+    }
+
+    private let r1 = CanvasRegionID("r1")
+
+    private func modelInRegion() -> CanvasModel {
+        let m = model()
+        m.withScene { s in
+            s.insertRegion(CanvasRegion(id: self.r1, label: "Act II fog",
+                                        frame: CGRect(x: 0, y: 0, width: 600, height: 400),
+                                        homeMembers: [self.a]))
+        }
+        return m
+    }
+
+    private var pieces: [RegionInspector.PieceChoice] {
+        [RegionInspector.PieceChoice(id: "ch-3", title: "Chapter Three")]
+    }
+
+    /// **A card had no way to be given a piece at all.** Task 3 taught the
+    /// performer to route a promotion by the association; only a region could set
+    /// one, so a loose card on bare canvas could never have its own.
+    func test_aCardCanBeGivenAPieceOfItsOwn() {
+        let m = model()
+        inspector(m).commitPiece("ch-3")
+        XCTAssertEqual(m.scene.node(a)?.boundPieceID, "ch-3")
+        XCTAssertEqual(Promotion.piece(for: .scrap(a), in: m.scene), "ch-3",
+                       "and the resolver the performer reads sees it")
+    }
+
+    /// **Tripwire 32.** The Picker is in the right-hand column, and a focused
+    /// scrap holds "Edit Scrap" open behind it — nested, this edit registers no
+    /// step of its own and rides into the writer's next sentence. The step's NAME
+    /// is the discriminator: a test whose only observable is the post-⌘Z scene
+    /// cannot tell "its own step" from "folded into the neighbouring one".
+    func test_associatingAndClearingUseDistinctUndoNames() {
+        let m = model()
+        m.undoManager.groupsByEvent = false
+        inspector(m).commitPiece("ch-3")
+        XCTAssertTrue(m.undo.undoMenuItemTitle.contains("Associate Card with Piece"),
+                      "found: \(m.undo.undoMenuItemTitle)")
+        inspector(m).commitPiece(nil)
+        XCTAssertTrue(m.undo.undoMenuItemTitle.contains("Clear Card's Piece"),
+                      "found: \(m.undo.undoMenuItemTitle)")
+    }
+
+    /// Clearing reaches a genuinely different state, so it is its own step —
+    /// `LineInspector.commitBinding`'s Bind/Unbind precedent.
+    func test_clearingIsItsOwnUndoStepAndNotASilentWrite() {
+        let m = model()
+        inspector(m).commitPiece("ch-3")
+        inspector(m).commitPiece(nil)
+        XCTAssertNil(m.scene.node(a)?.boundPieceID)
+        m.undo.undo()
+        XCTAssertEqual(m.scene.node(a)?.boundPieceID, "ch-3")
+    }
+
+    /// The commit guard every one of these inspectors carries: a `Picker` set to
+    /// what it already shows must not push a step.
+    func test_settingThePieceItAlreadyHasChangesNothing() {
+        let m = model()
+        inspector(m).commitPiece("ch-3")
+        let before = m.sceneRevision
+        inspector(m).commitPiece("ch-3")
+        XCTAssertEqual(m.sceneRevision, before, "no snapshot, no disk write, no redraw")
+    }
+
+    /// **A region's association is never written onto its members** (§6.2): the
+    /// more specific setting wins by being read first, never by being written
+    /// down. So the card's own field stays empty and the pane says where the
+    /// answer came from.
+    func test_anInheritedAssociationIsShownAsInherited() {
+        let m = modelInRegion()
+        m.withScene { $0.updateRegion(self.r1) { $0.boundPieceID = "ch-3" } }
+        XCTAssertNil(m.scene.node(a)?.boundPieceID, "nothing of its own")
+        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces),
+                       .inherited(title: "Chapter Three"))
+        XCTAssertEqual(
+            ScrapInspector.association(for: a, in: m.scene, pieces: pieces).label,
+            "Chapter Three (from its region)",
+            "the precedence is visible, so the writer can see why an override "
+            + "would matter")
+    }
+
+    /// The control, and the reason the distinction is worth drawing: the card's
+    /// own association reads as its own.
+    func test_anOwnAssociationIsShownWithoutTheRegionQualifier() {
+        let m = modelInRegion()
+        m.withScene { $0.updateRegion(self.r1) { $0.boundPieceID = "other" } }
+        inspector(m).commitPiece("ch-3")
+        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces),
+                       .own(title: "Chapter Three"))
+        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces).label,
+                       "Chapter Three")
+    }
+
+    func test_noAssociationSaysTheProjectsResearchRatherThanNothing() {
+        let m = model()
+        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces), .none)
+        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces).label,
+                       "The project's research")
+    }
+
+    /// The stale association, in the pane rather than in the sheet: the piece was
+    /// deleted, or converted to a reference. Shown rather than dropped — a
+    /// `Picker` with no row matching its selection renders blank, which reads as
+    /// "not bound" and invites the writer to fix a problem they cannot see.
+    func test_anAssociationThePickerCannotOfferIsNamedAsMissing() {
+        let m = model()
+        inspector(m).commitPiece("ref-1")
+        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces),
+                       .missing(id: "ref-1"))
+        XCTAssertTrue(ScrapInspector.association(for: a, in: m.scene, pieces: pieces)
+                        .label.contains("ref-1"))
+    }
+
+    /// **The resolver is `Promotion.piece`'s, not a second walk.** One that read
+    /// the node's field and then the region's would pass every test above and
+    /// disagree with the performer the first time §6.2's precedence changed —
+    /// the pane would name a destination the promotion does not use.
+    func test_thePaneResolvesThroughTheSameFunctionThePerformerAsks() {
+        let m = modelInRegion()
+        m.withScene { $0.updateRegion(self.r1) { $0.boundPieceID = "ch-3" } }
+        // A visitor is not luggage: cited in a region bound to a piece, the card
+        // inherits nothing. `Promotion.piece` is where that rule lives.
+        let visitor = CanvasNodeID("v")
+        m.withScene { s in
+            s.insert(CanvasNode(id: visitor, kind: .scrap, origin: .zero,
+                                width: 240, cachedHeight: 80))
+            CanvasMembership.addAppearance(visitor, to: self.r1, in: &s)
+        }
+        XCTAssertEqual(ScrapInspector.association(for: visitor, in: m.scene, pieces: pieces),
+                       .none,
+                       "home decides and visitors do not — and the pane must not "
+                       + "invent a second answer to that")
+    }
+
+    /// **The census.** Which arm renders cannot be asserted, but the Picker's
+    /// presence can — and the verb it commits through is the thing that fails
+    /// silently. This directory's instrument, with its planted-offender
+    /// companion.
+    func test_theCardArmMountsThePiecePickerAndCommitsThroughTheOutsideVerb() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let text = try String(
+            contentsOf: root.appendingPathComponent("Maugham/Canvas/ScrapInspector.swift"),
+            encoding: .utf8)
+        XCTAssertTrue(text.contains("Picker(\"Piece\""),
+                      "a card that cannot be given a piece cannot override the "
+                      + "region it lives in, and §6.2's precedence has only one "
+                      + "reachable half")
+        XCTAssertTrue(text.contains("commitPiece("),
+                      "the Picker must commit through this pane's own guard rather "
+                      + "than writing the scene from a binding setter")
+        XCTAssertTrue(text.contains("mutateFromInspector("),
+                      "tripwire 32: nested inside an open \"Edit Scrap\" gesture the "
+                      + "edit registers no undo step and rides into the writer's "
+                      + "next sentence")
+        XCTAssertTrue(text.contains("association(for:"),
+                      "an inherited association shown as its own is a precedence "
+                      + "the writer cannot see")
+        // The companion: prove the scan reports an absent token rather than
+        // always answering true. The plant names a spelling that cannot exist in
+        // production — a *plausible* plant makes this self-check go red under the
+        // very mutation it is written to survive.
+        XCTAssertFalse(text.contains("Picker(\"NotARealSection\""),
                        "the scan reads the file rather than always answering true")
     }
 }
