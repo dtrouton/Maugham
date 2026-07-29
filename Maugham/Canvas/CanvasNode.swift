@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Stable identity for a canvas node. A scrap's id is minted here; an item
 /// node's id is derived from the thing it points at, so the same research
@@ -90,6 +91,23 @@ public struct CanvasNode: Equatable, Sendable {
     /// own note, *and* its words are in a region's.
     public var contributedToItemID: String?
 
+    /// Who made this card. **nil means the writer**, which is why there is no
+    /// `.human` default: every card on every canvas written before 1C-c3 is the
+    /// writer's, and inventing a value for them would put an `author` key in
+    /// every sidecar for a feature nobody had used.
+    ///
+    /// **Written once, at creation, and never afterwards** — which is why
+    /// `CanvasScene` has no `setAuthor` beside `setPromotedItem`,
+    /// `setBoundPiece` and `setContributedItem`. Those three record something
+    /// that *happened to* a card and can be undone; this records where the card
+    /// came from, and that does not change because the writer edited it. A
+    /// setter would make provenance something the canvas can quietly rewrite.
+    ///
+    /// It reuses the annotation layer's provenance shape by name
+    /// (`AnnotationAuthor.SourceKind`, spec §8A.2) rather than minting a second
+    /// enum, so "Claude wrote this" means one thing across the whole app.
+    public var author: AnnotationAuthor.SourceKind?
+
     public init(id: CanvasNodeID,
                 kind: CanvasNodeKind,
                 origin: CGPoint,
@@ -98,7 +116,8 @@ public struct CanvasNode: Equatable, Sendable {
                 z: Int = 0,
                 promotedItemID: String? = nil,
                 boundPieceID: String? = nil,
-                contributedToItemID: String? = nil) {
+                contributedToItemID: String? = nil,
+                author: AnnotationAuthor.SourceKind? = nil) {
         self.id = id
         self.kind = kind
         self.origin = origin
@@ -108,6 +127,7 @@ public struct CanvasNode: Equatable, Sendable {
         self.promotedItemID = promotedItemID
         self.boundPieceID = boundPieceID
         self.contributedToItemID = contributedToItemID
+        self.author = author
     }
 
     /// The node's rect in canvas content coordinates, or nil if it has never

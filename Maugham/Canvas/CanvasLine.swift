@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Stable identity for a line. Minted by `CanvasInteraction` with a uniqueness
 /// loop against the scene, exactly as `createScrap` and `createRegion` mint
@@ -28,12 +29,30 @@ public struct CanvasLine: Equatable, Sendable {
     public var to: CanvasNodeID
     /// Optional free text. Not a type, not a vocabulary, not validated.
     public var label: String?
+    /// Who drew this line. **nil means the writer**, and it is written once at
+    /// creation and never afterwards — see `CanvasNode.author` for the whole
+    /// ruling, including why `CanvasScene` gains no setter for it.
+    ///
+    /// **A node's `author` is unreachable after `insert` and a line's is not**:
+    /// `CanvasScene.updateLine` is a general block mutator (it is how a label is
+    /// set and cleared), so nothing but the type system stops `$0.author = …`
+    /// there. The rule is the same for both — nothing in production may reach
+    /// through it — and here it is a convention rather than a guarantee.
+    ///
+    /// A line carries no semantics (see this type's own doc comment) and
+    /// provenance does not give it any: this says who drew the line, not what
+    /// the line means. That is also why it does not violate §5's no-`kind` rule,
+    /// and why `CanvasLineTests.test_aLineCarriesNoTypeOnlyAnOptionalLabel`
+    /// lists it.
+    public var author: AnnotationAuthor.SourceKind?
 
-    public init(id: CanvasLineID, from: CanvasNodeID, to: CanvasNodeID, label: String? = nil) {
+    public init(id: CanvasLineID, from: CanvasNodeID, to: CanvasNodeID,
+                label: String? = nil, author: AnnotationAuthor.SourceKind? = nil) {
         self.id = id
         self.from = from
         self.to = to
         self.label = label
+        self.author = author
     }
 
     public func touches(_ node: CanvasNodeID) -> Bool { from == node || to == node }

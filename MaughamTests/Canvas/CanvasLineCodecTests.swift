@@ -23,8 +23,8 @@ final class CanvasLineCodecTests: XCTestCase {
         try json.write(to: sidecarURL(), atomically: true, encoding: .utf8)
     }
 
-    func test_theSchemaVersionIsSix() {
-        XCTAssertEqual(CanvasSceneDTO.currentSchemaVersion, 6)
+    func test_theSchemaVersionIsSeven() {
+        XCTAssertEqual(CanvasSceneDTO.currentSchemaVersion, 7)
     }
 
     func test_linesRoundTripThroughDisk() {
@@ -95,12 +95,17 @@ final class CanvasLineCodecTests: XCTestCase {
     }
 
     /// The guard that makes the bump non-destructive in both directions: a
-    /// schema-7 sidecar (from the future, past this build's schema-6) opened
+    /// schema-8 sidecar (from the future, past this build's schema-7) opened
     /// by this build loses the arrangement and keeps the words. One line
     /// count, not three — a later slice bumps again.
-    func test_aSchemaSevenSidecarLosesTheArrangementAndKeepsTheWords() throws {
+    ///
+    /// **Rebump this fixture at every bump.** Left at the version this build
+    /// now writes it stops being from the future, the `schemaVersion <=
+    /// currentSchemaVersion` gate passes, and the test asserts nothing while
+    /// still going green. It has needed doing at every bump so far.
+    func test_aSchemaEightSidecarLosesTheArrangementAndKeepsTheWords() throws {
         try writeSidecar("""
-        {"schemaVersion":7,"nodes":[{"id":"a","kind":"scrap","x":5,"y":6,\
+        {"schemaVersion":8,"nodes":[{"id":"a","kind":"scrap","x":5,"y":6,\
         "width":240,"cachedHeight":80,"z":1}]}
         """)
         try "\(ScrapText.banner)\n\n## a\n\nthe falls at night\n"

@@ -20,8 +20,14 @@ final class CanvasLineTests: XCTestCase {
     func test_aLineCarriesNoTypeOnlyAnOptionalLabel() {
         let line = CanvasLine(id: CanvasLineID("l1"), from: CanvasNodeID("a"), to: CanvasNodeID("b"))
         XCTAssertNil(line.label, "a fresh line has nothing to say")
+        XCTAssertNil(line.author, "a fresh line is the writer's")
         let fieldNames = Mirror(reflecting: line).children.compactMap { $0.label }.sorted()
-        XCTAssertEqual(fieldNames, ["from", "id", "label", "to"],
+        // `author` (1C-c3) is on this list and `kind` may never be, and the
+        // difference is not a matter of degree: provenance says WHO DREW the
+        // line, which asserts nothing about the two cards' relationship, while a
+        // kind says what the line MEANS. A field that would make the writer pick
+        // from a vocabulary before the line can exist is the thing §5 refuses.
+        XCTAssertEqual(fieldNames, ["author", "from", "id", "label", "to"],
                         "CanvasLine must carry no `kind` — Kinopio shipped typed connections for " +
                         "years and removed them in April 2026 because typed connections confused " +
                         "first-time users; re-read spec §5 before adding one back")

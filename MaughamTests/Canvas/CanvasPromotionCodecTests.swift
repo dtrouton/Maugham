@@ -29,11 +29,11 @@ final class CanvasPromotionCodecTests: XCTestCase {
 
     func test_theSchemaIsFourBecauseThisSliceAddedAField() {
         // 1C-c2's own field (`promotedItemID`) is schema 4; the literal moved
-        // to 5 in 1C-c2a, which added `boundPieceID`, and to 6 in 1C-c2b,
-        // which added `contributedToItemID` — see
-        // `CanvasLineCodecTests.test_theSchemaVersionIsSix` for the other
-        // assertion of the same literal.
-        XCTAssertEqual(CanvasSceneDTO.currentSchemaVersion, 6)
+        // to 5 in 1C-c2a, which added `boundPieceID`, to 6 in 1C-c2b, which
+        // added `contributedToItemID`, and to 7 in 1C-c3, which added `author`
+        // — see `CanvasLineCodecTests.test_theSchemaVersionIsSeven` for the
+        // other assertion of the same literal.
+        XCTAssertEqual(CanvasSceneDTO.currentSchemaVersion, 7)
     }
 
     func test_aPromotedScrapKeepsItsArtifactAcrossASaveAndLoad() throws {
