@@ -512,6 +512,33 @@ enum Promotion {
 
     // MARK: - Pieces
 
+    /// Which piece a promotion belongs to — **by precedence, never by
+    /// overwriting** (spec §6.2). The scrap's own association wins; failing
+    /// that it inherits from the region it LIVES in; failing that there is none
+    /// and the artifact is the project's.
+    ///
+    /// Home only, deliberately: a citation is not luggage (§4.3's rule for
+    /// dragging, applied to destination), and a card cited in two regions bound
+    /// to different pieces must not take whichever the writer touched last —
+    /// that is §4.2's rejected bug class wearing a new hat.
+    ///
+    /// A region answers with its own and nothing else: it has no home to
+    /// inherit from. A line answers nil — its artifact is text inside somebody
+    /// else's note.
+    static func piece(for source: PromotionSource, in scene: CanvasScene) -> String? {
+        switch source {
+        case .scrap(let id):
+            guard let node = scene.node(id) else { return nil }
+            if let own = node.boundPieceID { return own }
+            guard let home = CanvasMembership.homeRegion(of: id, in: scene) else { return nil }
+            return scene.region(home)?.boundPieceID
+        case .region(let id):
+            return scene.region(id)?.boundPieceID
+        case .line:
+            return nil
+        }
+    }
+
     static func title(from body: String) -> String {
         body.split(separator: "\n", omittingEmptySubsequences: true).first
             .map { $0.trimmingCharacters(in: .whitespaces) } ?? ""

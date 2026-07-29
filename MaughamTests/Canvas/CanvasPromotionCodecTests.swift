@@ -1,10 +1,11 @@
 import XCTest
 @testable import Maugham
 
-/// The promoted mark, across the disk boundary. Schema 4 is additive-optional
-/// in BOTH directions, which is the pattern every canvas bump has kept: an
-/// older sidecar decodes unchanged, and a newer one costs an older build the
-/// arrangement and never the words (`CanvasStore.load`).
+/// The promoted mark, across the disk boundary. Schema 4 (1C-c2's
+/// `promotedItemID`) was additive-optional in BOTH directions, which is the
+/// pattern every canvas bump has kept, schema 5 (1C-c2a's `boundPieceID`)
+/// included: an older sidecar decodes unchanged, and a newer one costs an
+/// older build the arrangement and never the words (`CanvasStore.load`).
 final class CanvasPromotionCodecTests: XCTestCase {
 
     private let a = CanvasNodeID("a")
@@ -26,7 +27,11 @@ final class CanvasPromotionCodecTests: XCTestCase {
     }
 
     func test_theSchemaIsFourBecauseThisSliceAddedAField() {
-        XCTAssertEqual(CanvasSceneDTO.currentSchemaVersion, 4)
+        // 1C-c2's own field (`promotedItemID`) is schema 4; the literal moved
+        // to 5 in 1C-c2a, which added `boundPieceID` — see
+        // `CanvasLineCodecTests.test_theSchemaVersionIsFive` for the other
+        // assertion of the same literal.
+        XCTAssertEqual(CanvasSceneDTO.currentSchemaVersion, 5)
     }
 
     func test_aPromotedScrapKeepsItsArtifactAcrossASaveAndLoad() throws {

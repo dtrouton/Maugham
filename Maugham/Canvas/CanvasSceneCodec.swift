@@ -7,7 +7,7 @@ import Foundation
 /// `CanvasScene` so the in-memory model is free to change shape without
 /// rewriting every writer's sidecar.
 struct CanvasSceneDTO: Codable {
-    static let currentSchemaVersion = 4   // was 3 (lines, 1C-c1)
+    static let currentSchemaVersion = 5   // was 4 (promotedItemID, 1C-c2)
 
     var schemaVersion: Int
     var nodes: [NodeDTO]
@@ -17,7 +17,9 @@ struct CanvasSceneDTO: Codable {
     /// Optional so a schema-3 sidecar — every canvas 1C-c1 wrote — decodes
     /// unchanged. **1C-c2 added `promotedItemID` to nodes and regions rather
     /// than a key of its own here**, which is why this bump has no new
-    /// top-level collection: the mark belongs to the thing it marks.
+    /// top-level collection: the mark belongs to the thing it marks. **1C-c2a
+    /// added `boundPieceID` to `NodeDTO` the same way** — a scrap's own piece
+    /// association (spec §6.2) belongs to the node, not to a collection here.
     var lines: [LineDTO]?
 
     struct NodeDTO: Codable {
@@ -30,6 +32,7 @@ struct CanvasSceneDTO: Codable {
         var cachedHeight: CGFloat?
         var z: Int
         var promotedItemID: String?
+        var boundPieceID: String?
     }
 
     struct RegionDTO: Codable {
@@ -62,12 +65,14 @@ struct CanvasSceneDTO: Codable {
                 return NodeDTO(id: n.id.raw, kind: "scrap", referenceId: nil,
                                x: n.origin.x, y: n.origin.y, width: n.width,
                                cachedHeight: n.cachedHeight, z: n.z,
-                               promotedItemID: n.promotedItemID)
+                               promotedItemID: n.promotedItemID,
+                               boundPieceID: n.boundPieceID)
             case .item(let ref):
                 return NodeDTO(id: n.id.raw, kind: "item", referenceId: ref,
                                x: n.origin.x, y: n.origin.y, width: n.width,
                                cachedHeight: n.cachedHeight, z: n.z,
-                               promotedItemID: n.promotedItemID)
+                               promotedItemID: n.promotedItemID,
+                               boundPieceID: n.boundPieceID)
             }
         }
         regions = scene.regions.map { r in
@@ -103,7 +108,8 @@ struct CanvasSceneDTO: Codable {
             s.insert(CanvasNode(id: CanvasNodeID(dto.id), kind: kind,
                                 origin: CGPoint(x: dto.x, y: dto.y),
                                 width: dto.width, cachedHeight: dto.cachedHeight, z: dto.z,
-                                promotedItemID: dto.promotedItemID))
+                                promotedItemID: dto.promotedItemID,
+                                boundPieceID: dto.boundPieceID))
         }
 
         // AFTER the nodes, and the order is the whole of the scrub: a node of an

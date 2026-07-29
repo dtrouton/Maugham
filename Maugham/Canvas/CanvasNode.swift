@@ -62,13 +62,24 @@ public struct CanvasNode: Equatable, Sendable {
     /// does that arrives with the promotion model (this slice's Task 2).
     public var promotedItemID: String?
 
+    /// This scrap's own piece association (spec §6.2) — the same field a
+    /// region carries (`CanvasRegion.boundPieceID`), set in the inspector.
+    ///
+    /// **The override, not the inheritance.** `Promotion.piece(for:in:)` reads
+    /// this FIRST, before it ever asks what region the node lives in — a
+    /// scrap's own choice always wins over its home region's, and a scrap that
+    /// merely *appears* in a bound region (§4.3's reference, not luggage)
+    /// inherits nothing from either field.
+    public var boundPieceID: String?
+
     public init(id: CanvasNodeID,
                 kind: CanvasNodeKind,
                 origin: CGPoint,
                 width: CGFloat,
                 cachedHeight: CGFloat? = nil,
                 z: Int = 0,
-                promotedItemID: String? = nil) {
+                promotedItemID: String? = nil,
+                boundPieceID: String? = nil) {
         self.id = id
         self.kind = kind
         self.origin = origin
@@ -76,6 +87,7 @@ public struct CanvasNode: Equatable, Sendable {
         self.cachedHeight = cachedHeight
         self.z = z
         self.promotedItemID = promotedItemID
+        self.boundPieceID = boundPieceID
     }
 
     /// The node's rect in canvas content coordinates, or nil if it has never

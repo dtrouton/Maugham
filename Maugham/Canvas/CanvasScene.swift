@@ -104,6 +104,14 @@ public struct CanvasScene: Equatable, Sendable {
         byID[id]?.promotedItemID = itemID
     }
 
+    /// Record (or clear) a scrap's OWN piece association (spec §6.2) — the
+    /// override, not the inheritance. Setting a region's `boundPieceID` never
+    /// comes through here or any other write to a member's own field: the more
+    /// specific setting wins by being read first, never by being written down.
+    public mutating func setBoundPiece(_ pieceID: String?, for id: CanvasNodeID) {
+        byID[id]?.boundPieceID = pieceID
+    }
+
     /// Highest node whose measured frame contains `point`, in content
     /// coordinates. Front-most wins.
     ///
