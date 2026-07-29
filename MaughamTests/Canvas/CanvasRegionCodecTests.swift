@@ -99,10 +99,12 @@ final class CanvasRegionCodecTests: XCTestCase {
     /// canvas 1C-b wrote: a schema-2 file — no `lines` key at all — carrying
     /// REAL, populated regions (not `test_aSchemaV1SidecarLoadsItsNodesAndNoRegions`'s
     /// empty case) still decodes those regions intact, regardless of how many
-    /// bumps `currentSchemaVersion` has taken since (now 5, 1C-c2a's
-    /// `boundPieceID` on top of 1C-c2's `promotedItemID`). The version literal
-    /// itself is asserted in `CanvasLineCodecTests.test_theSchemaVersionIsFive`
-    /// and in `CanvasPromotionCodecTests.test_theSchemaIsFourBecauseThisSliceAddedAField`
+    /// bumps `currentSchemaVersion` has taken since (now 6, 1C-c2b's
+    /// `contributedToItemID` on top of 1C-c2a's `boundPieceID` on top of
+    /// 1C-c2's `promotedItemID`). The version literal itself is asserted in
+    /// `CanvasLineCodecTests.test_theSchemaVersionIsSix`, in
+    /// `CanvasPromotionCodecTests.test_theSchemaIsFourBecauseThisSliceAddedAField`
+    /// and in `PromotionPieceTests.test_theSchemaIsFiveBecauseThisTaskAddedAField`
     /// — this test's job is the region content surviving the bump, not the
     /// number.
     func test_aSchemaV2SidecarsPopulatedRegionsSurviveTheBumpToSchemaFour() throws {

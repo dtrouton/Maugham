@@ -3,9 +3,10 @@ import XCTest
 
 /// The promoted mark, across the disk boundary. Schema 4 (1C-c2's
 /// `promotedItemID`) was additive-optional in BOTH directions, which is the
-/// pattern every canvas bump has kept, schema 5 (1C-c2a's `boundPieceID`)
-/// included: an older sidecar decodes unchanged, and a newer one costs an
-/// older build the arrangement and never the words (`CanvasStore.load`).
+/// pattern every canvas bump has kept, schema 5 (1C-c2a's `boundPieceID`) and
+/// schema 6 (1C-c2b's `contributedToItemID`) included: an older sidecar
+/// decodes unchanged, and a newer one costs an older build the arrangement
+/// and never the words (`CanvasStore.load`).
 final class CanvasPromotionCodecTests: XCTestCase {
 
     private let a = CanvasNodeID("a")
@@ -28,10 +29,11 @@ final class CanvasPromotionCodecTests: XCTestCase {
 
     func test_theSchemaIsFourBecauseThisSliceAddedAField() {
         // 1C-c2's own field (`promotedItemID`) is schema 4; the literal moved
-        // to 5 in 1C-c2a, which added `boundPieceID` — see
-        // `CanvasLineCodecTests.test_theSchemaVersionIsFive` for the other
+        // to 5 in 1C-c2a, which added `boundPieceID`, and to 6 in 1C-c2b,
+        // which added `contributedToItemID` — see
+        // `CanvasLineCodecTests.test_theSchemaVersionIsSix` for the other
         // assertion of the same literal.
-        XCTAssertEqual(CanvasSceneDTO.currentSchemaVersion, 5)
+        XCTAssertEqual(CanvasSceneDTO.currentSchemaVersion, 6)
     }
 
     func test_aPromotedScrapKeepsItsArtifactAcrossASaveAndLoad() throws {

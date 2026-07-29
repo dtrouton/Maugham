@@ -354,6 +354,23 @@ struct PromotionPlan: Equatable {
     let mode: PromotionMode
     let paletteKind: PaletteCard.Kind
 
+    /// Home members whose text is now inside the artifact this plan would
+    /// produce — recorded at promotion time, not derived from live
+    /// membership, so a card added to the region *afterwards* has no words in
+    /// that note and must not claim it (spec §6.3). Populated only for a
+    /// region source, from `regionBodies` — the same function the body and
+    /// the refusal already read, so "who contributed" and "what the note
+    /// says" cannot drift apart. Empty for a scrap or a line: only a region's
+    /// promotion has more than one card behind a single artifact.
+    ///
+    /// **This is NOT the promotion mark, and must never be conflated with
+    /// one.** See `CanvasNode.contributedToItemID`'s doc comment — a
+    /// contributor's words are IN the artifact alongside others', and reading
+    /// this list where `promotedItemID` is read would let one member's
+    /// re-promotion offer to rewrite the whole joint note with its own single
+    /// card's text.
+    var contributors: [CanvasNodeID] = []
+
     /// True when the link this plan would write is already in the destination.
     /// The sheet says so and refuses; the performer refuses too, against the
     /// live file.
@@ -504,6 +521,16 @@ enum Promotion {
         guard updatableTargets.contains(target) else { return nil }
         let markedID: String?
         switch source {
+        // **`promotedItemID` ONLY, and never `contributedToItemID`** (spec §6.3).
+        // This function is what offers **Rewrite**, and a contributor is not the
+        // artifact's producer: falling back to the contribution record here
+        // would let the writer promote one member of a six-card region note and
+        // replace the whole note with that card's text. That is 1C-c2's Critical
+        // — a mark that did not record the artifact's KIND — returning as a mark
+        // that does not record its CARDINALITY.
+        //
+        // `PromotionContributionTests`' no-Update test is the guard, and it was
+        // falsified by planting exactly that fallback here.
         case .scrap(let id): markedID = scene.node(id)?.promotedItemID
         case .region(let id): markedID = scene.region(id)?.promotedItemID
         case .line: markedID = nil
@@ -559,7 +586,8 @@ enum Promotion {
                     return PromotionLinkOffer(node: nodeID, itemID: itemID, title: title)
                 },
                 wikiLinkWrite: nil, mode: request.mode,
-                paletteKind: request.paletteKind, linkAlreadyPresent: false)
+                paletteKind: request.paletteKind,
+                contributors: bodies.map(\.0), linkAlreadyPresent: false)
 
         case .line(let id):
             guard let line = scene.line(id),

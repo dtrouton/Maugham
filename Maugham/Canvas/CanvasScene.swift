@@ -112,6 +112,14 @@ public struct CanvasScene: Equatable, Sendable {
         byID[id]?.boundPieceID = pieceID
     }
 
+    /// Record (or clear) the artifact a region's promotion folded this card's
+    /// text into (spec §6.3) — **not** the promotion mark. See
+    /// `CanvasNode.contributedToItemID`'s doc comment for why the two must
+    /// never be conflated: this field must never be readable as an Update.
+    public mutating func setContributedItem(_ itemID: String?, for id: CanvasNodeID) {
+        byID[id]?.contributedToItemID = itemID
+    }
+
     /// Highest node whose measured frame contains `point`, in content
     /// coordinates. Front-most wins.
     ///

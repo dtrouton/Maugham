@@ -141,6 +141,10 @@ final class PromotionPieceTests: XCTestCase {
     }
 
     func test_theSchemaIsFiveBecauseThisTaskAddedAField() {
-        XCTAssertEqual(CanvasSceneDTO.currentSchemaVersion, 5)
+        // The literal moved to 6 in 1C-c2b, which added
+        // `contributedToItemID` — see
+        // `CanvasLineCodecTests.test_theSchemaVersionIsSix` for the other
+        // assertion of the same literal.
+        XCTAssertEqual(CanvasSceneDTO.currentSchemaVersion, 6)
     }
 }

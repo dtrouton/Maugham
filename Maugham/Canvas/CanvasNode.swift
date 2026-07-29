@@ -72,6 +72,24 @@ public struct CanvasNode: Equatable, Sendable {
     /// inherits nothing from either field.
     public var boundPieceID: String?
 
+    /// The artifact a promotion of this card's HOME REGION folded this card's
+    /// text into (spec §6.3) — written alongside the region's own
+    /// `promotedItemID` mark, in the same undo bracket.
+    ///
+    /// **This is NOT `promotedItemID`, and the distinction is load-bearing
+    /// rather than tidy.** `promotedItemID` means *"I am this artifact"* and
+    /// `Promotion.existingArtifact` reads it to offer **Rewrite**. Stamping a
+    /// contributor with the same field would let promoting one member
+    /// afterwards offer to rewrite the whole joint note with that one card's
+    /// text — the 1C-c2 Critical (a mark that did not record the artifact's
+    /// *kind*) returning as a mark that does not record its *cardinality*. So
+    /// a contribution record must never be read where `promotedItemID` is
+    /// read, and re-promoting a contributing card offers only a new artifact.
+    ///
+    /// A card may carry both, and they say different things: it produced its
+    /// own note, *and* its words are in a region's.
+    public var contributedToItemID: String?
+
     public init(id: CanvasNodeID,
                 kind: CanvasNodeKind,
                 origin: CGPoint,
@@ -79,7 +97,8 @@ public struct CanvasNode: Equatable, Sendable {
                 cachedHeight: CGFloat? = nil,
                 z: Int = 0,
                 promotedItemID: String? = nil,
-                boundPieceID: String? = nil) {
+                boundPieceID: String? = nil,
+                contributedToItemID: String? = nil) {
         self.id = id
         self.kind = kind
         self.origin = origin
@@ -88,6 +107,7 @@ public struct CanvasNode: Equatable, Sendable {
         self.z = z
         self.promotedItemID = promotedItemID
         self.boundPieceID = boundPieceID
+        self.contributedToItemID = contributedToItemID
     }
 
     /// The node's rect in canvas content coordinates, or nil if it has never

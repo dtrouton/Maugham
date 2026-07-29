@@ -23,8 +23,8 @@ final class CanvasLineCodecTests: XCTestCase {
         try json.write(to: sidecarURL(), atomically: true, encoding: .utf8)
     }
 
-    func test_theSchemaVersionIsFive() {
-        XCTAssertEqual(CanvasSceneDTO.currentSchemaVersion, 5)
+    func test_theSchemaVersionIsSix() {
+        XCTAssertEqual(CanvasSceneDTO.currentSchemaVersion, 6)
     }
 
     func test_linesRoundTripThroughDisk() {
@@ -95,12 +95,12 @@ final class CanvasLineCodecTests: XCTestCase {
     }
 
     /// The guard that makes the bump non-destructive in both directions: a
-    /// schema-6 sidecar (from the future, past this build's schema-5) opened
+    /// schema-7 sidecar (from the future, past this build's schema-6) opened
     /// by this build loses the arrangement and keeps the words. One line
     /// count, not three — a later slice bumps again.
-    func test_aSchemaSixSidecarLosesTheArrangementAndKeepsTheWords() throws {
+    func test_aSchemaSevenSidecarLosesTheArrangementAndKeepsTheWords() throws {
         try writeSidecar("""
-        {"schemaVersion":6,"nodes":[{"id":"a","kind":"scrap","x":5,"y":6,\
+        {"schemaVersion":7,"nodes":[{"id":"a","kind":"scrap","x":5,"y":6,\
         "width":240,"cachedHeight":80,"z":1}]}
         """)
         try "\(ScrapText.banner)\n\n## a\n\nthe falls at night\n"
