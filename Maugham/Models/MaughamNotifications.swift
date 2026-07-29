@@ -124,6 +124,12 @@ extension Notification.Name {
     public static let maughamAddScreenplayPiece = Notification.Name("maugham.add.screenplay.piece")
     public static let maughamLinkProject = Notification.Name("maugham.link.project")
     public static let maughamPromotePiece = Notification.Name("maugham.promote.piece")
+    /// Scope: .keyWindow — "Promote…" (⌘⇧↩) acting on the canvas's current
+    /// selection. **Distinct from `maughamPromotePiece`**, which promotes a
+    /// collection piece to its own project: two different verbs that happen to
+    /// share a word.
+    public static let maughamPromoteCanvasSelection =
+        Notification.Name("maugham.promote.canvas")
     public static let maughamOpenRewind = Notification.Name("maugham.open.rewind")
     /// Posted when ⌘S is pressed — triggers a checkpoint capture with an auto-label.
     public static let maughamSaveCheckpoint = Notification.Name("maugham.save.checkpoint")

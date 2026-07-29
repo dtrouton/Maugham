@@ -126,10 +126,12 @@ public enum FindReferencesTool: MCPTool {
         "Find back-references to a document or research item. The `target` " +
         "can be an id (returned by get_outline / list_research) or a title " +
         "(case-insensitive match). Returns [[wiki link]] matches in manuscript " +
-        "text + research-link backrefs. Piece-owned research returns its " +
-        "owning piece as a piece_research backref. When a piece both links " +
-        "to and owns the same research item, the explicit link masks the " +
-        "containment backref (deduplicated by from_id)."
+        "text AND research note bodies (a link written into a research note, " +
+        "e.g. by canvas promotion, is included) + research-link backrefs. " +
+        "Piece-owned research returns its owning piece as a piece_research " +
+        "backref. When a piece both links to and owns the same research " +
+        "item, the explicit link masks the containment backref " +
+        "(deduplicated by from_id)."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"},"target":{"type":"string"}},"required":["project_id","target"]}"#
 
@@ -197,6 +199,24 @@ public enum FindReferencesTool: MCPTool {
                             from_id: doc.id,
                             from_title: doc.title,
                             kind: "wiki"))
+                    }
+                    break
+                }
+            }
+
+            // The same widening `list_all_links` takes, and for the same
+            // reason: a promoted line's link lives in a research note, and this
+            // is the tool a writer asks "what points at this".
+            for item in TreeWalk.collect(in: store.manifest.research,
+                                         where: { $0.kind == .document }) {
+                guard item.id != resolvedId,          // not a reference to itself
+                      let path = item.path,
+                      let text = try? String(contentsOf: entry.url.appendingPathComponent(path), encoding: .utf8),  // adr-0018-ok: research note, not manuscript
+                      !text.isEmpty else { continue }
+                for title in titles where text.contains("[[\(title)]]") {
+                    if seenFromIds.insert(item.id).inserted {
+                        refs.append(Reference(from_id: item.id, from_title: item.title,
+                                              kind: "wiki"))
                     }
                     break
                 }

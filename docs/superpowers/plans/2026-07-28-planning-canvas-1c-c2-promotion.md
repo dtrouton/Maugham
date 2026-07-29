@@ -2637,7 +2637,11 @@ final class PromotionCommandTests: XCTestCase {
             .deletingLastPathComponent()   // MaughamTests
             .deletingLastPathComponent()   // repo root
             .appendingPathComponent("Maugham/Canvas")
-        for file in ["RegionInspector.swift", "LineInspector.swift", "ScrapInspector.swift"] {
+        // Task 6 adds "ScrapInspector.swift" to this list in its own commit —
+        // see that task's steps. It is not listed here because a task must end
+        // green: a deliberately-red test is indistinguishable from a broken one
+        // by the time anybody else looks at it.
+        for file in ["RegionInspector.swift", "LineInspector.swift"] {
             let text = try String(contentsOf: dir.appendingPathComponent(file), encoding: .utf8)
             XCTAssertTrue(text.contains(".maughamPromoteCanvasSelection"),
                           "\(file) must reach promotion through the one command. A "
@@ -2655,7 +2659,7 @@ final class PromotionCommandTests: XCTestCase {
 }
 ```
 
-**`ScrapInspector.swift` does not exist until Task 6.** Write that third filename into the census now anyway: the test goes red, Task 6 makes it green, and the alternative — remembering to add it later — is how a surface ships with two ways to promote.
+**`ScrapInspector.swift` does not exist until Task 6**, so the census here covers the two arms that do. **Task 6 adds the third filename to this same test in its own commit** — that is a step there, not a hope, and its own tests cannot pass without the file existing anyway.
 
 - [ ] **Step 2: Run it and watch it fail**
 
@@ -2853,7 +2857,7 @@ In `LineInspector.swift`, the same button above **Delete Line**, with:
 - [ ] **Step 7: Run the tests, then measure the drag**
 
 Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/PromotionCommandTests CODE_SIGNING_ALLOWED=NO`
-Expected: PASS except `test_theInspectorButtonsPostTheSameCommandAsTheMenu`, which stays red until Task 6 adds `ScrapInspector.swift`. **Say so in the commit** rather than deleting the third filename.
+Expected: PASS, all four tests.
 
 Then **measure the claim in the modifier's doc comment**, because this plan will not assert it: add a temporary `print` (or a `@State` counter) in `ProjectWindow.body`, run the app, drag a card across the canvas for two seconds, and confirm the body does **not** evaluate per frame. Remove the instrumentation before committing and put the result in the commit message. If it *does* evaluate per frame, the fix is to pass `model.selection != nil` in as a plain `Bool` computed one level down — do not ship the read.
 
@@ -3091,7 +3095,17 @@ struct ScrapInspector: View {
 }
 ```
 
-- [ ] **Step 5: Add the third arm to the pane**
+- [ ] **Step 5: Add this arm to the command census**
+
+In `MaughamTests/Canvas/PromotionCommandTests.swift`, `test_theInspectorButtonsPostTheSameCommandAsTheMenu` lists the inspector arms that must reach promotion through the one command. Task 5 listed the two that existed then; add the third:
+
+```swift
+        for file in ["RegionInspector.swift", "LineInspector.swift", "ScrapInspector.swift"] {
+```
+
+and delete the comment above it that says Task 6 will do this.
+
+- [ ] **Step 6: Add the third arm to the pane**
 
 In `RegionInspector.swift`, `RegionInspectorPane` gains two stored properties and one arm. The `ContentUnavailableView`'s copy changes, and its comment about a selected card landing there is now false — **replace it rather than leaving it**:
 
@@ -3130,7 +3144,7 @@ struct RegionInspectorPane: View {
 }
 ```
 
-- [ ] **Step 6: Supply the two arguments, and rename the navigator**
+- [ ] **Step 7: Supply the two arguments, and rename the navigator**
 
 In `ProjectWindow.swift`, `openCraftIntent` already does exactly what the Open button needs. Rename it and its one existing call site (`inspectorPane`'s `onOpenCraftIntent:` argument, `ProjectWindow.swift:1102`) — the name was always about the *destination*, not the caller:
 
@@ -3159,17 +3173,18 @@ and `canvasInspector(store:)` becomes:
     }
 ```
 
-- [ ] **Step 7: Run the tests**
+- [ ] **Step 8: Run the tests**
 
 Run: `./gen.sh && xcodebuild -project Maugham.xcodeproj -scheme Maugham test -only-testing MaughamTests/ScrapInspectorTests -only-testing MaughamTests/PromotionCommandTests -only-testing MaughamTests/RegionBindingTests CODE_SIGNING_ALLOWED=NO`
-Expected: PASS — including `test_theInspectorButtonsPostTheSameCommandAsTheMenu`, which Task 5 left red on purpose. `RegionBindingTests` is here because it constructs `RegionInspectorPane`; **if it fails to compile, add the two new arguments there rather than giving them defaults** — a default would let a future caller forget the scrap arm's lookups and ship a pane that says a promoted card is not promoted.
+Expected: PASS — `PromotionCommandTests` is here because Step 5 widened its census. `RegionBindingTests` is here because it constructs `RegionInspectorPane`; **if it fails to compile, add the two new arguments there rather than giving them defaults** — a default would let a future caller forget the scrap arm's lookups and ship a pane that says a promoted card is not promoted.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add Maugham/Canvas/ScrapInspector.swift Maugham/Canvas/CanvasModel.swift \
         Maugham/Canvas/RegionInspector.swift Maugham/Views/ProjectWindow.swift \
-        MaughamTests/Canvas/ScrapInspectorTests.swift MaughamTests/Canvas/RegionBindingTests.swift
+        MaughamTests/Canvas/ScrapInspectorTests.swift MaughamTests/Canvas/RegionBindingTests.swift \
+        MaughamTests/Canvas/PromotionCommandTests.swift
 git commit -m "feat(canvas): a card's inspector says what it became
 
 The mark this slice added is invisible without it: a drawn mark says THAT a
@@ -3853,6 +3868,8 @@ Denver runs these by hand. Everything before this point is a green suite, which 
 14. Ask Claude `find_references` for a promoted note's title → the promoting note is listed. This is the reader Task 8 built; if it is empty, the line row is inert again.
 15. Quit mid-sheet (⌘Q with the sheet open) and reopen → no crash, nothing half-written, the canvas as it was.
 16. **The menu item is disabled** outside the canvas segment and with nothing selected, and enabled with a card, a region or a line selected.
+17. **Menu enablement, end to end.** Select a card on the canvas, open the **File** menu, and confirm `Promote…` is live rather than greyed — then press **⌘⇧↩** and confirm the sheet opens. The unit tests cover the pure enablement rule and the census covers the wiring, but that the published focused value actually flips the menu item's enabled state is only checkable by hand.
+18. **A failed promotion must be VISIBLE.** Delete an artifact between opening the sheet and committing (promote a card, delete the note in the research tree, then re-promote choosing **Rewrite**), and confirm the **"Promotion failed"** alert actually appears. Presenting an alert while a sheet dismissal is in flight is a known SwiftUI swallow, and every `PromotionFailure` the sheet cannot pre-empt reaches the writer only through that path.
 
 ---
 

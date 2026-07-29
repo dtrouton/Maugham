@@ -96,6 +96,8 @@ So a node **lives in** exactly one region (or nowhere, loose on the canvas) and 
 
 ### 4.4 Regions bind to pieces — this is the bridge
 
+> **Amendment, 2026-07-29 (Denver).** This binding is no longer only 1A's to consume. It is the **piece association** of §6.2, and it decides where a promotion from that region — or from a scrap that lives in it — lands. Same field, same picker; a second reader, which exists today. The binding is *not* a promotion target: it produces no artifact and the picker already sets it. See §6's 2026-07-29 amendment.
+
 A region may optionally bind to a piece. That binding is the mechanism from umbrella §8: **the nodes that live in a piece's region become the pinned references beside the editor when you write it, and the context the authoring compiler reads.** The clustering you did while planning pays off twice, with no separate curation step.
 
 Only nodes that *live* in the region are bound. Visitors are not, or two regions sharing a card would each claim it.
@@ -121,8 +123,47 @@ A line costs nothing to draw and nothing to be wrong about, which is what thinki
 | Promote | Produces |
 |---|---|
 | A scrap | a research note, a palette card, or an intent statement |
-| A region | a palette card, or a piece binding |
+| A region | a research note, or a palette card |
 | A line | a `[[wiki-link]]`, when both ends have themselves been promoted |
+
+> **Amendment, 2026-07-29 (Denver, after the 1C-c2 smoke).** The region row read *"a palette card, or a piece binding"*. Both halves were wrong in practice, and the smoke is what showed it.
+>
+> **A piece binding is not a promotion.** It produces no artifact — it sets `CanvasRegion.boundPieceID`, which the region inspector's own **Piece** picker already sets, so the sheet offered a second door to an existing control while wearing the words "Produce" and "Goes to". And the field's only intended reader is 1A's reference rail, which is unbuilt: measured 2026-07-29, `RegionBinding.references(forPiece:)` has **zero production callers**. The writer's report was simply "I don't see it doing anything", which was accurate. Removed as a target; the picker stays.
+>
+> **A region produces a research note.** A cluster of text scraps is a note — grouped, in the region's own reading order, with §6.1's offer to link each promoted member to it. The palette card **stays** on the row, and its case gets stronger rather than weaker in 1C-d: a palette card is worth making from a region that holds an *image*, which the canvas cannot hold until then. Today it makes a card of joined prose with no swatches and no images, which is why it could not be the only option.
+
+### 6.2 A piece association, and where a promotion lands
+
+*Added 2026-07-29 (Denver), same ruling.*
+
+A **scrap** and a **region** may each carry an optional piece association. It is the same field on both (`boundPieceID`), it is set in the inspector, and it now has two readers rather than none: 1A's reference rail later, and **where a promotion lands** today.
+
+**Resolution is by precedence, and nothing is ever overwritten.** A promotion's piece is:
+
+1. the scrap's **own** association, if set;
+2. else its **home** region's association;
+3. else none — the project's own research.
+
+Setting a region's piece never rewrites its members' — the more specific setting wins, exactly as a per-piece craft intent already beats the project's. The alternative considered and rejected was a region-level set cascading onto its scraps: it destroys a deliberate per-card choice invisibly, and it reintroduces §4.2's rejected bug class in a new place, since a card *cited* in two regions bound to different pieces would follow whichever was touched last. **Home decides and visitors do not** is already §4.3's rule for dragging; this is the same rule, applied to destination.
+
+**Where the artifact goes is already decided, and not by this design.** `ResearchScope` (2026-07-07's scoped-research milestone) routes `.document(id)` by project type, and promotion adopts it rather than inventing a second rule — checked against `Maugham/Stores/ResearchScope.swift:26-86`:
+
+| Project | Route | What the association becomes |
+|---|---|---|
+| Collection, **loose** piece | `.pieceFolder` | containment — the note is created in the piece's own `research/` |
+| Collection, **reference** piece | throws | the piece keeps research in its own project |
+| **Novel** | `.sharedPlusLink` | shared `research/`, plus a `linkResearch` record, written automatically |
+| **Short story / screenplay** | `.sharedOnly` | shared `research/`, no link — derivation already surfaces everything as that document's |
+
+So "capture the association on the note when there is no structural place for it" is not new work: `route(_:shared:piece:)` already does exactly that, and the dormant-link rule (2026-07-17) already stops containment and a manual link double-counting the same pair.
+
+**The picker offers only pieces this can route.** `ProjectStore.researchScopeTargets()` exists for precisely that — its own doc comment says it "drives the promote-target picker" — and the region inspector's picker currently offers every `.document`, including the reference pieces the router throws on. Using it means a promotion can never fail on a piece the writer was invited to choose.
+
+A **palette card** is not routed: the wall is project-level and a card must live under the palette group. It takes the link when the routing would have been `.sharedPlusLink`, and nothing otherwise — the same decision, read from the same function.
+
+**The writer is told which route was taken, in the preview**, before committing. A piece that keeps no research of its own says so in the sheet rather than throwing or silently redirecting: §6.1 requires the writer see what will be produced and *where*, and a fallback nobody can see fails that test. In a novel the writer is not thinking in pieces at all, so the fallback is the ordinary case and not an error.
+
+**The craft intent takes the scope and never the link.** `createCraftIntent(forPieceId:)` already handles a loose piece; anywhere else it falls back to project scope and stops. An intent doc is a singleton per scope, and linking the *project's* intent to one chapter would misrepresent what it is.
 
 ### 6.1 Rules
 
@@ -145,6 +186,26 @@ A line costs nothing to draw and nothing to be wrong about, which is what thinki
 > **4. The line row ships with a reader.** §6.1's rule above is right about the *target* side — `ListAllLinksTool`'s title index covers documents **and** research items. The *source* side was not checked and is narrower: `ListAllLinksTool.swift:93` and `ReferenceTools.swift:180` scan `[[…]]` **only in manuscript documents**, `ResearchNoteEditor` has no wiki-link handling at all, and rename propagation (`ProjectStore+Structure.swift:400`) walks documents only. Since promotion never produces a manuscript document, every link it writes lands in a research note — inert on all four counts. So 1C-c2 teaches `list_all_links` and `find_references` to scan research bodies in the same slice. Shipping the row without that would be this area's fifth built-and-unreachable half, and the previous four were each found by counting callers rather than by a test.
 
 ---
+
+### 6.3 What a promotion records on the cards it consumed
+
+*Added 2026-07-29 (Denver, after the 1C-c2a smoke).* Promoting a region produced the note and told the region so — and left every card whose words are now in that note reporting **"Not promoted yet"** in its own inspector. The writer's report: *"not all the scraps know they were promoted, some think they weren't — all did turn up in the research note though."* The cards that did say promoted were the ones promoted individually earlier, carrying their own mark. Two truths on one screen, and the screen was lying.
+
+**A contributing card carries a record, and it is NOT the promotion mark.** The distinction is load-bearing rather than tidy. `promotedItemID` means *"I am this artifact"*, and `existingArtifact` reads it to offer **Rewrite**. Stamping a contributor with the same field would mean promoting one member afterwards offers to rewrite the six-card note with that one card's text — which is the 1C-c2 Critical (a mark that did not record the artifact's *kind*) returning as a mark that does not record its *cardinality*. So:
+
+- **`promotedItemID`** — this card produced this artifact. Readable as an Update.
+- **the contribution record** — this card's words are *in* that artifact, along with others'. **Never** an Update; re-promoting a contributing card offers only a new artifact.
+
+**Who is recorded, and when.** Exactly the members whose text went in — home members with non-empty text, which is already one function (`Promotion.regionBodies`) read by the preview, the refusal and the body. Recorded at promotion time, not derived from live membership: a card added to the region *afterwards* has no words in that note and must not claim to.
+
+**One gesture, one undo step.** The region's mark and every contribution record are written in a single bracket, so one ⌘Z takes back the whole promotion's canvas-side effect rather than leaving cards claiming a note the region no longer names.
+
+**An update re-records.** Rewriting a region's note rebuilds its contributors: cards that have left the region since stop claiming it, and cards that joined start. The note is written from the current members, so the record follows the same set. **The record is single-valued and the most recent contribution wins**: a card dragged from one promoted region into another, which is then promoted, names only the later note while its words are in both. That is the cost of one field, and it is accepted — a *set* would put a growing, never-collected list of ids on every card, each able to dangle, to describe a snapshot the writer took once, and provenance reads most usefully as the most recent act.
+
+**A card may carry both**, and they say different things: it produced its own note, *and* its words are in a region's. The inspector shows both rather than choosing.
+
+**The record is shown in the inspector and deliberately NOT drawn on the canvas.** The promoted mark's stripe means *this produced that*; a second stripe of the same kind for *this went into that* would assert on the canvas the very distinction this section spends its length drawing, and the writer would have no way to tell which one they were looking at. The record is an inspector fact, reached by selecting the card. **It is not announced either** — `CanvasAccessibility` names the mark and says nothing about the record — so a VoiceOver user meets the same silence rather than a different one, which is the consistent answer and not an omission on top of a decision. Stated here because a smoke session cannot overturn what a smoke session cannot perceive: if the ruling is revisited, the record needs a visual language and an announcement of its **own**, never the mark's.
+
 
 ## 7. How it feels
 

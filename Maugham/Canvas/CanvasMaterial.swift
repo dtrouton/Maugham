@@ -339,6 +339,28 @@ enum CanvasMaterial {
     /// it, and a second hue there would be a second answer to "what is selected".
     static let connectMarkDiameter: CGFloat = 8
 
+    // MARK: - Promotion
+
+    /// The stripe down the left edge of a card that has produced a durable
+    /// artifact (spec §6).
+    ///
+    /// **A stripe rather than a corner dot**, because the other three positions
+    /// are spoken for and the fourth is not free: the resize triangle owns the
+    /// bottom-right, the connect dot owns the right edge vertically centred, and
+    /// the text box starts `CanvasCardMetrics.inset` in from the top-left — so a
+    /// corner mark would either land on the writer's first line or where an
+    /// existing mark already means something. The left edge is outside the text
+    /// inset at every card width, and it survives being zoomed out, which a few
+    /// points of dot does not.
+    static let promotedMarkWidth: CGFloat = 3
+
+    /// Drawn in `cardInk`, which is already appearance-dynamic — so this is one
+    /// constant rather than a light/dark pair. It is deliberately quieter than
+    /// the selection stroke: a promoted card is a *fact* about the card, and a
+    /// canvas where half the cards have been promoted must not read as a canvas
+    /// where half the cards are selected.
+    static let promotedMarkOpacity: CGFloat = 0.45
+
     // MARK: - The sweep
 
     /// The outline under the pointer while a region is being drawn.

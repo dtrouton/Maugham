@@ -500,3 +500,68 @@ extension ReferenceToolsTests {
         }, "owning piece must back-reference its research; refs: \(refs)")
     }
 }
+
+extension ReferenceToolsTests {
+    /// A project whose links live in RESEARCH notes rather than in the
+    /// manuscript — which is the only shape canvas promotion can produce.
+    private func makeResearchLinkedProject() async throws -> (URL, ProjectRegistry) {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RTLR-\(UUID())")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("research"), withIntermediateDirectories: true)
+        try "The falls at night.\n\n[[October's doctor]] — because of the ponchos\n".write(
+            to: tmp.appendingPathComponent("research/falls.md"),
+            atomically: true, encoding: .utf8)
+        try "October's doctor was kind about it.\n\n[[Nobody]]\n".write(
+            to: tmp.appendingPathComponent("research/doctor.md"),
+            atomically: true, encoding: .utf8)
+        // Names itself: the only fixture shape that can actually falsify the
+        // self-reference guard — a note whose body wiki-links its OWN title.
+        try "This place always echoes back. [[Echo Chamber]] never really left.\n".write(
+            to: tmp.appendingPathComponent("research/echo.md"),
+            atomically: true, encoding: .utf8)
+        let falls = ResearchItem(id: "res-falls", title: "The falls at night", type: .asset,
+                                 kind: .document, path: "research/falls.md", addedAt: Date())
+        let doctor = ResearchItem(id: "res-doctor", title: "October's doctor", type: .asset,
+                                  kind: .document, path: "research/doctor.md", addedAt: Date())
+        let echo = ResearchItem(id: "res-echo", title: "Echo Chamber", type: .asset,
+                                kind: .document, path: "research/echo.md", addedAt: Date())
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
+            structure: [], research: [falls, doctor, echo])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(to: tmp.appendingPathComponent("project.maugham.json"))
+        let reg = ProjectRegistry()
+        reg.register(url: tmp, store: try await ProjectStore.load(from: tmp))
+        return (tmp, reg)
+    }
+
+    func test_findReferencesSeesALinkMadeFromAResearchNote() async throws {
+        let (url, reg) = try await makeResearchLinkedProject()
+        let req = "{\"project_id\":\"\(ProjectIdentifier.id(for: url))\","
+            + "\"target\":\"October's doctor\"}"
+        let refs = try JSONDecoder().decode(
+            [FindReferencesTool.Reference].self,
+            from: try await FindReferencesTool.handle(paramsJSON: Data(req.utf8), registry: reg))
+        XCTAssertTrue(refs.contains { $0.from_id == "res-falls" && $0.kind == "wiki" },
+                      "a promoted line's link is a reference, and this is the tool "
+                      + "a writer asks 'what points at this'")
+    }
+
+    func test_findReferencesDoesNotReportANoteAsAReferenceToItself() async throws {
+        let (url, reg) = try await makeResearchLinkedProject()
+        // "Echo Chamber" is the fixture note whose body wiki-links its own
+        // title — the only shape that can falsify the `item.id != resolvedId`
+        // guard. (Targeting "The falls at night" would be vacuous: falls.md
+        // never wiki-links its own title, so the assertion would hold whether
+        // or not the guard exists.)
+        let req = "{\"project_id\":\"\(ProjectIdentifier.id(for: url))\","
+            + "\"target\":\"Echo Chamber\"}"
+        let refs = try JSONDecoder().decode(
+            [FindReferencesTool.Reference].self,
+            from: try await FindReferencesTool.handle(paramsJSON: Data(req.utf8), registry: reg))
+        XCTAssertFalse(refs.contains { $0.from_id == "res-echo" })
+    }
+}

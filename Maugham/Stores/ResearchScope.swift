@@ -29,6 +29,21 @@ extension ProjectStore {
             throw ProjectStoreError.fileSystemError(
                 "Unknown research target document: \(docId)")
         }
+        return try researchRouting(for: item)
+    }
+
+    /// The routing rule itself, over an item the caller already has.
+    ///
+    /// **Split out so `researchScopeTargets` stops being quadratic.** That
+    /// function collects every `.document` and then asked `isResearchScopeTarget`
+    /// per id, and each of those re-ran `TreeWalk.collect` over the whole
+    /// structure to find the item it had just been handed — one walk became N.
+    /// It went unnoticed while the only caller was a picker opened by hand;
+    /// 1C-c2a put it on the window's body path, which is what made it worth
+    /// fixing. The by-id spelling above is unchanged and is still what every
+    /// other caller uses.
+    func researchRouting(for item: StructureItem) throws -> ResearchRouting {
+        let docId = item.id
         guard item.type == .document else {
             throw ProjectStoreError.fileSystemError(
                 "Research target must be a document, not a group: \(docId)")
@@ -55,10 +70,14 @@ extension ProjectStore {
         (try? researchRouting(forDocumentId: docId)) != nil
     }
 
-    /// All valid `.document` scope targets (drives the promote-target picker).
+    /// All valid `.document` scope targets (drives the promote-target picker,
+    /// and since 1C-c2a both of the canvas's piece pickers).
+    ///
+    /// Tests each collected item directly rather than re-walking the structure
+    /// by its id — see `researchRouting(for:)`.
     public func researchScopeTargets() -> [StructureItem] {
         TreeWalk.collect(in: manifest.structure, where: { $0.type == .document })
-            .filter { isResearchScopeTarget($0.id) }
+            .filter { (try? researchRouting(for: $0)) != nil }
     }
 
     // MARK: - Scoped creation

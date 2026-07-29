@@ -328,6 +328,8 @@ struct ProjectWindow: View {
             showInspector: $showInspector,
             inspectorWasVisibleBeforePalette: $inspectorWasVisibleBeforePalette,
             selectedPaletteCardId: $selectedPaletteCardId))
+        .modifier(CanvasPromotionModifier(window: window, store: store,
+                                          model: canvasModel, binderSegment: binderSegment))
         .preferredColorScheme(preferredColorScheme)
     }
 
@@ -1077,11 +1079,11 @@ struct ProjectWindow: View {
                 if let path = piece.path, path.hasSuffix(".fountain") {
                     PieceInspector(
                         store: store, pieceId: id, kind: .screenplay,
-                        onOpenCraftIntent: openCraftIntent)
+                        onOpenCraftIntent: openResearchItem)
                 } else {
                     PieceInspector(
                         store: store, pieceId: id, kind: .prose,
-                        onOpenCraftIntent: openCraftIntent)
+                        onOpenCraftIntent: openResearchItem)
                 }
             }
         } else {
@@ -1099,7 +1101,7 @@ struct ProjectWindow: View {
                 selectedItemId: selectedItemId,
                 metrics: metrics,
                 onOpenProjectSettings: { activeSheet = .projectSettings },
-                onOpenCraftIntent: openCraftIntent
+                onOpenCraftIntent: openResearchItem
             )
         case .canvas:
             // Unreachable — `inspectorRoute` takes the canvas above the
@@ -1140,21 +1142,57 @@ struct ProjectWindow: View {
     /// dependency of the drag loop and re-evaluate all of it at 60–120 Hz.
     /// `RegionInspectorPane` does the resolving, one leaf down.
     private func canvasInspector(store: ProjectStore) -> some View {
-        RegionInspectorPane(model: canvasModel,
-                            pieces: Self.pieceChoices(in: store.manifest.structure))
+        RegionInspectorPane(
+            model: canvasModel,
+            pieces: Self.pieceChoices(in: store),
+            // Deferred — walked only when a promoted card is selected.
+            artifactTitle: { TreeWalk.find(id: $0, in: store.manifest.research)?.title },
+            // Deferred, and asked even less often: only when an association
+            // names a piece `pieceChoices` does not hold. **The whole structure,
+            // not the routable subset** — this is what tells an association whose
+            // piece is GONE from one whose piece is in the writer's binder and
+            // simply keeps no research of its own, which the inspectors called
+            // "Missing piece · ref-1" while the refusal named it. Spelled exactly
+            // as `PromotionPiece.resolve` spells it, so the pane and the refusal
+            // read the same tree.
+            pieceTitle: { id in
+                TreeWalk.collect(in: store.manifest.structure,
+                                 where: { $0.id == id }).first?.title
+            },
+            onOpenResearchItem: openResearchItem)
     }
 
-    /// Every `.document` in the structure tree, as the region inspector's piece
-    /// choices. Ids, so a binding survives a rename.
-    static func pieceChoices(in items: [StructureItem]) -> [RegionInspector.PieceChoice] {
-        TreeWalk.collect(in: items, where: { $0.type == .document })
+    /// The pieces both canvas pickers offer — the region's and, since 1C-c2a, the
+    /// card's. Ids, so an association survives a rename (tripwire 22's rule
+    /// applied to a reference).
+    ///
+    /// **Only the pieces a promotion can be ROUTED to.**
+    /// `ProjectStore.researchScopeTargets()` exists for precisely this — its own
+    /// doc comment says it "drives the promote-target picker" — and this walked
+    /// every `.document` instead, including the Collection reference pieces
+    /// `researchRouting` throws on. So a writer could choose a piece that made
+    /// the promotion fail, on a surface whose whole promise is predictability
+    /// (spec §6.2).
+    ///
+    /// **Eager, and read on the body path — and that is the cheaper of the two
+    /// mistakes available here.** A deferred closure is this file's rule for
+    /// anything that walks the manifest (`artifactTitle` is one), but the pieces
+    /// are consumed by a `Picker` inside `RegionInspector.body` — a body that
+    /// reads `model.scene` and so re-evaluates on every drag and coast frame.
+    /// Deferring would move an O(documents²) routing walk from "once per window
+    /// body pass" onto the drag loop, which is tripwire 30's own shape. Kept here
+    /// it costs one walk per manifest change, which is what it cost before.
+    static func pieceChoices(in store: ProjectStore) -> [RegionInspector.PieceChoice] {
+        store.researchScopeTargets()
             .map { RegionInspector.PieceChoice(id: $0.id, title: $0.title) }
     }
 
-    /// Navigate to a craft-intent research doc surfaced from an inspector's
-    /// quiet Add/Open affordance — switches the right pane to Research and
-    /// selects the item, which the existing research click-to-edit flow opens.
-    private func openCraftIntent(_ itemId: String) {
+    /// Navigate to a research item in the right pane: switch to Research and
+    /// select it, which the existing click-to-edit flow opens.
+    ///
+    /// Reached from the craft-intent inspector affordance and, since 1C-c2, from
+    /// a promoted card's **Open** button.
+    private func openResearchItem(_ itemId: String) {
         binderSegment = .research
         selectedResearchId = itemId
     }
@@ -1785,3 +1823,176 @@ private struct TranslationReviewModifier: ViewModifier {
     }
 }
 
+/// The canvas's `Promote…` command: enablement, presentation and performance,
+/// all in one place so `ProjectWindow.body` gains a single line.
+///
+/// **`internal`, not `private`, and that is required rather than a style
+/// choice**: `@testable import` reaches `internal` and cannot see `private`, and
+/// `isPromotable` below is the enablement rule a test drives. `PersonaModifier`
+/// in this same file is non-private for exactly that reason; the ones that are
+/// private have nothing a test needs.
+///
+/// **It reads `model.selection` and must NEVER read `model.scene`.**
+/// `CanvasModel` is `@Observable` with the whole scene in one stored property,
+/// and every drag frame and every coast frame writes it — a read here would put
+/// the window's body on the drag loop at 60–120 Hz. `selection` moves on a
+/// click. The same rule keeps `store` off this path except inside the two
+/// actions below, which run from a user gesture: `begin()` snapshots the
+/// manifest once, and `commit(_:)` performs.
+///
+/// **Measured 2026-07-28** (Debug, macOS 26.5), through a real `CanvasView` in a
+/// real `NSHostingView` with the drag driven through the production
+/// `CanvasEventNSView` seam: **120 drag frames evaluated this modifier's body
+/// once** — the one selection change the opening mouse-down makes — and
+/// evaluated the enclosing `ProjectWindow`-shaped body **zero** times. The
+/// instrument was calibrated rather than trusted: ten writes to `model.selection`
+/// produced exactly ten evaluations, so a result of 1 is a real 1 and not a
+/// blind counter. The read is safe because a `ViewModifier`'s body is its own
+/// view — SwiftUI's tracking records `selection`, not the window that built it.
+struct CanvasPromotionModifier: ViewModifier {
+    let window: NSWindow?
+    let store: ProjectStore?
+    let model: CanvasModel
+    let binderSegment: BinderSegment
+
+    @State private var sheet: PromotionSheetModel?
+    @State private var failure: String?
+    /// What was just produced, in one sentence. Nil when there is nothing to
+    /// confirm — see the overlay in `body`.
+    @State private var confirmation: String?
+    /// The selected node's kind, resolved OUTSIDE `body`.
+    ///
+    /// **The read has to happen somewhere that is not the view-update path.** A
+    /// `model.scene` read in `body` puts the window on the drag loop (see this
+    /// type's own doc comment), and the kind is a fact about the scene. The
+    /// `.onChange` below runs on a selection change rather than on a body pass,
+    /// so it may read the scene freely; `body` then reads a plain `@State`
+    /// value that moves only when the selection does.
+    @State private var selectedNodeKind: CanvasNodeKind?
+
+    /// Pure and static so the enablement rule is reachable from a test that
+    /// hosts no SwiftUI — and so adding a `CanvasSelection` case makes the
+    /// compiler enumerate this decision with everything else.
+    ///
+    /// **`nodeKind` is the item-node guard.** An item node already exists as
+    /// itself, so `Promotion.targets` offers it nothing — and this said yes for
+    /// every `.node`, so `Promote…` was enabled and ⌘⇧↩ opened a sheet that
+    /// could never commit. It takes the kind rather than the scene on purpose:
+    /// the whole scene is what this modifier must never read.
+    static func isPromotable(binderSegment: BinderSegment,
+                             selection: CanvasSelection?,
+                             nodeKind: CanvasNodeKind?) -> Bool {
+        guard binderSegment == .canvas else { return false }
+        switch selection {
+        case .node:
+            if case .scrap = nodeKind { return true }
+            return false
+        case .region, .line: return true
+        case nil: return false
+        }
+    }
+
+    func body(content: Content) -> some View {
+        content
+            // `sheet == nil` is joined HERE rather than inside `isPromotable`,
+            // and that is deliberate: the pure function stays a fact about the
+            // canvas (segment plus selection) that a test can drive, while
+            // presentation state stays where presentation lives. Without it the
+            // File item is still enabled while the sheet is up — selection and
+            // segment have not moved — and a ⌘⇧↩ there is dropped by the very
+            // rule the inspector buttons' comments cite, because the sheet's own
+            // window holds key status. An enabled command that does nothing is
+            // the condition `.disabled(promotable != true)` exists to prevent.
+            .focusedSceneValue(\.canvasPromotable,
+                               sheet == nil
+                               && Self.isPromotable(binderSegment: binderSegment,
+                                                    selection: model.selection,
+                                                    nodeKind: selectedNodeKind))
+            // Reading `model.scene` HERE is safe and in `body` is not: an action
+            // closure runs on a change rather than inside a view update, so the
+            // scene never becomes a dependency of this modifier's body.
+            .onChange(of: model.selection, initial: true) { _, selection in
+                guard case .node(let id) = selection else { selectedNodeKind = nil; return }
+                selectedNodeKind = model.scene.node(id)?.kind
+            }
+            .onKeyWindowCommand(.maughamPromoteCanvasSelection, window: window) { _ in begin() }
+            .sheet(item: $sheet) { model in
+                PromotionSheet(model: model,
+                               onCommit: { commit($0) },
+                               onCancel: { sheet = nil })
+            }
+            // **The result reaches the writer.** Every field of
+            // `PromotionResult` used to be built and discarded here, and a line
+            // promotion sets no mark by design — so the sheet closed and
+            // nothing observable changed anywhere, on a surface whose whole
+            // promise is that you can see what a command will do. The banner is
+            // `MCPNoteBanner`, the house pattern for exactly this, rather than a
+            // second one.
+            .overlay(alignment: .top) {
+                if let confirmation {
+                    MCPNoteBanner(message: confirmation,
+                                  onDismiss: { self.confirmation = nil })
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: confirmation)
+            .task(id: confirmation) {
+                guard confirmation != nil else { return }
+                try? await Task.sleep(for: .seconds(6))
+                guard !Task.isCancelled else { return }
+                confirmation = nil
+            }
+            .alert("Promotion failed",
+                   isPresented: Binding(get: { failure != nil },
+                                        set: { if !$0 { failure = nil } })) {
+                Button("OK", role: .cancel) { failure = nil }
+            } message: {
+                Text(failure ?? "")
+            }
+    }
+
+    /// The manifest is read ONCE, here, and handed to the sheet as plain values.
+    private func begin() {
+        guard let store, let selection = model.selection,
+              Self.isPromotable(binderSegment: binderSegment, selection: selection,
+                                nodeKind: selectedNodeKind) else { return }
+        let source: PromotionSource
+        switch selection {
+        case .node(let id): source = .scrap(id)
+        case .region(let id): source = .region(id)
+        case .line(let id): source = .line(id)
+        }
+        let root = store.url
+        let research = store.manifest.research
+        sheet = PromotionSheetModel(
+            source: source, scene: model.scene, scraps: model.scraps,
+            artifacts: ArtifactIndex.over(research: research),
+            // Resolved here with the manifest, once, like the index beside it —
+            // the sheet is pure values, and this is the one place the routing
+            // table is read for it. The performer resolves it again at Commit,
+            // because the plan is a snapshot and the manifest can move under it.
+            piece: PromotionPiece.resolve(for: source, in: model.scene, store: store),
+            readBody: { itemID in
+                guard let item = TreeWalk.find(id: itemID, in: research),
+                      let path = item.path else { return nil }
+                // The annotation sits ON the read's own line: the ADR 0018 grep
+                // matches per line and a marker one line above is not seen.
+                return try? String(contentsOf: // adr-0018-ok: a research note is not manuscript
+                                    root.appendingPathComponent(path), encoding: .utf8)
+            })
+    }
+
+    private func commit(_ plan: PromotionPlan) {
+        guard let store else { return }
+        sheet = nil
+        Task { @MainActor in
+            do {
+                let result = try await PromotionPerformer(store: store, model: model)
+                    .perform(plan)
+                confirmation = result.confirmation(for: plan)
+            } catch {
+                failure = error.localizedDescription
+            }
+        }
+    }
+}

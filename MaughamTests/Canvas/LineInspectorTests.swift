@@ -354,24 +354,34 @@ final class LineInspectorTests: XCTestCase {
 
     // MARK: - Which arm of the pane
 
-    /// A `.node` selection gets the same empty state as no selection at all: a
-    /// scrap inspector is not this slice's, and a stub one would be a surface
-    /// with nothing to say.
-    ///
-    /// This reads the two resolvers `RegionInspectorPane` routes on, which is
-    /// where the decision actually lives — and evaluates the pane's body on a
-    /// line selection, so the new arm is exercised rather than merely written.
-    func test_aSelectedCardResolvesToNeitherInspector() {
+    /// A `.node` selection is neither a line nor a region — it resolves through
+    /// `CanvasModel.selectedNode` instead, to `ScrapInspector` (1C-c2). This
+    /// reads the resolvers `RegionInspectorPane` routes on, which is where the
+    /// decision actually lives — and evaluates the pane's body on both a line
+    /// selection and a card selection, so both arms are exercised rather than
+    /// merely written.
+    func test_aSelectedCardResolvesToTheScrapInspectorNotTheLineOrRegionArm() {
         let m = model()
         XCTAssertNotNil(m.selectedLine, "the control: a line selection resolves")
         XCTAssertNil(m.selectedRegion)
-        _ = RegionInspectorPane(model: m, pieces: []).body
+        _ = RegionInspectorPane(model: m, pieces: [],
+                                artifactTitle: { _ in nil }, pieceTitle: { _ in nil },
+                                onOpenResearchItem: { _ in }).body
 
         m.selection = .node(a)
         XCTAssertNil(m.selectedLine, "a card is neither a line…")
-        XCTAssertNil(m.selectedRegion, "…nor a region, so the pane falls through "
-                     + "to the empty state")
-        _ = RegionInspectorPane(model: m, pieces: []).body
+        XCTAssertNil(m.selectedRegion, "…nor a region — it is `selectedNode`, "
+                     + "which is `ScrapInspector`'s to answer")
+        XCTAssertEqual(m.selectedNode?.id, a,
+                       "the positive half of this test's name: a card selection "
+                       + "resolves through `selectedNode`, which is what routes "
+                       + "the pane to `ScrapInspector` rather than the empty "
+                       + "state — the two negatives above are equally consistent "
+                       + "with falling through to neither, so this is the "
+                       + "assertion that tells them apart")
+        _ = RegionInspectorPane(model: m, pieces: [],
+                                artifactTitle: { _ in nil }, pieceTitle: { _ in nil },
+                                onOpenResearchItem: { _ in }).body
     }
 
     // MARK: - Caller censuses

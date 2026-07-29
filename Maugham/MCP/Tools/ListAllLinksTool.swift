@@ -2,15 +2,20 @@ import Foundation
 import MaughamCore
 
 /// `list_all_links(project_id)` — full reference graph. Returns every edge
-/// from a manuscript document to (a) a linked research item, (b) a wiki-link
-/// target that resolves to another doc or research item, or (c) an unresolved
-/// wiki target (text mentions [[X]] but no item with title X exists).
+/// from a manuscript document OR a research note to (a) a linked research
+/// item, (b) a wiki-link target that resolves to another doc or research
+/// item, or (c) an unresolved wiki target (text mentions [[X]] but no item
+/// with title X exists). Wiki-link scanning covers both manuscript documents
+/// and research note bodies — canvas promotion writes `[[…]]` into research
+/// notes, never into manuscript documents.
 public enum ListAllLinksTool: MCPTool {
     public static let method = "list_all_links"
     public static let description =
         "Return the full reference graph as edges: every manuscript document's " +
         "linked-research and [[wiki-link]] targets, plus collection pieces' " +
-        "own (folder-scoped) research. Each edge has from_id/from_title, " +
+        "own (folder-scoped) research. Wiki-link scanning also covers research " +
+        "note bodies, so a link written into a research note (e.g. by canvas " +
+        "promotion) is included too. Each edge has from_id/from_title, " +
         "to_id (null for unresolved wiki targets) / to_title, and kind " +
         "('linked_research' / 'piece_research' / 'wiki' / 'wiki_unresolved')."
     public static let inputSchemaJSON =
@@ -115,6 +120,32 @@ public enum ListAllLinksTool: MCPTool {
                         to_title: token,
                         kind: "wiki_unresolved"))
                 }
+            }
+        }
+
+        // Wiki edges FROM research notes. **Canvas promotion (1C-c2) writes
+        // `[[…]]` into a research note and never into a manuscript document**,
+        // so without this loop every link it produces is invisible here — the
+        // measurement is in spec §6.1's 2026-07-28 amendment.
+        //
+        // Read directly rather than through the op log: a research note is not
+        // manuscript. It has no op log and no second representation to drift
+        // from, which is exactly what ADR 0018 exists to prevent.
+        for item in allResearch where item.kind == .document {
+            guard let path = item.path,
+                  let text = try? String(contentsOf: entry.url.appendingPathComponent(path), encoding: .utf8),  // adr-0018-ok: research note, not manuscript
+                  !text.isEmpty else { continue }
+            for token in Self.wikiTokens(in: text) {
+                let hit = titleIndex[token.lowercased()]
+                // A note whose body contains its own title is not a link to
+                // itself; that is noise in every consumer.
+                if let hit, hit.id == item.id { continue }
+                edges.append(Edge(
+                    from_id: item.id,
+                    from_title: item.title,
+                    to_id: hit?.id,
+                    to_title: hit?.title ?? token,
+                    kind: hit == nil ? "wiki_unresolved" : "wiki"))
             }
         }
         return try JSONEncoder().encode(edges)

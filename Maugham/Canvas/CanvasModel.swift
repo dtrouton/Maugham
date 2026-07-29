@@ -42,6 +42,15 @@ final class CanvasModel {
         return scene.line(id)
     }
 
+    /// The selected card, RESOLVED through the scene — the same discipline
+    /// `selectedLine` follows, and for the same reason: a stale id left behind
+    /// by an undo answers nil here rather than being handed out as a card that
+    /// is no longer in the scene.
+    var selectedNode: CanvasNode? {
+        guard case .node(let id) = selection else { return nil }
+        return scene.node(id)
+    }
+
     /// The STRUCTURAL counter. `CanvasView` keeps its own `@State` copy — that
     /// name is grepped by `CanvasAccessibilityTests` — and mirrors this one.
     /// Never bumped per frame (tripwire 30).

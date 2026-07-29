@@ -150,6 +150,7 @@ struct MaughamApp: App {
                 Button("Add Research File…") {
                     MaughamEvent.post(.maughamAddResearchFile, to: .keyWindow)
                 }
+                FocusedPromoteButton()
                 Divider()
                 Button("Show Project Statistics") {
                     MaughamEvent.post(.maughamShowProjectStatistics, to: .keyWindow)
@@ -397,6 +398,30 @@ extension FocusedValues {
     var projectURL: URL? {
         get { self[FocusedProjectURLKey.self] }
         set { self[FocusedProjectURLKey.self] = newValue }
+    }
+}
+
+/// Whether the focused window's canvas has something to promote. Published by
+/// `CanvasPromotionModifier`; read only by the File-menu item, so a `Promote…`
+/// that could do nothing is disabled rather than silently no-op.
+struct FocusedCanvasPromotionKey: FocusedValueKey { typealias Value = Bool }
+extension FocusedValues {
+    var canvasPromotable: Bool? {
+        get { self[FocusedCanvasPromotionKey.self] }
+        set { self[FocusedCanvasPromotionKey.self] = newValue }
+    }
+}
+
+/// File → "Promote…". Acts on the canvas's current selection; the focused
+/// window resolves what that is, exactly as the Share and Translation items do.
+private struct FocusedPromoteButton: View {
+    @FocusedValue(\.canvasPromotable) private var promotable
+    var body: some View {
+        Button("Promote…") {
+            MaughamEvent.post(.maughamPromoteCanvasSelection, to: .keyWindow)
+        }
+        .keyboardShortcut(.return, modifiers: [.command, .shift])
+        .disabled(promotable != true)
     }
 }
 

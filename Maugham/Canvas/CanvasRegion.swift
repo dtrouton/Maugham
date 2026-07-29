@@ -63,6 +63,14 @@ public struct CanvasRegion: Equatable, Sendable {
     /// §7/§10: crowding at Playlist scale is answered by collapsing, not by
     /// minting more canvases.
     public var isCollapsed: Bool
+    /// The palette card this region has been promoted into, if any (spec §6).
+    /// Same provenance-not-a-link rule as `CanvasNode.promotedItemID`, and the
+    /// same absence of validation — see there.
+    ///
+    /// Deliberately NOT `boundPieceID`'s sibling in meaning: a binding is a live
+    /// relationship 1A's reference rail reads every time it draws, and this is a
+    /// record of something that happened once.
+    public var promotedItemID: String?
 
     public init(id: CanvasRegionID,
                 label: String,
@@ -70,7 +78,8 @@ public struct CanvasRegion: Equatable, Sendable {
                 homeMembers: Set<CanvasNodeID> = [],
                 appearances: Set<CanvasNodeID> = [],
                 boundPieceID: String? = nil,
-                isCollapsed: Bool = false) {
+                isCollapsed: Bool = false,
+                promotedItemID: String? = nil) {
         self.id = id
         self.label = label
         self.frame = frame
@@ -80,6 +89,7 @@ public struct CanvasRegion: Equatable, Sendable {
         self.appearances = appearances.subtracting(homeMembers)
         self.boundPieceID = boundPieceID
         self.isCollapsed = isCollapsed
+        self.promotedItemID = promotedItemID
     }
 
     public var displayLabel: String { label.isEmpty ? Self.untitledLabel : label }

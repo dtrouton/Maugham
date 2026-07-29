@@ -550,6 +550,74 @@ final class CanvasAccessibilityTests: XCTestCase {
                        + "`body` — a full sort of the line set per render")
     }
 
+    func test_aPromotedCardSaysSoAndTheKindStillComesFirst() {
+        var s = CanvasScene()
+        s.insert(CanvasNode(id: CanvasNodeID("a"), kind: .scrap, origin: .zero,
+                            width: 240, cachedHeight: 80, promotedItemID: "res-a"))
+        let label = CanvasAccessibility.elements(scene: s, scraps: [:]).first?.label
+        XCTAssertEqual(label, "Scrap, promoted",
+                       "the kind stays FIRST because CanvasAXRole never reaches an "
+                       + "assistive client")
+    }
+
+    func test_anUnpromotedCardSaysNothingExtra() {
+        var s = CanvasScene()
+        s.insert(CanvasNode(id: CanvasNodeID("a"), kind: .scrap, origin: .zero,
+                            width: 240, cachedHeight: 80))
+        XCTAssertEqual(CanvasAccessibility.elements(scene: s, scraps: [:]).first?.label,
+                       "Scrap")
+    }
+
+    func test_aPromotedCardWithConnectionsNamesBoth() {
+        var s = CanvasScene()
+        s.insert(CanvasNode(id: CanvasNodeID("a"), kind: .scrap, origin: .zero,
+                            width: 240, cachedHeight: 80, promotedItemID: "res-a"))
+        s.insert(CanvasNode(id: CanvasNodeID("b"), kind: .scrap, origin: CGPoint(x: 0, y: 200),
+                            width: 240, cachedHeight: 80))
+        s.insertLine(CanvasLine(id: CanvasLineID("l1"), from: CanvasNodeID("a"),
+                                to: CanvasNodeID("b"), label: "because"))
+        let label = try? XCTUnwrap(CanvasAccessibility.elements(scene: s, scraps: [:])
+            .first { $0.id == .node(CanvasNodeID("a")) }?.label)
+        XCTAssertTrue(label?.hasPrefix("Scrap, promoted,") == true, "found: \(label ?? "nil")")
+    }
+
+    /// The renderer has this test (`test_anItemNodeGetsNoMarkBecauseItCannotBePromoted`)
+    /// and the accessibility layer did not. An item node already exists as
+    /// itself, so a mark on one says nothing true — and a hand-edited sidecar
+    /// can put the field there, which is the only route to this state. The
+    /// `promoted: false` in `elements`' `.item` arm is the code that refuses it,
+    /// and nothing was asserting it.
+    ///
+    /// The control is the scrap beside it: **the same mark on a card DOES say
+    /// "promoted"**, so this is about the kind and not about a label that never
+    /// mentions promotion at all.
+    func test_anItemNodeWithAHandEditedMarkIsNotAnnouncedAsPromoted() {
+        var s = CanvasScene()
+        s.insert(CanvasNode(id: .item("r-9"), kind: .item(referenceId: "r-9"),
+                            origin: .zero, width: 180, cachedHeight: 120,
+                            promotedItemID: "res-nonsense"))
+        s.insert(CanvasNode(id: CanvasNodeID("a"), kind: .scrap,
+                            origin: CGPoint(x: 0, y: 400), width: 240, cachedHeight: 80,
+                            promotedItemID: "res-a"))
+        let elements = CanvasAccessibility.elements(scene: s, scraps: [:])
+        let reference = elements.first { $0.id == .node(.item("r-9")) }?.label
+        let card = elements.first { $0.id == .node(CanvasNodeID("a")) }?.label
+        XCTAssertEqual(reference, "Reference",
+                       "a mark on a reference is meaningless, and the renderer "
+                       + "refuses to draw one for the same reason")
+        XCTAssertEqual(card, "Scrap, \(CanvasAccessibility.promotedTerm)",
+                       "the control: the same field on a card IS announced")
+    }
+
+    func test_aPromotedRegionSaysSoAfterItsName() {
+        var s = CanvasScene()
+        s.insertRegion(CanvasRegion(id: CanvasRegionID("r1"), label: "Act II fog",
+                                    frame: CGRect(x: 0, y: 0, width: 400, height: 300),
+                                    promotedItemID: "res-fog"))
+        XCTAssertEqual(CanvasAccessibility.elements(scene: s, scraps: [:]).first?.label,
+                       "Region, Act II fog, promoted")
+    }
+
     private func accessibilitySource() throws -> String {
         try String(contentsOf: URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

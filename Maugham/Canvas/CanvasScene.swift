@@ -96,6 +96,30 @@ public struct CanvasScene: Equatable, Sendable {
         byID[id]?.cachedHeight = height
     }
 
+    /// Record (or clear) the artifact a scrap was promoted into.
+    ///
+    /// A region's mark goes through `updateRegion(_:_:)`, which already exists —
+    /// a second spelling would be two ways to write one field.
+    public mutating func setPromotedItem(_ itemID: String?, for id: CanvasNodeID) {
+        byID[id]?.promotedItemID = itemID
+    }
+
+    /// Record (or clear) a scrap's OWN piece association (spec §6.2) — the
+    /// override, not the inheritance. Setting a region's `boundPieceID` never
+    /// comes through here or any other write to a member's own field: the more
+    /// specific setting wins by being read first, never by being written down.
+    public mutating func setBoundPiece(_ pieceID: String?, for id: CanvasNodeID) {
+        byID[id]?.boundPieceID = pieceID
+    }
+
+    /// Record (or clear) the artifact a region's promotion folded this card's
+    /// text into (spec §6.3) — **not** the promotion mark. See
+    /// `CanvasNode.contributedToItemID`'s doc comment for why the two must
+    /// never be conflated: this field must never be readable as an Update.
+    public mutating func setContributedItem(_ itemID: String?, for id: CanvasNodeID) {
+        byID[id]?.contributedToItemID = itemID
+    }
+
     /// Highest node whose measured frame contains `point`, in content
     /// coordinates. Front-most wins.
     ///

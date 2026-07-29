@@ -46,19 +46,68 @@ public struct CanvasNode: Equatable, Sendable {
     public var width: CGFloat
     public var cachedHeight: CGFloat?
     public var z: Int
+    /// The durable artifact this scrap has been promoted into, if any (spec §6).
+    ///
+    /// **Provenance, not a live link.** A promotion is a SNAPSHOT taken by an
+    /// explicit act and it never syncs — edit the card afterwards and the note
+    /// does not change, edit the note and the card does not. Spec §6's table is
+    /// what makes a region promote to a palette card while its members stay on
+    /// the canvas; §6.1's 2026-07-28 amendment rules that a scrap must follow
+    /// the same snapshot rule, so one verb does not end up with two behaviours.
+    ///
+    /// **Nothing here validates it against the manifest, and nothing can** —
+    /// the scene has never seen one. A writer who deletes the note leaves an id
+    /// that resolves to nothing; a promoted id is resolved against the project
+    /// manifest by its READERS rather than trusted here, and the index that
+    /// does that arrives with the promotion model (this slice's Task 2).
+    public var promotedItemID: String?
+
+    /// This scrap's own piece association (spec §6.2) — the same field a
+    /// region carries (`CanvasRegion.boundPieceID`), set in the inspector.
+    ///
+    /// **The override, not the inheritance.** `Promotion.piece(for:in:)` reads
+    /// this FIRST, before it ever asks what region the node lives in — a
+    /// scrap's own choice always wins over its home region's, and a scrap that
+    /// merely *appears* in a bound region (§4.3's reference, not luggage)
+    /// inherits nothing from either field.
+    public var boundPieceID: String?
+
+    /// The artifact a promotion of this card's HOME REGION folded this card's
+    /// text into (spec §6.3) — written alongside the region's own
+    /// `promotedItemID` mark, in the same undo bracket.
+    ///
+    /// **This is NOT `promotedItemID`, and the distinction is load-bearing
+    /// rather than tidy.** `promotedItemID` means *"I am this artifact"* and
+    /// `Promotion.existingArtifact` reads it to offer **Rewrite**. Stamping a
+    /// contributor with the same field would let promoting one member
+    /// afterwards offer to rewrite the whole joint note with that one card's
+    /// text — the 1C-c2 Critical (a mark that did not record the artifact's
+    /// *kind*) returning as a mark that does not record its *cardinality*. So
+    /// a contribution record must never be read where `promotedItemID` is
+    /// read, and re-promoting a contributing card offers only a new artifact.
+    ///
+    /// A card may carry both, and they say different things: it produced its
+    /// own note, *and* its words are in a region's.
+    public var contributedToItemID: String?
 
     public init(id: CanvasNodeID,
                 kind: CanvasNodeKind,
                 origin: CGPoint,
                 width: CGFloat,
                 cachedHeight: CGFloat? = nil,
-                z: Int = 0) {
+                z: Int = 0,
+                promotedItemID: String? = nil,
+                boundPieceID: String? = nil,
+                contributedToItemID: String? = nil) {
         self.id = id
         self.kind = kind
         self.origin = origin
         self.width = width
         self.cachedHeight = cachedHeight
         self.z = z
+        self.promotedItemID = promotedItemID
+        self.boundPieceID = boundPieceID
+        self.contributedToItemID = contributedToItemID
     }
 
     /// The node's rect in canvas content coordinates, or nil if it has never

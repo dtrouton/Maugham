@@ -188,11 +188,20 @@ enum CanvasAccessibility {
         return index
     }
 
-    /// The kind, then what it is connected to. The kind stays FIRST because
-    /// `CanvasAXRole` never reaches an assistive client — see `elements` below.
-    private static func label(_ kind: String, connectedBy lines: [CanvasLine]?) -> String {
-        guard let phrase = connectionPhrase(for: lines ?? []) else { return kind }
-        return "\(kind), \(phrase)"
+    /// The word a promoted node or region carries in its label. A constant so
+    /// the tests assert against what ships, exactly as `regionKind` is.
+    static let promotedTerm = "promoted"
+
+    /// The kind, then whether it has produced something, then what it is
+    /// connected to. The kind stays FIRST because `CanvasAXRole` never reaches
+    /// an assistive client — see `elements`.
+    private static func label(_ kind: String,
+                              promoted: Bool,
+                              connectedBy lines: [CanvasLine]?) -> String {
+        var parts = [kind]
+        if promoted { parts.append(promotedTerm) }
+        if let phrase = connectionPhrase(for: lines ?? []) { parts.append(phrase) }
+        return parts.joined(separator: ", ")
     }
 
     static func elements(scene: CanvasScene,
@@ -223,8 +232,14 @@ enum CanvasAccessibility {
                 // and collapse is the one thing about a region a VoiceOver user
                 // cannot otherwise discover, because its cards have left the
                 // tree entirely.
-                label: region.isCollapsed ? "\(regionKind), \(region.displayLabel), collapsed"
-                                          : "\(regionKind), \(region.displayLabel)",
+                //
+                // "Promoted" rides there too, after the name and before the
+                // collapsed state: the kind, then what it is called, then the
+                // durable facts about it in the order they were added.
+                label: [regionKind, region.displayLabel,
+                        region.promotedItemID != nil ? promotedTerm : nil,
+                        region.isCollapsed ? "collapsed" : nil]
+                    .compactMap { $0 }.joined(separator: ", "),
                 value: region.isCollapsed
                     ? CanvasRenderer.collapsedSummary(for: region.id, in: scene)
                     : "\(residents) \(residents == 1 ? "card" : "cards")",
@@ -244,13 +259,21 @@ enum CanvasAccessibility {
                 let text = scraps[node.id] ?? ""
                 elements.append(CanvasAXElement(
                     id: .node(node.id), role: .scrap,
-                    label: label("Scrap", connectedBy: connections[node.id]),
+                    label: label("Scrap",
+                                 promoted: node.promotedItemID != nil,
+                                 connectedBy: connections[node.id]),
                     value: text.isEmpty ? emptyScrapValue : text,
                     contentFrame: frame))
             case .item(let referenceId):
                 elements.append(CanvasAXElement(
                     id: .node(node.id), role: .item,
-                    label: label("Reference", connectedBy: connections[node.id]),
+                    // `promoted: false` unconditionally: an item node already
+                    // exists as itself and cannot be promoted, so a mark on one
+                    // — which a hand-edited sidecar can write — says nothing
+                    // true. The renderer refuses it for the same reason.
+                    label: label("Reference",
+                                 promoted: false,
+                                 connectedBy: connections[node.id]),
                     value: CanvasRenderer.placeholderLabel(forReference: referenceId),
                     contentFrame: frame))
             }

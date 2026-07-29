@@ -42,7 +42,9 @@ final class RegionBindingTests: XCTestCase {
 
     private func inspector(_ m: CanvasModel) -> RegionInspector {
         RegionInspector(model: m, regionID: r1,
-                        pieces: [RegionInspector.PieceChoice(id: "piece-3", title: "October")])
+                        pieces: [RegionInspector.PieceChoice(id: "piece-3", title: "October")],
+                        artifactTitle: { _ in nil }, pieceTitle: { _ in nil },
+                        onOpenResearchItem: { _ in })
     }
 
     // MARK: - The binding rules
@@ -138,7 +140,9 @@ final class RegionBindingTests: XCTestCase {
     /// two AppKit and SwiftUI deliver first.
     func test_aRenameCommitsToTheRegionItWasTypedIn() {
         let m = model()
-        let showingTheOtherRegion = RegionInspector(model: m, regionID: r2, pieces: [])
+        let showingTheOtherRegion = RegionInspector(model: m, regionID: r2, pieces: [],
+                        artifactTitle: { _ in nil }, pieceTitle: { _ in nil },
+                        onOpenResearchItem: { _ in })
         showingTheOtherRegion.commitLabel("Falls at night", to: r1)
         XCTAssertEqual(m.scene.region(r1)?.label, "Falls at night")
         XCTAssertEqual(m.scene.region(r2)?.label, "Falls",
@@ -215,6 +219,49 @@ final class RegionBindingTests: XCTestCase {
         m.undo.undo()
         XCTAssertEqual(m.scene.region(r1)?.boundPieceID, "piece-3",
                        "the unbind is its own step, not a silent write")
+    }
+
+    /// **The writer-facing names, now that the inspector's Picker is the only
+    /// route to a binding.** `PromotionPerformerTests.test_bindingSharesTheInspectors
+    /// UndoName` used to cross-check this against the now-removed piece-binding
+    /// promotion target (spec §6's 2026-07-29 amendment: a binding produces no
+    /// artifact, so it is §6.2's association rather than a promotion target) —
+    /// this is where that coverage survives.
+    func test_bindingAndUnbindingUseDistinctUndoNames() {
+        let m = model()
+        m.undoManager.groupsByEvent = false
+        inspector(m).commitBinding("piece-3")
+        XCTAssertTrue(m.undo.undoMenuItemTitle.contains("Bind Region"),
+                      "found: \(m.undo.undoMenuItemTitle)")
+        inspector(m).commitBinding(nil)
+        XCTAssertTrue(m.undo.undoMenuItemTitle.contains("Unbind Region"),
+                      "found: \(m.undo.undoMenuItemTitle)")
+    }
+
+    /// **The footer described only 1A's reference rail**, which is unbuilt — so
+    /// the one thing a region's binding does *today* went unsaid. A held constant
+    /// rather than a literal in `body` for the reason `CanvasAccessibility.
+    /// regionKind` is one: a `Form`'s contents are not inspectable, so this is
+    /// the only way a test can read what ships.
+    func test_theRegionFooterSaysBothThingsThePieceDecides() {
+        let footer = RegionInspector.pieceFooter
+        XCTAssertTrue(footer.contains("pinned references"),
+                      "§4.4's bridge is still what the binding is FOR — found: \(footer)")
+        XCTAssertTrue(footer.contains("promoted"),
+                      "and since 1C-c2a it also decides where a promotion lands, "
+                      + "which is the half the writer met first — found: \(footer)")
+    }
+
+    /// The Promote caption named a target that no longer exists: a piece binding
+    /// produces no artifact, so it stopped being a promotion target in this
+    /// milestone (spec §6's 2026-07-29 amendment) while the sentence offering it
+    /// stayed. A region promotes to a note or a palette card.
+    func test_thePromoteCaptionOffersOnlyTheTwoTargetsARegionHas() {
+        let caption = RegionInspector.promoteCaption
+        XCTAssertTrue(caption.contains("research note"), "found: \(caption)")
+        XCTAssertTrue(caption.contains("palette card"), "found: \(caption)")
+        XCTAssertFalse(caption.lowercased().contains("bind"),
+                       "binding is not a promotion — found: \(caption)")
     }
 
     func test_removingAMemberThroughTheInspectorIsAnExplicitAct() throws {
@@ -381,7 +428,9 @@ final class RegionBindingTests: XCTestCase {
             $0.insertRegion(CanvasRegion(id: self.r1, label: "Only",
                                          frame: CGRect(x: 0, y: 0, width: 600, height: 400)))
         }
-        let onEmptyCanvas = RegionInspector(model: bare, regionID: r1, pieces: [])
+        let onEmptyCanvas = RegionInspector(model: bare, regionID: r1, pieces: [],
+                        artifactTitle: { _ in nil }, pieceTitle: { _ in nil },
+                        onOpenResearchItem: { _ in })
         XCTAssertEqual(onEmptyCanvas.citeAffordance(from: onEmptyCanvas.refreshedRows(from: .init())),
                        .explanation("There are no cards on the canvas to cite."),
                        "and it is a DIFFERENT sentence — the writer's next act is "
@@ -745,7 +794,9 @@ final class RegionBindingTests: XCTestCase {
         let rows = showingR1.refreshedRows(from: RegionInspector.MemberRows())
         XCTAssertEqual(rows.residents.map(\.node), [a])
 
-        let showingR2 = RegionInspector(model: m, regionID: r2, pieces: [])
+        let showingR2 = RegionInspector(model: m, regionID: r2, pieces: [],
+                        artifactTitle: { _ in nil }, pieceTitle: { _ in nil },
+                        onOpenResearchItem: { _ in })
         let carriedOver = showingR2.refreshedRows(from: rows)
         XCTAssertEqual(carriedOver.residents.map(\.node), [b],
                        "the counter has not moved, so `regionID` is the term that "
@@ -904,7 +955,9 @@ final class RegionBindingTests: XCTestCase {
         let m = model()
         var fired = false
         withObservationTracking {
-            _ = RegionInspectorPane(model: m, pieces: []).body
+            _ = RegionInspectorPane(model: m, pieces: [],
+                                    artifactTitle: { _ in nil }, pieceTitle: { _ in nil },
+                                    onOpenResearchItem: { _ in }).body
         } onChange: {
             fired = true
         }

@@ -243,4 +243,86 @@ final class ListAllLinksToolTests: XCTestCase {
             "containment wins — the redundant linked_research edge is skipped")
         await ds.close()
     }
+
+    /// A project whose links live in RESEARCH notes rather than in the
+    /// manuscript — which is the only shape canvas promotion can produce.
+    private func makeResearchLinkedProject() async throws -> (URL, ProjectRegistry) {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LALR-\(UUID())")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("research"), withIntermediateDirectories: true)
+        try "The falls at night.\n\n[[October's doctor]] — because of the ponchos\n".write(
+            to: tmp.appendingPathComponent("research/falls.md"),
+            atomically: true, encoding: .utf8)
+        try "October's doctor was kind about it.\n\n[[Nobody]]\n".write(
+            to: tmp.appendingPathComponent("research/doctor.md"),
+            atomically: true, encoding: .utf8)
+        // Names itself: the only fixture shape that can actually falsify the
+        // self-edge guard — a note whose body wiki-links its OWN title.
+        try "This place always echoes back. [[Echo Chamber]] never really left.\n".write(
+            to: tmp.appendingPathComponent("research/echo.md"),
+            atomically: true, encoding: .utf8)
+        let falls = ResearchItem(id: "res-falls", title: "The falls at night", type: .asset,
+                                 kind: .document, path: "research/falls.md", addedAt: Date())
+        let doctor = ResearchItem(id: "res-doctor", title: "October's doctor", type: .asset,
+                                  kind: .document, path: "research/doctor.md", addedAt: Date())
+        let echo = ResearchItem(id: "res-echo", title: "Echo Chamber", type: .asset,
+                                kind: .document, path: "research/echo.md", addedAt: Date())
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
+            structure: [], research: [falls, doctor, echo])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(to: tmp.appendingPathComponent("project.maugham.json"))
+        let reg = ProjectRegistry()
+        reg.register(url: tmp, store: try await ProjectStore.load(from: tmp))
+        return (tmp, reg)
+    }
+
+    private func edges(_ url: URL, _ reg: ProjectRegistry) async throws -> [ListAllLinksTool.Edge] {
+        let req = "{\"project_id\":\"\(ProjectIdentifier.id(for: url))\"}"
+        return try JSONDecoder().decode(
+            [ListAllLinksTool.Edge].self,
+            from: try await ListAllLinksTool.handle(paramsJSON: Data(req.utf8), registry: reg))
+    }
+
+    /// The whole reason this exists: canvas promotion writes `[[…]]` into a
+    /// research note and never into a manuscript document, so a scan that only
+    /// reads documents cannot see a single link it produces.
+    func test_aWikiLinkInsideAResearchNoteIsAnEdge() async throws {
+        let (url, reg) = try await makeResearchLinkedProject()
+        let all = try await edges(url, reg)
+        XCTAssertTrue(all.contains {
+            $0.from_id == "res-falls" && $0.to_id == "res-doctor" && $0.kind == "wiki"
+        })
+    }
+
+    func test_anUnresolvedLinkInsideAResearchNoteIsStillReported() async throws {
+        let (url, reg) = try await makeResearchLinkedProject()
+        let all = try await edges(url, reg)
+        XCTAssertTrue(all.contains {
+            $0.from_id == "res-doctor" && $0.to_id == nil
+                && $0.to_title == "Nobody" && $0.kind == "wiki_unresolved"
+        })
+    }
+
+    func test_aNoteThatNamesItselfIsNotAnEdgeToItself() async throws {
+        let (url, reg) = try await makeResearchLinkedProject()
+        let all = try await edges(url, reg)
+        XCTAssertFalse(all.contains { $0.from_id == $0.to_id })
+        // Falsifiable: "res-echo" (Echo Chamber) wiki-links its own title, so
+        // this fixture is the one that can actually exercise the guard above —
+        // without it the generic assertion is vacuously true.
+        XCTAssertFalse(all.contains { $0.from_id == "res-echo" && $0.to_id == "res-echo" })
+    }
+
+    /// The existing fixture's research note has no links in it, so the new loop
+    /// must add nothing there — a control, so "it found something" means
+    /// something.
+    func test_aResearchNoteWithNoLinksAddsNoEdges() async throws {
+        let (url, _, reg) = try await makeProject()
+        let all = try await edges(url, reg)
+        XCTAssertFalse(all.contains { $0.from_id == "res-sarah" })
+    }
 }

@@ -564,6 +564,22 @@ enum CanvasRenderer {
         return CGRect(x: target.midX - d / 2, y: target.midY - d / 2, width: d, height: d)
     }
 
+    /// The promoted stripe's rect, inside the card's own rounded rect. Clipped
+    /// to the card by the caller, so the rounded corners cut it rather than the
+    /// stripe squaring them off.
+    static func promotedMarkRect(inCard frame: CGRect) -> CGRect {
+        CGRect(x: frame.minX, y: frame.minY,
+               width: CanvasMaterial.promotedMarkWidth, height: frame.height)
+    }
+
+    /// The same stripe on a region's chrome bar — the only part of a region that
+    /// is reliably on screen when it is collapsed.
+    static func promotedMarkRect(inRegionChrome frame: CGRect) -> CGRect {
+        let chrome = CanvasRegionMetrics.chromeRect(in: frame)
+        return CGRect(x: chrome.minX, y: chrome.minY,
+                      width: CanvasMaterial.promotedMarkWidth, height: chrome.height)
+    }
+
     /// The first non-empty line of the scrap, so a chip says WHICH card it
     /// stands for. A blank chip is indistinguishable from a rendering bug.
     ///
@@ -824,6 +840,23 @@ enum CanvasRenderer {
         cx.drawLayer { bar in
             bar.clip(to: shape)
             bar.fill(Path(chrome), with: .color(Color(nsColor: regionWash)))
+
+            // The promoted stripe, on the chrome bar because that is the only
+            // part of a region reliably on screen when it is collapsed. It is
+            // PERMANENT chrome for the reason the card's is — a durable fact
+            // about the region, not a passing one about the selection.
+            //
+            // Drawn inside the BAR's layer rather than in one of its own, so it
+            // takes the same `clip(to: shape)`: `chromeRect` is a square rect
+            // and the region is a rounded one, so an unclipped 3 pt stripe at
+            // the top-left squares off the corner the wash just rounded. Same
+            // reason `promotedMarkRect(inCard:)`'s own doc comment gives for the
+            // card's clip, and one clip rather than two composites per region.
+            if region.promotedItemID != nil {
+                bar.fill(Path(promotedMarkRect(inRegionChrome: region.frame)),
+                         with: .color(Color(nsColor: cardInk)
+                                          .opacity(CanvasMaterial.promotedMarkOpacity)))
+            }
         }
 
         cx.stroke(shape,
@@ -968,20 +1001,27 @@ enum CanvasRenderer {
         // Drawn OVER the kind's own border rather than replacing it, so a
         // selected item node keeps the dashes that say it is a placeholder.
         //
-        // The two marks below sit adjacent and mean OPPOSITE things, so read the
-        // conditions and not the order. The connect dot is SELECTION chrome —
-        // inside this block, gone the moment the card is deselected — because it
-        // is the discoverable half of a gesture whose fast route (⇧-drag) has no
-        // chrome at all, and a second always-on mark would overstate what §5
-        // calls a thing that "costs nothing to draw and nothing to be wrong
-        // about". The resize triangle two lines below is UNCONDITIONAL and is
-        // this surface's established permanent card chrome. Moving either across
-        // that line is a design change, not a tidy-up.
+        // The three marks below sit adjacent and two of them mean the OPPOSITE
+        // of the third, so read the conditions and not the order.
         //
-        // Both are drawn inside the card's rotated transform, like everything
-        // else here, so they tilt with the card and straighten with it — a mark
-        // that stayed level while its card leaned would read as chrome belonging
-        // to the canvas rather than to the card.
+        // 1. The CONNECT DOT is SELECTION chrome — inside this block, gone the
+        //    moment the card is deselected — because it is the discoverable half
+        //    of a gesture whose fast route (⇧-drag) has no chrome at all, and a
+        //    second always-on mark would overstate what §5 calls a thing that
+        //    "costs nothing to draw and nothing to be wrong about".
+        // 2. The PROMOTED STRIPE below is UNCONDITIONAL: it states a durable
+        //    fact about the card — this one produced something — rather than a
+        //    passing one about the selection.
+        // 3. The RESIZE TRIANGLE below that is UNCONDITIONAL too, and is this
+        //    surface's established permanent card chrome.
+        //
+        // Moving any of the three across that line is a design change, not a
+        // tidy-up.
+        //
+        // All three are drawn inside the card's rotated transform, like
+        // everything else here, so they tilt with the card and straighten with
+        // it — a mark that stayed level while its card leaned would read as
+        // chrome belonging to the canvas rather than to the card.
         if isSelected {
             card.stroke(shape, with: .color(Color(nsColor: CanvasMaterial.regionSelectedStroke)),
                         lineWidth: 2)
@@ -989,6 +1029,20 @@ enum CanvasRenderer {
             if !mark.isEmpty {
                 card.fill(Path(ellipseIn: mark),
                           with: .color(Color(nsColor: CanvasMaterial.regionSelectedStroke)))
+            }
+        }
+
+        // PERMANENT chrome, like the resize triangle below and unlike the connect
+        // dot above — it states a durable fact about the card rather than a
+        // passing one about the selection. An item node never gets one: it
+        // already exists as itself, so a mark on one is meaningless, and a
+        // hand-edited sidecar can put the field there.
+        if node.promotedItemID != nil, case .scrap = node.kind {
+            card.drawLayer { inner in
+                inner.clip(to: shape)
+                inner.fill(Path(promotedMarkRect(inCard: frame)),
+                           with: .color(Color(nsColor: cardInk)
+                                            .opacity(CanvasMaterial.promotedMarkOpacity)))
             }
         }
 

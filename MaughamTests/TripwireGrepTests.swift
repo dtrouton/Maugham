@@ -1688,12 +1688,18 @@ final class TripwireGrepTests: XCTestCase {
     ///
     /// This is a CENSUS, not a ban: it names the call sites, so adding a
     /// legitimate one is a deliberate edit here rather than a mystery failure.
+    ///
+    /// 1C-c2 added the third: `PromotionPerformer` writes the promoted mark from
+    /// outside the canvas, and `beginPromotion` can run while a focused scrap
+    /// holds "Edit Scrap" open.
     func test_theCanvasUndoBracketIsReachedFromAnotherColumnByOneVerbOnly() throws {
         let census = try canvasBracketCensus(in: sourceDir)
         XCTAssertEqual(
             census,
             ["LineInspector.swift": [Self.canvasOutsideVerb],
-             "RegionInspector.swift": [Self.canvasOutsideVerb]],
+             "PromotionPerformer.swift": [Self.canvasOutsideVerb],
+             "RegionInspector.swift": [Self.canvasOutsideVerb],
+             "ScrapInspector.swift": [Self.canvasOutsideVerb]],
             "The canvas's undo bracket is reached from outside `CanvasView.swift` "
             + "by the inspector column only, using exactly one verb.\n\n"
             + "If you have ADDED a surface that changes the canvas scene: it must "
