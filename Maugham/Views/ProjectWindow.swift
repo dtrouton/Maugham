@@ -1827,15 +1827,37 @@ struct CanvasPromotionModifier: ViewModifier {
 
     @State private var sheet: PromotionSheetModel?
     @State private var failure: String?
+    /// What was just produced, in one sentence. Nil when there is nothing to
+    /// confirm — see the overlay in `body`.
+    @State private var confirmation: String?
+    /// The selected node's kind, resolved OUTSIDE `body`.
+    ///
+    /// **The read has to happen somewhere that is not the view-update path.** A
+    /// `model.scene` read in `body` puts the window on the drag loop (see this
+    /// type's own doc comment), and the kind is a fact about the scene. The
+    /// `.onChange` below runs on a selection change rather than on a body pass,
+    /// so it may read the scene freely; `body` then reads a plain `@State`
+    /// value that moves only when the selection does.
+    @State private var selectedNodeKind: CanvasNodeKind?
 
     /// Pure and static so the enablement rule is reachable from a test that
     /// hosts no SwiftUI — and so adding a `CanvasSelection` case makes the
     /// compiler enumerate this decision with everything else.
+    ///
+    /// **`nodeKind` is the item-node guard.** An item node already exists as
+    /// itself, so `Promotion.targets` offers it nothing — and this said yes for
+    /// every `.node`, so `Promote…` was enabled and ⌘⇧↩ opened a sheet that
+    /// could never commit. It takes the kind rather than the scene on purpose:
+    /// the whole scene is what this modifier must never read.
     static func isPromotable(binderSegment: BinderSegment,
-                             selection: CanvasSelection?) -> Bool {
+                             selection: CanvasSelection?,
+                             nodeKind: CanvasNodeKind?) -> Bool {
         guard binderSegment == .canvas else { return false }
         switch selection {
-        case .node, .region, .line: return true
+        case .node:
+            if case .scrap = nodeKind { return true }
+            return false
+        case .region, .line: return true
         case nil: return false
         }
     }
@@ -1854,12 +1876,41 @@ struct CanvasPromotionModifier: ViewModifier {
             .focusedSceneValue(\.canvasPromotable,
                                sheet == nil
                                && Self.isPromotable(binderSegment: binderSegment,
-                                                    selection: model.selection))
+                                                    selection: model.selection,
+                                                    nodeKind: selectedNodeKind))
+            // Reading `model.scene` HERE is safe and in `body` is not: an action
+            // closure runs on a change rather than inside a view update, so the
+            // scene never becomes a dependency of this modifier's body.
+            .onChange(of: model.selection, initial: true) { _, selection in
+                guard case .node(let id) = selection else { selectedNodeKind = nil; return }
+                selectedNodeKind = model.scene.node(id)?.kind
+            }
             .onKeyWindowCommand(.maughamPromoteCanvasSelection, window: window) { _ in begin() }
             .sheet(item: $sheet) { model in
                 PromotionSheet(model: model,
                                onCommit: { commit($0) },
                                onCancel: { sheet = nil })
+            }
+            // **The result reaches the writer.** Every field of
+            // `PromotionResult` used to be built and discarded here, and a line
+            // promotion sets no mark by design — so the sheet closed and
+            // nothing observable changed anywhere, on a surface whose whole
+            // promise is that you can see what a command will do. The banner is
+            // `MCPNoteBanner`, the house pattern for exactly this, rather than a
+            // second one.
+            .overlay(alignment: .top) {
+                if let confirmation {
+                    MCPNoteBanner(message: confirmation,
+                                  onDismiss: { self.confirmation = nil })
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: confirmation)
+            .task(id: confirmation) {
+                guard confirmation != nil else { return }
+                try? await Task.sleep(for: .seconds(6))
+                guard !Task.isCancelled else { return }
+                confirmation = nil
             }
             .alert("Promotion failed",
                    isPresented: Binding(get: { failure != nil },
@@ -1873,7 +1924,8 @@ struct CanvasPromotionModifier: ViewModifier {
     /// The manifest is read ONCE, here, and handed to the sheet as plain values.
     private func begin() {
         guard let store, let selection = model.selection,
-              Self.isPromotable(binderSegment: binderSegment, selection: selection) else { return }
+              Self.isPromotable(binderSegment: binderSegment, selection: selection,
+                                nodeKind: selectedNodeKind) else { return }
         let source: PromotionSource
         switch selection {
         case .node(let id): source = .scrap(id)
@@ -1901,7 +1953,9 @@ struct CanvasPromotionModifier: ViewModifier {
         sheet = nil
         Task { @MainActor in
             do {
-                _ = try await PromotionPerformer(store: store, model: model).perform(plan)
+                let result = try await PromotionPerformer(store: store, model: model)
+                    .perform(plan)
+                confirmation = result.confirmation(for: plan)
             } catch {
                 failure = error.localizedDescription
             }

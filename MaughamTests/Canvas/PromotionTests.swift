@@ -87,11 +87,16 @@ final class PromotionTests: XCTestCase {
     func test_aLineBetweenTwoUnpromotedScrapsOffersNothingAndSaysWhy() {
         let s = scene()
         XCTAssertTrue(Promotion.targets(for: .line(l1), in: s, artifacts: index()).isEmpty)
-        let reason = Promotion.blockedReason(for: .line(l1), in: s, artifacts: index())
+        let reason = Promotion.blockedReason(for: .line(l1), in: s, scraps: texts,
+                                             artifacts: index())
         XCTAssertNotNil(reason)
         XCTAssertTrue(reason!.lowercased().contains("promote"),
                       "the refusal has to teach the precedence at the moment it "
                       + "bites, not show an empty list")
+        XCTAssertTrue(reason!.hasPrefix("Promote both cards first."),
+                      "the never-promoted message, which is the CONTROL for the "
+                      + "dangling-mark one below: both are non-nil and only the "
+                      + "wording tells them apart. found: \(reason!)")
     }
 
     func test_aLineBetweenTwoPromotedScrapsBecomesAWikiLink() {
@@ -100,7 +105,7 @@ final class PromotionTests: XCTestCase {
         s.setPromotedItem("res-b", for: b)
         let idx = index(["res-a": "The falls at night.", "res-b": "October's doctor"])
         XCTAssertEqual(Promotion.targets(for: .line(l1), in: s, artifacts: idx), [.wikiLink])
-        XCTAssertNil(Promotion.blockedReason(for: .line(l1), in: s, artifacts: idx))
+        XCTAssertNil(Promotion.blockedReason(for: .line(l1), in: s, scraps: texts, artifacts: idx))
     }
 
     func test_aLineWithOnlyOneEndPromotedOffersNothing() {
@@ -112,13 +117,23 @@ final class PromotionTests: XCTestCase {
 
     /// The dangling mark, which is the case only the index can see: the scrap
     /// still says it was promoted and the note has been deleted since.
-    func test_aLineWhosePromotedNoteIsGoneOffersNothing() {
+    ///
+    /// **The message must not be the other one.** "Promote both cards first"
+    /// tells this writer to do the thing they already did — they promoted the
+    /// card and then deleted the note — and `blockedReason` has the same
+    /// information `ScrapInspector` uses to distinguish the two states.
+    func test_aLineWhosePromotedNoteIsGoneSaysThatRatherThanTellingThemToPromoteIt() {
         var s = scene()
         s.setPromotedItem("res-a", for: a)
         s.setPromotedItem("res-b", for: b)
         let stale = index(["res-a": "The falls at night."])   // res-b deleted
         XCTAssertTrue(Promotion.targets(for: .line(l1), in: s, artifacts: stale).isEmpty)
-        XCTAssertNotNil(Promotion.blockedReason(for: .line(l1), in: s, artifacts: stale))
+        let reason = Promotion.blockedReason(for: .line(l1), in: s, scraps: texts,
+                                             artifacts: stale)
+        XCTAssertEqual(reason,
+                       "What one of these cards produced is no longer in the "
+                       + "project, so there is nothing left for a link to point at. "
+                       + "Promote that card again first.")
     }
 
     /// `img` is given a mark that genuinely RESOLVES — the only thing left
@@ -134,7 +149,7 @@ final class PromotionTests: XCTestCase {
         s.setPromotedItem("res-9", for: img)
         let idx = index(["res-a": "The falls", "res-9": "Some placeholder title"])
         XCTAssertTrue(Promotion.targets(for: .line(l2), in: s, artifacts: idx).isEmpty)
-        XCTAssertEqual(Promotion.blockedReason(for: .line(l2), in: s, artifacts: idx),
+        XCTAssertEqual(Promotion.blockedReason(for: .line(l2), in: s, scraps: texts, artifacts: idx),
                        "A line becomes a wiki-link only between two cards of text.")
     }
 
@@ -363,6 +378,141 @@ final class PromotionTests: XCTestCase {
         let plan = Promotion.plan(request(.scrap(a), .paletteCard, kind: .location),
                                   in: scene())
         XCTAssertEqual(plan?.paletteKind, .location)
+    }
+
+    // MARK: - A mark names a KIND, and a second promotion may not overwrite it
+
+    /// The index, built the way production builds it: the palette group with a
+    /// card inside it, a craft-intent doc, and a plain note.
+    private func realIndex() -> ArtifactIndex {
+        let card = ResearchItem(id: "res-card", title: "Act II fog", type: .asset,
+                                kind: .document, path: "research/palette/act-ii-fog.md")
+        let group = ResearchItem(id: "res-palette", title: "Palette", type: .group,
+                                 path: PaletteConvention.folderPath,
+                                 children: [card], role: .paletteGroup)
+        let intent = ResearchItem(id: "res-intent", title: "Craft Intent", type: .asset,
+                                  kind: .document, path: "research/craft-intent.md",
+                                  role: .craftIntent)
+        let note = ResearchItem(id: "res-note", title: "The falls at night", type: .asset,
+                                kind: .document, path: "research/the-falls-at-night.md")
+        return ArtifactIndex.over(research: [group, intent, note])
+    }
+
+    func test_theIndexSaysWhatKindOfArtifactEachIdNames() {
+        let idx = realIndex()
+        XCTAssertEqual(idx.kind(of: "res-card"), .paletteCard)
+        XCTAssertEqual(idx.kind(of: "res-intent"), .craftIntent)
+        XCTAssertEqual(idx.kind(of: "res-note"), .researchNote)
+        XCTAssertNil(idx.kind(of: "res-gone"))
+    }
+
+    /// **The destructive sequence, in the model.** Promote a card to a palette
+    /// card, then promote the same card as a research note: the mark names the
+    /// palette card, and before the kind term every mark resolved for every
+    /// updatable target — so the sheet offered "Rewrite “Act II fog”" and
+    /// committing renamed the palette card's file and wrote raw scrap text over
+    /// its body.
+    ///
+    /// The control is the line below it: the SAME mark, asked for the target it
+    /// actually produced, still answers `.update`. Without that, deleting
+    /// `existingArtifact`'s body entirely would satisfy the first assertion.
+    func test_aPaletteCardsMarkOffersNoUpdateToAResearchNote() {
+        var s = scene()
+        s.setPromotedItem("res-card", for: a)
+        XCTAssertNil(Promotion.existingArtifact(for: .scrap(a), target: .researchNote,
+                                                in: s, artifacts: realIndex()),
+                     "a research-note promotion must never offer to rewrite the "
+                     + "writer's palette card — the swatches, the kind, the sensory "
+                     + "notes and the image references are not in the plan")
+        XCTAssertEqual(Promotion.existingArtifact(for: .scrap(a), target: .paletteCard,
+                                                  in: s, artifacts: realIndex()),
+                       .update(itemID: "res-card", title: "Act II fog"),
+                       "and the mark still updates the thing it actually named")
+    }
+
+    /// The sharper variant: the craft intent is one accumulating doc per scope,
+    /// and a research-note "update" over it replaces the writer's whole intent
+    /// statement with one card — which is exactly what excluding
+    /// `.intentStatement` from `updatableTargets` exists to prevent, arriving
+    /// through the other door.
+    func test_aCraftIntentsMarkOffersNoUpdateToAResearchNote() {
+        var s = scene()
+        s.setPromotedItem("res-intent", for: a)
+        XCTAssertNil(Promotion.existingArtifact(for: .scrap(a), target: .researchNote,
+                                                in: s, artifacts: realIndex()))
+        XCTAssertNil(Promotion.existingArtifact(for: .scrap(a), target: .paletteCard,
+                                                in: s, artifacts: realIndex()))
+    }
+
+    /// A region's mark takes the same rule, and by the same route.
+    func test_aRegionsResearchNoteMarkOffersNoUpdateToAPaletteCard() {
+        var s = scene()
+        s.updateRegion(r1) { $0.promotedItemID = "res-note" }
+        XCTAssertNil(Promotion.existingArtifact(for: .region(r1), target: .paletteCard,
+                                                in: s, artifacts: realIndex()))
+        XCTAssertEqual(Promotion.existingArtifact(for: .region(r1), target: .researchNote,
+                                                  in: s, artifacts: realIndex()),
+                       .update(itemID: "res-note", title: "The falls at night"))
+    }
+
+    // MARK: - Why a source offers nothing (§6.1's "say why")
+
+    /// An empty scrap IS offered all three targets — emptiness is not a targets
+    /// question — and then `plan` returns nil, so `preview`, `resolvedPlan` and
+    /// `refusal` were all nil together and the writer met a dead sheet with no
+    /// message in it. Empty scraps persist; a stray double-click leaves one.
+    func test_anEmptyScrapSaysWhyRatherThanOpeningADeadSheet() {
+        let reason = Promotion.blockedReason(for: .scrap(a), in: scene(),
+                                             scraps: [a: "   \n  "], artifacts: index())
+        XCTAssertEqual(reason, PromotionFailure.emptyBody.errorDescription,
+                       "the performer's own sentence rather than a second wording")
+        XCTAssertNil(Promotion.blockedReason(for: .scrap(a), in: scene(), scraps: texts,
+                                             artifacts: index()),
+                     "and a card with words in it is not blocked — the control")
+    }
+
+    func test_anItemNodeSaysWhyRatherThanOfferingAnEmptyList() {
+        XCTAssertEqual(Promotion.blockedReason(for: .scrap(img), in: scene(),
+                                               scraps: texts, artifacts: index()),
+                       Promotion.itemNodeReason)
+    }
+
+    func test_aRegionIsNeverBlocked() {
+        XCTAssertNil(Promotion.blockedReason(for: .region(r1), in: scene(),
+                                             scraps: texts, artifacts: index()))
+    }
+
+    // MARK: - Who is asked for a name
+
+    /// `previewSection` rendered a `Name` field for four of the five targets and
+    /// `canCommit` required one — but `performWikiLink` never reads `plan.title`
+    /// and neither does `performCraftIntent`. So promoting a line showed a field
+    /// seeded with the source note's title that changed nothing, and clearing it
+    /// disabled Promote with "This needs a name." for an act that names nothing.
+    func test_onlyTheTargetsWhoseArtifactTheWriterNamesAskForOne() {
+        XCTAssertEqual(PromotionTarget.allCases.filter(\.namesItsArtifact),
+                       [.researchNote, .paletteCard])
+    }
+
+    func test_everyTargetThatProducesAResearchItemSaysWhichKind() {
+        XCTAssertEqual(PromotionTarget.researchNote.producedArtifactKind, .researchNote)
+        XCTAssertEqual(PromotionTarget.paletteCard.producedArtifactKind, .paletteCard)
+        XCTAssertEqual(PromotionTarget.intentStatement.producedArtifactKind, .craftIntent)
+        XCTAssertNil(PromotionTarget.pieceBinding.producedArtifactKind,
+                     "a binding creates no file")
+        XCTAssertNil(PromotionTarget.wikiLink.producedArtifactKind,
+                     "a link is text inside somebody else's note")
+    }
+
+    /// §6.1 requires the writer see what will be produced and where — and the
+    /// craft intent APPENDS, which the destination line did not say.
+    func test_theCraftIntentDestinationSaysThatItAppends() {
+        let plan = Promotion.plan(request(.scrap(a), .intentStatement), in: scene())
+        XCTAssertTrue(plan!.destinationDescription.contains("craft intent"))
+        XCTAssertTrue(plan!.destinationDescription.contains("already there"),
+                      "two cards promoted to craft intent stack; saying only "
+                      + "\"the project's craft intent\" leaves that to be "
+                      + "discovered by doing it. found: \(plan!.destinationDescription)")
     }
 
     // MARK: - The index

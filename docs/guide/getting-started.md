@@ -71,10 +71,11 @@ Lines are scratch, like everything else on the canvas: they live here, they cost
 Everything above is scratch. **Promoting** is the one step that turns a piece of it into something durable — a real note, a palette card, a binding — and it is always something you ask for. Nothing on the canvas promotes itself because it sat there long enough or looked like something.
 
 - **Select a card, a region or a line and press ⌘⇧↩** — or use the **Promote…** button in the Inspector (⌘⌥I), or **File → Promote…**. All three are the same command.
-- **A card** can become a **research note**, a **palette card**, or part of the project's **craft intent**.
+- **A card** can become a **research note**, a **palette card**, or part of the project's **craft intent** — the craft intent is one document per project, and each card you promote to it is added to the end of what is already there.
 - **A region** can become a **palette card** made from the cards that live in it — joined in the order they sit on the canvas, top card first — or a **binding to a piece**, which says: this material is for that chapter.
 - **A line** can become a **[[wiki-link]]**, written into the note the first card produced.
-- **A sheet opens first, and nothing is written until you say so.** It names what will be produced, where it will go, and what will not come across — promoting a region does not carry its lines or its layout. You can edit the title before committing.
+- **A sheet opens first, and nothing is written until you say so.** It names what will be produced, where it will go, and what will not come across — promoting a region does not carry its lines or its layout. Where the thing you are making has a name of its own — a research note, a palette card — you can edit that name before committing. A wiki-link and a craft intent don't ask, because neither is named by you.
+- **When it's done, a line at the top of the window says what it produced**, and how many notes were linked if you accepted the offer. It fades on its own.
 
 **Promoting takes a copy.** The card stays on the canvas with its words, and the two go their own ways from there: edit the card afterwards and the note doesn't change, edit the note and the card doesn't. That is deliberate. Promoting a region joins six cards into one note while all six stay where they are, and a card had to work the same way for the word *promote* to mean one thing.
 
@@ -85,5 +86,7 @@ A promoted card wears a **thin stripe down its left edge**, and a promoted regio
 **A line only promotes once both of its cards have.** If they haven't, the sheet says so and tells you why rather than offering an empty list: a `[[wiki-link]]` has to point at something that exists outside the canvas, and a canvas line is scratch. Wiki-links are the durable layer; lines are the thinking. That is the order, and promoting is the step between them.
 
 **⌘Z after a promotion takes back the mark, not the note.** The stripe comes off the card and the note stays in your research tree — the canvas's undo is about the canvas, and the note is a real file with a life of its own now. Delete it the way you delete any other note.
+
+**A promoted line is the exception, and it is worth knowing before you press ⌘Z.** A line leaves no stripe — what it produced is a `[[wiki-link]]` inside somebody else's note, and a flag on the line could disagree with the file — so there is nothing on the canvas to take back and **the promotion puts nothing on the undo stack at all**. Press ⌘Z after promoting a line and you will undo whatever you did on the canvas *before* it. To remove the link, open the note and delete the line of text.
 
 Dragging research onto the canvas is still to come.

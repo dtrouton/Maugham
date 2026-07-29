@@ -6,8 +6,10 @@ import SwiftUI
 /// **A card had no pane at all until 1C-c2, and this exists because of the
 /// field that slice added.** A drawn mark can say *that* a card was promoted
 /// and can never say *what it became*; CLAUDE.md rule 8 asks every new data
-/// type for a surface that can inspect and act on it. It is also the only place
-/// the dangling case is legible — the note deleted out from under a mark.
+/// type for a surface that can inspect and act on it. The section that says so
+/// is `PromotedArtifactSection`, shared with the region arm — for one slice
+/// only this one had it, which is the same rule failing for the other half of
+/// the field.
 ///
 /// **There is no Delete button, deliberately.** ⌫ remains the only route to
 /// deleting a scrap (ADR 0026's standing consequence). Adding one here for
@@ -19,15 +21,6 @@ import SwiftUI
 /// that can drift from the keystroke.
 struct ScrapInspector: View {
 
-    /// What this card has produced, if anything. Lifted out of the view so the
-    /// three-way decision is reachable from a test that hosts no SwiftUI.
-    enum ArtifactState: Equatable {
-        case notPromoted
-        case promoted(itemID: String, title: String)
-        /// A mark whose artifact is no longer in the project.
-        case artifactMissing(itemID: String)
-    }
-
     let model: CanvasModel
     let nodeID: CanvasNodeID
     /// Deferred: it walks the manifest, and it is called only when a promoted
@@ -37,15 +30,10 @@ struct ScrapInspector: View {
 
     private var node: CanvasNode? { model.scene.node(nodeID) }
 
-    static func artifactState(promotedItemID: String?, title: String?) -> ArtifactState {
-        guard let itemID = promotedItemID else { return .notPromoted }
-        guard let title else { return .artifactMissing(itemID: itemID) }
-        return .promoted(itemID: itemID, title: title)
-    }
-
-    private var state: ArtifactState {
+    private var state: PromotedArtifactSection.ArtifactState {
         let mark = node?.promotedItemID
-        return Self.artifactState(promotedItemID: mark, title: mark.flatMap(artifactTitle))
+        return PromotedArtifactSection.artifactState(promotedItemID: mark,
+                                                     title: mark.flatMap(artifactTitle))
     }
 
     var body: some View {
@@ -63,23 +51,8 @@ struct ScrapInspector: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Promoted") {
-                switch state {
-                case .notPromoted:
-                    Text("Not promoted yet.").font(.caption).foregroundStyle(.secondary)
-                case .promoted(let itemID, let title):
-                    HStack(spacing: 6) {
-                        Text("Became “\(title)”").lineLimit(1).truncationMode(.tail)
-                        Spacer(minLength: 0)
-                        Button("Open") { onOpenResearchItem(itemID) }
-                            .buttonStyle(.borderless)
-                    }
-                case .artifactMissing:
-                    Text("This card was promoted, and what it produced is no longer "
-                         + "in the project.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
+            PromotedArtifactSection(state: state, subject: .card,
+                                    onOpen: onOpenResearchItem)
 
             Section {
                 Button("Promote…") {

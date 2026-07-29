@@ -253,6 +253,63 @@ final class PromotionSheetTests: XCTestCase {
         XCTAssertEqual(reads, 1, "resolving a plan must not go back to disk")
     }
 
+    /// A wiki-link names nothing: `performWikiLink` never reads `plan.title`.
+    /// The field was shown anyway, seeded from the *destination note's* title,
+    /// and clearing it disabled Promote with "This needs a name."
+    func test_aWikiLinkNeedsNoNameAndCommitsWithTheFieldEmpty() {
+        let m = model(.line(l1), scene: promotedScene(),
+                      artifacts: ["res-a": "The falls", "res-b": "October's doctor"])
+        m.select(.wikiLink)
+        XCTAssertFalse(m.selectedTarget!.namesItsArtifact,
+                       "the sheet renders the Name field on this flag")
+        m.editedTitle = ""
+        XCTAssertTrue(m.canCommit, "a line promotion names nothing, so an empty "
+                      + "field cannot be what stops it")
+        XCTAssertNil(m.refusal)
+    }
+
+    /// The craft intent is find-or-create at a fixed title and the body is
+    /// appended — `performCraftIntent` never reads `plan.title` either.
+    func test_aCraftIntentNeedsNoNameAndCommitsWithTheFieldEmpty() {
+        let m = model(.scrap(a))
+        m.select(.intentStatement)
+        XCTAssertFalse(m.selectedTarget!.namesItsArtifact)
+        m.editedTitle = "  "
+        XCTAssertTrue(m.canCommit)
+        XCTAssertNil(m.refusal)
+    }
+
+    /// The control for both of the above: the two targets that DO name their
+    /// artifact still refuse an empty field, so the fix narrowed the rule rather
+    /// than deleting it.
+    func test_theTargetsThatDoNameTheirArtifactStillRefuseAnEmptyName() {
+        for target in [PromotionTarget.researchNote, .paletteCard] {
+            let m = model(.scrap(a))
+            m.select(target)
+            XCTAssertTrue(m.selectedTarget!.namesItsArtifact, "\(target)")
+            m.editedTitle = "   "
+            XCTAssertFalse(m.canCommit, "\(target)")
+            XCTAssertEqual(m.refusal, "This needs a name.", "\(target)")
+        }
+    }
+
+    // MARK: - Sources that cannot commit say why
+
+    /// The dead sheet: all three targets offered, no plan behind any of them, so
+    /// `preview`, `resolvedPlan` and `refusal` were nil together and the writer
+    /// got an empty Name field, no destination and a dead button.
+    func test_anEmptyScrapIsBlockedWithAReasonRatherThanOfferingTargets() {
+        let m = PromotionSheetModel(source: .scrap(a), scene: scene(),
+                                    scraps: [a: "   "], pieces: pieces,
+                                    artifacts: ArtifactIndex(titlesByID: [:]),
+                                    readBody: { _ in nil })
+        XCTAssertNotNil(m.blockedReason)
+        XCTAssertFalse(m.canCommit)
+        // The control: the same card with words in it is not blocked, so the
+        // assertion above is about emptiness and not about the fixture.
+        XCTAssertNil(model(.scrap(a)).blockedReason)
+    }
+
     func test_thePrecedenceNoteSaysWhichLayerIsDurable() {
         XCTAssertTrue(PromotionSheetModel.precedenceNote.lowercased().contains("scratch"))
         XCTAssertTrue(PromotionSheetModel.precedenceNote.contains("[["))

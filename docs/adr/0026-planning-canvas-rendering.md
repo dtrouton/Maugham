@@ -524,6 +524,15 @@ own lifecycle. Undoing a promotion therefore removes the stripe and leaves the n
 it is. That asymmetry is writer-facing rather than internal, so the guide says it in the
 writer's own words; it is not a gap awaiting a compensating op.
 
+**And a LINE promotion registers no step at all, which is a second sentence rather than a
+footnote to the first.** A line leaves no mark by design — its artifact is text inside
+somebody else's note, and a flag on the line could disagree with the file — so `mark(_:for:named:)`
+returns early and nothing reaches the stack. The consequence is writer-facing and is not
+the same as "⌘Z takes back the mark": a ⌘Z pressed after promoting a line undoes the
+writer's **previous** canvas act. The guide says so in the same place it says the other,
+because a writer who reads only the first sentence will press it. Removing the link is an
+edit in the note, not an undo on the canvas.
+
 **The line row ships with its reader.** §6.1 as it stands says a line only promotes once
 its ends exist — "`[[X]]` resolves against the manifest — documents and research items —
 and a scrap is in neither, so promoting a line between two unpromoted scraps would write a

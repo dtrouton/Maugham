@@ -24,19 +24,31 @@ struct RegionInspectorPane: View {
 
     let model: CanvasModel
     let pieces: [RegionInspector.PieceChoice]
-    /// Deferred manifest lookups for the scrap arm — see `ScrapInspector`.
+    /// Deferred manifest lookups for the two arms that name an artifact — see
+    /// `PromotedArtifactSection`. Both the card arm and the region arm take
+    /// them: a region's mark had no surface at all for one slice.
     let artifactTitle: (String) -> String?
     let onOpenResearchItem: (String) -> Void
 
     var body: some View {
         if let region = model.selectedRegion {
-            RegionInspector(model: model, regionID: region.id, pieces: pieces)
+            RegionInspector(model: model, regionID: region.id, pieces: pieces,
+                            artifactTitle: artifactTitle,
+                            onOpenResearchItem: onOpenResearchItem)
         } else if let line = model.selectedLine {
             LineInspector(model: model, lineID: line.id)
-        } else if let node = model.selectedNode {
+        } else if let node = model.selectedNode, case .scrap = node.kind {
             // 1C-c2's arm. A card used to land in the empty state below, which
             // was right while a scrap had nothing to say about itself — the
             // promoted mark is what changed that.
+            //
+            // **The `.scrap` guard is not decoration.** Nothing creates item
+            // nodes yet (1C-d owns the drag-in route), but this pane routed
+            // EVERY `selectedNode` here, and every sentence in that arm is
+            // wrong for a reference: "The words live on the card" and
+            // "Promoting takes a copy" describe a scrap, and an item node
+            // cannot be promoted at all. An item node falls to the empty state
+            // below until 1C-d gives it an arm of its own.
             ScrapInspector(model: model, nodeID: node.id,
                            artifactTitle: artifactTitle,
                            onOpenResearchItem: onOpenResearchItem)
@@ -107,6 +119,12 @@ struct RegionInspector: View {
     let model: CanvasModel
     let regionID: CanvasRegionID
     let pieces: [PieceChoice]
+    /// Deferred, like the card arm's: it walks the manifest and is called only
+    /// when a promoted region is selected. **No default**, deliberately — this
+    /// section was missing from this arm for a whole slice, and a default that
+    /// answered nil would let it go missing again without a compile error.
+    let artifactTitle: (String) -> String?
+    let onOpenResearchItem: (String) -> Void
 
     /// What the writer has typed but not yet committed. Local, so one rename is
     /// one undo step rather than one per keystroke.
@@ -119,6 +137,15 @@ struct RegionInspector: View {
     @State private var memberRows = MemberRows()
 
     private var region: CanvasRegion? { model.scene.region(regionID) }
+
+    /// A region's mark can only ever name a palette card — a piece binding
+    /// produces no artifact and deliberately leaves no mark — so the section is
+    /// handed `.region` and says so.
+    private var artifactState: PromotedArtifactSection.ArtifactState {
+        let mark = region?.promotedItemID
+        return PromotedArtifactSection.artifactState(promotedItemID: mark,
+                                                     title: mark.flatMap(artifactTitle))
+    }
 
     var body: some View {
         Form {
@@ -164,6 +191,11 @@ struct RegionInspector: View {
                                   empty: "No cards are referenced here.")
                 citeControl
             }
+
+            // Above the Promote section, matching the card arm's order: what it
+            // already became, then the way to promote it again.
+            PromotedArtifactSection(state: artifactState, subject: .region,
+                                    onOpen: onOpenResearchItem)
 
             Section {
                 Button("Promote…") {

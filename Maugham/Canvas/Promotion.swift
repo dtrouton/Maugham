@@ -29,6 +29,60 @@ enum PromotionTarget: String, Equatable, Hashable, CaseIterable, Identifiable {
         case .wikiLink: return "Wiki-link"
         }
     }
+
+    /// What KIND of artifact this target produces — nil for the two that produce
+    /// no research item at all.
+    ///
+    /// **This is what makes a mark checkable.** A mark records an item id and
+    /// nothing else, so without a kind on each side every mark resolves for
+    /// every updatable target: promote a card to a palette card, promote it
+    /// again as a research note, and "Rewrite “Act II fog”" would rename the
+    /// palette card's backing file and write raw scrap text over it — swatches,
+    /// kind, sensory notes and image references gone, with ⌘Z taking back only
+    /// the mark.
+    var producedArtifactKind: ArtifactKind? {
+        switch self {
+        case .researchNote: return .researchNote
+        case .paletteCard: return .paletteCard
+        case .intentStatement: return .craftIntent
+        case .pieceBinding, .wikiLink: return nil
+        }
+    }
+
+    /// Whether the writer NAMES the artifact this target produces.
+    ///
+    /// **Three of the five do not, and two of those were asked anyway.**
+    /// `performWikiLink` never reads `plan.title` and neither does
+    /// `performCraftIntent` — the intent doc is find-or-create at a fixed title
+    /// and the body is appended — so a `Name` field for either showed an
+    /// editable box that changed nothing, seeded with the *source note's* title,
+    /// and clearing it disabled Promote with "This needs a name." for an act
+    /// that names nothing.
+    ///
+    /// Deliberately not spelled `updatableTargets.contains(self)`, which happens
+    /// to be the same set today: one is about whether a second promotion may
+    /// rewrite the first artifact, the other about whether the writer types its
+    /// name. Joining them would make a later change to one silently move the
+    /// other.
+    var namesItsArtifact: Bool {
+        switch self {
+        case .researchNote, .paletteCard: return true
+        case .intentStatement, .pieceBinding, .wikiLink: return false
+        }
+    }
+}
+
+/// What an item id names, as the MANIFEST says it is now.
+///
+/// **Now, rather than at the moment the mark was written** — which is why this
+/// lives on the index rather than beside `promotedItemID` in the sidecar. A card
+/// promoted to a palette card and later converted, moved out of the palette
+/// group or given a craft-intent role answers with what it *is*, and a stored
+/// target would answer with what it was.
+enum ArtifactKind: Equatable, Hashable {
+    case researchNote
+    case paletteCard
+    case craftIntent
 }
 
 /// New artifact, or rewrite the one this source produced last time.
@@ -84,7 +138,8 @@ struct WikiLinkWrite: Equatable {
     var appendedText: String { "\n\n" + linkText + "\n" }
 }
 
-/// Item id → title, for every research item in the project.
+/// Item id → what it is called and what it IS, for every research item in the
+/// project.
 ///
 /// **This exists because the sidecar cannot validate a mark and never could.**
 /// `CanvasNode.promotedItemID` is written by a promotion and read much later; a
@@ -92,18 +147,68 @@ struct WikiLinkWrite: Equatable {
 /// index rather than a `ProjectStore` keeps this whole file pure and testable,
 /// and means the manifest is walked ONCE, when the sheet opens, rather than per
 /// query.
+///
+/// **It carries a kind as well as a title, and that is not decoration.** A mark
+/// is an item id with no kind on it, and palette cards and craft-intent docs are
+/// ordinary `.document` research items — so a title-only index makes every mark
+/// resolve for every updatable target, and "Rewrite “Act II fog”" offered on a
+/// Research-note promotion would overwrite the writer's palette card. The
+/// manifest is what knows the difference: palette cards are the documents under
+/// the palette group, and the craft intent carries `role == .craftIntent`.
 struct ArtifactIndex: Equatable {
-    private let titlesByID: [String: String]
 
-    init(titlesByID: [String: String]) { self.titlesByID = titlesByID }
+    struct Entry: Equatable {
+        let title: String
+        let kind: ArtifactKind
+
+        init(title: String, kind: ArtifactKind = .researchNote) {
+            self.title = title
+            self.kind = kind
+        }
+    }
+
+    private let entriesByID: [String: Entry]
+
+    init(entriesByID: [String: Entry]) { self.entriesByID = entriesByID }
+
+    /// Titles alone — every entry an ordinary research note. The shape a test
+    /// that is not about kinds wants.
+    init(titlesByID: [String: String]) {
+        self.init(entriesByID: titlesByID.mapValues { Entry(title: $0) })
+    }
 
     static func over(research: [ResearchItem]) -> ArtifactIndex {
-        ArtifactIndex(titlesByID: Dictionary(
-            TreeWalk.collect(in: research, where: { _ in true }).map { ($0.id, $0.title) },
+        // `PaletteLookup` is the ONE definition of "which research items are
+        // palette cards" (tripwire 19) — a local predicate here would be the
+        // fourth surface spelling it.
+        let paletteCards = Set(PaletteLookup.paletteCards(in: research).map(\.id))
+        return ArtifactIndex(entriesByID: Dictionary(
+            TreeWalk.collect(in: research, where: { _ in true }).map { item in
+                let kind: ArtifactKind
+                if isCraftIntent(item) {
+                    kind = .craftIntent
+                } else if paletteCards.contains(item.id) {
+                    kind = .paletteCard
+                } else {
+                    kind = .researchNote
+                }
+                return (item.id, Entry(title: item.title, kind: kind))
+            },
             uniquingKeysWith: { _, later in later }))
     }
 
-    func title(of itemID: String) -> String? { titlesByID[itemID] }
+    /// Role first, filename second — the same order `PaletteLookup` takes, and
+    /// for the same reason: the role is the durable identity and the filename is
+    /// the legacy fallback for a project written before roles were stamped.
+    private static func isCraftIntent(_ item: ResearchItem) -> Bool {
+        if item.role == .craftIntent { return true }
+        return (item.path as NSString?)?.lastPathComponent
+            == PaletteConvention.craftIntentFileName
+    }
+
+    func title(of itemID: String) -> String? { entriesByID[itemID]?.title }
+
+    func kind(of itemID: String) -> ArtifactKind? { entriesByID[itemID]?.kind }
 }
 
 /// Everything `Promotion.plan` needs. A struct rather than eight parameters,
@@ -216,27 +321,100 @@ enum Promotion {
         }
     }
 
-    /// Why a source offers nothing, in words a writer can act on. Only lines
-    /// have an interesting answer; everything else returns nil and the sheet
-    /// simply shows the targets.
+    /// Why a source cannot be promoted, in words a writer can act on.
+    ///
+    /// **Three selections reach the sheet with nothing to offer, and for one
+    /// slice only the line said why.** An empty scrap is offered all three
+    /// targets by `targets(for:)` — emptiness is not a targets question — and
+    /// then `plan(_:)` returns nil, so `preview`, `resolvedPlan` and `refusal`
+    /// were all nil together and the writer met an empty Name field, no
+    /// destination, no message and a dead button. An item node offered `[]` and
+    /// said nothing at all. Both are answered here, where the sheet already
+    /// looks.
+    ///
+    /// It takes `scraps` for the empty case, which is the one fact about a card
+    /// the scene does not hold.
     static func blockedReason(for source: PromotionSource,
                               in scene: CanvasScene,
+                              scraps: [CanvasNodeID: String],
                               artifacts: ArtifactIndex) -> String? {
-        guard case .line(let id) = source, let line = scene.line(id),
-              targets(for: source, in: scene, artifacts: artifacts).isEmpty else { return nil }
-        guard isScrap(line.from, in: scene) && isScrap(line.to, in: scene) else {
-            return "A line becomes a wiki-link only between two cards of text."
+        switch source {
+        case .scrap(let id):
+            guard let node = scene.node(id) else { return nil }
+            if case .item = node.kind { return itemNodeReason }
+            guard text(of: id, in: scraps).isEmpty else { return nil }
+            // The performer's own sentence rather than a second wording of it:
+            // a refusal the writer meets before committing and one they meet
+            // after must be the same words. It was unreachable from the UI
+            // until this call.
+            return PromotionFailure.emptyBody.errorDescription
+
+        case .region:
+            return nil
+
+        case .line(let id):
+            guard let line = scene.line(id),
+                  targets(for: source, in: scene, artifacts: artifacts).isEmpty
+            else { return nil }
+            guard isScrap(line.from, in: scene) && isScrap(line.to, in: scene) else {
+                return "A line becomes a wiki-link only between two cards of text."
+            }
+            // **Two states, two acts.** A card that was never promoted needs
+            // promoting; a card whose note has been DELETED since has already
+            // been promoted, and telling that writer to "promote both cards
+            // first" tells them to do the thing they did. `ScrapInspector`
+            // already distinguishes the two, and the conditions are the ones
+            // `resolvedArtifact` reads.
+            if [line.from, line.to].contains(where: { hasDanglingMark($0, in: scene,
+                                                                      artifacts: artifacts) }) {
+                return "What one of these cards produced is no longer in the "
+                    + "project, so there is nothing left for a link to point at. "
+                    + "Promote that card again first."
+            }
+            // The precedence rule, taught at the moment it costs something: the
+            // durable layer is reached by promoting the things first.
+            return "Promote both cards first. A wiki-link has to point at something "
+                + "that exists outside the canvas — a canvas line is scratch."
         }
-        // The precedence rule, taught at the moment it costs something: the
-        // durable layer is reached by promoting the things first.
-        return "Promote both cards first. A wiki-link has to point at something "
-            + "that exists outside the canvas — a canvas line is scratch."
+    }
+
+    /// Why an item node offers nothing. Held as a constant because three places
+    /// now reason about it — the renderer's mark, the accessibility label and
+    /// this — and the wording is what a writer reads.
+    static let itemNodeReason =
+        "A reference card already exists as itself. Promoting one would put a "
+        + "second editable copy of something the project already has beside it."
+
+    /// A mark that names an artifact the project no longer holds.
+    private static func hasDanglingMark(_ id: CanvasNodeID,
+                                        in scene: CanvasScene,
+                                        artifacts: ArtifactIndex) -> Bool {
+        guard let mark = scene.node(id)?.promotedItemID else { return false }
+        return artifacts.title(of: mark) == nil
     }
 
     // MARK: - Update or New
 
-    /// The artifact this source produced last time, when it still exists AND the
-    /// target is one that can be rewritten.
+    /// The artifact this source produced last time, when it still exists, the
+    /// target is one that can be rewritten, AND the artifact is still the same
+    /// KIND of thing the target produces.
+    ///
+    /// **The kind term is the one that stops a promotion destroying an
+    /// artifact.** Without it every mark resolves for every updatable target,
+    /// because a mark records an id and the index knew only titles: promote a
+    /// card to a palette card, then promote the same card as a research note,
+    /// and the sheet offered "Rewrite “Act II fog”" and previewed "Goes to: the
+    /// existing “Act II fog”" — both sentences true — and committing renamed the
+    /// palette card's backing file and wrote raw scrap text over it. The
+    /// swatches, the kind, the sensory notes and the `<slug>_assets/` image
+    /// references all went, and ⌘Z takes back only the mark. The craft-intent
+    /// variant replaces the writer's whole accumulated intent statement with one
+    /// card, which is precisely what excluding `.intentStatement` from
+    /// `updatableTargets` exists to prevent.
+    ///
+    /// A kind that no longer matches declines the update rather than refusing
+    /// the promotion: the writer gets a new artifact and keeps the old one,
+    /// which costs a duplicate note in the worst case and cannot cost them work.
     static func existingArtifact(for source: PromotionSource,
                                  target: PromotionTarget,
                                  in scene: CanvasScene,
@@ -248,7 +426,8 @@ enum Promotion {
         case .region(let id): markedID = scene.region(id)?.promotedItemID
         case .line: markedID = nil
         }
-        guard let markedID, let title = artifacts.title(of: markedID) else { return nil }
+        guard let markedID, let title = artifacts.title(of: markedID),
+              artifacts.kind(of: markedID) == target.producedArtifactKind else { return nil }
         return .update(itemID: markedID, title: title)
     }
 
@@ -400,7 +579,12 @@ enum Promotion {
         switch request.target {
         case .researchNote: return "research/"
         case .paletteCard: return "the palette wall"
-        case .intentStatement: return "the project's craft intent"
+        // **It APPENDS, and §6.1 requires the writer see what will be produced
+        // and where.** One intent doc per scope, added to rather than replaced —
+        // so two cards promoted to craft intent stack, and a destination reading
+        // only "the project's craft intent" left that discoverable by doing it.
+        case .intentStatement:
+            return "the project's craft intent, added to the end of what is already there"
         case .pieceBinding: return "the piece “\(request.piece?.title ?? "")”"
         case .wikiLink: return ""   // replaced per-plan above
         }

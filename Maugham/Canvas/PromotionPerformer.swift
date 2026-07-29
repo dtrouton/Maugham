@@ -12,6 +12,32 @@ struct PromotionResult: Equatable {
     /// The members whose own notes gained a link, when the offer was accepted.
     let writtenLinks: [CanvasNodeID]
     let boundPieceID: String?
+
+    /// One sentence naming what was produced, and the link count when links
+    /// were actually written.
+    ///
+    /// **The result used to be discarded at the only call site.** Every field
+    /// here was built and thrown away by `CanvasPromotionModifier.commit`, while
+    /// `writeOfferedLinks`'s own doc comment said the count "reaches the writer".
+    /// It reached nobody — a rule whose stated reason is false, which this
+    /// codebase treats as worse than no rule. It bites hardest on a line: a
+    /// wiki-link promotion sets no mark by design, so without this the sheet
+    /// closes and *nothing observable changes anywhere*.
+    ///
+    /// A pure function of two values, so the wording is pinned by a test that
+    /// hosts no SwiftUI.
+    func confirmation(for plan: PromotionPlan) -> String {
+        let count = writtenLinks.count
+        let links = count == 0 ? ""
+            : " Linked \(count) note\(count == 1 ? "" : "s") to it."
+        switch plan.producedKind {
+        case .researchNote: return "Promoted to the note “\(title)”." + links
+        case .paletteCard: return "Promoted to the palette card “\(title)”." + links
+        case .intentStatement: return "Added to the project's craft intent."
+        case .pieceBinding: return "Bound to \(plan.destinationDescription)."
+        case .wikiLink: return "Wrote the link into the note “\(title)”."
+        }
+    }
 }
 
 enum PromotionFailure: LocalizedError, Equatable {
@@ -21,6 +47,9 @@ enum PromotionFailure: LocalizedError, Equatable {
     case missingWikiLinkWrite
     case linkAlreadyPresent
     case artifactMissing(String)
+    /// The mark names a real artifact of the WRONG kind — a palette card or a
+    /// craft-intent doc where a research note was to be rewritten.
+    case artifactIsADifferentKind(itemID: String, found: String)
     case itemHasNoFile(String)
     /// The destination exists on disk and could not be READ. Distinct from
     /// "no file there", which is legitimately empty — see `readBody`.
@@ -35,6 +64,9 @@ enum PromotionFailure: LocalizedError, Equatable {
         case .linkAlreadyPresent: return "That link is already in the note."
         case .artifactMissing(let id):
             return "The artifact this card produced is no longer in the project (\(id))."
+        case .artifactIsADifferentKind(_, let found):
+            return "What this produced is \(found) now, not a research note, so "
+                + "Maugham did not write over it."
         case .itemHasNoFile(let id): return "That artifact has no file on disk (\(id))."
         case .unreadableFile(let path):
             return "Maugham could not read what is already in \(path), so it did not "
@@ -85,9 +117,17 @@ struct PromotionPerformer {
 
     private func validate(_ plan: PromotionPlan) throws {
         switch plan.producedKind {
-        case .researchNote, .paletteCard, .intentStatement:
+        case .researchNote, .paletteCard:
             guard !plan.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             else { throw PromotionFailure.emptyTitle }
+            guard !plan.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { throw PromotionFailure.emptyBody }
+        case .intentStatement:
+            // **No title guard**, because `performCraftIntent` never reads one:
+            // the intent doc is find-or-create at a fixed title and the body is
+            // appended. Refusing a plan for a missing name would refuse it for
+            // a field that changes nothing — and the sheet stopped asking for
+            // one in the same edit, so the two agree.
             guard !plan.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             else { throw PromotionFailure.emptyBody }
         case .pieceBinding:
@@ -102,6 +142,26 @@ struct PromotionPerformer {
         }
     }
 
+    /// Refuse an update whose target is not a plain research note.
+    ///
+    /// Read off the live manifest through the same index the sheet uses, so the
+    /// performer and the preview cannot disagree about what an item *is*. The
+    /// palette path needs no twin of this: `performPaletteCard`'s update branch
+    /// reads the card back out of `loadPaletteCards()` and already throws
+    /// `.artifactMissing` when the id is not a palette card, and craft intent is
+    /// not updatable at all.
+    private func refuseIfNotAResearchNote(_ itemID: String) throws {
+        switch ArtifactIndex.over(research: store.manifest.research).kind(of: itemID) {
+        case .researchNote, nil: return   // nil is `artifactMissing`'s case, thrown by `validate`
+        case .paletteCard:
+            throw PromotionFailure.artifactIsADifferentKind(itemID: itemID,
+                                                            found: "a palette card")
+        case .craftIntent:
+            throw PromotionFailure.artifactIsADifferentKind(itemID: itemID,
+                                                            found: "the project's craft intent")
+        }
+    }
+
     // MARK: - The five targets
 
     private func performResearchNote(_ plan: PromotionPlan) async throws -> PromotionResult {
@@ -110,6 +170,14 @@ struct PromotionPerformer {
         case .new:
             itemID = try await store.addResearchTextNote(parentId: nil, title: plan.title).id
         case .update(let existing, _):
+            // **The plan is a SNAPSHOT and the artifact can change under it**,
+            // so the kind is checked here as well as in `Promotion`: the sheet
+            // read the manifest when it opened, and between then and Commit the
+            // writer can have converted the note, moved it into the palette
+            // group, or stamped it. Everything below this line renames a file
+            // and writes raw scrap text over its body — cheap insurance against
+            // doing that to a palette card.
+            try refuseIfNotAResearchNote(existing)
             // Renames the backing file through the typed mover when the title
             // moved (tripwire 14 is satisfied by using this API rather than a
             // raw move of our own).
@@ -222,9 +290,15 @@ struct PromotionPerformer {
     ///
     /// **Returns what it actually WROTE, not what was offered.** Two members are
     /// skipped rather than written: one whose note already holds the link, and
-    /// one whose item or path has since gone. The count reaches the writer, and
-    /// "linked 2 notes" when it linked none is a lie on a surface whose whole
-    /// promise is that you can see what a command will do.
+    /// one whose item or path has since gone. "Linked 2 notes" when it linked
+    /// none is a lie on a surface whose whole promise is that you can see what a
+    /// command will do.
+    ///
+    /// **The count reaches the writer through `PromotionResult.confirmation(for:)`**,
+    /// and this sentence used to be false: `CanvasPromotionModifier.commit`
+    /// discarded the whole result, so every field here was built and thrown
+    /// away. A rule whose stated reason is false is worse than no rule, and
+    /// `PromotionCommandTests`' census now requires that call site by name.
     @discardableResult
     private func writeOfferedLinks(_ plan: PromotionPlan,
                                    artifactTitle: String) async throws -> [CanvasNodeID] {

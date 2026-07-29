@@ -74,7 +74,8 @@ final class PromotionSheetModel: Identifiable {
         self.artifacts = artifacts
         self.readBody = readBody
         self.availableTargets = Promotion.targets(for: source, in: scene, artifacts: artifacts)
-        self.blockedReason = Promotion.blockedReason(for: source, in: scene, artifacts: artifacts)
+        self.blockedReason = Promotion.blockedReason(for: source, in: scene,
+                                                     scraps: scraps, artifacts: artifacts)
         // Resolved once here, and held as a plain value — the same discipline
         // every other property on this class follows (read the scene once at
         // init), rather than re-touching `scene`/`scraps` on every access.
@@ -129,10 +130,14 @@ final class PromotionSheetModel: Identifiable {
 
     var canCommit: Bool {
         guard let plan = resolvedPlan else { return false }
-        // A binding produces no artifact, so it needs a piece and not a name;
-        // everything else needs a name and must not be a link already written.
+        // A binding produces no artifact, so it needs a piece and not a name.
         if plan.producedKind == .pieceBinding { return plan.pieceID != nil }
-        return !plan.title.isEmpty && !plan.linkAlreadyPresent
+        // **Only the targets whose artifact the writer NAMES are asked for
+        // one.** A wiki-link's title is the destination note's, and the intent
+        // doc's is fixed — neither performer reads `plan.title` at all, so
+        // requiring it disabled Promote for an act that names nothing.
+        if plan.producedKind.namesItsArtifact && plan.title.isEmpty { return false }
+        return !plan.linkAlreadyPresent
     }
 
     /// Why Commit is off, when the reason is not simply "choose a target".
@@ -144,7 +149,7 @@ final class PromotionSheetModel: Identifiable {
         if plan.producedKind == .pieceBinding && plan.pieceID == nil {
             return "Choose a piece."
         }
-        if plan.producedKind != .pieceBinding
+        if plan.producedKind.namesItsArtifact
             && editedTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return "This needs a name."
         }
@@ -247,7 +252,11 @@ struct PromotionSheet: View {
     @ViewBuilder
     private var previewSection: some View {
         Section("Preview") {
-            if model.selectedTarget != .pieceBinding {
+            // Shown only where the writer's typing reaches the artifact — see
+            // `PromotionTarget.namesItsArtifact`. A field for a wiki-link or a
+            // craft intent was editable, seeded from somebody else's title, and
+            // discarded.
+            if model.selectedTarget?.namesItsArtifact == true {
                 TextField("Name", text: $model.editedTitle)
             }
             if let plan = model.preview {

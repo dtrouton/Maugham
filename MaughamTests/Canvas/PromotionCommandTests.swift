@@ -18,14 +18,47 @@ final class PromotionCommandTests: XCTestCase {
     func test_theCommandIsOfferedOnlyOnTheCanvasWithSomethingSelected() {
         let model = CanvasModel()
         XCTAssertFalse(CanvasPromotionModifier.isPromotable(binderSegment: .canvas,
-                                                            selection: model.selection))
+                                                            selection: model.selection,
+                                                            nodeKind: nil))
         XCTAssertTrue(CanvasPromotionModifier.isPromotable(binderSegment: .canvas,
-                                                           selection: .node(a)))
+                                                           selection: .node(a),
+                                                           nodeKind: .scrap))
         XCTAssertFalse(CanvasPromotionModifier.isPromotable(binderSegment: .manuscript,
-                                                            selection: .node(a)),
+                                                            selection: .node(a),
+                                                            nodeKind: .scrap),
                        "the manuscript editor has no canvas selection to promote")
-        XCTAssertFalse(CanvasPromotionModifier.isPromotable(binderSegment: .research,
-                                                            selection: .region(CanvasRegionID("r"))))
+        XCTAssertFalse(CanvasPromotionModifier.isPromotable(
+            binderSegment: .research, selection: .region(CanvasRegionID("r")), nodeKind: nil))
+    }
+
+    /// An item node already exists as itself, so `Promotion.targets` offers it
+    /// nothing — but this said yes for every `.node`, so `Promote…` was enabled
+    /// and ⌘⇧↩ opened a sheet that could never commit and (until finding 4) said
+    /// nothing about why.
+    ///
+    /// The control is the line above the refusal: the same selection with a
+    /// scrap's kind is promotable, so this is about the KIND and not about the
+    /// selection case.
+    func test_anItemNodeIsNotPromotableBecauseItAlreadyExistsAsItself() {
+        XCTAssertTrue(CanvasPromotionModifier.isPromotable(
+            binderSegment: .canvas, selection: .node(a), nodeKind: .scrap))
+        XCTAssertFalse(CanvasPromotionModifier.isPromotable(
+            binderSegment: .canvas, selection: .node(a),
+            nodeKind: .item(referenceId: "r-9")))
+        XCTAssertFalse(CanvasPromotionModifier.isPromotable(
+            binderSegment: .canvas, selection: .node(a), nodeKind: nil),
+            "a selection naming a node the scene no longer holds resolves to no "
+            + "kind, and an enabled command with nothing behind it is the "
+            + "condition the flag exists to prevent")
+    }
+
+    /// A region and a line carry no node kind, so the kind term must not reach
+    /// them — passing nil for a region is the ordinary case, not a defect.
+    func test_theNodeKindTermDoesNotReachARegionOrALine() {
+        XCTAssertTrue(CanvasPromotionModifier.isPromotable(
+            binderSegment: .canvas, selection: .region(CanvasRegionID("r")), nodeKind: nil))
+        XCTAssertTrue(CanvasPromotionModifier.isPromotable(
+            binderSegment: .canvas, selection: .line(CanvasLineID("l")), nodeKind: nil))
     }
 
     func test_everySelectionKindIsPromotable() {
@@ -42,7 +75,8 @@ final class PromotionCommandTests: XCTestCase {
         for selection: CanvasSelection in [.node(a), .region(CanvasRegionID("r")),
                                            .line(CanvasLineID("l"))] {
             XCTAssertTrue(CanvasPromotionModifier.isPromotable(binderSegment: .canvas,
-                                                               selection: selection),
+                                                               selection: selection,
+                                                               nodeKind: .scrap),
                           "\(selection)")
         }
     }
@@ -207,7 +241,8 @@ final class PromotionCommandTests: XCTestCase {
              + "closure of its own would be a second path that can drift from the keystroke"),
             ("Maugham/Views/ProjectWindow.swift",
              [".onKeyWindowCommand(.maughamPromoteCanvasSelection",
-              ".modifier(CanvasPromotionModifier("],
+              ".modifier(CanvasPromotionModifier(",
+              "result.confirmation(for: plan)"],
              "nothing in the window RECEIVES the command — every button and the "
              + "keystroke post into nothing, and no test that hosts its own "
              + "onKeyWindowCommand can see it. The second token is the mount line "
@@ -215,7 +250,12 @@ final class PromotionCommandTests: XCTestCase {
              + "inside `CanvasPromotionModifier`'s own struct body, in the SAME "
              + "file, so deleting the line that mounts the modifier on "
              + "`ProjectWindow.body` leaves the first token present and every test "
-             + "green while `Promote…` is unreachable from the real window"),
+             + "green while `Promote…` is unreachable from the real window. The "
+             + "third is the RESULT: `PromotionResult` was built and discarded here "
+             + "(`_ = try await …perform(plan)`) for a whole slice while its own "
+             + "doc comment said the link count \"reaches the writer\", and "
+             + "`PromotionResult.confirmation(for:)` can be fully tested with "
+             + "nothing calling it — which is this directory's signature defect"),
             ("Maugham/MaughamApp.swift",
              ["FocusedPromoteButton()", ".maughamPromoteCanvasSelection"],
              "the File-menu item is not IN the menu (or does not post this command), "
@@ -269,6 +309,14 @@ final class PromotionCommandTests: XCTestCase {
             "the census reports the ABSENT mount-line token and not the present "
             + "receiver token — a census that reported both, or neither, would "
             + "be blind in the direction that matters")
+        // And the result token, falsified the same way. `_ = try await …perform(plan)`
+        // compiles, passes every performer test, and tells the writer nothing.
+        XCTAssertEqual(
+            try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
+                              required: ["result.confirmation(for: plan)",
+                                         "result.notARealConfirmation(for: plan)"]),
+            ["result.notARealConfirmation(for: plan)"],
+            "the census reports the ABSENT result token and not the present one")
     }
 
     /// The name must not collide with the collection-piece promotion that

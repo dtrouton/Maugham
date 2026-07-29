@@ -38,16 +38,40 @@ final class ScrapInspectorTests: XCTestCase {
         XCTAssertNil(m.selectedNode)
     }
 
+    /// An item node has no arm of its own until 1C-d, and it must not take the
+    /// card's: every sentence in `ScrapInspector` is wrong for a reference —
+    /// "The words live on the card", "Promoting takes a copy" — and an item node
+    /// cannot be promoted at all. The pane routed every `selectedNode` there.
+    ///
+    /// `selectedNode` itself still resolves; the guard is the `case .scrap` in
+    /// `RegionInspectorPane`, and this is the fact that guard reads.
+    func test_anItemNodeIsResolvedAndIsNotAScrap() {
+        let m = CanvasModel()
+        let ref = CanvasNodeID.item("r-9")
+        m.withScene { s in
+            s.insert(CanvasNode(id: ref, kind: .item(referenceId: "r-9"),
+                                origin: .zero, width: 180, cachedHeight: 120))
+        }
+        m.selection = .node(ref)
+        let node = m.selectedNode
+        XCTAssertNotNil(node)
+        if case .scrap = node?.kind {
+            XCTFail("an item node must not answer the scrap arm's guard")
+        }
+    }
+
     // MARK: - What the pane says
 
     func test_anUnpromotedCardSaysSoRatherThanShowingNothing() {
-        XCTAssertEqual(ScrapInspector.artifactState(promotedItemID: nil, title: nil),
-                       .notPromoted)
+        XCTAssertEqual(
+            PromotedArtifactSection.artifactState(promotedItemID: nil, title: nil),
+            .notPromoted)
     }
 
     func test_aPromotedCardNamesWhatItBecame() {
         XCTAssertEqual(
-            ScrapInspector.artifactState(promotedItemID: "res-a", title: "The falls at night"),
+            PromotedArtifactSection.artifactState(promotedItemID: "res-a",
+                                                  title: "The falls at night"),
             .promoted(itemID: "res-a", title: "The falls at night"))
     }
 
@@ -55,7 +79,67 @@ final class ScrapInspectorTests: XCTestCase {
     /// to say so — silently showing "not promoted" would be a lie the writer
     /// cannot check, and showing a raw id would be one they cannot read.
     func test_aMarkWhoseArtifactIsGoneSaysThatRatherThanPretendingItIsUnpromoted() {
-        XCTAssertEqual(ScrapInspector.artifactState(promotedItemID: "res-gone", title: nil),
-                       .artifactMissing(itemID: "res-gone"))
+        XCTAssertEqual(
+            PromotedArtifactSection.artifactState(promotedItemID: "res-gone", title: nil),
+            .artifactMissing(itemID: "res-gone"))
+    }
+
+    // MARK: - Both arms, one section
+
+    /// **A region's mark had no surface at all for one slice.** The card arm
+    /// said what it became, offered Open and rendered the dangling case; the
+    /// region arm — same field, same drawn stripe, same VoiceOver term — said
+    /// nothing, so a writer met a permanent stripe on a region's chrome bar with
+    /// no way to learn what it produced. The section is now one implementation
+    /// both arms are handed, and the copy is honest for each.
+    func test_theRegionArmNamesThePaletteCardAndTheCardArmDoesNot() {
+        XCTAssertEqual(PromotedArtifactSection.Subject.region.became("Act II fog"),
+                       "Became the palette card “Act II fog”",
+                       "a region's mark can only ever name a palette card — a "
+                       + "piece binding produces no artifact and leaves no mark")
+        XCTAssertEqual(PromotedArtifactSection.Subject.card.became("Act II fog"),
+                       "Became “Act II fog”",
+                       "a card's may name a note, a palette card or the craft "
+                       + "intent, and this arm is not told which")
+    }
+
+    func test_theDanglingSentenceNamesWhichThingWasPromoted() {
+        XCTAssertEqual(PromotedArtifactSection.Subject.card.noun, "card")
+        XCTAssertEqual(PromotedArtifactSection.Subject.region.noun, "region")
+    }
+
+    /// The census that would have caught the omission: both arms mount the
+    /// shared section, and both are handed the two closures that make **Open**
+    /// work. A green suite cannot tell a rendered section from an absent one
+    /// (`_ConditionalContent` is branch-invariant and a `Form`'s contents are
+    /// not inspectable), and this directory's four unreachable halves were every
+    /// one of them found by counting production sites.
+    func test_bothInspectorArmsMountTheSharedPromotedSection() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+        for file in ["Maugham/Canvas/ScrapInspector.swift",
+                     "Maugham/Canvas/RegionInspector.swift"] {
+            let text = try String(contentsOf: root.appendingPathComponent(file),
+                                  encoding: .utf8)
+            XCTAssertTrue(text.contains("PromotedArtifactSection(state:"),
+                          "\(file) must render the shared section — a mark with no "
+                          + "surface is CLAUDE.md rule 8 failing, and it failed for "
+                          + "the region arm for a whole slice")
+            XCTAssertTrue(text.contains("onOpen: onOpenResearchItem"),
+                          "\(file) must wire Open, or the section names an artifact "
+                          + "the writer cannot reach")
+        }
+        // Self-check: the scan can report an absence. Without this the two
+        // assertions above are a census over a REQUIRED token, which is exactly
+        // the shape that passes while blind.
+        let unrelated = try String(
+            contentsOf: root.appendingPathComponent("Maugham/Canvas/LineInspector.swift"),
+            encoding: .utf8)
+        XCTAssertFalse(unrelated.contains("PromotedArtifactSection(state:"),
+                       "a line promotion writes text into somebody else's note and "
+                       + "leaves no mark, so the line arm has nothing to show — and "
+                       + "this proves the scan above reads the file rather than "
+                       + "always answering true")
     }
 }
