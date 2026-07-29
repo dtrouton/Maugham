@@ -356,10 +356,13 @@ Three rulings came out of building it and are recorded so they are not re-opened
   `NSBackspaceCharacter` is 0x08 — Ctrl-H — and is unreachable through a `keyDown` switch
   anyway, because `charactersIgnoringModifiers` ignores every modifier except Shift.
 
-**Still open inside M1C, and recorded here because nobody has decided it:** ⌫ is the only
-route to deleting a *scrap*. Regions get a visible Delete button in the inspector; a scrap
-has no inspector at all, so the discoverability gap is scrap-only. An Edit-menu Delete item
-reaches outside `Maugham/Canvas/` and wants deciding whole.
+**Still open inside M1C:** ⌫ is the only route to deleting a *scrap*. This was recorded as
+undecided because a scrap had no inspector to put a button in and a region did; **1C-c2
+gave a scrap an inspector and deliberately did not put one there** (decision 9,
+`ScrapInspector`), so the reason has changed and the gap has not. Adding a Delete button
+for symmetry with the region and line arms would be a design change wearing a tidy-up's
+clothes. An Edit-menu Delete item reaches outside `Maugham/Canvas/` and still wants
+deciding whole.
 
 **What 1C-d owes:** the drop target; `DropClassification` for browser image drags (which
 carry rendered bitmaps rather than file URLs, so `.dropDestination(for: URL.self)` silently
@@ -472,6 +475,94 @@ tolerated.
 **Tripwire 31** carries the rule. **Tripwire 32** carries the undo-bracket verbs that
 regions forced into the open — see decision 5.
 
+### 9. Promotion is one explicit verb producing a snapshot *(added 2026-07-28, plan 1C-c2)*
+
+**One verb, on the current selection.** `Promote…` reads spec §6's table and produces a
+durable artifact: a scrap becomes a research note, a palette card or a craft intent; a
+region becomes a palette card or a piece binding; a line becomes a `[[wiki-link]]`. A
+sheet previews what will be written and where before anything is written, and building
+that preview mutates nothing — `Promotion.plan` is a pure function over the scene and
+`test_planningNeverMutatesTheScene` says so. Nothing promotes because it sat somewhere
+long enough (§6.1), and nothing is required to promote at all.
+
+**What it produces is a SNAPSHOT, and the mark left behind is provenance rather than a
+link.** `CanvasNode.promotedItemID` and `CanvasRegion.promotedItemID` record what a thing
+produced; after that, editing the card does not change the note and editing the note does
+not change the card. **The region row forces this in one move**, which is why it is a
+decision and not a concession: promoting "Act II fog" joins six cards' text into one
+palette card while all six stay on the canvas, so a copy taken at a moment is already what
+§6 describes. A scrap whose promotion moved its words *out* to the note would give one verb
+two rules — and would pull 1C-d's item-card rendering forward, since every promoted scrap
+would otherwise have to stop drawing as a dashed placeholder. So a promoted card and its
+artifact can drift apart, and that is the design (§6.1's 2026-07-28 amendment) rather than
+a defect waiting for a reconciler.
+
+**Re-promoting offers Update or New, and neither is the default.** A card that already
+carries a mark names its artifact in the sheet and is offered both. "Always update" eats
+edits the writer made in `research/`; "always new" leaves `The falls at night 2`, `… 3`
+and two orphans nobody asked for. `.new` is listed first so a sheet rendering the modes in
+order cannot put "rewrite the writer's note" under the cursor, and `Promotion.updatableTargets`
+is deliberately just the research note and the palette card — a craft intent *accumulates*,
+one document per scope, so "update" there would mean replacing the writer's whole intent
+statement.
+
+**The gesture is a menu command plus a button in each inspector arm, and all four post the
+same command.** File → `Promote…` (⌘⇧↩ — ⌘⇧P is taken by Toggle Research Preview) is
+enabled through a focused value that `CanvasPromotionModifier` publishes, so a command that
+could do nothing is greyed out rather than silently no-op; the region, line and scrap arms
+of the canvas inspector each carry a `Promote…` button posting
+`.maughamPromoteCanvasSelection` to `.keyWindow`. One command, so the button and the
+keystroke cannot drift into behaving differently. This closes spec §10's first open
+question. **A `.keyWindow` post made from inside a sheet or a dialog is dropped** — the
+v0.24.0 "enter does nothing" bug, recorded in `TranslationReviewModifier` — so those three
+buttons are safe precisely because they live in the project window; moving one into a modal
+would break it silently.
+
+**What ⌘Z takes back is the MARK, not the artifact.** The canvas's undo is a scene-scoped
+snapshot stack by design (decision 5), and the note is a real file with the research tree's
+own lifecycle. Undoing a promotion therefore removes the stripe and leaves the note where
+it is. That asymmetry is writer-facing rather than internal, so the guide says it in the
+writer's own words; it is not a gap awaiting a compensating op.
+
+**The line row ships with its reader.** §6.1 as it stands says a line only promotes once
+its ends exist — "`[[X]]` resolves against the manifest — documents and research items —
+and a scrap is in neither, so promoting a line between two unpromoted scraps would write a
+link that resolves to nothing" — and the refusal has to *teach* the precedence rather than
+merely decline. That rule is right about the target side and was silent about the source
+side, which was measured on 2026-07-28 and found narrower: the two `[[…]]` scans
+(`ListAllLinksTool.swift:93` and `ReferenceTools.swift:180`, as §6.1 records them) walked
+`manifest.structure` only, `ResearchNoteEditor` has no wiki-link handling at all, and
+`ProjectStore+Structure.propagateWikiLinkRename` walks documents only. Since promotion
+never produces a manuscript document, every link it writes lands in a research note — so
+the row would have shipped inert on all four counts. This slice teaches `list_all_links`
+and `find_references` to scan research bodies, in the same slice as the row, because
+shipping it otherwise would have been this area's fifth built-and-unreachable half and the
+previous four were each found by counting callers rather than by a test. **The other two
+are recorded and not fixed** — see Consequences.
+
+**A mark cannot be validated where it is stored, and never could.** The scene has never
+seen the manifest, so a writer who deletes the note leaves an id that resolves to nothing.
+`ArtifactIndex` — item id → title, built once when the sheet opens — is what resolves a
+mark, and it is passed in rather than reached for, which is what keeps `Promotion` pure and
+testable and walks the manifest once rather than per query. The dangling case is not an
+error state: the card's inspector says what it produced is no longer in the project, and a
+line whose end has gone stops offering a wiki-link.
+
+**The sidecar steps to schema 4, additive-optional both ways.** `promotedItemID` joined the
+node and the region rather than arriving as a top-level collection of its own — the mark
+belongs to the thing it marks — so a schema-3 sidecar decodes unchanged, and a schema-4
+sidecar opened by an older build still fails the `schemaVersion <= current` gate and yields
+an empty layout with `canvas.md` read as normal. Decision 3's split again: it costs the
+arrangement and never the words.
+
+Constitution principles this decision answers to: **must #1, *the words are safe*** — the
+performer validates before it writes, flushes the 750 ms autosave before every body write,
+and refuses an unreadable destination rather than appending to an empty string and writing
+the result back; **must #2, *get out of the way*** — promotion is explicit, previewable and
+never required, and the link offer defaults to unchecked because membership is n-ary and
+vague where a wiki-link is binary and specific; **must #3, *delight, end to end*** — the
+stripe is how a promoted card says so without a panel being open.
+
 ## Consequences
 
 - **More code than a `ZStack`**, and the accessibility layer is code that a hosted-view
@@ -491,7 +582,10 @@ regions forced into the open — see decision 5.
 - **Eight tripwires (25–32)** and `Maugham/Canvas/AREA.md`. They exist because almost every
   defect behind them is invisible to a subview count, a geometry assertion or a green
   suite — 30 and 32 were each found by a review rather than by a test, and 32 was reached
-  three times in one slice before it was written down.
+  three times in one slice before it was written down. **Tripwire 32's census is three
+  entries as of 1C-c2**: `LineInspector.swift`, `RegionInspector.swift` and
+  `PromotionPerformer.swift`, which writes the promoted mark from outside the canvas and
+  can run while a focused scrap holds "Edit Scrap" open.
 - **Hit testing is on the unrotated rect**, so there is a mismatch band of `r·θ` — ~2.6 pt
   at the corner of a default 240×80 card at the calibrated 1.2° tilt. It sits exactly where
   the resize mark is drawn and tested, and is accepted because 2.6 pt is inside pointer
@@ -515,10 +609,31 @@ regions forced into the open — see decision 5.
     these by eye and a literal in a `.metal` file is not findable. Light is untouched.
   - **The focused scrap is announced twice to VoiceOver**, once stale (decision 6). Whether
     `elements` needs to know the focused id is a question a VoiceOver walk settles.
-- **Left to later slices** *(updated 2026-07-28)*: lines and promotion (1C-c); item nodes,
-  drops and images (1C-d). Regions, `CanvasModel` and deleting a scrap were on this list and
-  1C-b built all three. §8A.2's Claude write path is designed and unbuilt; its
-  constitutional reasoning is recorded in the spec, not here.
+- **The promoted `[[…]]` is read but not carried, and both halves are recorded rather than
+  fixed** *(1C-c2)*. `list_all_links` and `find_references` now scan research-note bodies,
+  so a promoted line's link is *visible* to the link layer. Nothing else sees it:
+  `ProjectStore+Structure.propagateWikiLinkRename` walks manuscript documents only, so
+  renaming a promoted note leaves the link pointing at the old title; and neither
+  `ResearchNoteEditor` nor `ResearchNotePreviewPane` renders `[[…]]` as a link, so in the
+  research pane it is plain text. Both are ordinary scope — the link is *correct*, and
+  reading it is what §6.1's line row actually required — but they are written down here so
+  the next author meets them as known rather than as a surprise.
+- **A promoted card and its artifact can drift apart, and that is the design** (decision 9,
+  §6.1's 2026-07-28 amendment). There is no reconciler, no freshness stamp and no
+  "out of date" chrome, because none was promised: the mark is provenance. Do not read the
+  absence of a sync path as an unfinished one.
+- **Appending into a note another window has that note open is a known limitation**
+  *(1C-c2)*. `PromotionPerformer` flushes the queued 750 ms save before every body write,
+  but a second window's research editor holds its own buffer, and its next keystroke can
+  re-save pre-append text over the link. It is narrower than it sounds in a single window —
+  `CanvasView` and `ResearchNoteEditor` are two branches of the same centre-column switch,
+  so the writer cannot have both on screen — and it is the same class as `AddNoteTool`'s,
+  which is why it is recorded here with that one rather than solved locally.
+- **Left to later slices** *(updated 2026-07-28)*: item nodes, drops and images (1C-d), and
+  the MCP canvas surface (1C-c3). Lines and promotion were on this list and 1C-c1 and 1C-c2
+  built them (decision 9); regions, `CanvasModel` and deleting a scrap were on it and 1C-b
+  built all three. §8A.2's Claude write path is designed and unbuilt; its constitutional
+  reasoning is recorded in the spec, not here.
 - **Appearances had no creator for one commit, and 1C-b closed that too** *(2026-07-28)*.
   `CanvasMembership.addAppearance` shipped persisted, drawn as a chip, listed in the
   inspector and removable from it — every part under test, and no production caller. That is
@@ -528,5 +643,6 @@ regions forced into the open — see decision 5.
   Card** menu (decision 8), and a caller census now asserts the list by name so it fails both
   when it empties and when it grows. The lesson is kept rather than the gap: **a green suite
   cannot distinguish a fully-exercised function from a reachable one.**
-- **⌫ is the only route to deleting a scrap**, because a scrap has no inspector to put a
-  button in. Regions have one. See decision 7.
+- **⌫ is the only route to deleting a scrap.** This bullet used to give the reason as "a
+  scrap has no inspector to put a button in"; since 1C-c2 it has one and still has no
+  Delete button, by ruling rather than by omission. See decision 7.

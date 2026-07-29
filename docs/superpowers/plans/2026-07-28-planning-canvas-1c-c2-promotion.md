@@ -3868,6 +3868,8 @@ Denver runs these by hand. Everything before this point is a green suite, which 
 14. Ask Claude `find_references` for a promoted note's title → the promoting note is listed. This is the reader Task 8 built; if it is empty, the line row is inert again.
 15. Quit mid-sheet (⌘Q with the sheet open) and reopen → no crash, nothing half-written, the canvas as it was.
 16. **The menu item is disabled** outside the canvas segment and with nothing selected, and enabled with a card, a region or a line selected.
+17. **Menu enablement, end to end.** Select a card on the canvas, open the **File** menu, and confirm `Promote…` is live rather than greyed — then press **⌘⇧↩** and confirm the sheet opens. The unit tests cover the pure enablement rule and the census covers the wiring, but that the published focused value actually flips the menu item's enabled state is only checkable by hand.
+18. **A failed promotion must be VISIBLE.** Delete an artifact between opening the sheet and committing (promote a card, delete the note in the research tree, then re-promote choosing **Rewrite**), and confirm the **"Promotion failed"** alert actually appears. Presenting an alert while a sheet dismissal is in flight is a known SwiftUI swallow, and every `PromotionFailure` the sheet cannot pre-empt reaches the writer only through that path.
 
 ---
 
