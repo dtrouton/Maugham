@@ -28,12 +28,17 @@ struct RegionInspectorPane: View {
     /// `PromotedArtifactSection`. Both the card arm and the region arm take
     /// them: a region's mark had no surface at all for one slice.
     let artifactTitle: (String) -> String?
+    /// What the writer's binder calls a piece, over the WHOLE structure — the
+    /// lookup that tells a piece which is gone from one which is simply not
+    /// routable. Both piece-bearing arms take it; see
+    /// `ScrapInspector.association`.
+    let pieceTitle: (String) -> String?
     let onOpenResearchItem: (String) -> Void
 
     var body: some View {
         if let region = model.selectedRegion {
             RegionInspector(model: model, regionID: region.id, pieces: pieces,
-                            artifactTitle: artifactTitle,
+                            artifactTitle: artifactTitle, pieceTitle: pieceTitle,
                             onOpenResearchItem: onOpenResearchItem)
         } else if let line = model.selectedLine {
             LineInspector(model: model, lineID: line.id)
@@ -53,7 +58,7 @@ struct RegionInspectorPane: View {
             // a promotion can be routed to, so the two pickers cannot disagree
             // about what a writer may choose.
             ScrapInspector(model: model, nodeID: node.id, pieces: pieces,
-                           artifactTitle: artifactTitle,
+                           artifactTitle: artifactTitle, pieceTitle: pieceTitle,
                            onOpenResearchItem: onOpenResearchItem)
         } else {
             // Tripwire 15: the full-frame chain is required, and so is the
@@ -131,6 +136,10 @@ struct RegionInspector: View {
     /// section was missing from this arm for a whole slice, and a default that
     /// answered nil would let it go missing again without a compile error.
     let artifactTitle: (String) -> String?
+    /// Deferred, and asked only when the binding names a piece the offer does
+    /// not hold. See `ScrapInspector.association` — this is the lookup that
+    /// stops the pane calling a piece in the writer's binder "missing".
+    let pieceTitle: (String) -> String?
     let onOpenResearchItem: (String) -> Void
 
     /// What the writer has typed but not yet committed. Local, so one rename is
@@ -145,9 +154,11 @@ struct RegionInspector: View {
 
     private var region: CanvasRegion? { model.scene.region(regionID) }
 
-    /// A region's mark can only ever name a palette card — a piece binding
-    /// produces no artifact and deliberately leaves no mark — so the section is
-    /// handed `.region` and says so.
+    /// A region's mark can name a research note **or** a palette card as of
+    /// 1C-c2a (spec §6's 2026-07-29 amendment), so the section is handed
+    /// `.region` for the NOUN alone and names no kind — see
+    /// `PromotedArtifactSection.Subject`, whose region arm said "the palette
+    /// card" for a slice after the row had already gained `.researchNote`.
     private var artifactState: PromotedArtifactSection.ArtifactState {
         let mark = region?.promotedItemID
         return PromotedArtifactSection.artifactState(promotedItemID: mark,
@@ -168,13 +179,14 @@ struct RegionInspector: View {
                     set: { commitBinding($0 == Self.noPieceTag ? nil : $0) })) {
                         Text("None").tag(Self.noPieceTag)
                         ForEach(pieces) { Text($0.title).tag($0.id) }
-                        // A binding whose piece has since been deleted or moved
-                        // out of the manuscript. Shown rather than dropped: a
+                        // A binding whose piece the offer does not hold — gone
+                        // from the project, or in the binder and keeping no
+                        // research of its own. Shown rather than dropped: a
                         // `Picker` with no row matching its selection renders
                         // blank, which reads as "not bound" and invites the
                         // writer to fix a problem they cannot see.
-                        if let orphan = boundPieceMissingFromTheManuscript {
-                            Text("Missing piece · \(orphan)").tag(orphan)
+                        if let orphan = boundPieceThePickerCannotOffer {
+                            Text(orphan.label).tag(orphan.id)
                         }
                     }
             } header: {
@@ -547,11 +559,25 @@ struct RegionInspector: View {
             }
     }
 
-    /// The bound piece id when nothing in the manuscript answers to it.
-    private var boundPieceMissingFromTheManuscript: String? {
+    /// The bound piece, and the row that stands for it, when the OFFER holds no
+    /// piece by that id.
+    ///
+    /// **It used to be called `boundPieceMissingFromTheManuscript`, and after
+    /// Task 4 that name was literally false.** The offer narrowed from every
+    /// `.document` to `researchScopeTargets()`, so a Collection reference piece
+    /// — present in the writer's binder, right in front of them — fell out of it
+    /// and rendered as "Missing piece · ref-1", while `PromotionPiece.resolve`
+    /// found its title in `manifest.structure` and refused with *"Elsewhere"
+    /// cannot keep research of its own*. The row is built through
+    /// `ScrapInspector.PieceAssociation` so this picker, the card arm's picker
+    /// and that refusal are one story.
+    ///
+    /// Never inherited: a region has no home to inherit from.
+    private var boundPieceThePickerCannotOffer: (id: String, label: String)? {
         guard let bound = region?.boundPieceID,
               !pieces.contains(where: { $0.id == bound }) else { return nil }
-        return bound
+        return (bound, ScrapInspector.unoffered(bound, pieceTitle: pieceTitle,
+                                                inherited: false).label)
     }
 
     // MARK: - Commits

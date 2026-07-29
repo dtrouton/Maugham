@@ -29,6 +29,13 @@ struct ScrapInspector: View {
     /// Deferred: it walks the manifest, and it is called only when a promoted
     /// card is selected. Same rule as `CanvasView.paletteSwatchHexes`.
     let artifactTitle: (String) -> String?
+    /// What the writer's BINDER calls a piece — the whole structure, not the
+    /// routable subset in `pieces`. See `association` for why the two are not
+    /// the same lookup.
+    ///
+    /// Deferred for `artifactTitle`'s reason, and asked even less often: only
+    /// when an association names a piece `pieces` does not hold.
+    let pieceTitle: (String) -> String?
     let onOpenResearchItem: (String) -> Void
 
     private var node: CanvasNode? { model.scene.node(nodeID) }
@@ -61,14 +68,14 @@ struct ScrapInspector: View {
                         Text("None").tag(RegionInspector.noPieceTag)
                         ForEach(pieces) { Text($0.title).tag($0.id) }
                         // The card's own association naming a piece the picker
-                        // cannot offer — deleted, or converted to a reference
-                        // piece. Shown rather than dropped, for
-                        // `RegionInspector`'s reason: a `Picker` with no row
-                        // matching its selection renders blank, which reads as
-                        // "not associated" and invites the writer to fix a
-                        // problem they cannot see.
-                        if let orphan = ownPieceMissingFromTheOffer {
-                            Text("Missing piece · \(orphan)").tag(orphan)
+                        // cannot offer — deleted, or a reference piece that
+                        // keeps its research in its own project. Shown rather
+                        // than dropped, for `RegionInspector`'s reason: a
+                        // `Picker` with no row matching its selection renders
+                        // blank, which reads as "not associated" and invites the
+                        // writer to fix a problem they cannot see.
+                        if let orphan = ownPieceThePickerCannotOffer {
+                            Text(orphan.label).tag(orphan.id)
                         }
                     }
                 // **The resolved answer, and where it came from.** The Picker
@@ -95,8 +102,13 @@ struct ScrapInspector: View {
                 // splits the ENTIRE scrap string (a non-lazy `split` with
                 // `omittingEmptySubsequences: false`), and the `ForEach(pieces)`
                 // above builds a row per manuscript document. Against those,
-                // sorting tens of 4-character region ids is noise, and gating
-                // this one call alone would change nothing observable.
+                // sorting tens of 4-character region ids is noise — TWICE, which
+                // is what it actually costs: `association` asks
+                // `Promotion.piece` and then `pieceIsInherited` asks it again.
+                // That is one walk per frame more than this comment claimed
+                // before the whole-branch review counted them, and the ruling is
+                // unchanged: gating these two calls alone would change nothing
+                // observable.
                 // (2) It is proportional to the REGION count — not the node count
                 // and not any text — where the lists `RegionInspector` gates pay
                 // a whole-scrap-text split per member plus
@@ -116,7 +128,8 @@ struct ScrapInspector: View {
                 // counter. Do not record this as "there is no gated way".
                 LabeledContent("Promotions go to",
                                value: Self.association(for: nodeID, in: model.scene,
-                                                       pieces: pieces).label)
+                                                       pieces: pieces,
+                                                       pieceTitle: pieceTitle).label)
             } header: {
                 Text("Piece")
             } footer: {
@@ -151,11 +164,15 @@ struct ScrapInspector: View {
         + "as None and the card follows the region it lives in — or the project's "
         + "own research, if it lives in none."
 
-    /// The card's own association when the offer holds no piece by that id.
-    private var ownPieceMissingFromTheOffer: String? {
+    /// The card's own association when the offer holds no piece by that id, and
+    /// the row that stands for it — built through `PieceAssociation` so the
+    /// Picker's row and "Promotions go to" cannot tell two stories about one
+    /// state. Never inherited: this reads the card's OWN field.
+    private var ownPieceThePickerCannotOffer: (id: String, label: String)? {
         guard let bound = node?.boundPieceID,
               !pieces.contains(where: { $0.id == bound }) else { return nil }
-        return bound
+        return (bound, Self.unoffered(bound, pieceTitle: pieceTitle,
+                                      inherited: false).label)
     }
 
     /// What piece a promotion from this card would land in, and **where that
@@ -170,19 +187,32 @@ struct ScrapInspector: View {
         case none
         case own(title: String)
         case inherited(title: String)
-        /// The association names a piece the offer does not hold: deleted, or
-        /// converted to a Collection reference piece. It keeps the id because
-        /// that is all there is left to say, and the writer needs to see that
-        /// *something* is set before they can clear it.
+        /// The association names a piece that is **not in the project at all**.
+        /// It keeps the id because that is all there is left to say, and the
+        /// writer needs to see that *something* is set before they can clear it.
         /// **`inherited` matters most here, which is the opposite of obvious.**
         /// A card living in a region whose piece was deleted carries nothing
         /// itself, so without this the pane says "Missing piece · gone-9" beside
         /// a Picker reading None — and the writer has nothing to clear and no
         /// idea where the stale value lives. The qualifier is what sends them to
         /// the region.
-        case missing(id: String, inherited: Bool)
+        case gone(id: String, inherited: Bool)
 
-        /// One spelling of the qualifier, used by both cases that need it.
+        /// The association names a piece that is **in the writer's binder** and
+        /// keeps no research of its own — a Collection reference piece, or a
+        /// group `researchRouting` throws on.
+        ///
+        /// **This case exists because the pane and the refusal told two stories
+        /// about one state.** Task 4 narrowed the offer to
+        /// `researchScopeTargets()`, correctly; the label resolved its title out
+        /// of that same narrowed list, so anything the filter excluded rendered
+        /// as "Missing piece · ref-1" — while `PromotionPiece.resolve` looked the
+        /// title up in `manifest.structure`, found it, and refused with
+        /// *"Elsewhere" cannot keep research of its own*. One is in the binder in
+        /// front of the writer; "missing" sent them hunting for it.
+        case keepsNoResearch(title: String, inherited: Bool)
+
+        /// One spelling of the qualifier, used by every case that needs it.
         static let fromItsRegion = " (from its region)"
 
         var label: String {
@@ -192,10 +222,28 @@ struct ScrapInspector: View {
             // The distinction the writer needs: "Chapter Three (from its region)"
             // is why an override would matter, and why the Picker above says None.
             case .inherited(let title): return title + Self.fromItsRegion
-            case .missing(let id, let inherited):
+            case .gone(let id, let inherited):
                 return "Missing piece · \(id)" + (inherited ? Self.fromItsRegion : "")
+            case .keepsNoResearch(let title, let inherited):
+                // The refusal's own halves, in the pane's voice — see
+                // `PromotionFailure.pieceIsNotAResearchTarget`, which says
+                // "“\(title)” cannot keep research of its own".
+                return "\(title) · keeps no research of its own"
+                    + (inherited ? Self.fromItsRegion : "")
             }
         }
+    }
+
+    /// The two states an association the picker cannot offer can be in, told
+    /// apart by the BINDER rather than by the offer.
+    ///
+    /// **One lookup, two callers** — the Picker's orphan row and "Promotions go
+    /// to" — because those two surfaces describing one state differently is the
+    /// defect this exists to fix.
+    static func unoffered(_ id: String, pieceTitle: (String) -> String?,
+                          inherited: Bool) -> PieceAssociation {
+        guard let title = pieceTitle(id) else { return .gone(id: id, inherited: inherited) }
+        return .keepsNoResearch(title: title, inherited: inherited)
     }
 
     /// **Resolved through `Promotion.piece`, never by reading the two fields.**
@@ -204,19 +252,29 @@ struct ScrapInspector: View {
     /// not use — including the visitor case, where a card cited in a bound region
     /// inherits nothing (§4.3: home decides and visitors do not).
     ///
+    /// **Two lookups, and they are not the same question.** `pieces` is the
+    /// routable offer (`researchScopeTargets()`), so a hit there means the
+    /// promotion will land somewhere and the label is just the title.
+    /// `pieceTitle` is the whole structure, and it is what tells a piece that is
+    /// GONE from one sitting in the writer's binder that simply keeps no
+    /// research — the second of which read "Missing piece · ref-1" for a slice,
+    /// while the refusal one layer down named it and said what was wrong with
+    /// it. It is asked only on the miss, so the ordinary path walks nothing.
+    ///
     /// Static, so a test drives exactly what the view does.
     static func association(for nodeID: CanvasNodeID, in scene: CanvasScene,
-                            pieces: [RegionInspector.PieceChoice]) -> PieceAssociation {
+                            pieces: [RegionInspector.PieceChoice],
+                            pieceTitle: (String) -> String?) -> PieceAssociation {
         guard let resolved = Promotion.piece(for: .scrap(nodeID), in: scene) else {
             return .none
         }
-        // Asked BEFORE the title lookup, and carried into the missing case too.
-        // Resolving it only on the way to `.own`/`.inherited` loses the fact
+        // Asked BEFORE the title lookup, and carried into both unoffered cases
+        // too. Resolving it only on the way to `.own`/`.inherited` loses the fact
         // exactly where the writer needs it: a stale piece they cannot clear
         // because it is not theirs.
         let inherited = Promotion.pieceIsInherited(for: .scrap(nodeID), in: scene)
         guard let title = pieces.first(where: { $0.id == resolved })?.title else {
-            return .missing(id: resolved, inherited: inherited)
+            return unoffered(resolved, pieceTitle: pieceTitle, inherited: inherited)
         }
         return inherited ? .inherited(title: title) : .own(title: title)
     }
@@ -225,10 +283,18 @@ struct ScrapInspector: View {
     /// the right-hand column and a focused scrap holds "Edit Scrap" open behind
     /// it — nothing on this side of the window closes that bracket. Nested, the
     /// association registers no undo step of its own and rides into the writer's
-    /// next sentence, where a ⌘Z aimed at a sentence takes it with them. Repro:
-    /// double-click a region's CHROME BAR (click 1 selects it, click 2 mints a
-    /// scrap and opens the bracket) — not a card, whose first click reassigns the
-    /// selection.
+    /// next sentence, where a ⌘Z aimed at a sentence takes it with them.
+    ///
+    /// **This arm's repro is a double-click on the CARD**, which is the most
+    /// ordinary gesture on the canvas: click 1 selects the node and puts this
+    /// pane on screen, click 2 opens "Edit Scrap" without touching the selection
+    /// (`handleClick` assigns `model.selection` inside the `clickCount < 2`
+    /// branch), so the Picker is live over a bracket nothing on this side of the
+    /// window closes. **It is NOT the chrome-bar double-click** — that leaves the
+    /// *region* selected, so `RegionInspectorPane` renders the region arm and
+    /// this pane is not on screen at all. This comment cited the chrome bar
+    /// until the whole-branch review, which understated the exposure: each arm
+    /// has its own repro, and neither one's is the other's.
     ///
     /// **Two names, because clearing reaches a genuinely different state** —
     /// `LineInspector.commitBinding`'s Bind/Unbind precedent, and not

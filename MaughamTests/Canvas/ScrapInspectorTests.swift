@@ -101,21 +101,24 @@ final class ScrapInspectorTests: XCTestCase {
 
     // MARK: - Both arms, one section
 
-    /// **A region's mark had no surface at all for one slice.** The card arm
-    /// said what it became, offered Open and rendered the dangling case; the
-    /// region arm — same field, same drawn stripe, same VoiceOver term — said
-    /// nothing, so a writer met a permanent stripe on a region's chrome bar with
-    /// no way to learn what it produced. The section is now one implementation
-    /// both arms are handed, and the copy is honest for each.
-    func test_theRegionArmNamesThePaletteCardAndTheCardArmDoesNot() {
+    /// **Neither arm names a kind, and the region arm's did until 1C-c2a.** Its
+    /// sentence read "Became the palette card “…”" on the stated grounds that a
+    /// region's mark could only ever be one — and the task that put
+    /// `.researchNote` on the region's row did not touch this file, so nothing
+    /// recompiled, nothing failed, and a region promoted to a research note was
+    /// told it had become a palette card over an **Open** button that opened a
+    /// note. This assertion was green throughout, with the removed piece-binding
+    /// concept as its rationale.
+    func test_neitherArmNamesAKindItCannotKnow() {
         XCTAssertEqual(PromotedArtifactSection.Subject.region.became("Act II fog"),
-                       "Became the palette card “Act II fog”",
-                       "a region's mark can only ever name a palette card — a "
-                       + "piece binding produces no artifact and leaves no mark")
+                       "Became “Act II fog”",
+                       "a region's mark may name a research note or a palette "
+                       + "card (spec §6, 2026-07-29), and this arm is not told "
+                       + "which")
         XCTAssertEqual(PromotedArtifactSection.Subject.card.became("Act II fog"),
                        "Became “Act II fog”",
-                       "a card's may name a note, a palette card or the craft "
-                       + "intent, and this arm is not told which")
+                       "a card's may name either of those or the craft intent, "
+                       + "and this arm is not told which either")
     }
 
     func test_theDanglingSentenceNamesWhichThingWasPromoted() {
@@ -194,7 +197,8 @@ final class ScrapInspectorTests: XCTestCase {
                             [RegionInspector.PieceChoice(id: "ch-3", title: "Chapter Three")])
         -> ScrapInspector {
         ScrapInspector(model: m, nodeID: a, pieces: pieces,
-                       artifactTitle: { _ in nil }, onOpenResearchItem: { _ in })
+                       artifactTitle: { _ in nil }, pieceTitle: { _ in nil },
+                       onOpenResearchItem: { _ in })
     }
 
     private let r1 = CanvasRegionID("r1")
@@ -211,6 +215,14 @@ final class ScrapInspectorTests: XCTestCase {
 
     private var pieces: [RegionInspector.PieceChoice] {
         [RegionInspector.PieceChoice(id: "ch-3", title: "Chapter Three")]
+    }
+
+    /// The BINDER — the whole structure, which is a wider set than the offer.
+    /// `ref-1` is a Collection reference piece: in the writer's binder, in front
+    /// of them, and refused by `researchRouting`, so `pieceChoices` filters it
+    /// out while `manifest.structure` still names it. `gone-9` is in neither.
+    private let binder: (String) -> String? = { id in
+        id == "ref-1" ? "Elsewhere" : nil
     }
 
     /// **A card had no way to be given a piece at all.** Task 3 taught the
@@ -269,10 +281,12 @@ final class ScrapInspectorTests: XCTestCase {
         let m = modelInRegion()
         m.withScene { $0.updateRegion(self.r1) { $0.boundPieceID = "ch-3" } }
         XCTAssertNil(m.scene.node(a)?.boundPieceID, "nothing of its own")
-        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces),
+        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces,
+                                                  pieceTitle: binder),
                        .inherited(title: "Chapter Three"))
         XCTAssertEqual(
-            ScrapInspector.association(for: a, in: m.scene, pieces: pieces).label,
+            ScrapInspector.association(for: a, in: m.scene, pieces: pieces,
+                                                  pieceTitle: binder).label,
             "Chapter Three (from its region)",
             "the precedence is visible, so the writer can see why an override "
             + "would matter")
@@ -284,49 +298,109 @@ final class ScrapInspectorTests: XCTestCase {
         let m = modelInRegion()
         m.withScene { $0.updateRegion(self.r1) { $0.boundPieceID = "other" } }
         inspector(m).commitPiece("ch-3")
-        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces),
+        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces,
+                                                  pieceTitle: binder),
                        .own(title: "Chapter Three"))
-        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces).label,
+        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces,
+                                                  pieceTitle: binder).label,
                        "Chapter Three")
     }
 
     func test_noAssociationSaysTheProjectsResearchRatherThanNothing() {
         let m = model()
-        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces), .none)
-        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces).label,
+        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces,
+                                                  pieceTitle: binder), .none)
+        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces,
+                                                  pieceTitle: binder).label,
                        "The project's research")
     }
 
-    /// The stale association, in the pane rather than in the sheet: the piece was
-    /// deleted, or converted to a reference. Shown rather than dropped — a
-    /// `Picker` with no row matching its selection renders blank, which reads as
-    /// "not bound" and invites the writer to fix a problem they cannot see.
-    func test_anAssociationThePickerCannotOfferIsNamedAsMissing() {
+    /// The association whose piece is GONE from the project: nothing in the
+    /// binder answers to the id. Shown rather than dropped — a `Picker` with no
+    /// row matching its selection renders blank, which reads as "not bound" and
+    /// invites the writer to fix a problem they cannot see.
+    func test_anAssociationWhosePieceIsGoneSaysSoWithTheIdItHasLeft() {
         let m = model()
-        inspector(m).commitPiece("ref-1")
-        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces),
-                       .missing(id: "ref-1", inherited: false))
-        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces).label,
-                       "Missing piece · ref-1",
+        inspector(m).commitPiece("gone-9")
+        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces,
+                                                  pieceTitle: binder),
+                       .gone(id: "gone-9", inherited: false))
+        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces,
+                                                  pieceTitle: binder).label,
+                       "Missing piece · gone-9",
                        "the card's OWN stale piece: the Picker beside this shows it "
                        + "too, and clearing it is one click away")
     }
 
+    /// **The piece in the writer's binder that the pane called missing.** Task 4
+    /// narrowed the offer to `researchScopeTargets()`, correctly — and the label
+    /// went on resolving its title out of that same narrowed list, so a
+    /// Collection reference piece rendered as "Missing piece · ref-1" while
+    /// `PromotionPiece.resolve` found it in `manifest.structure` and refused with
+    /// *"Elsewhere" cannot keep research of its own*. Two surfaces, one state,
+    /// two stories — and the pane's sent the writer hunting for something sitting
+    /// in their binder.
+    func test_aPieceThatKeepsNoResearchIsNotCalledMissing() {
+        let m = model()
+        inspector(m).commitPiece("ref-1")
+        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces,
+                                                  pieceTitle: binder),
+                       .keepsNoResearch(title: "Elsewhere", inherited: false))
+        let label = ScrapInspector.association(for: a, in: m.scene, pieces: pieces,
+                                               pieceTitle: binder).label
+        XCTAssertEqual(label, "Elsewhere · keeps no research of its own")
+        XCTAssertFalse(label.contains("Missing"),
+                       "it is in the binder in front of them — found: \(label)")
+        // The same words the refusal reaches for, so the pane and the sheet tell
+        // one story.
+        let refusal = PromotionFailure
+            .pieceIsNotAResearchTarget(title: "Elsewhere", inherited: false)
+            .errorDescription ?? ""
+        XCTAssertTrue(refusal.contains("keep research of its own"),
+                      "found: \(refusal)")
+    }
+
     /// **The stale association the writer cannot clear**, and the case that
-    /// `.missing` losing the inheritance made unreachable: the card lives in a
-    /// region whose piece was deleted. Its own Picker reads None — correctly,
-    /// it carries nothing — so a label saying only "Missing piece · gone-9"
-    /// leaves the writer with nothing to clear and no idea where the value
-    /// lives. The qualifier is what sends them to the region.
+    /// dropping the inheritance made unreachable: the card lives in a region
+    /// whose piece was deleted. Its own Picker reads None — correctly, it
+    /// carries nothing — so a label saying only "Missing piece · gone-9" leaves
+    /// the writer with nothing to clear and no idea where the value lives. The
+    /// qualifier is what sends them to the region.
     func test_aStaleAssociationInheritedFromARegionSaysWhereItCameFrom() {
         let m = modelInRegion()
         m.withScene { $0.updateRegion(self.r1) { $0.boundPieceID = "gone-9" } }
         XCTAssertNil(m.scene.node(a)?.boundPieceID,
                      "there is nothing on the card for the writer to clear")
-        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces),
-                       .missing(id: "gone-9", inherited: true))
-        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces).label,
+        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces,
+                                                  pieceTitle: binder),
+                       .gone(id: "gone-9", inherited: true))
+        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces,
+                                                  pieceTitle: binder).label,
                        "Missing piece · gone-9 (from its region)")
+    }
+
+    /// The qualifier reaches the other unoffered case too — a card inheriting a
+    /// reference piece from its region has nothing of its own to change, which
+    /// is precisely what the refusal's `inherited` half says.
+    func test_anInheritedPieceThatKeepsNoResearchAlsoSaysWhereItCameFrom() {
+        let m = modelInRegion()
+        m.withScene { $0.updateRegion(self.r1) { $0.boundPieceID = "ref-1" } }
+        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces,
+                                                  pieceTitle: binder).label,
+                       "Elsewhere · keeps no research of its own (from its region)")
+    }
+
+    /// **Both pickers' orphan row is the same value**, so the card arm and the
+    /// region arm cannot describe one state two ways. The region arm's property
+    /// was called `boundPieceMissingFromTheManuscript`, which after Task 4 was
+    /// literally false for `ref-1`.
+    func test_bothPickersSpellTheUnofferedRowTheSameWay() {
+        XCTAssertEqual(ScrapInspector.unoffered("ref-1", pieceTitle: binder,
+                                                inherited: false).label,
+                       "Elsewhere · keeps no research of its own")
+        XCTAssertEqual(ScrapInspector.unoffered("gone-9", pieceTitle: binder,
+                                                inherited: false).label,
+                       "Missing piece · gone-9")
     }
 
     /// The card's OWN association wins even when the region's is stale, so the
@@ -335,7 +409,8 @@ final class ScrapInspectorTests: XCTestCase {
         let m = modelInRegion()
         m.withScene { $0.updateRegion(self.r1) { $0.boundPieceID = "gone-9" } }
         inspector(m).commitPiece("ch-3")
-        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces).label,
+        XCTAssertEqual(ScrapInspector.association(for: a, in: m.scene, pieces: pieces,
+                                                  pieceTitle: binder).label,
                        "Chapter Three")
     }
 
@@ -354,7 +429,8 @@ final class ScrapInspectorTests: XCTestCase {
                                 width: 240, cachedHeight: 80))
             CanvasMembership.addAppearance(visitor, to: self.r1, in: &s)
         }
-        XCTAssertEqual(ScrapInspector.association(for: visitor, in: m.scene, pieces: pieces),
+        XCTAssertEqual(ScrapInspector.association(for: visitor, in: m.scene, pieces: pieces,
+                                                  pieceTitle: binder),
                        .none,
                        "home decides and visitors do not — and the pane must not "
                        + "invent a second answer to that")

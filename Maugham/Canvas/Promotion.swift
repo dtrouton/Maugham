@@ -6,6 +6,22 @@ enum PromotionSource: Equatable, Hashable {
     case scrap(CanvasNodeID)
     case region(CanvasRegionID)
     case line(CanvasLineID)
+
+    /// The word a refusal calls this thing — **the writer's word, not the
+    /// model's**: a `.scrap` is a *card* on the canvas, and every other sentence
+    /// they read says card.
+    ///
+    /// It exists because `PromotionFailure.emptyBody` said "There is nothing in
+    /// this **card** to promote." for an empty REGION. (The other spelling of
+    /// the same two words is `PromotedArtifactSection.Subject.noun`, which is a
+    /// view's and covers only the two subjects that have a pane.)
+    var noun: String {
+        switch self {
+        case .scrap: return "card"
+        case .region: return "region"
+        case .line: return "line"
+        }
+    }
 }
 
 /// What it becomes. **This list IS spec §6's table** and must not grow without
@@ -28,8 +44,10 @@ enum PromotionTarget: String, Equatable, Hashable, CaseIterable, Identifiable {
         }
     }
 
-    /// What KIND of artifact this target produces — nil for the two that produce
-    /// no research item at all.
+    /// What KIND of artifact this target produces — nil for the one that
+    /// produces no research item at all (`.wikiLink`, whose product is text
+    /// inside somebody else's note). It read "the two" while the piece binding
+    /// was still on the row.
     ///
     /// **This is what makes a mark checkable.** A mark records an item id and
     /// nothing else, so without a kind on each side every mark resolves for
@@ -49,7 +67,7 @@ enum PromotionTarget: String, Equatable, Hashable, CaseIterable, Identifiable {
 
     /// Whether the writer NAMES the artifact this target produces.
     ///
-    /// **Three of the five do not, and two of those were asked anyway.**
+    /// **Two of the four do not, and both were asked anyway.**
     /// `performWikiLink` never reads `plan.title` and neither does
     /// `performCraftIntent` — the intent doc is find-or-create at a fixed title
     /// and the body is appended — so a `Name` field for either showed an
@@ -401,10 +419,20 @@ enum Promotion {
             // a refusal the writer meets before committing and one they meet
             // after must be the same words. It was unreachable from the UI
             // until this call.
-            return PromotionFailure.emptyBody.errorDescription
+            return PromotionFailure.emptyBody(source: source).errorDescription
 
-        case .region:
-            return nil
+        case .region(let id):
+            // **The scrap arm's defect, on the other row.** This returned nil
+            // unconditionally and `plan` had no emptiness guard, so a region
+            // holding nothing (no residents, or residents that are all empty
+            // scraps) previewed an empty body with Promote enabled and threw
+            // `emptyBody` at Commit — in the wrong noun, at that. Pre-existing,
+            // and 1C-c2a is what made it matter: `.researchNote` is the headline
+            // verb on this row now, so "a cluster of scraps is a note" is the
+            // thing a writer tries on a region they have only just drawn.
+            guard let region = scene.region(id) else { return nil }
+            guard regionBodies(region, in: scene, scraps: scraps).isEmpty else { return nil }
+            return PromotionFailure.emptyBody(source: source).errorDescription
 
         case .line(let id):
             guard let line = scene.line(id),
@@ -512,11 +540,11 @@ enum Promotion {
 
         case .region(let id):
             guard let region = scene.region(id) else { return nil }
-            let members = readingOrder(region.homeMembers, in: scene)
-            let bodies = members.compactMap { nodeID -> (CanvasNodeID, String)? in
-                let t = text(of: nodeID, in: request.scraps)
-                return t.isEmpty ? nil : (nodeID, t)
-            }
+            let bodies = regionBodies(region, in: scene, scraps: request.scraps)
+            // The scrap arm's guard, one row down — and `blockedReason` reads
+            // the same helper, so the preview and the refusal agree about what
+            // "empty" means rather than agreeing by coincidence.
+            guard !bodies.isEmpty else { return nil }
             return PromotionPlan(
                 source: request.source, producedKind: request.target,
                 title: regionTitle(region),
@@ -629,6 +657,23 @@ enum Promotion {
         return itemID
     }
 
+    /// The member bodies a region's promotion would join — reading order,
+    /// empties dropped.
+    ///
+    /// **One spelling, because `plan` and `blockedReason` must agree about what
+    /// an empty region IS.** A second walk in either place is how a region comes
+    /// to preview an empty body with Promote enabled and then refuse at Commit,
+    /// which is exactly what the scrap arm did before `blockedReason` learned to
+    /// answer for it.
+    private static func regionBodies(_ region: CanvasRegion, in scene: CanvasScene,
+                                     scraps: [CanvasNodeID: String])
+        -> [(CanvasNodeID, String)] {
+        readingOrder(region.homeMembers, in: scene).compactMap { nodeID in
+            let t = text(of: nodeID, in: scraps)
+            return t.isEmpty ? nil : (nodeID, t)
+        }
+    }
+
     private static func text(of id: CanvasNodeID, in scraps: [CanvasNodeID: String]) -> String {
         (scraps[id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -725,11 +770,21 @@ enum Promotion {
     /// `PromotionPerformer.intentPiece`: an intent doc created under a novel
     /// chapter's shared+link routing lands where `craftIntentItem(forPieceId:)`
     /// never looks, so it is the project's — and the copy says the project's.
+    ///
+    /// **It reads as the object of a sentence, because it is one twice over.**
+    /// The sheet puts it after "Goes to" and
+    /// `PromotionResult.confirmation(for:)` puts it after "Added to" — the
+    /// confirmation used to spell "the project's craft intent" out for itself,
+    /// and the moment this function learned about pieces the two contradicted
+    /// each other within a second on screen. "at the end of what is already
+    /// there" rather than "added to the end of", so one phrase serves both
+    /// without the verb arriving twice; it still says plainly that this appends,
+    /// which is what §6.1 requires of it.
     static func craftIntentDestination(_ piece: PromotionPiece) -> String {
         if case .routed(_, let title, .ownResearch) = piece {
-            return "“\(title)”’s craft intent, added to the end of what is already there"
+            return "“\(title)”’s craft intent, at the end of what is already there"
         }
-        return "the project's craft intent, added to the end of what is already there"
+        return "the project's craft intent, at the end of what is already there"
     }
 
     // MARK: - A stale association

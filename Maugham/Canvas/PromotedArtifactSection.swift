@@ -25,10 +25,25 @@ struct PromotedArtifactSection: View {
         case artifactMissing(itemID: String)
     }
 
-    /// What is being described. **The copy differs and must**: a region's mark
-    /// can only ever name a palette card — a piece binding produces no artifact
-    /// and leaves no mark — while a card's may name a note, a palette card or
-    /// the craft intent, so the card arm cannot name a kind it does not know.
+    /// What is being described — and **it changes the noun and nothing else.**
+    ///
+    /// **The region arm named a kind, and 1C-c2a made that a lie.** Its sentence
+    /// read *Became the palette card “…”* on the stated grounds that a region's
+    /// mark could only ever name a palette card, the other half of its row being
+    /// a piece binding that produced no artifact. Task 2 put `.researchNote` on
+    /// that row; this file was in no task's diff, so nothing recompiled and
+    /// nothing failed, and a region promoted to a research note said *Became the
+    /// palette card “Act II fog”* over an **Open** button that opened a note.
+    ///
+    /// So `became` names no kind for either subject: both arms can now produce
+    /// more than one, and neither is told which. It is deliberately not a
+    /// `switch` with two identical arms — that shape invites a later edit to
+    /// re-divide them, which is exactly how this broke.
+    ///
+    /// `noun` still differs, and that is still correct: the dangling sentence
+    /// says which *thing* on the canvas was promoted, which no promotion can
+    /// change. (`PromotionSource.noun` is the other spelling of that word, one
+    /// layer down, where a refusal needs it for a line as well.)
     enum Subject {
         case card
         case region
@@ -40,12 +55,7 @@ struct PromotedArtifactSection: View {
             }
         }
 
-        func became(_ title: String) -> String {
-            switch self {
-            case .card: return "Became “\(title)”"
-            case .region: return "Became the palette card “\(title)”"
-            }
-        }
+        func became(_ title: String) -> String { "Became “\(title)”" }
     }
 
     let state: ArtifactState

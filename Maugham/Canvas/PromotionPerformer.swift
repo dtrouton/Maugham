@@ -24,6 +24,16 @@ struct PromotionResult: Equatable {
     ///
     /// A pure function of two values, so the wording is pinned by a test that
     /// hosts no SwiftUI.
+    ///
+    /// **The craft-intent arm reads the plan's own destination rather than
+    /// restating it**, and the second spelling is what let the two drift: this
+    /// sentence was written while an intent was always the project's, and 1C-c2a
+    /// taught `Promotion.craftIntentDestination` to scope one to a Collection
+    /// loose piece. In a Collection the sheet then said *"Story A"'s craft
+    /// intent* and the banner, a second later, said *Added to the project's
+    /// craft intent* — sending the writer to look in the project's `research/`
+    /// for a document sitting in `pieces/story-a/research/`. One value, read
+    /// where it was resolved.
     func confirmation(for plan: PromotionPlan) -> String {
         let count = writtenLinks.count
         let links = count == 0 ? ""
@@ -31,7 +41,7 @@ struct PromotionResult: Equatable {
         switch plan.producedKind {
         case .researchNote: return "Promoted to the note “\(title)”." + links
         case .paletteCard: return "Promoted to the palette card “\(title)”." + links
-        case .intentStatement: return "Added to the project's craft intent."
+        case .intentStatement: return "Added to \(plan.destinationDescription)."
         case .wikiLink: return "Wrote the link into the note “\(title)”."
         }
     }
@@ -39,7 +49,11 @@ struct PromotionResult: Equatable {
 
 enum PromotionFailure: LocalizedError, Equatable {
     case emptyTitle
-    case emptyBody
+    /// Nothing to promote. **It carries its source for the NOUN alone**: the
+    /// sentence said "this card" for an empty region too, which is the wrong
+    /// word on the row whose headline verb is now "a cluster of scraps is a
+    /// note".
+    case emptyBody(source: PromotionSource)
     case missingWikiLinkWrite
     case linkAlreadyPresent
     case artifactMissing(String)
@@ -65,7 +79,8 @@ enum PromotionFailure: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .emptyTitle: return "This needs a name before it can be promoted."
-        case .emptyBody: return "There is nothing in this card to promote."
+        case .emptyBody(let source):
+            return "There is nothing in this \(source.noun) to promote."
         case .missingWikiLinkWrite: return "This line has nothing to link."
         case .linkAlreadyPresent: return "That link is already in the note."
         case .artifactMissing(let id):
@@ -177,7 +192,7 @@ struct PromotionPerformer {
             guard !plan.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             else { throw PromotionFailure.emptyTitle }
             guard !plan.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            else { throw PromotionFailure.emptyBody }
+            else { throw PromotionFailure.emptyBody(source: plan.source) }
         case .intentStatement:
             // **No title guard**, because `performCraftIntent` never reads one:
             // the intent doc is find-or-create at a fixed title and the body is
@@ -185,7 +200,7 @@ struct PromotionPerformer {
             // a field that changes nothing — and the sheet stopped asking for
             // one in the same edit, so the two agree.
             guard !plan.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            else { throw PromotionFailure.emptyBody }
+            else { throw PromotionFailure.emptyBody(source: plan.source) }
         case .wikiLink:
             guard plan.wikiLinkWrite != nil else { throw PromotionFailure.missingWikiLinkWrite }
             guard !plan.linkAlreadyPresent else { throw PromotionFailure.linkAlreadyPresent }
@@ -230,7 +245,7 @@ struct PromotionPerformer {
         }
     }
 
-    // MARK: - The five targets
+    // MARK: - The four targets
 
     private func performResearchNote(_ plan: PromotionPlan) async throws -> PromotionResult {
         let itemID: String

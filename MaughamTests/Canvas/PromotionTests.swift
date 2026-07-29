@@ -483,8 +483,10 @@ final class PromotionTests: XCTestCase {
     func test_anEmptyScrapSaysWhyRatherThanOpeningADeadSheet() {
         let reason = Promotion.blockedReason(for: .scrap(a), in: scene(),
                                              scraps: [a: "   \n  "], artifacts: index())
-        XCTAssertEqual(reason, PromotionFailure.emptyBody.errorDescription,
+        XCTAssertEqual(reason, PromotionFailure.emptyBody(source: .scrap(a)).errorDescription,
                        "the performer's own sentence rather than a second wording")
+        XCTAssertEqual(reason, "There is nothing in this card to promote.",
+                       "found: \(reason ?? "nil")")
         XCTAssertNil(Promotion.blockedReason(for: .scrap(a), in: scene(), scraps: texts,
                                              artifacts: index()),
                      "and a card with words in it is not blocked — the control")
@@ -496,9 +498,46 @@ final class PromotionTests: XCTestCase {
                        Promotion.itemNodeReason)
     }
 
-    func test_aRegionIsNeverBlocked() {
+    func test_aRegionWithWordsInItIsNotBlocked() {
         XCTAssertNil(Promotion.blockedReason(for: .region(r1), in: scene(),
                                              scraps: texts, artifacts: index()))
+    }
+
+    /// **The scrap arm's defect, on the other row.** `blockedReason` answered
+    /// nil unconditionally for a region and `plan` had no emptiness guard, so a
+    /// region holding nothing previewed an empty body with Promote enabled and
+    /// then threw at Commit — and threw in the SCRAP's noun. It is pre-existing,
+    /// and 1C-c2a is what made it matter: `.researchNote` is the headline verb on
+    /// this row now, so "a cluster of scraps is a note" is exactly what a writer
+    /// tries on a region they have only just drawn.
+    func test_anEmptyRegionSaysWhyAndSaysItInTheRightNoun() {
+        let empty: [CanvasNodeID: String] = [a: "  ", b: "\n"]
+        let reason = Promotion.blockedReason(for: .region(r1), in: scene(),
+                                             scraps: empty, artifacts: index())
+        XCTAssertEqual(reason, "There is nothing in this region to promote.",
+                       "found: \(reason ?? "nil")")
+        XCTAssertEqual(reason, PromotionFailure.emptyBody(source: .region(r1)).errorDescription,
+                       "the performer's own sentence rather than a second wording")
+    }
+
+    /// A region with no residents at all — the state a freshly swept region on
+    /// bare canvas is in.
+    func test_aRegionWithNoResidentsIsBlockedTheSameWay() {
+        var s = scene()
+        let bare = CanvasRegionID("r2")
+        s.insertRegion(CanvasRegion(id: bare, label: "Just drawn",
+                                    frame: CGRect(x: 900, y: 0, width: 300, height: 200)))
+        XCTAssertEqual(Promotion.blockedReason(for: .region(bare), in: s,
+                                               scraps: texts, artifacts: index()),
+                       "There is nothing in this region to promote.")
+    }
+
+    /// The other half of the pair: the preview and the refusal must agree about
+    /// what "empty" means, or the writer meets a dead sheet again.
+    func test_anEmptyRegionPlansNothingRatherThanPreviewingAnEmptyBody() {
+        var request = self.request(.region(r1), .researchNote)
+        request.scraps = [a: "   ", b: ""]
+        XCTAssertNil(Promotion.plan(request, in: scene()))
     }
 
     // MARK: - Who is asked for a name

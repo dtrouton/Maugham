@@ -795,8 +795,49 @@ final class PromotionPerformerTests: XCTestCase {
         let p = plan(.scrap(a), .intentStatement, store: store, model: model)
         let result = try await PromotionPerformer(store: store, model: model).perform(p)
         XCTAssertEqual(result.confirmation(for: p),
-                       "Added to the project's craft intent.")
+                       "Added to the project's craft intent, at the end of what "
+                       + "is already there.")
         _ = root
+    }
+
+    /// **The confirmation and the preview were two spellings, and this slice
+    /// made them contradict.** `confirmation(for:)` said "Added to the project's
+    /// craft intent." unconditionally — written while an intent was always the
+    /// project's — and 1C-c2a taught `craftIntentDestination` to scope one to a
+    /// Collection loose piece. So in a Collection the sheet said *"Story A"'s
+    /// craft intent*, the writer committed, and the banner a second later named
+    /// the project's, sending them to look in the wrong `research/`. The arm
+    /// reads the plan's own resolved sentence now, so there is nothing left to
+    /// drift.
+    ///
+    /// Driven off `Promotion`'s real destination rather than a hand-built
+    /// string, or the test would pin the same two spellings it exists to
+    /// collapse.
+    func test_theIntentConfirmationIsThePlansOwnDestinationAndNotASecondSpelling() {
+        for piece: PromotionPiece in [
+            .none,
+            .routed(id: "p", title: "Story A", route: .ownResearch),
+            .routed(id: "c", title: "Chapter Three", route: .sharedPlusLink),
+        ] {
+            let destination = Promotion.craftIntentDestination(piece)
+            let p = PromotionPlan(
+                source: .scrap(a), producedKind: .intentStatement, title: "T",
+                body: "Sodium light.", destinationDescription: destination,
+                discards: [], offeredLinks: [], wikiLinkWrite: nil, mode: .new,
+                paletteKind: .other, linkAlreadyPresent: false)
+            let sentence = PromotionResult(createdItemID: "res-1", title: "Craft intent",
+                                           writtenLinks: []).confirmation(for: p)
+            XCTAssertEqual(sentence, "Added to \(destination).")
+            XCTAssertTrue(sentence.contains(destination),
+                          "the banner must not restate what the sheet resolved — "
+                          + "found: \(sentence)")
+        }
+        XCTAssertTrue(
+            Promotion.craftIntentDestination(
+                .routed(id: "p", title: "Story A", route: .ownResearch))
+                .contains("“Story A”"),
+            "and the piece-scoped route really does name the piece, or the "
+            + "contradiction this pins could not have happened")
     }
 
     // MARK: - Who is asked for a name
@@ -828,7 +869,7 @@ final class PromotionPerformerTests: XCTestCase {
         do {
             _ = try await PromotionPerformer(store: store, model: model).perform(empty)
             XCTFail("expected a refusal")
-        } catch PromotionFailure.emptyBody {
+        } catch PromotionFailure.emptyBody(_) {
             XCTAssertTrue(store.manifest.research.isEmpty)
         }
         _ = root

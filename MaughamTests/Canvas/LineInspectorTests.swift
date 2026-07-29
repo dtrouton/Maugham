@@ -365,7 +365,7 @@ final class LineInspectorTests: XCTestCase {
         XCTAssertNotNil(m.selectedLine, "the control: a line selection resolves")
         XCTAssertNil(m.selectedRegion)
         _ = RegionInspectorPane(model: m, pieces: [],
-                                artifactTitle: { _ in nil },
+                                artifactTitle: { _ in nil }, pieceTitle: { _ in nil },
                                 onOpenResearchItem: { _ in }).body
 
         m.selection = .node(a)
@@ -380,7 +380,7 @@ final class LineInspectorTests: XCTestCase {
                        + "with falling through to neither, so this is the "
                        + "assertion that tells them apart")
         _ = RegionInspectorPane(model: m, pieces: [],
-                                artifactTitle: { _ in nil },
+                                artifactTitle: { _ in nil }, pieceTitle: { _ in nil },
                                 onOpenResearchItem: { _ in }).body
     }
 

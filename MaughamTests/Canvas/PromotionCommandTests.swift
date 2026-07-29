@@ -278,7 +278,8 @@ final class PromotionCommandTests: XCTestCase {
     /// matches something else, or a predicate inverted by a tidy-up all read as
     /// green — so the repo's convention is to pair one with a planted offender.
     ///
-    /// **All three plants are deliberately unspellable in production.** An
+    /// **All five plants are deliberately unspellable in production** — count
+    /// the array below, not this sentence; it said "three" over five. An
     /// earlier draft planted `.onKeyWindowCommand(.maughamPromotePiece` — a
     /// *plausible* defect — and that made this self-check go red under the very
     /// mutation it was written to survive: breaking the receiver's name made the

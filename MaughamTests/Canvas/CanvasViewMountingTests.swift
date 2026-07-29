@@ -2270,7 +2270,8 @@ final class CanvasViewMountingTests: XCTestCase {
         // What the inspector holds before the drop — the same call its
         // `.onChange(of: currentRowsKey, initial: true)` makes when it appears.
         let inspector = RegionInspector(model: model, regionID: region, pieces: [],
-                        artifactTitle: { _ in nil }, onOpenResearchItem: { _ in })
+                        artifactTitle: { _ in nil }, pieceTitle: { _ in nil },
+                        onOpenResearchItem: { _ in })
         let before = inspector.refreshedRows(from: RegionInspector.MemberRows())
         XCTAssertTrue(before.residents.isEmpty,
                       "precondition: the card starts outside and unowned")
@@ -2364,7 +2365,8 @@ final class CanvasViewMountingTests: XCTestCase {
 
         // What the inspector holds with the new scrap minted and still empty.
         let inspector = RegionInspector(model: model, regionID: region, pieces: [],
-                        artifactTitle: { _ in nil }, onOpenResearchItem: { _ in })
+                        artifactTitle: { _ in nil }, pieceTitle: { _ in nil },
+                        onOpenResearchItem: { _ in })
         let before = inspector.refreshedRows(from: RegionInspector.MemberRows())
         let minted = try XCTUnwrap(before.residents.first { $0.node != scrapID }?.node,
                                    "precondition: the minted scrap is a resident — "
@@ -3013,7 +3015,8 @@ final class CanvasViewMountingTests: XCTestCase {
         // The inspector, in the other column, renames the region while that
         // bracket is open. Through `mutate` this would register nothing at all.
         RegionInspector(model: model, regionID: region, pieces: [],
-                        artifactTitle: { _ in nil }, onOpenResearchItem: { _ in })
+                        artifactTitle: { _ in nil }, pieceTitle: { _ in nil },
+                        onOpenResearchItem: { _ in })
             .commitLabel("Falls at night")
         XCTAssertEqual(model.scene.region(region)?.label, "Falls at night")
 

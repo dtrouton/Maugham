@@ -335,12 +335,12 @@ final class PromotionDestinationTests: XCTestCase {
             plan(.intentStatement,
                  piece: .routed(id: "p", title: "Story A", route: .ownResearch))
                 .destinationDescription,
-            "“Story A”’s craft intent, added to the end of what is already there")
+            "“Story A”’s craft intent, at the end of what is already there")
         XCTAssertEqual(
             plan(.intentStatement,
                  piece: .routed(id: "p", title: "Chapter Three", route: .sharedPlusLink))
                 .destinationDescription,
-            "the project's craft intent, added to the end of what is already there",
+            "the project's craft intent, at the end of what is already there",
             "an intent doc created under a novel chapter's shared+link routing "
             + "could never be found again, so it is the project's — and the copy "
             + "says the project's")

@@ -1147,6 +1147,18 @@ struct ProjectWindow: View {
             pieces: Self.pieceChoices(in: store),
             // Deferred — walked only when a promoted card is selected.
             artifactTitle: { TreeWalk.find(id: $0, in: store.manifest.research)?.title },
+            // Deferred, and asked even less often: only when an association
+            // names a piece `pieceChoices` does not hold. **The whole structure,
+            // not the routable subset** — this is what tells an association whose
+            // piece is GONE from one whose piece is in the writer's binder and
+            // simply keeps no research of its own, which the inspectors called
+            // "Missing piece · ref-1" while the refusal named it. Spelled exactly
+            // as `PromotionPiece.resolve` spells it, so the pane and the refusal
+            // read the same tree.
+            pieceTitle: { id in
+                TreeWalk.collect(in: store.manifest.structure,
+                                 where: { $0.id == id }).first?.title
+            },
             onOpenResearchItem: openResearchItem)
     }
 
