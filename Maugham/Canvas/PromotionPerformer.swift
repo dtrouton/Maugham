@@ -287,7 +287,8 @@ struct PromotionPerformer {
         // artifact the canvas has forgotten it produced, because the writer's
         // retry would then mint a second one.
         mark(itemID, for: plan.source,
-             named: isRegion(plan.source) ? "Promote Region" : "Promote Scrap")
+             named: isRegion(plan.source) ? "Promote Region" : "Promote Scrap",
+             contributors: plan.contributors)
         let written = try await writeOfferedLinks(plan, artifactTitle: title)
         return PromotionResult(createdItemID: itemID, title: title, writtenLinks: written)
     }
@@ -331,7 +332,8 @@ struct PromotionPerformer {
 
         let title = TreeWalk.find(id: itemID, in: store.manifest.research)?.title ?? plan.title
         mark(itemID, for: plan.source,
-             named: isRegion(plan.source) ? "Promote Region" : "Promote Scrap")
+             named: isRegion(plan.source) ? "Promote Region" : "Promote Scrap",
+             contributors: plan.contributors)
         let written = try await writeOfferedLinks(plan, artifactTitle: title)
         return PromotionResult(createdItemID: itemID, title: title, writtenLinks: written)
     }
@@ -359,7 +361,14 @@ struct PromotionPerformer {
             ? plan.body
             : existing + "\n\n" + plan.body
         try await write(joined, toPath: path)
-        mark(item.id, for: plan.source, named: "Promote Scrap")
+        // `plan.contributors` rather than `[]`, and it is not defensive padding:
+        // only a scrap can reach an intent statement today (`Promotion.targets`
+        // offers a region `.researchNote` and `.paletteCard` only), so this list
+        // is always empty — but writing `[]` here would be a second rule about
+        // who records, and if a region ever gains this target the second rule is
+        // the one that would silently be wrong.
+        mark(item.id, for: plan.source, named: "Promote Scrap",
+             contributors: plan.contributors)
         return PromotionResult(createdItemID: item.id, title: item.title, writtenLinks: [])
     }
 
@@ -515,18 +524,67 @@ struct PromotionPerformer {
         return false
     }
 
-    /// The one scene change a promotion makes, through the outside verb.
-    private func mark(_ itemID: String, for source: PromotionSource, named: String) {
+    /// The one scene change a promotion makes, through the outside verb — the
+    /// source's own mark **and** the contribution record on every card whose
+    /// words went into the artifact (spec §6.3).
+    ///
+    /// **ONE bracket, and that is the whole reason this is one function.**
+    /// §6.3's "one gesture, one undo step": a ⌘Z that took back the region's
+    /// mark and left its members claiming a note the region no longer names is
+    /// two truths on one screen, which is the defect §6.3 exists to fix
+    /// arriving through the undo stack instead. A second
+    /// `mutateFromInspector` would not merely split the step — nested inside
+    /// this one it takes no snapshot and registers nothing, so the records
+    /// would sit on no undo step at all and ride into the writer's next
+    /// sentence (tripwire 32).
+    ///
+    /// `contributors` is empty for a scrap and a line, so the stamping is a
+    /// no-op there and only a region's promotion writes records.
+    private func mark(_ itemID: String, for source: PromotionSource, named: String,
+                      contributors: [CanvasNodeID]) {
         switch source {
         case .scrap(let node):
-            model.mutateFromInspector(named) { $0.setPromotedItem(itemID, for: node) }
+            model.mutateFromInspector(named) {
+                $0.setPromotedItem(itemID, for: node)
+                Self.record(itemID, contributors: contributors, in: &$0)
+            }
         case .region(let region):
             model.mutateFromInspector(named) {
                 $0.updateRegion(region) { $0.promotedItemID = itemID }
+                Self.record(itemID, contributors: contributors, in: &$0)
             }
         case .line:
             return   // nothing on a line to mark; no undo step either
         }
         model.bumpSceneRevision()
+    }
+
+    /// Rebuild the set of cards recording that their words are inside `itemID`.
+    ///
+    /// **Clear first, then stamp** (§6.3: "an update re-records"). An update
+    /// rewrites the artifact from the region's CURRENT members, so the record
+    /// has to follow the same set: a card that has left since must stop
+    /// claiming the note, and one that joined must start. Stamping alone would
+    /// leave the departed card pointing at a note its words are no longer in —
+    /// the same false sentence in the inspector that §6.3 was written to
+    /// remove, one promotion later.
+    ///
+    /// The clear is **scoped to this artifact**, so a card contributing to
+    /// another region's note keeps its own record. On a `.new` promotion the id
+    /// is freshly minted and the clear matches nothing.
+    ///
+    /// **It runs on the scrap arm too, and that is the right answer rather than
+    /// an oversight.** `contributors` is empty there, so nothing is stamped —
+    /// but if a single card's promotion ever rewrote an artifact other cards
+    /// claim, their words really would no longer be in it, and the clear is
+    /// what keeps the record meaning what it says. Not reachable from the UI
+    /// today: `existingArtifact` offers an Update off `promotedItemID` alone
+    /// (§6.3), so a scrap can only rewrite an artifact it produced itself.
+    private static func record(_ itemID: String, contributors: [CanvasNodeID],
+                               in scene: inout CanvasScene) {
+        for node in scene.unorderedNodes where node.contributedToItemID == itemID {
+            scene.setContributedItem(nil, for: node.id)
+        }
+        for node in contributors { scene.setContributedItem(itemID, for: node) }
     }
 }
