@@ -87,11 +87,17 @@ What that means on disk depends on the project, and **the sheet says which befor
 
 A promoted card wears a **thin stripe down its left edge**, and a promoted region wears one along its label bar, so you can see at a glance what has already produced something. Select it and the Inspector says what it became, with an **Open** button that takes you there.
 
+**When you promote a region, every card whose words went into the note says so too.** Select one and its Inspector reads *Its words are in “Act II fog”*, with its own **Open** button — a different sentence from *Became*, because that card didn't produce the note, it's part of it. A card you left empty had nothing to contribute and says nothing. If you'd already promoted that card on its own, the Inspector says **both**: what it became, and what it is part of. They're two different facts and neither hides the other.
+
+**Promoting a card that is part of a region's note always makes something new.** It never offers to rewrite that note — one card's words are not the six cards' note, and quietly replacing it with them would be the worst thing this could do. The Inspector says so under the line, before you reach for **Promote…**.
+
 **Promote the same thing again** and the sheet says what it made last time and asks: **rewrite that one**, or **make a new one**? Neither is picked for you. Rewriting quietly would eat edits you made in the note; always making a new one leaves you with *The falls at night 2*, *… 3*, and two orphans you didn't ask for.
+
+**Rewriting a region's note follows whoever is in the region now.** Drag a card out, drop another in, promote again with **rewrite that one**: the note is written from the cards that are there, so the card that left stops claiming it and the one that arrived starts. And if you delete the note afterwards, the cards say what they went into is no longer in the project rather than pointing at nothing.
 
 **A line only promotes once both of its cards have.** If they haven't, the sheet says so and tells you why rather than offering an empty list: a `[[wiki-link]]` has to point at something that exists outside the canvas, and a canvas line is scratch. Wiki-links are the durable layer; lines are the thinking. That is the order, and promoting is the step between them.
 
-**⌘Z after a promotion takes back the mark, not the note.** The stripe comes off the card and the note stays in your research tree — the canvas's undo is about the canvas, and the note is a real file with a life of its own now. Delete it the way you delete any other note.
+**⌘Z after a promotion takes back the mark, not the note.** The stripe comes off the card and the note stays in your research tree — the canvas's undo is about the canvas, and the note is a real file with a life of its own now. Delete it the way you delete any other note. **One ⌘Z after promoting a region takes back the region's stripe and every one of its cards' *Its words are in…* lines together**, because they were all written by the one act.
 
 **A promoted line is the exception, and it is worth knowing before you press ⌘Z.** A line leaves no stripe — what it produced is a `[[wiki-link]]` inside somebody else's note, and a flag on the line could disagree with the file — so there is nothing on the canvas to take back and **the promotion puts nothing on the undo stack at all**. Press ⌘Z after promoting a line and you will undo whatever you did on the canvas *before* it. To remove the link, open the note and delete the line of text.
 

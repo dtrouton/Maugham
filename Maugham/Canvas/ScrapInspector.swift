@@ -40,10 +40,22 @@ struct ScrapInspector: View {
 
     private var node: CanvasNode? { model.scene.node(nodeID) }
 
-    private var state: PromotedArtifactSection.ArtifactState {
-        let mark = node?.promotedItemID
-        return PromotedArtifactSection.artifactState(promotedItemID: mark,
-                                                     title: mark.flatMap(artifactTitle))
+    /// **Both records, resolved through the one artifact index** (spec §6.3).
+    ///
+    /// The card's own mark says what it *became*; the contribution record says
+    /// its words are *in* something a region's promotion produced. Two different
+    /// facts, and a card may carry both — the pane shows both rather than
+    /// choosing, and `Provenance.saysNotPromotedYet` is the one place they
+    /// interact.
+    ///
+    /// **The record is resolved through `artifactTitle` and never shown raw**,
+    /// which is what makes a deleted note say so instead of printing an id. It
+    /// is the same deferred manifest lookup the mark already used, asked once
+    /// more only when the record exists.
+    private var provenance: PromotedArtifactSection.Provenance {
+        PromotedArtifactSection.provenance(promotedItemID: node?.promotedItemID,
+                                           contributedToItemID: node?.contributedToItemID,
+                                           title: artifactTitle)
     }
 
     var body: some View {
@@ -138,7 +150,7 @@ struct ScrapInspector: View {
                     .foregroundStyle(.secondary)
             }
 
-            PromotedArtifactSection(state: state, subject: .card,
+            PromotedArtifactSection(state: provenance, subject: .card,
                                     onOpen: onOpenResearchItem)
 
             Section {

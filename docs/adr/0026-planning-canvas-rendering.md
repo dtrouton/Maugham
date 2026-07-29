@@ -524,10 +524,13 @@ v0.24.0 "enter does nothing" bug, recorded in `TranslationReviewModifier` — so
 buttons are safe precisely because they live in the project window; moving one into a modal
 would break it silently.
 
-**What ⌘Z takes back is the MARK, not the artifact.** The canvas's undo is a scene-scoped
-snapshot stack by design (decision 5), and the note is a real file with the research tree's
-own lifecycle. Undoing a promotion therefore removes the stripe and leaves the note where
-it is. That asymmetry is writer-facing rather than internal, so the guide says it in the
+**What ⌘Z takes back is the MARK — and, since 1C-c2b, every contribution record written with
+it — but never the artifact.** The canvas's undo is a scene-scoped snapshot stack by design
+(decision 5), and the note is a real file with the research tree's own lifecycle. Undoing a
+promotion therefore removes the stripe and leaves the note where it is. A region's mark and
+its members' records are written in **one** `mutateFromInspector` bracket, so one keystroke
+takes back the whole canvas-side effect rather than leaving cards claiming a note the region
+no longer names. That asymmetry is writer-facing rather than internal, so the guide says it in the
 writer's own words; it is not a gap awaiting a compensating op.
 
 **And a LINE promotion registers no step at all, which is a second sentence rather than a
@@ -561,15 +564,19 @@ seen the manifest, so a writer who deletes the note leaves an id that resolves t
 mark, and it is passed in rather than reached for, which is what keeps `Promotion` pure and
 testable and walks the manifest once rather than per query. The dangling case is not an
 error state: the card's inspector says what it produced is no longer in the project, and a
-line whose end has gone stops offering a wiki-link.
+line whose end has gone stops offering a wiki-link. **A 1C-c2b contribution record dangles
+the same way and gets the same treatment** — records persist through the codec and are never
+rebuilt on load, so the inspector resolves that id through the same deferred lookup and says
+the card's words went into something no longer in the project, rather than printing an id.
 
-**The sidecar steps to schema 4, and to 5 in 1C-c2a, additive-optional both ways.**
-`promotedItemID` joined the node and the region rather than arriving as a top-level
+**The sidecar steps to schema 4, to 5 in 1C-c2a and to 6 in 1C-c2b, additive-optional every
+way.** `promotedItemID` joined the node and the region rather than arriving as a top-level
 collection of its own — the mark belongs to the thing it marks — so a schema-3 sidecar
 decodes unchanged, and a schema-4 sidecar opened by an older build still fails the
 `schemaVersion <= current` gate and yields an empty layout with `canvas.md` read as normal.
-`boundPieceID` joined `NodeDTO` the same way for the same reason and is 5. Decision 3's
-split again: it costs the arrangement and never the words.
+`boundPieceID` joined `NodeDTO` the same way for the same reason and is 5;
+`contributedToItemID` joined it the same way again and is 6. Decision 3's split every time:
+it costs the arrangement and never the words.
 
 > **Amendment, 2026-07-29 (plan 1C-c2a, after the 1C-c2 smoke).** The table this decision
 > opens with said a region becomes *a palette card or a piece binding*. Both halves were
@@ -664,6 +671,57 @@ text, and it is not the leading term in its own body; the gate exists one file o
 every writer of the value bumps that counter. Nothing has measured it, and this ADR does not
 use that word without a figure and a date beside it. `Maugham/Canvas/AREA.md` carries the
 same note in full.
+
+> **Amendment, 2026-07-29 (plan 1C-c2b, after the 1C-c2a smoke).** Spec §6.3 is the
+> authority; what follows is what was built against it. This is the same slice corrected
+> again, not a new one.
+
+**A promotion records, on every card whose words went in, that its text is in that artifact —
+and that record is deliberately not the mark.** The smoke: the writer promoted a region to a
+research note, every card's text turned up in the note, and in the inspector only the cards
+they had promoted *individually* said anything. The rest reported **"Not promoted yet."**
+Their words: *"not all the scraps know they were promoted, some think they weren't — all did
+turn up in the research note though."* Two truths on one screen, and the screen was lying.
+
+**The reason it is a second field rather than the same one is the whole decision.**
+`promotedItemID` means *"I am this artifact"*, and `Promotion.existingArtifact` reads it —
+and only it — to offer **Rewrite**. Stamping a contributor with it would mean promoting one
+member afterwards offers to rewrite the six-card note with that one card's text: the 1C-c2
+Critical, which was a mark that did not record its artifact's *kind*, returning as a mark
+that does not record its *cardinality*. So `CanvasNode.contributedToItemID` is its own field
+with its own surface type and **no route into `existingArtifact`**, and the guard was
+falsified by adding exactly that fallback and watching the no-Update test report
+`update(itemID: res-fog)`. Re-promoting a contributing card offers only a new artifact.
+
+**Recorded at promotion time, from the members whose text actually went in**
+(`Promotion.regionBodies`, already shared by the preview, the refusal and the body) — never
+derived from live membership, because a card added to the region afterwards has no words in
+that note. An empty scrap contributes nothing. A scrap promotion and a line promotion record
+nothing at all. **An update rebuilds the set**, clearing every node that names this artifact
+before stamping the current contributors, so a card that has left the region stops claiming
+the note and one that joined starts; the clear is scoped to the artifact, so a card
+contributing to another region's note keeps its record.
+
+**A card may carry both, and the inspector shows both rather than choosing.** They say
+different things — it produced its own note, *and* its words are in a region's — with
+visibly different sentences (*Became “…”* against *Its words are in “…”*), neither naming a
+count, since a region's contributors are sometimes one card. The two are rendered as two
+straight-line `switch`es rather than an `if`/`else`, so "show both" is structural. The one
+place they interact is `PromotedArtifactSection.Provenance.saysNotPromotedYet` — true only
+when *neither* record exists — which is a value on the model rather than an `if` inside
+`body`, because `_ConditionalContent` is branch-invariant and a `Form`'s contents are not
+inspectable; it is also the reported bug, and a disable experiment on that one expression
+turns the test red.
+
+**No stripe and no VoiceOver term for a contribution.** The drawn mark means *this produced
+that*; a second identical stripe for *this went into that* would say on the canvas the very
+thing §6.3 exists to separate, with no way for the writer to tell the two apart.
+`CanvasRenderer` and `CanvasAccessibility` do not read the field. A future slice that wants
+it drawn owes it its own visual language.
+
+**No new tripwire, and tripwire 32's census does not move** — the record is written inside
+`PromotionPerformer.mark`'s existing `mutateFromInspector` bracket, and the inspector change
+reads the scene without mutating it.
 
 Constitution principles this decision answers to: **must #1, *the words are safe*** — the
 performer validates before it writes, flushes the 750 ms autosave before every body write,

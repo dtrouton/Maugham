@@ -3,8 +3,8 @@ import XCTest
 
 /// The third arm of the canvas inspector. Which SwiftUI arm renders cannot be
 /// asserted (`_ConditionalContent` is branch-invariant), so the decision the
-/// view makes is lifted into `artifactState` and pinned here — the same shape
-/// `RegionInspector.citeAffordance` uses.
+/// view makes is lifted into `artifactState`/`provenance` and pinned here — the
+/// same shape `RegionInspector.citeAffordance` uses.
 @MainActor
 final class ScrapInspectorTests: XCTestCase {
 
@@ -97,6 +97,135 @@ final class ScrapInspectorTests: XCTestCase {
         XCTAssertEqual(
             PromotedArtifactSection.artifactState(promotedItemID: "res-gone", title: nil),
             .artifactMissing(itemID: "res-gone"))
+    }
+
+    // MARK: - What a card's words are IN (spec §6.3)
+
+    /// The index the pane already has, standing in for the manifest: `res-fog`
+    /// is a note that exists, `res-gone` is one the writer deleted.
+    private let artifacts: (String) -> String? = { id in
+        ["res-fog": "Act II fog", "res-a": "The falls at night"][id]
+    }
+
+    /// **The reported bug, as a value.** A card whose words a region's promotion
+    /// folded into a note said *"Not promoted yet."* — while its text sat in
+    /// that note. It carries no mark of its own and must not: `promotedItemID`
+    /// is what `existingArtifact` reads to offer **Rewrite**, and a contributor
+    /// offering to rewrite a six-card note with one card's text is the Critical
+    /// §6.3 exists to prevent.
+    func test_aContributingCardStopsSayingNotPromotedYet() {
+        let p = PromotedArtifactSection.provenance(promotedItemID: nil,
+                                                   contributedToItemID: "res-fog",
+                                                   title: artifacts)
+        XCTAssertEqual(p.artifact, .notPromoted, "it produced nothing itself")
+        XCTAssertEqual(p.contribution, .contributed(itemID: "res-fog",
+                                                    title: "Act II fog"))
+        XCTAssertFalse(p.saysNotPromotedYet,
+                       "the writer's report: \"some think they weren't [promoted]\" "
+                       + "— the words are in a note and the pane must not deny it")
+    }
+
+    /// The control: no records at all, and the sentence is still the honest one.
+    func test_aCardWithNeitherRecordStillSaysNotPromotedYet() {
+        let p = PromotedArtifactSection.provenance(promotedItemID: nil,
+                                                   contributedToItemID: nil,
+                                                   title: artifacts)
+        XCTAssertEqual(p.artifact, .notPromoted)
+        XCTAssertEqual(p.contribution, PromotedArtifactSection.ContributionState.none)
+        XCTAssertTrue(p.saysNotPromotedYet)
+    }
+
+    /// Own mark only — the state the pane has shown correctly since 1C-c2.
+    func test_anOwnMarkAloneCarriesNoContribution() {
+        let p = PromotedArtifactSection.provenance(promotedItemID: "res-a",
+                                                   contributedToItemID: nil,
+                                                   title: artifacts)
+        XCTAssertEqual(p.artifact, .promoted(itemID: "res-a",
+                                             title: "The falls at night"))
+        XCTAssertEqual(p.contribution, PromotedArtifactSection.ContributionState.none)
+        XCTAssertFalse(p.saysNotPromotedYet)
+    }
+
+    /// **Both, and they say different things** (§6.3): it produced its own note,
+    /// *and* its words are in a region's. The pane shows both rather than
+    /// choosing — so this value carries both rather than collapsing to one.
+    func test_aCardMayCarryBothAndNeitherHidesTheOther() {
+        let p = PromotedArtifactSection.provenance(promotedItemID: "res-a",
+                                                   contributedToItemID: "res-fog",
+                                                   title: artifacts)
+        XCTAssertEqual(p.artifact, .promoted(itemID: "res-a",
+                                             title: "The falls at night"))
+        XCTAssertEqual(p.contribution, .contributed(itemID: "res-fog",
+                                                    title: "Act II fog"))
+        XCTAssertFalse(p.saysNotPromotedYet)
+    }
+
+    /// **A contribution can dangle, and nothing rebuilds it.** The record
+    /// persists through the codec and is never recomputed on load, so a card
+    /// really can name a note the writer has since deleted. Same treatment
+    /// `promotedItemID` already gets: say so, rather than showing a raw id.
+    func test_aContributionWhoseArtifactIsGoneSaysSoRatherThanShowingAnId() {
+        let p = PromotedArtifactSection.provenance(promotedItemID: nil,
+                                                   contributedToItemID: "res-gone",
+                                                   title: artifacts)
+        XCTAssertEqual(p.contribution, .artifactMissing(itemID: "res-gone"))
+        XCTAssertFalse(p.saysNotPromotedYet,
+                       "something did go somewhere; \"not promoted yet\" is the "
+                       + "one sentence that is false here")
+        XCTAssertFalse(PromotedArtifactSection.contributionArtifactMissing
+            .contains("res-gone"),
+                       "an id is not a sentence the writer can read")
+    }
+
+    /// **The line must be visibly different from "Became …".** They are two
+    /// different facts — one produced an artifact, the other's text went into
+    /// somebody else's — and one sentence for both is the pane telling the
+    /// writer they can rewrite a joint note.
+    func test_theContributionLineDoesNotReadLikeTheOwnMarksLine() {
+        let contributed = PromotedArtifactSection.wordsAreIn("Act II fog")
+        let became = PromotedArtifactSection.Subject.card.became("Act II fog")
+        XCTAssertNotEqual(contributed, became)
+        XCTAssertFalse(contributed.contains("Became"),
+                       "found: \(contributed)")
+        XCTAssertTrue(contributed.contains("Act II fog"),
+                      "it still names the artifact — found: \(contributed)")
+    }
+
+    /// The caption is where the writer learns what Promote… will do to a card
+    /// that only contributed: a **new** artifact, never a rewrite. That is the
+    /// one smoke step that matters, and the pane is where it is discoverable.
+    func test_theContributionCaptionSaysAPromotionFromHereMakesSomethingNew() {
+        let caption = PromotedArtifactSection.contributionCaption
+        XCTAssertTrue(caption.lowercased().contains("new"), "found: \(caption)")
+        XCTAssertFalse(caption.lowercased().contains("rewrite that one"),
+                       "found: \(caption)")
+    }
+
+    /// **The census.** Which arm renders cannot be asserted, so what is pinned is
+    /// that the card arm reads the record at all — and that the region arm names
+    /// the absence rather than being handed one by a default. A region has no
+    /// such field: §6.3 records a contribution on the CARDS whose text went in.
+    func test_theCardArmReadsTheRecordAndTheRegionArmNamesItsAbsence() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let card = try String(
+            contentsOf: root.appendingPathComponent("Maugham/Canvas/ScrapInspector.swift"),
+            encoding: .utf8)
+        XCTAssertTrue(card.contains("contributedToItemID"),
+                      "the card arm must read the contribution record, or the "
+                      + "reported bug is unfixed with a green suite")
+        let region = try String(
+            contentsOf: root.appendingPathComponent("Maugham/Canvas/RegionInspector.swift"),
+            encoding: .utf8)
+        XCTAssertTrue(region.contains("contribution: .none"),
+                      "the region arm names the absence rather than taking a "
+                      + "default — a default is how the card arm would lose its "
+                      + "half with nothing red")
+        // The companion: prove the scan reports an absent token rather than
+        // always answering true.
+        XCTAssertFalse(card.contains("contributedToNotARealField"),
+                       "the scan reads the file rather than always answering true")
     }
 
     // MARK: - Both arms, one section

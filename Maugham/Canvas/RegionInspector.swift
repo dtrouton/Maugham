@@ -159,10 +159,19 @@ struct RegionInspector: View {
     /// `.region` for the NOUN alone and names no kind — see
     /// `PromotedArtifactSection.Subject`, whose region arm said "the palette
     /// card" for a slice after the row had already gained `.researchNote`.
-    private var artifactState: PromotedArtifactSection.ArtifactState {
+    ///
+    /// **`contribution: .none`, named rather than defaulted.** A region has no
+    /// contribution record and cannot get one: spec §6.3 puts a record on the
+    /// CARDS whose text a promotion folded in, and this is the thing that folds
+    /// them. Naming the absence here is what keeps the card arm's half from
+    /// going missing behind a default with nothing red — the reason
+    /// `artifactTitle` and `onOpenResearchItem` have no defaults either.
+    private var provenance: PromotedArtifactSection.Provenance {
         let mark = region?.promotedItemID
-        return PromotedArtifactSection.artifactState(promotedItemID: mark,
-                                                     title: mark.flatMap(artifactTitle))
+        return PromotedArtifactSection.Provenance(
+            artifact: PromotedArtifactSection.artifactState(
+                promotedItemID: mark, title: mark.flatMap(artifactTitle)),
+            contribution: .none)
     }
 
     var body: some View {
@@ -212,7 +221,7 @@ struct RegionInspector: View {
 
             // Above the Promote section, matching the card arm's order: what it
             // already became, then the way to promote it again.
-            PromotedArtifactSection(state: artifactState, subject: .region,
+            PromotedArtifactSection(state: provenance, subject: .region,
                                     onOpen: onOpenResearchItem)
 
             Section {
