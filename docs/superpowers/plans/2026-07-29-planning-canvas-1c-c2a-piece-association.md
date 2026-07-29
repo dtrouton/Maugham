@@ -159,3 +159,21 @@ xcodebuild -project Maugham.xcodeproj -scheme Maugham -configuration Release bui
 ```
 
 The Mac suite runs ~5 minutes (measured 2026-07-29: 295.95 s, 3,399 tests). Then the caller census — `grep -rn "boundPieceID\|setBoundPiece\|Promotion.piece" Maugham/ --include=*.swift | grep -v Tests` — and a whole-branch review over `66d5933..HEAD`, whose question is: **does every surface that can set an association agree with every surface that reads one?**
+
+## Smoke — the writer's own pass
+
+The suite cannot see a destination sentence that is true and unhelpful, and it cannot see a picker offering a piece the writer does not recognise. **The subject of every step below is the sentence in the sheet**, not whether a file appeared.
+
+- [ ] **Precedence, in a novel.** Draw a region around three cards, associate it with a chapter, select a member card and Promote… → *Research note*. The destination should name **research/, linked to that chapter**. Commit, then check the note is in the project's research and the chapter carries the link.
+- [ ] **The card's own wins.** Give that same card its own, *different* chapter in the scrap arm's **Piece** picker. The card's Inspector should stop saying *(from its region)*. Promote again → the destination names the **new** chapter, and the region's cards that you did not touch are unchanged.
+- [ ] **Setting the region's piece does not reach inside it.** Change the region's Piece afterwards and confirm the overridden card still names its own, and a sibling card with no association of its own follows the new one.
+- [ ] **A visitor inherits nothing.** Cite a card into a bound region (it should still *live* elsewhere). Its Inspector should show the piece of the region it **lives** in, or none — never the citing region's.
+- [ ] **Precedence, in a Collection.** Same two steps on a loose piece. The destination should name **that piece's own research/**, and the note should land inside the piece's folder rather than in shared research.
+- [ ] **The route is legible in each.** Read both destination sentences back to back: a novel's names the chapter *and* the link, a Collection loose piece's names containment, a short story's says the shared research is already that document's. If any two read the same, the copy has failed its job.
+- [ ] **Craft intent.** Promote a card to *Craft intent* in a Collection with a loose-piece association — the destination should name the **piece's** craft intent. Do it again from a novel chapter and the destination should name the **project's**, deliberately.
+- [ ] **A palette card is never filed under a piece.** Promote a region to *Palette card* with a novel chapter associated — the destination names the palette wall, linked to the chapter. In a Collection it names the wall alone.
+- [ ] **A stale association refuses.** Associate a card with a piece, delete the piece, and Promote… → the sheet refuses before Commit and the sentence is about the writer's situation. Repeat with the association on the *region* instead and confirm the refusal points at the region rather than at the card's own picker.
+- [ ] **The picker offers nothing that can fail.** In a Collection holding a reference piece, confirm neither Piece picker lists it.
+- [ ] **The undo step is named for what you promoted.** Promote a *region* to a research note, open the Edit menu, and read the Undo item — it should say Region, not Scrap.
+- [ ] **Tripwire 32, through the new picker — and this arm's repro is a card, not a chrome bar.** Double-click a **card** (click 1 selects it, so the card arm is on screen; click 2 opens "Edit Scrap" without moving the selection, so the pane stays), set its **Piece** in the Inspector while the caret is still in the card, then type a sentence. One ⌘Z should take back the sentence and leave the association standing; a second should take back the association under its own name.
+- [ ] **Quit and reopen.** The associations survive on both the card and the region, and an older sidecar (schema 4) still opens with its scraps intact.

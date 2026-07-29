@@ -463,7 +463,13 @@ matters against must #1:
 **The bound piece is produced here and consumed in 1A.** `RegionBinding` writes it, the
 inspector makes it settable, and the reference rail that reads it is unwritten. Binding
 residents only, never appearances, is what stops two regions sharing a card and each
-claiming it as their piece's context (§4.4).
+claiming it as their piece's context (§4.4). **Amended 2026-07-29 (1C-c2a):** the rail is
+still unwritten and the field is no longer waiting on it — the same binding now decides
+where a promotion from that region, or from a card that lives in it, lands (§6.2 and
+decision 9's 2026-07-29 amendment). "Residents only, never appearances" is the same
+sentence on the destination side, and it is load-bearing there for a sharper reason: a card
+cited in two regions bound to different pieces would otherwise take whichever was touched
+last.
 
 Constitution principles this decision answers to: **must #1, *the words are safe*** — the
 schema step and the delete path are both judged on what they do to `canvas.md`, not to the
@@ -479,7 +485,7 @@ regions forced into the open — see decision 5.
 
 **One verb, on the current selection.** `Promote…` reads spec §6's table and produces a
 durable artifact: a scrap becomes a research note, a palette card or a craft intent; a
-region becomes a palette card or a piece binding; a line becomes a `[[wiki-link]]`. A
+region becomes a research note or a palette card; a line becomes a `[[wiki-link]]`. A
 sheet previews what will be written and where before anything is written, and building
 that preview mutates nothing — `Promotion.plan` is a pure function over the scene and
 `test_planningNeverMutatesTheScene` says so. Nothing promotes because it sat somewhere
@@ -557,12 +563,107 @@ testable and walks the manifest once rather than per query. The dangling case is
 error state: the card's inspector says what it produced is no longer in the project, and a
 line whose end has gone stops offering a wiki-link.
 
-**The sidecar steps to schema 4, additive-optional both ways.** `promotedItemID` joined the
-node and the region rather than arriving as a top-level collection of its own — the mark
-belongs to the thing it marks — so a schema-3 sidecar decodes unchanged, and a schema-4
-sidecar opened by an older build still fails the `schemaVersion <= current` gate and yields
-an empty layout with `canvas.md` read as normal. Decision 3's split again: it costs the
-arrangement and never the words.
+**The sidecar steps to schema 4, and to 5 in 1C-c2a, additive-optional both ways.**
+`promotedItemID` joined the node and the region rather than arriving as a top-level
+collection of its own — the mark belongs to the thing it marks — so a schema-3 sidecar
+decodes unchanged, and a schema-4 sidecar opened by an older build still fails the
+`schemaVersion <= current` gate and yields an empty layout with `canvas.md` read as normal.
+`boundPieceID` joined `NodeDTO` the same way for the same reason and is 5. Decision 3's
+split again: it costs the arrangement and never the words.
+
+> **Amendment, 2026-07-29 (plan 1C-c2a, after the 1C-c2 smoke).** The table this decision
+> opens with said a region becomes *a palette card or a piece binding*. Both halves were
+> wrong in practice and the smoke is what showed it. Spec §6's 2026-07-29 amendment and the
+> new §6.2 are the authority; what follows is what was built against them.
+
+**A piece binding is not a promotion, and the writer said so before anyone measured it.**
+Committing one produced no artifact: it set `CanvasRegion.boundPieceID`, which the region
+inspector's own **Piece** picker already sets — so the sheet offered a second door onto an
+existing control while wearing the words "Produce" and "Goes to". And the field's only
+intended reader was 1A's reference rail, which is unbuilt: measured 2026-07-29,
+`RegionBinding.references(forPiece:)` had **zero production callers**. The smoke report was
+"I don't see it doing anything", and it was exactly accurate. The *target* is gone;
+`RegionBinding`, the field and the picker are untouched. **A region produces a research
+note** in its place — a cluster of text scraps is a note, in the region's own reading order,
+with §6.1's offer to link each promoted member to it. The palette card stays on the row and
+its case gets stronger in 1C-d, when a region can hold an image.
+
+**The same field is now on a card too, and a promotion's piece resolves by PRECEDENCE.**
+`CanvasNode.boundPieceID` mirrors the region's, and `Promotion.piece(for:in:)` is the one
+rule: the scrap's **own** association, else its **home** region's, else none — the
+project's own research. **Nothing is ever overwritten.** Setting a region's piece never
+writes to its members; the more specific setting wins, exactly as a per-piece craft intent
+already beats the project's. The alternative considered and rejected was a region-level set
+cascading onto its scraps, and it fails twice over: it destroys a deliberate per-card choice
+invisibly, and it revives §4.2's rejected bug class in a new place, since a card *cited* in
+two regions bound to different pieces would follow whichever was touched last. **Home only**
+is the same sentence as §4.3's rule for dragging, applied to destination: a citation is not
+luggage. A region answers with its own and nothing else, having no home to inherit from; a
+line answers nil, its artifact being text inside somebody else's note.
+
+**Where the note actually lands is `ResearchScope`'s decision, and promotion ADOPTS it
+rather than inventing a second one.** The containment-versus-link routing has shipped since
+the 2026-07-07 scoped-research milestone: containment for a Collection loose piece, shared
+`research/` plus a `linkResearch` record for a novel chapter, shared alone for a short story
+or a screenplay — spec §6.2 carries the table, and this ADR deliberately does not restate
+it, because a `switch manifest.type` inside `Promotion` would be the second copy that
+drifts. `PromotionPiece.resolve(for:in:store:)` is the one place the pure half meets the
+router; the sheet calls it when it opens and the performer calls it again at Commit, because
+a plan is a snapshot and the manifest can move under it — so the destination the writer read
+and the destination they get cannot disagree about which row of the table this is.
+
+**The picker offers only pieces that can be routed**, so a promotion can never fail on a
+piece the writer was invited to choose. `ProjectStore.researchScopeTargets()` exists for
+precisely that and its own doc comment always said so, while both canvas pickers offered
+every `.document` — including the Collection reference pieces the router throws on. It was
+also **O(documents²)**: it collected every document and then asked `isResearchScopeTarget`
+per id, and each of those re-walked the whole structure to find the item it had just been
+handed. That went unnoticed while its only caller was a picker opened by hand; 1C-c2a put it
+on the window's body path, which is what made it worth fixing, and
+`researchRouting(for: StructureItem)` is the split-out rule that makes the filter linear.
+
+**A palette card is never routed, and a craft intent takes the piece only for a loose
+piece.** The wall is project-level and a card filed into a piece's `research/` is off the
+wall entirely, so what the association buys a card is the **link**, and only where the
+routing would have been `.sharedPlusLink` — read from the same function the note path routes
+through. The craft intent's limit is not a shrug at the other rows: **the lookup could never
+find them again.** `craftIntentItem(forPieceId:)` locates an existing intent doc by the
+piece's research *prefix*, which is nil for anything that is not a Collection loose piece, so
+an intent created under a novel chapter's shared-plus-link routing lands in shared
+`research/` where that lookup never looks — and the next promotion would find nothing and
+mint a second, splitting the writer's accumulated intent statement in two with nothing to
+show for it. The intent takes the scope and never the link, for §6.2's own reason: linking
+the *project's* intent to one chapter misrepresents what it is.
+
+**A stale association REFUSES rather than redirecting, and the refusal names whose
+association it is.** The picker can no longer create an unroutable one, but an association
+already made can go stale — the piece deleted, or a loose piece converted to a reference —
+and a silent fallback to `research/` would fail §6.1's requirement that the writer see what
+will be produced and *where*. So `Promotion.pieceFailure` refuses before Commit in the
+performer's own words, and only for the one act it can actually break: a **new** research
+note, the single path that hands a scope to `createResearchNote`. The distinction that
+matters is `inherited`: a card living in a region whose piece was deleted carries nothing
+itself, so a refusal telling it to clear its own association names a Picker already reading
+None — pointing the writer at a control that cannot fix it. The card cannot clear its
+region's piece, and the sentence says so.
+
+**The undo step's name is derived from the source, and that is a parked finding coming
+home.** `performResearchNote` named its step `"Promote Scrap"` unconditionally, which was
+true for exactly as long as only a scrap could produce a note. 1C-c2's whole-branch review
+found it and parked it as unreachable; the task that put `.researchNote` on the region row
+made it live, one task later. Both note and palette-card paths now read the source. It is a
+line in the record because it is evidence: a parked finding is cheaper to keep than to
+rediscover, and this one was made reachable by the next slice rather than by the next year.
+
+**One cost accepted, and recorded where the next author meets it.**
+`Promotion.piece(for:in:)` runs twice per evaluation of `ScrapInspector.association` — once
+directly, once inside `pieceIsInherited` — on a body that is on screen at 60–120 Hz while a
+writer drags a card. It is bounded by the **region** count rather than the node count or any
+text, and it is not the leading term in its own body; the gate exists one file over
+(`RegionInspector`'s `(sceneRevision, regionID)` cache) and would be correct here, since
+every writer of the value bumps that counter. Nothing has measured it, and this ADR does not
+use that word without a figure and a date beside it. `Maugham/Canvas/AREA.md` carries the
+same note in full.
 
 Constitution principles this decision answers to: **must #1, *the words are safe*** — the
 performer validates before it writes, flushes the 750 ms autosave before every body write,
@@ -591,10 +692,12 @@ stripe is how a promoted card says so without a panel being open.
 - **Eight tripwires (25–32)** and `Maugham/Canvas/AREA.md`. They exist because almost every
   defect behind them is invisible to a subview count, a geometry assertion or a green
   suite — 30 and 32 were each found by a review rather than by a test, and 32 was reached
-  three times in one slice before it was written down. **Tripwire 32's census is three
-  entries as of 1C-c2**: `LineInspector.swift`, `RegionInspector.swift` and
-  `PromotionPerformer.swift`, which writes the promoted mark from outside the canvas and
-  can run while a focused scrap holds "Edit Scrap" open.
+  three times in one slice before it was written down. **Tripwire 32's census is four
+  entries as of 1C-c2a** — count the array in `TripwireGrepTests`, not this sentence:
+  `LineInspector.swift`, `RegionInspector.swift`, `PromotionPerformer.swift`, which writes
+  the promoted mark from outside the canvas and can run while a focused scrap holds "Edit
+  Scrap" open, and `ScrapInspector.swift`, whose Piece picker sets an association from the
+  same column through the same open bracket.
 - **Hit testing is on the unrotated rect**, so there is a mismatch band of `r·θ` — ~2.6 pt
   at the corner of a default 240×80 card at the calibrated 1.2° tilt. It sits exactly where
   the resize mark is drawn and tested, and is accepted because 2.6 pt is inside pointer

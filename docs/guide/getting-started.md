@@ -51,7 +51,7 @@ A **region** is an area you draw around cards that belong together — an act, a
 
 **Collapse** a region (the toggle in the Inspector) and the cards that live in it are put away — the label says how many, and the space they occupied is yours again. Expand it and they come back exactly as they were.
 
-**Bind a region to a piece** with the Piece picker, and you're saying: this material is for that chapter. The binding follows the piece through a rename.
+**Associate a region with a piece** using the **Piece** picker, and you're saying: this material is for that chapter. The association follows the piece through a rename, and it does two things — the cards that live here become the pinned references beside the piece when you write it, and **a note promoted from this region, or from a card that lives in it, lands in that piece's research** rather than in the project's. See [Promoting](#promoting) for the second half.
 
 **Deleting a region never deletes cards.** ⌫ with a region selected, or the Delete Region button in the Inspector, removes the region and leaves every card on the canvas. ⌘Z brings the region back with its membership intact.
 
@@ -68,14 +68,20 @@ Lines are scratch, like everything else on the canvas: they live here, they cost
 
 #### Promoting
 
-Everything above is scratch. **Promoting** is the one step that turns a piece of it into something durable — a real note, a palette card, a binding — and it is always something you ask for. Nothing on the canvas promotes itself because it sat there long enough or looked like something.
+Everything above is scratch. **Promoting** is the one step that turns a piece of it into something durable — a real note, a palette card, a line in your craft intent — and it is always something you ask for. Nothing on the canvas promotes itself because it sat there long enough or looked like something.
 
 - **Select a card, a region or a line and press ⌘⇧↩** — or use the **Promote…** button in the Inspector (⌘⌥I), or **File → Promote…**. All three are the same command.
-- **A card** can become a **research note**, a **palette card**, or part of the project's **craft intent** — the craft intent is one document per project, and each card you promote to it is added to the end of what is already there.
-- **A region** can become a **palette card** made from the cards that live in it — joined in the order they sit on the canvas, top card first — or a **binding to a piece**, which says: this material is for that chapter.
+- **A card** can become a **research note**, a **palette card**, or part of the **craft intent** — the craft intent is one document per project (or per piece, in a Collection), and each card you promote to it is added to the end of what is already there.
+- **A region** can become a **research note** made from the cards that live in it — joined in the order they sit on the canvas, top card first — or a **palette card** the same way.
 - **A line** can become a **[[wiki-link]]**, written into the note the first card produced.
 - **A sheet opens first, and nothing is written until you say so.** It names what will be produced, where it will go, and what will not come across — promoting a region does not carry its lines or its layout. Where the thing you are making has a name of its own — a research note, a palette card — you can edit that name before committing. A wiki-link and a craft intent don't ask, because neither is named by you.
 - **When it's done, a line at the top of the window says what it produced**, and how many notes were linked if you accepted the offer. It fades on its own.
+
+**Where a note goes is what the Piece picker decides.** A region has one, and so does a card — both in the Inspector. Promote something associated with a piece and the note lands in that piece's research. A card with no piece of its own **follows the region it lives in** — not one it merely appears in — and a card in no region goes to the project's research, which is the ordinary case and not a fallback. **Setting a region's piece never reaches inside it**: if you've given a card its own piece, that one wins. The card's Inspector always says which you're getting, and marks the answer *(from its region)* when it's inherited.
+
+What that means on disk depends on the project, and **the sheet says which before you commit**. In a **Collection**, a piece keeps its own research folder, so the note is filed there and travels with the piece. In a **novel**, research is shared across the book: the note goes to the project's research and is **linked** to that chapter. In a **short story or a screenplay** there's only one document, so everything in research already belongs to it — the note goes there and needs no link. A **palette card** is never filed under a piece, because the palette belongs to the whole project; where a link would be written, the card gets one.
+
+**If the piece has gone** — deleted, or turned into a reference to another project — the sheet refuses instead of quietly filing the note somewhere else. If the association came from the region rather than the card, it says so, because that's the picker you'd have to fix it in.
 
 **Promoting takes a copy.** The card stays on the canvas with its words, and the two go their own ways from there: edit the card afterwards and the note doesn't change, edit the note and the card doesn't. That is deliberate. Promoting a region joins six cards into one note while all six stay where they are, and a card had to work the same way for the word *promote* to mean one thing.
 
