@@ -146,12 +146,20 @@ A **scrap** and a **region** may each carry an optional piece association. It is
 
 Setting a region's piece never rewrites its members' — the more specific setting wins, exactly as a per-piece craft intent already beats the project's. The alternative considered and rejected was a region-level set cascading onto its scraps: it destroys a deliberate per-card choice invisibly, and it reintroduces §4.2's rejected bug class in a new place, since a card *cited* in two regions bound to different pieces would follow whichever was touched last. **Home decides and visitors do not** is already §4.3's rule for dragging; this is the same rule, applied to destination.
 
-**Where the artifact goes: structural containment if it can be had, a link record otherwise.** Piece-scoped research exists only for a Collection's **loose** pieces — `ResearchScope.pieceResearchPrefix` returns nil for anything else, and `resolveLoosePiece` throws for a novel's chapter. So:
+**Where the artifact goes is already decided, and not by this design.** `ResearchScope` (2026-07-07's scoped-research milestone) routes `.document(id)` by project type, and promotion adopts it rather than inventing a second rule — checked against `Maugham/Stores/ResearchScope.swift:26-86`:
 
-- **A loose piece** → the note is created inside that piece's own research folder. Containment *is* the association.
-- **Anything else** (a novel's chapter, a screenplay piece, a palette card in any project — the wall is project-level and a card must live under the palette group) → the artifact is created in project research and **linked to the piece** through the existing linked-research association.
+| Project | Route | What the association becomes |
+|---|---|---|
+| Collection, **loose** piece | `.pieceFolder` | containment — the note is created in the piece's own `research/` |
+| Collection, **reference** piece | throws | the piece keeps research in its own project |
+| **Novel** | `.sharedPlusLink` | shared `research/`, plus a `linkResearch` record, written automatically |
+| **Short story / screenplay** | `.sharedOnly` | shared `research/`, no link — derivation already surfaces everything as that document's |
 
-Both routes leave the artifact knowing which piece it came from, through machinery that already has a UI surface and two MCP readers — and they cannot double-count, because the dormant-link rule (2026-07-17) already suppresses a manual link once containment covers the same pair.
+So "capture the association on the note when there is no structural place for it" is not new work: `route(_:shared:piece:)` already does exactly that, and the dormant-link rule (2026-07-17) already stops containment and a manual link double-counting the same pair.
+
+**The picker offers only pieces this can route.** `ProjectStore.researchScopeTargets()` exists for precisely that — its own doc comment says it "drives the promote-target picker" — and the region inspector's picker currently offers every `.document`, including the reference pieces the router throws on. Using it means a promotion can never fail on a piece the writer was invited to choose.
+
+A **palette card** is not routed: the wall is project-level and a card must live under the palette group. It takes the link when the routing would have been `.sharedPlusLink`, and nothing otherwise — the same decision, read from the same function.
 
 **The writer is told which route was taken, in the preview**, before committing. A piece that keeps no research of its own says so in the sheet rather than throwing or silently redirecting: §6.1 requires the writer see what will be produced and *where*, and a fallback nobody can see fails that test. In a novel the writer is not thinking in pieces at all, so the fallback is the ordinary case and not an error.
 
