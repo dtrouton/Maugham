@@ -128,6 +128,7 @@ Follow this without asking — the user has answered these questions enough time
 ## Outstanding correctness concerns
 
 - **Watch for stray `project.pbxproj` edits in diffs.** `Maugham.xcodeproj/` is generated and gitignored; a pbxproj in a diff is a red flag.
+- **Three MCP tests depend on wall-clock progress and are unreliable under a loaded suite** — `MCPServerLifecycleTests.test_request_dispatchesViaRouter` (which *hung* until `5fe107b` gave it a named 10s timeout), `MCPColdStartTests.test_firstCallAfterLaunch_pollsUntilServerBinds` and `MCPBinaryIntegrationTests.test_binary_exitsCleanly_onStdinClose`. All three pass in isolation and fail in a 3,400-test run. **It is not Claude Desktop holding the socket** — every one binds an isolated `/tmp` path; that diagnosis was made and disproved. Run with `-skip-testing:MaughamTests/MCPServerLifecycleTests` for a complete ~5-minute Mac run, and apply the in-suite-fails/in-isolation-passes discriminator before believing a red run is about your branch. Evidence and options: `docs/superpowers/notes/2026-07-29-mcp-clock-dependent-tests.md`.
 
 ## Questions you do not need to ask
 
