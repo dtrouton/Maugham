@@ -142,4 +142,33 @@ final class ScrapInspectorTests: XCTestCase {
                        + "this proves the scan above reads the file rather than "
                        + "always answering true")
     }
+
+    /// **The pane routes only a scrap to the card arm**, and this is the
+    /// instrument that pins it.
+    ///
+    /// Which `_ConditionalContent` arm *renders* cannot be asserted — the type
+    /// is branch-invariant — but the line's PRESENCE can be, and a deletion is
+    /// what would remove it. Every sentence in `ScrapInspector` is wrong for a
+    /// reference ("The words live on the card", "Promoting takes a copy") and an
+    /// item node cannot be promoted at all, so the guard is the difference
+    /// between an honest empty state and a pane telling the writer to promote
+    /// something that already exists as itself.
+    func test_thePaneRoutesOnlyAScrapToTheCardArm() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let text = try String(
+            contentsOf: root.appendingPathComponent("Maugham/Canvas/RegionInspector.swift"),
+            encoding: .utf8)
+        XCTAssertTrue(text.contains("case .scrap = node.kind"),
+                      "RegionInspectorPane must guard the selectedNode branch on the "
+                      + "node's KIND — without it every node reaches ScrapInspector, "
+                      + "whose whole copy assumes a scrap")
+        // The companion: prove the scan reports an absent token rather than
+        // always answering true. A census over a REQUIRED token is exactly the
+        // shape that passes while blind, and the plant names a spelling that
+        // cannot exist in production.
+        XCTAssertFalse(text.contains("case .notARealKind = node.kind"),
+                       "the scan reads the file rather than always answering true")
+    }
 }

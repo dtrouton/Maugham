@@ -310,6 +310,43 @@ final class PromotionSheetTests: XCTestCase {
         XCTAssertNil(model(.scrap(a)).blockedReason)
     }
 
+    /// **What is shown BESIDE a reason has to be about the writer's situation
+    /// too.** `precedenceNote` is line-specific, and while `blockedReason` was
+    /// non-nil only for lines the pairing was right by construction. Widening
+    /// the reason to cover the empty scrap and the item node made it wrong — a
+    /// writer with an empty card read "There is nothing in this card to
+    /// promote." followed by a paragraph about lines and wiki-links — which is
+    /// finding 8's own defect one file over.
+    ///
+    /// The line arm is the control: it is the source the note is about, and it
+    /// still carries it, so this is about the pairing and not about the note
+    /// having been deleted.
+    func test_thePrecedenceNoteIsShownOnlyForTheSourceItIsAbout() {
+        let line = model(.line(l1))
+        XCTAssertNotNil(line.blockedReason)
+        XCTAssertEqual(line.blockedNote, PromotionSheetModel.precedenceNote,
+                       "the control: a line is what the note is about")
+
+        let emptyCard = PromotionSheetModel(source: .scrap(a), scene: scene(),
+                                            scraps: [a: "   "], pieces: pieces,
+                                            artifacts: ArtifactIndex(titlesByID: [:]),
+                                            readBody: { _ in nil })
+        XCTAssertNotNil(emptyCard.blockedReason, "it is still blocked, and still says why")
+        XCTAssertNil(emptyCard.blockedNote,
+                     "an empty card has nothing to do with the wiki-link precedence")
+
+        var withItem = scene()
+        withItem.insert(CanvasNode(id: .item("r-9"), kind: .item(referenceId: "r-9"),
+                                   origin: CGPoint(x: 800, y: 0), width: 180,
+                                   cachedHeight: 120))
+        let reference = PromotionSheetModel(source: .scrap(.item("r-9")), scene: withItem,
+                                            scraps: texts, pieces: pieces,
+                                            artifacts: ArtifactIndex(titlesByID: [:]),
+                                            readBody: { _ in nil })
+        XCTAssertNotNil(reference.blockedReason)
+        XCTAssertNil(reference.blockedNote)
+    }
+
     func test_thePrecedenceNoteSaysWhichLayerIsDurable() {
         XCTAssertTrue(PromotionSheetModel.precedenceNote.lowercased().contains("scratch"))
         XCTAssertTrue(PromotionSheetModel.precedenceNote.contains("[["))

@@ -31,6 +31,20 @@ final class PromotionSheetModel: Identifiable {
     let pieces: [RegionInspector.PieceChoice]
     let availableTargets: [PromotionTarget]
     let blockedReason: String?
+    /// The paragraph shown BESIDE a refusal — **only where it is about the
+    /// writer's situation.**
+    ///
+    /// `precedenceNote` is line-specific. While `blockedReason` was non-nil only
+    /// for lines the pairing was right by construction; widening that to the
+    /// empty scrap and the item node made it wrong, so a writer with an empty
+    /// card read "There is nothing in this card to promote." followed by a
+    /// paragraph about lines and wiki-links. That is finding 8's own defect — a
+    /// refusal saying something untrue of the situation — one file over.
+    ///
+    /// A decision on the model rather than an `if` inside the view, matching
+    /// everything else this sheet branches on: a `Form`'s contents are not
+    /// inspectable, so a branch left in `body` is unreachable from a test.
+    let blockedNote: String?
 
     private(set) var selectedTarget: PromotionTarget?
     private(set) var availableModes: [PromotionMode] = [.new]
@@ -76,6 +90,15 @@ final class PromotionSheetModel: Identifiable {
         self.availableTargets = Promotion.targets(for: source, in: scene, artifacts: artifacts)
         self.blockedReason = Promotion.blockedReason(for: source, in: scene,
                                                      scraps: scraps, artifacts: artifacts)
+        // Resolved here with everything else this class reads once at init, and
+        // gated on the SOURCE rather than on "there is a reason": the note
+        // explains the line/wiki-link precedence and says nothing to a writer
+        // whose card is simply empty.
+        if case .line = source {
+            self.blockedNote = Self.precedenceNote
+        } else {
+            self.blockedNote = nil
+        }
         // Resolved once here, and held as a plain value — the same discipline
         // every other property on this class follows (read the scene once at
         // init), rather than re-touching `scene`/`scraps` on every access.
@@ -203,8 +226,9 @@ struct PromotionSheet: View {
                 if let why = model.blockedReason {
                     Section {
                         Text(why)
-                        Text(PromotionSheetModel.precedenceNote)
-                            .font(.caption).foregroundStyle(.secondary)
+                        if let note = model.blockedNote {
+                            Text(note).font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                 } else {
                     targetSection
