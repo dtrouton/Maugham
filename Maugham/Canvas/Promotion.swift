@@ -369,7 +369,15 @@ struct PromotionPlan: Equatable {
     /// this list where `promotedItemID` is read would let one member's
     /// re-promotion offer to rewrite the whole joint note with its own single
     /// card's text.
-    var contributors: [CanvasNodeID] = []
+    ///
+    /// **No memberwise default, deliberately.** Every arm of `plan` names its own
+    /// list, so a fifth `PromotionSource` cannot record nobody by inheriting an
+    /// empty one — which is the reported §6.3 bug returning through the door
+    /// nothing is watching. `RegionInspector.provenance` names
+    /// `contribution: .none` for the identical reason, and `performCraftIntent`
+    /// refuses to write a literal `[]` for it too; a default here would be the
+    /// same rule enforced by hand twice and given away in the third place.
+    let contributors: [CanvasNodeID]
 
     /// True when the link this plan would write is already in the destination.
     /// The sheet says so and refuses; the performer refuses too, against the
@@ -563,7 +571,10 @@ enum Promotion {
                 destinationDescription: destination(request),
                 discards: [], offeredLinks: [], wikiLinkWrite: nil,
                 mode: request.mode, paletteKind: request.paletteKind,
-                linkAlreadyPresent: false)
+                // Nobody: one card behind one artifact is the card itself, and
+                // its own mark is what records that. Named rather than inherited
+                // (see `PromotionPlan.contributors`).
+                contributors: [], linkAlreadyPresent: false)
 
         case .region(let id):
             guard let region = scene.region(id) else { return nil }
@@ -605,6 +616,10 @@ enum Promotion {
                 destinationDescription: "the note “\(fromTitle)”",
                 discards: [], offeredLinks: [], wikiLinkWrite: write,
                 mode: .new, paletteKind: request.paletteKind,
+                // Nobody: a line's artifact is text inside somebody else's note,
+                // so no card's words are folded into anything new. Named rather
+                // than inherited (see `PromotionPlan.contributors`).
+                contributors: [],
                 linkAlreadyPresent: request.destinationBody?.contains(write.linkText) ?? false)
         }
     }

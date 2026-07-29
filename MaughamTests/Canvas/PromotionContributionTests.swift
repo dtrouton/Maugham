@@ -81,13 +81,24 @@ final class PromotionContributionTests: XCTestCase {
                        + "what the region's promotion joins")
     }
 
+    /// **With a positive control**, and it needs one twice over: the field is
+    /// `[]` here, so an assertion that it is `[]` is the shape that passes while
+    /// blind — and it passed on a memberwise default until the whole-branch
+    /// review took the default away. The control drives the same `plan` through
+    /// the same helpers to a NON-empty list, so this test rests on the scrap arm
+    /// naming nobody rather than on nobody ever being named.
     func test_aScrapPlanHasNoContributors() {
+        let scraps = [a: "The falls at night.", b: "Sodium light."]
         let plan = Promotion.plan(
-            request(.scrap(a), .researchNote, scraps: [a: "The falls at night."]),
-            in: scene())
+            request(.scrap(a), .researchNote, scraps: scraps), in: scene())
         XCTAssertEqual(plan?.contributors, [])
+        XCTAssertEqual(Promotion.plan(request(.region(r1), .researchNote, scraps: scraps),
+                                      in: scene())?.contributors, [a, b],
+                       "the control: this machinery does produce contributors, so "
+                       + "the assertion above is about the scrap arm")
     }
 
+    /// The line arm, with the same positive control and for the same reason.
     func test_aLinePlanHasNoContributors() {
         var s = scene()
         s.setPromotedItem("res-a", for: a)
@@ -96,6 +107,12 @@ final class PromotionContributionTests: XCTestCase {
         let plan = Promotion.plan(
             request(.line(l1), .wikiLink, scraps: [:], artifacts: idx), in: s)
         XCTAssertEqual(plan?.contributors, [])
+        XCTAssertEqual(
+            Promotion.plan(request(.region(r1), .researchNote,
+                                   scraps: [a: "The falls at night.", b: "Sodium light."],
+                                   artifacts: idx), in: s)?.contributors, [a, b],
+            "the control: same scene, same index, and a region does name its "
+            + "contributors")
     }
 
     // MARK: - The guard that matters most: a contribution record offers no Update

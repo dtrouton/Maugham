@@ -200,9 +200,11 @@ A **palette card** is not routed: the wall is project-level and a card must live
 
 **One gesture, one undo step.** The region's mark and every contribution record are written in a single bracket, so one ⌘Z takes back the whole promotion's canvas-side effect rather than leaving cards claiming a note the region no longer names.
 
-**An update re-records.** Rewriting a region's note rebuilds its contributors: cards that have left the region since stop claiming it, and cards that joined start. The note is written from the current members, so the record follows the same set.
+**An update re-records.** Rewriting a region's note rebuilds its contributors: cards that have left the region since stop claiming it, and cards that joined start. The note is written from the current members, so the record follows the same set. **The record is single-valued and the most recent contribution wins**: a card dragged from one promoted region into another, which is then promoted, names only the later note while its words are in both. That is the cost of one field, and it is accepted — a *set* would put a growing, never-collected list of ids on every card, each able to dangle, to describe a snapshot the writer took once, and provenance reads most usefully as the most recent act.
 
 **A card may carry both**, and they say different things: it produced its own note, *and* its words are in a region's. The inspector shows both rather than choosing.
+
+**The record is shown in the inspector and deliberately NOT drawn on the canvas.** The promoted mark's stripe means *this produced that*; a second stripe of the same kind for *this went into that* would assert on the canvas the very distinction this section spends its length drawing, and the writer would have no way to tell which one they were looking at. The record is an inspector fact, reached by selecting the card. **It is not announced either** — `CanvasAccessibility` names the mark and says nothing about the record — so a VoiceOver user meets the same silence rather than a different one, which is the consistent answer and not an omission on top of a decision. Stated here because a smoke session cannot overturn what a smoke session cannot perceive: if the ruling is revisited, the record needs a visual language and an announcement of its **own**, never the mark's.
 
 
 ## 7. How it feels

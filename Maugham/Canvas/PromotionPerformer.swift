@@ -569,9 +569,23 @@ struct PromotionPerformer {
     /// the same false sentence in the inspector that §6.3 was written to
     /// remove, one promotion later.
     ///
-    /// The clear is **scoped to this artifact**, so a card contributing to
-    /// another region's note keeps its own record. On a `.new` promotion the id
-    /// is freshly minted and the clear matches nothing.
+    /// The clear is **scoped to this artifact**, so this promotion cannot wipe a
+    /// record naming somebody else's note. On a `.new` promotion the id is
+    /// freshly minted and the clear matches nothing.
+    ///
+    /// **But the record is SINGLE-VALUED, and the most recent contribution
+    /// wins** — the scope limits the *clear*, not the *stamp*. Reachable, and
+    /// intended: card X lives in region A, A is promoted so X records A's note;
+    /// X is dragged into region B (`CanvasMembership.join` moves the home, and
+    /// there is only ever one home), B is promoted, and the stamp **overwrites**
+    /// X's record with B's note. A's note was never rewritten, so X's words
+    /// really are in both and the inspector names only the later one. It is the
+    /// honest cost of one field: recording a *set* would put a growing,
+    /// never-collected list of ids on every node, each of which can dangle, to
+    /// describe a snapshot the writer took once — and the field is provenance,
+    /// which the most recent act is the most useful reading of. Pinned by
+    /// `PromotionContributionPerformerTests`, so the next author reads it as a
+    /// decision rather than as a bug to fix.
     ///
     /// **It runs on the scrap arm too, and that is the right answer rather than
     /// an oversight.** `contributors` is empty there, so nothing is stamped —

@@ -170,7 +170,13 @@ struct PromotedArtifactSection: View {
         "This card's words went into something that is no longer in the project."
 
     var body: some View {
-        Section("Promoted") {
+        // **The heading names the TOPIC, not the state.** It read "Promoted"
+        // while the section said only what a thing became; it now also says a
+        // card's words are IN something it did not produce, and "Promoted" over
+        // a contribution-only card asserts the one thing §6.3 spends its length
+        // denying. "Promotion" sits beside "Card" and "Piece" as a noun for what
+        // this part of the pane is about, and every sentence inside stays exact.
+        Section("Promotion") {
             if state.saysNotPromotedYet {
                 Text("Not promoted yet.").font(.caption).foregroundStyle(.secondary)
             }

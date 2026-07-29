@@ -49,9 +49,19 @@ struct ScrapInspector: View {
     /// interact.
     ///
     /// **The record is resolved through `artifactTitle` and never shown raw**,
-    /// which is what makes a deleted note say so instead of printing an id. It
-    /// is the same deferred manifest lookup the mark already used, asked once
-    /// more only when the record exists.
+    /// which is what makes a deleted note say so instead of printing an id.
+    ///
+    /// **Two lookups on a card carrying both, and the cost is stated rather than
+    /// gated.** This body is on screen at 60–120 Hz while a writer drags a card,
+    /// and `artifactTitle` walks the research tree. What this adds is **one
+    /// duplicate of a lookup already accepted on this body** for the mark: both
+    /// calls are `flatMap`-gated on a non-nil id, so a card carrying neither
+    /// record — most of them — asks nothing at all, and `TreeWalk.find` exits at
+    /// the hit rather than walking the whole tree. Nothing here was measured, and
+    /// this file does not use that word without a figure and a date beside it.
+    /// The gate, if it is ever wanted, is `RegionInspector`'s
+    /// `(sceneRevision, id)` cache — every writer of both fields bumps that
+    /// counter, so the key would be correct.
     private var provenance: PromotedArtifactSection.Provenance {
         PromotedArtifactSection.provenance(promotedItemID: node?.promotedItemID,
                                            contributedToItemID: node?.contributedToItemID,

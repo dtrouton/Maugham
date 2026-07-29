@@ -293,6 +293,54 @@ final class PromotionContributionPerformerTests: XCTestCase {
         XCTAssertNil(contribution(d, in: model))
     }
 
+    // MARK: - The record is single-valued, and that is intended
+
+    /// **A card's words can genuinely be in two notes, and the record names only
+    /// the later one.** Reachable and deliberate, pinned here so the next author
+    /// meets a decision rather than what looks like a lost record: card `a`
+    /// lives in `r1`, `r1` is promoted so `a` records that note; `a` is dragged
+    /// into `r2` (`join` moves the home — there is only ever one), `r2` is
+    /// promoted, and the stamp OVERWRITES `a`'s record. The first note was never
+    /// rewritten, so `a`'s words really are in both.
+    ///
+    /// The scoped clear is what protects `b` — a promotion cannot wipe a record
+    /// naming somebody else's note. It does not, and is not meant to, stop a
+    /// card's own record moving on. Recording a *set* instead would put a
+    /// growing, never-collected list of danglable ids on every node to describe
+    /// a snapshot the writer took once.
+    func test_aSecondRegionsPromotionOverwritesTheRecordRatherThanAddingToIt() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        let performer = PromotionPerformer(store: store, model: model)
+
+        let first = try await performer
+            .perform(plan(.region(r1), .researchNote, store: store, model: model))
+        XCTAssertEqual(contribution(a, in: model), first.createdItemID)
+        XCTAssertEqual(contribution(b, in: model), first.createdItemID)
+
+        // The drag: `a` moves house. `b` stays in `r1`.
+        let r2 = CanvasRegionID("r2")
+        model.withScene { s in
+            s.insertRegion(CanvasRegion(id: r2, label: "The falls",
+                                        frame: CGRect(x: 800, y: 0, width: 400, height: 400)))
+            CanvasMembership.join(self.a, home: r2, in: &s)
+        }
+
+        let second = try await performer
+            .perform(plan(.region(r2), .researchNote, store: store, model: model))
+        XCTAssertNotEqual(second.createdItemID, first.createdItemID, "a second note")
+        XCTAssertEqual(contribution(a, in: model), second.createdItemID,
+                       "single-valued: the most recent contribution wins")
+        XCTAssertEqual(contribution(b, in: model), first.createdItemID,
+                       "the clear is scoped to the artifact, so this promotion "
+                       + "could not touch a record naming another note")
+        // And the words really are in both — the first note was never rewritten,
+        // which is what makes the overwrite a cost rather than a correction.
+        XCTAssertNotNil(TreeWalk.find(id: first.createdItemID!,
+                                      in: store.manifest.research),
+                        "the first note is still in the project")
+    }
+
     // MARK: - A scrap records nothing
 
     /// `contributors` is empty for a scrap source, so the stamping is a no-op —
