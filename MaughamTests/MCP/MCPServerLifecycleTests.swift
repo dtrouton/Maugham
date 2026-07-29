@@ -158,6 +158,28 @@ final class MCPServerLifecycleTests: XCTestCase {
         _ = line.withCString { ptr in
             send(fd, ptr, strlen(ptr), 0)
         }
+        // **A response that never arrives must FAIL, not hang.**
+        //
+        // The server writes its response only after hopping to the main actor
+        // for `MCPRouter.dispatch`, so anything that keeps the main actor busy
+        // stops the write — and an untimed `recv` then blocks forever. Measured
+        // 2026-07-29: this class passes alone in 6.9s (this test in 0.003s) and
+        // `test_request_dispatchesViaRouter` never returned inside the full
+        // 3,399-test suite — 45 minutes with no output, no failure, no name.
+        //
+        // That is the cost being paid here, and it is not the missing response:
+        // it is that **a hang is indistinguishable from a slow suite**, so the
+        // whole run has to be killed and nothing says which test stopped it or
+        // why. With a timeout the same defect arrives as one named assertion.
+        //
+        // The trigger — what holds the main actor at suite scale, and which
+        // other tests are in it — is unresolved and deliberately still open;
+        // this makes it *diagnosable* rather than fatal. 10s is ~3,000× the
+        // passing time, so it can only fire on a genuine stall.
+        var timeout = timeval(tv_sec: 10, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout,
+                   socklen_t(MemoryLayout<timeval>.size))
+
         // Read response on a GCD thread so we don't block a cooperative thread
         // while the server is awaiting the main actor for router.dispatch.
         let fdCopy = fd
@@ -165,9 +187,19 @@ final class MCPServerLifecycleTests: XCTestCase {
             DispatchQueue.global(qos: .userInitiated).async {
                 var buf = [UInt8](repeating: 0, count: 65_536)
                 let n = recv(fdCopy, &buf, buf.count, 0)
-                let s = n > 0
-                    ? (String(bytes: buf.prefix(Int(n)), encoding: .utf8) ?? "")
-                    : "recv returned \(n)"
+                let err = errno
+                let s: String
+                if n > 0 {
+                    s = String(bytes: buf.prefix(Int(n)), encoding: .utf8) ?? ""
+                } else if n < 0 && (err == EAGAIN || err == EWOULDBLOCK) {
+                    // The timeout above fired. Name it, so the failure message
+                    // is the diagnosis rather than the start of one.
+                    s = "recv timed out after 10s — no response was written. "
+                        + "The server dispatches on the main actor; something is "
+                        + "holding it. This is a stall, not a wrong answer."
+                } else {
+                    s = "recv returned \(n), errno=\(err)"
+                }
                 continuation.resume(returning: s)
             }
         }
