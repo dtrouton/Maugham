@@ -42,6 +42,18 @@ Three requirements. Each is verbatim from the spike; each breaks the surface sil
 
 ---
 
+## What an item node says it is — `CanvasItemFacts` (1C-d Task 4)
+
+**Three facts, resolved from a reference and an index that is handed in: a title, a kind glyph, and a project-relative thumbnail path when there is a picture.** This is `Promotion`/`ArtifactIndex`'s shape for `ArtifactIndex`'s reason — pure, testable, and one walk of the manifest rather than one per query. It is **not** `ArtifactIndex`: that index answers a promotion's question (may this mark be overwritten, and by what), its vocabulary has no photograph, and a *path* on its `Entry` would invite resolving a promotion target by filename. `CanvasItemIndex` is the second index over one manifest, and both are built at the same site.
+
+**A referenced item the writer deleted gets a sentence, not an id.** `CanvasItemFacts.missingTitle` is "No longer in the project." — deliberately `PromotedArtifactSection.contributionArtifactMissing`'s own predicate with the subject dropped, because the string is drawn as a one-line card label as well as read in the pane, and the card the writer is looking at supplies the subject. The two are asserted *against each other* rather than against literals, so a rewording of either that leaves them speaking differently goes red.
+
+**An owned image's title is the fixed noun "Image", and the reason is that the filename carries nothing.** `ImagePasteHandler.destination` mints `image-yyyyMMdd-HHmmss.<ext>` and the writer's own filename is discarded at ingest — so a filename title is the clock reading at the moment they dropped the picture, dressed as a name. What tells one owned card from another is the picture on it. *If ingest ever preserves the source filename, that decision is void.*
+
+**The cache key is `(sceneRevision, CanvasItemIndex.fingerprint)`, and each half is load-bearing.** `sceneRevision` alone is the subtle one: the writer renames the research note a card points at, nothing on the canvas moves, and the card shows the old title for the rest of the session. The fingerprint alone misses a newly added item node. The fingerprint is **content-derived** (`entriesByID.hashValue`, once, at build) rather than a counter bumped per rebuild — the index is rebuilt on the window's body path, so a mint-per-build counter would move on every pass and the cache would hold nothing with nothing red. Content-derived is also *narrower* than a manifest-save counter: a tag or a caption changing leaves it alone. **Never `.onChange(of: index)`** — a dictionary comparison per frame is tripwire 30's shape arriving through the invalidation check. **In-memory only**: Swift seeds `Hasher` per process, the same fact that made `CanvasMembership.homeRegion` answer differently between runs of one binary.
+
+---
+
 ## Focus straightens the card (§7A.5)
 
 The whole card carries a seeded angle — FNV-1a over `id.raw` through a SplitMix64 finaliser, stable, never random per frame, chrome and text together. **The focused card animates to level over ~120 ms and settles back to its angle on blur.** That is the focus affordance: you pick the paper up and square it to write on, and the card being edited is the only square one on the canvas.
