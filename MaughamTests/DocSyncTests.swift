@@ -220,4 +220,180 @@ final class DocSyncTests: XCTestCase {
         XCTAssertEqual(missing, ["inbox"],
             "Self-check expected exactly the omitted \"inbox\" case to be reported missing. Got: \(missing).")
     }
+
+    // MARK: - Test 4: the canvas's calibration figures (1C-c3 whole-branch review)
+
+    /// The files that declare the figures `Maugham/Canvas/AREA.md` is allowed to
+    /// quote in the notation — `CanvasMaterial` and `CanvasCardMetrics`.
+    ///
+    /// **Deliberately narrow.** These are the numbers the *writer* reads to decide
+    /// where to move a knob, which is what makes a stale one expensive: a stale
+    /// `1.2°` in that file and four others was read as current, went into the
+    /// option preview he chose the tilt band from, and gave him a wrong upper
+    /// bound. Everything else in that file — the prose, the counts, the measured
+    /// timings — is out of scope, and the counts already have a working
+    /// mitigation ("count the array, not this sentence").
+    static let calibrationSourceFiles = [
+        "Maugham/Canvas/CanvasMaterial.swift",
+        "Maugham/Canvas/CanvasNode.swift",
+    ]
+
+    /// One quoted figure: the constant's name and the value as the doc writes it.
+    struct QuotedFigure: Equatable {
+        let name: String
+        /// One number for a scalar, three for an sRGB triple.
+        let values: [Double]
+    }
+
+    /// Every figure pair in `text`: an inline code span holding a lowerCamelCase
+    /// identifier, immediately followed by a parenthesised NUMERIC value.
+    ///
+    /// **"Numeric" is what keeps this out of the prose.** `` `rowOrdered` (a
+    /// proximity walk over the y-sorted list) `` is a code span followed by a
+    /// parenthesis and is not a figure; nothing but digits, dots, commas,
+    /// spaces and a trailing unit matches. A pair that IS numeric must resolve
+    /// to a real constant, which is what stops a rename from quietly taking the
+    /// figure out of the guard's sight.
+    static func quotedFigures(in text: String) -> [QuotedFigure] {
+        let pattern = #"`([a-z][A-Za-z0-9]*)`\s*\(\s*([0-9., ]+?)\s*(?:°|pt|px)?\s*\)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let ns = text as NSString
+        var found: [QuotedFigure] = []
+        regex.enumerateMatches(in: text, range: NSRange(location: 0, length: ns.length)) { m, _, _ in
+            guard let m, m.numberOfRanges > 2 else { return }
+            let body = ns.substring(with: m.range(at: 2))
+            let parts = body.split(separator: ",").map {
+                $0.trimmingCharacters(in: .whitespaces)
+            }
+            // A bare "1" or a trailing comma is not a figure; every part must
+            // parse, and there must be one part or three.
+            let numbers = parts.compactMap(Double.init)
+            guard numbers.count == parts.count, numbers.count == 1 || numbers.count == 3 else {
+                return
+            }
+            found.append(QuotedFigure(name: ns.substring(with: m.range(at: 1)), values: numbers))
+        }
+        return found
+    }
+
+    /// Every `static let NAME` in `source` whose value is a numeric literal or an
+    /// `NSColor(srgbRed:green:blue:alpha:)` triple, as the same shape.
+    ///
+    /// Anything else — a derived value like `itemPlaceholderHeight`, a system
+    /// colour like `.textBackgroundColor`, an array — is simply absent, so a doc
+    /// pair naming one fails as "no such figure" rather than passing blind.
+    static func declaredFigures(in source: String) -> [String: [Double]] {
+        var out: [String: [Double]] = [:]
+        let scalar = try? NSRegularExpression(
+            pattern: #"static let ([a-z][A-Za-z0-9]*)\s*:\s*(?:CGFloat|Double)\s*=\s*(-?[0-9.]+)\s*$"#)
+        let colour = try? NSRegularExpression(
+            pattern: #"static let ([a-z][A-Za-z0-9]*)\s*=\s*NSColor\(srgbRed:\s*([0-9.]+),\s*green:\s*([0-9.]+),\s*blue:\s*([0-9.]+)"#)
+        for raw in source.components(separatedBy: "\n") {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("//") { continue }
+            let ns = line as NSString
+            let whole = NSRange(location: 0, length: ns.length)
+            if let m = scalar?.firstMatch(in: line, range: whole),
+               let v = Double(ns.substring(with: m.range(at: 2))) {
+                out[ns.substring(with: m.range(at: 1))] = [v]
+            } else if let m = colour?.firstMatch(in: line, range: whole) {
+                let rgb = (1...3).compactMap { Double(ns.substring(with: m.range(at: $0 + 1))) }
+                if rgb.count == 3 { out[ns.substring(with: m.range(at: 1))] = rgb }
+            }
+        }
+        return out
+    }
+
+    /// Which quoted figures disagree with the source, and how.
+    static func calibrationMismatches(quoted: [QuotedFigure],
+                                      declared: [String: [Double]]) -> [String] {
+        quoted.compactMap { figure in
+            guard let actual = declared[figure.name] else {
+                return "`\(figure.name)` \(figure.values) — no such numeric constant in "
+                    + calibrationSourceFiles.joined(separator: " / ")
+            }
+            guard actual.count == figure.values.count else {
+                return "`\(figure.name)` — the doc quotes \(figure.values.count) "
+                    + "number(s) and the constant has \(actual.count)"
+            }
+            let agrees = zip(figure.values, actual).allSatisfy { abs($0 - $1) < 0.0005 }
+            return agrees ? nil : "`\(figure.name)` — doc says \(figure.values), "
+                + "source says \(actual)"
+        }
+    }
+
+    /// A calibration figure quoted in `Maugham/Canvas/AREA.md` must be the value
+    /// the constant actually has.
+    ///
+    /// The notation is required and is documented in that file: an inline code
+    /// span naming the constant, immediately followed by the value in parentheses.
+    /// Its limit is that a figure written as bare prose is invisible here — which
+    /// is acceptable, because the notation is also what makes a stale number
+    /// findable by eye, and that is how the `1.2°` was eventually caught.
+    func test_theCalibrationFiguresInTheCanvasAreaFileMatchTheirConstants() throws {
+        let doc = try readFile("Maugham/Canvas/AREA.md")
+        var declared: [String: [Double]] = [:]
+        for path in Self.calibrationSourceFiles {
+            declared.merge(Self.declaredFigures(in: try readFile(path))) { a, _ in a }
+        }
+        XCTAssertNotNil(declared["maximumTiltDegrees"],
+            "Self-check: the source parser found no `maximumTiltDegrees`, so it is "
+            + "reading nothing and every comparison below is vacuous.")
+
+        let quoted = Self.quotedFigures(in: doc)
+        XCTAssertGreaterThanOrEqual(quoted.count, 4,
+            "Only \(quoted.count) calibration figures are written in the notation. "
+            + "Someone has un-converted them, and an unquoted figure is one this "
+            + "test cannot see. Found: \(quoted.map(\.name)).")
+
+        let mismatches = Self.calibrationMismatches(quoted: quoted, declared: declared)
+        XCTAssertTrue(mismatches.isEmpty,
+            "Maugham/Canvas/AREA.md quotes a calibration figure that no longer "
+            + "matches its constant. A stale figure in that file reaches Denver's "
+            + "design decisions — it is where he goes to find a knob:\n"
+            + mismatches.joined(separator: "\n"))
+    }
+
+    /// Self-check: the parser fires on a drifted figure, on a renamed constant
+    /// and on a triple quoted with the wrong channel — and does NOT fire on a
+    /// prose parenthetical, which is the whole reason the value must be numeric.
+    func test_theCalibrationFigureCheckWouldFireOnPlantedOffenders() throws {
+        let declared: [String: [Double]] = [
+            "maximumTiltDegrees": [1.0],
+            "lightBase": [0.930, 0.915, 0.880],
+        ]
+        let doctored = """
+        The band tops out at `maximumTiltDegrees` (1.2°), over a
+        `lightBase` (0.930, 0.915, 0.500) ground, with `minimumTiltDegres` (0.4°)
+        at the other end. `rowOrdered` (a proximity walk over the y-sorted list)
+        is prose. `promotedMarkWidth` (3 pt) is a figure this fixture does not
+        declare.
+        """
+        let quoted = Self.quotedFigures(in: doctored)
+        XCTAssertEqual(quoted.map(\.name),
+                       ["maximumTiltDegrees", "lightBase", "minimumTiltDegres",
+                        "promotedMarkWidth"],
+            "Self-check: the figure parser must take exactly the numeric pairs and "
+            + "leave the prose parenthetical alone. Got: \(quoted).")
+
+        let mismatches = Self.calibrationMismatches(quoted: quoted, declared: declared)
+        XCTAssertEqual(mismatches.count, 4,
+            "Self-check: the drifted scalar, the drifted channel, the misspelt name "
+            + "and the undeclared constant should all report. Got:\n"
+            + mismatches.joined(separator: "\n"))
+        XCTAssertTrue(mismatches.contains { $0.contains("maximumTiltDegrees") && $0.contains("1.2") },
+            "Self-check: the drifted 1.2° — the real incident — must fire.")
+        XCTAssertTrue(mismatches.contains { $0.contains("lightBase") },
+            "Self-check: a triple that agrees on two channels and not the third "
+            + "must fire, or the guard reads only the first number.")
+        XCTAssertTrue(mismatches.contains { $0.contains("minimumTiltDegres") },
+            "Self-check: a figure naming no constant must fire — otherwise a "
+            + "rename silently removes a figure from this guard's sight.")
+
+        XCTAssertTrue(Self.calibrationMismatches(
+            quoted: Self.quotedFigures(in: "`maximumTiltDegrees` (1.0°) and "
+                                       + "`lightBase` (0.930, 0.915, 0.880)."),
+            declared: declared).isEmpty,
+            "Self-check: correct figures must not fire, or the guard is a wall.")
+    }
 }
