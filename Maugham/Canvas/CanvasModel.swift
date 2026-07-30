@@ -344,11 +344,30 @@ final class CanvasModel {
     /// would land in the "Edit Scrap" gesture `mutateFromOutsideTheCanvas` has
     /// just reopened, i.e. in the writer's next sentence.
     ///
-    /// A caller that writes scrap TEXT as well as scene shape must write the
-    /// text first: the hook re-measures each card from the words it finds, and a
-    /// card measured before its text arrives is measured empty.
-    func mutateFromInspector(_ name: String, _ body: (inout CanvasScene) -> Void) {
+    /// **A caller that writes scrap TEXT as well as scene shape hands the words
+    /// to `scrapTexts`** rather than calling `setScrapText` around the call.
+    /// Two reasons, and the first is the one with a silent failure behind it:
+    ///
+    /// - **Written before the call the words land in the WRITER's step; written
+    ///   after it, in the writer's NEXT one.** A snapshot is
+    ///   `(scene, scraps)` and `endGesture` diffs the whole of it, so text folded
+    ///   in before `mutateFromOutsideTheCanvas` closes the open "Edit Scrap"
+    ///   gesture is registered under the writer's name, and text folded in after
+    ///   the close lands inside the gesture that has just been REOPENED. That is
+    ///   exactly the ride-along this verb exists to prevent, arriving through the
+    ///   scraps half of the snapshot instead of the scene half — and it is
+    ///   invisible to any assertion about the scene alone.
+    /// - **Inside the bracket the words go in FIRST**, because
+    ///   `onSceneChangedExternally` re-measures each card from the text it finds,
+    ///   and a card measured before its words arrive is measured empty.
+    ///
+    /// One `scheduleSave` covers both halves: `withScene` queues the payload with
+    /// the words already in `scraps`.
+    func mutateFromInspector(_ name: String,
+                             scrapTexts: [CanvasNodeID: String] = [:],
+                             _ body: (inout CanvasScene) -> Void) {
         undo.mutateFromOutsideTheCanvas(name) {
+            for (id, text) in scrapTexts { scraps[id] = text }
             withScene(body)
             onSceneChangedExternally?()
         }

@@ -1692,11 +1692,18 @@ final class TripwireGrepTests: XCTestCase {
     /// 1C-c2 added the third: `PromotionPerformer` writes the promoted mark from
     /// outside the canvas, and `beginPromotion` can run while a focused scrap
     /// holds "Edit Scrap" open.
+    ///
+    /// 1C-c3 added the fifth, and **its repro is the sharpest here**:
+    /// `CanvasClaudeWrite` is reached from an MCP call, which arrives from outside
+    /// the window entirely. The inspector entries at least require the writer's
+    /// hand to be in the window; this one needs nothing but a message on a socket
+    /// while the writer types.
     func test_theCanvasUndoBracketIsReachedFromAnotherColumnByOneVerbOnly() throws {
         let census = try canvasBracketCensus(in: sourceDir)
         XCTAssertEqual(
             census,
-            ["LineInspector.swift": [Self.canvasOutsideVerb],
+            ["CanvasClaudeWrite.swift": [Self.canvasOutsideVerb],
+             "LineInspector.swift": [Self.canvasOutsideVerb],
              "PromotionPerformer.swift": [Self.canvasOutsideVerb],
              "RegionInspector.swift": [Self.canvasOutsideVerb],
              "ScrapInspector.swift": [Self.canvasOutsideVerb]],
@@ -1712,6 +1719,12 @@ final class TripwireGrepTests: XCTestCase {
             + "and opens the bracket. NOT a card: AppKit sends clickCount 1 "
             + "first and that click selects the card. Nested, your edit "
             + "registers NO undo step and rides into the writer's next one.\n\n"
+            + "The sharper repro, and it needs no gesture at all: an MCP call "
+            + "arriving while the writer is inside a scrap. Nothing on that side "
+            + "of the window closes their bracket, and nothing on this side has "
+            + "one of its own to protect — so a write from a tool is the same "
+            + "case as the inspector's, minus the requirement that anyone be "
+            + "touching the app. That is CanvasClaudeWrite.swift above.\n\n"
             + "From the canvas itself the answer is the opposite — refuse "
             + "mid-gesture (`deleteSelection`'s `isInGesture` guard), because "
             + "closing the bracket would end one the writer still holds.\n\n"
