@@ -192,8 +192,20 @@ struct CanvasInteraction {
         return (origin, current)
     }
 
-    /// A press inside the card's bottom-right corner square starts a resize;
-    /// anywhere else starts a move. The square's side is
+    /// A press inside a **scrap's** bottom-right corner square starts a resize;
+    /// anywhere else starts a move, and on an **item** node every press does —
+    /// the corner is a scrap's affordance and nothing else's.
+    ///
+    /// This sentence read "the card's corner" for the whole life of the guard,
+    /// and it was true then: nothing in production made an item node, so every
+    /// card on the surface was a scrap. `CanvasClaudePlacement` (1C-c3)
+    /// falsified it by putting Claude's page card on the canvas, and the corner
+    /// drag the ungated guard let through took that card OFF the surface. The
+    /// full chain — `setWidth` clearing `cachedHeight`, no measure pass for an
+    /// item's width, no height therefore no frame — is at the kind test itself,
+    /// below, where someone changing the condition will meet it.
+    ///
+    /// The square's side is
     /// `CanvasRenderer.resizeHandleSize`, the same constant the mark is drawn
     /// from, so the two cannot drift apart in SIZE. They are not the same SHAPE:
     /// the mark is the triangle below the square's hypotenuse, so the upper-left

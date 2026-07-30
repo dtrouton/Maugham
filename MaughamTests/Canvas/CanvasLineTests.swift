@@ -72,7 +72,24 @@ final class CanvasLineTests: XCTestCase {
             + "line's provenance — the one thing on this surface that records "
             + "where a thing came from rather than what happened to it. "
             + "CanvasRegion.author is `let` for the same reason.")
-        XCTAssertFalse(declaration.contains("public struct CanvasDrawnLine"),
+        // The projection has to still BE there for the slice to be worth
+        // anything, and this pair is deliberately two assertions rather than
+        // one. The first draft of the repair asserted only that `declaration`
+        // omits `"public struct CanvasDrawnLine"` — which is true for every
+        // possible content of the file, because `declaration` is sliced at the
+        // next `"public struct "` and so contains that token by construction.
+        // An unfalsifiable assertion in the fix for an unfalsifiable assertion.
+        // Split in two, both halves can fail: the control if `CanvasDrawnLine`
+        // is renamed or moved out of this file (the slice then guards nothing
+        // and the first assertion is back to reading one struct by luck), the
+        // slice assertion if the slicing is ever removed.
+        XCTAssertTrue(stripped.contains("public struct CanvasDrawnLine"),
+            "CanvasDrawnLine is no longer declared below CanvasLine in this file, "
+            + "so the slice above has nothing to exclude and the assertion below "
+            + "is measuring nothing. If the projection moved, re-aim this control "
+            + "at whatever now follows CanvasLine — or delete the slicing and this "
+            + "pair together, deliberately.")
+        XCTAssertFalse(declaration.contains("CanvasDrawnLine"),
             "The slice has swallowed the projection below it, whose own `author` "
             + "is `let` — which is exactly how the first draft of this test "
             + "passed with the field flipped to `var`.")

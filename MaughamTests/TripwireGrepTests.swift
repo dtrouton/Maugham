@@ -1308,8 +1308,9 @@ final class TripwireGrepTests: XCTestCase {
     /// than a silence.
     static let nilChainMarker = "nil-chain-ok:"
 
-    /// Every offending line under `dir`: an `XCTAssertNil(` and a `?.` together,
-    /// with no exemption marker.
+    /// Every offending line under `dir`: a `?.` reaching the subject of an
+    /// assertion that a value is absent — `XCTAssertNil(`, or the equality
+    /// spelling `XCTAssertEqual(…, nil)` — with no exemption marker.
     ///
     /// **Why this shape is a defect.** `XCTAssertNil(scene.node(a)?.author)`
     /// passes when node `a` was never there at all — `Optional.none` satisfies it
@@ -1327,12 +1328,25 @@ final class TripwireGrepTests: XCTestCase {
     /// assertion is true for a reason other than the one named" in general — a
     /// fixture whose region never drove the union it was meant to force, an
     /// empty-vs-empty comparison after an undo, a `message.contains("1")`. Those
-    /// need a reader. The other `?.` shapes in this tree are safe by
-    /// construction: `XCTAssertEqual(…?.author, .claude)` cannot false-pass on
-    /// absence, because `Optional.none != .some(.claude)`.
+    /// need a reader.
+    ///
+    /// **It scans two spellings, because absence has two.**
+    /// `XCTAssertEqual(scene.node(a)?.author, nil)` false-passes on a missing
+    /// node exactly as `XCTAssertNil` does — same defect, different words — so
+    /// the equality-against-`nil` form is scanned too. The census read
+    /// `XCTAssertNil` only for one commit, and its doc asserted flatly that
+    /// `XCTAssertEqual` chains "cannot false-pass on absence"; that is true of
+    /// `XCTAssertEqual(…?.author, .claude)`, where `Optional.none != .some(x)`
+    /// keeps the assertion honest, and false of the `nil` expectation. No
+    /// instance of the equality spelling existed when the gap was found, so it
+    /// was a hole in the guard rather than a live defect — which is the only
+    /// kind of hole a census gets to close cheaply. A chain against a **non**-nil
+    /// expectation still does not fire, and should not.
     ///
     /// **Line-based, and the limit is real**: an assertion wrapped so that the
-    /// `?.` lands on a later line is invisible to it. The marker is honoured on
+    /// `?.` lands on a later line is invisible to it — and so is
+    /// `XCTAssertEqual(x?.y,` with its `nil` on the line below, which is the
+    /// same limit costing twice now that there are two spellings. The marker is honoured on
     /// the offending line OR on the line immediately above it, because these
     /// assertions are long and pushing the marker onto a 100-column line is how a
     /// convention stops being followed.
@@ -1348,7 +1362,15 @@ final class TripwireGrepTests: XCTestCase {
             for (i, line) in lines.enumerated() {
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
                 if trimmed.hasPrefix("//") { continue }
-                guard trimmed.contains("XCTAssertNil("), trimmed.contains("?.") else { continue }
+                guard trimmed.contains("?.") else { continue }
+                // Both spellings of "this is absent". The `nil` expectation is
+                // matched with its delimiter attached so that `, nil)` and
+                // `, nil, "message")` both fire and an identifier ending in
+                // `nil` does not.
+                let assertsAbsence = trimmed.contains("XCTAssertNil(")
+                    || (trimmed.contains("XCTAssertEqual(")
+                        && (trimmed.contains(", nil)") || trimmed.contains(", nil,")))
+                guard assertsAbsence else { continue }
                 let previous = i > 0 ? lines[i - 1] : ""
                 if line.contains(nilChainMarker) || previous.contains(nilChainMarker) { continue }
                 offenders.append("\(url.lastPathComponent):\(i + 1): \(trimmed)")
@@ -1369,7 +1391,8 @@ final class TripwireGrepTests: XCTestCase {
         let dir = repoRoot.appendingPathComponent("MaughamTests/Canvas", isDirectory: true)
         let offenders = try Self.scanNilChainAssertions(in: dir)
         XCTAssertTrue(offenders.isEmpty,
-            "An XCTAssertNil whose subject is reached through `?.` passes when the "
+            "An assertion of absence — XCTAssertNil, or XCTAssertEqual(…, nil) — "
+            + "whose subject is reached through `?.` passes when the "
             + "subject is ABSENT, which is usually the failure the assertion was "
             + "written to catch. Use `try XCTUnwrap(subject).field` — or, if the "
             + "chain's own nil really is the assertion, add `// \(Self.nilChainMarker) "
@@ -1383,7 +1406,11 @@ final class TripwireGrepTests: XCTestCase {
     /// line can contain, reports zero offenders and looks identical to a clean
     /// tree.
     ///
-    /// Four plants and three controls, one per rule the scan has to get right.
+    /// Six plants and three controls, one per rule the scan has to get right.
+    /// Two of the plants are the equality-against-`nil` spelling, which is the
+    /// arm that matters most here: it was added to the scan against a tree with
+    /// no instance of it, so the real census cannot tell a working clause from a
+    /// clause that matches nothing.
     func test_theNilChainCensusFiresOnPlantedOffenders() throws {
         let fm = FileManager.default
         let tmp = fm.temporaryDirectory
@@ -1406,6 +1433,12 @@ final class TripwireGrepTests: XCTestCase {
             func test_offenderOnACollection() throws {
                 XCTAssertNil(scene.lines.first?.label)
             }
+            func test_theEqualitySpellingOfTheSameDefect() throws {
+                XCTAssertEqual(scene.node(a)?.promotedItemID, nil)
+            }
+            func test_theEqualitySpellingWithAMessage() throws {
+                XCTAssertEqual(scene.region(r)?.boundPieceID, nil, "nothing of its own")
+            }
             func test_exemptOnTheSameLine() throws {
                 XCTAssertNil(nodes.first { $0.frame?.contains(p) == true }) // \(Self.nilChainMarker) predicate
             }
@@ -1425,20 +1458,29 @@ final class TripwireGrepTests: XCTestCase {
                   atomically: true, encoding: .utf8)
 
         let offenders = try Self.scanNilChainAssertions(in: tmp)
-        XCTAssertEqual(offenders.count, 4,
-            "Self-check: exactly the four planted offenders should fire. Got:\n"
+        XCTAssertEqual(offenders.count, 6,
+            "Self-check: exactly the six planted offenders should fire. Got:\n"
             + offenders.joined(separator: "\n"))
         for expected in ["node(a)?.author", "region(r)?.boundPieceID",
                          "roundTrip(s).node(a)?.promotedItemID", "lines.first?.label"] {
             XCTAssertTrue(offenders.contains { $0.contains(expected) },
                           "Self-check: the planted `\(expected)` should be caught.")
         }
+        XCTAssertTrue(offenders.contains {
+            $0.contains("XCTAssertEqual") && $0.contains("promotedItemID, nil)")
+        }, "Self-check: the equality spelling of absence should be caught — it "
+           + "false-passes on a missing node exactly as XCTAssertNil does.")
+        XCTAssertTrue(offenders.contains {
+            $0.contains("XCTAssertEqual") && $0.contains("nil, \"nothing of its own\"")
+        }, "Self-check: the equality spelling with a trailing message should be "
+           + "caught, or the clause only matches assertions nobody explains.")
         XCTAssertFalse(offenders.contains { $0.contains("XCTUnwrap") },
                        "Self-check: the FIXED shape must not fire, or the census "
                        + "punishes the repair it is asking for.")
-        XCTAssertFalse(offenders.contains { $0.contains("XCTAssertEqual") },
-                       "Self-check: a chain that cannot false-pass on absence must "
-                       + "not fire — Optional.none != .some(x).")
+        XCTAssertFalse(offenders.contains { $0.contains(".claude") },
+                       "Self-check: a chain against a NON-nil expectation cannot "
+                       + "false-pass on absence and must not fire — "
+                       + "Optional.none != .some(x).")
         XCTAssertFalse(offenders.contains { $0.contains("in a comment") },
                        "Self-check: a commented-out assertion is not code.")
     }
