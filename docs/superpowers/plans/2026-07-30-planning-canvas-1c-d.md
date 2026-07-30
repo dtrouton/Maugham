@@ -16,7 +16,7 @@
 
 **Every signature quoted below was read out of the tree on 2026-07-30**, at the line given. Anything not quoted is deliberately not asserted.
 
-**Tasks 9–13 are stated, not written.** Task 8's whole deliverable is turning them into full tasks against the code tasks 1–7 will have built. This is not a placeholder: writing them now would mean writing contracts against Swift that does not exist, which is the thing that cost M1C four review rounds and three near-deletions of one plan's work by another. It is one plan, one branch, one whole-branch review, one smoke, one merge.
+**Tasks 10–14 are stated, not written.** Task 9's whole deliverable is turning them into full tasks against the code tasks 1–8 will have built. This is not a placeholder: writing them now would mean writing contracts against Swift that does not exist, which is the thing that cost M1C four review rounds and three near-deletions of one plan's work by another. It is one plan, one branch, one whole-branch review, one smoke, one merge.
 
 ---
 
@@ -46,7 +46,7 @@ Every task's requirements implicitly include these.
 xcodebuild -project Maugham.xcodeproj -scheme Maugham test CODE_SIGNING_ALLOWED=NO -skip-testing:MaughamTests/MCPServerLifecycleTests
 ```
 
-The phone scheme is untouched by this slice (spec §9: the canvas is Mac-only) — but run it once at Task 8 and once at the end, because `MaughamCore` is shared and the two schemes are independent.
+The phone scheme is untouched by this slice (spec §9: the canvas is Mac-only) — but run it once at Task 9 and once at the end, because `MaughamCore` is shared and the two schemes are independent.
 
 ### Verified signatures this plan builds on
 
@@ -114,7 +114,7 @@ enum CanvasItemReference: Equatable, Hashable, Sendable {
 case item(CanvasItemReference)   // replaces `case item(referenceId: String)`
 ```
 
-**Why nested rather than a third `CanvasNodeKind` case.** Roughly fifteen sites test `case .scrap = node.kind` and want both provenances to behave identically (the resize refusal, the promoted-stripe refusal, the tint refusal, the placeholder heal). Four destructure the reference. A third top-level case leaves every `.scrap` guard right and silently changes the meaning of `Promotion.swift:441`'s `if case .item = node.kind { return itemNodeReason }` — an owned node would fall through to the empty-text check and be offered a research note, a palette card and a **craft intent**. Nested makes that line keep refusing until Task 7 changes it deliberately, and makes the sites that genuinely differ exhaustive at the compiler.
+**Why nested rather than a third `CanvasNodeKind` case.** Roughly fifteen sites test `case .scrap = node.kind` and want both provenances to behave identically (the resize refusal, the promoted-stripe refusal, the tint refusal, the placeholder heal). Four destructure the reference. A third top-level case leaves every `.scrap` guard right and silently changes the meaning of `Promotion.swift:441`'s `if case .item = node.kind { return itemNodeReason }` — an owned node would fall through to the empty-text check and be offered a research note, a palette card and a **craft intent**. Nested makes that line keep refusing until Task 8 changes it deliberately, and makes the sites that genuinely differ exhaustive at the compiler.
 
 **Requirements**
 
@@ -156,7 +156,7 @@ case item(CanvasItemReference)   // replaces `case item(referenceId: String)`
 - **`canvas_assets/` at the project root, beside `canvas.md`** (spec §8's 2026-07-30 line). It is **content, not derived**: deleting `.maugham/canvas.json` costs the arrangement and must never cost the photographs. Do not put it under `.maugham/`.
 - **Reuse the saver; do not write a second one.** `ImagePasteHandler.destination(forNoteAt:in:ext:)` derives `<slug>_assets` from the note's own filename, so passing `CanvasStore.scrapsRelativePath` yields `canvas_assets/` with no new naming, no new dedupe and no new timestamp format. If that does not hold when you read it, say so rather than forking the saver.
 - **The pair returns a path, not a Markdown ref.** The saver returns `![](./canvas_assets/…)`. Resolving that to a project-relative path is a thing `ProjectStore+Palette` already does for the card model — share that resolution or state in a comment why it could not be shared. A second spelling of ref→path is the drift.
-- **This pair is the only writer of `canvas_assets/`.** Every route in tasks 9–11 is a caller. Consider whether a grep tripwire is worth it here; the palette's own `test_noRawWriteInPaletteStore` is the precedent and this seam has the same "five callers, one decision" shape.
+- **This pair is the only writer of `canvas_assets/`.** Every route in tasks 10–12 is a caller. Consider whether a grep tripwire is worth it here; the palette's own `test_noRawWriteInPaletteStore` is the precedent and this seam has the same "five callers, one decision" shape.
 
 **The failure it must not have:** an absolute path, a `file://` URL or a Markdown ref reaching `CanvasItemReference.owned(path:)`. Any of the three renders nothing, keys the thumbnail cache on a string that differs between Macs, and breaks the moment the project is moved or synced.
 
@@ -185,6 +185,7 @@ case item(CanvasItemReference)   // replaces `case item(referenceId: String)`
 - **Decode AT thumbnail size through `CGImageSource`** — `CGImageSourceCreateThumbnailAtIndex` with `kCGImageSourceCreateThumbnailFromImageAlways` and `kCGImageSourceThumbnailMaxPixelSize`. **Not** full-size decode then redraw. The palette wall's helper does exactly that and is the thing this must not copy; the canvas is the first surface in Maugham with an unbounded image count (spec §8A.1).
 - **The cache is bounded and keyed by PATH** (tripwire 22). An id key is wrong twice over: an owned node has no item id, and a referenced image's id is stable across a file change while the pixels are not.
 - **Nothing here runs on the frame path.** The draw pass may *read* a resolved thumbnail; it must not trigger a decode. State how a miss is handled (draw the card without one and resolve off the frame path) and pin it.
+- **A card's size VARIES — Task 6 makes item nodes resizable — so a naive "decode at the card's current size" is a decode per drag frame.** The two shapes that work are a bucketed target size (key the cache on path *and* bucket) or one generous decode that the draw pass scales down, which costs nothing on an already-small bitmap. Either is fine; a per-frame decode is not, and it is the failure this bullet exists to name.
 - Bound and eviction policy is yours; the number goes in `CanvasMaterial` only if it is a *look* constant, which this is not — it is a memory bound, so it belongs beside the cache with a comment saying why it is not in `CanvasMaterial`.
 
 **The failure it must not have:** a 6000×4000 photograph decoding at full size on the canvas's draw pass, once per frame, per card.
@@ -246,7 +247,7 @@ case item(CanvasItemReference)   // replaces `case item(referenceId: String)`
 - **The dashed placeholder goes.** `CanvasRenderer.swift:1195`'s dashed stroke and `:1277`'s `placeholderLabel(forReference:)` are the finished behaviour *for 1C-c3's slice*, and this is the slice that replaces them: title, kind glyph, thumbnail when there is one.
 - **This is what closes §8A.2's reproduction corollary**, and that is a constitutional obligation rather than a nicety — ADR 0026 §10 says "structural here, visible at 1C-d" in those words. The photographed page and the scraps read off it must be **comparable by looking**. Do not write down that the corollary is satisfied until a raster fixture says the page shows its own image.
 - **`rebuildLayouts`' `.item` arm genuinely measures now** — an item's height depends on whether it has a thumbnail, so `CanvasCardMetrics.itemPlaceholderHeight` stops being the answer. **The heal stays as the floor**: a node whose facts have not resolved yet must still get *a* height, because a node with no `cachedHeight` has no `frame`, and `nodes(intersecting:)` and `topmostNode(at:)` both drop it — not drawn, not clickable, and persisted that way. That is the 1C-c3 whole-branch Critical and it is one line from returning.
-- **Resize stays `.scrap`-only. Do not re-open it.** `CanvasInteraction.begin` takes the corner for `.scrap` only and `drawCard` inks the triangle for `.scrap` only, and those two are **one decision** (the mark and its target). Nothing in §8A requires an item's width to mean anything, so widening this is a design act with no requirement behind it, and the failure it re-opens is a card deleted permanently by one drag. If a later task finds it genuinely needs item resize, it takes the mark and the target together and restores the measurement pass first.
+- **Do not touch resize here. It is Task 6, and it depends on this task's measurement being real.** `CanvasInteraction.begin` takes the corner for `.scrap` only and `drawCard` inks the triangle for `.scrap` only; leave both exactly as they are until the height this task derives is genuinely a function of the width.
 - **`CanvasRenderer.connectHandleRect` still subtracts `resizeHandleSize` on every card**, so a selected item node's connect dot sits as though a triangle it does not draw were below it. Judged cosmetic in 1C-c3 because the mark and its target still agree with each other. **This is the slice that makes it visible** if an item node gains chrome. Look at it; fix it or record that you looked and it still reads right.
 - The tint refusal is unchanged: `CanvasRenderer.paper(for:)` refuses to tint an item node whatever its author says, and `seededRotation` reads the author. Neither moves here.
 
@@ -256,7 +257,7 @@ case item(CanvasItemReference)   // replaces `case item(referenceId: String)`
 
 - A raster fixture: a scene whose only difference is an item node **with** vs **without** a resolved thumbnail differs in pixels inside the card's rect (the house pattern — `CanvasRegionRenderTests` renders through `ImageRenderer` and counts changed pixels).
 - An item node arriving with `cachedHeight: nil` is healed on load and is present in `nodes(intersecting:)` afterwards (this test exists — `test_anItemNodeThatArrivesWithNoHeightIsHealedOnLoad`; extend it, do not replace it).
-- A corner drag on an item node **moves** it and does not resize it, driven **mid-drag through the real event view** — a re-measure at `.ended` hides the whole gesture. `CanvasViewMountingTests.test_aCornerDragOnClaudesSourcePageDoesNotTakeItOffTheCanvas` is that test; it must still pass unchanged.
+- A corner drag on an item node **moves** it and does not resize it, driven **mid-drag through the real event view** — a re-measure at `.ended` hides the whole gesture. `CanvasViewMountingTests.test_aCornerDragOnClaudesSourcePageDoesNotTakeItOffTheCanvas` and `CanvasInteractionTests.test_theCornerOfAnItemNodeMovesItRatherThanResizingIt` are those tests, and they must still pass **unchanged in this task**. Task 6 inverts both deliberately, and re-points rather than deletes the safety property they carry.
 - Raster fixtures resolve dynamic colours under an explicit appearance — the test process runs under DarkAqua, and a white-bitmap ink test once measured zero ink and passed everywhere except a dark-mode Mac.
 
 - [ ] **Step 1:** Tests. Run; confirm failure.
@@ -267,7 +268,43 @@ case item(CanvasItemReference)   // replaces `case item(referenceId: String)`
 
 ---
 
-## Task 6: The item node's inspector arm
+## Task 6: An item node resizes
+
+**Files:** Modify `CanvasInteraction.swift:286-300`, `CanvasRenderer.swift:1192-1200` (the mark), `CanvasScene.setWidth`. Test: `MaughamTests/Canvas/CanvasInteractionTests.swift`, `CanvasViewMountingTests.swift`, `CanvasRendererTests.swift`.
+
+**Interfaces — consumes:** Task 5's item measurement pass. **This task is not safe before it exists.**
+
+**Why this re-opens a ruling, and what makes it safe now.** Resize is `.scrap`-only because of a 1C-c3 whole-branch Critical: `CanvasScene.setWidth` clears `cachedHeight` by design, **nothing re-measured an item node**, and a node with no `cachedHeight` has no `frame` — dropped by both `nodes(intersecting:)` and `topmostNode(at:)`, so neither drawn nor clickable, and persisted that way through a save. One corner drag took the photographed page off the canvas permanently. **The guard was a fix for the missing measurement pass, not a ruling that item nodes should not resize**, and Task 5 is what supplies the pass. Once height is derived from width, `setWidth` clearing it is harmless: the re-measure restores it, exactly as it does for a scrap.
+
+**It is also the rule the canvas already has, not a new one.** Spec §7A.3: width is authoritative and the height is derived. A scrap's text reflows; an image's height follows its aspect ratio. Same sentence, second content type. And a photographed page that cannot be enlarged is a weak answer to §8A.2's corollary, which asks that a reproduction and its source be **checkable side by side** — at placeholder size they are not.
+
+**Requirements**
+
+- **The mark and the target move together, in one change.** One constant (`CanvasRenderer.resizeHandleSize`) fixes the size of both; `drawCard`'s adjacency comment calls moving a mark across the conditional line a **design change, not a tidy-up**. Widening one without the other gives a card that resizes with no mark, or inks a mark that does nothing.
+- **Prefer removing the `.scrap` condition to adding an `.item` one.** Before 1C-c3 the triangle was drawn unconditionally; if every node kind now measures, the honest end state is the uniform rule restored, and `drawCard` goes back to two unconditional marks rather than three conditions. Check that against the file — if a non-image item node (a research note reference) has no sensible resize, say so and take the narrower change with the reason written down.
+- **An image keeps its aspect ratio.** Width authoritative, height derived from the image plus the label chrome — so a corner drag scales rather than distorts. A distorting resize would be the one place on this surface where the drawn thing stops being a faithful reproduction, which is the corollary's own subject.
+- **The floor stays.** Task 5's heal-to-constant is what covers a node whose facts have not resolved yet; a resize while unresolved must land on the floor height, never on nil.
+- **`CanvasRenderer.connectHandleRect` subtracts `resizeHandleSize` on every card** and was cosmetically wrong for an item node precisely because the triangle was not drawn. If this task restores the triangle, that subtraction becomes correct again — verify it rather than assuming, and delete the note in Task 14 if it is now true.
+
+**The failure it must not have:** an item node persisted with no height. It is invisible, unclickable and unrecoverable without hand-editing the sidecar, and it reached disk once already.
+
+**Tests that must exist**
+
+- **The two tests this task inverts are re-pointed, not deleted.** `test_aCornerDragOnClaudesSourcePageDoesNotTakeItOffTheCanvas` and `test_theCornerOfAnItemNodeMovesItRatherThanResizingIt` assert the old behaviour. Their replacements must assert the **safety property underneath it**: after a corner drag on an item node, driven **mid-drag through the real event view** and then flushed to disk, the node still has a height, is still returned by `nodes(intersecting:)` and is still found by `topmostNode(at:)`. A re-measure at `.ended` hides the whole gesture, which is why mid-drag is not optional.
+- The corner drag changes the width and the height follows the aspect ratio — assert the ratio, not two literals.
+- A resize below the minimum is refused or clamped, whichever the scrap path already does; do not invent a second rule.
+- The mark is drawn on an item node (raster fixture, under an explicit appearance).
+- **Control:** a scrap still resizes exactly as it did, and `test_theUnmarkedHalfOfTheCornerSquareStillResizes` is green — that test exists to stop a tidy-up shrinking the target to the ink, and this task edits precisely that code.
+- **Disable experiment:** remove Task 5's item measurement and the mid-drag survival test goes red with a nil height, which is the original Critical reproducing on demand.
+
+- [ ] **Step 1:** Write the re-pointed tests. Run; confirm the new ones fail and the scrap control passes.
+- [ ] **Step 2:** Widen the target in `CanvasInteraction.begin` and the mark in `drawCard`, together, in one commit.
+- [ ] **Step 3:** Run the whole `CanvasViewMountingTests`, `CanvasInteractionTests` and `CanvasRendererTests` files, not only the new cases.
+- [ ] **Step 4:** Commit — `feat(canvas): an item node resizes, now that it is measured`.
+
+---
+
+## Task 7: The item node's inspector arm
 
 **Files:** Create `Maugham/Canvas/ItemInspector.swift`. Modify `RegionInspector.swift:23-70` (the routing), `Maugham/Views/ProjectWindow.swift` (whatever the arm needs handed to it). Test: `MaughamTests/Canvas/RegionBindingTests.swift` or a peer.
 
@@ -298,9 +335,9 @@ case item(CanvasItemReference)   // replaces `case item(referenceId: String)`
 
 ---
 
-## Task 7: An owned item node promotes
+## Task 8: An owned item node promotes
 
-**Files:** Modify `Promotion.swift:395-445` (targets, `blockedReason`, `itemNodeReason`), `PromotionPerformer.swift`, `PromotionSheet.swift`, `ItemInspector.swift` (Task 6). Test: `MaughamTests/Canvas/PromotionTests.swift` and peers.
+**Files:** Modify `Promotion.swift:395-445` (targets, `blockedReason`, `itemNodeReason`), `PromotionPerformer.swift`, `PromotionSheet.swift`, `ItemInspector.swift` (Task 7). Test: `MaughamTests/Canvas/PromotionTests.swift` and peers.
 
 **Interfaces — consumes:** `CanvasItemReference` (Task 1); `ProjectStore.createResearchAsset(scope:fromURL:)` (`ResearchScope.swift:117`); `ProjectStore.addImage(toPaletteCard:fileURL:)` (`ProjectStore+Palette.swift:153`).
 
@@ -336,37 +373,37 @@ case item(CanvasItemReference)   // replaces `case item(referenceId: String)`
 
 ---
 
-## Task 8: Re-derive tasks 9–13 against the built code
+## Task 9: Re-derive tasks 10–14 against the built code
 
 **Files:** Modify this plan.
 
-This is a **plan task**, not a code task, and it is the sequencing device that replaces splitting the milestone. Tasks 9–13 are stated below as requirements and failures; their contracts cannot be written until tasks 1–7 exist, because they call into them.
+This is a **plan task**, not a code task, and it is the sequencing device that replaces splitting the milestone. Tasks 10–14 are stated below as requirements and failures; their contracts cannot be written until tasks 1–8 exist, because they call into them.
 
-- [ ] **Step 1:** Read what tasks 1–7 actually built — `CanvasItemReference`, the ingestion pair's real signature, `CanvasItemFacts`' real shape, `ItemInspector`'s parameters, and whether `CanvasClaudeWrite`'s seam took the shape Task 11 needs.
+- [ ] **Step 1:** Read what tasks 1–8 actually built — `CanvasItemReference`, the ingestion pair's real signature, `CanvasItemFacts`' real shape, `ItemInspector`'s parameters, and whether `CanvasClaudeWrite`'s seam took the shape Task 12 needs.
 - [ ] **Step 2:** Re-read `Maugham/Canvas/AREA.md`. Tasks 1–7 will have changed it; the statements below were written against the 2026-07-30 version.
-- [ ] **Step 3:** Write tasks 9–13 in full, in the shape tasks 1–7 use: files, interfaces with **verified** signatures, requirements, the failure each must not have, the tests, the disable experiment. Contracts, not bodies.
+- [ ] **Step 3:** Write tasks 10–14 in full, in the shape tasks 1–8 use: files, interfaces with **verified** signatures, requirements, the failure each must not have, the tests, the disable experiment. Contracts, not bodies.
 - [ ] **Step 4:** Run the Mac suite **and the phone suite** once here — `MaughamCore` is shared and the two schemes are independent.
 - [ ] **Step 5:** Commit — `docs(plan): 1C-d's second half, derived against the built code`.
 
 ---
 
-## Tasks 9–13 — stated, to be written at Task 8
+## Tasks 10–14 — stated, to be written at Task 9
 
-Each names its spec authority, the requirement, and the failure it must not have. **Do not implement from these; Task 8 turns them into tasks.**
+Each names its spec authority, the requirement, and the failure it must not have. **Do not implement from these; Task 9 turns them into tasks.**
 
-### Task 9 — The drop target, and the research drag (spec §8A.1)
+### Task 10 — The drop target, and the research drag (spec §8A.1)
 
 Dropping a research item on the canvas creates a **referenced** item node at the drop point; the file is untouched. Internal drags follow the app's established `.draggable(id)` / `.dropDestination(for: String.self)` pattern (`ResearchRow.swift:64`, `:69`).
 
 *Failure it must not have:* a drop that lands a node with no measured height, or one that changes any region's membership by a rule other than "the node's centre is inside it" (tripwire 31 — a drop is a legitimate geometric reading; nothing else in this task is).
 
-### Task 10 — External drops (spec §8A.1)
+### Task 11 — External drops (spec §8A.1)
 
 A photo from Finder or a browser lands as an **owned** item node through the Task 2 pair. **Never `.dropDestination(for: URL.self)`** — browser image drags carry rendered bitmaps rather than file URLs and that modifier silently rejects them (CoreTransferable error 0). `[.fileURL, .image]` providers plus `DropClassification.fileURLs(from:)` is the only route, and the canvas adds no classification logic of its own — it is the fifth adopter.
 
 *Failure it must not have:* a browser drag that appears to do nothing, with nothing logged and nothing red.
 
-### Task 11 — Inbox → canvas (spec §8A.4, and its 2026-07-30 amendment)
+### Task 12 — Inbox → canvas (spec §8A.4, and its 2026-07-30 amendment)
 
 **Two routes.** An inbox row is **draggable onto the canvas and lands where it is dropped** — the third caller of Task 9's drop target, with no placement rule of its own. A **Send to Canvas** command stays beside "Promote to Palette" on the row (`InboxPane.swift:194-207`) for the keyboard, VoiceOver and a closed pane, and takes the one fallback: loose, clear of the writer's existing work (`CanvasClaudePlacement`'s `occupied.maxX + gutter`), **never in a region**.
 
@@ -374,11 +411,11 @@ A photo from Finder or a browser lands as an **owned** item node through the Tas
 
 It **reuses the promote contract rather than restating it**: copy-then-remove so a failure leaves a harmless duplicate rather than losing the capture, and flip the entry to `.promoted` **only after every mutating step has succeeded**. A third sibling beside `promoteToResearch`/`promoteToPaletteCard`, not a new spelling of them.
 
-**The write goes through the attached/detached seam, which is `CanvasClaudeWrite`'s** (`CanvasClaudeWrite.swift:49`, `:81`) — `isAttached`, never `liveCanvas != nil`; one `mutateFromInspector` bracket with the words travelling **inside** it via `scrapTexts:`; `bumpSceneRevision()` on its own line; `flush()` rather than `scheduleSave`. Whether that means generalising the file or adding an entry point is Task 8's call — but if the file is renamed or a sixth writer appears, **tripwire 32's census array changes and must be counted, not recited.**
+**The write goes through the attached/detached seam, which is `CanvasClaudeWrite`'s** (`CanvasClaudeWrite.swift:49`, `:81`) — `isAttached`, never `liveCanvas != nil`; one `mutateFromInspector` bracket with the words travelling **inside** it via `scrapTexts:`; `bumpSceneRevision()` on its own line; `flush()` rather than `scheduleSave`. Whether that means generalising the file or adding an entry point is Task 9's call — but if the file is renamed or a sixth writer appears, **tripwire 32's census array changes and must be counted, not recited.**
 
 *Failures it must not have:* a capture that leaves the inbox and appears nowhere the writer is looking; a send arriving while the writer is inside a scrap that rides into their next sentence (the census's sharpest repro, and this route needs no gesture of its own either); a half-promoted entry.
 
-### Task 12 — Collapse to the canvas (spec §8A.3)
+### Task 13 — Collapse to the canvas (spec §8A.3)
 
 `⌘\` on the canvas additionally collapses **both** side columns. Reuse the key — focus mode already hides titlebar, traffic lights, persona bar and footer; the exit is the key the writer already knows. **Deliberate toggle, never automatic on entering the persona** (that would fight §8A.1 — you need the binder open to drag research in).
 
@@ -386,9 +423,9 @@ Two recorded hazards. `PersonaModifier.clearsPaletteStash` (`ProjectWindow.swift
 
 *Failure it must not have:* a stashed column visibility restored over the collapse by a later update pass — tripwire 2's exact shape, which killed cursor↔binder sync in 3d.
 
-### Task 13 — The sweep, and the ledger
+### Task 14 — The sweep, and the ledger
 
-Docs move in the same commit as the behaviour (CLAUDE.md rule 10). `Maugham/Canvas/AREA.md` — "What the canvas does not do yet" loses its 1C-d bullet, "Not built" loses the item-node arm and the placeholder page, the two-provenance material joins, and any calibration figure uses the `` `constant` (value) `` notation or `DocSyncTests` cannot see it. ADR 0026 decisions 7 and 10 record what shipped and what the corollary now is. `docs/roadmap.md` flips 1C-d •→✓. `docs/guide/` describes what **ships**. CLAUDE.md's Canvas row and any tripwire whose census changed.
+Docs move in the same commit as the behaviour (CLAUDE.md rule 10). `Maugham/Canvas/AREA.md` — "What the canvas does not do yet" loses its 1C-d bullet, "Not built" loses the item-node arm and the placeholder page, the two-provenance material joins, **"Three things hold that height" is rewritten** (Task 6 removes one of the three and replaces it with a real measurement, and the paragraph currently reads as a standing ruling), **`drawCard`'s adjacency warning is re-counted** (it covers three marks today and Task 6 moves one across the conditional line, which that paragraph calls a design change), and any calibration figure uses the `` `constant` (value) `` notation or `DocSyncTests` cannot see it. ADR 0026 decisions 7 and 10 record what shipped and what the corollary now is. `docs/roadmap.md` flips 1C-d •→✓. `docs/guide/` describes what **ships**. CLAUDE.md's Canvas row and any tripwire whose census changed.
 
 **Then the whole-branch review**, and it gets the **ledger** as a first-class input beside the diff, pointed at the *seams*. It has found a Critical or a cross-surface contradiction in **every one of six slices**, in files no task's diff contained. Every reviewer writes its verdict to a file **before** replying — two reviewers went idle without reporting last slice and the work was lost.
 
@@ -402,18 +439,19 @@ Docs move in the same commit as the behaviour (CLAUDE.md rule 10). `Maugham/Canv
 | §8 — owned captures in an assets folder beside the scraps file | 2 |
 | §8A.1 — images, `CGImageSource` thumbnail, path-keyed bounded cache | 3 |
 | §8A.1 — real title, kind glyph, thumbnail | 4, 5 |
-| §8A.2 corollary — visible at 1C-d | 5 |
-| ADR 0026 §10 — item-node inspector arm | 6 |
-| §6 amendment — an owned node promotes; a referenced one does not | 7 |
-| §8A.1 — drop target, internal research drag | 9 |
-| §8A.1 — `DropClassification` for browser drags | 10 |
-| §8A.4 + amendment — inbox → canvas, all three kinds, drag and command | 11 |
-| §8A.3 — `⌘\` collapses both columns | 12 |
-| CLAUDE.md rule 10 — sibling docs in the same commit | 13 |
+| §8A.2 corollary — visible at 1C-d, and enlargeable enough to check against | 5, 6 |
+| §7A.3 — width authoritative, height derived — extended to an image | 6 |
+| ADR 0026 §10 — item-node inspector arm | 7 |
+| §6 amendment — an owned node promotes; a referenced one does not | 8 |
+| §8A.1 — drop target, internal research drag | 10 |
+| §8A.1 — `DropClassification` for browser drags | 11 |
+| §8A.4 + amendment — inbox → canvas, all three kinds, drag and command | 12 |
+| §8A.3 — `⌘\` collapses both columns | 13 |
+| CLAUDE.md rule 10 — sibling docs in the same commit | 14 |
 
 **Known gaps, stated rather than hidden.**
 
-- **Tasks 9–13 carry no code and no verified signatures yet.** That is Task 8's deliverable and the reason Task 8 exists.
-- **This plan runs ~13 tasks, over CLAUDE.md rule 12's ~10 cap.** Recorded rather than fixed by pretending: the milestone is not usable in halves, and Task 8 is the mitigation the cap exists to buy.
+- **Tasks 10–14 carry no code and no verified signatures yet.** That is Task 9's deliverable and the reason Task 9 exists.
+- **This plan runs 14 tasks, over CLAUDE.md rule 12's ~10 cap.** Recorded rather than fixed by pretending: the milestone is not usable in halves, and Task 9 is the mitigation the cap exists to buy.
 - **The overlapping-banner problem is not fixed here.** Three `.overlay(alignment: .top)` transient banners already share the window and two on screen at once draw over each other; the honest fix is one banner host for the window, which is its own slice. If Task 11's command uses a banner, it is a **fourth** and the plan should say so out loud rather than quietly adding it.
 - **`CanvasInteraction.regionHit` is still the next projection to lift** onto `CanvasScene`, and until it moves `CanvasScene` cannot go to MaughamCore. Not this slice's, and not made worse by it.
