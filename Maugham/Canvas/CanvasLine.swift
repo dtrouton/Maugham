@@ -33,18 +33,22 @@ public struct CanvasLine: Equatable, Sendable {
     /// creation and never afterwards — see `CanvasNode.author` for the whole
     /// ruling, including why `CanvasScene` gains no setter for it.
     ///
-    /// **A node's `author` is unreachable after `insert` and a line's is not**:
-    /// `CanvasScene.updateLine` is a general block mutator (it is how a label is
-    /// set and cleared), so nothing but the type system stops `$0.author = …`
-    /// there. The rule is the same for both — nothing in production may reach
-    /// through it — and here it is a convention rather than a guarantee.
+    /// **`let`, so the compiler is the enforcement** — `CanvasRegion.author`'s
+    /// shape, and for `CanvasRegion.author`'s reason. `CanvasScene.updateLine` is
+    /// a general block mutator (it is how a label is set and cleared), so while
+    /// this was `var` a `$0.author = …` inside it compiled: the one primitive of
+    /// the three whose provenance was a convention rather than a guarantee, in a
+    /// file whose own doc comment said "written once at creation" as though it
+    /// held everywhere. Nothing in production ever reached through it — the only
+    /// field any caller writes is `label` — and this is what makes that a fact
+    /// rather than a habit. Tripwire 24's argument, one field over.
     ///
     /// A line carries no semantics (see this type's own doc comment) and
     /// provenance does not give it any: this says who drew the line, not what
     /// the line means. That is also why it does not violate §5's no-`kind` rule,
     /// and why `CanvasLineTests.test_aLineCarriesNoTypeOnlyAnOptionalLabel`
     /// lists it.
-    public var author: AnnotationAuthor.SourceKind?
+    public let author: AnnotationAuthor.SourceKind?
 
     public init(id: CanvasLineID, from: CanvasNodeID, to: CanvasNodeID,
                 label: String? = nil, author: AnnotationAuthor.SourceKind? = nil) {

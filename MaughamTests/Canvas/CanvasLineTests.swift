@@ -33,6 +33,51 @@ final class CanvasLineTests: XCTestCase {
                         "first-time users; re-read spec §5 before adding one back")
     }
 
+    /// **`author` is `let`, and the compiler is the enforcement.**
+    ///
+    /// `CanvasScene.updateLine` is a general block mutator — it is how a label is
+    /// set and cleared — so while this field was `var`, `$0.author = …` inside it
+    /// compiled. Nothing in production ever did it (grepped: every call site
+    /// writes `label` and nothing else), but the line was the one primitive of
+    /// three whose "written once at creation" was a convention rather than a
+    /// guarantee, and three doc comments asserted the rule as though it held
+    /// everywhere. `CanvasRegion.author` has been `let` since 1C-c3 and
+    /// `CanvasScene` has no `setAuthor` for a node, so this makes the three
+    /// uniform.
+    ///
+    /// A `let` cannot be asserted by calling anything — the failure mode is a
+    /// *compile* error — so this reads the declaration, which is the only
+    /// observable. It is one line, and it is the line that would be flipped by
+    /// someone making an accidental write compile.
+    ///
+    /// **It is SLICED to `CanvasLine`'s own declaration, and the first draft was
+    /// not.** A `contains` over the whole file passed with the field flipped to
+    /// `var`, because `CanvasDrawnLine` — the projection two structs down —
+    /// declares a character-identical `public let author:`. Caught by the disable
+    /// experiment, which is the whole argument for running one: the assertion was
+    /// true for a reason other than the one its message named, in the fix wave
+    /// whose own Minor 1 is that exact shape.
+    func test_theLinesAuthorIsDeclaredLetSoTheCompilerHoldsTheRule() throws {
+        let stripped = CanvasSourceCensus.commentsStripped(
+            try CanvasSourceCensus.source(at: "Maugham/Canvas/CanvasLine.swift"))
+        let start = try XCTUnwrap(stripped.range(of: "public struct CanvasLine:"),
+                                  "CanvasLine's declaration has been renamed or "
+                                  + "reshaped, so this slice reads nothing")
+        let rest = stripped[start.upperBound...]
+        let end = rest.range(of: "public struct ")?.lowerBound ?? rest.endIndex
+        let declaration = rest[..<end]
+        XCTAssertTrue(declaration.contains("public let author: AnnotationAuthor.SourceKind?"),
+            "CanvasLine.author is no longer declared `let`. `updateLine` is a "
+            + "general block mutator, so a `var` here lets any caller rewrite a "
+            + "line's provenance — the one thing on this surface that records "
+            + "where a thing came from rather than what happened to it. "
+            + "CanvasRegion.author is `let` for the same reason.")
+        XCTAssertFalse(declaration.contains("public struct CanvasDrawnLine"),
+            "The slice has swallowed the projection below it, whose own `author` "
+            + "is `let` — which is exactly how the first draft of this test "
+            + "passed with the field flipped to `var`.")
+    }
+
     func test_labelCanBeSetAndCleared() {
         var scene = CanvasScene()
         scene.insert(measuredNode("a", x: 0, y: 0))
