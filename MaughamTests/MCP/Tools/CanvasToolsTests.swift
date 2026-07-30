@@ -177,11 +177,19 @@ final class CanvasToolsTests: XCTestCase {
 
     // MARK: - Provenance and the marks
 
-    /// **nil means the writer.** `CanvasNode.author` has no `.human` case on
-    /// purpose, so absence carries the meaning — and the response says so by
-    /// omitting the key rather than by inventing a value the model does not have.
-    /// The assertion that matters is the pair: Claude's card names Claude, and the
-    /// writer's names nobody.
+    /// **nil means the writer.** `AnnotationAuthor.SourceKind` does have a
+    /// `.human` case; what `CanvasNode.author` has no `.human` DEFAULT — the field
+    /// is optional and absence is what records the writer — so the response says
+    /// so by omitting the key rather than by putting a provenance record on the
+    /// wire that the canvas never made. The assertion that matters is the pair:
+    /// Claude's card names Claude, and the writer's names nobody.
+    ///
+    /// **Every "names nobody" assertion unwraps its subject first**, and that is
+    /// not ceremony: on an optional chain, `XCTAssertNil(reported(…)?.author)` is
+    /// satisfied by the card being ABSENT FROM THE RESPONSE ENTIRELY, so a
+    /// regression that dropped the writer's card would be green in the test
+    /// written to check what the writer's card reports. Four assertions in this
+    /// slice have failed that way already.
     func test_itNamesTheAuthorOfClaudesNodesAndLines() async throws {
         let (url, store, registry, id) = try await registeredProject()
         let model = attached(to: store, at: url)
@@ -198,16 +206,25 @@ final class CanvasToolsTests: XCTestCase {
 
         let result = try await call(registry, id)
 
-        XCTAssertNil(reported(result, "aaaa")?.author,
+        let writersCard = try XCTUnwrap(reported(result, "aaaa"),
+                                        "the writer's own card is missing from the "
+                                        + "response altogether")
+        XCTAssertNil(writersCard.author,
                      "the writer's own card claims no author — absence is the whole "
                      + "convention, and a value here would tell the writer they did "
                      + "not write their own sentence")
         XCTAssertEqual(reported(result, "bbbb")?.author, "claude")
-        XCTAssertNil(reported(result, "cccc")?.author,
+        let itemNode = try XCTUnwrap(reported(result, "cccc"),
+                                     "the item node is missing from the response "
+                                     + "altogether")
+        XCTAssertNil(itemNode.author,
                      "an item node already exists as itself and carries no author")
 
         let byID = Dictionary(uniqueKeysWithValues: result.lines.map { ($0.id, $0) })
-        XCTAssertNil(byID["l1"]?.author, "the writer drew this one")
+        let writersLine = try XCTUnwrap(byID["l1"],
+                                        "the writer's own line is missing from the "
+                                        + "response altogether")
+        XCTAssertNil(writersLine.author, "the writer drew this one")
         XCTAssertEqual(byID["l2"]?.author, "claude")
     }
 
@@ -372,19 +389,29 @@ final class CanvasToolsTests: XCTestCase {
         XCTAssertFalse(result.includes_text,
                        "the response has to say the words are missing by request, or "
                        + "an empty canvas and a trimmed one read the same")
-        XCTAssertEqual(result.nodes.count, scene.count,
+        // Against the LITERAL and not against `scene.count`: two derived counts
+        // that are both zero agree, and the loop below then runs no times while
+        // reading as full coverage. That is the same empty-vs-empty shape this
+        // slice has already shipped once.
+        XCTAssertEqual(scene.count, Self.hugeCanvasCards,
+                       "precondition: the fixture built the cards it claims to")
+        XCTAssertEqual(result.nodes.count, Self.hugeCanvasCards,
                        "every card survives the trim — it is only the words that go")
         for node in result.nodes {
             XCTAssertNil(node.text, "the trimmed read carries no words at all")
         }
     }
 
+    /// Named so the trim test can assert against the number rather than against
+    /// another collection's count — see there for why that distinction is load-bearing.
+    private static let hugeCanvasCards = 12
+
     /// Past the 900 KB text budget by construction: twelve scraps of 100 KB each.
     private func hugeCanvas() -> (CanvasScene, [CanvasNodeID: String]) {
         let words = String(repeating: "a", count: 100_000)
         var scene = CanvasScene()
         var scraps: [CanvasNodeID: String] = [:]
-        for i in 0..<12 {
+        for i in 0..<Self.hugeCanvasCards {
             let id = CanvasNodeID("h\(i)")
             scene.insert(CanvasNode(id: id, kind: .scrap,
                                     origin: CGPoint(x: 0, y: CGFloat(i) * 100),

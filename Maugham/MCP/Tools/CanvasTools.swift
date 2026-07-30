@@ -58,9 +58,15 @@ public enum ListCanvasTool: MCPTool {
         /// Never readable as `promoted_item_id`; see the type's doc comment.
         public let contributed_to_item_id: String?
         public let bound_piece_id: String?
-        /// `"claude"` for a card this server added. **Absent means the writer** —
-        /// the model has no `.human` case, and inventing one here would tell a
-        /// writer they did not write their own sentence.
+        /// `"claude"` for a card this server added. **Absent means the writer.**
+        ///
+        /// `AnnotationAuthor.SourceKind` does have a `.human` case — what
+        /// `CanvasNode.author` has no `.human` DEFAULT: the field is optional and
+        /// absence is what records the writer, so that every card written before
+        /// 1C-c3 stays theirs without an `author` key appearing in every sidecar
+        /// for a feature nobody had used. Emitting a value here for a nil field
+        /// would put a positive provenance record on the wire that the canvas
+        /// never made.
         public let author: String?
     }
 
