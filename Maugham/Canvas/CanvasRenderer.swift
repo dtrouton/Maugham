@@ -1212,11 +1212,19 @@ enum CanvasRenderer {
         // 2. The PROMOTED STRIPE below is UNCONDITIONAL: it states a durable
         //    fact about the card — this one produced something — rather than a
         //    passing one about the selection.
-        // 3. The RESIZE TRIANGLE below that is UNCONDITIONAL too, and is this
-        //    surface's established permanent card chrome.
+        // 3. The RESIZE TRIANGLE below that is this surface's established
+        //    permanent card chrome, and is unconditional *on the selection* —
+        //    but it is drawn on a `.scrap` ONLY, for the same reason the promoted
+        //    stripe is and a different one. Nothing re-measures an item node's
+        //    width, and `CanvasScene.setWidth` clears `cachedHeight` by design,
+        //    so a resize left the card with no frame — not drawn, not clickable,
+        //    persisted that way. **The mark and the target are ONE decision**:
+        //    `CanvasInteraction.begin` takes the corner for `.scrap` only, and
+        //    these two move together or the surface draws an affordance that
+        //    does nothing (or, as it did, one that loses the card).
         //
-        // Moving any of the three across that line is a design change, not a
-        // tidy-up.
+        // Moving any of the three across the SELECTION line is a design change,
+        // not a tidy-up.
         //
         // All three are drawn inside the card's rotated transform, like
         // everything else here, so they tilt with the card and straighten with
@@ -1246,8 +1254,12 @@ enum CanvasRenderer {
             }
         }
 
-        card.fill(resizeHandle(in: frame),
-                  with: .color(Color(nsColor: .separatorColor).opacity(0.8)))
+        // PERMANENT chrome like the stripe above — and, like it, a scrap's alone.
+        // See mark 3 in the block above for why an item node gets none.
+        if case .scrap = node.kind {
+            card.fill(resizeHandle(in: frame),
+                      with: .color(Color(nsColor: .separatorColor).opacity(0.8)))
+        }
 
         switch node.kind {
         case .scrap:

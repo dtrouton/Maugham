@@ -27,16 +27,22 @@ import AppKit
 /// yet, and its layout is discarded on the way out.
 ///
 /// **The scoped gap, stated so 1C-d meets a decision rather than a bug.**
-/// `CanvasView.rebuildLayouts` measures `.scrap` nodes only, so an ITEM node
-/// authored by anything that does not set a height gets none — and a node with no
-/// `cachedHeight` has no `frame`, which means `CanvasScene.nodes(intersecting:)`
-/// and `topmostNode(at:)` both drop it: **not drawn, not clickable.** That is
-/// sufficient for 1C-c3, whose planner is the only producer of item nodes and
-/// sets `CanvasCardMetrics.itemPlaceholderHeight` at creation; a hand-edited
-/// sidecar can still hand us an item node with no height and it will be silently
-/// absent. Widening `rebuildLayouts` to measure item nodes belongs to **1C-d**,
-/// where an item's thumbnail makes its height depend on its image rather than on
-/// one line of label, so the measurement it needs is not this one.
+/// `CanvasView.rebuildLayouts` MEASURES `.scrap` nodes only, so an ITEM node's
+/// height is not derived from anything — and a node with no `cachedHeight` has no
+/// `frame`, which means `CanvasScene.nodes(intersecting:)` and `topmostNode(at:)`
+/// both drop it: **not drawn, not clickable.** 1C-c3's planner sets
+/// `CanvasCardMetrics.itemPlaceholderHeight` at creation, **and `CanvasScene.setWidth`
+/// clears it again** — which is the second half this paragraph used to stop one
+/// step short of, and the resize gesture reached it: the card left the surface
+/// mid-drag and `cachedHeight: nil` persisted. So creation is no longer the whole
+/// analysis, and two things now hold the invariant rather than one: the corner
+/// gesture and the resize mark are `.scrap`-only (`CanvasInteraction.begin`,
+/// `CanvasRenderer.drawCard`), and `rebuildLayouts` HEALS a missing item height
+/// to this constant — which also closes the hand-edited sidecar this paragraph
+/// used to concede. Widening `rebuildLayouts` to genuinely MEASURE item nodes
+/// still belongs to **1C-d**, where an item's thumbnail makes its height depend
+/// on its image rather than on one line of label, so the measurement it needs is
+/// not this one.
 enum CanvasScrapMeasure {
 
     /// The canvas scrap font. Lifted off `CanvasView` so a caller with no view

@@ -589,11 +589,18 @@ struct CanvasView: View {
     /// `CanvasScrapMeasure`, so a caller with no view on screen measures a card
     /// exactly as this does.
     ///
-    /// **It measures `.scrap` only, and an item node therefore gets no height
-    /// from here** — see `CanvasScrapMeasure`'s doc, which records the gap and
-    /// whose it is. Anything that creates an item node must set
-    /// `CanvasCardMetrics.itemPlaceholderHeight` itself, or the card is neither
-    /// drawn nor clickable.
+    /// **It MEASURES `.scrap` only** — an item node has no text of its own and
+    /// nothing here to lay out — **but it HEALS an item node with no height**,
+    /// writing `CanvasCardMetrics.itemPlaceholderHeight`. That arm is not
+    /// bookkeeping: a node with no `cachedHeight` has no `frame`, and a node with
+    /// no frame is dropped by `CanvasScene.topmostNode(at:)` and
+    /// `nodes(intersecting:)` alike — neither drawn nor clickable, and persisted
+    /// that way. Producers still set the height at creation
+    /// (`CanvasClaudePlacement` does); this closes the two routes a producer
+    /// cannot: a hand-edited sidecar, and any future path that clears the height
+    /// the way `CanvasScene.setWidth` does. See `CanvasScrapMeasure`'s
+    /// scoped-gap paragraph, which records what 1C-d owns — a real measurement
+    /// for an item's thumbnail, which is not this constant.
     ///
     /// `bumpsStructuralCounter` is `false` for a caller whose bump is already
     /// arriving by another route — one that calls `model.bumpSceneRevision()` on
@@ -615,22 +622,22 @@ struct CanvasView: View {
         let scraps = model.scraps
         model.withScene(persist: false) { scene in
             for node in scene.unorderedNodes {
-                guard case .scrap = node.kind else { continue }
-                let existing = layouts[node.id]
-                let text = scraps[node.id] ?? ""
-                let layout: ScrapLayout
-                if let existing, existing.text == text {
-                    existing.setWidth(CanvasCardMetrics.textWidth(forCardWidth: node.width))
-                    layout = existing
-                } else {
-                    layout = ScrapLayout(
-                        text: text,
-                        width: CanvasCardMetrics.textWidth(forCardWidth: node.width),
-                        font: CanvasScrapMeasure.scrapFont,
-                        textColor: CanvasRenderer.cardInk)
-                    layouts[node.id] = layout
+                // A `switch` rather than a `guard … else { continue }`, so a
+                // third kind is a compiler error here rather than a card that
+                // silently never gets a height.
+                switch node.kind {
+                case .item:
+                    // Heal, do not measure — see the doc above. Only when it is
+                    // missing: an item node's height is not derived from anything
+                    // this pass can see, so overwriting a present one would undo
+                    // whatever set it.
+                    if node.cachedHeight == nil {
+                        scene.setCachedHeight(CanvasCardMetrics.itemPlaceholderHeight,
+                                              for: node.id)
+                    }
+                case .scrap:
+                    measureScrap(node, in: &scene, scraps: scraps)
                 }
-                scene.setCachedHeight(CanvasScrapMeasure.height(of: layout), for: node.id)
             }
         }
         // Layouts for nodes that no longer exist would keep their text alive.
@@ -643,6 +650,33 @@ struct CanvasView: View {
         if bumpsStructuralCounter { model.bumpSceneRevision() }
     }
 
+    /// One scrap's layout and the height that follows from it — `rebuildLayouts`'s
+    /// `.scrap` arm, lifted out so that loop reads as the two-kind routing it is.
+    ///
+    /// It reuses the cached `ScrapLayout` when the text is unchanged, because that
+    /// object is the SAME TextKit stack the mounted editor types into (tripwire
+    /// 26); replacing it on a pass that only changed a width would hand the editor
+    /// a stack nothing is drawing.
+    private func measureScrap(_ node: CanvasNode,
+                              in scene: inout CanvasScene,
+                              scraps: [CanvasNodeID: String]) {
+        let existing = layouts[node.id]
+        let text = scraps[node.id] ?? ""
+        let layout: ScrapLayout
+        if let existing, existing.text == text {
+            existing.setWidth(CanvasCardMetrics.textWidth(forCardWidth: node.width))
+            layout = existing
+        } else {
+            layout = ScrapLayout(
+                text: text,
+                width: CanvasCardMetrics.textWidth(forCardWidth: node.width),
+                font: CanvasScrapMeasure.scrapFont,
+                textColor: CanvasRenderer.cardInk)
+            layouts[node.id] = layout
+        }
+        scene.setCachedHeight(CanvasScrapMeasure.height(of: layout), for: node.id)
+    }
+
     /// Re-derive ONE scrap's height from its live layout, for the resize path.
     ///
     /// This is `rebuildLayouts()`'s reuse branch for a single node, and it is
@@ -652,8 +686,20 @@ struct CanvasView: View {
     /// drawn and edited text end up on different rects (spec §7A.2).
     ///
     /// A resize never changes the text, so the layout is always the reused one;
-    /// the guard is for an item node or a scrap whose layout has not been built,
-    /// neither of which can be resized.
+    /// the guard is for an item node or a scrap whose layout has not been built.
+    ///
+    /// **This comment used to say "neither of which can be resized", and that
+    /// sentence was true for the whole life of the guard and then quietly was
+    /// not.** It was true because nothing in production made an item node —
+    /// `CanvasScene.selectionTarget` could return one, the renderer could draw
+    /// one, but no writer or tool could create one. 1C-c3's
+    /// `CanvasClaudePlacement` creates them, and the corner test in
+    /// `CanvasInteraction.begin` had no kind test on it, so an item node COULD be
+    /// resized: `setWidth` cleared its `cachedHeight`, this guard declined to
+    /// refill it, and the card left the surface for good. It is written down
+    /// rather than deleted because a reviewer who came looking was reassured by
+    /// it — the reason a rule is safe has to age with the rule, and on this
+    /// surface that has now failed twice.
     ///
     /// Does NOT touch `revision` or `sceneRevision` — the caller owns both, and
     /// the structural counter must not move per frame.

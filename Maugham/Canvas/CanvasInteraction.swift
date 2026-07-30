@@ -263,8 +263,23 @@ struct CanvasInteraction {
                                     current: contentPoint)
                 return
             }
+            // The corner is a SCRAP's affordance and nothing else's, and the mark
+            // says so: `CanvasRenderer.drawCard` draws the triangle on a `.scrap`
+            // only. The two are one decision and must move together.
+            //
+            // Without the kind test this gesture DELETED an item node from the
+            // surface. `CanvasScene.setWidth` clears `cachedHeight` by design —
+            // the next measure pass refills it — and there is no measure pass for
+            // an item node's *width*: `CanvasView.rebuildLayouts` now heals a
+            // missing height to `itemPlaceholderHeight`, but only when it runs,
+            // and a node with no height has no `frame`, so mid-drag the card is
+            // invisible to `topmostNode(at:)`, to `nodes(intersecting:)` and to
+            // the renderer at once. `cachedHeight: nil` is also what the sidecar
+            // persists. An item node's width is not the writer's to set until
+            // 1C-d makes it mean something.
             let handle = CanvasRenderer.resizeHandleSize
-            if contentPoint.x >= frame.maxX - handle && contentPoint.y >= frame.maxY - handle {
+            if case .scrap = node.kind,
+               contentPoint.x >= frame.maxX - handle, contentPoint.y >= frame.maxY - handle {
                 beginResize(node.id, at: contentPoint, in: scene)
             } else {
                 mode = .moving(node.id, grabOffset: CGSize(width: contentPoint.x - node.origin.x,

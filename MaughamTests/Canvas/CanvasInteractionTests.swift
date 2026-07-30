@@ -130,6 +130,36 @@ final class CanvasInteractionTests: XCTestCase {
         XCTAssertTrue(atTheCorner.isResizing)
     }
 
+    /// The same corner square, on an ITEM node, opens a MOVE.
+    ///
+    /// The state-machine half of the 1C-c3 whole-branch Critical.
+    /// `CanvasViewMountingTests.test_aCornerDragOnClaudesSourcePageDoesNotTakeItOffTheCanvas`
+    /// asserts the consequence through the real delivery path; this asserts the
+    /// decision, and the two together are why the fix is a kind test on the corner
+    /// branch rather than a repair further down.
+    ///
+    /// `.moving` and not `.idle` matters: a card whose corner did nothing at all
+    /// would be a dead 14pt square on every page card, and a press on a card is a
+    /// drag of that card everywhere else on this surface.
+    func test_theCornerOfAnItemNodeMovesItRatherThanResizingIt() {
+        var scene = CanvasScene()
+        scene.insert(CanvasNode(id: CanvasNodeID.item("res-p3"),
+                                kind: .item(referenceId: "res-p3"),
+                                origin: CGPoint(x: 100, y: 100), width: 240,
+                                cachedHeight: 33, author: .claude))
+        // Card is (100,100) 240x33, so the corner square is (326,119)–(340,133).
+        var i = CanvasInteraction()
+        i.begin(at: CGPoint(x: 334, y: 127), in: scene, connecting: false)
+        XCTAssertFalse(i.isResizing,
+                       "an item node's corner opened a resize: CanvasScene.setWidth "
+                       + "clears cachedHeight, nothing re-measures an item node's "
+                       + "width, and a node with no height has no frame — the card "
+                       + "leaves the surface and the sidecar keeps it that way")
+        XCTAssertEqual(i.kind, .movingNode,
+                       "the corner of a page card is dead rather than draggable — "
+                       + "everywhere else on this surface a press on a card moves it")
+    }
+
     func test_newScrapLandsAtTheClickAndOnTop() {
         var scene = sceneWithOneScrap()
         let id = CanvasInteraction.createScrap(at: CGPoint(x: 500, y: 400), in: &scene)

@@ -953,6 +953,30 @@ final class CanvasRendererTests: XCTestCase {
         XCTAssertGreaterThan(pairs.count { $0 + 3 < $1 }, 40,
                              "the item card's border is nowhere heavier than a scrap's, "
                              + "so it is not being stroked at all")
+
+        // And NO resize mark, which is the drawn half of the 1C-c3 whole-branch
+        // Critical. The mark and the gesture are one decision — `begin` takes the
+        // corner for `.scrap` only — so a triangle on a page card is an
+        // affordance for a gesture that has been closed, and it is the one piece
+        // of chrome that invited the drag which took the card off the canvas.
+        //
+        // Sampled inside the triangle and ~4 pt clear of the border on both axes,
+        // each card against its OWN body pixel, so the two papers cannot decide
+        // the answer.
+        let mark = CGPoint(x: frame.maxX - CanvasRenderer.resizeHandleSize / 3,
+                           y: frame.maxY - CanvasRenderer.resizeHandleSize / 3)
+        let body2 = CGPoint(x: frame.midX, y: frame.midY)
+        XCTAssertNotEqual(scrap.value(x: Int(mark.x), y: Int(mark.y)),
+                          scrap.value(x: Int(body2.x), y: Int(body2.y)),
+                          "precondition: the comparison SCRAP drew no resize mark "
+                          + "either, so the assertion below would pass with the mark "
+                          + "drawn on everything")
+        XCTAssertEqual(item.value(x: Int(mark.x), y: Int(mark.y)),
+                       item.value(x: Int(body2.x), y: Int(body2.y)),
+                       "the page card is drawn with a resize triangle on it — the "
+                       + "affordance for a gesture that clears cachedHeight on a "
+                       + "node nothing re-measures, which takes the card off the "
+                       + "surface for good")
     }
 
     /// FINDING 3, pinned. `ScrapLayout`'s ink defaults to `NSColor.labelColor`,
