@@ -64,8 +64,13 @@ enum CanvasClaudePlacement {
     /// Plan ruling 5: every add lands in a region and the region is *labelled* —
     /// nothing Claude adds is ever loose, and a batch arriving as
     /// `CanvasRegion.untitledLabel` would be indistinguishable from a region the
-    /// writer swept and has not named yet. The wording is the accessibility
-    /// layer's ("from Claude") rather than a third spelling of the same fact.
+    /// writer swept and has not named yet.
+    ///
+    /// **Task 8 is expected to announce a Claude card as "from Claude"**, so this
+    /// wording is chosen to be that phrase rather than a second one. It is a
+    /// claim about a file that does not exist yet: if Task 8 lands a different
+    /// spelling, one of the two must move, or the writer meets two names for one
+    /// fact.
     static let defaultRegionLabel = "From Claude"
 
     // MARK: - Request
@@ -173,8 +178,14 @@ enum CanvasClaudePlacement {
         /// The words, keyed by the node that will hold them — what
         /// `CanvasModel.setScrapText` and `CanvasStore.save(scene:scraps:)` both
         /// want. Derived from `scraps`, so it cannot drift from the cards.
+        ///
+        /// `uniquingKeysWith` rather than `uniqueKeysWithValues`, which traps on
+        /// a duplicate key. `plan`'s minter cannot produce one — but this is
+        /// reached from an MCP call, and the reasoning that keeps a bad
+        /// `connections` pair from trapping applies here or it applies nowhere.
         var scrapTexts: [CanvasNodeID: String] {
-            Dictionary(uniqueKeysWithValues: scraps.map { ($0.node.id, $0.text) })
+            Dictionary(scraps.map { ($0.node.id, $0.text) },
+                       uniquingKeysWith: { _, later in later })
         }
     }
 
@@ -184,12 +195,18 @@ enum CanvasClaudePlacement {
     static func plan(_ request: Request, in scene: CanvasScene) -> Plan {
         let origin = regionOrigin(in: scene)
         let cardX = origin.x + padding
+        // The column starts under the chrome bar, or the first card would cover
+        // the label. `columnBottom` trails it and only moves when a card is
+        // actually placed — deriving it as `y - cardGap` instead subtracts a gap
+        // that was never added on a request that places nothing.
         var y = origin.y + CanvasRegionMetrics.chromeHeight + padding
+        var columnBottom = y
         var z = scene.topZ
 
-        // Reserved before the scraps are placed, so the id cannot collide with
-        // one of theirs — an item node's id is derived rather than minted, but
-        // the region's and the lines' are not.
+        // `apply` needs this before any member exists, and both the region and
+        // its members are built from one `Plan`. (It is NOT a collision concern:
+        // regions and nodes are separate id spaces and `newRegionID` checks only
+        // `scene.region(_:)`, so minting order means nothing here.)
         let regionID = newRegionID(in: scene)
 
         // The page goes at the TOP of the column, so reading order puts it above
@@ -216,7 +233,8 @@ enum CanvasClaudePlacement {
                                              cachedHeight: CanvasCardMetrics.itemPlaceholderHeight,
                                              z: z,
                                              author: nil))
-                y += CanvasCardMetrics.itemPlaceholderHeight + cardGap
+                columnBottom = y + CanvasCardMetrics.itemPlaceholderHeight
+                y = columnBottom + cardGap
             }
         }
 
@@ -241,18 +259,28 @@ enum CanvasClaudePlacement {
                                  z: z,
                                  author: .claude),
                 text: text))
-            y += height + cardGap
+            columnBottom = y + height
+            y = columnBottom + cardGap
         }
 
-        // `y` carries one trailing gap; the region's bottom padding replaces it.
-        let columnBottom = y - cardGap
+        // A region the writer could not have swept is a region the canvas must
+        // not mint either — `CanvasInteraction.createRegion` refuses anything
+        // under `minimumSide`, and a floor here is cheaper than discovering the
+        // two disagree.
+        //
+        // **The two clamps are not both live, and saying so is the point.** The
+        // width is `240 + 32` unconditionally, so its `max` can never fire; it is
+        // folded in anyway because the rule is about the region, not about one
+        // axis, and splitting them would invite tuning one past the floor. The
+        // HEIGHT clamp does fire: a request placing nothing at all is
+        // `24 + 16 + 16 = 56` against a floor of 80. Nothing reaches that today
+        // — the tool refuses an empty `scraps` array before `plan` is called —
+        // so this is a guard held up by an upstream assumption rather than dead
+        // arithmetic, and `test_aRegionIsNeverSmallerThanOneTheWriterCouldSweep`
+        // exercises it directly rather than trusting that assumption to hold.
         let frame = CGRect(
             x: origin.x,
             y: origin.y,
-            // A region the writer could not have swept is a region the canvas
-            // must not mint either — `CanvasInteraction.createRegion` refuses
-            // anything under `minimumSide`, and a floor here is cheaper than
-            // discovering the two disagree.
             width: max(CanvasRegionMetrics.minimumSide,
                        CanvasInteraction.defaultScrapWidth + padding * 2),
             height: max(CanvasRegionMetrics.minimumSide,
@@ -274,6 +302,14 @@ enum CanvasClaudePlacement {
     /// than the members being handed to `CanvasRegion.init`. That keeps one
     /// mutation surface for membership even on a creation path where the answer
     /// is never in doubt.
+    ///
+    /// **A `Plan` is only valid against the scene it was planned against.** Its
+    /// ids are unique against *that* scene and its frame was computed from *that*
+    /// scene's occupancy, so applying one to a different scene can drop Claude's
+    /// region on top of the writer's work and can overwrite a node by id. Task 5
+    /// has two persistence routes and that is exactly the shape that invites
+    /// "plan once, apply twice": each route must call `plan` against the scene it
+    /// is about to write.
     static func apply(_ plan: Plan, to scene: inout CanvasScene) {
         scene.insertRegion(CanvasRegion(id: plan.regionID,
                                         label: plan.regionLabel,

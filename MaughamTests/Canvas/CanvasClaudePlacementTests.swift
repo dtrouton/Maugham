@@ -21,6 +21,15 @@ final class CanvasClaudePlacementTests: XCTestCase {
 
     /// Three measured cards and a region, all of them the writer's — the scene
     /// Claude's region has to keep off.
+    ///
+    /// **The region is deliberately the RIGHTMOST thing here** (maxX 700, against
+    /// the rightmost card's 540), and it deliberately overlaps the band the
+    /// planned region occupies vertically. The planner's bounding box unions node
+    /// frames *and* region frames; with a narrower region the union's maxX would
+    /// be driven entirely by a card, and deleting the region term from the
+    /// planner would leave every assertion here green — a planner that dropped
+    /// Claude's region on top of a region the writer swept, passing a test whose
+    /// name says it does not.
     private func writersCanvas() -> CanvasScene {
         var s = CanvasScene()
         s.insert(CanvasNode(id: CanvasNodeID("aaaa1111"), kind: .scrap,
@@ -30,7 +39,7 @@ final class CanvasClaudePlacementTests: XCTestCase {
         s.insert(CanvasNode(id: CanvasNodeID("cccc3333"), kind: .scrap,
                             origin: CGPoint(x: 120, y: 400), width: 240, cachedHeight: 40))
         s.insertRegion(CanvasRegion(id: CanvasRegionID("r1"), label: "Act II",
-                                    frame: CGRect(x: 80, y: 360, width: 400, height: 200)))
+                                    frame: CGRect(x: 80, y: 100, width: 620, height: 300)))
         return s
     }
 
@@ -40,6 +49,12 @@ final class CanvasClaudePlacementTests: XCTestCase {
         "The falls at night: sound first, then the cold off them, then nothing."
     ]
 
+    /// Everything on the canvas that has a drawn rect.
+    ///
+    /// This reads like the planner's own union expression and must not be
+    /// refactored into sharing one with it: this side enumerates what must be
+    /// avoided, and the planner's side decides where to go. Sharing them would
+    /// make a dropped term invisible on both sides at once.
     private func everyExistingFrame(in scene: CanvasScene) -> [CGRect] {
         scene.unorderedNodes.compactMap(\.frame) + scene.regions.map(\.frame)
     }
@@ -119,6 +134,13 @@ final class CanvasClaudePlacementTests: XCTestCase {
     /// Spec §8A.2's reproduction corollary in the only form a planner can serve
     /// it: reading order puts the page above what was read off it, so "what was
     /// read off this page" is answerable by looking rather than by clicking.
+    ///
+    /// **Scoped to a page this call CREATES, deliberately.** A page already on
+    /// the canvas is cited where it is and reserves no column space, because
+    /// moving the writer's card to serve a reading convention is exactly the
+    /// membership transition tripwire 31 forbids. So the assertion is on
+    /// `createdNode`, and for a re-cited page the corollary is served
+    /// structurally — the page is a member of the region — rather than visually.
     func test_theSourcePageIsAboveWhatWasReadOffIt() {
         let plan = CanvasClaudePlacement.plan(
             CanvasClaudePlacement.Request(scraps: threeScraps,
@@ -141,6 +163,10 @@ final class CanvasClaudePlacementTests: XCTestCase {
     /// writer's, so tinting its node would say Claude took the photograph — and
     /// it echoes the rule that an item node never carries a promoted stripe,
     /// because it already exists as itself.
+    /// Every assertion is guarded by an arity check first. A `for` over an empty
+    /// array is a no-op, and an optional-chained `XCTAssertNil` passes when the
+    /// thing it names was never created — so unguarded, the test that exists to
+    /// stop either half being quietly dropped is satisfied by dropping both.
     func test_theSourcePageCarriesNoAuthorAndTheScrapsDo() {
         let plan = CanvasClaudePlacement.plan(
             CanvasClaudePlacement.Request(scraps: threeScraps,
@@ -148,15 +174,22 @@ final class CanvasClaudePlacementTests: XCTestCase {
                                           connections: [(0, 1)]),
             in: CanvasScene())
 
+        XCTAssertEqual(plan.scraps.count, 3)
         for scrap in plan.scraps {
             XCTAssertEqual(scrap.node.author, .claude,
                            "a card whose words came off a machine says so")
         }
+
+        XCTAssertEqual(plan.lines.count, 1)
         for line in plan.lines {
             XCTAssertEqual(line.author, .claude,
                            "the arrows were read off the page too")
         }
-        XCTAssertNil(plan.source?.createdNode?.author,
+
+        guard let source = plan.source?.createdNode else {
+            return XCTFail("a source that is not already on the canvas is created here")
+        }
+        XCTAssertNil(source.author,
                      "the photograph is the writer's — tinting its node would say "
                      + "Claude took it")
     }
@@ -232,23 +265,36 @@ final class CanvasClaudePlacementTests: XCTestCase {
 
     /// A region the writer could not have swept is a region the canvas should not
     /// mint either — so the floor is asserted against `CanvasInteraction`'s own
-    /// refusal as well as against the constant.
+    /// refusal as well as against the constant, rather than against a copy of its
+    /// rule.
     ///
-    /// With today's padding and gap the natural size already clears the floor, so
-    /// this pins the FLOOR rather than exercising the clamp: it is the assertion
-    /// that goes red if a calibration pass ever tightens the padding far enough
-    /// to mint a region the sweep gesture would have refused.
+    /// **Two cases, and the second is the one that exercises the clamp.** With a
+    /// single very short scrap the natural height is already 94 against a floor
+    /// of 80, so that case pins the floor without reaching it. A request that
+    /// places nothing computes `chromeHeight + padding + padding` = 56, and the
+    /// `max` fires. Nothing sends that today — the tool refuses an empty `scraps`
+    /// array before `plan` is called — which is precisely why it is asserted
+    /// here: the guard is held up by an upstream assumption, and this is what
+    /// notices if the clamp is removed as dead arithmetic.
     func test_aRegionIsNeverSmallerThanOneTheWriterCouldSweep() {
-        let plan = CanvasClaudePlacement.plan(
-            CanvasClaudePlacement.Request(scraps: ["Fog."]), in: CanvasScene())
+        func assertSweepable(_ plan: CanvasClaudePlacement.Plan, _ what: String) {
+            XCTAssertGreaterThanOrEqual(plan.regionFrame.width,
+                                        CanvasRegionMetrics.minimumSide, what)
+            XCTAssertGreaterThanOrEqual(plan.regionFrame.height,
+                                        CanvasRegionMetrics.minimumSide, what)
+            var sweep = CanvasScene()
+            XCTAssertNotNil(CanvasInteraction.createRegion(plan.regionFrame, in: &sweep),
+                            "the sweep gesture would have refused this rect (\(what)); "
+                            + "the canvas must not mint one the writer could not draw")
+        }
 
-        XCTAssertGreaterThanOrEqual(plan.regionFrame.width, CanvasRegionMetrics.minimumSide)
-        XCTAssertGreaterThanOrEqual(plan.regionFrame.height, CanvasRegionMetrics.minimumSide)
+        assertSweepable(CanvasClaudePlacement.plan(
+            CanvasClaudePlacement.Request(scraps: ["Fog."]), in: CanvasScene()),
+                        "one very short scrap")
 
-        var sweep = CanvasScene()
-        XCTAssertNotNil(CanvasInteraction.createRegion(plan.regionFrame, in: &sweep),
-                        "the sweep gesture would have accepted this rect; the canvas "
-                        + "must not mint one it would have refused")
+        assertSweepable(CanvasClaudePlacement.plan(
+            CanvasClaudePlacement.Request(scraps: []), in: CanvasScene()),
+                        "a request that places nothing at all")
     }
 
     /// The plan is one value, and the words travel with the card that will hold
