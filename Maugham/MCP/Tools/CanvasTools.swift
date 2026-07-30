@@ -345,18 +345,39 @@ public enum AddCanvasScrapsTool: MCPTool {
                     + "the entry, or give it the words you read.",
                 fields: ["index": .int(blank)]))
         }
-        if let sourceID = params.source_item_id,
-           TreeWalk.find(id: sourceID, in: entry.store.manifest.research) == nil {
-            throw MCPError.toolError(payload: .init(
-                error: "research_item_not_found",
-                message: "'\(sourceID)' is not a research item in this project.",
-                hint: "source_item_id names a research item — call list_research to "
-                    + "find the right id. If this id came from list_inbox it is a "
-                    + "capture rather than a research item: captures become research "
-                    + "items through promote_inbox_entry, and it is the id that "
-                    + "returns which belongs here. Omit source_item_id to add the "
-                    + "scraps without a source page.",
-                fields: ["source_item_id": .string(sourceID)]))
+        if let sourceID = params.source_item_id {
+            // The tree walk matches groups as well as items, so the type check is
+            // not belt-and-braces: a folder id would mint `item:<groupId>`, an item
+            // node pointing at something with no title card, no glyph and no
+            // thumbnail — a card no other surface can create and 1C-d has no case
+            // for. `AddNoteTool` checks the type of its own tree parameter for the
+            // same reason.
+            switch TreeWalk.find(id: sourceID, in: entry.store.manifest.research) {
+            case nil:
+                throw MCPError.toolError(payload: .init(
+                    error: "research_item_not_found",
+                    message: "'\(sourceID)' is not a research item in this project.",
+                    hint: "source_item_id names a research item — call list_research "
+                        + "to find the right id. If this id came from list_inbox it "
+                        + "is a capture rather than a research item: captures become "
+                        + "research items through promote_inbox_entry, and it is the "
+                        + "id that returns which belongs here. Omit source_item_id to "
+                        + "add the scraps without a source page.",
+                    fields: ["source_item_id": .string(sourceID)]))
+            case .some(let item) where item.type == .group:
+                throw MCPError.toolError(payload: .init(
+                    error: "research_item_is_a_group",
+                    message: "'\(sourceID)' names the research group '\(item.title)', "
+                        + "not an item in it.",
+                    hint: "source_item_id is the page the words were read off — a "
+                        + "note, an image, a document. A group is a folder, and a "
+                        + "card standing for a folder is not something the writer "
+                        + "can look at beside the scraps. Call list_research and "
+                        + "pass the id of the item inside the group.",
+                    fields: ["source_item_id": .string(sourceID)]))
+            default:
+                break
+            }
         }
         let connections = try validated(params.connect ?? [], against: params.scraps.count)
 

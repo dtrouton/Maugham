@@ -704,12 +704,26 @@ final class CanvasToolsTests: XCTestCase {
     /// manuscript except through promotion, which is a writer act. That argument
     /// only holds if the tool writes what it says it writes — so the whole project
     /// tree is compared before and after, and exactly two files may differ.
+    ///
+    /// **Both calls name a source item, deliberately.** The `source_item_id` arm is
+    /// the only one that reads the research manifest, and it is the one a later
+    /// author is likeliest to extend into a *write* — stamping the item with where
+    /// it went. Exercised with scraps only, this test would leave that branch
+    /// outside the very comparison written to catch it.
     func test_itNeverTouchesAManuscriptOrAResearchFile() async throws {
-        let (url, _, registry, id) = try await registeredProject()
-        _ = try await add(registry, id, scraps: ["a first pass"])  // create the files
+        let (url, store, registry, id) = try await registeredProject()
+        let page = try await store.addResearchTextNote(parentId: nil, title: "Page 4")
+        // The first call creates the canvas files, so the snapshot below is taken
+        // over a tree that already holds every file this tool is allowed to touch —
+        // and, because the research note is made first, over the note and the
+        // manifest it must not touch.
+        _ = try await add(registry, id, scraps: ["a first pass"], sourceItemID: page.id)
         let before = try fileTree(at: url)
+        XCTAssertTrue(before.keys.contains { $0.hasPrefix("research/") },
+                      "precondition: the research note is in the snapshot, or the "
+                      + "research tree is not actually under this guard")
 
-        _ = try await add(registry, id, scraps: ["and a second"])
+        _ = try await add(registry, id, scraps: ["and a second"], sourceItemID: page.id)
 
         let after = try fileTree(at: url)
         let changed = Set(after.keys).symmetricDifference(before.keys)
@@ -760,6 +774,38 @@ final class CanvasToolsTests: XCTestCase {
         assertNothingWasWritten(at: url)
     }
 
+    /// A research **group** is found by the tree walk but is not a page: an item
+    /// node standing for a folder has no title, no glyph and no thumbnail to draw,
+    /// and no other surface can create one. The refusal has to say *group*, because
+    /// "not found" is a claim the caller can disprove with `list_research` and would
+    /// send them hunting for a typo that is not there.
+    func test_itRefusesAResearchGroupAsTheSource() async throws {
+        let (url, store, registry, id) = try await registeredProject()
+        // Built into the manifest directly: `addResearchItem` needs a
+        // `DocumentStore` these fixtures do not wire, and what is under test is the
+        // tool's reading of the tree rather than how the folder got there.
+        store.manifest.research.append(ResearchItem(
+            id: "res-grp-notebooks", title: "Notebooks", type: .group, kind: nil,
+            path: "research/notebooks", url: nil, caption: nil, tags: nil,
+            links: nil, addedAt: Date(), children: []))
+
+        do {
+            _ = try await add(registry, id, scraps: ["a line off page four"],
+                              sourceItemID: "res-grp-notebooks")
+            XCTFail("expected a refusal: a folder is not a page")
+        } catch let MCPError.toolError(payload) {
+            XCTAssertEqual(payload.error, "research_item_is_a_group")
+            XCTAssertTrue(payload.message.contains("Notebooks"),
+                          "the refusal must name the group, so the caller can see it "
+                          + "picked the folder rather than what is in it; got: "
+                          + payload.message)
+            let hint = try XCTUnwrap(payload.hint)
+            XCTAssertTrue(hint.contains("list_research"),
+                          "the refusal has to name the way to the right id; got: \(hint)")
+        }
+        assertNothingWasWritten(at: url)
+    }
+
     /// A blank card is indistinguishable from a rendering fault, and an empty batch
     /// leaves an empty labelled region on the writer's canvas.
     func test_itRefusesAnEmptyOrBlankScrap() async throws {
@@ -778,7 +824,9 @@ final class CanvasToolsTests: XCTestCase {
             XCTFail("expected a refusal for a whitespace-only scrap")
         } catch let MCPError.toolError(payload) {
             XCTAssertEqual(payload.error, "blank_scrap")
-            XCTAssertTrue(payload.message.contains("1"),
+            // `contains("1")` would be satisfied by "scraps[10]" or "1 scrap" — the
+            // whole of the requirement is that the refusal names the POSITION.
+            XCTAssertTrue(payload.message.contains("scraps[1]"),
                           "the refusal must say WHICH scrap; got: " + payload.message)
         }
         assertNothingWasWritten(at: blank.url,
