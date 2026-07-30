@@ -85,12 +85,23 @@ public final class CanvasThumbnails {
     /// a factor of 256, so an entry count alone is not a memory bound. 64 MB is
     /// four entries at the top bucket and roughly sixty at the one a card is
     /// ordinarily drawn at.
-    public static let defaultByteBudget = 64 << 20
+    ///
+    /// **`nonisolated` is load-bearing, and deleting it is silent.** Both are
+    /// spelled as the *default arguments* of `init`, and a default argument
+    /// expression is evaluated in a nonisolated context regardless of the
+    /// enclosing `@MainActor` — so as plain `static let`s on this class they are
+    /// main-actor-isolated values read from a nonisolated one. That is a warning
+    /// under the 5.10 language mode this project builds at and **an error under
+    /// Swift 6**, which is the shape that stays quiet until the day the language
+    /// mode moves. Neither constant touches actor-isolated state; they are `Int`s.
+    nonisolated public static let defaultByteBudget = 64 << 20
 
     /// The count bound exists because a *failure* costs no bytes. A canvas whose
     /// photographs have all been deleted from the Finder would otherwise grow a
     /// memo per path forever under a byte budget alone.
-    public static let defaultEntryBudget = 256
+    ///
+    /// `nonisolated` for the reason above — it is `init`'s other default argument.
+    nonisolated public static let defaultEntryBudget = 256
 
     /// The size ladder. Powers of two so the count stays small over the camera's
     /// two-decade zoom range, and the top entry doubles as the clamp: no single
