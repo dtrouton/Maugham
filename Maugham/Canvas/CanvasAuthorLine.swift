@@ -18,6 +18,45 @@ import SwiftUI
 /// sentence starts reading as a mark, and a mark is what
 /// `Promotion.existingArtifact` reads to offer **Rewrite**. Both arms render this
 /// beside the thing's own name instead — the card's words, the region's label.
+///
+/// ---
+///
+/// **What this costs on the frame path, honestly — for BOTH arms.**
+///
+/// This paragraph travelled with the resolver when it was
+/// `ScrapInspector.Origin`, and the extraction that made it shared dropped it,
+/// leaving `ScrapInspector`'s note pointing at a statement that no longer existed.
+/// It is restored here because it is the disclosure on which the card arm's
+/// review accepted the cost, and it now has to cover a second caller.
+///
+/// Both inspector bodies read `model.scene`. That is ONE stored property on an
+/// `@Observable` model, and every drag frame, every coast frame and every
+/// straighten frame writes it (`withScene(persist: false)`), so a `body` reading
+/// it re-evaluates at 60–120 Hz for the length of every drag — and a drag opens
+/// with a `clickCount: 1` mouse-down that selects the thing being dragged, so the
+/// pane on screen is the pane for the card or region under the pointer.
+///
+/// - **The writer's own things cost nothing at all.** The author check is one
+///   dictionary lookup and returns before any walk, on every card and every
+///   region made before 1C-c3.
+/// - **`forCard` on a Claude card** pays one `CanvasMembership.homeRegion` walk —
+///   which reads `scene.regions`, and that **sorts every region on every access**
+///   (`CanvasScene.regions`; the file warns about exactly this) — then `read`'s
+///   set union of one region's members, one dictionary lookup per member, and one
+///   `title` closure call, which is a `TreeWalk` over the research manifest.
+/// - **`forRegion`** skips the `homeRegion` walk (it is handed the region) and
+///   pays the union, the lookups and the `TreeWalk`. It is the newer and less
+///   examined half, and it is disclosed here rather than left to be inferred from
+///   the card arm's paragraph.
+///
+/// **Nothing here is measured, and this area does not use that word without a
+/// figure and a date beside it.** The cost is accepted unmeasured, on the same
+/// terms as the two `Promotion.piece` walks `ScrapInspector` already accepts.
+/// The gate, if it is ever wanted, is the one `RegionInspector` already uses for
+/// its member rows: a `(sceneRevision, id)`-keyed cache refreshed from
+/// `.onChange`. `author` is written once at creation and never afterwards
+/// (`CanvasNode.author`), and the source page is read from membership, which
+/// `sceneRevision` moves for — so that key would be correct for this too.
 enum CanvasAuthorLine: Equatable {
     /// `author` is nil, which **means the writer** (`CanvasNode.author`). The pane
     /// says nothing at all: a line reading "made by you" is chrome stating the

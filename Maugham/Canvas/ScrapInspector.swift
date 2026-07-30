@@ -323,9 +323,13 @@ struct ScrapInspector: View {
     // this type. It lived here — as `ScrapInspector.Origin` — for one round, while
     // a Claude REGION's pane said nothing about being Claude's: the same field, the
     // same drawn signal, the same spoken term, and a surface for one half of it.
-    // The frame-path cost is stated there too; what is worth repeating here is that
-    // it costs **nothing at all for the writer's own cards**, because the author
-    // check is one dictionary lookup and returns before any walk.
+    // The frame-path cost is stated in that file's class doc, under "What this
+    // costs on the frame path, honestly" — which covers both arms. **That pointer
+    // was false for one commit**: the extraction dropped the paragraph and left
+    // this sentence aimed at nothing, which is how a disclosure a review relied on
+    // stops holding without anything going red. What is worth repeating here is
+    // that it costs **nothing at all for the writer's own cards**, because the
+    // author check is one dictionary lookup and returns before any walk.
 
     /// **`mutateFromInspector`, never `mutate` (tripwire 32).** This Picker is in
     /// the right-hand column and a focused scrap holds "Edit Scrap" open behind
