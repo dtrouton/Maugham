@@ -192,7 +192,7 @@ extension ProjectStore {
         fromRef ref: String, to card: PaletteCard, cardDirectory notePath: String
     ) async throws -> PaletteCard {
         let dir = (notePath as NSString).deletingLastPathComponent
-        let projectRelative = Self.resolveImageRef(ref, cardDirectory: dir)
+        let projectRelative = Self.resolveImageRef(ref, relativeTo: dir)
         let updated = PaletteCard(
             researchItemId: card.researchItemId, title: card.title, kind: card.kind,
             swatches: card.swatches, notes: card.notes,
@@ -201,15 +201,23 @@ extension ProjectStore {
         return updated
     }
 
-    /// Extract the inner path from `![](...)` and resolve its leading `./` against
-    /// the card's directory, yielding a project-relative path.
-    static func resolveImageRef(_ ref: String, cardDirectory: String) -> String {
+    /// Extract the inner path from `![](...)` and resolve its leading `./`
+    /// against the directory the ref was written *in*, yielding a
+    /// project-relative path.
+    ///
+    /// **Shared with `ProjectStore+CanvasAssets`**, which needs the identical
+    /// resolution over the identical saver — hence the neutral `relativeTo:`
+    /// label rather than the card-shaped one it started with. Nothing here is
+    /// palette-specific: it lives in this file because this is where it was
+    /// first needed, not because it belongs to the palette. A second spelling
+    /// of ref→path is the drift this is shared to prevent.
+    static func resolveImageRef(_ ref: String, relativeTo directory: String) -> String {
         var inner = ref
         if let open = ref.range(of: "]("), let close = ref.range(of: ")", range: open.upperBound..<ref.endIndex) {
             inner = String(ref[open.upperBound..<close.lowerBound])
         }
         while inner.hasPrefix("./") { inner = String(inner.dropFirst(2)) }
-        return cardDirectory.isEmpty ? inner : "\(cardDirectory)/\(inner)"
+        return directory.isEmpty ? inner : "\(directory)/\(inner)"
     }
 
     /// The file slug (basename without extension) of a card's project-relative path.
