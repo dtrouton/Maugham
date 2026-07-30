@@ -128,6 +128,52 @@ final class CanvasModel {
     /// — drop it and ⌘Q loses the sentence in flight.
     @ObservationIgnored var beforeFlush: (() -> Void)?
 
+    /// The view's chance to re-derive after something OUTSIDE the canvas changed
+    /// the scene — a write arriving through `mutateFromInspector`, which is the
+    /// one verb the other columns have.
+    ///
+    /// `CanvasView` binds this to a layout rebuild, and the reason is the same
+    /// one `rebuildLayouts`'s own doc gives: a node with no `ScrapLayout` has no
+    /// measured height, and a node with no `cachedHeight` has no `frame`, so it
+    /// is dropped by `nodes(intersecting:)` and `topmostNode(at:)` alike — on the
+    /// canvas, drawn as an empty rectangle, and not clickable. **Named symptom:**
+    /// an MCP call adds cards to the canvas the writer is looking at and they sit
+    /// there blank until the writer happens to click something.
+    ///
+    /// **It is the same retain cycle as the two callbacks above** — see
+    /// `detach()`, which clears all three — and it is deliberately NOT fired by
+    /// `mutate`: everything the canvas does to itself is already followed by a
+    /// rebuild of its own, and a second one per gesture is work on the gesture
+    /// path.
+    @ObservationIgnored var onSceneChangedExternally: (() -> Void)?
+
+    /// Whether this model has a store and a scene read off disk — true between
+    /// `attach(projectRoot:)` and `detach()`, which is to say while the Plan
+    /// persona is actually on screen.
+    ///
+    /// **This is the discriminator a writer from outside the window must consult,
+    /// and "does a `CanvasModel` exist" is not it.** The model is created eagerly
+    /// with `ProjectWindow`, while `attach` runs from `CanvasView.onAppear` — so
+    /// a project window whose writer has never opened the Plan persona holds a
+    /// model that is real, addressable and unusable. Either way a write into an
+    /// unattached model is accepted and reports real ids, and either way it
+    /// **vanishes**, with nothing red. The two routes there are different and
+    /// both are worth knowing:
+    ///
+    /// - **Never attached:** `store` is nil, so `scheduleSave` is a silent no-op.
+    ///   The scene is written nowhere, and the writer's first visit to the Plan
+    ///   persona calls `attach`, which overwrites it wholesale from disk.
+    /// - **Attached and then detached:** `store` survives — `detach` flushes it
+    ///   and clears its callback but does not release it, and it is only replaced
+    ///   by the next `attach` — so a save here really would reach disk. What is
+    ///   stale is the SCENE: it is the snapshot from when the persona closed, and
+    ///   it cannot see anything written to the sidecar since. A caller that took
+    ///   the sidecar route for one call and this one for the next would silently
+    ///   drop the first.
+    ///
+    /// A caller that finds this false must go to the sidecar instead.
+    @ObservationIgnored private(set) var isAttached = false
+
     @ObservationIgnored private var store: CanvasStore?
 
     // MARK: - Lifecycle
@@ -141,6 +187,7 @@ final class CanvasModel {
         let loaded = s.load()
         scene = loaded.scene
         scraps = loaded.scraps
+        isAttached = true
 
         undo.readSnapshot = { [unowned self] in (scene, scraps) }
         undo.applySnapshot = { [unowned self] snapshot in
@@ -207,6 +254,13 @@ final class CanvasModel {
         undo.release()
         beforeFlush = nil
         onSceneReplacedByUndo = nil
+        onSceneChangedExternally = nil
+        // Last, and it is the fact the rest of this method establishes: the
+        // scene left behind is a snapshot of a canvas nobody is looking at any
+        // more, and the next `attach` replaces it from disk. Note that the store
+        // is deliberately NOT released here, so this is not "saves go nowhere" —
+        // the property's doc says what each case actually costs.
+        isAttached = false
     }
 
     // MARK: - Mutation
@@ -281,7 +335,22 @@ final class CanvasModel {
     /// writer is in it — see `CanvasUndo.mutateFromOutsideTheCanvas`, where the
     /// failure is written out. `CanvasView` must keep using `mutate`: everything
     /// it does is already inside its own bracket by construction.
+    ///
+    /// **It is also where `onSceneChangedExternally` fires**, because this verb
+    /// is the definition of "the scene changed and the canvas did not do it".
+    /// Inside the bracket rather than after it, so the derived re-measure the
+    /// view does belongs to the step the writer can take back — exactly as the
+    /// undo apply folds its own re-measure into the apply. After it, the measure
+    /// would land in the "Edit Scrap" gesture `mutateFromOutsideTheCanvas` has
+    /// just reopened, i.e. in the writer's next sentence.
+    ///
+    /// A caller that writes scrap TEXT as well as scene shape must write the
+    /// text first: the hook re-measures each card from the words it finds, and a
+    /// card measured before its text arrives is measured empty.
     func mutateFromInspector(_ name: String, _ body: (inout CanvasScene) -> Void) {
-        undo.mutateFromOutsideTheCanvas(name) { withScene(body) }
+        undo.mutateFromOutsideTheCanvas(name) {
+            withScene(body)
+            onSceneChangedExternally?()
+        }
     }
 }

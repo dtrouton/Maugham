@@ -75,6 +75,25 @@ public final class ProjectStore {
     /// the legacy direct atomic-write path.
     public weak var documentStore: DocumentStore?
 
+    /// Optional reference to the `CanvasModel` this project's window is showing.
+    /// Set by ProjectWindow at open time, exactly as `documentStore` above is,
+    /// and weak for the same reason: the window owns it and it must not outlive
+    /// the window.
+    ///
+    /// **What it buys is the canvas's version of tripwire 20.** An MCP tool is
+    /// handed a `ProjectRegistry.Entry` — an id, a URL and this store — and the
+    /// canvas's state lives in SwiftUI `@State` on `ProjectWindow`, which no
+    /// store owns. Without this the only reachable canvas is the derived sidecar
+    /// on disk, so a tool would write behind the back of the canvas the writer is
+    /// looking at and be overwritten by its next save. With it, a tool can tell
+    /// the live canvas from the sidecar and address the one that is real.
+    ///
+    /// **Non-nil is not the same as usable.** The model is created eagerly with
+    /// the window and is only attached while the Plan persona is on screen; ask
+    /// `CanvasModel.isAttached`, whose doc comment spells out what a write into
+    /// an unattached one costs.
+    weak var liveCanvas: CanvasModel?
+
     /// Per-project cache fronting `DerivedManuscript` for CLOSED docs (F5).
     /// Owned here — not on `DocumentStore` — because every adopter (search,
     /// word counts, wiki-rename pre-check, the link tools) already holds a

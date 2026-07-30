@@ -1294,6 +1294,11 @@ struct ProjectWindow: View {
             let s = try await ProjectStore.load(from: url)
             let ds = try await DocumentStore.open(url: url)
             s.documentStore = ds
+            // The canvas's equivalent, and set here for the same reason: the
+            // model is `@State` on this view, so nothing an MCP tool is handed
+            // can reach it otherwise. In `load()` and never in `body` — a store
+            // is not read from a view body or anything a body calls.
+            s.liveCanvas = canvasModel
             self.store = s
             self.documentStore = ds
             mcpRegistry.register(url: url, store: s)

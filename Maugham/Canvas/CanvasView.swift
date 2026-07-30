@@ -450,6 +450,24 @@ struct CanvasView: View {
         // sure what was last queued includes the sentence the writer is halfway
         // through. `.onDisappear` does not fire on ⌘Q.
         model.beforeFlush = { syncActiveEdit() }
+        // Something in another column changed the scene — today the region and
+        // line inspectors, a promotion writing its mark, and 1C-c3's write tool
+        // adding cards to the canvas the writer is looking at.
+        //
+        // Nodes that arrive that way have no `ScrapLayout` here, so they have no
+        // measured height, and a node with no `cachedHeight` has no `frame`:
+        // `drawCard` gets a nil layout and draws an empty rectangle, and
+        // `topmostNode(at:)` and `nodes(intersecting:)` drop it, so the card
+        // cannot be clicked either. It stays that way until the writer happens
+        // to touch something that rebuilds.
+        //
+        // NOT bumping the structural counter, and this is the third caller that
+        // does not. Every writer through `mutateFromInspector` bumps the model's
+        // counter on its own line, and the mirror in `body` turns that into the
+        // view's bump — so bumping here as well sorts the scene, copies every
+        // scrap's string and rebuilds the region inspector's cached lists twice
+        // for one change.
+        model.onSceneChangedExternally = { rebuildLayouts(bumpsStructuralCounter: false) }
         model.onSceneReplacedByUndo = {
             // FIRST. A coast steps the scene directly from the timeline, outside
             // any gesture and after the drag's own snapshot was taken at
